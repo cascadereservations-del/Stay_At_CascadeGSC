@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://cascadereservations-del.github.io/Stay_At_CascadeGSC/sitemap.xml
