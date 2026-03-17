@@ -2365,6 +2365,39 @@
       color: var(--ch-cream); font-weight: 500;
     }
 
+    /* ── Last-minute booking banner ───────────────────────────────
+       Shown when check-in is within 48 hours. Warm amber tone —
+       signals "information" not "danger". Never red. Never alarming.
+    ─────────────────────────────────────────────────────────────── */
+    .pay-lm-banner {
+      display: flex; gap: 0.9em; align-items: flex-start;
+      padding: 1em 1.1em;
+      background: rgb(201 150 58 / 0.07);
+      border: 1px solid rgb(201 150 58 / 0.22);
+      border-left: 3px solid var(--ch-gold);
+      margin-bottom: var(--space-m);
+    }
+    .pay-lm-banner-icon {
+      flex-shrink: 0;
+      width: 20px; height: 20px;
+      color: var(--ch-gold);
+      opacity: 0.80;
+      margin-top: 0.05em;
+    }
+    .pay-lm-banner-body { flex: 1; }
+    .pay-lm-banner-heading {
+      font-family: var(--ch-font-body);
+      font-size: var(--step--1); font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--ch-gold); margin-bottom: 0.35em;
+    }
+    .pay-lm-banner-body p {
+      font-size: var(--step--1); font-weight: 400;
+      color: rgb(247 242 232 / 0.72); line-height: 1.65; margin: 0;
+    }
+    .pay-lm-banner-body p + p { margin-top: 0.4em; }
+    .pay-lm-banner-body strong { color: var(--ch-cream); font-weight: 500; }
+
     /* Action buttons inside payment panes */
     .pay-action-row {
       display: flex; flex-wrap: wrap; gap: var(--space-xs);
@@ -3672,9 +3705,10 @@
             </li>
             <li class="policy-row ch-reveal">
               <span class="policy-key">Cancellation</span>
-              <span class="policy-val" style="line-height:1.55;">
-                Free if cancelled 7+ days out<br>
-                <span style="color:rgb(247 242 232 / 0.45); font-size:var(--step--1);">50% refund within 3&#x2013;6 days &middot; non-refundable under 3 days</span>
+              <span class="policy-val" style="line-height:1.65;">
+                Full refund up to 7 days before check-in<br>
+                <span style="color:rgb(247 242 232 / 0.50); font-size:var(--step--1);">50% refund 3&#x2013;6 days out</span><br>
+                <span style="color:rgb(247 242 232 / 0.38); font-size:var(--step--1);">Within 3 days &#x2014; we&#x2019;re happy to help you reschedule</span>
               </span>
             </li>
             <li class="policy-row ch-reveal">
@@ -4164,21 +4198,21 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                     <span id="payOtaSavingText">Skip Airbnb&#x2019;s guest fee &#x2014; you keep ~&#x20B1;XXX more by booking direct</span>
                   </div>
-                  <p class="pay-action-eyebrow">Send now to secure your dates</p>
+                  <p class="pay-action-eyebrow" id="payActionEyebrow">Send now to secure your dates</p>
                   <div class="pay-action-hero">
                     <div class="pay-action-label">
-                      Reservation Fee
-                      <small>50% of total &middot; holds your dates immediately</small>
+                      <span id="payActionLabel">Reservation Fee</span>
+                      <small id="payActionSublabel">50% of total &middot; holds your dates immediately</small>
                     </div>
                     <div class="pay-action-amount">
                       <span class="pay-amount-currency" aria-hidden="true">&#x20B1;</span><span id="payBdFee"></span>
                     </div>
                   </div>
-                  <p class="pay-action-confirm">Your dates are held the moment we receive this payment.</p>
+                  <p class="pay-action-confirm" id="payActionConfirm">Your dates are held the moment we receive this payment.</p>
                 </div>
 
-                <!-- Zone C: Later obligations — compact + subordinate -->
-                <div class="pay-zone-later">
+                <!-- Zone C: Later obligations — compact + subordinate — hidden in last-minute mode -->
+                <div class="pay-zone-later" id="payZoneLater" hidden>
                   <div class="pay-later-row">
                     <div class="pay-later-left">
                       <span class="pay-later-label">Remaining Balance</span>
@@ -4193,8 +4227,8 @@
                   </div>
                   <div class="pay-later-row">
                     <div class="pay-later-left">
-                      <span class="pay-later-label">Refundable Security Deposit</span>
-                      <span class="pay-later-tag pay-later-tag--refund">&#x2713; Returned in full after smooth check-out</span>
+                      <span class="pay-later-label">Security Hold <em style="font-family:var(--ch-font-display); font-style:italic; font-weight:300; font-size:0.92em; color:rgb(28 16 6 / 0.50);">— like a hotel pre-auth</em></span>
+                      <span class="pay-later-tag pay-later-tag--refund">&#x2713; Released same day as check-out</span>
                     </div>
                     <span class="pay-later-amount pay-later-amount--deposit">&#x20B1;1,000</span>
                   </div>
@@ -4208,15 +4242,34 @@
 
               </div><!-- /.pay-summary -->
 
-              <!-- Reservation instruction -->
-              <p class="pay-deposit-note">
+              <!-- Last-minute booking notice — shown by JS when check-in is within 48 hours.
+                   Warm amber tone. Positive framing. Never says "non-refundable". -->
+              <div class="pay-lm-banner" id="lastMinuteBanner" hidden>
+                <svg class="pay-lm-banner-icon" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <div class="pay-lm-banner-body">
+                  <p class="pay-lm-banner-heading">One payment. Zero friction at the door.</p>
+                  <p id="lastMinuteBannerText">
+                    Pay the full amount now and your stay is completely confirmed —
+                    <strong>no security deposit, no balance at check-in, no coordination needed.
+                    Your code arrives the morning of check-in. Just walk in.</strong>
+                  </p>
+                </div>
+              </div>
+
+              <!-- Reservation instruction — text swapped by JS for last-minute mode -->
+              <p class="pay-deposit-note" id="payDepositNote1">
                 Send the <strong>reservation fee</strong> shown above to hold your dates.
                 Our team will acknowledge your payment and confirm your reservation as soon as possible.
               </p>
-              <p class="pay-deposit-note" style="margin-top: calc(var(--space-s) * -0.4);">
+              <p class="pay-deposit-note" id="payDepositNote2" hidden style="margin-top: calc(var(--space-s) * -0.4);">
                 The <strong>remaining balance</strong> is due 24 hours before check-in or upon arrival —
-                whichever works better for you. The <strong>₱1,000 security deposit</strong> is collected
-                at the same time and returned in full after a smooth check-out.
+                whichever works better for you. The <strong>&#x20B1;1,000 security hold</strong> works like a hotel
+                pre-authorisation — it is released back to you the same day you check out.
               </p>
 
               <!-- Tab switcher -->
@@ -4659,7 +4712,7 @@
             <div class="loc-item-body">
               <p class="loc-item-label">Email</p>
               <p class="loc-item-value">
-                <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a>
+                <a id="locItemEmailLink" href="#contact" data-email="cascadereservations@gmail.com"><span id="locItemEmailText">cascadereservations&#64;gmail.com</span></a>
               </p>
             </div>
           </li>
@@ -4759,11 +4812,17 @@
           </a>
 
           <!-- Email with pre-filled subject -->
-          <a class="loc-cta-btn" id="contactEmailBtn" href="mailto:cascadereservations@gmail.com" aria-label="Send an email to Cascade Reservations">
+          <!-- NOTE: href and display set via JS (data-email attr) to prevent
+               Cloudflare Pages from auto-obfuscating mailto: links.
+               If email obfuscation is disabled in Cloudflare Scrape Shield,
+               the href/span can be hardcoded directly. -->
+          <a class="loc-cta-btn" id="contactEmailBtn" href="#contact"
+             data-email="cascadereservations@gmail.com"
+             aria-label="Send an email to Cascade Reservations">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
             <span class="loc-cta-label">
               <strong>Email Us</strong>
-              <span>cascadereservations@gmail.com</span>
+              <span id="contactEmailDisplay">cascadereservations&#64;gmail.com</span>
             </span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity:0.3; width:11px; height:11px; flex-shrink:0;"><path d="M7 17L17 7M7 7h10v10"/></svg>
           </a>
@@ -4958,14 +5017,14 @@
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="width:14px;height:14px;flex-shrink:0;color:rgb(37 211 102 / 0.80);"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.558 4.121 1.533 5.851L.057 24l6.305-1.654A11.954 11.954 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 0 1-5.006-1.374l-.36-.213-3.722.977.993-3.624-.234-.373A9.818 9.818 0 1 1 12 21.818z"/></svg>
             <span class="success-reach-btn-text"><span class="success-reach-btn-title">WhatsApp</span><span class="success-reach-btn-sub">Message us directly</span></span>
           </a>
-          <a class="success-reach-btn" href="mailto:cascadereservations@gmail.com" aria-label="Email Cascade Reservations">
+          <a class="success-reach-btn" id="successEmailBtn" href="#contact" data-email="cascadereservations@gmail.com" aria-label="Email Cascade Reservations">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
               <polyline points="22,6 12,13 2,6"/>
             </svg>
             <span class="success-reach-btn-text">
               <span class="success-reach-btn-title">Email Us</span>
-              <span class="success-reach-btn-sub">cascadereservations@gmail.com</span>
+              <span class="success-reach-btn-sub" id="successEmailDisplay">cascadereservations&#64;gmail.com</span>
             </span>
           </a>
         </div>
@@ -4997,7 +5056,7 @@
        SCRIPTS
   ============================================================ -->
   
-  <script>
+<script>
     /* ── Sticky mobile CTA bar ── */
     (function () {
       'use strict';
@@ -5269,7 +5328,7 @@
 
       /* ─── Config ─────────────────────────────────────────────────── */
       var BASE_RATE  = 1780;
-      var MIN_NIGHTS = 2;
+      var MIN_NIGHTS = 1;
 
       /* Direct-booking discount tiers */
       function getTier(n) {
@@ -5551,8 +5610,28 @@
           return;
         }
 
-        var n=nights(state.checkin,state.checkout), total=calcTotal(n), dep=Math.ceil(total*0.5);
-        var balanceOnly=total-dep;
+        var n=nights(state.checkin,state.checkout), total=calcTotal(n);
+
+        /* ── Last-minute detection ────────────────────────────────────
+           "Last-minute" = check-in is within 48 hours of right now.
+           In this mode:
+             · Full payment required upfront (no 50/50 split)
+             · Zone B label changes to "Full Payment"
+             · Zone C (remaining balance) hidden — no balance to track
+             · Warm amber banner shown explaining the change positively
+             · Deposit notes text swapped
+           This is correct behaviour: guest is already inside the
+           "no refund" window per existing policy (under 3 days),
+           so splitting 50%/50% serves no operational purpose.
+        ──────────────────────────────────────────────────────────────── */
+        /* Use Date.now() not 'today' (midnight) — midnight-based calculation
+           can undercount remaining hours by up to 24h and silently miss
+           same-day or next-morning check-ins. */
+        var hoursUntilCheckin = (parseISO(state.checkin) - Date.now()) / (1000 * 60 * 60);
+        var isLastMinute = hoursUntilCheckin < 48;
+
+        var dep = isLastMinute ? total : Math.ceil(total * 0.5);
+        var balanceOnly = total - dep; /* 0 for last-minute */
         state.dep = dep;
 
         var tier        = getTier(n);
@@ -5613,6 +5692,47 @@
         /* Zone C */
         var bdBalanceOnly = document.getElementById('payBdBalanceOnly');
         if (bdBalanceOnly) bdBalanceOnly.textContent = '\u20B1' + balanceOnly.toLocaleString('en-PH');
+
+        /* ── Last-minute UI mutations ────────────────────────────────── */
+        var lmBanner      = document.getElementById('lastMinuteBanner');
+        var zoneLater     = document.getElementById('payZoneLater');
+        var actionEyebrow = document.getElementById('payActionEyebrow');
+        var actionLabel   = document.getElementById('payActionLabel');
+        var actionSub     = document.getElementById('payActionSublabel');
+        var actionConfirm = document.getElementById('payActionConfirm');
+        var note1         = document.getElementById('payDepositNote1');
+        var note2         = document.getElementById('payDepositNote2');
+
+        if (isLastMinute) {
+          /* Show banner */
+          if (lmBanner) lmBanner.hidden = false;
+          /* Hide Zone C — no balance to track */
+          if (zoneLater) zoneLater.hidden = true;
+          /* Zone B label → "Full Payment" */
+          if (actionEyebrow) actionEyebrow.textContent = 'Complete your booking — everything settled now';
+          if (actionLabel)   actionLabel.textContent   = 'Full Payment';
+          if (actionSub)     actionSub.textContent     = '100% now \u00B7 nothing to settle at the door';
+          if (actionConfirm) actionConfirm.textContent = 'Your space is fully confirmed the moment we receive this.';
+          /* Deposit notes */
+          if (note1) {
+            note1.innerHTML = 'Because your check-in is very soon, we ask for the <strong>full amount now</strong>. '
+              + 'Your space is completely secured the moment we receive it \u2014 <strong>no security deposit, no balance at the door</strong>. Just walk in.';
+          }
+          if (note2) note2.hidden = true;
+        } else {
+          /* Normal mode — ensure reset in case Back was pressed */
+          if (lmBanner) lmBanner.hidden = true;
+          if (zoneLater) zoneLater.hidden = false;
+          if (actionEyebrow) actionEyebrow.textContent = 'Send now to secure your dates';
+          if (actionLabel)   actionLabel.textContent   = 'Reservation Fee';
+          if (actionSub)     actionSub.textContent     = '50% of total \u00B7 holds your dates immediately';
+          if (actionConfirm) actionConfirm.textContent = 'Your dates are held the moment we receive this payment.';
+          if (note1) {
+            note1.innerHTML = 'Send the <strong>reservation fee</strong> shown above to hold your dates. '
+              + 'Our team will acknowledge your payment and confirm your reservation as soon as possible.';
+          }
+          if (note2) note2.hidden = false;
+        }
 
         /* Update bank reference */
         var bankRef=document.getElementById('payBankRef');
@@ -6000,10 +6120,14 @@
           if (done) return;
           done = true;
           clearTimeout(timer);
+          /* IMPORTANT: keep the iframe alive for 35 s even after finish() fires.
+             Removing it sooner can abort an in-flight GAS POST (the browser
+             cancels the request when its target frame disappears). GAS cold-start
+             can take 10–20 s; 35 s ensures the request completes regardless. */
           setTimeout(function() {
             if (form.parentNode) form.parentNode.removeChild(form);
             if (ifr.parentNode)  ifr.parentNode.removeChild(ifr);
-          }, 800);
+          }, 35000);
           if (ok) onSuccess();
           else    onError(errObj || new Error('Submission failed'));
         }
@@ -6013,8 +6137,29 @@
            The guest will receive host confirmation; this is not a lost booking. */
         timer = setTimeout(function() { finish(true); }, TIMEOUT);
 
-        /* load fires when the GAS redirect page finishes in the iframe */
-        ifr.addEventListener('load', function() { finish(true); });
+        /* ── FIX: skip the initial blank-page load ────────────────────────
+         * Browsers fire 'load' on a newly-appended empty iframe immediately.
+         * Detecting this via contentWindow.location:
+         *   • If the href is readable and 'about:blank' → initial blank load, skip.
+         *   • If the href throws (cross-origin) → GAS responded from
+         *     script.googleusercontent.com → real response, call finish().
+         *   • Any non-blank same-origin href is also treated as a real response.
+         * Without this guard, finish(true) fires before form.submit() even
+         * reaches GAS, cleanup removes the iframe after 800 ms, and the browser
+         * aborts the POST — GAS never writes the sheet or sends the email.
+         * ──────────────────────────────────────────────────────────────── */
+        ifr.addEventListener('load', function() {
+          try {
+            var href = ifr.contentWindow && ifr.contentWindow.location
+                         && ifr.contentWindow.location.href;
+            if (!href || href === 'about:blank') return; /* initial blank — skip */
+            finish(true); /* same-origin non-blank (unexpected but safe) */
+          } catch (e) {
+            /* Cross-origin SecurityError = GAS responded from
+               script.googleusercontent.com → success */
+            finish(true);
+          }
+        });
         ifr.addEventListener('error', function() {
           finish(false, new Error('Network error — check your connection'));
         });
@@ -6035,7 +6180,10 @@
             showBanner('Your screenshot is still being processed — please wait a moment and try again.');
             return;
           }
-          var n=nights(state.checkin,state.checkout), total=calcTotal(n), dep=Math.ceil(total*0.5);
+          var n=nights(state.checkin,state.checkout), total=calcTotal(n);
+          var hoursUntilCheckinSubmit=(parseISO(state.checkin)-Date.now())/(1000*60*60);
+          var isLastMinuteSubmit=hoursUntilCheckinSubmit<48;
+          var dep=isLastMinuteSubmit ? total : Math.ceil(total*0.5);
           var phoneCode  = (document.getElementById('phoneCode') || {}).value  || '+63';
           var phoneNum   = (document.getElementById('phone')     || {}).value.trim() || '';
           var guestEmail = (document.getElementById('email')     || {}).value.trim() || '';
@@ -6177,7 +6325,7 @@
       var btnNext  = document.getElementById('galleryNext');
       if (!track) return;
 
-      var TOTAL   = 20;
+      var TOTAL   = 32;
       var current = 0;
       var dots    = [];
       var autoTimer;
@@ -6262,7 +6410,34 @@
       if (counter) counter.textContent = '1 / ' + TOTAL;
 
     }());
-  </script>
 
+
+    /* ── Email link init — sets all mailto: hrefs + display text from data-email attrs.
+       HTML uses data-email + HTML entity &#64; for @ so Cloudflare Scrape Shield
+       cannot auto-obfuscate any of them. JS sets the real mailto: href at runtime.
+       To permanently fix without JS: Cloudflare Dashboard → Scrape Shield →
+       Email Address Obfuscation → OFF.                                         ── */
+    (function () {
+      var SUBJECT = 'Booking%20Enquiry%20%E2%80%94%20Cascade%20Hideaway';
+      function initEmailBtn(btnId, dispId) {
+        var btn = document.getElementById(btnId);
+        if (!btn) return;
+        var addr = btn.getAttribute('data-email');
+        if (!addr) return;
+        btn.href = 'mailto:' + addr + '?subject=' + SUBJECT;
+        var disp = dispId ? document.getElementById(dispId) : null;
+        if (disp) disp.textContent = addr;
+      }
+      initEmailBtn('contactEmailBtn',  'contactEmailDisplay');
+      initEmailBtn('successEmailBtn',  'successEmailDisplay');
+      /* locItemEmailLink has no data-email — set directly */
+      var locLink = document.getElementById('locItemEmailLink');
+      if (locLink) {
+        locLink.href = 'mailto:cascadereservations@gmail.com?subject=' + SUBJECT;
+      }
+    }());
+
+
+  </script>
 </body>
 </html>
