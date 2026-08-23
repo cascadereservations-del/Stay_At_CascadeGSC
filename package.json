@@ -1,0 +1,16 @@
+{
+  "name": "cascade-direct-booking",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "serve . -l 4173 --no-clipboard",
+    "test:content": "node --test tests/content.test.mjs tests/design-contract.test.mjs",
+    "test:e2e": "playwright test",
+    "test": "npm run test:content && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "latest",
+    "@playwright/test": "latest",
+    "serve": "latest"
+  }
+}
