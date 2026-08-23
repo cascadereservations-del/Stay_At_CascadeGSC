@@ -132,7 +132,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://drive.google.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400;1,500&family=Raleway:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
 
   <!-- Hero LCP preload — Entrance (IMG_11) — first slide of hero carousel -->
   <link rel="preload" as="image"
@@ -173,7 +173,7 @@
       --ch-gold-text-grad:  linear-gradient(135deg, #C9963A, #F0C86A, #C9963A);
 
       --ch-font-display:    'Cormorant Garamond', Georgia, serif;
-      --ch-font-body:       'Raleway', system-ui, sans-serif;
+      --ch-font-body:       'Manrope', system-ui, sans-serif;
 
       --step--2:  clamp(0.75rem,  0.70rem + 0.26vw, 0.85rem);  /* was 0.69→0.80 — floor raised to 12px */
       --step--1:  clamp(0.84rem,  0.78rem + 0.30vw, 0.96rem);  /* was 0.80→0.90 */
@@ -2200,7 +2200,7 @@
     .footer-brand {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;
-      color: rgb(201 150 58 / 0.40);
+      color: rgb(226 185 118 / 0.92);
     }
 
     /* ============================================================
@@ -4909,9 +4909,13 @@
     .skip-link:focus { top: 0; outline: 2px solid var(--ch-gold); outline-offset: 2px; }
 
   </style>
+
+  <!-- Quiet Urban Luxury design system — loaded last so its rules win the
+       cascade over the legacy inline styles above without needing !important. -->
+  <link rel="stylesheet" href="assets/css/cascade-luxury.css">
 </head>
 
-<body>
+<body class="theme-quiet-luxury">
   <a href="#hero" class="skip-link">Skip to main content</a>
 
   <!-- ============================================================
@@ -4934,11 +4938,11 @@
   <!-- ============================================================
        HERO
   ============================================================ -->
-  <section class="hero" id="hero" aria-labelledby="hero-heading">
+  <section class="hero luxury-hero-grid" id="hero" aria-labelledby="hero-heading">
 
     <div class="hero-line-top" aria-hidden="true"></div>
 
-    <div class="hero-photo" id="heroPhoto" role="img" aria-label="Cascade Hideaway — boutique retreat in General Santos City">
+    <div class="hero-photo luxury-hero-media" id="heroPhoto" role="img" aria-label="Cascade Hideaway private stay in General Santos City">
 
       <!-- No-JS fallback — JS builds Drive-photo slides and replaces this -->
       <div class="hero-slide is-active" aria-hidden="true">
@@ -4955,9 +4959,9 @@
     <div class="hero-overlay" aria-hidden="true"></div>
     <div class="hero-grain" aria-hidden="true"></div>
 
-    <div class="hero-content">
+    <div class="hero-content luxury-hero-copy">
 
-      <p class="eyebrow hero-eyebrow text-gold">General Santos City</p>
+      <p class="eyebrow hero-eyebrow text-gold">A private stay in General Santos City</p>
 
       <h1 class="hero-title" id="hero-heading">
         Cascade
@@ -5643,7 +5647,7 @@
           <div class="reviews-score">
             <span class="reviews-score-num" id="reviews-heading">4.98</span>
             <div class="reviews-score-meta">
-              <div class="reviews-stars" aria-label="4.98 out of 5 stars">
+              <div class="reviews-stars" role="img" aria-label="4.98 out of 5 stars">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
@@ -6036,7 +6040,7 @@
 
             <!-- Date summary — golden bar + Change dates below it -->
             <div class="date-summary-wrap" id="dateSummaryWrap">
-              <div class="date-summary-bar" id="dateSummaryBar" aria-live="polite" aria-label="Your selection">
+              <div class="date-summary-bar" id="dateSummaryBar" role="status" aria-live="polite" aria-label="Your selection">
                 <span class="date-summary-dates" id="dateSummaryDates"></span>
                 <span class="date-summary-meta" id="dateSummaryMeta"></span>
               </div>
@@ -6191,7 +6195,7 @@
               <!-- Continue to payment -->
               <button type="button" class="btn btn-gold" id="continueToPayment"
                 style="width:100%;">
-                Continue to Payment &rarr;
+                Review price &amp; payment
               </button>
 
             </form>
@@ -6323,7 +6327,7 @@
               <div class="pay-pane" id="paneGcash" role="tabpanel" aria-labelledby="tabGcash">
                 <div class="pay-method-card">
                   <div class="pay-qr-wrap">
-                    <div class="pay-qr-box" aria-label="GCash QR code for Marifel Suzanne Boncales">
+                    <div class="pay-qr-box" role="img" aria-label="GCash QR code for Marifel Suzanne Boncales">
                       <img
                         src="https://drive.google.com/thumbnail?id=1J2t6G-3iRIY1_HiSY_tRlh3huNHl4n6v&sz=w400"
                         alt="GCash QR code — scan to send reservation fee"
@@ -6386,7 +6390,7 @@
                 <!-- UnionBank QR -->
                 <div class="pay-bank-qr-row">
                   <div class="pay-qr-wrap">
-                    <div class="pay-qr-box" aria-label="UnionBank QR code for InstaPay transfer">
+                    <div class="pay-qr-box" role="img" aria-label="UnionBank QR code for InstaPay transfer">
                       <img
                         src="https://drive.google.com/thumbnail?id=1XxnM2Pt9xnLRYlhufn2lCjpj2Q0mN3fs&sz=w400"
                         alt="UnionBank InstaPay QR code"
@@ -6516,7 +6520,7 @@
       <div class="location-explore">
 
         <!-- ── Property photo gallery carousel ── -->
-        <div class="gallery-carousel" aria-label="Cascade Hideaway property photos">
+        <div class="gallery-carousel" role="group" aria-label="Cascade Hideaway property photos">
 
           <div class="gallery-track" id="galleryTrack" role="region" aria-label="Property photo gallery">
 
@@ -6780,7 +6784,7 @@
         <p class="loc-signature">Marifel &amp; The Cascade Team</p>
 
         <!-- Verified from official Cascade guest guide -->
-        <div class="nearby-strip" aria-label="Nearby landmarks and travel times">
+        <div class="nearby-strip" role="group" aria-label="Nearby landmarks and travel times">
           <p class="nearby-label">What’s nearby</p>
           <div class="nearby-categories">
             <div class="nearby-category">
@@ -6829,7 +6833,7 @@
 
 
         <!-- Direct contact CTAs -->
-        <div class="loc-cta-group" aria-label="Reach us directly">
+        <div class="loc-cta-group" role="group" aria-label="Reach us directly">
 
           <!-- Facebook Messenger -->
           <a class="loc-cta-btn is-messenger"
@@ -7034,7 +7038,7 @@
       <!-- B: What happens next — cream paper, dark text, clear expectations -->
       <!-- Psychology: peak-end rule + uncertainty reduction. Short steps, definite language.
            No time commitments. Ends on "nothing else to do" = completion + relief. -->
-      <div class="success-next-steps" aria-label="What happens next">
+      <div class="success-next-steps" role="group" aria-label="What happens next">
         <p class="success-steps-eyebrow">What happens next</p>
         <div class="success-step">
           <span class="success-step-num" aria-hidden="true">1</span>
@@ -8945,9 +8949,10 @@
 
         /* ── Section visibility via IntersectionObserver ── */
         var heroVis    = true;  /* start assumed visible — hero IS on screen at load */
+        var bookingVis = false; /* true while #booking intersects, or a form field is focused */
 
         function updateFloatVis() {
-          var shouldHide = heroVis || collisionVis;
+          var shouldHide = heroVis || collisionVis || bookingVis;
           if (shouldHide) {
             float_el.classList.add('is-hidden');
             float_el.classList.remove('is-entering');
@@ -8976,6 +8981,29 @@
               heroVis = entries[0].isIntersecting;
               updateFloatVis();
             }, { threshold: 0.01 }).observe(heroEl);
+          }
+          /* Hide the concierge whenever the booking section is in view — it must
+             never overlap booking form content (Task 5: remove mobile obstruction). */
+          if (bookingSec) {
+            new IntersectionObserver(function (entries) {
+              bookingVis = entries[0].isIntersecting;
+              updateFloatVis();
+            }, { threshold: 0.01 }).observe(bookingSec);
+            /* Also hide immediately while any booking field has focus, even if the
+               observer hasn't fired yet (e.g. focus via keyboard tabbing). */
+            bookingSec.addEventListener('focusin', function () {
+              bookingVis = true;
+              updateFloatVis();
+            });
+            bookingSec.addEventListener('focusout', function () {
+              setTimeout(function () {
+                if (!bookingSec.contains(document.activeElement)) {
+                  var r = bookingSec.getBoundingClientRect();
+                  bookingVis = r.top < window.innerHeight && r.bottom > 0;
+                  updateFloatVis();
+                }
+              }, 0);
+            });
           }
         } else {
           /* Fallback for no IntersectionObserver: show after initial scroll */
@@ -9521,6 +9549,12 @@
        CONCIERGE FLOAT — messaging shortcut, bottom-right
        Hides when #booking section is in viewport
   ============================================================ -->
+  <!-- Persistent bottom booking CTA — mobile only, hidden once #booking is in view -->
+  <div class="sticky-book-cta" id="stickyBookCta" aria-hidden="true">
+    <span class="sticky-book-cta-rate">From &#8369;1,780/night</span>
+    <a class="sticky-book-cta-btn" href="#heroBookBar" id="stickyBookCtaBtn">Check dates</a>
+  </div>
+
   <div class="concierge-float is-hidden" id="conciergeFloat" aria-label="Contact us" role="complementary">
 
     <!-- Expandable panel -->
@@ -9700,7 +9734,7 @@
     var cardClass = r.isNew ? 'review-card review-card--new' : 'review-card';
     return '<article class="' + cardClass + '" aria-label="Guest review by ' + r.author + '">' +
       '<div class="review-card-top">' +
-        '<div class="review-stars" aria-label="' + r.stars + ' stars">' + stars + '</div>' +
+        '<div class="review-stars" role="img" aria-label="' + r.stars + ' stars">' + stars + '</div>' +
         newBadge +
       '</div>' +
       '<p class="review-text">' + r.text + '</p>' +
@@ -9828,5 +9862,32 @@
 
 }());
 </script>
+
+<script>
+  /* ── Sticky bottom booking CTA (mobile) — hidden once #booking is in view ── */
+  (function () {
+    'use strict';
+    var cta     = document.getElementById('stickyBookCta');
+    var booking = document.getElementById('booking');
+    if (!cta || !booking) return;
+
+    function setHidden(hidden) {
+      cta.classList.toggle('is-hidden', hidden);
+      cta.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+    }
+
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (entries) {
+        setHidden(entries[0].isIntersecting);
+      }, { threshold: 0.01 }).observe(booking);
+    } else {
+      window.addEventListener('scroll', function () {
+        var r = booking.getBoundingClientRect();
+        setHidden(r.top < window.innerHeight && r.bottom > 0);
+      }, { passive: true });
+    }
+  }());
+</script>
+<script src="assets/js/airbnb-proof.js" defer></script>
 </body>
 </html>

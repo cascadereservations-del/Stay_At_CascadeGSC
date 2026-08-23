@@ -1,0 +1,348 @@
+/* ============================================================
+   Cascade Hideaway — Quiet Urban Luxury design system
+   Loaded after the page's inline styles; overrides are scoped
+   to `.theme-quiet-luxury` so existing booking JS/CSS hooks
+   (#heroBookBar, qbw*, #bookingSubmit …) are never touched.
+============================================================ */
+
+:root {
+  --ch-ink: #1d1712;
+  --ch-mahogany: #2b1713;
+  --ch-mahogany-soft: #3a211c;
+  --ch-parchment: #f2ece2;
+  --ch-bone: #fbf8f2;
+  --ch-brass: #9b7443;
+  --ch-brass-dark: #76552f;
+  --ch-stone: #766b61;
+  --ch-line: rgb(43 23 19 / 14%);
+  --ch-success: #2f6b45;
+  --ch-danger: #9f3a33;
+  --ch-focus: #b98745;
+  --ch-radius-s: 4px;
+  --ch-radius-m: 8px;
+  --ch-radius-l: 16px;
+  --ch-shadow-paper: 0 18px 50px rgb(43 23 19 / 9%);
+  --ch-ease: cubic-bezier(.16, 1, .3, 1);
+  --ch-container: 90rem;
+}
+
+.theme-quiet-luxury {
+  margin: 0;
+  color: var(--ch-ink);
+  background: var(--ch-bone);
+  font-family: Manrope, system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.theme-quiet-luxury :where(h1, h2, h3) {
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-weight: 400;
+  text-wrap: balance;
+}
+
+/* ── Hero grid ─────────────────────────────────────────────── */
+
+.luxury-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(22rem, 5fr);
+  grid-template-rows: 1fr auto;
+  min-height: min(84svh, 54rem);
+  max-width: var(--ch-container);
+  margin-inline: auto;
+  background: var(--ch-parchment);
+  position: relative;
+}
+
+.luxury-hero-media {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1 / 3;
+  min-width: 0;
+  min-height: 42rem;
+  margin: 0;
+  overflow: hidden;
+}
+
+.luxury-hero-media img,
+.luxury-hero-media .hero-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.luxury-hero-copy {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(3rem, 6vw, 6.5rem) clamp(2rem, 5vw, 5.5rem) 2rem;
+  border-inline-start: 1px solid var(--ch-line);
+  position: relative;
+  z-index: 2;
+}
+
+.theme-quiet-luxury .luxury-hero-copy .eyebrow.hero-eyebrow {
+  margin: 0 0 1.25rem;
+  color: var(--ch-brass-dark);
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  font-family: Manrope, system-ui, sans-serif;
+}
+
+.theme-quiet-luxury .luxury-hero-copy .hero-title {
+  margin: 0;
+  color: var(--ch-mahogany);
+  font-size: clamp(3.5rem, 7vw, 7.5rem);
+  line-height: .9;
+  letter-spacing: -.035em;
+}
+
+.theme-quiet-luxury .hero-proof {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding-block: 1rem;
+  color: var(--ch-ink);
+  border-block: 1px solid var(--ch-line);
+  text-decoration: none;
+}
+
+.theme-quiet-luxury .hero-rate { margin: 1rem 0 0; font-variant-numeric: tabular-nums; }
+.theme-quiet-luxury .hero-rate span { display: block; color: var(--ch-stone); font-size: .875rem; }
+
+/* Preserve transform ownership: this wrapper owns layout, `.hero-bk-inner`
+   (already the JS-owned inner node) owns any animation. */
+.theme-quiet-luxury .hero-bk {
+  position: static;
+  grid-column: 2;
+  grid-row: 2;
+  width: auto;
+  margin: 0 clamp(2rem, 5vw, 5.5rem) clamp(3rem, 6vw, 6.5rem);
+  overflow: visible;
+  border: 1px solid var(--ch-line);
+  border-radius: var(--ch-radius-m);
+  background: var(--ch-bone);
+  box-shadow: var(--ch-shadow-paper);
+  animation: none;
+  transform: none;
+  z-index: 3;
+}
+
+.theme-quiet-luxury .hero-bk-fields {
+  border: 1px solid var(--ch-line);
+  border-radius: var(--ch-radius-s);
+  background: var(--ch-bone);
+}
+
+/* The legacy hero-bk text colors (cream/gold) were tuned for a dark
+   mahogany surface. On the new light bone/parchment card they fail
+   contrast — repaint them for a light surface. */
+.theme-quiet-luxury .hero-bk-eyebrow { color: #574c42; }
+.theme-quiet-luxury .hero-bk-label { color: #574c42; }
+.theme-quiet-luxury .hero-bk-date-val { color: var(--ch-ink); }
+.theme-quiet-luxury .hero-bk-date-val.is-placeholder { color: #574c42; }
+.theme-quiet-luxury .hero-bk-sep--mid { background: var(--ch-line); }
+
+.theme-quiet-luxury .hero-bk-cta {
+  min-height: 48px;
+  color: var(--ch-bone);
+  background: var(--ch-brass-dark);
+  border: 1px solid var(--ch-brass-dark);
+  border-radius: var(--ch-radius-s);
+  box-shadow: none;
+  transition: background-color 180ms var(--ch-ease), transform 120ms var(--ch-ease);
+}
+
+.theme-quiet-luxury .hero-bk-cta:active { transform: scale(.97); }
+.theme-quiet-luxury :focus-visible { outline: 2px solid var(--ch-focus); outline-offset: 3px; }
+
+@media (max-width: 767px) {
+  .luxury-hero-grid { display: block; min-height: auto; }
+  .luxury-hero-media { min-height: 0; height: clamp(20rem, 46svh, 29rem); }
+  .luxury-hero-copy { padding: 2.5rem 1.25rem 2rem; border-inline-start: 0; }
+  .theme-quiet-luxury .hero-bk { margin: 0 1.25rem 3rem; }
+  .theme-quiet-luxury .luxury-hero-copy .hero-title { font-size: clamp(3.5rem, 17vw, 5.5rem); }
+  .theme-quiet-luxury .hero-proof { align-items: flex-start; flex-direction: column; }
+}
+
+/* ── Editorial sections below the hero ───────────────────────── */
+
+.theme-quiet-luxury .editorial-proof,
+.theme-quiet-luxury .editorial-gallery {
+  max-width: var(--ch-container);
+  margin-inline: auto;
+}
+
+/* ── Mobile: remove booking-funnel obstruction ───────────────── */
+
+@media (max-width: 767px) {
+  /* The section-nav pill bar competes with the funnel and is clipped at
+     narrow widths — hide it below 768px per the mobile IA contract. */
+  .theme-quiet-luxury #sectionNav.section-nav { display: none !important; }
+
+  /* Concierge visibility is governed by JS (.is-hidden / bookingVis), but
+     hard-disable pointer/paint while hidden to avoid any residual overlap. */
+  .theme-quiet-luxury .concierge-float.is-hidden { pointer-events: none; }
+
+  /* Persistent bottom booking CTA, shown until #booking enters the viewport. */
+  .theme-quiet-luxury .sticky-book-cta {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .75rem;
+    padding: .75rem 1rem calc(.75rem + env(safe-area-inset-bottom, 0px));
+    background: var(--ch-bone);
+    border-top: 1px solid var(--ch-line);
+    box-shadow: 0 -8px 24px rgb(43 23 19 / 8%);
+    transform: translateY(0);
+    transition: transform 180ms var(--ch-ease), opacity 140ms var(--ch-ease);
+  }
+  .theme-quiet-luxury .sticky-book-cta.is-hidden {
+    transform: translateY(100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .theme-quiet-luxury .sticky-book-cta-rate {
+    font-family: Manrope, system-ui, sans-serif;
+    font-size: .8125rem;
+    color: var(--ch-stone);
+  }
+  .theme-quiet-luxury .sticky-book-cta-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ch-bone);
+    background: var(--ch-brass-dark);
+    border: 1px solid var(--ch-brass-dark);
+    border-radius: var(--ch-radius-s);
+    font-weight: 600;
+    text-decoration: none;
+    transition: background-color 180ms var(--ch-ease), transform 120ms var(--ch-ease);
+  }
+  .theme-quiet-luxury .sticky-book-cta-btn:active { transform: scale(.97); }
+}
+
+@media (min-width: 768px) {
+  .theme-quiet-luxury .sticky-book-cta { display: none; }
+}
+
+/* ── Airbnb proof embed container (Task 5A) ──────────────────── */
+
+.theme-quiet-luxury .airbnb-proof-embed {
+  max-width: 42rem;
+  margin: clamp(2rem, 4vw, 3rem) auto 0;
+  padding: 1.5rem;
+  border: 1px solid var(--ch-line);
+  border-radius: var(--ch-radius-m);
+  background: var(--ch-bone);
+  min-height: 8rem;
+  contain: layout;
+}
+.theme-quiet-luxury .airbnb-proof-embed-title {
+  margin: 0 0 .75rem;
+  font-size: .75rem;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ch-stone);
+}
+.theme-quiet-luxury .airbnb-proof-embed-loading {
+  font-size: .875rem;
+  color: var(--ch-stone);
+}
+.theme-quiet-luxury .airbnb-proof-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .4em;
+  color: var(--ch-ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--ch-line);
+  padding-bottom: .15em;
+}
+.theme-quiet-luxury .airbnb-proof-badge strong { font-family: "Cormorant Garamond", Georgia, serif; font-size: 1.25rem; }
+.theme-quiet-luxury .airbnb-proof-badge-date { color: var(--ch-stone); font-size: .8125rem; }
+.theme-quiet-luxury .airbnb-proof-embed-hint {
+  margin: .5rem 0 0;
+  font-size: .8125rem;
+  color: var(--ch-stone);
+}
+.theme-quiet-luxury .reviews-verified-note {
+  margin: .5rem 0 0;
+  font-size: .75rem;
+  color: var(--ch-stone);
+}
+
+.theme-quiet-luxury .footer-legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5em;
+  margin-top: .75rem;
+  font-size: .8125rem;
+}
+.theme-quiet-luxury .footer-legal-links,
+.theme-quiet-luxury .footer-legal-links a { color: rgb(247 242 232 / 0.82); }
+.theme-quiet-luxury .footer-legal-links a:hover,
+.theme-quiet-luxury .footer-legal-links a:focus-visible { color: var(--ch-brass); }
+
+.theme-quiet-luxury .booking-legal-note {
+  margin: .75rem 0 0;
+  font-size: .8125rem;
+  color: var(--ch-stone);
+}
+.theme-quiet-luxury .booking-legal-note a { color: var(--ch-brass-dark); }
+
+/* ── Motion & interaction contract ───────────────────────────── */
+
+@media (hover: none), (pointer: coarse) {
+  .theme-quiet-luxury .hero-bk-cta:hover,
+  .theme-quiet-luxury .sticky-book-cta-btn:hover { background: var(--ch-brass-dark); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-quiet-luxury *,
+  .theme-quiet-luxury *::before,
+  .theme-quiet-luxury *::after { scroll-behavior: auto; }
+}
+
+/* ── Minimum 44×44 CSS px touch targets (P2 accessibility fix) ──
+   Enlarge the hit area without inflating the visual footprint,
+   using padding + a transparent border-box rather than resizing
+   the visible glyph/icon. */
+.theme-quiet-luxury .cal-nav-btn,
+.theme-quiet-luxury .qbw-picker-nav-btn,
+.theme-quiet-luxury .rv-arrow,
+.theme-quiet-luxury .contact-type-pill,
+.theme-quiet-luxury .sr-toggle-btn,
+.theme-quiet-luxury .cal-change-btn,
+.theme-quiet-luxury #continueToPayment,
+.theme-quiet-luxury #bookingSubmit,
+.theme-quiet-luxury .loc-cta-btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+.theme-quiet-luxury .cal-nav-btn,
+.theme-quiet-luxury .qbw-picker-nav-btn,
+.theme-quiet-luxury .rv-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Calendar day cells were sizing to ~42px on narrow mobile widths — a hair
+   under the 44px minimum touch target. Tighten the grid gap slightly and
+   guarantee the minimum, letting the track grow instead of overflowing. */
+.theme-quiet-luxury .cal-days { gap: 1px; }
+.theme-quiet-luxury .cal-day { min-width: 44px; min-height: 44px; }
