@@ -74,4 +74,26 @@ test.describe('responsive contract', () => {
     await page.goto('/index.html');
     await expect(page.locator('#stickyBookCta')).toBeVisible();
   });
+
+  test('conversion-critical images decode successfully (Task 6 broken-image guard)', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await page.goto('/index.html');
+    // Only the active hero slide is guaranteed to be loaded eagerly; other
+    // slides in the carousel load lazily as the user cycles through them.
+    const targets = ['.hero-slide.is-active img', '.gallery-mosaic img'];
+    for (const selector of targets) {
+      const imgs = page.locator(selector);
+      const count = await imgs.count();
+      for (let i = 0; i < Math.min(count, 5); i++) {
+        const img = imgs.nth(i);
+        await img.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(50);
+        const naturalWidth = await img.evaluate(el => {
+          if (el.decode) { return el.decode().catch(() => {}).then(() => el.naturalWidth); }
+          return el.naturalWidth;
+        });
+        expect(naturalWidth, `${selector} #${i} failed to decode`).toBeGreaterThan(0);
+      }
+    }
+  });
 });

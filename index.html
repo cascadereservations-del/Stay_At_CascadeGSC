@@ -4944,14 +4944,25 @@
 
     <div class="hero-photo luxury-hero-media" id="heroPhoto" role="img" aria-label="Cascade Hideaway private stay in General Santos City">
 
-      <!-- No-JS fallback — JS builds Drive-photo slides and replaces this -->
+      <!-- No-JS fallback — JS builds Drive-photo slides and replaces this.
+           Task 6: responsive srcset using the existing hosted Drive derivative
+           widths. AVIF/WebP same-origin derivatives are tracked in
+           assets/images/MANIFEST.md until a real image pipeline is set up. -->
       <div class="hero-slide is-active" aria-hidden="true">
+        <picture>
+          <source
+            srcset="
+              https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w640 640w,
+              https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w1280 1280w,
+              https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w1920 1920w"
+            sizes="100vw">
         <img
           src="https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w1920"
           alt=""
           width="1920" height="1080"
           loading="eager" fetchpriority="high" decoding="auto"
         >
+        </picture>
       </div>
 
     </div>
