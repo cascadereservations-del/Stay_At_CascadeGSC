@@ -60,7 +60,7 @@
 .luxury-hero-media {
   position: absolute;
   inset: 0;
-  z-index: -3;
+  z-index: 0;
   min-width: 0;
   min-height: 0;
   margin: 0;
@@ -89,12 +89,12 @@
 }
 
 .theme-quiet-luxury .hero-overlay {
-  z-index: -2;
+  z-index: 1;
   background: linear-gradient(90deg, rgb(23 13 10 / .60), rgb(23 13 10 / .42) 50%, rgb(23 13 10 / .60)),
     linear-gradient(0deg, rgb(23 13 10 / .54), transparent 45%, rgb(23 13 10 / .34));
 }
 
-.theme-quiet-luxury .hero-grain { z-index: -1; opacity: .14; }
+.theme-quiet-luxury .hero-grain { z-index: 1; opacity: .14; }
 
 .theme-quiet-luxury .luxury-hero-copy .eyebrow.hero-eyebrow {
   margin: 0 0 1.25rem;
@@ -137,6 +137,7 @@
    (already the JS-owned inner node) owns any animation. */
 .theme-quiet-luxury .hero-bk {
   position: relative;
+  inset: auto;
   width: min(100%, 36rem);
   margin: clamp(1.75rem, 3vw, 2.75rem) auto 0;
   overflow: visible;

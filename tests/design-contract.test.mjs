@@ -55,3 +55,8 @@ test('availability is read only through the public RLS-safe function', () => {
 test('desktop booking is a focused single-column flow', () => {
   assert.match(css, /\.booking-inner\s*\{\s*grid-template-columns:\s*minmax\(0,\s*42rem\)/);
 });
+
+test('centered hero keeps the photograph in front of its surface and the card un-offset', () => {
+  assert.match(css, /\.luxury-hero-media\s*\{[^}]*z-index:\s*0;/s);
+  assert.match(css, /\.hero-bk\s*\{[^}]*inset:\s*auto;/s);
+});
