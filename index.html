@@ -7130,6 +7130,7 @@
        SCRIPTS
   ============================================================ -->
   
+  <script src="assets/js/analytics.js"></script>
   <script>
     /* ── Sticky mobile CTA bar — removed; rate integrated into concierge ── */
     (function () {
@@ -7590,6 +7591,9 @@
       var SUPABASE_ANON      = 'sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj';
       var EDGE_SUBMIT        = SUPABASE_URL + '/functions/v1/submit-booking';
       var EDGE_RECEIPT_UPLOAD = SUPABASE_URL + '/functions/v1/upload-booking-receipt';
+      function track(eventName, properties) { if (window.CascadeAnalytics) window.CascadeAnalytics.track(eventName, properties); }
+      function nightsBucket(n) { return n === 1 ? '1' : n <= 4 ? '2-4' : n <= 6 ? '5-6' : n <= 13 ? '7-13' : n <= 27 ? '14-27' : '28+'; }
+      function leadTimeBucket(checkin) { var days = Math.max(0, Math.floor((new Date(checkin + 'T00:00:00').getTime() - Date.now()) / 86400000)); return days <= 2 ? '0-2' : days <= 7 ? '3-7' : days <= 30 ? '8-30' : '31+'; }
 
       /* ─── Config ─────────────────────────────────────────────────── */
       var BASE_RATE  = 1780;
@@ -7829,6 +7833,7 @@
             if (n<MIN_NIGHTS){ flashInstruction('Minimum stay is '+MIN_NIGHTS+' nights — pick a later date.'); return; }
             if (!isRangeClean(state.checkin,ds)){ flashInstruction('That range includes unavailable dates — please adjust.'); return; }
             state.checkout=ds; state.selecting='done'; window._bkState=state;
+            track('date_range_selected', { nights_bucket: nightsBucket(nights(state.checkin, state.checkout)), lead_time_bucket: leadTimeBucket(state.checkin) });
           }
         }
         render();
@@ -7991,6 +7996,7 @@
         }
 
         var n=nights(state.checkin,state.checkout), total=calcTotal(n);
+        track('payment_method_viewed', { payment_method: 'bank_transfer', nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
         /* Last-minute: check-in within 48 hours requires full upfront payment */
         var msUntilCheckin = new Date(state.checkin + 'T14:00:00').getTime() - Date.now();
         var isLastMinute   = msUntilCheckin < (48 * 3600 * 1000);
@@ -8217,6 +8223,7 @@
           tab.classList.add('is-active'); tab.setAttribute('aria-selected','true');
           var pane = document.getElementById(tab.getAttribute('aria-controls'));
           if (pane) pane.classList.add('is-active');
+          track('payment_method_viewed', { payment_method: tabId === 'tabGcash' ? 'gcash' : 'bank_transfer' });
         }
       }
 
@@ -8252,6 +8259,7 @@
         /* Store file reference — upload happens at submit time to Supabase Storage.
            This avoids an extra roundtrip before the guest has filled the form.   */
         state._receiptFile   = file;
+        track('receipt_selected');
         state.receiptName    = file.name;
         state.receiptReading = false;
         receiptPrevName.textContent = file.name;
@@ -8408,6 +8416,7 @@
             return;
           }
           var n = nights(state.checkin, state.checkout), total = calcTotal(n);
+          track('reservation_submit', { nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
           var dep = state.dep || Math.ceil(total * 0.5);
           var _pcSel    = document.getElementById('phoneCode');
           var _pcCustom = document.getElementById('phoneCodeCustom');
@@ -8443,6 +8452,7 @@
                 state._lastBookingData = data;
                 if (!guestFile) {
                   setLoading(false);
+                  track('reservation_success');
                   openSuccess(data);
                   return;
                 }
@@ -8455,6 +8465,7 @@
                 state._receiptUploadToken = data.receipt_upload_token;
                 uploadReceipt(guestFile, data.receipt_upload_token).then(function() {
                   setLoading(false);
+                  track('reservation_success');
                   openSuccess(data);
                 }).catch(function() {
                   setLoading(false);
@@ -8463,6 +8474,7 @@
                 });
               },
               function(err) {
+                track('reservation_error', { error_code: err && err.message && err.message.indexOf('dates_unavailable') > -1 ? 'dates_unavailable' : 'booking_failed' });
                 console.error('[booking]', err);
                 var msg = err && err.message && err.message.indexOf('dates_unavailable') > -1
                   ? 'Those dates are no longer available — please select new dates.'
