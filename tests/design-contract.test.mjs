@@ -60,3 +60,8 @@ test('centered hero keeps the photograph in front of its surface and the card un
   assert.match(css, /\.luxury-hero-media\s*\{[^}]*z-index:\s*0;/s);
   assert.match(css, /\.hero-bk\s*\{[^}]*inset:\s*auto;/s);
 });
+
+test('hero date fields use a subdued, legible surface without text shadows', () => {
+  assert.match(css, /\.hero-bk-date-val\s*\{[^}]*color:\s*#3d332b;[^}]*text-shadow:\s*none;/s);
+  assert.match(css, /\.hero-bk-date-val\.is-placeholder\s*\{\s*color:\s*#76685d;/);
+});

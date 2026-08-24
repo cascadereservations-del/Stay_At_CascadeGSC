@@ -16,10 +16,18 @@ test('public HTML does not use unsupported luxury superlatives', () => {
   assert.doesNotMatch(html, /world-class|pinnacle of luxury|bespoke|iconic destinations|elevated stays/i);
 });
 
-test('all WhatsApp links use the configured public destination', () => {
-  const numbers = [...html.matchAll(/wa\.me\/(\d+)/g)].map(match => match[1]);
+test('all WhatsApp links use the resilient full-domain public destination', () => {
+  const numbers = [...html.matchAll(/web\.whatsapp\.com\/send\?phone=(\d+)/g)].map(match => match[1]);
   assert.ok(numbers.length > 0);
   assert.equal(new Set(numbers).size, 1);
+  assert.doesNotMatch(html, /https:\/\/wa\.me\//);
+});
+
+test('every direct communication route has a non-empty, full-domain destination', () => {
+  assert.match(html, /https:\/\/www\.messenger\.com\/t\/699640026568720/);
+  assert.doesNotMatch(html, /https:\/\/m\.me\//);
+  assert.doesNotMatch(html, /href="#contact"\s+data-email=/);
+  assert.match(html, /mailto:cascadereservations@gmail\.com\?subject=/);
 });
 
 test('privacy and terms are linked next to booking', () => {
