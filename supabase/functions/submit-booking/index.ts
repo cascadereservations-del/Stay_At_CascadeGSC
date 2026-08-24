@@ -12,6 +12,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
+import { normalizeEmail, normalizePhilippinePhone } from '../_shared/guest-identity.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -134,23 +135,9 @@ Deno.serve(async (req) => {
   if (!avail.available)
     return json({ error: 'dates_unavailable', conflicts: avail.conflicts }, 409);
 
-  let guestId: string;
-  const { data: existing } = await db.from('guests').select('id')
-    .eq('property_id', PROPERTY_ID).eq('phone', guestPhone).maybeSingle();
-  if (existing) {
-    guestId = existing.id;
-    await db.from('guests').update({ name: guestName, email: guestEmail }).eq('id', guestId);
-  } else {
-    const { data: ng, error: ge } = await db.from('guests')
-      .insert({ name: guestName, phone: guestPhone, email: guestEmail, source: 'direct', property_id: PROPERTY_ID })
-      .select('id').single();
-    if (ge || !ng) return json({ error: 'guest_create_failed', detail: ge?.message }, 500);
-    guestId = ng.id;
-  }
-
   const { data: inquiry, error: ie } = await db.from('booking_inquiries').insert({
     property_id:        PROPERTY_ID,
-    guest_id:           guestId,
+    guest_id:           null,
     guest_name:         guestName,
     guest_email:        guestEmail,
     guest_phone:        guestPhone,
@@ -165,6 +152,16 @@ Deno.serve(async (req) => {
     receipt_image_path: null,
   }).select('id').single();
   if (ie || !inquiry) return json({ error: 'booking_failed', detail: ie?.message }, 500);
+
+  const { error: identityError } = await db.rpc('upsert_guest_for_booking', {
+    p_property_id: PROPERTY_ID,
+    p_booking_id: inquiry.id,
+    p_guest_name: guestName,
+    p_phone_e164: normalizePhilippinePhone(guestPhone),
+    p_email_normalized: normalizeEmail(guestEmail),
+    p_source: 'direct',
+  });
+  if (identityError) console.error('[submit-booking] guest identity resolution failed:', identityError.code);
 
   const inquiryId = inquiry.id;
   const ref = inquiry.id.slice(0, 8).toUpperCase();
