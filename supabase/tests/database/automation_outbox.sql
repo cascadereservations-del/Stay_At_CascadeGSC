@@ -1,0 +1,12 @@
+begin;
+select plan(8);
+select has_table('public', 'automation_outbox', 'outbox table exists');
+select has_table('public', 'automation_delivery_log', 'delivery log table exists');
+select col_is_unique('public', 'automation_outbox', 'idempotency_key', 'idempotency key is unique');
+select has_check('public', 'automation_outbox', 'outbox status is constrained');
+select has_check('public', 'automation_delivery_log', 'delivery status is constrained');
+select ok(not has_table_privilege('anon', 'public.automation_outbox', 'select'), 'anon cannot read outbox');
+select ok(not has_table_privilege('anon', 'public.automation_delivery_log', 'select'), 'anon cannot read delivery log');
+select ok(has_table_privilege('service_role', 'public.automation_outbox', 'insert'), 'service role can write outbox');
+select * from finish();
+rollback;
