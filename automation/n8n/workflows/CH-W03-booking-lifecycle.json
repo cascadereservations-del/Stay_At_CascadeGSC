@@ -1,0 +1,12 @@
+{
+  "name": "CH-W03 Booking Lifecycle",
+  "active": false,
+  "nodes": [
+    { "name": "Receive booking lifecycle event", "type": "n8n-nodes-base.webhook", "parameters": { "authentication": "headerAuth" } },
+    { "name": "Idempotency check", "type": "n8n-nodes-base.code", "parameters": { "jsCode": "return items;" } },
+    { "name": "Fetch event detail", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "POST" } },
+    { "name": "Route lifecycle notification", "type": "n8n-nodes-base.executeWorkflow", "parameters": {} },
+    { "name": "Callback delivery result", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "POST" } }
+  ],
+  "connections": {}, "settings": { "executionOrder": "v1" }
+}
