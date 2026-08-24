@@ -107,6 +107,7 @@ Deno.serve(async (req) => {
     .select('id, guest_name, guest_email, guest_phone, checkin_date, checkout_date, pax, total_amount, deposit_amount, receipt_image_path, status')
     .eq('id', id).maybeSingle();
   if (!bk) return fail('Booking not found.', 404);
+  const booking = bk;
 
   const who   = esc(bk.guest_name) + '<br>' + esc(bk.checkin_date) + ' &rarr; ' + esc(bk.checkout_date);
   const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
@@ -116,9 +117,9 @@ Deno.serve(async (req) => {
   const relayToken = Deno.env.get('EMAIL_RELAY_TOKEN');
 
   async function sendConfirmEmail(): Promise<void> {
-    if (!relayUrl || !relayToken || !bk.guest_email) return;
+    if (!relayUrl || !relayToken || !booking.guest_email) return;
     const nights = Math.round(
-      (new Date(bk.checkout_date).getTime() - new Date(bk.checkin_date).getTime()) / 86_400_000);
+      (new Date(booking.checkout_date).getTime() - new Date(booking.checkin_date).getTime()) / 86_400_000);
     await fetch(relayUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -126,16 +127,16 @@ Deno.serve(async (req) => {
         action:      'confirmEmail',
         token:       relayToken,
         ref,
-        guest_name:  bk.guest_name,
-        guest_email: bk.guest_email,
-        guest_phone: bk.guest_phone ?? '',
-        checkin:     bk.checkin_date,
-        checkout:    bk.checkout_date,
+        guest_name:  booking.guest_name,
+        guest_email: booking.guest_email,
+        guest_phone: booking.guest_phone ?? '',
+        checkin:     booking.checkin_date,
+        checkout:    booking.checkout_date,
         nights,
-        pax:         bk.pax ?? 1,
-        total:       bk.total_amount ?? 0,
-        deposit:     bk.deposit_amount ?? 0,
-        receipt_url: bk.receipt_image_path ?? '',
+        pax:         booking.pax ?? 1,
+        total:       booking.total_amount ?? 0,
+        deposit:     booking.deposit_amount ?? 0,
+        receipt_url: booking.receipt_image_path ?? '',
       }),
       signal: AbortSignal.timeout(20_000),
     }).catch((e) => { console.error('[approve-booking] confirm email failed:', String(e)); });
@@ -146,7 +147,8 @@ Deno.serve(async (req) => {
       return isPost
         ? json({ ok: true, status: 'confirmed', already: true, checkin: bk.checkin_date, checkout: bk.checkout_date })
         : page('<p style="font-size:19px;color:#C9963A;">Already confirmed</p><p style="font-size:15px;">' + who + '</p>');
-    await db.from('booking_inquiries').update({ status: 'confirmed' }).eq('id', id);
+    const { error: transitionError } = await db.rpc('apply_direct_booking_transition', { p_booking_id: id, p_action: 'confirm' });
+    if (transitionError) return fail('Unable to confirm this booking at the moment.', 500);
     await db.from('calendar_events').update({ status: 'confirmed' }).eq('uid', 'direct:' + id);
     await db.from('transactions').update({ status: 'confirmed' }).eq('external_ref', id);
     await sendConfirmEmail();
@@ -167,7 +169,8 @@ Deno.serve(async (req) => {
       return isPost
         ? json({ ok: true, status: 'cancelled', already: true })
         : page('<p style="font-size:19px;">Already declined</p><p style="font-size:15px;">' + who + '</p>');
-    await db.from('booking_inquiries').update({ status: 'cancelled' }).eq('id', id);
+    const { error: transitionError } = await db.rpc('apply_direct_booking_transition', { p_booking_id: id, p_action: 'cancel' });
+    if (transitionError) return fail('Unable to cancel this booking at the moment.', 500);
     await db.from('calendar_events').update({ status: 'cancelled' }).eq('uid', 'direct:' + id);
     await db.from('transactions').update({ status: 'void' }).eq('external_ref', id);
     if (token && chat) await tgSend(token, chat, `Booking DECLINED by admin - ${bk.guest_name} (${bk.checkin_date} to ${bk.checkout_date}) - Ref ${ref}. Dates released.`);
@@ -179,4 +182,3 @@ Deno.serve(async (req) => {
       '<p style="color:#7d6f5c;font-size:13px;margin-top:14px;">The dates have been released and the ledger entry voided. No email was sent to the guest.</p>');
   }
 });
-
