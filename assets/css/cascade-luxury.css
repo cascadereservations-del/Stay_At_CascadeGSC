@@ -138,17 +138,17 @@
 .theme-quiet-luxury .hero-bk {
   position: relative;
   inset: auto;
-  width: min(100%, 36rem);
+  width: min(calc(100% - 2.5rem), 31rem);
   margin: clamp(1.75rem, 3vw, 2.75rem) auto 0;
   overflow: visible;
   border: 1px solid rgb(255 225 174 / .38);
   border-radius: var(--ch-radius-m);
   background:
-    linear-gradient(118deg, rgb(255 218 163 / .10), transparent 38%),
-    linear-gradient(135deg, rgb(128 82 35 / .46), rgb(59 33 14 / .30));
-  box-shadow: 0 20px 54px rgb(10 5 4 / .34), inset 0 1px 0 rgb(255 255 255 / .16);
-  backdrop-filter: blur(24px) saturate(1.35);
-  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+    linear-gradient(118deg, rgb(255 234 196 / .13), transparent 42%),
+    linear-gradient(135deg, rgb(128 82 35 / .28), rgb(59 33 14 / .18));
+  box-shadow: 0 16px 42px rgb(10 5 4 / .26), inset 0 1px 0 rgb(255 255 255 / .20);
+  backdrop-filter: blur(28px) saturate(1.4);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
   animation: none;
   transform: none;
   z-index: 3;
@@ -201,6 +201,50 @@
 .theme-quiet-luxury .hero-bk-cta:active { transform: scale(.97); }
 .theme-quiet-luxury :focus-visible { outline: 2px solid var(--ch-focus); outline-offset: 3px; }
 
+/* Booking-date controls: parchment, not white, with quiet ink contrast.
+   These selectors deliberately target the interactive IDs as well as the
+   component classes so legacy hero declarations cannot reintroduce the
+   white-on-white, shadowed treatment on a cached or reordered stylesheet. */
+.theme-quiet-luxury #heroBookBar .hero-bk-fields {
+  background: linear-gradient(135deg, rgb(239 229 214 / .98), rgb(222 204 179 / .98));
+  border-color: rgb(236 217 187 / .74);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .34), 0 1px 0 rgb(20 10 6 / .10);
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-inner { padding: .70rem .80rem .76rem; }
+.theme-quiet-luxury #heroBookBar .hero-bk-field {
+  min-height: 3.35rem;
+  padding: .52rem .85rem;
+  transition: background-color 160ms var(--ch-ease), box-shadow 160ms var(--ch-ease);
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-field:hover,
+.theme-quiet-luxury #heroBookBar .hero-bk-field.is-active {
+  background: rgb(111 76 42 / .10);
+  box-shadow: inset 0 -2px 0 rgb(118 85 47 / .72);
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-label {
+  color: #705b48;
+  font-size: .56rem;
+  font-weight: 700;
+  letter-spacing: .14em;
+  line-height: 1.1;
+  text-shadow: none !important;
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-date-val,
+.theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder {
+  color: #47382d;
+  font-size: .84rem;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.3;
+  text-shadow: none !important;
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder { color: #6f5e50; }
+.theme-quiet-luxury #heroBookBar .hero-bk-sep--mid { background: rgb(81 56 37 / .22); }
+.theme-quiet-luxury #heroBookBar .hero-bk-field:focus-visible {
+  outline: 2px solid #b98745;
+  outline-offset: -3px;
+}
+
 @media (max-width: 767px) {
   .luxury-hero-grid { min-height: 50rem; padding: 7rem 1rem 5rem; }
   .luxury-hero-media { height: auto; }
@@ -221,7 +265,12 @@
   text-align: center;
 }
 
-/* On larger screens, place the promise in the upper third and the booking
+.theme-quiet-luxury #heroBookBar .hero-bk-cta {
+  min-height: 44px;
+  margin-top: .65rem;
+  font-size: .76rem;
+}
+
    decision in the lower third. This keeps the two actions distinct instead
    of making the form compete with the property name. */
 @media (min-width: 768px) {
