@@ -46,3 +46,12 @@ test('hero uses the luxury grid layout classes', () => {
   assert.match(html, /luxury-hero-media/);
   assert.match(html, /luxury-hero-copy/);
 });
+
+test('availability is read only through the public RLS-safe function', () => {
+  assert.match(html, /\/functions\/v1\/availability/);
+  assert.doesNotMatch(html, /\/rest\/v1\/calendar_events/);
+});
+
+test('desktop booking is a focused single-column flow', () => {
+  assert.match(css, /\.booking-inner\s*\{\s*grid-template-columns:\s*minmax\(0,\s*42rem\)/);
+});

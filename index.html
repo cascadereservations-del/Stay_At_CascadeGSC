@@ -7936,14 +7936,11 @@
         state.checkin=null; state.checkout=null; state.selecting='checkin'; render();
       });
 
-      /* ─── Availability fetch — Supabase calendar_events ──────────── */
+      /* ─── Availability fetch — public, RLS-safe availability boundary ─ */
       function fetchBlockedDates() {
         if (calLoadingBar) calLoadingBar.hidden = false;
         fetch(
-          SUPABASE_URL + '/rest/v1/calendar_events' +
-          '?select=checkin_date,checkout_date' +
-          '&status=neq.cancelled' +
-          '&order=checkin_date',
+          SUPABASE_URL + '/functions/v1/availability',
           {
             headers: {
               'apikey':        SUPABASE_ANON,
