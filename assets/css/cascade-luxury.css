@@ -207,13 +207,14 @@
   .theme-quiet-luxury .hero-proof { align-items: flex-start; flex-direction: column; }
 }
 
-/* The location line must sit independently of the centered booking flow. */
-.theme-quiet-luxury .hero-location {
-  position: absolute;
-  inset: auto 1rem 1.5rem;
-  z-index: 2;
-  margin: 0;
-  color: rgb(251 248 242 / .80);
+/* Keep the location line inside the booking card so it never sits behind it. */
+.theme-quiet-luxury #heroBookBar .hero-location {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  justify-content: center;
+  margin: .60rem auto 0;
+  color: rgb(251 248 242 / .56);
   text-align: center;
 }
 
