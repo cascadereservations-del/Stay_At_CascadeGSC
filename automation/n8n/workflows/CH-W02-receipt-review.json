@@ -2,11 +2,93 @@
   "name": "CH-W02 Receipt Review",
   "active": false,
   "nodes": [
-    { "name": "Receive booking.receipt_uploaded", "type": "n8n-nodes-base.webhook", "parameters": { "authentication": "headerAuth" } },
-    { "name": "Idempotency check", "type": "n8n-nodes-base.code", "parameters": { "jsCode": "return items;" } },
-    { "name": "Fetch event detail", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "POST" } },
-    { "name": "Route host alert", "type": "n8n-nodes-base.executeWorkflow", "parameters": {} },
-    { "name": "Callback delivery result", "type": "n8n-nodes-base.httpRequest", "parameters": { "method": "POST" } }
+    {
+      "name": "Manual event preflight",
+      "type": "n8n-nodes-base.manualTrigger",
+      "parameters": {},
+      "typeVersion": 1,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "name": "Idempotency check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Safe draft: execution is blocked until an authenticated source and provider credentials are configured.\nreturn items.map((item) => ({ json: { ...item.json, automation_state: 'configuration_required' } }));"
+      }
+    },
+    {
+      "name": "Configuration gate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {},
+      "notes": "Replace this safe gate with the authenticated Supabase event-detail request and the approved channel/provider nodes before activation.",
+      "notesInFlow": true
+    },
+    {
+      "name": "Callback delivery result",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1020,
+        300
+      ],
+      "parameters": {},
+      "notes": "No callback is made by this draft. Configure a signed automation-callback request only after every required delivery branch is wired and tested.",
+      "notesInFlow": true
+    }
   ],
-  "connections": {}, "settings": { "executionOrder": "v1" }
+  "connections": {
+    "Manual event preflight": {
+      "main": [
+        [
+          {
+            "node": "Idempotency check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Idempotency check": {
+      "main": [
+        [
+          {
+            "node": "Configuration gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration gate": {
+      "main": [
+        [
+          {
+            "node": "Callback delivery result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
 }
