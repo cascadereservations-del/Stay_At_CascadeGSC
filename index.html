@@ -6527,7 +6527,7 @@
   <!-- ============================================================
        LOCATION — Embedded map + compact contact (replaces full contact section)
   ============================================================ -->
-  <section class="location-section" id="contact" aria-label="Location and contact">
+  <section class="location-section" id="location" aria-label="Location and contact">
     <div class="location-inner">
 
       <!-- Explore panel — address hidden until booking confirmed -->
@@ -6941,7 +6941,7 @@
         <!-- Navigation shortcuts below check-in info -->
         <div class="stay-shortcuts" role="group" aria-label="Get directions">
           <a class="stay-shortcut-btn" id="stayWazeBtn"
-             href="#"
+             href="https://waze.com/ul?q=Bria%20Homes%20General%20Santos%20City&amp;navigate=yes"
              target="_blank" rel="noopener noreferrer"
              aria-label="Navigate with Waze">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -6953,7 +6953,7 @@
             <span class="stay-shortcut-label">Waze</span>
           </a>
           <a class="stay-shortcut-btn" id="stayGrabBtn"
-             href="#"
+             href="https://grab.com/ph/"
              target="_blank" rel="noopener noreferrer"
              aria-label="Book a Grab car to the property">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -7006,7 +7006,7 @@
           <span aria-hidden="true">&middot;</span>
           <a href="booking-terms.html">Booking terms</a>
           <span aria-hidden="true">&middot;</span>
-          <a href="#contact">Contact</a>
+          <a href="#location">Contact</a>
           <span aria-hidden="true">&middot;</span>
           <a href="https://www.airbnb.com/rooms/1523827999359515793" target="_blank" rel="noopener noreferrer">Airbnb listing</a>
         </nav>
@@ -7106,7 +7106,7 @@
 
       <!-- D: Footer — warm gold CTA + personal host signature -->
       <div class="success-footer">
-        <a class="success-cal-btn" id="successCalBtn" href="#" target="_blank" rel="noopener noreferrer"
+        <a class="success-cal-btn" id="successCalBtn" href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener noreferrer"
            aria-label="Add a follow-up reminder to Google Calendar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -8609,7 +8609,7 @@
         var wazeBtn = document.getElementById('stayWazeBtn');
         if (wazeBtn) wazeBtn.href = 'https://waze.com/ul?q=Bria%20Homes%20General%20Santos%20City&navigate=yes';
         var grabBtn = document.getElementById('stayGrabBtn');
-        if (grabBtn) grabBtn.href = 'https://d.grab.com/g/passenger-transport-auto-book?destaddr=Bria+Homes+General+Santos+City';
+        if (grabBtn) grabBtn.href = 'https://grab.com/ph/';
 
         successOverlay.hidden=false;
         document.body.style.overflow='hidden';
