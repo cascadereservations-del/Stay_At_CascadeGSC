@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { verifyAutomationSignature } from '../_shared/automation-auth.ts';
+import { deliveryIsComplete, nextOutboxStatus } from '../_shared/automation-delivery.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-automation-signature', 'Content-Type': 'application/json' };
 const WORKFLOWS = new Set(['CH-S01','CH-W01','CH-W02','CH-W03','CH-W04','CH-W05','CH-W06','CH-W07','CH-W08','CH-W09','CH-W10','CH-W11','CH-W12']);
@@ -21,10 +22,13 @@ Deno.serve(async (request) => {
   const url = Deno.env.get('SUPABASE_URL'); const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) return json({ error: 'callback_unavailable' }, 503);
   const db = createClient(url, key);
-  const delivery = { outbox_id: body.event_id, workflow_id: body.workflow_id, channel: body.channel, status: body.status, recipient_hash: typeof body.recipient_hash === 'string' ? body.recipient_hash.slice(0, 128) : null, provider_message_id: typeof body.provider_message_id === 'string' ? body.provider_message_id.slice(0, 256) : null, error_code: typeof body.error_code === 'string' && /^[a-z0-9_]{1,64}$/i.test(body.error_code) ? body.error_code : null, completed_at: body.status === 'sent' || body.status === 'skipped' ? new Date().toISOString() : null };
+  const delivery = { outbox_id: body.event_id, workflow_id: body.workflow_id, channel: body.channel, status: body.status, recipient_hash: typeof body.recipient_hash === 'string' ? body.recipient_hash.slice(0, 128) : null, provider_message_id: typeof body.provider_message_id === 'string' ? body.provider_message_id.slice(0, 256) : null, error_code: typeof body.error_code === 'string' && /^[a-z0-9_]{1,64}$/i.test(body.error_code) ? body.error_code : null, completed_at: deliveryIsComplete(body.status as 'sent' | 'failed' | 'skipped') ? new Date().toISOString() : null };
   const { error: insertError } = await db.from('automation_delivery_log').insert(delivery);
   if (insertError) return json({ error: 'callback_unavailable' }, 503);
-  const outboxStatus = body.status === 'sent' || body.status === 'skipped' ? 'completed' : 'failed';
-  await db.from('automation_outbox').update({ status: outboxStatus, completed_at: outboxStatus === 'completed' ? new Date().toISOString() : null, last_error_code: delivery.error_code, attempt_count: 1 }).eq('id', body.event_id);
+  const outboxStatus = nextOutboxStatus(body.channel as 'email' | 'telegram' | 'whatsapp' | 'internal', body.status as 'sent' | 'failed' | 'skipped');
+  const patch = { status: outboxStatus, completed_at: outboxStatus === 'completed' ? new Date().toISOString() : null, last_error_code: delivery.error_code, attempt_count: 1 };
+  const update = db.from('automation_outbox').update(patch).eq('id', body.event_id);
+  if (outboxStatus === 'dispatched') await update.in('status', ['pending', 'dispatched']);
+  else await update;
   return json({ ok: true }, 202);
 });
