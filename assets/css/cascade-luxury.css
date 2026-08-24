@@ -198,6 +198,49 @@
 .theme-quiet-luxury .hero-bk-cta:active { transform: scale(.97); }
 .theme-quiet-luxury :focus-visible { outline: 2px solid var(--ch-focus); outline-offset: 3px; }
 
+/* Booking-date controls: parchment, not white, with quiet ink contrast.
+   These selectors deliberately target the interactive IDs as well as the
+   component classes so legacy hero declarations cannot reintroduce the
+   white-on-white, shadowed treatment on a cached or reordered stylesheet. */
+.theme-quiet-luxury #heroBookBar .hero-bk-fields {
+  background: linear-gradient(135deg, rgb(239 229 214 / .98), rgb(222 204 179 / .98));
+  border-color: rgb(236 217 187 / .74);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .34), 0 1px 0 rgb(20 10 6 / .10);
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-field {
+  min-height: 3.8rem;
+  padding: .66rem 1rem .62rem;
+  transition: background-color 160ms var(--ch-ease), box-shadow 160ms var(--ch-ease);
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-field:hover,
+.theme-quiet-luxury #heroBookBar .hero-bk-field.is-active {
+  background: rgb(111 76 42 / .10);
+  box-shadow: inset 0 -2px 0 rgb(118 85 47 / .72);
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-label {
+  color: #705b48;
+  font-size: .56rem;
+  font-weight: 700;
+  letter-spacing: .14em;
+  line-height: 1.1;
+  text-shadow: none !important;
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-date-val,
+.theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder {
+  color: #47382d;
+  font-size: .9rem;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.3;
+  text-shadow: none !important;
+}
+.theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder { color: #6f5e50; }
+.theme-quiet-luxury #heroBookBar .hero-bk-sep--mid { background: rgb(81 56 37 / .22); }
+.theme-quiet-luxury #heroBookBar .hero-bk-field:focus-visible {
+  outline: 2px solid #b98745;
+  outline-offset: -3px;
+}
+
 @media (max-width: 767px) {
   .luxury-hero-grid { min-height: 50rem; padding: 7rem 1rem 5rem; }
   .luxury-hero-media { height: auto; }
