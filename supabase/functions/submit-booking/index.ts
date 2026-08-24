@@ -1,15 +1,7 @@
-// submit-booking v11.8
-// v11.8 (2026-08-24): booking-receipts bucket is no longer public (see
-//   migration lock_down_booking_receipts_and_operational_rls). The browser
-//   still uploads the file directly and sends what it thinks is a public
-//   URL in `receipt_url` — that string now 403s if fetched directly, so we
-//   extract the object path from it here and mint a short-lived signed URL
-//   (service role, bypasses RLS) for the one thing that still needs to fetch
-//   the image itself: the Telegram relay. `booking_inquiries.receipt_image_path`
-//   now stores the bare object PATH, not a fetchable URL — any UI that reads
-//   that column (e.g. the admin dashboard) needs to mint its own fresh
-//   signed URL to display it; a raw `<img src={receipt_image_path}>` will
-//   no longer render. See KB direct-booking/2026-08-24-conversion-plan-audit.md.
+// submit-booking v12
+// Creates the booking request and returns a short-lived, booking-scoped token
+// for the optional private receipt upload. The browser never supplies a
+// Storage path or URL and cannot write to booking-receipts directly.
 // v11.7 (2026-07-02): FIX last-minute deposit. The site charges 100% when check-in is
 //   within 48h (else 50%). The old sanity check only accepted ~50% and clamped the full
 //   payment back to 50%, so last-minute bookings were recorded + emailed as 50%. Now accept
@@ -19,6 +11,7 @@
 // v11.2: calendar hold on submit. v11.1: plain-text finance summary. v11: receipt to Finance.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -27,7 +20,6 @@ const CORS = {
 };
 
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
-const RECEIPT_BUCKET = 'booking-receipts';
 
 const TIERS = [
   { min: 1,  max: 1,   rate: 1780 },
@@ -56,19 +48,6 @@ async function hmacHex(key: string, msg: string): Promise<string> {
   const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', k, enc.encode(msg));
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-// Extract the bucket-relative object path from whatever the browser sent us.
-// Historically (public bucket) it sent a full public URL; now it's the same
-// shape but the bucket is private, so we still just need the path segment.
-function extractReceiptPath(raw: string): string | null {
-  const marker = `/${RECEIPT_BUCKET}/`;
-  const idx = raw.indexOf(marker);
-  if (idx === -1) {
-    // Already a bare path (no host/prefix) — accept as-is if it looks sane.
-    return /^[\w.\-]+$/.test(raw) ? raw : null;
-  }
-  const path = raw.slice(idx + marker.length).split('?')[0];
-  return path || null;
 }
 async function tgSendFile(token: string, chatId: string, fileUrl: string, caption: string): Promise<void> {
   const clean   = fileUrl.split('?')[0].toLowerCase();
@@ -104,8 +83,6 @@ Deno.serve(async (req) => {
   const checkoutStr  = String(body.checkout_date ?? '').trim();
   const pax          = Math.max(1, Number(body.pax ?? 1));
   const notes        = String(body.notes ?? '').trim() || null;
-  const receiptRaw   = String(body.receipt_url  ?? '').trim() || null;
-  const receiptPath  = receiptRaw ? extractReceiptPath(receiptRaw) : null;
   const contactType  = String(body.contact_type ?? 'phone').trim();
 
   const clientTotal   = Number(body.total_amount   ?? 0);
@@ -185,11 +162,17 @@ Deno.serve(async (req) => {
     status:             'pending',
     source:             'direct',
     notes,
-    receipt_image_path: receiptPath,
+    receipt_image_path: null,
   }).select('id').single();
   if (ie || !inquiry) return json({ error: 'booking_failed', detail: ie?.message }, 500);
 
+  const inquiryId = inquiry.id;
   const ref = inquiry.id.slice(0, 8).toUpperCase();
+  const receiptUploadSecret = Deno.env.get('BOOKING_RECEIPT_UPLOAD_SECRET');
+  const receiptUploadExpiresAt = Date.now() + 15 * 60 * 1000;
+  const receiptUploadToken = receiptUploadSecret
+    ? await issueReceiptUploadToken({ bookingId: inquiry.id, nonce: crypto.randomUUID(), expiresAt: receiptUploadExpiresAt }, receiptUploadSecret)
+    : null;
 
   // ── Calendar hold (blocks dates immediately; pending until approved) ──
   {
@@ -255,7 +238,7 @@ Deno.serve(async (req) => {
       ``,
       `💰 Total:    ₱${totalAmount.toLocaleString()}`,
       `💳 ${depLabel}:  ₱${depositAmount.toLocaleString()}`,
-      ...(receiptPath ? [`📎 Receipt attached below`] : [`⚠️ No receipt attached`]),
+      `📎 Receipt upload: pending or not provided`,
       ...(notes      ? [``, `📝 ${notes}`] : []),
       ``,
       `🗓️ Dates held (pending your review)`,
@@ -317,27 +300,16 @@ Deno.serve(async (req) => {
     const base = SUPABASE_URL + '/functions/v1/approve-booking';
     let approveUrl = '', declineUrl = '';
     try {
-      const sc = await hmacHex(SERVICE_KEY, 'approve-booking:v1:' + inquiry.id + ':confirm');
-      const sd = await hmacHex(SERVICE_KEY, 'approve-booking:v1:' + inquiry.id + ':decline');
-      approveUrl = `${base}?id=${inquiry.id}&action=confirm&sig=${sc}`;
-      declineUrl = `${base}?id=${inquiry.id}&action=decline&sig=${sd}`;
+      const sc = await hmacHex(SERVICE_KEY, 'approve-booking:v1:' + inquiryId + ':confirm');
+      const sd = await hmacHex(SERVICE_KEY, 'approve-booking:v1:' + inquiryId + ':decline');
+      approveUrl = `${base}?id=${inquiryId}&action=confirm&sig=${sc}`;
+      declineUrl = `${base}?id=${inquiryId}&action=decline&sig=${sd}`;
     } catch (_e) { /* links optional */ }
 
     // One signed URL, shared by both Telegram and the email relay, both of
     // which fire within seconds of each other here. 1 hour of validity is
     // generous headroom for either fetch, service role mints it (bypasses RLS).
     let receiptSignedUrl: string | null = null;
-    if (receiptPath) {
-      const { data: signed, error: se } = await db.storage
-        .from(RECEIPT_BUCKET)
-        .createSignedUrl(receiptPath, 3600);
-      if (se || !signed?.signedUrl) {
-        console.error('[submit-booking] receipt signed URL failed:', se?.message);
-      } else {
-        receiptSignedUrl = signed.signedUrl;
-      }
-    }
-
     await notifyTelegram(approveUrl, declineUrl, receiptSignedUrl);
     await sendEmailRelay(approveUrl, declineUrl, receiptSignedUrl);
   }
@@ -354,7 +326,8 @@ Deno.serve(async (req) => {
     total_amount:   totalAmount,
     deposit_amount: depositAmount,
     currency:       'PHP',
+    receipt_upload_token: receiptUploadToken,
+    receipt_upload_expires_at: receiptUploadToken ? new Date(receiptUploadExpiresAt).toISOString() : null,
     message:        'Booking request received. We will confirm via Messenger or phone within 2 hours.',
   });
 });
-

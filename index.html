@@ -6489,8 +6489,11 @@
                     type="button" aria-label="Remove attached file">&times;</button>
                 </div>
                 <p class="receipt-optional-note" id="receiptOptionalNote">
-                  Send your screenshot now and we'll confirm your booking the moment we see it — no waiting for a reply.
+                  After you submit your request, your screenshot is encrypted in transit and stored privately for payment review.
                 </p>
+                <button class="pay-action-btn" id="receiptRetry" type="button" hidden>
+                  Retry receipt upload
+                </button>
               </div>
 
               <!-- Submission error banner -->
@@ -7586,8 +7589,7 @@
       var SUPABASE_URL       = 'https://qkgfhsdppslwunarczeq.supabase.co';
       var SUPABASE_ANON      = 'sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj';
       var EDGE_SUBMIT        = SUPABASE_URL + '/functions/v1/submit-booking';
-      var STORAGE_RECEIPTS   = SUPABASE_URL + '/storage/v1/object/booking-receipts/';
-      var STORAGE_PUBLIC     = SUPABASE_URL + '/storage/v1/object/public/booking-receipts/';
+      var EDGE_RECEIPT_UPLOAD = SUPABASE_URL + '/functions/v1/upload-booking-receipt';
 
       /* ─── Config ─────────────────────────────────────────────────── */
       var BASE_RATE  = 1780;
@@ -7665,6 +7667,7 @@
       var receiptPrevName = $('receiptPreviewName');
       var receiptPrevSize = $('receiptPreviewSize');
       var receiptRemove   = $('receiptRemove');
+      var receiptRetry    = $('receiptRetry');
       var successOverlay  = $('successOverlay');
       var successClose    = $('successClose');
       var successDone     = $('successDone');
@@ -8350,21 +8353,19 @@
        * (cross-origin) but the iframe 'load' event fires, confirming
        * GAS finished. That event is our success signal.
        * ──────────────────────────────────────────────────────────────── */
-      /* ─── Receipt upload → Supabase Storage ──────────────────────── */
-      function uploadReceipt(file) {
+      /* ─── Receipt upload → private Edge Function ─────────────────── */
+      function uploadReceipt(file, uploadToken) {
         return new Promise(function(resolve, reject) {
-          var ext  = (file.name.split('.').pop() || 'jpg').toLowerCase();
-          var path = Date.now() + '-' + Math.random().toString(36).slice(2) + '.' + ext;
           var xhr  = new XMLHttpRequest();
-          xhr.open('POST', STORAGE_RECEIPTS + path, true);
-          xhr.setRequestHeader('apikey',        SUPABASE_ANON);
-          xhr.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_ANON);
-          xhr.setRequestHeader('Content-Type',  file.type || 'application/octet-stream');
+          xhr.open('POST', EDGE_RECEIPT_UPLOAD, true);
+          xhr.setRequestHeader('Authorization', 'Bearer ' + uploadToken);
+          xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+          xhr.setRequestHeader('X-Receipt-Filename', file.name);
           xhr.onload  = function() {
             if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(STORAGE_PUBLIC + path);
+              resolve();
             } else {
-              reject(new Error('Upload failed: ' + xhr.status));
+              reject(new Error('Receipt upload failed: ' + xhr.status));
             }
           };
           xhr.onerror = function() { reject(new Error('Upload network error')); };
@@ -8422,12 +8423,7 @@
           setLoading(true);
           bookingError.hidden = true;
 
-          var receiptPromise = guestFile
-            ? uploadReceipt(guestFile).catch(function() { return null; })
-            : Promise.resolve(state.receiptUrl || null);
-
-          receiptPromise.then(function(receiptUrl) {
-            var payload = {
+          var payload = {
               guest_name:     document.getElementById('name').value.trim(),
               guest_phone:    phoneCode + ' ' + phoneNum,
               guest_email:    guestEmail || undefined,
@@ -8439,15 +8435,32 @@
               total_amount:   total,
               deposit_amount: dep,
               contact_type:   contactTypeVal,
-              receipt_url:    receiptUrl || undefined,
             };
             submitBooking(
               payload,
               function(data) {
                 bookingSubmit.dataset.submitted = 'true';
                 state._lastBookingData = data;
-                setLoading(false);
-                openSuccess(data);
+                if (!guestFile) {
+                  setLoading(false);
+                  openSuccess(data);
+                  return;
+                }
+                if (!data.receipt_upload_token) {
+                  setLoading(false);
+                  receiptRetry.hidden = false;
+                  showBanner('Your reservation request was received, but receipt upload is temporarily unavailable. Please retry or email your screenshot to cascadereservations@gmail.com.');
+                  return;
+                }
+                state._receiptUploadToken = data.receipt_upload_token;
+                uploadReceipt(guestFile, data.receipt_upload_token).then(function() {
+                  setLoading(false);
+                  openSuccess(data);
+                }).catch(function() {
+                  setLoading(false);
+                  receiptRetry.hidden = false;
+                  showBanner('Your reservation request was received, but the screenshot did not upload. Please retry now or email it to cascadereservations@gmail.com.');
+                });
               },
               function(err) {
                 console.error('[booking]', err);
@@ -8458,10 +8471,22 @@
                 setLoading(false);
               }
             );
-          });
-
         });
       }
+
+      if (receiptRetry) receiptRetry.addEventListener('click', function() {
+        if (!state._receiptFile || !state._receiptUploadToken) return;
+        receiptRetry.hidden = true;
+        setLoading(true);
+        uploadReceipt(state._receiptFile, state._receiptUploadToken).then(function() {
+          setLoading(false);
+          openSuccess(state._lastBookingData);
+        }).catch(function() {
+          setLoading(false);
+          receiptRetry.hidden = false;
+          showBanner('The screenshot still could not upload. Please email it to cascadereservations@gmail.com with your booking reference.');
+        });
+      });
 
       function setLoading(on){
         /* After a successful submit, leave the button permanently disabled
