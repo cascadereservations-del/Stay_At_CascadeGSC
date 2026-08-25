@@ -1448,9 +1448,15 @@
       display: flex; align-items: center; justify-content: center;
       padding: var(--space-l);
       opacity: 0; pointer-events: none;
-      transition: opacity var(--ch-dur-m) var(--ch-ease);
+      /* visibility:hidden (not opacity alone) also removes the close / prev /
+         next buttons from the tab order and the a11y tree while closed. */
+      visibility: hidden;
+      transition: opacity var(--ch-dur-m) var(--ch-ease), visibility 0s linear var(--ch-dur-m);
     }
-    .lightbox.is-open { opacity: 1; pointer-events: all; }
+    .lightbox.is-open {
+      opacity: 1; pointer-events: all; visibility: visible;
+      transition: opacity var(--ch-dur-m) var(--ch-ease), visibility 0s;
+    }
 
     .lightbox-inner {
       position: relative;
@@ -4912,7 +4918,7 @@
 
   <!-- Quiet Urban Luxury design system — loaded last so its rules win the
        cascade over the legacy inline styles above without needing !important. -->
-  <link rel="stylesheet" href="assets/css/cascade-luxury.css?v=20260825a">
+  <link rel="stylesheet" href="assets/css/cascade-luxury.css?v=20260825h">
 </head>
 
 <body class="theme-quiet-luxury">
@@ -5036,7 +5042,7 @@
         </div><!-- /.hero-bk-fields -->
 
         <!-- Inline mini calendar — shown while picking dates -->
-        <div class="qbw-picker" id="qbwPicker" hidden aria-modal="true" role="dialog" aria-label="Select dates">
+        <div class="qbw-picker" id="qbwPicker" hidden role="group" aria-label="Select dates">
           <div class="qbw-picker-nav">
             <button class="qbw-picker-nav-btn" id="qbwPickerPrev" type="button" aria-label="Previous month">
               <svg viewBox="0 0 16 16" aria-hidden="true"><polyline points="10,4 6,8 10,12"/></svg>
@@ -5633,7 +5639,7 @@
     </button>
 
     <div class="lightbox-inner">
-      <img class="lightbox-img" id="lb-img" src="" alt="" width="1200" height="800">
+      <img class="lightbox-img" id="lb-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="" width="1200" height="800">
     </div>
 
     <button class="lightbox-next" id="lb-next" aria-label="Next photo">
@@ -7449,7 +7455,6 @@
         { id: '1wzkooPfoOsa2GzWcixHuZ6xYBf54munt', alt: 'Cascade Hideaway entrance' },
         { id: '1kIwtCJt7EUyNhkm_n3yuboZUcWhrl-ED', alt: 'Studio living and sleeping area — sofa and bed' },
         { id: '1iZwQzGq8_yYhihgg2et13eUhre5q4143', alt: 'Hotel-quality bed with crisp linens' },
-        { id: '17ovWXKWIgi-aTYkBehm4pgMuyR1RrMgQ', alt: 'Cascade Hideaway front exterior' },
         { id: '1jIsHRgph5HjgACl3tM2u0E8ybzYx974s', alt: 'Cascade Hideaway — living area' },
         { id: '1b66VVq8egMtHQGdMkopN2TN5KN8tauW_', alt: 'Modern bathroom' },
         { id: '1vCN3fAoAxr-7RLIbFvdHag__DktOQXMY', alt: 'Bar counter and bedroom combined' },
@@ -7830,7 +7835,7 @@
             state.checkin=ds; state.checkout=null; state.selecting='checkout'; window._bkState=state;
           } else {
             var n=nights(state.checkin,ds);
-            if (n<MIN_NIGHTS){ flashInstruction('Minimum stay is '+MIN_NIGHTS+' nights — pick a later date.'); return; }
+            if (n<MIN_NIGHTS){ flashInstruction('Minimum stay is '+MIN_NIGHTS+' night'+(MIN_NIGHTS>1?'s':'')+' — pick a later date.'); return; }
             if (!isRangeClean(state.checkin,ds)){ flashInstruction('That range includes unavailable dates — please adjust.'); return; }
             state.checkout=ds; state.selecting='done'; window._bkState=state;
             track('date_range_selected', { nights_bucket: nightsBucket(nights(state.checkin, state.checkout)), lead_time_bucket: leadTimeBucket(state.checkin) });
@@ -7854,7 +7859,7 @@
           calInstruction.textContent='Select your check-in date';
           calInstruction.hidden=false;
         } else if (!state.checkout) {
-          calInstruction.textContent='Now select your check-out date (min '+MIN_NIGHTS+' nights)';
+          calInstruction.textContent='Now select your check-out date (min '+MIN_NIGHTS+' night'+(MIN_NIGHTS>1?'s':'')+')';
           calInstruction.hidden=false;
         } else {
           calInstruction.hidden=true;

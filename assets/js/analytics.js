@@ -26,8 +26,20 @@
       referrer_group: referrerGroup()
     }, properties || {});
     var body = JSON.stringify(payload);
-    if (navigator.sendBeacon && navigator.sendBeacon(ENDPOINT, new Blob([body], { type: 'application/json' }))) return;
-    fetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
+    // NOTE: navigator.sendBeacon always sends with credentials mode "include".
+    // The edge function answers with `Access-Control-Allow-Origin: *`, which the
+    // browser rejects for credentialed requests — and because sendBeacon returns
+    // true as soon as the request is *queued*, the fetch fallback below never
+    // ran and every event was silently dropped. Use fetch + keepalive, which is
+    // uncredentialed by default and survives page unload just as well.
+    fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body,
+      keepalive: true,
+      credentials: 'omit',
+      mode: 'cors'
+    }).catch(function () {});
   }
   global.CascadeAnalytics = { track: track };
   track('page_view');
