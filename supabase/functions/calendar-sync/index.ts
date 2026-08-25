@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
-// calendar-sync v11 - Cascade Hideaway
+// calendar-sync v12 - Cascade Hideaway
 //
 // SOURCE-CONTROL NOTE (2026-08-25): this function was deployed (v10, function
 // version 21) but had no source in this repository. It was recovered from the
@@ -9,6 +9,16 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // supabase/functions/calendar-sync/index.ts so the reaper defect below is
 // reviewable.
 //
+// v12 (2026-08-25): Reconciliation visibility. v11 auto-heals drift every run,
+//   so there is no longer a persistent gap to alert on — but nothing told
+//   anyone a gap had existed at all, which is exactly how the v10 defect went
+//   unnoticed for months. Post a one-line note to the ops Telegram chat
+//   (TELEGRAM_CHAT_ID, same var daily-digest already uses) whenever this run
+//   actually reaps something. Silent in the common case (reaped === 0).
+//   NOTE: this does NOT detect a dead cron job — a job that stops firing
+//   can't alert about its own silence. That needs an external watchdog
+//   (e.g. a separate healthcheck ping), which is a bigger decision left for
+//   Lloyd rather than built here.
 // v11 (2026-08-25): FIX - the reaper only ever considered status='confirmed'
 //   rows, so an Airbnb event with status='blocked' that disappeared from the
 //   iCal feed was never cancelled. Airbnb emits transient "Airbnb (Not
@@ -164,9 +174,9 @@ Deno.serve(async (req: Request) => {
           reaped++;
         }
       }
-      if (reaped > 0) console.log(`calendar-sync v11: reaped ${reaped} stale event(s)`);
+      if (reaped > 0) console.log(`calendar-sync v12: reaped ${reaped} stale event(s)`);
     } catch (reapErr) {
-      console.warn('calendar-sync v11: reap step failed (non-fatal):', String(reapErr));
+      console.warn('calendar-sync v12: reap step failed (non-fatal):', String(reapErr));
     }
 
     // -- v8: Backfill guest_name from airbnb_reservations -----------
@@ -193,7 +203,7 @@ Deno.serve(async (req: Request) => {
         }
       }
     } catch (backfillErr) {
-      console.warn('calendar-sync v11: guest_name backfill failed:', String(backfillErr));
+      console.warn('calendar-sync v12: guest_name backfill failed:', String(backfillErr));
     }
 
     await supabase.from('calendar_sync_log').insert({
@@ -202,6 +212,22 @@ Deno.serve(async (req: Request) => {
 
     const tgToken     = Deno.env.get('TELEGRAM_BOT_TOKEN');
     const tgFinanceId = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
+    const tgOpsId      = Deno.env.get('TELEGRAM_CHAT_ID');
+
+    // v12 reconciliation note — see header. Fires only when there was
+    // something to reconcile; steady-state runs stay silent.
+    if (tgToken && tgOpsId && reaped > 0) {
+      const msg = [
+        `🧹 *Calendar reconciliation*`,
+        `📍 Cascade Hideaway`, ``,
+        `${reaped} Airbnb calendar row${reaped !== 1 ? 's' : ''} no longer in the live feed — marked cancelled.`,
+        `This is automatic (calendar-sync v12) and needs no action.`,
+        `Worth a look only if this number is unusually large or keeps recurring every run.`,
+        `⏰ ${manilaDatetime()}`,
+      ].join('\n');
+      tgSend(tgToken, tgOpsId, msg).catch(() => {});
+    }
+
     if (tgToken && tgFinanceId && newlyConfirmed.length > 0) {
       for (const ev of newlyConfirmed) {
         const nights = nightsBetween(ev.checkin, ev.checkout);
