@@ -86,12 +86,15 @@ test.describe('responsive contract', () => {
       const count = await imgs.count();
       for (let i = 0; i < Math.min(count, 5); i++) {
         const img = imgs.nth(i);
-        await img.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(50);
+        // Playwright's scrollIntoViewIfNeeded() waits for the element to be
+        // "stable". The hero slideshow cross-fades forever, so that wait can
+        // never settle and the guard timed out instead of checking anything.
+        // Scroll through the DOM directly, then read naturalWidth.
+        await img.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
         const naturalWidth = await img.evaluate(el => {
           if (el.decode) { return el.decode().catch(() => {}).then(() => el.naturalWidth); }
           return el.naturalWidth;
-        });
+        }, { timeout: 15000 });
         expect(naturalWidth, `${selector} #${i} failed to decode`).toBeGreaterThan(0);
       }
     }
