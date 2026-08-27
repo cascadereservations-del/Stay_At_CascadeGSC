@@ -1,0 +1,52 @@
+{
+  "project_ref": "qkgfhsdppslwunarczeq",
+  "captured_at": "2026-08-28T17:15:00+08:00",
+  "capture_method": "Supabase CLI 2.116.0 functions list; safe fields transcribed without IDs, paths, credentials, or secrets",
+  "recovered_slugs": [],
+  "functions": [
+    { "slug": "availability", "version": 23, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787530965132, "deployment_sha256": "22352d7627e99ddb2f87acd40e379c187efd2220309af200861ff0cd0b0a6845", "critical": true },
+    { "slug": "last-readings", "version": 22, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1779966889568, "deployment_sha256": "8b11d6acea5f96d9efb44da529d237c170ee0fc3d77f09d5c68db039a6fe106d", "critical": true },
+    { "slug": "upload-photo", "version": 22, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1779966903208, "deployment_sha256": "8add6a45694bba6978cd5226113dba97ca10d3fb9e2cebd4d7d3be8f7b589137", "critical": true },
+    { "slug": "submit-cleaning", "version": 32, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1781462638737, "deployment_sha256": "4ee85eac5a0a65314b87c4b08f4170ea09df36dfe9841e4afb94923c7f3b4036", "critical": true },
+    { "slug": "calendar-sync", "version": 23, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787639360858, "deployment_sha256": "ac33e62b30f353a2f2a3c4d93e310500bd5351e9fae85fc6f7ca8399b5f63538", "critical": true },
+    { "slug": "submit-booking", "version": 32, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787552752295, "deployment_sha256": "7ecacc62756056b2c22491af204b6f7df89397ee012b68b97e45a730d2d7f02d", "critical": true },
+    { "slug": "ocr-receipt", "version": 19, "status": "ACTIVE", "verify_jwt": true, "updated_at": 1780048332804, "deployment_sha256": "37ffe8e8d5224684dcd4c77dda6c4ea70f63594633b829de3c2442dcf5337fde", "critical": true },
+    { "slug": "telegram-expense", "version": 61, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1781041707937, "deployment_sha256": "ff1c1f7f07bfb2dc04b2b6f726241c23099ec50e833b77d798109dd505cb8eff", "critical": true },
+    { "slug": "daily-digest", "version": 24, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1783817082454, "deployment_sha256": "41a62e3685ccc32bccdce8dcb7d96727121f52fdf736e0ba455ff5c9069aa798", "critical": true },
+    { "slug": "rain-alert", "version": 13, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1780137415235, "deployment_sha256": "712ed4470d294abc3ddd72a2ef1cea5c15c68973d2c7b80461316087e6b935bc", "critical": true },
+    { "slug": "airbnb-email-sync", "version": 17, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1780784055219, "deployment_sha256": "608092595006892b4ae97221692f126e3fd36eb9d846a758f870ed9336d7df05", "critical": true },
+    { "slug": "weather-proxy", "version": 12, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1780234448031, "deployment_sha256": "5e677903228803317cbc9d638f91eb5e0cb9645d9854085fb0db063b13ab6b2e", "critical": true },
+    { "slug": "notify-cleaner-payment", "version": 6, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1780718037809, "deployment_sha256": "e704e96bfeb9efd4c528fe9526f6f98b85508402a8d16a6c25d2c6e780001eb6", "critical": true },
+    { "slug": "missed-cleaning-alert", "version": 6, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1780781585379, "deployment_sha256": "85fd54db8378f2cc71f7e4b3efefb2555c5d78aade119edd57e00d31d3d9a709", "critical": true },
+    { "slug": "turnover-verifier", "version": 6, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1780862609809, "deployment_sha256": "2b2a8fb984cba044ddaa62a0f427bfd081c3f771abb4418f14193aa89d56ea5b", "critical": true },
+    { "slug": "approve-booking", "version": 11, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787552752295, "deployment_sha256": "8b5c54c27a6b5aa33872ce4614a5bf3c4fc2f72486d25a19af0147b8e1e95743", "critical": true },
+    { "slug": "upload-booking-receipt", "version": 3, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787552752295, "deployment_sha256": "9ea2c232cacde1cc5efbf85811c004ebfcc0efe9f59126d1a5d1463b8ea72e9c", "critical": true },
+    { "slug": "track-site-event", "version": 3, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787552752295, "deployment_sha256": "7d2f84acb8a28193dcb59872c76ffd70c3c5aeec31fb88e0d742b4bd6ead6989", "critical": true },
+    { "slug": "automation-callback", "version": 4, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787576388055, "deployment_sha256": "00a91086844b788019e6e1b38492efb7b6c38e2c5b4ef6133ef40a2c173410cb", "critical": true },
+    { "slug": "automation-event-detail", "version": 4, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787576368994, "deployment_sha256": "eca53d37e067a967a0cff9cef783620ba92e5c32e0b6f00ef89e2f8c8ef6181d", "critical": true },
+    { "slug": "guest-access", "version": 3, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787552752295, "deployment_sha256": "014b96a0fe210a894fa9dae8bd2d06447bc800c7b9f0085c2635bce55eb215ac", "critical": true }
+  ],
+  "database": {
+    "schema_snapshot": "supabase/schemas/000_remote_public_schema.sql",
+    "schema_snapshot_sha256": "90600ed5439f1bbe955d1898b459101f980e94733fdd91da95d73d20ad16559e",
+    "snapshot_status": "historical-production-snapshot-plus-versioned-migrations",
+    "live_dump_status": "blocked-docker-desktop-unavailable-2026-08-28",
+    "metadata_covered": ["tables", "columns", "constraints", "rls-policies"]
+  },
+  "cron": [
+    {
+      "job_name": "turnover-verifier-daily",
+      "function_slug": "turnover-verifier",
+      "status": "confirmed-failing",
+      "schedule": "not-reexported",
+      "safe_note": "Invocation mapping is broken; raw command intentionally excluded because it may contain secrets."
+    }
+  ],
+  "storage": {
+    "live_metadata_status": "not-reverified-docker-unavailable",
+    "buckets": [
+      { "name": "booking-receipts", "public": false, "evidence": "20260824044700 and 20260824002834 migrations" },
+      { "name": "cleaning-photos", "public": "not-reverified", "evidence": "20260528111436 storage policies" }
+    ]
+  }
+}
