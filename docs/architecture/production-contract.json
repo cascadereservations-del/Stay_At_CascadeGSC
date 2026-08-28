@@ -2,7 +2,20 @@
   "project_ref": "qkgfhsdppslwunarczeq",
   "captured_at": "2026-08-28T17:15:00+08:00",
   "capture_method": "Supabase CLI 2.116.0 functions list; safe fields transcribed without IDs, paths, credentials, or secrets",
-  "recovered_slugs": [],
+  "recovered_slugs": [
+    "airbnb-email-sync",
+    "daily-digest",
+    "last-readings",
+    "missed-cleaning-alert",
+    "notify-cleaner-payment",
+    "ocr-receipt",
+    "rain-alert",
+    "submit-cleaning",
+    "telegram-expense",
+    "turnover-verifier",
+    "upload-photo",
+    "weather-proxy"
+  ],
   "functions": [
     { "slug": "availability", "version": 23, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1787530965132, "deployment_sha256": "22352d7627e99ddb2f87acd40e379c187efd2220309af200861ff0cd0b0a6845", "critical": true },
     { "slug": "last-readings", "version": 22, "status": "ACTIVE", "verify_jwt": false, "updated_at": 1779966889568, "deployment_sha256": "8b11d6acea5f96d9efb44da529d237c170ee0fc3d77f09d5c68db039a6fe106d", "critical": true },
