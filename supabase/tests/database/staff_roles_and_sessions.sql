@@ -1,0 +1,12 @@
+begin;
+select plan(8);
+select has_table('public', 'staff_access_profiles', 'named staff profiles exist');
+select has_table('public', 'staff_access_audit', 'staff access audit exists');
+select has_column('public', 'staff_access_profiles', 'sessions_revoked_after', 'profile supports global session revocation');
+select has_function('public', 'staff_access_allowed', array['text','text','timestamp with time zone','text'], 'access decision function exists');
+select ok(not has_table_privilege('anon', 'public.staff_access_profiles', 'select'), 'anon cannot read staff roles');
+select ok(public.staff_access_allowed('cleaner','submit_cleaning',null,'aal1'), 'active cleaner may submit');
+select ok(not public.staff_access_allowed('cleaner','submit_cleaning',now(),'aal1'), 'disabled cleaner cannot submit');
+select ok(not public.staff_access_allowed('inspector','approve_payment',null,'aal2'), 'inspector cannot approve payment');
+select * from finish();
+rollback;
