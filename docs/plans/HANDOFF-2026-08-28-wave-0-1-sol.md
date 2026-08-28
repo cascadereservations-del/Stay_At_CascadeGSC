@@ -19,9 +19,9 @@ Two untracked files are user-owned Wave 1 work. Preserve them and do not add, de
    - Historical schema snapshot is recorded. Fresh live DB dump remains blocked by unavailable local Docker.
 2. **Recovered deployed function source** — `afab977`, then type fixes `9c5daf6`
    - Recovered 12 functions, including `upload-photo` discovered during inventory.
-3. **Isolated n8n deployment design** — `47c6b35`
-   - Separate Compose, PostgreSQL, secrets, encrypted backups, resource limits and recovery runbook.
-   - Do not deploy until a new VPS capacity/swap preflight and owner approval.
+3. **n8n deployment/migration design** — `47c6b35`
+   - Separate Compose, PostgreSQL, secrets, encrypted backups, resource limits and recovery runbook are retained as a later migration option.
+   - Current approved runtime is the existing Portainer n8n instance, using a dedicated `Cascade` folder/project and dedicated credentials. Do not deploy the separate stack unless an ADR-001 trigger is met.
 4. **Finance/OPS boundary** — `955eaf8`
    - Closed templates, recursive OPS financial-data rejection, database outbox guard and tests.
 5. **Operational RLS lockdown design** — `78916da`
@@ -48,7 +48,7 @@ Two untracked files are user-owned Wave 1 work. Preserve them and do not add, de
 - Canonical Supabase project: `qkgfhsdppslwunarczeq`.
 - Never put finance/payment/amount information in OPS Telegram. Finance chat is `-1003819352746`; OPS chat is `-1003798341977`.
 - Direct bookings are confirmed only after a human approval. Receipt OCR and bank email are advisory evidence, never an automatic payment confirmation.
-- No production deployment, schema deployment, n8n activation, cron activation, DNS/provider change, real message, or credential setup occurred or is authorized by this branch alone.
+- No production deployment, schema deployment, n8n activation, cron activation, Docker/VPS or DNS/provider change, real message, or credential setup occurred or is authorized by this branch alone.
 - Keep Cascade separate from Alfred/Alex at container, database, credential and data layers.
 - OpenRouter must use pinned, evaluated allowlists; avoid a random free-router model in production.
 
@@ -79,6 +79,6 @@ Do not redeploy these functions unchanged. Tasks 0.9 and later waves need to sup
 ## Before any production action
 
 1. Start Docker or a disposable Supabase local environment and run all pgTAP files, including route guards, RLS, and heartbeat tests.
-2. Re-run read-only VPS capacity/swap and port checks for the isolated n8n design.
+2. Inventory the existing Portainer n8n folder/credential boundaries before importing Cascade workflows; run the isolated-stack capacity preflight only if an ADR-001 migration trigger is met.
 3. Stage signed cron functions and capture heartbeat evidence.
 4. Obtain fresh owner approval for each external change.

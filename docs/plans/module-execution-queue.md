@@ -16,7 +16,7 @@ SOL is therefore used for narrow high-risk checkpoints rather than routine outpu
 
 `automation/n8n/workflows/` is the canonical existing workflow folder. It already contains 13 inactive, validated exports (`CH-S01`, `CH-W01` through `CH-W12`). Reuse and extend these exports in place; do not create another n8n application or duplicate workflow tree.
 
-The deployment-specific Compose/backup material remains separately contained in `infrastructure/cascade-n8n/`. This preserves the required isolation from Alfred/Alex while keeping all Cascade automation assets under the repository's `automation/n8n/` folder.
+The approved initial runtime is the existing Portainer n8n instance. Create one dedicated `Cascade` folder/project, use only `Cascade — <provider/purpose>` credentials, and keep exports under this repository folder. `infrastructure/cascade-n8n/` is a deferred migration path only; the exact migration triggers are recorded in `docs/architecture/adr-001-shared-portainer-n8n.md`.
 
 ## Module A — Platform safety completion
 
@@ -72,4 +72,4 @@ The deployment-specific Compose/backup material remains separately contained in 
 
 ## Shared stop conditions
 
-Stop and request action-time owner approval before production schema deployment, n8n activation, cron activation, DNS/VPS changes, Meta/Gmail setup, or sending any provider message. Preserve the two user-owned untracked W01 files until their ownership is explicitly resolved.
+Stop and request action-time owner approval before production schema deployment, n8n activation, cron activation, Docker/VPS changes, Meta/Gmail setup, or sending any provider message. Preserve the two user-owned untracked W01 files until their ownership is explicitly resolved.
