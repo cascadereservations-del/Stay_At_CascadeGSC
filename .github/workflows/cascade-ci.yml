@@ -1,0 +1,51 @@
+name: Cascade CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: npm ci
+      - run: npm run test:content
+      - run: node --test tests/production-contract.test.mjs tests/infrastructure/cascade-n8n.test.mjs tests/security/endpoint-boundaries.test.mjs
+      - run: node scripts/check-n8n-workflows.mjs
+      - run: node scripts/audit/scan-secrets.mjs
+      - run: node scripts/audit/check-edge-auth.mjs
+      - run: deno test --no-lock --node-modules-dir=auto supabase/functions/_shared/*.test.ts supabase/functions/job-heartbeat-monitor/index.test.ts
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --workers=1 --project=desktop
+
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.116.0
+      - run: supabase start
+      - run: supabase test db supabase/tests/database

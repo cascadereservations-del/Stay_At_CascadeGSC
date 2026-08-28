@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "entries": [
+    { "slug": "availability", "mode": "public", "controls": ["GET-like read only projection", "date pairs only", "no guest data"], "owner": "booking" },
+    { "slug": "last-readings", "mode": "migration_blocked", "controls": ["must move behind named cleaner session before RLS cutover"], "owner": "operations" },
+    { "slug": "upload-photo", "mode": "migration_blocked", "controls": ["must require scoped cleaner upload grant", "private bucket required"], "owner": "operations" },
+    { "slug": "submit-cleaning", "mode": "migration_blocked", "controls": ["must require named or short-lived device-bound cleaner session"], "owner": "operations" },
+    { "slug": "calendar-sync", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "booking" },
+    { "slug": "submit-booking", "mode": "public", "controls": ["strict field validation", "server-side price and availability validation", "rate limiting required at edge"], "owner": "booking" },
+    { "slug": "ocr-receipt", "mode": "jwt", "controls": ["platform JWT verification enabled"], "owner": "finance" },
+    { "slug": "telegram-expense", "mode": "signed", "controls": ["Telegram secret-token header", "allowed chat and user IDs"], "owner": "finance" },
+    { "slug": "daily-digest", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "finance" },
+    { "slug": "rain-alert", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "operations" },
+    { "slug": "airbnb-email-sync", "mode": "migration_blocked", "controls": ["must require signed Gmail workflow request before next deployment"], "owner": "booking" },
+    { "slug": "weather-proxy", "mode": "public", "controls": ["fixed property location", "read-only response", "15 minute cache"], "owner": "operations" },
+    { "slug": "notify-cleaner-payment", "mode": "signed", "controls": ["validates Supabase user JWT inside function", "role restriction required in staff identity task"], "owner": "finance" },
+    { "slug": "missed-cleaning-alert", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "operations" },
+    { "slug": "turnover-verifier", "mode": "signed", "controls": ["constant-time cron secret header"], "owner": "operations" },
+    { "slug": "approve-booking", "mode": "signed", "controls": ["HMAC action link or Supabase user session", "role and MFA restriction required before v2 activation"], "owner": "booking" },
+    { "slug": "upload-booking-receipt", "mode": "signed", "controls": ["short-lived booking-scoped HMAC token", "server-chosen private object path"], "owner": "finance" },
+    { "slug": "track-site-event", "mode": "public", "controls": ["4 KiB limit", "strict schema", "per-session hourly cap"], "owner": "marketing" },
+    { "slug": "automation-callback", "mode": "signed", "controls": ["shared automation bearer secret", "normalized callback schema"], "owner": "platform" },
+    { "slug": "automation-event-detail", "mode": "signed", "controls": ["shared automation bearer secret", "minimum event projection"], "owner": "platform" },
+    { "slug": "guest-access", "mode": "signed", "controls": ["43-character guest capability token", "hashed token", "expiry and revocation checks"], "owner": "guest" },
+    { "slug": "job-heartbeat-monitor", "mode": "signed", "controls": ["constant-time cron secret header", "closed route templates"], "owner": "platform" }
+  ]
+}
