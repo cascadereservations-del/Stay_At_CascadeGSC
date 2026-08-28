@@ -108,6 +108,31 @@ const TEMPLATES: Record<string, TemplateDefinition> = {
       `Match: ${text(fields, 'match_status')}`,
     ].join('\n'),
   },
+  'finance.system_failure': {
+    route: 'finance',
+    required: ['job_name', 'reason_code', 'correlation_id', 'last_succeeded_at', 'consecutive_failures'],
+    allowed: ['job_name', 'reason_code', 'correlation_id', 'last_succeeded_at', 'consecutive_failures'],
+    render: (fields) => [
+      '⚠️ Cascade System Failure',
+      `Job: ${text(fields, 'job_name')}`,
+      `Reason: ${text(fields, 'reason_code')}`,
+      `Last success: ${text(fields, 'last_succeeded_at')}`,
+      `Consecutive failures: ${integer(fields, 'consecutive_failures')}`,
+      `Correlation: ${text(fields, 'correlation_id')}`,
+    ].join('\n'),
+  },
+  'ops.operational_risk': {
+    route: 'ops',
+    required: ['job_name', 'reason_code', 'correlation_id', 'impact'],
+    allowed: ['job_name', 'reason_code', 'correlation_id', 'impact'],
+    render: (fields) => [
+      '⚠️ Operational Automation Risk',
+      `Job: ${text(fields, 'job_name')}`,
+      `Reason: ${text(fields, 'reason_code')}`,
+      `Impact: ${text(fields, 'impact')}`,
+      `Correlation: ${text(fields, 'correlation_id')}`,
+    ].join('\n'),
+  },
   'guest.booking_confirmed': {
     route: 'guest',
     required: ['booking_ref', 'unit_name', 'checkin_date', 'checkout_date'],

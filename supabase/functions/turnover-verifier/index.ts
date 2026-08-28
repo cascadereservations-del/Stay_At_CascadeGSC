@@ -9,10 +9,11 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { cronSecretMatches } from '../_shared/cron-auth.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cascade-cron-secret',
 };
 
 function json(data: unknown, status = 200): Response {
@@ -41,6 +42,29 @@ function fmtIssues(issues: string[]): string {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+  if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
+  if (!cronSecretMatches(Deno.env.get('CASCADE_CRON_SHARED_SECRET'), req.headers.get('x-cascade-cron-secret'))) {
+    return json({ ok: false, error: 'unauthorized' }, 401);
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.warn('[turnover-verifier] missing Supabase env vars');
+    return json({ ok: false, error: 'configuration_missing' }, 500);
+  }
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
+  const recordHeartbeat = async (phase: 'started' | 'succeeded' | 'failed', errorCode: string | null = null) => {
+    const { error } = await supabase.rpc('record_job_heartbeat', {
+      p_job_name: 'turnover-verifier-daily',
+      p_phase: phase,
+      p_error_code: errorCode,
+    });
+    if (error) console.warn('[turnover-verifier] heartbeat write failed:', error.message);
+  };
+  await recordHeartbeat('started');
 
   const TG_TOKEN      = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const TG_FINANCE_ID = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
@@ -48,14 +72,9 @@ Deno.serve(async (req: Request) => {
 
   if (!TG_TOKEN || !TG_FINANCE_ID || !TG_OPS_ID) {
     console.warn('[turnover-verifier] missing Telegram env vars');
-    return json({ ok: false, error: 'missing env' }, 500);
+    await recordHeartbeat('failed', 'CONFIGURATION_MISSING');
+    return json({ ok: false, error: 'configuration_missing' }, 500);
   }
-
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    { auth: { persistSession: false } }
-  );
 
   // Today in Manila time
   const nowManila   = new Date(new Date().toLocaleString('en-CA', { timeZone: 'Asia/Manila' }));
@@ -206,5 +225,10 @@ Deno.serve(async (req: Request) => {
     results.pass2_error = String(e);
   }
 
+  if (results.pass1_error || results.pass2_error) {
+    await recordHeartbeat('failed', 'TURNOVER_VERIFY_FAILED');
+    return json({ ok: false, error: 'turnover_verify_failed', results }, 500);
+  }
+  await recordHeartbeat('succeeded');
   return json({ ok: true, results });
 });
