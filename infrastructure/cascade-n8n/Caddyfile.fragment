@@ -1,0 +1,30 @@
+cascade-n8n.rocloyd.com {
+  encode zstd gzip
+
+  reverse_proxy 127.0.0.1:{$CASCADE_N8N_BIND_PORT} {
+    header_up X-Real-IP {remote_host}
+    header_up X-Forwarded-Proto https
+  }
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    -Server
+  }
+
+  log {
+    output file /var/log/caddy/cascade-n8n-access.log {
+      roll_size 10MiB
+      roll_keep 5
+    }
+    format filter {
+      wrap json
+      fields {
+        request>headers>Authorization delete
+        request>headers>Cookie delete
+        request>uri query
+      }
+    }
+  }
+}
