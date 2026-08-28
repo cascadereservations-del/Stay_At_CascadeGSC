@@ -15,6 +15,10 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
+// This recovered function predates generated database types. Keep its helper
+// boundary structurally untyped until a generated Database contract replaces it.
+type LegacyDatabaseClient = { from: (relation: string) => any };
+
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -39,6 +43,11 @@ interface PhotoEntry {
 interface ExtraExpense {
   amount?:      number | string;
   description?: string;
+}
+
+interface UtilityHistoryRow {
+  kwh_per_night: number | string | null;
+  m3_per_night: number | string | null;
 }
 
 interface Payload {
@@ -102,7 +111,7 @@ function countUploaded(photos: Record<string, PhotoEntry[]> | undefined, key: st
 // Resolve cleaner fee from the real cleaner_rate_schedule schema.
 // Latest effective_from <= today; general_rate for deep clean, regular_rate otherwise.
 async function resolveFee(
-  supabase:     ReturnType<typeof createClient>,
+  supabase:     LegacyDatabaseClient,
   propertyId:   string | null,
   cleaningType: string,
 ): Promise<number> {
@@ -199,7 +208,7 @@ async function dispatchTelegram(
 }
 
 async function dispatchFinanceCard(
-  supabase:       ReturnType<typeof createClient>,
+  supabase:       LegacyDatabaseClient,
   tgToken:        string,
   tgFinanceId:    string,
   propertyId:     string | null,
@@ -260,7 +269,7 @@ async function dispatchFinanceCard(
 
 // v7.8: insert cleaner-incurred expenses and send a single Finance summary card.
 async function processExtraExpenses(
-  supabase:     ReturnType<typeof createClient>,
+  supabase:     LegacyDatabaseClient,
   propertyId:   string | null,
   cleanerName:  string,
   cleaningDate: string,
@@ -321,7 +330,7 @@ async function processExtraExpenses(
 }
 
 async function checkUtilityAnomaly(
-  supabase:       ReturnType<typeof createClient>,
+  supabase:       LegacyDatabaseClient,
   propertyId:     string,
   sessionId:      string,
   kwhPerNight:    number | null,
@@ -352,10 +361,11 @@ async function checkUtilityAnomaly(
       return;
     }
 
-    const meanKwh = rows.reduce((s, r) => s + Number(r.kwh_per_night), 0) / rows.length;
-    const meanM3  = rows.filter(r => r.m3_per_night !== null)
+    const samples = rows as UtilityHistoryRow[];
+    const meanKwh = samples.reduce((s, r) => s + Number(r.kwh_per_night), 0) / samples.length;
+    const meanM3  = samples.filter(r => r.m3_per_night !== null)
                         .reduce((s, r) => s + Number(r.m3_per_night), 0)
-                  / (rows.filter(r => r.m3_per_night !== null).length || 1);
+                  / (samples.filter(r => r.m3_per_night !== null).length || 1);
 
     const THRESHOLD = 2.0;
     const elecFlag  = kwhPerNight !== null && kwhPerNight > meanKwh  * THRESHOLD;

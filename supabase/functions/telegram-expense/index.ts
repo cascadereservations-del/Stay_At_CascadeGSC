@@ -171,7 +171,7 @@ function advisoryAffectsCascade(affected:any):boolean{
 async function fetchPhotoBytesByFileId(fileId:string):Promise<{bytes:Uint8Array;mime:string}|null>{
   const fileMeta=await tgCall('getFile',{file_id:fileId});const filePath=fileMeta?.result?.file_path;
   if(!filePath)return null;
-  const bytes=new Uint8Array(await fetch(`https://api.telegram.org/file/bot${TG_TOKEN}/${filePath}`).then(r=>r.arrayBuffer()));
+  const bytes=new Uint8Array((await fetch(`https://api.telegram.org/file/bot${TG_TOKEN}/${filePath}`).then(r=>r.arrayBuffer())) as ArrayBuffer);
   const ext=(filePath.split('.').pop()||'jpg').toLowerCase();
   return {bytes,mime:`image/${ext==='jpg'?'jpeg':ext}`};
 }
@@ -1620,7 +1620,7 @@ async function handlePhotoMessage(msg:any,db:any){
     const best=msg.photo[msg.photo.length-1];
     const fileMeta=await tgCall('getFile',{file_id:best.file_id});const filePath=fileMeta?.result?.file_path;
     if(!filePath){await tgSend(chatId,'⚠️ Could not fetch photo. Try again.');return;}
-    const bytes=new Uint8Array(await fetch(`https://api.telegram.org/file/bot${TG_TOKEN}/${filePath}`).then(r=>r.arrayBuffer()));
+    const bytes=new Uint8Array((await fetch(`https://api.telegram.org/file/bot${TG_TOKEN}/${filePath}`).then(r=>r.arrayBuffer())) as ArrayBuffer);
     const ext=(filePath.split('.').pop()||'jpg').toLowerCase();
     const objectPath=`receipts/${chatId}/${best.file_unique_id}.${ext}`;
     const mime=`image/${ext==='jpg'?'jpeg':ext}`;

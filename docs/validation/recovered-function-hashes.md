@@ -29,3 +29,7 @@ The deployment hash is Supabase's bundle hash from the safe production inventory
 - `submit-cleaning` exposes 19 existing type errors after the floating `jsr:@supabase/supabase-js@2` import resolves to 2.112.4. They are concentrated in untyped query rows and generic `ReturnType<typeof createClient>` parameters.
 - The failed checks are preserved as evidence of deployed-source/toolchain drift. They are corrected in a separate, test-first compatibility commit so this recovery commit remains an unmodified source capture.
 - A later security task evaluates authentication and hard-coded configuration; recovery itself preserves deployed behavior without silently fixing it.
+
+Task 0.2a applies only type-level compatibility annotations. The exact downloaded forms remain reproducible from commit `afab977` and the recorded local hashes above.
+
+After Task 0.2a, Deno 2.9.5 checks pass for `telegram-expense`, `submit-cleaning` and `turnover-verifier`; the latter two use npm auto-install because Supabase's runtime declarations reference npm packages.
