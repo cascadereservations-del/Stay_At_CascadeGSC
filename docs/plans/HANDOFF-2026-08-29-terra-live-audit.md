@@ -45,7 +45,7 @@
 - No n8n/OAuth/API credential was created or entered.
 - No scheduler/cron was activated.
 - No isolated Docker stack was deployed.
-- Migrations `20260828000100` through `20260828000500` were tested locally but not broadly deployed.
+- The route guard was subsequently deployed by SOL as production migration `20260829173700_notification_route_guard`; migrations `20260828000200` through `20260828000500` remain local-only.
 - The production outbox and notification-route tables were empty during preflight.
 - The three W01 Vault secret records exist; their values were never read or copied.
 - The n8n in-app session expired after the read-only audit. Owner sign-in is required to resume UI cleanup.
@@ -58,7 +58,7 @@
   - `public.v_direct_state_desync`
 - [ ] Decide whether each view can safely use `security_invoker = true`, needs narrower grants, or requires a compatibility replacement. Include rollback and consumer smoke tests.
 - [ ] Review the coordinated production batch in source order:
-  - `20260828000100_notification_route_guard.sql`
+  - `20260829173700_notification_route_guard.sql` (deployed and ledger-reconciled by SOL)
   - `20260828000200_operational_rls_lockdown.sql`
   - `20260828000300_job_heartbeats.sql`
   - `20260828000400_staff_roles_and_sessions.sql`

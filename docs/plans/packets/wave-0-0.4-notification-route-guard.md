@@ -14,7 +14,7 @@ Finance may receive booking, payment and administrative financial detail. OPS ma
 
 Create `supabase/functions/_shared/notifications.test.ts` before `notifications.ts`. Cover safe OPS rendering, nested forbidden keys, `notes="guest paid PHP 1780"`, unknown fields/arbitrary prose, Finance amount rendering and post-render OPS validation.
 
-Create `supabase/tests/database/notification_route_guard.sql` before migration `20260828000100_notification_route_guard.sql`. Assert route/template columns and constraints, safe OPS insert, nested-amount rejection, free-text payment rejection and Finance acceptance.
+Create `supabase/tests/database/notification_route_guard.sql` before migration `20260829173700_notification_route_guard.sql`. Assert route/template columns and constraints, safe OPS insert, nested-amount rejection, free-text payment rejection and Finance acceptance.
 
 ```powershell
 npx.cmd --yes deno test --no-lock supabase/functions/_shared/notifications.test.ts
@@ -51,6 +51,6 @@ Before production, discard the migration. After an approved expand-only deployme
 ## Commit
 
 ```powershell
-git add docs/plans/packets/wave-0-0.4-notification-route-guard.md supabase/functions/_shared/notifications.ts supabase/functions/_shared/notifications.test.ts supabase/migrations/20260828000100_notification_route_guard.sql supabase/tests/database/notification_route_guard.sql
+git add docs/plans/packets/wave-0-0.4-notification-route-guard.md supabase/functions/_shared/notifications.ts supabase/functions/_shared/notifications.test.ts supabase/migrations/20260829173700_notification_route_guard.sql supabase/tests/database/notification_route_guard.sql
 git commit -m "feat(cascade): enforce finance and ops message separation"
 ```
