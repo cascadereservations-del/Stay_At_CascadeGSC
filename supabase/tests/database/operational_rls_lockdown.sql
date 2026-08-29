@@ -1,5 +1,5 @@
 begin;
-select plan(23);
+select plan(24);
 
 select has_column('public', 'inventory_items', 'property_id', 'inventory is property scoped');
 select col_not_null('public', 'inventory_items', 'property_id', 'inventory property is required');
@@ -33,8 +33,26 @@ insert into public.inventory_items (id, property_id, name, category, unit) value
   ('31000000-0000-4000-8000-000000000002', '30000000-0000-4000-8000-000000000002', 'RLS Fixture Item Two', 'fixture', 'pc')
 on conflict (id) do nothing;
 
+insert into auth.users (id) values
+  ('32000000-0000-4000-8000-000000000001'),
+  ('32000000-0000-4000-8000-000000000002')
+on conflict (id) do nothing;
+
+insert into public.staff_access_profiles (user_id, role) values
+  ('32000000-0000-4000-8000-000000000001', 'cleaner'),
+  ('32000000-0000-4000-8000-000000000002', 'owner')
+on conflict (user_id) do update
+set role = excluded.role,
+    disabled_at = null,
+    sessions_revoked_after = null;
+
+insert into public.staff_property_access (user_id, property_id) values
+  ('32000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001')
+on conflict do nothing;
+
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"32000000-0000-4000-8000-000000000001","app_metadata":{"role":"cleaner","property_ids":["30000000-0000-4000-8000-000000000001"]}}';
+-- Deliberately poisoned claims prove authorization comes from DB-owned rows.
+set local request.jwt.claims = '{"sub":"32000000-0000-4000-8000-000000000001","app_metadata":{"role":"owner","property_ids":["30000000-0000-4000-8000-000000000002"]}}';
 
 select results_eq(
   $$select id from public.inventory_items where id in ('31000000-0000-4000-8000-000000000001','31000000-0000-4000-8000-000000000002') order by id$$,
@@ -54,7 +72,18 @@ select throws_ok(
   'cleaner cannot submit for another property'
 );
 
-set local request.jwt.claims = '{"sub":"32000000-0000-4000-8000-000000000002","app_metadata":{"role":"owner","property_ids":[]}}';
+reset role;
+update public.staff_access_profiles
+set disabled_at = now()
+where user_id = '32000000-0000-4000-8000-000000000001';
+set local role authenticated;
+select is(
+  (select count(*) from public.inventory_items where id in ('31000000-0000-4000-8000-000000000001','31000000-0000-4000-8000-000000000002')),
+  0::bigint,
+  'disabled staff immediately lose operational access despite stale JWT claims'
+);
+
+set local request.jwt.claims = '{"sub":"32000000-0000-4000-8000-000000000002","app_metadata":{"role":"cleaner","property_ids":[]}}';
 select is(
   (select count(*) from public.inventory_items where id in ('31000000-0000-4000-8000-000000000001','31000000-0000-4000-8000-000000000002')),
   2::bigint,

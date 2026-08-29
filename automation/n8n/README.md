@@ -2,6 +2,12 @@
 
 All workflows import inactive. The exports contain a connected, side-effect-free **safe draft**: manual trigger → idempotency check → configuration gate → callback placeholder. This deliberately replaces the earlier disconnected canvas exports. It is useful for visual review and safe import, but it is not an activated automation.
 
+The read-only live inventory from 2026-08-29 is recorded in
+`docs/runbooks/n8n-live-baseline-2026-08-29.md`. The live folder had no
+published workflows and contained two W01 drafts; neither duplicate is the
+activation authority. Source-controlled exports plus review/tests are the
+baseline for the next import.
+
 Configure credentials in **Personal → Credentials**, never in these JSON files. Supabase remains the booking system of record; production workflows must consume its outbox events and call the authenticated callback after each channel attempt.
 
 ## Before any workflow can be enabled

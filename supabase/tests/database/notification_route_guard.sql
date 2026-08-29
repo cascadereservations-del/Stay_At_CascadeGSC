@@ -3,7 +3,19 @@ select plan(8);
 
 select has_column('public', 'automation_outbox', 'route_class', 'outbox declares a route class');
 select has_column('public', 'automation_outbox', 'template_key', 'outbox declares a template key');
-select has_check('public', 'automation_outbox', 'automation_outbox_ops_payload_guard', 'outbox OPS payload guard exists');
+select ok(
+  exists (
+    select 1
+    from pg_catalog.pg_constraint c
+    join pg_catalog.pg_class t on t.oid = c.conrelid
+    join pg_catalog.pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public'
+      and t.relname = 'automation_outbox'
+      and c.conname = 'automation_outbox_ops_payload_guard'
+      and c.contype = 'c'
+  ),
+  'outbox OPS payload guard exists'
+);
 
 select lives_ok(
   $$insert into public.automation_outbox (event_type, aggregate_type, aggregate_id, idempotency_key, route_class, template_key, payload)
