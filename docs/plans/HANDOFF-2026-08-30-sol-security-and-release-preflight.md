@@ -51,8 +51,9 @@
 - `last-readings` requires property-scoped `read_operations`. `upload-photo` uses a server-chosen property/user/submission path in a private bucket. `submit-cleaning` verifies the named user, property and every photo path and records submitter IDs.
 - Cleaner-entered expenses create `pending_review` rows in `cleaning_expense_claims`; they no longer create confirmed ledger transactions. Amounts are removed from the GAS operational payload and remain Finance-only.
 - The database packet closes anonymous inventory/photo access and prevents direct RLS writes from spoofing another submitter.
-- Verification: 61/61 pgTAP assertions, 3/3 backend boundary tests, 2/2 shared-auth Deno tests, Edge Function type-check, 5/5 PWA tests, and the 23-endpoint auth manifest audit pass.
+- Verification: 63/63 pgTAP assertions, 3/3 backend boundary tests, 2/2 shared-auth Deno tests, Edge Function type-check, 5/5 PWA tests, and the 23-endpoint auth manifest audit pass.
 - Production remains blocked: the live owner has zero verified MFA factors, and a real cleaner Auth user/property assignment plus a coordinated smoke window have not been proven. The three functions therefore remain `migration_blocked` in the live manifest.
+- Fresh read-only preflight after the commits confirmed: `verified_mfa_factor_count=0`, `staff_profiles_deployed=false`, and `required_scheduler_secret_count=0`. No production mutation followed.
 
 ### Heartbeat scheduler — do not activate yet
 
