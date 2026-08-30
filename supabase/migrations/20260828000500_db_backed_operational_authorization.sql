@@ -18,6 +18,7 @@ as $$
       'approve_payment',
       'read_finance',
       'read_operations',
+      'manage_operations',
       'inspect_cleaning',
       'submit_cleaning',
       'manage_inventory',
@@ -95,6 +96,9 @@ drop policy if exists meters_owner_admin_all on public.meter_readings;
 drop policy if exists meters_staff_read on public.meter_readings;
 drop policy if exists meters_staff_insert on public.meter_readings;
 drop policy if exists meters_staff_update on public.meter_readings;
+drop policy if exists inventory_management on public.inventory_items;
+drop policy if exists cleaning_management on public.cleaning_sessions;
+drop policy if exists meters_management on public.meter_readings;
 
 create policy inventory_management on public.inventory_items
   for all to authenticated
@@ -107,8 +111,8 @@ create policy inventory_staff_read on public.inventory_items
 
 create policy cleaning_management on public.cleaning_sessions
   for all to authenticated
-  using (public.current_staff_authorized('inspect_cleaning', property_id))
-  with check (public.current_staff_authorized('inspect_cleaning', property_id));
+  using (public.current_staff_authorized('manage_operations', property_id))
+  with check (public.current_staff_authorized('manage_operations', property_id));
 
 create policy cleaning_staff_read on public.cleaning_sessions
   for select to authenticated
@@ -125,8 +129,8 @@ create policy cleaning_staff_update on public.cleaning_sessions
 
 create policy meters_management on public.meter_readings
   for all to authenticated
-  using (public.current_staff_authorized('inspect_cleaning', property_id))
-  with check (public.current_staff_authorized('inspect_cleaning', property_id));
+  using (public.current_staff_authorized('manage_operations', property_id))
+  with check (public.current_staff_authorized('manage_operations', property_id));
 
 create policy meters_staff_read on public.meter_readings
   for select to authenticated

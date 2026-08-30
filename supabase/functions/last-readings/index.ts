@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -13,6 +14,8 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const propertyId = new URL(req.url).searchParams.get('property_id') ?? '';
+    await requireStaffAccess(req, 'read_operations', propertyId);
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -23,6 +26,7 @@ Deno.serve(async (req: Request) => {
     const { data, error } = await supabase
       .from('meter_readings')
       .select('electric_curr, water_curr, recorded_at')
+      .eq('property_id', propertyId)
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -41,6 +45,8 @@ Deno.serve(async (req: Request) => {
     });
 
   } catch (err) {
+    const authResponse = staffAuthResponse(err, CORS);
+    if (authResponse) return authResponse;
     console.error('last-readings error:', err);
     return new Response(
       JSON.stringify({ electric: null, water: null, error: String(err) }),

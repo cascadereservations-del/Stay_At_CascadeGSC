@@ -76,12 +76,22 @@ create index if not exists inventory_items_property_idx
 
 drop policy if exists "anon all" on public.inventory_items;
 drop policy if exists "authenticated all" on public.inventory_items;
+drop policy if exists inventory_owner_admin_all on public.inventory_items;
+drop policy if exists inventory_staff_read on public.inventory_items;
 drop policy if exists "anon insert" on public.cleaning_sessions;
 drop policy if exists "anon select" on public.cleaning_sessions;
 drop policy if exists "authenticated_all_cleaning_sessions" on public.cleaning_sessions;
+drop policy if exists cleaning_owner_admin_all on public.cleaning_sessions;
+drop policy if exists cleaning_staff_read on public.cleaning_sessions;
+drop policy if exists cleaning_staff_insert on public.cleaning_sessions;
+drop policy if exists cleaning_staff_update on public.cleaning_sessions;
 drop policy if exists "anon insert" on public.meter_readings;
 drop policy if exists "anon select" on public.meter_readings;
 drop policy if exists "authenticated_all_meter_readings" on public.meter_readings;
+drop policy if exists meters_owner_admin_all on public.meter_readings;
+drop policy if exists meters_staff_read on public.meter_readings;
+drop policy if exists meters_staff_insert on public.meter_readings;
+drop policy if exists meters_staff_update on public.meter_readings;
 
 revoke all on table public.inventory_items, public.cleaning_sessions, public.meter_readings from anon, authenticated;
 grant select, insert, update, delete on table public.inventory_items, public.cleaning_sessions, public.meter_readings to authenticated;

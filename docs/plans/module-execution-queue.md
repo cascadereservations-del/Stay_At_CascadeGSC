@@ -22,6 +22,8 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Scope:** Wave 0 Tasks 0.9–0.12, then recovery report 0.8.
 
+**Progress (2026-08-30):** named staff plus authenticated cleaner/RLS release candidate is complete and locally verified. Privacy and observability foundations are present. Production staff activation, migration release tooling and disposable recovery proof remain open; Module B must not start before those Module A gates are closed or explicitly re-sequenced.
+
 - Named staff accounts, property-scoped roles, MFA gate, revocation and offboarding.
 - Privacy inventory, retention, request/hold model and breach response.
 - Correlation IDs, redaction and provider-outage/degraded-mode tests.

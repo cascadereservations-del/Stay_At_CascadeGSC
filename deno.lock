@@ -1,5 +1,28 @@
 {
   "version": "5",
+  "specifiers": {
+    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/internal@^1.0.12": "1.0.14",
+    "jsr:@supabase/functions-js@*": "2.112.4",
+    "jsr:@supabase/supabase-js@2": "2.112.4"
+  },
+  "jsr": {
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.14": {
+      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    },
+    "@supabase/functions-js@2.112.4": {
+      "integrity": "6da8c600c7fd727f0d1f0e81b638a13d7f9aaee7269d62e959abc94abb59bb15"
+    },
+    "@supabase/supabase-js@2.112.4": {
+      "integrity": "f20220bf7de53d493d2f01aa269132b660572ba407e7de68f1b43422b9e8002a"
+    }
+  },
   "redirects": {
     "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.112.3"
   },

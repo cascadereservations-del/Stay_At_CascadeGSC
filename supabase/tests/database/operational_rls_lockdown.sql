@@ -61,12 +61,12 @@ select results_eq(
 );
 
 select lives_ok(
-  $$insert into public.cleaning_sessions (id, submission_id, cleaner_name, property_id) values ('33000000-0000-4000-8000-000000000001', 'rls-allowed', 'Fixture Cleaner', '30000000-0000-4000-8000-000000000001')$$,
+  $$insert into public.cleaning_sessions (id, submission_id, cleaner_name, property_id, submitted_by_user_id) values ('33000000-0000-4000-8000-000000000001', 'rls-allowed', 'Fixture Cleaner', '30000000-0000-4000-8000-000000000001', '32000000-0000-4000-8000-000000000001')$$,
   'cleaner may submit for an assigned property'
 );
 
 select throws_ok(
-  $$insert into public.cleaning_sessions (id, submission_id, cleaner_name, property_id) values ('33000000-0000-4000-8000-000000000002', 'rls-denied', 'Fixture Cleaner', '30000000-0000-4000-8000-000000000002')$$,
+  $$insert into public.cleaning_sessions (id, submission_id, cleaner_name, property_id, submitted_by_user_id) values ('33000000-0000-4000-8000-000000000002', 'rls-denied', 'Fixture Cleaner', '30000000-0000-4000-8000-000000000002', '32000000-0000-4000-8000-000000000001')$$,
   '42501',
   null,
   'cleaner cannot submit for another property'

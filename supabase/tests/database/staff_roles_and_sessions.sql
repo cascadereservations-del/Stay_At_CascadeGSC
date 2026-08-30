@@ -1,5 +1,5 @@
 begin;
-select plan(21);
+select plan(23);
 select has_table('public', 'staff_access_profiles', 'named staff profiles exist');
 select has_table('public', 'staff_property_access', 'staff property scope is normalized');
 select has_table('public', 'staff_access_audit', 'staff access audit exists');
@@ -17,6 +17,8 @@ select ok(not has_table_privilege('service_role', 'public.staff_access_audit', '
 select ok(has_function_privilege('authenticated', 'public.manage_staff_access(uuid,text,text,uuid[],text)', 'execute'), 'authenticated staff may enter guarded management RPC');
 select ok(not has_function_privilege('service_role', 'public.bootstrap_cascade_owner(uuid,uuid[],text)', 'execute'), 'service role cannot bootstrap an owner');
 select ok(public.staff_access_allowed('cleaner','submit_cleaning',null,'aal1'), 'active cleaner may submit');
+select ok(not public.staff_access_allowed('cleaner','manage_operations',null,'aal1'), 'cleaner cannot manage operational records');
+select ok(public.staff_access_allowed('owner','manage_operations',null,'aal1'), 'owner may manage operational records without finance MFA scope');
 select ok(not public.staff_access_allowed('cleaner','submit_cleaning',now(),'aal1'), 'disabled cleaner cannot submit');
 select ok(not public.staff_access_allowed('inspector','approve_payment',null,'aal2'), 'inspector cannot approve payment');
 select ok(not public.staff_access_allowed('admin','approve_payment',null,'aal1'), 'payment approval requires AAL2');

@@ -14,6 +14,7 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 
 // This recovered function predates generated database types. Keep its helper
 // boundary structurally untyped until a generated Database contract replaces it.
@@ -51,6 +52,7 @@ interface UtilityHistoryRow {
 }
 
 interface Payload {
+  propertyId?:               string;
   submissionId?:            string;
   cleaningDate?:            string;
   cleaningType?:            string;
@@ -106,6 +108,22 @@ function photoUrl(p: PhotoEntry): string | null {
 function countUploaded(photos: Record<string, PhotoEntry[]> | undefined, key: string): number {
   if (!photos || !Array.isArray(photos[key])) return 0;
   return photos[key].map(photoUrl).filter((u): u is string => u !== null).length;
+}
+
+async function refreshSignedPhotoUrls(
+  supabase: any,
+  photos: Record<string, PhotoEntry[]>,
+): Promise<void> {
+  const entries = Object.values(photos).flat();
+  await Promise.all(entries.map(async (photo) => {
+    const { data, error } = await supabase.storage
+      .from('cleaning-photos')
+      .createSignedUrl(String(photo.fileId), 3600);
+    if (error || !data?.signedUrl) throw new Error('photo_access_refresh_failed');
+    photo.fileUrl = data.signedUrl;
+    delete photo.url;
+    delete photo.data;
+  }));
 }
 
 // Resolve cleaner fee from the real cleaner_rate_schedule schema.
@@ -277,6 +295,8 @@ async function processExtraExpenses(
   raw:          ExtraExpense[] | undefined,
   tgToken:      string | undefined,
   tgFinanceId:  string | undefined,
+  sessionId:    string,
+  submitterId:  string,
 ): Promise<void> {
   if (!Array.isArray(raw) || raw.length === 0) return;
 
@@ -289,21 +309,19 @@ async function processExtraExpenses(
     ? cleaningDate
     : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 
+  if (!propertyId) return;
   const rows = clean.map(x => ({
-    ...(propertyId ? { property_id: propertyId } : {}),
-    txn_type:         'expense',
-    category:         'cleaning',
-    status:           'confirmed',
-    source:           'manual',
-    transaction_date: txnDate,
-    gross_amount:     x.amount,
-    currency:         'PHP',
-    payee_name:       cleanerName,
-    logged_by:        cleanerName,
-    notes:            `Cleaning expense (${cleaningDate}): ${x.description}`,
+    property_id:             propertyId,
+    cleaning_session_id:     sessionId,
+    submitted_by_user_id:    submitterId,
+    expense_date:            txnDate,
+    amount:                  x.amount,
+    currency:                'PHP',
+    description:             x.description,
+    status:                  'pending_review',
   }));
 
-  const { error } = await supabase.from('transactions').insert(rows);
+  const { error } = await supabase.from('cleaning_expense_claims').insert(rows);
   if (error) {
     console.warn('[extra-expenses] insert non-fatal:', error.message);
     return;
@@ -313,13 +331,13 @@ async function processExtraExpenses(
     const total = clean.reduce((s, x) => s + x.amount, 0);
     const list  = clean.map(x => `\u2022 \u20B1${x.amount.toFixed(2)} \u2014 ${x.description}`).join('\n');
     const lines = [
-      `\uD83E\uDDFE *Cleaning Expenses Logged \u2014 ${unitName}*`,
+      `\uD83E\uDDFE *Cleaning Expense Claims \u2014 ${unitName}*`,
       `\uD83D\uDCC5 ${cleaningDate}  \u00b7  \uD83D\uDC64 ${cleanerName}`,
       ``,
       list,
       ``,
       `\uD83D\uDCB0 *Total to reimburse: \u20B1${total.toFixed(2)}*`,
-      `\u2139\uFE0F Recorded as expense transactions (category: cleaning).`,
+      `\u2139\uFE0F Pending Finance review. No ledger transaction was created.`,
     ];
     await tgPost(tgToken, 'sendMessage', {
       chat_id:    tgFinanceId,
@@ -415,6 +433,12 @@ Deno.serve(async (req: Request) => {
   try {
     const payload: Payload = await req.json();
 
+    const propertyId = String(payload.propertyId ?? '');
+    if (!payload.submissionId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payload.submissionId)) {
+      return json({ ok: false, error: 'valid_submission_id_required' }, 400);
+    }
+    const identity = await requireStaffAccess(req, 'submit_cleaning', propertyId);
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -430,9 +454,6 @@ Deno.serve(async (req: Request) => {
         return json({ ok: true, status: 'duplicate_ignored', message: 'Already recorded.' });
       }
     }
-
-    const { data: prop } = await supabase.from('properties').select('id').limit(1).maybeSingle();
-    const propertyId: string | null = prop?.id ?? null;
 
     const fd            = (payload.formData ?? {}) as Record<string, unknown>;
     const cleanerName   = String(fd.cleanerName   ?? payload.cleanerName   ?? '\u2014');
@@ -462,6 +483,12 @@ Deno.serve(async (req: Request) => {
     const urgentItems = String(payload.urgentItems ?? '');
 
     const ph = (payload.photos ?? {}) as Record<string, PhotoEntry[]>;
+    const expectedPhotoPrefix = `${propertyId}/${identity.userId}/${payload.submissionId}/`;
+    const invalidPhoto = Object.values(ph).flat().some((photo) =>
+      !photo.fileId || !String(photo.fileId).startsWith(expectedPhotoPrefix)
+    );
+    if (invalidPhoto) return json({ ok: false, error: 'invalid_photo_scope' }, 400);
+    await refreshSignedPhotoUrls(supabase, ph);
     const precleanCount   = countUploaded(ph, 'section_preclean');
     const aftercleanCount = countUploaded(ph, 'section_afterclean');
     const meterCount      = countUploaded(ph, 'section_meter');
@@ -507,6 +534,7 @@ Deno.serve(async (req: Request) => {
         notes:                  notes || null,
         session_folder_id:      payload.sessionFolderId ?? null,
         property_id:            propertyId,
+        submitted_by_user_id:   identity.userId,
         preclean_photo_count:   precleanCount,
         afterclean_photo_count: aftercleanCount,
         meter_photo_count:      meterCount,
@@ -544,9 +572,9 @@ Deno.serve(async (req: Request) => {
     const TG_CHAT_ID    = Deno.env.get('TELEGRAM_CHAT_ID');
     const TG_FINANCE_ID = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
 
-    processExtraExpenses(
+    await processExtraExpenses(
       supabase, propertyId, cleanerName, cleaningDate, unitName,
-      payload.extraExpenses, TG_TOKEN, TG_FINANCE_ID,
+      payload.extraExpenses, TG_TOKEN, TG_FINANCE_ID, sessionId, identity.userId,
     ).catch(err => console.warn('[extra-expenses] non-fatal:', err));
 
     let meterWritten = false;
@@ -563,6 +591,7 @@ Deno.serve(async (req: Request) => {
         m3_per_night:   m3PerNight,
         recorded_at:    new Date().toISOString(),
         property_id:    propertyId,
+        submitted_by_user_id: identity.userId,
       });
       if (meterErr) {
         console.error('meter_readings insert (non-fatal):', meterErr);
@@ -606,10 +635,11 @@ Deno.serve(async (req: Request) => {
 
     const GAS_URL = Deno.env.get('GAS_SCRIPT_URL');
     if (GAS_URL) {
+      const operationalPayload = { ...payload, extraExpenses: undefined };
       fetch(GAS_URL, {
         method:  'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body:    JSON.stringify(payload),
+        body:    JSON.stringify(operationalPayload),
         signal:  AbortSignal.timeout(25_000),
       }).catch(err => console.warn('GAS forward non-fatal:', err));
     }
@@ -617,6 +647,8 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, status: 'success', sessionId, is_complete: isComplete, message: 'Report recorded.' });
 
   } catch (err) {
+    const authResponse = staffAuthResponse(err, CORS);
+    if (authResponse) return authResponse;
     console.error('submit-cleaning fatal:', err);
     return json({ ok: false, error: String(err) }, 500);
   }

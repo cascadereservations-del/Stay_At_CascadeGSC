@@ -2,9 +2,9 @@
   "schema_version": 1,
   "entries": [
     { "slug": "availability", "mode": "public", "controls": ["GET-like read only projection", "date pairs only", "no guest data"], "owner": "booking" },
-    { "slug": "last-readings", "mode": "migration_blocked", "controls": ["must move behind named cleaner session before RLS cutover"], "owner": "operations" },
-    { "slug": "upload-photo", "mode": "migration_blocked", "controls": ["must require scoped cleaner upload grant", "private bucket required"], "owner": "operations" },
-    { "slug": "submit-cleaning", "mode": "migration_blocked", "controls": ["must require named or short-lived device-bound cleaner session"], "owner": "operations" },
+    { "slug": "last-readings", "mode": "migration_blocked", "controls": ["JWT release candidate complete", "coordinated staff/RLS deployment and cleaner account required before activation"], "owner": "operations" },
+    { "slug": "upload-photo", "mode": "migration_blocked", "controls": ["JWT and private-path release candidate complete", "coordinated bucket/PWA deployment required before activation"], "owner": "operations" },
+    { "slug": "submit-cleaning", "mode": "migration_blocked", "controls": ["JWT and property-scope release candidate complete", "coordinated staff/RLS/PWA deployment required before activation"], "owner": "operations" },
     { "slug": "calendar-sync", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "booking" },
     { "slug": "submit-booking", "mode": "public", "controls": ["strict field validation", "server-side price and availability validation", "rate limiting required at edge"], "owner": "booking" },
     { "slug": "ocr-receipt", "mode": "jwt", "controls": ["platform JWT verification enabled"], "owner": "finance" },
