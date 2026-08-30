@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "prerequisite_migration_version": "20260823999999",
+  "prerequisite_source": "recovery/prerequisites.sql",
+  "prerequisite_sha256": "5c4b7028e64e91dd2206c56fa6f634b7c868ad561505141c6e5d79447fc3928f",
+  "baseline_migration_version": "20260824000000",
+  "baseline_source": "schemas/000_remote_public_schema.sql",
+  "baseline_sha256": "e01547ae0fe911ff5d0a22972e6605ef313662f6f96b7f63601b839590c6f46d",
+  "compatibility_migration_version": "20260824002000",
+  "compatibility_source": "recovery/pre_forward_compat.sql",
+  "compatibility_sha256": "0ad30130c9df1a8ce778de46439eea534834f4872933efcc01715b65846fe662",
+  "includes_through": "20260817044851",
+  "forward_migrations_from": "20260824002834",
+  "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials."
+}

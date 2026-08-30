@@ -1,5 +1,10 @@
 begin;
 select plan(5);
+
+insert into public.properties (id, name)
+values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Synthetic Cascade Property')
+on conflict (id) do nothing;
+
 insert into public.booking_inquiries (id,guest_name,guest_phone,checkin_date,checkout_date,source,status)
 values ('55555555-5555-4555-8555-555555555555','Synthetic Calendar','000',current_date+30,current_date+32,'direct','pending');
 insert into public.calendar_events (property_id,uid,source,status,checkin_date,checkout_date,recon_status)

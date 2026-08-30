@@ -11,7 +11,9 @@ create table public.job_heartbeats (
 );
 
 alter table public.job_heartbeats enable row level security;
-revoke all on public.job_heartbeats from public, anon, authenticated;
+-- The recovered baseline grants service_role through ALTER DEFAULT PRIVILEGES.
+-- Revoke it explicitly so the role cannot bypass the security-definer recorder.
+revoke all on public.job_heartbeats from public, anon, authenticated, service_role;
 grant select on public.job_heartbeats to service_role;
 
 insert into public.job_heartbeats (job_name, expected_interval_seconds, ops_risk)

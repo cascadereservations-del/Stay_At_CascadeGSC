@@ -6,7 +6,10 @@
     "serve": "serve . -l 4173 --no-clipboard",
     "test:content": "node --test tests/content.test.mjs tests/design-contract.test.mjs tests/link-integrity.test.mjs tests/css-integrity.test.mjs",
     "test:release-safety": "node --test tests/migrations/release-safety.test.mjs",
+    "test:recovery": "node --test tests/recovery/recovery-contract.test.mjs",
     "preflight:local": "node scripts/migrations/preflight.mjs --local",
+    "recovery:n8n": "node scripts/recovery/verify-n8n-restore.mjs",
+    "recovery:supabase": "node scripts/recovery/verify-supabase-reset.mjs",
     "test:e2e": "playwright test",
     "test": "npm run test:content && npm run test:e2e"
   },

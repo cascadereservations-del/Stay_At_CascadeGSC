@@ -70,6 +70,15 @@
 - `docs/runbooks/database-release.md` defines expand/backfill/dual compatibility/verify/contract, fresh production backup evidence and the rule to never run a destructive down migration after data conversion.
 - Focused proof: 16/16 Node release-safety tests, static verifier pass and local migration preflight pass. This tooling does not remove the owner MFA, real cleaner account or production restore-point gates.
 
+### Wave 0.8 local recovery — complete; production runtime restore gated
+
+- `scripts/recovery/verify-n8n-restore.mjs` imports and exports all 13 source-controlled workflows through pinned `n8nio/n8n:2.34.6`, compares executable semantics and proves every workflow remains inactive.
+- `scripts/recovery/verify-supabase-reset.mjs` builds a uniquely prefixed disposable database from a checksum-bound prerequisite/baseline/compatibility chain plus preserved forward migrations. The final proof applied 27/27 migrations and passed all 14 pgTAP files without changing the active `direct-booking` database identity or connecting to production.
+- Recovery contract proof passes 12/12; source inventory, inactive-workflow validation, secret scanning, endpoint-boundary checks, 16/16 release-safety tests and local release preflight also pass.
+- The exercise exposed a recursive production `price_history_by_item` view. Its corrected definition, forward migration `20260830070000_fix_price_history_view_recursion.sql` and regression test are local and undeployed.
+- Report: `docs/validation/2026-08-30-wave-0-recovery-report.md`.
+- Production disaster recovery remains gated until an owner-approved restore exercise covers the shared Portainer n8n database, credential ciphertext, encryption key and execution history.
+
 ## Advisor disposition
 
 - Remaining public SECURITY DEFINER RPC warnings are not safe for blanket revocation:
@@ -85,7 +94,9 @@
 3. Capture a fresh production preflight and rollback snapshot; deploy staff/RLS, the named-cleaner migration and the three JWT functions as one backend packet.
 4. Immediately deploy the authenticated PWA and prove sign-in, property-scoped inventory, photo upload, meter lookup, report submission, pending expense claim, sign-out and disabled/stale-session denial.
 5. Configure the two Cascade scheduler secrets without exposing values; keep schedules and all n8n workflows inactive until their separate activation review.
-6. Only after those proofs, close the production cutover and move to the next Wave 0 packet.
+6. Apply the price-history view correction through its normal production release gate.
+7. Complete an owner-approved backup/restore exercise for the shared Portainer n8n runtime assets.
+8. Only after those proofs, close the production cutover and begin Module B.
 
 ## Current invariant
 

@@ -44,7 +44,7 @@
 
 ## Database metadata
 
-The tracked production schema snapshot is `supabase/schemas/000_remote_public_schema.sql`, SHA-256 `90600ed5439f1bbe955d1898b459101f980e94733fdd91da95d73d20ad16559e`. The checker extracts 33 table declarations, policy declarations and RLS-enabled table declarations from it and verifies the hash.
+The tracked production schema snapshot is `supabase/schemas/000_remote_public_schema.sql`, SHA-256 `e01547ae0fe911ff5d0a22972e6605ef313662f6f96b7f63601b839590c6f46d`. The checker extracts 33 table declarations, policy declarations and RLS-enabled table declarations from it and verifies the hash. During the disposable recovery proof, the snapshot's `price_history_by_item` view was proven to recurse into itself in both source and production; the snapshot now contains the intended base-table definition, while migration `20260830070000_fix_price_history_view_recursion.sql` remains undeployed pending a normal production release gate.
 
 This SQL snapshot is not represented as a fresh 2026-08-28 live dump. Later versioned migrations add booking hardening, outbox, CRM identity and calendar projection objects. A fresh read-only dump was attempted using the canonical project reference, but the CLI requires Docker Desktop for its pinned PostgreSQL image and Docker was unavailable. Until a current dump succeeds, table/column/constraint/policy completeness remains an explicit recovery gate rather than a false claim.
 

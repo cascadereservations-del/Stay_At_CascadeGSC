@@ -41,7 +41,7 @@ test.describe('responsive contract', () => {
   test('no visible interactive target under 44x44 in the booking section (mobile)', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
-    await page.locator('#booking').scrollIntoViewIfNeeded();
+    await page.locator('#booking').evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
     const undersized = await page.evaluate(() => {
       const selectors = '#bookingStep1 button, #bookingStep1 a, #bookingStep1 [role="button"]';
       const bad = [];
@@ -64,7 +64,7 @@ test.describe('responsive contract', () => {
   test('concierge is hidden while the booking section is in view', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
-    await page.locator('#booking').scrollIntoViewIfNeeded();
+    await page.locator('#booking').evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
     await page.waitForTimeout(150);
     await expect(page.locator('#conciergeFloat')).toHaveClass(/is-hidden/);
   });

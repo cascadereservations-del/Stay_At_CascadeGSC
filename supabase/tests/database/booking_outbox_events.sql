@@ -1,6 +1,10 @@
 begin;
 select plan(6);
 
+insert into public.properties (id, name)
+values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Synthetic Cascade Property')
+on conflict (id) do nothing;
+
 insert into public.booking_inquiries (id, guest_name, guest_phone, checkin_date, checkout_date, source, status)
 values ('11111111-1111-4111-8111-111111111111', 'Synthetic Guest', '0000000000', current_date + 10, current_date + 12, 'direct', 'pending');
 

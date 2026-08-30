@@ -2250,13 +2250,15 @@ ALTER TABLE "public"."pois" OWNER TO "postgres";
 
 
 CREATE OR REPLACE VIEW "public"."price_history_by_item" WITH ("security_invoker"='true') AS
- SELECT "item_id",
-    "item_name",
-    "supplier",
-    "unit_cost",
-    "purchased_at",
-    "recency_rank"
-   FROM "public"."price_history_by_item";
+ SELECT "p"."item_id",
+    "i"."name" AS "item_name",
+    "p"."supplier",
+    "p"."unit_cost",
+    "p"."purchased_at",
+    "row_number"() OVER (PARTITION BY "p"."item_id" ORDER BY "p"."purchased_at" DESC, "p"."created_at" DESC, "p"."id" DESC) AS "recency_rank"
+   FROM ("public"."inventory_purchases" "p"
+     JOIN "public"."inventory_items" "i" ON (("i"."id" = "p"."item_id")))
+  WHERE ("p"."unit_cost" IS NOT NULL);
 
 
 ALTER VIEW "public"."price_history_by_item" OWNER TO "postgres";

@@ -1,5 +1,5 @@
 begin;
-select plan(14);
+select plan(17);
 
 select has_table('public', 'job_heartbeats', 'heartbeat table exists');
 select has_pk('public', 'job_heartbeats', 'heartbeat job name is primary key');
@@ -24,6 +24,31 @@ select throws_ok(
   '22023',
   'invalid heartbeat phase',
   'unknown heartbeat phases are rejected'
+);
+
+do $fixture$
+begin
+  perform vault.create_secret('http://127.0.0.1:9', 'cascade_supabase_url', 'disposable recovery fixture');
+  perform vault.create_secret('DISPOSABLE_RECOVERY_ONLY', 'cascade_cron_shared_secret', 'disposable recovery fixture');
+end;
+$fixture$;
+
+select lives_ok(
+  $$select public.configure_cascade_scheduler()$$,
+  'scheduler configuration succeeds with disposable secret-backed inputs'
+);
+
+select is(
+  (select count(*) from cron.job where jobname in ('turnover-verifier-daily', 'job-heartbeat-monitor-every-15m')),
+  2::bigint,
+  'only the two named Cascade recovery schedules are configured'
+);
+
+select ok(
+  (select bool_and(command like '%X-Cascade-Cron-Secret%')
+   from cron.job
+   where jobname in ('turnover-verifier-daily', 'job-heartbeat-monitor-every-15m')),
+  'disposable schedules use the shared-secret header contract'
 );
 
 select * from finish();

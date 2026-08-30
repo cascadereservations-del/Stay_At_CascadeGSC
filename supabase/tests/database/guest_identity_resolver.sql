@@ -1,6 +1,10 @@
 begin;
 select plan(8);
 
+insert into public.properties (id, name)
+values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Synthetic Cascade Property')
+on conflict (id) do nothing;
+
 insert into public.guests (id, property_id, name, phone_e164, source)
 values ('22222222-2222-4222-8222-222222222222', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Synthetic One', '+639171234567', 'direct');
 insert into public.guests (id, property_id, name, email_normalized, source)

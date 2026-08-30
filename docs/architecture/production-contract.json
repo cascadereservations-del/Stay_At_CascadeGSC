@@ -41,7 +41,7 @@
   ],
   "database": {
     "schema_snapshot": "supabase/schemas/000_remote_public_schema.sql",
-    "schema_snapshot_sha256": "90600ed5439f1bbe955d1898b459101f980e94733fdd91da95d73d20ad16559e",
+    "schema_snapshot_sha256": "e01547ae0fe911ff5d0a22972e6605ef313662f6f96b7f63601b839590c6f46d",
     "snapshot_status": "historical-production-snapshot-plus-versioned-migrations",
     "live_dump_status": "blocked-docker-desktop-unavailable-2026-08-28",
     "metadata_covered": ["tables", "columns", "constraints", "rls-policies"]
