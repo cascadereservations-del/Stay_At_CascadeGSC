@@ -79,6 +79,15 @@
 - Report: `docs/validation/2026-08-30-wave-0-recovery-report.md`.
 - Production disaster recovery remains gated until an owner-approved restore exercise covers the shared Portainer n8n database, credential ciphertext, encryption key and execution history.
 
+### Wave 0.10 privacy enforcement — complete locally; production gated
+
+- Migration `20260831010000_privacy_requests_and_holds.sql` adds private, property-scoped request, hold and append-only audit tables. No migration or RPC automatically deletes or anonymizes records.
+- Three guarded RPCs require DB-owned owner/admin authority at AAL2, preserve admin property scope, honor disabled/session-revocation state and reject Finance/service-role impersonation.
+- Active matching holds block deletion approval/completion and review resumption; hold release is audited and never silently changes request state.
+- Focused proof passes 49/49 pgTAP assertions. Disposable recovery applies 28/28 migrations and passes all 15 database test files with no production connection or active-stack identity change.
+- `20260831_privacy_enforcement.release.json` binds the migration hash, forward checks, non-destructive compensating actions and privacy/MFA/backup production stop conditions. Release-safety proof passes 17/17 and local preflight passes.
+- Report: `docs/validation/2026-08-31-wave-0-privacy-enforcement.md`.
+
 ## Advisor disposition
 
 - Remaining public SECURITY DEFINER RPC warnings are not safe for blanket revocation:

@@ -162,6 +162,18 @@ test('real staff-cleaner contract binds the coordinated migration order', async 
   assert.deepEqual(api().validateReleaseContract(contract), []);
 });
 
+test('privacy enforcement contract binds the additive migration and production gates', async () => {
+  const path = new URL('../../supabase/releases/20260831_privacy_enforcement.release.json', import.meta.url);
+  const contract = await import(path, { with: { type: 'json' } }).then(module => module.default).catch(() => null);
+  assert.ok(contract, 'privacy enforcement release contract must exist');
+  assert.deepEqual(contract.migrations, ['20260831010000_privacy_requests_and_holds.sql']);
+  assert.equal(contract.phase, 'expand');
+  assert.equal(contract.approvals.production_required, true);
+  assert.equal(contract.approvals.current_privacy_review_required, true);
+  assert.deepEqual(api().validateReleaseContract(contract), []);
+  assert.deepEqual(api().validateMigrationFiles(contract, fileURLToPath(new URL('../../', import.meta.url))), []);
+});
+
 test('preflight source commit must exist in current branch ancestry', async () => {
   assert.equal(typeof api().validateSourceState, 'function', 'validateSourceState must exist');
   const contract = structuredClone(goodContract);

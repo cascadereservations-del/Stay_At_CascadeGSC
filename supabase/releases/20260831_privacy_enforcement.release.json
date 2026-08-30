@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "release_id": "privacy_enforcement_20260831",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "98a35d68a67774cffff3baa42ba1775715c58ec4"
+  },
+  "migrations": [
+    "20260831010000_privacy_requests_and_holds.sql"
+  ],
+  "migration_sha256": {
+    "20260831010000_privacy_requests_and_holds.sql": "397ca6b4b301c55d9fd5fe28361a355980cebf04843cb2e2ad421caac3b2d520"
+  },
+  "backup": {
+    "required": true,
+    "scope": "local-disposable-proof-only",
+    "restore_point": "cascade-recovery-e022c42f58e6",
+    "verified_at": "2026-08-30T17:36:34.602Z",
+    "production_rule": "replace with a fresh immutable production restore point during an owner-approved privacy cutover window"
+  },
+  "forward_verification": [
+    {
+      "name": "privacy_tables_exist",
+      "query": "select to_regclass('public.privacy_requests') is not null and to_regclass('public.privacy_holds') is not null and to_regclass('public.privacy_action_audit') is not null",
+      "expect": true
+    },
+    {
+      "name": "privacy_tables_are_private",
+      "query": "select not has_table_privilege('anon','public.privacy_requests','select') and not has_table_privilege('authenticated','public.privacy_requests','select') and not has_table_privilege('service_role','public.privacy_requests','select')",
+      "expect": true
+    },
+    {
+      "name": "privacy_rpc_is_named_staff_only",
+      "query": "select has_function_privilege('authenticated','public.create_privacy_request(uuid,text,text,text,text,text,text)','execute') and not has_function_privilege('anon','public.create_privacy_request(uuid,text,text,text,text,text,text)','execute') and not has_function_privilege('service_role','public.create_privacy_request(uuid,text,text,text,text,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "privacy_requires_aal2_admin",
+      "query": "select public.staff_access_allowed('admin','manage_privacy',null,'aal2') and not public.staff_access_allowed('admin','manage_privacy',null,'aal1') and not public.staff_access_allowed('finance','manage_privacy',null,'aal2')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "before any production privacy request or hold is created; after writes, retain rows and apply a forward fix or restore the approved production restore point",
+    "steps": [
+      {
+        "name": "disable_privacy_entry_points",
+        "action": "revoke authenticated EXECUTE on the three privacy RPCs; do not drop private tables or audit rows"
+      },
+      {
+        "name": "preserve_review_records",
+        "action": "retain existing request, hold and audit rows while the forward fix is prepared"
+      },
+      {
+        "name": "restore_only_if_no_valid_writes_can_be_preserved",
+        "action": "use the approved immutable production restore point; never run a destructive down migration after request or hold writes"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "privacy_rpc_production_access",
+      "required_state": "off until owner MFA, legal/privacy review and staffed smoke verification"
+    }
+  ],
+  "compatibility": {
+    "mode": "additive_private_tables",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "49/49 focused pgTAP assertions and 15/15 database test files pass in disposable recovery"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": true,
+    "current_privacy_review_required": true,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "production migration ledger differs from source",
+    "fresh immutable production restore point is absent",
+    "owner/admin smoke session is not aal2",
+    "current Philippine privacy and retention review is not recorded",
+    "any forward verification query differs from its expected result",
+    "a migration or smoke test attempts automatic deletion or anonymization"
+  ]
+}
