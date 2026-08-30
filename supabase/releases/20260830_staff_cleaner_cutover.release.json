@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "release_id": "staff_cleaner_cutover_20260830",
+  "phase": "contract",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "f89caaa816e496169582d9c2f8e8d9935cb8231a"
+  },
+  "artifacts": {
+    "cleaner_pwa_commit": "f05d70297ca8ce44f7f2d70fb39dc30e2b41eefc",
+    "edge_functions": ["last-readings", "upload-photo", "submit-cleaning"]
+  },
+  "migrations": [
+    "20260828000200_operational_rls_lockdown.sql",
+    "20260828000400_staff_roles_and_sessions.sql",
+    "20260828000500_db_backed_operational_authorization.sql",
+    "20260830002347_named_cleaner_access_boundary.sql"
+  ],
+  "migration_sha256": {
+    "20260828000200_operational_rls_lockdown.sql": "ce36e6509cf7f9809eb5745f7079c79512d28e5873b1fe8d528e076387141373",
+    "20260828000400_staff_roles_and_sessions.sql": "2187b5d21efa19c124172427f99a541aacd083b61de1467922ec17506113fd36",
+    "20260828000500_db_backed_operational_authorization.sql": "776dc2a2a8a1333e2955adb17a1bad472b19b1cbaff796c7809b0f4dd1a91906",
+    "20260830002347_named_cleaner_access_boundary.sql": "02877acba6145ce34a9f13d3159876bb0cd04e0e0aa5c3b6ba3657b5b2edc1e5"
+  },
+  "backup": {
+    "required": true,
+    "scope": "local-development-proof-only",
+    "restore_point": "local-dev-ledger-before-named-cleaner-cutover-20260830",
+    "verified_at": "2026-08-30T00:23:47+08:00",
+    "production_rule": "replace with a fresh immutable production restore point during the approved cutover window"
+  },
+  "forward_verification": [
+    {
+      "name": "staff_schema_exists",
+      "query": "select to_regclass('public.staff_access_profiles') is not null",
+      "expect": true
+    },
+    {
+      "name": "cleaner_submitter_audit_exists",
+      "query": "select exists(select 1 from information_schema.columns where table_schema='public' and table_name='cleaning_sessions' and column_name='submitted_by_user_id')",
+      "expect": true
+    },
+    {
+      "name": "cleaning_photos_private",
+      "query": "select public = false from storage.buckets where id='cleaning-photos'",
+      "expect": true
+    },
+    {
+      "name": "anonymous_inventory_usage_revoked",
+      "query": "select not has_table_privilege('anon','public.inventory_usage','insert')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "before any named-cleaner production write; after writes, forward-fix or restore from the approved production restore point",
+    "steps": [
+      {
+        "name": "hold_pwa_release",
+        "action": "keep the authenticated cleaner PWA unpublished or restore the previously served Pages artifact"
+      },
+      {
+        "name": "hold_edge_release",
+        "action": "do not advance the three Edge Function versions when any migration or Auth precondition fails"
+      },
+      {
+        "name": "restore_if_data_conversion_started",
+        "action": "use the approved immutable production restore point; do not run a destructive down migration"
+      }
+    ]
+  },
+  "feature_flags": [
+    { "name": "authenticated_cleaner_pwa_published", "required_state": "off" },
+    { "name": "named_cleaner_edge_versions_active", "required_state": "off" },
+    { "name": "staff_rls_cutover_complete", "required_state": "off" }
+  ],
+  "compatibility": {
+    "mode": "coordinated_security_cutover",
+    "old_reader": false,
+    "old_writer": false,
+    "verified": true,
+    "evidence": "63 pgTAP, 3 backend boundary, 2 shared-auth Deno, Edge type-check and 5 PWA tests passed locally"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": true,
+    "real_cleaner_account_required": true,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "production migration ledger differs from source",
+    "fresh immutable production restore point is absent",
+    "owner session is not aal2",
+    "real cleaner account and property assignment are not proven",
+    "either backend or PWA cannot deploy in the same staffed window",
+    "any forward verification query differs from its expected result"
+  ]
+}

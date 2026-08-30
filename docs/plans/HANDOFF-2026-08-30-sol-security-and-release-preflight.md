@@ -62,6 +62,14 @@
 - One existing Cascade scheduler job is present, but its command/secret content was not read. Do not replace it until it is safely inventoried and rollback is documented.
 - `20260828000300_job_heartbeats` remains local-only until the Vault and Edge Function preconditions are satisfied.
 
+### Safe database release tooling — complete locally
+
+- `scripts/migrations/verify-expand-contract.mjs` validates the machine-readable release contract, exact migration files and normalized SHA-256 hashes. Expand-phase SQL fails on direct or dynamic destructive operations.
+- `scripts/migrations/preflight.mjs --local` is read-only and additionally proves the contract source commit is in branch ancestry and every required migration version is in the local ledger. There is deliberately no production apply/connect mode.
+- `supabase/releases/20260830_staff_cleaner_cutover.release.json` is the first coordinated contract; it binds the four staff/RLS/cleaner migrations and the cleaner PWA commit, forward checks, feature gates, backup rule, compensating actions and stop conditions.
+- `docs/runbooks/database-release.md` defines expand/backfill/dual compatibility/verify/contract, fresh production backup evidence and the rule to never run a destructive down migration after data conversion.
+- Focused proof: 16/16 Node release-safety tests, static verifier pass and local migration preflight pass. This tooling does not remove the owner MFA, real cleaner account or production restore-point gates.
+
 ## Advisor disposition
 
 - Remaining public SECURITY DEFINER RPC warnings are not safe for blanket revocation:
