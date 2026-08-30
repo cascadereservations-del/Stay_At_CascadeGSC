@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { extname } from 'node:path';
+import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const TEXT_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.md', '.mjs', '.ps1', '.sql', '.toml', '.ts', '.yaml', '.yml']);
@@ -14,14 +14,15 @@ const RULES = [
 ];
 
 export function scanTrackedFiles(root = process.cwd()) {
-  const names = execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: root, encoding: 'utf8' })
+  const safeRoot = resolve(root);
+  const names = execFileSync('git', ['-c', `safe.directory=${safeRoot}`, 'ls-files', '-co', '--exclude-standard'], { cwd: safeRoot, encoding: 'utf8' })
     .split(/\r?\n/).filter(Boolean)
     .filter((name) => TEXT_EXTENSIONS.has(extname(name).toLowerCase()))
     .filter((name) => !name.startsWith('node_modules/'));
   const findings = [];
   for (const name of names) {
     let body;
-    try { body = readFileSync(`${root}/${name}`, 'utf8'); } catch { continue; }
+    try { body = readFileSync(`${safeRoot}/${name}`, 'utf8'); } catch { continue; }
     for (const [rule, pattern] of RULES) {
       pattern.lastIndex = 0;
       for (const match of body.matchAll(pattern)) {
