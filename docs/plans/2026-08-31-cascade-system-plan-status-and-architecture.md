@@ -24,6 +24,8 @@ The business-feature roadmap—atomic booking confirmation, guest chatbot, clean
 
 **Latest planning artifact work:** The product contract and developer handoff are complete locally. The mockup suite now covers the Command Center, Cleaner Checklist, Direct Booking journey, actual-versus-forecast outlook, target-driven analytics, operating P&L, cost per available night, and daily utility baselines. These values are sample-only; Wave 5 must calculate them from reconciled canonical facts and effective-dated owner targets.
 
+**Module A readiness refresh (2026-08-31):** local platform-safety tests, staff/cleaner release preflight, inactive n8n export validation, disposable n8n recovery, production-inventory comparison and secret scanning all passed. A disposable Supabase rerun was interrupted before final evidence and safely cleaned up, so the prior successful recovery record remains authoritative. See `docs/validation/2026-08-31-module-a-readiness-refresh.md` and the action-time sequence in `docs/plans/2026-08-31-module-a-cutover-packet.md`.
+
 ## 2. Status legend
 
 | Marker | Meaning |

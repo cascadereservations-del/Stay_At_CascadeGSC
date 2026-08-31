@@ -39,6 +39,10 @@ The feature branch contains the following mockup commits after the earlier syste
 
 The mockup reports **sample** financial values. Do not copy those into production; implement calculations over reconciled booking, payout, expense, meter, and inventory records.
 
+## Latest Module A readiness refresh
+
+On 2026-08-31, local readiness was refreshed: 37 platform-safety tests passed, the staff/cleaner release contract passed local preflight, 13 inactive n8n source workflows validated and round-tripped through disposable pinned n8n, production-inventory comparison passed, and secret scanning passed. The disposable Supabase rerun did not complete its final evidence output and was safely stopped/cleaned; it is not represented as a new pass. Full results: `docs/validation/2026-08-31-module-a-readiness-refresh.md`. The exact production sequence is `docs/plans/2026-08-31-module-a-cutover-packet.md`.
+
 ## Production gates still open
 
 Do not claim Module A complete until the following have fresh, action-time proof:
