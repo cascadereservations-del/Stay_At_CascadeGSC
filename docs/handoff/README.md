@@ -1,8 +1,10 @@
 # Cascade Hideaway — Development Handoff Center
 
-**Prepared:** 2026-08-31  
-**Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
-**Branch at handoff:** `codex/cascade-waves-0-1-sol`  
+**Prepared:** 2026-08-31
+
+**Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`
+
+**Branch at handoff:** `codex/cascade-waves-0-1-sol`
 **Latest handoff commit:** `51d2053 docs(cascade): add profitability analytics mockup`
 
 This directory is the single starting point for the next developer. It indexes the working code, executable plans, validation evidence, operational runbooks, visual contracts, and historical Obsidian memory without copying credentials, customer data, private evidence, or production exports into a new location.
