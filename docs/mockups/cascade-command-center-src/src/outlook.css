@@ -1,0 +1,25 @@
+.outlook-chart { padding: 16px 20px 18px; }
+.outlook-summary { display: grid; grid-template-columns: 1fr 1fr auto; gap: 14px; align-items: center; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+.outlook-summary span, .outlook-summary small { display: block; color: var(--muted); font-size: .59rem; }
+.outlook-summary b { display: block; margin: 3px 0; font: 600 1.16rem var(--display); font-variant-numeric: tabular-nums; }
+.outlook-summary small { color: #967d61; }
+.outlook-legend { display: flex; gap: 14px; padding: 11px 0 5px; color: var(--muted); font-size: .59rem; }
+.outlook-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.outlook-legend i { width: 17px; height: 3px; border-radius: 9px; display: inline-block; }
+.outlook-legend .actual-key { background: var(--mahogany); }
+.outlook-legend .forecast-key { background: repeating-linear-gradient(90deg, var(--forest) 0 5px, transparent 5px 8px); }
+.outlook-legend .range-key { height: 9px; background: rgba(35, 96, 71, .18); }
+.outlook-plot { padding: 3px 0 0; }
+.outlook-plot svg { overflow: visible; }
+.outlook-plot .actual-area { fill: url(#actual-fill); fill: rgba(32, 18, 7, .08); }
+.outlook-plot .actual-line { fill: none; stroke: var(--mahogany); stroke-width: 3.2; stroke-linecap: round; }
+.outlook-plot .forecast-range { fill: rgba(35, 96, 71, .14); }
+.outlook-plot .forecast-line { fill: none; stroke: var(--forest); stroke-width: 3.2; stroke-linecap: round; stroke-dasharray: 8 7; }
+.outlook-plot .today-line { stroke: #b9842c; stroke-width: 1.5; stroke-dasharray: 4 5; }
+.outlook-plot .today-dot { fill: var(--paper); stroke: #b9842c; stroke-width: 3; }
+.outlook-plot .today-label { fill: #805c20; font: 700 10px var(--body); letter-spacing: 1px; }
+.outlook-x .actual-end { color: #6d4b14; font-weight: 700; }
+.outlook-x .actual-end b { font-size: .49rem; font-weight: 600; color: #9a7e55; }
+.outlook-note { margin: 8px 0 0 31px; display: flex; gap: 6px; color: #637767; font-size: .58rem; line-height: 1.45; }
+.outlook-note svg { flex: 0 0 auto; color: var(--forest); }
+@media (max-width: 520px) { .outlook-chart { padding: 14px 15px 16px; } .outlook-summary { gap: 9px; grid-template-columns: 1fr 1fr; } .outlook-summary .pill { grid-column: span 2; justify-self: start; } .outlook-legend { gap: 9px; font-size: .54rem; } .outlook-note { margin-left: 0; } .outlook-plot .today-label { font-size: 8px; } }
