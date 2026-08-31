@@ -32,6 +32,7 @@ This is an ownership index, not a copy of sensitive data. Keep each artifact in 
 | `docs/runbooks/n8n-live-baseline-2026-08-29.md` | Read-only shared n8n inventory and duplicate W01 warning. |
 | `docs/mockups/2026-08-31-product-experience-redesign-audit.md` | Product design critique and UI implementation priorities. |
 | `docs/handoff/` | This handoff center. |
+| `docs/handoff/cascade-system-plan.html` | Portable visual plan/status artifact; safe to open locally and contains no live calls. |
 
 ## Product mockup sources
 

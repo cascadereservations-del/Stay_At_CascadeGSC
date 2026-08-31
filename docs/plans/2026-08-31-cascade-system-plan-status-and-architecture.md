@@ -4,7 +4,9 @@
 
 **Status date:** 2026-08-31
 
-**Evidence baseline:** branch `codex/cascade-waves-0-1-sol`, commit `321161c`
+**Evidence baseline:** branch `codex/cascade-waves-0-1-sol`, commit `3cb603e`
+
+**Interactive status artifact:** [`docs/handoff/cascade-system-plan.html`](../handoff/cascade-system-plan.html)
 
 **Business scale:** one property now, designed for up to three properties
 
@@ -19,6 +21,8 @@ Cascade already has working guest, staff and operational applications. The plan 
 The safety foundation, called Wave 0 or Module A, is substantially complete in source code and local verification. Important narrow security protections are already active in production. The remaining foundation work is a controlled production cutover that requires owner MFA, a real cleaner identity, fresh backup/preflight evidence, scheduler and liveness secrets, and an approved n8n restore exercise.
 
 The business-feature roadmap—atomic booking confirmation, guest chatbot, cleaning AI, inventory forecasting, finance analytics, CRM, selective marketing and final consolidation—has complete architecture-level plans but has not yet been implemented as the new canonical system. Wave 1 must not begin until Module A’s production gates are closed or explicitly re-sequenced.
+
+**Latest planning artifact work:** The product contract and developer handoff are complete locally. The mockup suite now covers the Command Center, Cleaner Checklist, Direct Booking journey, actual-versus-forecast outlook, target-driven analytics, operating P&L, cost per available night, and daily utility baselines. These values are sample-only; Wave 5 must calculate them from reconciled canonical facts and effective-dated owner targets.
 
 ## 2. Status legend
 

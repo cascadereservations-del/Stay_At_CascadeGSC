@@ -14,8 +14,9 @@ This directory is the single starting point for the next developer. It indexes t
 1. Read [CURRENT-STATE.md](./CURRENT-STATE.md) for what is complete, gated, planned, and intentionally deferred.
 2. Read [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) before editing or deploying anything.
 3. Use [FILE-MAP.md](./FILE-MAP.md) to locate canonical source, plans, tests, workflows, runbooks, data definitions, and mockups.
-4. Read `docs/plans/module-execution-queue.md` for the current approved execution order.
-5. Before any production-affecting step, read the applicable release/runbook under `docs/runbooks/`, then obtain fresh owner approval.
+4. Open the [interactive system-plan view](./cascade-system-plan.html) for the visual roadmap, production gates, and resume sequence.
+5. Read `docs/plans/module-execution-queue.md` for the current approved execution order.
+6. Before any production-affecting step, read the applicable release/runbook under `docs/runbooks/`, then obtain fresh owner approval.
 
 ## What this repository is
 
