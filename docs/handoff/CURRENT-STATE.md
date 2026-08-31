@@ -1,0 +1,99 @@
+# Current State and Continuation Gate
+
+## Source precedence
+
+Use evidence in this order when records disagree:
+
+1. Current checked-out source, migration/release contracts, and test results.
+2. `docs/validation/` records tied to a dated release or audit.
+3. `docs/plans/` and `docs/runbooks/` for intended sequence and operational controls.
+4. Obsidian notes under `D:\ObsidianVault\20-projects\cascade-hideaway\` for business memory and historical context.
+
+Obsidian is valuable but includes session-era live snapshots. Some are older than the current source-controlled security/release work. Do not treat a status in the vault as a deployment authorization or overwrite more recent repository evidence with it.
+
+## Completed or release-candidate work
+
+| Workstream | State at handoff | Evidence / canonical location |
+| --- | --- | --- |
+| Shared n8n decision | Accepted | Existing Portainer n8n is the initial runtime; isolated Docker is deferred. `docs/architecture/adr-001-shared-portainer-n8n.md` |
+| Finance/OPS delivery boundary | Protected in source and narrow production guard | `supabase/migrations/20260829173700_notification_route_guard.sql`, `tests/security/` |
+| Direct booking trigger isolation | Protected | `supabase/migrations/20260829044725_revoke_w01_dispatch_rpc_execution.sql` |
+| Named staff / cleaner access | Local release candidate | `supabase/migrations/20260828000400_staff_roles_and_sessions.sql`, `supabase/functions/staff-access/`, tests |
+| Operational RLS | Local release candidate | `supabase/migrations/20260828000200_operational_rls_lockdown.sql`, SQL tests |
+| Privacy requests/holds | Local release candidate | `supabase/migrations/20260831010000_privacy_requests_and_holds.sql`, `docs/privacy/`, tests |
+| Observability/degraded mode | Local release candidate | `supabase/functions/_shared/observability.ts`, `degraded-mode.ts`, `docs/validation/2026-08-31-wave-0-observability-adoption.md` |
+| Safe database release discipline | Locally complete | `scripts/migrations/`, `docs/runbooks/database-release.md`, release JSON |
+| n8n source recovery | Complete but inactive | `automation/n8n/workflows/`, `scripts/check-n8n-workflows.mjs` |
+| Product mockup suite | Complete, sample-only | `docs/mockups/cascade-experience-mockups.html`, editable source in `docs/mockups/cascade-command-center-src/` |
+
+## Latest mockup work
+
+The feature branch contains the following mockup commits after the earlier system-plan artifact:
+
+| Commit | Change |
+| --- | --- |
+| `db26dd7` | Complete Command Center, Cleaner, and Direct Booking mockup suite. |
+| `4eefc7d` | Clarify actual-versus-forecast business outlook. |
+| `255c38c` | Add target-driven Owner Analytics tab. |
+| `51d2053` | Add profitability, operating-expense, and daily utility analytics. |
+
+The mockup reports **sample** financial values. Do not copy those into production; implement calculations over reconciled booking, payout, expense, meter, and inventory records.
+
+## Production gates still open
+
+Do not claim Module A complete until the following have fresh, action-time proof:
+
+1. Owner TOTP MFA enrollment and a freshly proven `aal2` session.
+2. A real cleaner Auth identity assigned to the correct Cascade property by the MFA-proven owner.
+3. Fresh backup, production preflight, migration-ledger reconciliation, and rollback evidence.
+4. Coordinated staff/RLS/named-cleaner release, followed by authenticated cleaner smoke tests: sign-in, property isolation, private photo upload, meter lookup, report submit, pending expense claim, sign-out, disabled-user denial, and stale-session denial.
+5. Separate scheduler/liveness secrets configured without exposing values, then heartbeat deployment/smoke proof before schedule or Uptime Kuma activation.
+6. Corrected price-history view released under its own reviewed release.
+7. Owner-approved restore exercise for the shared Portainer n8n database, credential ciphertext, encryption key, and workflow set.
+
+## n8n status and rules
+
+- Approved runtime: shared Portainer n8n, not a new Docker deployment.
+- Approved location: `Personal → Cascade Hideaway` folder/project.
+- Canonical exports: `automation/n8n/workflows/CH-S01...CH-W12`.
+- All Cascade workflows remain **inactive/unpublished**.
+- A duplicate/older W01 draft is unsafe because it included Finance/guest detail in an OPS route. Never publish it.
+- Before any workflow can be published: create/verify credentials named `Cascade — <provider/purpose>`, prove Finance/OPS routing, export the reviewed workflow back into source control, run `node scripts/check-n8n-workflows.mjs`, and obtain fresh approval.
+
+See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime inventory.
+
+## Approved roadmap order
+
+| Module | Outcome | State |
+| --- | --- | --- |
+| A | Platform safety completion: authorization, privacy, recovery, release discipline | Gated; finish before normal feature work unless owner explicitly re-sequences |
+| B | Canonical booking decision / transaction / idempotency | Not started |
+| C | Advisory receipt + bank-email evidence | Not started |
+| D | Staff review UI and n8n delivery | Not started |
+| E | Calendar reliability and lifecycle release | Not started |
+| Wave 2 | Chatbot/shared inbox | Planned after Wave 1 foundation |
+| Wave 3 | Cleaning + meter verification | Planned after canonical evidence contract |
+| Wave 4 | Inventory forecast + purchase approval | Planned; never auto-order |
+| Wave 5 | Finance, reconciliation, analytics | Planned; internal management reporting while unregistered |
+| Waves 6–8 | CRM, selective marketing, consolidation | Planned |
+
+## Business and policy decisions already made
+
+- One property now; architecture must support up to three in three years.
+- Channels: Airbnb, direct site, Facebook/Messenger later.
+- Direct booking confirmation occurs only when dates remain available **and** deposit/full payment has been verified by an authorized human.
+- The initial payment workflow is receipt + allowed bank-email evidence + Admin/Finance one-click approval; OCR never declares funds received.
+- Routine guest questions may be automated; discounts, payments, refunds/cancellations, complaints, access, safety and policy exceptions escalate.
+- Cleaner evidence: deterministic failures request correction; uncertain/suspicious results require inspection; every result has human override/audit trail.
+- Finance/Admin alerts carry booking/financial details. OPS alerts carry only operational/staff information.
+- Marketing uses selective luxury content with approval queue for at least the first 90 days.
+- Business is unregistered; do not represent reports as BIR/tax filing compliance.
+
+## Known technical and operational risks
+
+- Local release candidates are not production activations. Do not conflate passing tests with live cutover.
+- Source-controlled n8n exports are intentionally inactive and may not match unsafe legacy drafts in the shared editor.
+- The existing Portainer n8n image is unpinned `latest`; changing it needs its own backup/rollback window.
+- Direct booking / legacy products must be inspected in their own repositories before UI work; the prototype is not their source of truth.
+- Real financial reporting requires reconciliation: Airbnb payouts, approved expenses, payment rails, cash handling, and meter data must be normalized before P&L is trusted.
+- The Obsidian vault has historical notes and is not a deployment log; do not place secrets or production credentials there.
