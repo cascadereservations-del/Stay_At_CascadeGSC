@@ -7,6 +7,8 @@ const { chromium } = require('../../../node_modules/playwright');
   await page.goto(url, { waitUntil: 'networkidle' });
   await page.screenshot({ path: 'docs/mockups/cascade-command-center-complete-overview.png', fullPage: true });
 
+  await page.getByRole('button', { name: 'Analytics' }).click();
+  await page.screenshot({ path: 'docs/mockups/cascade-command-center-analytics.png', fullPage: true });
   await page.getByRole('button', { name: 'Bookings & stays' }).click();
   await page.screenshot({ path: 'docs/mockups/cascade-command-center-bookings.png', fullPage: true });
   await page.getByRole('button', { name: 'Guest relationships' }).click();
@@ -24,6 +26,8 @@ const { chromium } = require('../../../node_modules/playwright');
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   await mobile.goto(url, { waitUntil: 'networkidle' });
+  await mobile.getByRole('button', { name: 'Analytics' }).click();
+  await mobile.screenshot({ path: 'docs/mockups/cascade-command-center-analytics-mobile.png', fullPage: true });
   await mobile.getByRole('button', { name: /Direct booking/ }).click();
   await mobile.screenshot({ path: 'docs/mockups/cascade-direct-booking-mobile.png', fullPage: true });
 
