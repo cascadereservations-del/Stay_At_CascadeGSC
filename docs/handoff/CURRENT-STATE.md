@@ -41,7 +41,9 @@ The mockup reports **sample** financial values. Do not copy those into productio
 
 ## Latest Module A readiness refresh
 
-On 2026-08-31, local readiness was refreshed: 37 platform-safety tests passed, the staff/cleaner release contract passed local preflight, 13 inactive n8n source workflows validated and round-tripped through disposable pinned n8n, production-inventory comparison passed, and secret scanning passed. The disposable Supabase rerun did not complete its final evidence output and was safely stopped/cleaned; it is not represented as a new pass. Full results: `docs/validation/2026-08-31-module-a-readiness-refresh.md`. The exact production sequence is `docs/plans/2026-08-31-module-a-cutover-packet.md`.
+On 2026-08-31, local readiness was refreshed: 37 platform-safety tests passed, the staff/cleaner release contract passed local preflight, 13 inactive n8n source workflows validated and round-tripped through disposable pinned n8n, production-inventory comparison passed, and secret scanning passed. The disposable Supabase rerun did not complete its final evidence output and was safely stopped/cleaned; it is not represented as a new pass.
+
+A later read-only production-gate audit confirmed the active project has one property, but none of the four staff/cleaner cutover protections is live and no verified TOTP factor exists. This is an expected held release, not a failed deployment. Full evidence: `docs/validation/2026-08-31-module-a-readiness-refresh.md`. The exact production sequence is `docs/plans/2026-08-31-module-a-cutover-packet.md`.
 
 ## Production gates still open
 

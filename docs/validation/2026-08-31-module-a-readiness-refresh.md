@@ -4,6 +4,23 @@
 
 **Scope:** Local-only source, workflow, release and recovery readiness refresh. No production database connection, deployment, n8n activation, provider configuration, message, calendar write or VPS change was performed.
 
+## Production gate audit (read-only)
+
+**Date:** 2026-08-31 Asia/Manila
+**Method:** Read-only queries against the active Cascade Supabase project. No migration, user, credential, storage, Edge Function or scheduler change was made.
+
+| Gate | Observed state | Consequence |
+| --- | --- | --- |
+| Supabase project | Active and healthy; one active property recorded. | The production target is available for a staffed cutover. |
+| Four staff/cleaner release migrations | Not present in the production ledger. | Do not publish the authenticated cleaner PWA or advance its three compatible functions. |
+| Staff access / property scope schema | Not live. | Named staff roles and per-property access cannot yet be proven in production. |
+| Named-cleaner audit field | Not live. | Cleaner submissions are not yet attributable to a signed-in cleaner in the new model. |
+| Private `cleaning-photos` bucket | Not live. | The storage hardening portion of the cutover remains pending. |
+| Anonymous inventory usage revoked | Not live. | The write-lockdown portion of the cutover remains pending. |
+| Verified TOTP factors | 0 factors / 0 users. | Owner must enroll TOTP and obtain a fresh `aal2` session before privileged cutover actions. |
+
+This confirms the release is still correctly held at its feature flags. It is not a failed deployment and must not be treated as one.
+
 ## Verified results
 
 | Check | Command | Result |
