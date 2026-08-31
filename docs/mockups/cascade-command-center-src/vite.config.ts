@@ -4,6 +4,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    assetsInlineLimit: 200000,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

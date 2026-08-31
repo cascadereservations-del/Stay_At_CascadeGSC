@@ -1,5 +1,7 @@
 # Cascade Dashboard Design Audit and Command-Center Mockup
 
+> **Superseded for mockup coverage on 2026-08-31.** The original dashboard concept is now expanded into the complete Command Center, Cleaner Checklist, and Direct Booking suite in [the product experience redesign audit](./2026-08-31-product-experience-redesign-audit.md).
+
 **Date:** 2026-08-31
 **Status:** Design direction approved for implementation planning; not production code
 **Scope reviewed:** `cascade-admin-dashboard` at `c064f91`, `CH_Inventory` at `62f4c87`, and the current cleaner checklist PWA
