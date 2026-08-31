@@ -82,7 +82,7 @@ The suite has three top-level product switchers and preserves a single shared Ca
 | Screen | Purpose |
 | --- | --- |
 | Command center | Attention-first daily overview, decision queue, readiness, and forward view. |
-| Analytics | Monthly revenue, occupancy, ADR, and RevPAR compared with targets, variances, and an explicit decision interpretation. |
+| Analytics | Owner-only operating P&L (gross booking income, accumulated expenses, operating profit, margin, cost per available night, and meter-backed utility cost), followed by monthly revenue, occupancy, ADR, and RevPAR compared with targets, variances, and an explicit decision interpretation. |
 | Bookings & stays | Availability grid, arrival/check-out plan, and supervised booking timeline. |
 | Finance review | Evidence agreement vs. manual review and the named-approval audit trail. |
 | Guest relationships | Inbox state, escalation boundary, suggested response, and approval handoff. |
