@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "providers": {
+    "openrouter": {
+      "reason_code": "OPENROUTER_UNAVAILABLE",
+      "acknowledge": true,
+      "human_review": true,
+      "preserve_canonical_state": true,
+      "retry_policy": "bounded_backoff",
+      "automatic_financial_decision": false,
+      "action": "create_human_review_without_fabricating_output"
+    },
+    "n8n": {
+      "reason_code": "N8N_DELIVERY_UNAVAILABLE",
+      "acknowledge": true,
+      "human_review": false,
+      "preserve_canonical_state": true,
+      "retry_policy": "outbox_idempotent_retry",
+      "automatic_financial_decision": false,
+      "action": "retain_canonical_outbox_event_and_retry_idempotently"
+    },
+    "gmail": {
+      "reason_code": "GMAIL_EVIDENCE_UNAVAILABLE",
+      "acknowledge": true,
+      "human_review": true,
+      "preserve_canonical_state": true,
+      "retry_policy": "manual_review_with_optional_retry",
+      "automatic_financial_decision": false,
+      "action": "allow_manual_evidence_review_without_nonpayment_inference"
+    },
+    "chatwoot": {
+      "reason_code": "CHATWOOT_HANDOFF_UNAVAILABLE",
+      "acknowledge": true,
+      "human_review": true,
+      "preserve_canonical_state": true,
+      "retry_policy": "pause_until_handoff_verified",
+      "automatic_financial_decision": false,
+      "action": "stop_automated_replies_and_prevent_webhook_echo"
+    },
+    "airbnb": {
+      "reason_code": "AIRBNB_FEED_STALE",
+      "acknowledge": true,
+      "human_review": true,
+      "preserve_canonical_state": true,
+      "retry_policy": "pause_until_feed_healthy",
+      "automatic_financial_decision": false,
+      "action": "preserve_calendar_blocks_and_require_manual_review"
+    }
+  }
+}

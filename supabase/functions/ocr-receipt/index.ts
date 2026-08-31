@@ -12,6 +12,7 @@
 //     notes?: string }
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -117,7 +118,7 @@ function validDate(d: unknown): string | null {
   return s;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!GEMINI_KEY) return json({ error: 'GEMINI_BOT_KEY not set' }, 500);
@@ -228,4 +229,4 @@ Deno.serve(async (req) => {
     ocr_confidence: confidence,
     extracted: { amount: grossAmount, category, vendor, date: txnDate },
   });
-});
+}));

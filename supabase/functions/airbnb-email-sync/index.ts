@@ -36,6 +36,12 @@
 //     OPS financial isolation rule remains fully intact.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
+
+type LegacyDatabaseClient = {
+  from: (relation: string) => any;
+  rpc: (functionName: string, args?: Record<string, unknown>) => PromiseLike<any>;
+};
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -57,14 +63,14 @@ async function sendTelegram(chatId: string|undefined, text: string): Promise<voi
   } catch (_) {}
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'airbnb-email-sync', route: 'ops' }, async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     { auth: { persistSession: false } }
-  );
+  ) as unknown as LegacyDatabaseClient;
 
   let body: { events: EmailEvent[] };
   try { body = await req.json(); }
@@ -85,7 +91,7 @@ Deno.serve(async (req: Request) => {
   }
   return new Response(JSON.stringify(results),
     { headers: { ...CORS, 'Content-Type': 'application/json' } });
-});
+}));
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface EmailEvent {
@@ -134,7 +140,7 @@ function tierBadge(tier: string|null, stays: number): string {
   return '🆕 New Guest';
 }
 
-async function reconcile(supabase: ReturnType<typeof createClient>, code: string): Promise<void> {
+async function reconcile(supabase: LegacyDatabaseClient, code: string): Promise<void> {
   try {
     await supabase.rpc('reconcile_reservation_from_transactions', { p_code: code });
   } catch (e) {
@@ -142,7 +148,7 @@ async function reconcile(supabase: ReturnType<typeof createClient>, code: string
   }
 }
 
-async function refreshGuestStats(supabase: ReturnType<typeof createClient>, guestId: string): Promise<void> {
+async function refreshGuestStats(supabase: LegacyDatabaseClient, guestId: string): Promise<void> {
   try {
     await supabase.rpc('refresh_guest_stats', { p_guest_id: guestId });
   } catch (e) {
@@ -152,7 +158,7 @@ async function refreshGuestStats(supabase: ReturnType<typeof createClient>, gues
 
 // ── Event router ───────────────────────────────────────────────────────────
 async function processEvent(
-  supabase: ReturnType<typeof createClient>,
+  supabase: LegacyDatabaseClient,
   event: EmailEvent,
   results: { inserted: number; skipped: number; errors: string[] }
 ): Promise<void> {
@@ -178,7 +184,7 @@ async function processEvent(
 
 // ── Booking handler ────────────────────────────────────────────────────────
 async function handleBooking(
-  supabase: ReturnType<typeof createClient>,
+  supabase: LegacyDatabaseClient,
   event: EmailEvent
 ): Promise<void> {
   if (!event.confirmation_code || !event.guest_name) return;
@@ -349,7 +355,7 @@ async function handleBooking(
 
 // ── Payout handler ─────────────────────────────────────────────────────────
 async function handlePayout(
-  supabase: ReturnType<typeof createClient>,
+  supabase: LegacyDatabaseClient,
   event: EmailEvent
 ): Promise<void> {
   if (!event.payout_amount) return;
@@ -414,7 +420,7 @@ async function handlePayout(
 
 // ── Cancellation handler ───────────────────────────────────────────────────
 async function handleCancellation(
-  supabase: ReturnType<typeof createClient>,
+  supabase: LegacyDatabaseClient,
   event: EmailEvent
 ): Promise<void> {
   if (!event.cancelled_code) return;

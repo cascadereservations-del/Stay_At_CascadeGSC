@@ -3,6 +3,7 @@
 // Cache: 15 minutes in app_settings
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -321,7 +322,7 @@ async function fetchOpenMeteo(today: string): Promise<any | null> {
 }
 
 // ── Main handler ───────────────────────────────────────────────────────────
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
   }
@@ -394,4 +395,4 @@ Deno.serve(async (req: Request) => {
     JSON.stringify({ ...payload, cached: false, location: LOCATION }),
     { status: 200, headers: JSON_H }
   );
-});
+}));

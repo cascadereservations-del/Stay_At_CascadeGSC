@@ -29,7 +29,9 @@ Then verify that exactly these named jobs exist:
 
 Confirm two consecutive monitor successes and one turnover success. Review scheduler HTTP results, `job_heartbeats`, and the outbox for sanitized error codes only.
 
-The monitor cannot prove its own liveness. Configure a separate VPS uptime probe in the observability task to alert when `job-heartbeat-monitor-every-15m` stops advancing.
+The monitor cannot prove its own liveness. `job-heartbeat-liveness` is the independent read-only target: it checks only `job-heartbeat-monitor-every-15m` and returns `MONITOR_HEALTHY`, `MONITOR_STALE`, `MONITOR_MISSING` or `PROBE_UNAVAILABLE` without timestamps or operational details.
+
+The source remains local-only until a separately reviewed Edge Function release. Before deployment, create a dedicated `CASCADE_LIVENESS_SHARED_SECRET` that is different from the scheduler secret. After deployment approval, configure the existing VPS Uptime Kuma instance to request the liveness URL every five minutes with `X-Cascade-Liveness-Secret`, and require HTTP 200. Route this infrastructure alert only to Finance/Admin. Store the value only as an Edge Function secret and protected Uptime Kuma header; do not send it to n8n, OPS, logs or this repository.
 
 ## Failure recovery
 

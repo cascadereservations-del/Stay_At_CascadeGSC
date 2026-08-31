@@ -4,6 +4,7 @@
 // verify_jwt: true — requires a valid Supabase user JWT from the dashboard.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -44,7 +45,7 @@ async function tgCall(method: string, body: unknown): Promise<any> {
   return r ? r.json().catch(() => null) : null;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withObservability({ functionName: 'notify-cleaner-payment', route: 'ops' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_H });
   if (req.method !== 'POST') return fail('Method not allowed', 405);
 
@@ -154,4 +155,4 @@ Deno.serve(async (req) => {
   }
 
   return ok({ ok: true, message_id: tgResult.result?.message_id });
-});
+}));

@@ -8,6 +8,7 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -40,7 +41,7 @@ function fmtDate(dateStr: string): string {
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'ops' }, async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
   try {
@@ -122,4 +123,4 @@ Deno.serve(async (req: Request) => {
     console.error('[missed-cleaning] fatal:', err);
     return json({ ok: false, error: String(err) }, 500);
   }
-});
+}));

@@ -18,6 +18,7 @@
 //   Stray backslash in deployed v52 caused Deno compilation error; stub v53 was deployed as placeholder.
 // v53 (2026-06-06): Stub replacement — deploys the fixed v52 source. Version strings updated in handleStatus and handlePing.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -1765,7 +1766,7 @@ async function handlePing(chatId: any) {
 const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'stock',description:'Low-stock check'}];
 const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'void',description:'Void entry: /void REFCODE'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'ping',description:'Diagnostic: test Gemini + env vars'}];
 
-Deno.serve(async(req)=>{
+Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' }, async(req)=>{
   const url=new URL(req.url);
   if(req.method==='GET'&&url.searchParams.has('setup')){
     if(!TG_TOKEN)  return json({error:'TELEGRAM_BOT_TOKEN not set'},500);
@@ -1796,4 +1797,4 @@ Deno.serve(async(req)=>{
   // @ts-ignore EdgeRuntime provided by Supabase
   if(typeof EdgeRuntime!=='undefined'&&EdgeRuntime?.waitUntil)EdgeRuntime.waitUntil(work());else await work();
   return ackTelegram();
-});
+}));

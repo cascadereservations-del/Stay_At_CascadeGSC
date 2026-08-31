@@ -1,6 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
+import { withObservability } from '../_shared/observability.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -8,7 +9,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'last-readings', route: 'ops' }, async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
   }
@@ -53,4 +54,4 @@ Deno.serve(async (req: Request) => {
       { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } }
     );
   }
-});
+}));

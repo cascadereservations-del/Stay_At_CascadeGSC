@@ -10,6 +10,7 @@
 // v11 and earlier: see version history.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -509,7 +510,7 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
 }
 
 // ── Main handler ────────────────────────────────────────────────────────────
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
   let mode = 'ops';
   try { const b = await req.json(); mode = String(b?.mode ?? 'ops').toLowerCase(); } catch { /* default ops */ }
@@ -540,4 +541,4 @@ Deno.serve(async (req: Request) => {
     console.error('daily-digest v14 error:', String(err));
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: JSON_H });
   }
-});
+}));

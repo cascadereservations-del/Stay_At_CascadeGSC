@@ -15,6 +15,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
+import { withObservability } from '../_shared/observability.ts';
 
 // This recovered function predates generated database types. Keep its helper
 // boundary structurally untyped until a generated Database contract replaces it.
@@ -427,7 +428,7 @@ async function checkUtilityAnomaly(
   }
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
   try {
@@ -652,4 +653,4 @@ Deno.serve(async (req: Request) => {
     console.error('submit-cleaning fatal:', err);
     return json({ ok: false, error: String(err) }, 500);
   }
-});
+}));

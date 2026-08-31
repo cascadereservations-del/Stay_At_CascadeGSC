@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "entries": [
+    { "slug": "airbnb-email-sync", "route": "ops" },
+    { "slug": "daily-digest", "route": "ops" },
+    { "slug": "last-readings", "route": "ops" },
+    { "slug": "missed-cleaning-alert", "route": "ops" },
+    { "slug": "notify-cleaner-payment", "route": "ops" },
+    { "slug": "ocr-receipt", "route": "finance" },
+    { "slug": "rain-alert", "route": "ops" },
+    { "slug": "submit-cleaning", "route": "ops" },
+    { "slug": "telegram-expense", "route": "ops" },
+    { "slug": "turnover-verifier", "route": "ops" },
+    { "slug": "upload-photo", "route": "ops" },
+    { "slug": "weather-proxy", "route": "guest" }
+  ]
+}

@@ -22,3 +22,26 @@ Deno.test('redacts string fields without mutating safe structured values', () =>
   const fields = redactLogFields({ count: 2, email: 'guest@example.com' });
   if (fields.count !== 2 || fields.email !== '[REDACTED_EMAIL]') throw new Error('field redaction mismatch');
 });
+
+Deno.test('recursively redacts nested contact fields', () => {
+  const fields = redactLogFields({ nested: { email: 'guest@example.com', count: 2 } });
+  const nested = fields.nested as Record<string, unknown>;
+  if (nested.email !== '[REDACTED_EMAIL]' || nested.count !== 2) throw new Error('nested redaction mismatch');
+});
+
+Deno.test('redacts sensitive field values regardless of primitive type', () => {
+  const fields = redactLogFields({
+    access_code: 4821,
+    message_body: 'guest supplied private details',
+    receipt_url: 'https://storage.test/private.jpg',
+  });
+  if (fields.access_code !== '[REDACTED_ACCESS_CODE]') throw new Error('access code field');
+  if (fields.message_body !== '[REDACTED_MESSAGE_BODY]') throw new Error('message body field');
+  if (fields.receipt_url !== '[REDACTED_RECEIPT_URL]') throw new Error('receipt URL field');
+});
+
+Deno.test('redacts unstructured address and access-code text', () => {
+  const result = redactForLog('Meet at Block 47 Lot 39, Bria Homes. Gate code: 4821');
+  includes(result, '[REDACTED_ADDRESS]', 'address');
+  includes(result, '[REDACTED_ACCESS_CODE]', 'access code');
+});

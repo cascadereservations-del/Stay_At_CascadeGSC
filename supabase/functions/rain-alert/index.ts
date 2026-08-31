@@ -8,6 +8,7 @@
 // Routing: OPS group only. Zero financial data.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -126,7 +127,7 @@ async function checkRainAhead(manilaHour: number, today: string): Promise<RainWi
 }
 
 // ── Main handler ──────────────────────────────────────────────────
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'rain-alert', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
   }
@@ -217,4 +218,4 @@ Deno.serve(async (req: Request) => {
 
   console.log(`rain-alert v2: sent for ${today}, rain window ${rainWindow.startHour}-${rainWindow.endHour}h, peak ${rainWindow.peakProb}%`);
   return new Response(JSON.stringify({ ok: true, sent: true, rainWindow, date: today }), { status: 200, headers: JSON_H });
-});
+}));

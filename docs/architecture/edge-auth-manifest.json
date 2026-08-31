@@ -23,6 +23,7 @@
     { "slug": "automation-event-detail", "mode": "signed", "controls": ["shared automation bearer secret", "minimum event projection"], "owner": "platform" },
     { "slug": "guest-access", "mode": "signed", "controls": ["43-character guest capability token", "hashed token", "expiry and revocation checks"], "owner": "guest" },
     { "slug": "job-heartbeat-monitor", "mode": "signed", "controls": ["constant-time cron secret header", "closed route templates"], "owner": "platform" },
+    { "slug": "job-heartbeat-liveness", "mode": "signed", "controls": ["constant-time dedicated liveness secret header", "GET and HEAD only", "fixed heartbeat row", "boolean and reason-only output", "no caller-controlled query", "no operational or personal data"], "owner": "platform" },
     { "slug": "staff-access", "mode": "jwt", "controls": ["platform JWT verification must be enabled at deployment", "verified user-context RPC only", "AAL2 and database-backed revocation for management"], "owner": "platform" }
   ]
 }

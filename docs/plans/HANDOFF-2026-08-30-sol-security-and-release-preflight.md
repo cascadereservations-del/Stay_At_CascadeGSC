@@ -88,6 +88,15 @@
 - `20260831_privacy_enforcement.release.json` binds the migration hash, forward checks, non-destructive compensating actions and privacy/MFA/backup production stop conditions. Release-safety proof passes 17/17 and local preflight passes.
 - Report: `docs/validation/2026-08-31-wave-0-privacy-enforcement.md`.
 
+### Wave 0.11 observability adoption — complete locally; production gated
+
+- All 12 recovered Edge Functions use one shared request wrapper that validates/generates and returns `X-Cascade-Correlation-Id`, updates CORS headers, emits JSON-line completion/failure events and recursively redacts existing console arguments.
+- Every route removes tokens, bank references, contact details, addresses, access codes, receipt URLs and message bodies; conservative OPS routes additionally remove currency and numeric financial fields.
+- The machine-readable degraded-mode contract closes OpenRouter, n8n, Gmail, Chatwoot and stale-Airbnb behavior. Unknown providers fail closed, canonical state is preserved, and no outage decision can declare a financial result.
+- `job-heartbeat-liveness` is a local-only signed endpoint for the existing VPS Uptime Kuma. It requires a dedicated constant-time header secret and returns only healthy/stale/missing/unavailable reason state; it is not deployed or configured.
+- Proof: 37/37 Node platform-safety tests, 35/35 Deno tests, all 13 changed/new entrypoints type-check, 24 endpoint authority entries pass, 13 n8n exports remain inactive, and disposable recovery applies 28/28 migrations plus all 15 database test files without a production connection.
+- Report: `docs/validation/2026-08-31-wave-0-observability-adoption.md`.
+
 ## Advisor disposition
 
 - Remaining public SECURITY DEFINER RPC warnings are not safe for blanket revocation:

@@ -10,6 +10,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
+import { withObservability } from '../_shared/observability.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -40,7 +41,7 @@ function fmtIssues(issues: string[]): string {
   return issues.map(i => `\u2022 ${i}`).join('\n');
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }, async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
   if (!cronSecretMatches(Deno.env.get('CASCADE_CRON_SHARED_SECRET'), req.headers.get('x-cascade-cron-secret'))) {
@@ -231,4 +232,4 @@ Deno.serve(async (req: Request) => {
   }
   await recordHeartbeat('succeeded');
   return json({ ok: true, results });
-});
+}));
