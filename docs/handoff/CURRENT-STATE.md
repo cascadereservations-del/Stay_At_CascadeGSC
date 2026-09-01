@@ -49,6 +49,8 @@ On 2026-09-01, dashboard-account MFA was enrolled. It secures the Supabase admin
 
 The production project is on a Supabase Free plan. Its Backups UI reports no scheduled backups or point-in-time recovery, which is a hard stop for any coordinated production schema cutover until the owner approves either a qualifying Supabase backup plan or a separately proven encrypted external backup-and-restore runbook.
 
+`docs/runbooks/supabase-external-backup-recovery.md` and `scripts/recovery/backup-supabase-production.ps1` are a candidate low-cost external-backup path. The script has passed PowerShell syntax validation, but the current operator device does not yet have `pg_dump`, `pg_restore`, or `age`; no backup or restore proof has been attempted.
+
 ## Production gates still open
 
 Do not claim Module A complete until the following have fresh, action-time proof:
