@@ -1,6 +1,6 @@
 # Supabase external logical backup and recovery candidate
 
-**Status:** Candidate safety runbook. It is not yet approved as a substitute for a Supabase-managed restore point.
+**Status:** Selected Free-plan recovery direction. It is not yet eligible as a production restore point until the owner approves a backup run and a disposable restore proof succeeds.
 
 ## Why this exists
 
@@ -47,9 +47,4 @@ Perform this only against a newly created disposable local/Postgres environment.
 
 ## Approval decision
 
-Before using this runbook to satisfy the staff/cleaner cutover backup gate, the owner must explicitly approve either:
-
-1. a Supabase plan with a fresh provider restore point; or
-2. this external backup method after a successful disposable restore proof and review of its evidence.
-
-Until that decision and proof exist, the release remains blocked.
+The owner selected the Free-plan path on 2026-09-01. Before using this runbook to satisfy the staff/cleaner cutover backup gate, the owner must still explicitly approve this external backup method at action time, then review a successful disposable restore proof. Until that proof exists, the release remains blocked.
