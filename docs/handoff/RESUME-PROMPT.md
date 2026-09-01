@@ -27,7 +27,7 @@ Run `git log -1 --oneline` for the current handoff commit; do not rely on a copi
 Immediate production gates:
 - Dashboard-account MFA is enrolled, but it is not Cascade project Auth MFA/AAL2. Project-owner bootstrap and project TOTP happen only after the staff/RLS migration release is safely applied.
 - Supabase Free has no scheduled backups or point-in-time recovery. The owner has chosen to remain on Free; do not apply the staff/cleaner migrations until the owner explicitly approves and proves the selected encrypted external backup/restore process in `docs/runbooks/supabase-external-backup-recovery.md`.
-- The candidate external backup script is `scripts/recovery/backup-supabase-production.ps1`. It passed syntax/secret checks but has not run; this device does not currently have `pg_dump`, `pg_restore`, or `age` installed.
+- The selected external backup script is `scripts/recovery/backup-supabase-production.ps1`. It passed syntax/secret/fail-closed checks but has not run against production. It uses the existing `postgres:17` Docker image for `pg_dump`, `pg_restore`, and OpenSSL, with image pulls disabled.
 - The release packet is `docs/plans/2026-08-31-module-a-cutover-packet.md`; it is the only approved order for the coordinated staff/RLS/named-cleaner release.
 
 The portable design contract is:

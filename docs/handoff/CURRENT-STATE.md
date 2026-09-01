@@ -47,11 +47,11 @@ A later read-only production-gate audit confirmed the active project has one pro
 
 On 2026-09-01, dashboard-account MFA was enrolled. It secures the Supabase administrative console but does not populate the Cascade project's `auth.mfa_factors` table or produce an application `aal2` claim. Project-owner bootstrap and project-user MFA remain part of the coordinated post-migration cutover; do not conflate the two MFA boundaries.
 
-The production project is on a Supabase Free plan. Its Backups UI reports no scheduled backups or point-in-time recovery, which is a hard stop for any coordinated production schema cutover until the owner approves either a qualifying Supabase backup plan or a separately proven encrypted external backup-and-restore runbook.
+The production project is on a Supabase Free plan. Its Backups UI reports no scheduled backups or point-in-time recovery, which is a hard stop for any coordinated production schema cutover until the selected encrypted external backup-and-restore runbook is proven.
 
 **Owner decision (2026-09-01):** Keep all Cascade operations on the Supabase Free plan. The selected recovery direction is the external encrypted-backup candidate; do not upgrade the Supabase subscription. Capturing production data and proving a restore remain separate action-time approvals.
 
-`docs/runbooks/supabase-external-backup-recovery.md` and `scripts/recovery/backup-supabase-production.ps1` are a candidate low-cost external-backup path. The script has passed PowerShell syntax validation, but the current operator device does not yet have `pg_dump`, `pg_restore`, or `age`; no backup or restore proof has been attempted.
+`docs/runbooks/supabase-external-backup-recovery.md` and `scripts/recovery/backup-supabase-production.ps1` are the selected low-cost external-backup path. The script has passed PowerShell syntax validation and fail-closed checks. The already-present local `postgres:17` Docker image provides `pg_dump`, `pg_restore`, and OpenSSL with no new installation or image pull; no production backup or restore proof has been attempted.
 
 ## Production gates still open
 

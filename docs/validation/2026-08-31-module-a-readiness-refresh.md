@@ -63,7 +63,7 @@ These results verify source controls only. They do not close the production back
 
 ### External-backup candidate fail-closed check
 
-On 2026-09-01, `scripts/recovery/backup-supabase-production.ps1` was invoked without `CASCADE_PRODUCTION_DATABASE_URL`. It correctly refused before any database/tool invocation, and no test backup directory was created. This proves only the missing-credential guardrail; it is not a backup or restore proof.
+On 2026-09-01, `scripts/recovery/backup-supabase-production.ps1` was invoked without `CASCADE_PRODUCTION_DATABASE_URL`. It correctly refused before any database/tool invocation, and no test backup directory was created. The existing `postgres:17` Docker image was also inspected and contains `pg_dump`, `pg_restore`, and OpenSSL. This proves only the missing-credential guardrail and available local runtime; it is not a backup or restore proof.
 
 ## Disposable Supabase recovery rerun
 
