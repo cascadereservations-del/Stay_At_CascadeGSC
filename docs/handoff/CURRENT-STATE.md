@@ -57,6 +57,8 @@ Local preparation completed on 2026-09-01: an owner-only passphrase file was cre
 
 The Supabase Database Settings UI confirms that the current database password cannot be viewed after creation. Do not reset it merely to make a backup: Supabase warns that reset breaks existing direct connections. The owner must either supply the already-known connection URI through the prepared owner-only file, or explicitly approve a password-reset plan that inventories and updates all affected direct connections first.
 
+The first approved backup attempt made no dump: Docker could not resolve the direct `db.<project-ref>.supabase.co` host. Use the Supabase **Session Pooler** URI on port `5432` in the owner-only connection file for the next retry, not the direct connection URI or the transaction pooler URI. The browser connection dialog is left open for this selection.
+
 ## Production gates still open
 
 Do not claim Module A complete until the following have fresh, action-time proof:
