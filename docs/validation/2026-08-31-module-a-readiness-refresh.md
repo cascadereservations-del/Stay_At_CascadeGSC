@@ -61,6 +61,10 @@ The non-production controls were rerun after the cutover-plan and external-backu
 
 These results verify source controls only. They do not close the production backup, project-Auth, cleaner, scheduler, or shared-n8n-runtime gates.
 
+### External-backup candidate fail-closed check
+
+On 2026-09-01, `scripts/recovery/backup-supabase-production.ps1` was invoked without `CASCADE_PRODUCTION_DATABASE_URL`. It correctly refused before any database/tool invocation, and no test backup directory was created. This proves only the missing-credential guardrail; it is not a backup or restore proof.
+
 ## Disposable Supabase recovery rerun
 
 The local disposable Supabase recovery command was started on 2026-08-31. Its uniquely named `cascade-recovery-*` database became healthy, but the process did not reach its final evidence output/cleanup in the tool window. It was therefore **not recorded as a new successful recovery proof**.
