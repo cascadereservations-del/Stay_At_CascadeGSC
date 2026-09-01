@@ -19,7 +19,7 @@ Context:
 - AI/OpenRouter is advisory only. It cannot confirm payment, post financial decisions, override policy, or approve a booking.
 - Human approval is mandatory for payment/booking confirmation, refunds, discounts, exceptions, cleaning overrides, purchase approval, and social publication.
 - The business is unregistered; do not claim BIR/tax compliance or automate filing.
-- The current architectural next step is Module A production-gate closure. Do not deploy, activate workflows/cron, configure providers, modify Docker/VPS, apply migrations, or send messages without fresh owner approval.
+- The owner explicitly deferred the Free-plan external backup/restore exercise. Continue local source work only; do not deploy, activate workflows/cron, configure providers, modify Docker/VPS, apply migrations, or send messages without fresh owner approval.
 
 Current branch: codex/cascade-waves-0-1-sol
 Run `git log -1 --oneline` for the current handoff commit; do not rely on a copied SHA.
@@ -30,6 +30,14 @@ Immediate production gates:
 - The selected external backup script is `scripts/recovery/backup-supabase-production.ps1`. It passed syntax/secret/fail-closed checks but has not run against production. It uses the existing `postgres:17` Docker image for `pg_dump`, `pg_restore`, and OpenSSL, with image pulls disabled.
 - The owner-only passphrase, empty connection-URL placeholder, and backup destination are already prepared outside Git; see `CURRENT-STATE.md` for paths. Supabase does not display the existing database password. Do not reset it without a separate approved connection-impact plan.
 - The release packet is `docs/plans/2026-08-31-module-a-cutover-packet.md`; it is the only approved order for the coordinated staff/RLS/named-cleaner release.
+
+Local Module B status (saved in commit `1a31f68` and subsequent handoff commit):
+- `supabase/migrations/20260901010000_canonical_booking_decision.sql` is a local-only candidate. Its `decide_direct_booking(uuid, text, text)` RPC serializes a decision, verifies live overlap, and writes booking/reservation/calendar/ledger/projection-outbox state atomically.
+- `supabase/functions/approve-booking/index.ts` now authorizes then calls only that RPC; it no longer makes direct calendar/ledger writes or sends provider messages.
+- Two Node boundary tests and ten local pgTAP assertions passed. The local schema revealed missing usable unique constraints on legacy `booking_inquiries.id` and `calendar_events.id`; do not repair those keys opportunistically—make a separate reviewed expand/contract release.
+- Module B is not deployed. Its release remains gated by Module A recovery/cutover proof.
+
+Immediate safe next work: Module C payment-evidence schema and synthetic fixtures. Read `docs/validation/2026-09-01-module-c-payment-evidence-audit.md` first. The contract is non-negotiable: receipt OCR, OpenRouter output, and bank-email evidence remain advisory; no evidence code may confirm a booking or payment. Build deterministic comparison + a Finance review record first, then only a named human may call `decide_direct_booking`.
 
 The portable design contract is:
 docs/mockups/cascade-experience-mockups.html
