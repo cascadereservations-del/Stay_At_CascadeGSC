@@ -41,6 +41,7 @@ Resolve it in one of two owner-approved ways before a cutover: enable a Supabase
 | Check | Command | Result |
 | --- | --- | --- |
 | Platform safety | `npm.cmd run test:platform-safety` | PASS — 37 tests, 0 failures. |
+| Release source ancestry and contract | `git merge-base --is-ancestor <release-source> HEAD` and `node scripts/migrations/verify-expand-contract.mjs --release ...` | PASS — the locked source is an ancestor of the documented release state; the four-migration contract verified. |
 | Staff/cleaner cutover preflight | `npm.cmd run preflight:local -- --release supabase/releases/20260830_staff_cleaner_cutover.release.json` | PASS — release `staff_cleaner_cutover_20260830`, 4 required migrations. |
 | n8n source graph | `node scripts/check-n8n-workflows.mjs` | PASS — 13 inactive source exports. |
 | Disposable n8n recovery | `npm.cmd run recovery:n8n` | PASS — 13 workflows imported/exported semantically; all inactive; no persistent container started. |

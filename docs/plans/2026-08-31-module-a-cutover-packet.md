@@ -41,7 +41,7 @@ git rev-parse HEAD
 git log -1 --oneline
 ```
 
-Expected: the owner records the commit SHA in the production release record. Stop if it differs from the source commit required by the release JSON.
+Expected: the owner records the checked-out commit in the production release record. It must descend from the source commit declared by the release JSON, and the release verifier must confirm the locked migration hashes. Later documentation/evidence commits do not invalidate the payload; a changed migration, client artifact, or verifier failure does.
 
 - [ ] **Step 3: Commit any action-time evidence before production work.**
 
