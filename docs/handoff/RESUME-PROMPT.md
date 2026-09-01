@@ -22,7 +22,7 @@ Context:
 - The current architectural next step is Module A production-gate closure. Do not deploy, activate workflows/cron, configure providers, modify Docker/VPS, apply migrations, or send messages without fresh owner approval.
 
 Current branch: codex/cascade-waves-0-1-sol
-Latest handoff commit at this update: 939b4c6 docs: record final module a source controls
+Run `git log -1 --oneline` for the current handoff commit; do not rely on a copied SHA.
 
 Immediate production gates:
 - Dashboard-account MFA is enrolled, but it is not Cascade project Auth MFA/AAL2. Project-owner bootstrap and project TOTP happen only after the staff/RLS migration release is safely applied.
