@@ -55,6 +55,8 @@ The production project is on a Supabase Free plan. Its Backups UI reports no sch
 
 Local preparation completed on 2026-09-01: an owner-only passphrase file was created outside Git at `C:\Users\Lloyd\Cascade-Secrets\supabase-backup-passphrase.txt`, an owner-only encrypted-backup destination was prepared at `C:\Cascade-Backups`, and an empty owner-only connection-URL file was prepared at `C:\Users\Lloyd\Cascade-Secrets\supabase-production-db-url.txt`. The passphrase and connection URL are not displayed, logged, or recorded in this repository. The script rejects the empty URL file before Docker or database access.
 
+The Supabase Database Settings UI confirms that the current database password cannot be viewed after creation. Do not reset it merely to make a backup: Supabase warns that reset breaks existing direct connections. The owner must either supply the already-known connection URI through the prepared owner-only file, or explicitly approve a password-reset plan that inventories and updates all affected direct connections first.
+
 ## Production gates still open
 
 Do not claim Module A complete until the following have fresh, action-time proof:
