@@ -85,13 +85,16 @@ try {
   $volumePassphrase = "$resolvedPassphraseFile`:/run/secrets/backup-passphrase:ro"
   $containerScript = @'
 set -eu
-export PGPASSFILE=/run/secrets/pgpass
+cp /run/secrets/pgpass /tmp/pgpass
+chmod 600 /tmp/pgpass
+export PGPASSFILE=/tmp/pgpass
 pg_dump --format=custom --no-owner --no-acl --file /work/cascade-production.dump
 openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -md sha512 -salt \
   -in /work/cascade-production.dump \
   -out /work/cascade-production.dump.enc \
   -pass file:/run/secrets/backup-passphrase
 rm -f /work/cascade-production.dump
+rm -f /tmp/pgpass
 '@
 
   & docker run --rm --pull never `
