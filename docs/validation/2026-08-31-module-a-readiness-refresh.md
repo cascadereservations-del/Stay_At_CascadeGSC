@@ -48,6 +48,19 @@ Resolve it in one of two owner-approved ways before a cutover: enable a Supabase
 | Tracked production inventory comparison | `node scripts/audit/compare-supabase-production.mjs --check` | PASS — 21 deployed functions: 12 recovered + 9 versioned; 33 tables, 52 policies, 33 RLS tables in tracked snapshot. |
 | Secret scan | `node scripts/audit/scan-secrets.mjs` | PASS — no high-confidence credential patterns. |
 
+## Final source-control rerun (2026-09-01)
+
+The non-production controls were rerun after the cutover-plan and external-backup candidate updates:
+
+| Check | Result |
+| --- | --- |
+| `npm.cmd run test:platform-safety` | PASS — 37 tests, 0 failures. |
+| `node scripts/check-n8n-workflows.mjs` | PASS — 13 inactive workflow exports. |
+| `node scripts/audit/scan-secrets.mjs` | PASS — no high-confidence credential patterns. |
+| `git diff --check` | PASS — no whitespace errors. |
+
+These results verify source controls only. They do not close the production backup, project-Auth, cleaner, scheduler, or shared-n8n-runtime gates.
+
 ## Disposable Supabase recovery rerun
 
 The local disposable Supabase recovery command was started on 2026-08-31. Its uniquely named `cascade-recovery-*` database became healthy, but the process did not reach its final evidence output/cleanup in the tool window. It was therefore **not recorded as a new successful recovery proof**.

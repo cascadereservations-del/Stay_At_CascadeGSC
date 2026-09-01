@@ -23,7 +23,7 @@
 - Read: `docs/runbooks/database-release.md`
 - Read: `docs/validation/2026-08-31-module-a-readiness-refresh.md`
 
-- [ ] **Step 1: Confirm branch cleanliness and immutable source ancestry.**
+- [x] **Step 1: Confirm branch cleanliness and immutable source ancestry.**
 
 ```powershell
 Set-Location 'C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol'
@@ -43,7 +43,7 @@ git log -1 --oneline
 
 Expected: the owner records the checked-out commit in the production release record. It must descend from the source commit declared by the release JSON, and the release verifier must confirm the locked migration hashes. Later documentation/evidence commits do not invalidate the payload; a changed migration, client artifact, or verifier failure does.
 
-- [ ] **Step 3: Commit any action-time evidence before production work.**
+- [x] **Step 3: Commit any action-time evidence before production work.**
 
 ```powershell
 git add docs/validation/<dated-evidence-file>.md
