@@ -12,6 +12,7 @@
 | Gate | Observed state | Consequence |
 | --- | --- | --- |
 | Supabase project | Active and healthy; one active property recorded. | The production target is available for a staffed cutover. |
+| Production restore point | Supabase dashboard reports that the current Free plan does not include project backups or point-in-time recovery. | Hard stop: do not apply the staff/cleaner release until an approved, tested, immutable backup/restore mechanism exists for this window. |
 | Four staff/cleaner release migrations | Not present in the production ledger. | Do not publish the authenticated cleaner PWA or advance its three compatible functions. |
 | Staff access / property scope schema | Not live. | Named staff roles and per-property access cannot yet be proven in production. |
 | Named-cleaner audit field | Not live. | Cleaner submissions are not yet attributable to a signed-in cleaner in the new model. |
@@ -20,6 +21,20 @@
 | Verified TOTP factors | 0 factors / 0 users. | Owner must enroll TOTP and obtain a fresh `aal2` session before privileged cutover actions. |
 
 This confirms the release is still correctly held at its feature flags. It is not a failed deployment and must not be treated as one.
+
+### MFA boundary clarification (2026-09-01)
+
+The Supabase **dashboard account** now has an authenticator factor. That protects access to the Supabase administrative console, and is a valuable prerequisite for the operator.
+
+It does **not** satisfy the Cascade application release gate on its own. The gate is checked by `auth.jwt()` inside the Cascade project: it requires a separate named **project Auth user**, bootstrapped as the first database-owned owner after the staff/RLS migration is live, then enrolled in that project's TOTP flow and issued a fresh `aal2` session. A read-only project query still showed zero verified project TOTP factors after dashboard MFA enrollment.
+
+Do not create or bootstrap this project Auth identity before the coordinated migration cutover and a fresh production restore point. At that time, create it through the approved project Auth administration flow, bootstrap it from a database-owner session, enroll its MFA, and record only the pass/fail result and timestamp.
+
+### Backup gate clarification (2026-09-01)
+
+The production project's current Supabase Free plan explicitly reports that it has no scheduled backups or point-in-time recovery. The existing release contract requires a fresh immutable restore point, so this is a release **stop condition**, not an optional improvement.
+
+Resolve it in one of two owner-approved ways before a cutover: enable a Supabase plan with a production-native restore point, or revise the release contract only after a separate, reviewed runbook proves an encrypted external logical backup and restore exercise for the actual production database. Do not substitute a local schema snapshot, a source migration list, or the disposable development recovery proof for a production-data backup.
 
 ## Verified results
 

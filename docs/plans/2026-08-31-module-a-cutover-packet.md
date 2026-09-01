@@ -52,7 +52,7 @@ git commit -m "docs(cascade): record module a cutover preflight"
 
 Expected: evidence is committed before the production operator applies the release. Do not place tokens, backup IDs, personal data or raw logs in the file.
 
-### Task 2: Establish owner MFA and named cleaner scope
+### Task 2: Secure the dashboard operator and prepare named-user scope
 
 **Files:**
 - Read: `supabase/migrations/20260828000400_staff_roles_and_sessions.sql`
@@ -60,28 +60,17 @@ Expected: evidence is committed before the production operator applies the relea
 - Read: `docs/runbooks/staff-access-lifecycle.md`
 - Test: `supabase/tests/database/staff_roles_and_sessions.sql`
 
-- [ ] **Step 1: Enroll owner TOTP through the approved Supabase Auth UI.**
+- [x] **Step 1: Enroll the Supabase dashboard owner in TOTP through the approved account-security UI.**
 
-Expected: the owner completes TOTP enrollment personally; do not copy recovery codes or MFA secrets into a terminal, repository, or chat.
+Expected: the owner completes dashboard-account TOTP personally; do not copy recovery codes or MFA secrets into a terminal, repository, or chat. This protects the administrative console but is not an application `aal2` claim.
 
-- [ ] **Step 2: Prove a fresh AAL2 session.**
+- [x] **Step 2: Confirm the application identity gate remains unfulfilled until the coordinated release.**
 
-Expected: the approved staff-access/status endpoint reports the authenticated owner and `aal2`; record only pass/fail and timestamp in release evidence.
+Expected: before the staff migration is applied, the Cascade project has no database-owned staff owner and no project Auth TOTP factor. Do not treat dashboard MFA as a substitute.
 
-- [ ] **Step 3: Create the real cleaner identity and property assignment from that AAL2 owner session.**
+- [ ] **Step 3: Record the intended minimum access scopes without creating access early.**
 
-Expected: cleaner receives the least-privilege role and exactly the intended Cascade `property_id`; no Finance/Admin permission is granted.
-
-- [ ] **Step 4: Run the role-scope smoke matrix with synthetic/non-financial data.**
-
-```text
-Cleaner: sign in → read own property → read prior meter → upload private test photo → submit test report → create pending expense claim → sign out.
-Disabled cleaner: sign in/read/write must be denied.
-Stale session: write must be denied.
-Other-property attempt: read/write must be denied.
-```
-
-Expected: allowed cleaner actions succeed only for assigned property; all denied cases fail closed; test photos/fixtures are removed through the documented cleanup route.
+Expected: plan one named project Auth owner and one named cleaner. The cleaner will receive only the `cleaner` role and exactly the intended Cascade `property_id`; no Finance/Admin permission is granted. Do not bootstrap either role until Task 3 has a fresh restore point and its migrations are live.
 
 ### Task 3: Perform the coordinated staff/RLS/named-cleaner release
 
@@ -105,15 +94,30 @@ Expected: old/new reader and writer compatibility is exactly as declared. Stop i
 
 Expected: each applied ledger version and forward-verification query matches the expected scalar result. Stop at the first mismatch; do not edit deployed migrations or force-mark history.
 
-- [ ] **Step 4: Deploy the compatible authenticated cleaner client/backend artifacts in the documented order.**
+- [ ] **Step 4: Create the first named Cascade project Auth owner, bootstrap it from a database-owner session, then enroll project TOTP and issue a fresh session.**
+
+Expected: create or use a pre-existing project Auth user through the approved project Auth administration flow; bootstrap that exact user with `bootstrap_cascade_owner` from a database-owner session; then the owner personally completes the **project** TOTP flow. The staff-access/status endpoint must report the authenticated owner and `aal2`; record only pass/fail and timestamp in release evidence. Do not put an email address, MFA secret, user UUID or recovery code in Git/chat.
+
+- [ ] **Step 5: Create the real cleaner identity and property assignment from the new owner project-AAL2 session.**
+
+Expected: cleaner receives the least-privilege role and exactly the intended Cascade `property_id`; no Finance/Admin permission is granted.
+
+- [ ] **Step 6: Deploy the compatible authenticated cleaner client/backend artifacts in the documented order.**
 
 Expected: backend and client move together; no anonymous fallback is enabled to keep an old client working.
 
-- [ ] **Step 5: Repeat the Task 2 smoke matrix and capture redacted pass/fail evidence.**
+- [ ] **Step 7: Run the role-scope smoke matrix with synthetic/non-financial data.**
 
-Expected: named cleaner works only within the intended property and Finance remains isolated.
+```text
+Cleaner: sign in → read own property → read prior meter → upload private test photo → submit test report → create pending expense claim → sign out.
+Disabled cleaner: sign in/read/write must be denied.
+Stale session: write must be denied.
+Other-property attempt: read/write must be denied.
+```
 
-- [ ] **Step 6: Commit the release evidence.**
+Expected: allowed cleaner actions succeed only for assigned property; all denied cases fail closed; test photos/fixtures are removed through the documented cleanup route.
+
+- [ ] **Step 8: Commit the release evidence.**
 
 ```powershell
 git add docs/validation/<dated-production-cutover-evidence>.md

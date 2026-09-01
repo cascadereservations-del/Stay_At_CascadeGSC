@@ -297,11 +297,11 @@ flowchart TB
 
 Module A is not fully closed until the following sequence is completed with fresh action-time approval:
 
-1. Enroll the Cascade owner in Supabase TOTP MFA and prove a new `aal2` session.
-2. Create the real cleaner Auth identity and assign the cleaner role plus Cascade property from the MFA-proven owner session.
-3. Capture fresh production preflight, migration-ledger reconciliation, restore-point and rollback evidence.
-4. Deploy the coordinated staff/RLS/named-cleaner backend packet and immediately smoke-test the authenticated cleaner PWA.
-5. Prove sign-in, property isolation, private photo upload, meter lookup, report submission, pending expense claim, sign-out, disabled-user denial and stale-session denial.
+1. Confirm dashboard-owner TOTP is enrolled, then capture fresh production preflight, migration-ledger reconciliation, restore-point and rollback evidence.
+2. Deploy the coordinated staff/RLS/named-cleaner backend packet through the approved production mechanism.
+3. Create or use a named **project Auth** owner, bootstrap that identity from a database-owner session, complete project TOTP, and prove a fresh application `aal2` session. Dashboard MFA is not an application `aal2` claim.
+4. Create the real cleaner project Auth identity and assign the cleaner role plus Cascade property from the project-AAL2 owner session.
+5. Deploy the compatible authenticated cleaner PWA and backend artifacts together, then prove sign-in, property isolation, private photo upload, meter lookup, report submission, pending expense claim, sign-out, disabled-user denial and stale-session denial.
 6. Create separate scheduler and liveness secrets without exposing their values; deploy and smoke-test the heartbeat components before schedule/Uptime Kuma activation.
 7. Apply the corrected price-history view through its own reviewed release.
 8. Complete an owner-approved restore exercise for the shared Portainer n8n database, credential ciphertext, encryption key and workflow set.

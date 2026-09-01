@@ -45,6 +45,10 @@ On 2026-08-31, local readiness was refreshed: 37 platform-safety tests passed, t
 
 A later read-only production-gate audit confirmed the active project has one property, but none of the four staff/cleaner cutover protections is live and no verified TOTP factor exists. This is an expected held release, not a failed deployment. Full evidence: `docs/validation/2026-08-31-module-a-readiness-refresh.md`. The exact production sequence is `docs/plans/2026-08-31-module-a-cutover-packet.md`.
 
+On 2026-09-01, dashboard-account MFA was enrolled. It secures the Supabase administrative console but does not populate the Cascade project's `auth.mfa_factors` table or produce an application `aal2` claim. Project-owner bootstrap and project-user MFA remain part of the coordinated post-migration cutover; do not conflate the two MFA boundaries.
+
+The production project is on a Supabase Free plan. Its Backups UI reports no scheduled backups or point-in-time recovery, which is a hard stop for any coordinated production schema cutover until the owner approves either a qualifying Supabase backup plan or a separately proven encrypted external backup-and-restore runbook.
+
 ## Production gates still open
 
 Do not claim Module A complete until the following have fresh, action-time proof:
