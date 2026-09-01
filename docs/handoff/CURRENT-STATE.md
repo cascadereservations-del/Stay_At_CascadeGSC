@@ -53,7 +53,7 @@ The production project is on a Supabase Free plan. Its Backups UI reports no sch
 
 `docs/runbooks/supabase-external-backup-recovery.md` and `scripts/recovery/backup-supabase-production.ps1` are the selected low-cost external-backup path. The script has passed PowerShell syntax validation and fail-closed checks. The already-present local `postgres:17` Docker image provides `pg_dump`, `pg_restore`, and OpenSSL with no new installation or image pull; no production backup or restore proof has been attempted.
 
-Local preparation completed on 2026-09-01: an owner-only passphrase file was created outside Git at `C:\Users\Lloyd\Cascade-Secrets\supabase-backup-passphrase.txt`, and an owner-only encrypted-backup destination was prepared at `C:\Cascade-Backups`. The passphrase value was not displayed, logged, or recorded in this repository. The production connection URL is still intentionally absent from this workspace.
+Local preparation completed on 2026-09-01: an owner-only passphrase file was created outside Git at `C:\Users\Lloyd\Cascade-Secrets\supabase-backup-passphrase.txt`, an owner-only encrypted-backup destination was prepared at `C:\Cascade-Backups`, and an empty owner-only connection-URL file was prepared at `C:\Users\Lloyd\Cascade-Secrets\supabase-production-db-url.txt`. The passphrase and connection URL are not displayed, logged, or recorded in this repository. The script rejects the empty URL file before Docker or database access.
 
 ## Production gates still open
 

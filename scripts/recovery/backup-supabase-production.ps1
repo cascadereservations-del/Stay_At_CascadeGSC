@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)] [string]$BackupRoot,
-  [Parameter(Mandatory)] [string]$PassphraseFile
+  [Parameter(Mandatory)] [string]$PassphraseFile,
+  [Parameter(Mandatory)] [string]$ConnectionUrlFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,24 +26,29 @@ function Escape-PgPass([string]$Value) {
   return $Value.Replace('\', '\\').Replace(':', '\:')
 }
 
-if ([string]::IsNullOrWhiteSpace($env:CASCADE_PRODUCTION_DATABASE_URL)) {
-  throw 'CASCADE_PRODUCTION_DATABASE_URL must be supplied through the current process environment. Do not place it in this script, Git, or shell history.'
-}
-
 Require-Command 'docker'
 $resolvedBackupRoot = Assert-OutsideRepository $BackupRoot 'BackupRoot'
 $resolvedPassphraseFile = Assert-OutsideRepository $PassphraseFile 'PassphraseFile'
+$resolvedConnectionUrlFile = Assert-OutsideRepository $ConnectionUrlFile 'ConnectionUrlFile'
 if (-not (Test-Path -LiteralPath $resolvedPassphraseFile -PathType Leaf)) {
   throw 'PassphraseFile must be an existing, owner-controlled file outside the repository.'
 }
 if ([string]::IsNullOrWhiteSpace((Get-Content -LiteralPath $resolvedPassphraseFile -Raw))) {
   throw 'PassphraseFile must not be empty.'
 }
+if (-not (Test-Path -LiteralPath $resolvedConnectionUrlFile -PathType Leaf)) {
+  throw 'ConnectionUrlFile must be an existing, owner-controlled file outside the repository.'
+}
+$connectionRaw = Get-Content -LiteralPath $resolvedConnectionUrlFile -Raw
+$connectionUrl = if ($null -eq $connectionRaw) { '' } else { $connectionRaw.Trim() }
+if ([string]::IsNullOrWhiteSpace($connectionUrl)) {
+  throw 'ConnectionUrlFile must contain the production PostgreSQL connection URL. Do not place that URL in Git, chat, or shell history.'
+}
 
 try {
-  $databaseUri = [Uri]$env:CASCADE_PRODUCTION_DATABASE_URL
+  $databaseUri = [Uri]$connectionUrl
 } catch {
-  throw 'CASCADE_PRODUCTION_DATABASE_URL must be a valid PostgreSQL connection URL.'
+  throw 'ConnectionUrlFile must contain a valid PostgreSQL connection URL.'
 }
 if ($databaseUri.Scheme -notin @('postgres', 'postgresql')) {
   throw 'CASCADE_PRODUCTION_DATABASE_URL must use postgres:// or postgresql://.'

@@ -19,19 +19,20 @@ The current Cascade Supabase Free plan has no scheduled backups or point-in-time
 1. Confirm the existing local Docker image `postgres:17` is present. The backup script refuses to pull an image during a cutover.
 2. Create a high-entropy backup passphrase file in the approved secret location, outside the repository and shared n8n runtime. The file must be readable only by the approved operator.
 3. Choose an encrypted backup root outside any Git working tree and outside a synchronised public/shared folder.
-4. Obtain the production Postgres connection URL through the approved Supabase administrative channel. Provide it only as the `CASCADE_PRODUCTION_DATABASE_URL` process environment variable for the current operator session.
+4. Obtain the production Postgres connection URL through the approved Supabase administrative channel. Paste it only into an owner-only `ConnectionUrlFile` outside the repository; never into Git, chat, shell history, or a shared folder.
 
 ## Create a candidate backup
 
-From the repository root, with the connection URL set only in the current process environment:
+From the repository root, with the connection URL stored only in the owner-only local file:
 
 ```powershell
 ./scripts/recovery/backup-supabase-production.ps1 \
   -BackupRoot 'C:\Cascade-Backups' \
-  -PassphraseFile 'C:\Users\Lloyd\Cascade-Secrets\supabase-backup-passphrase.txt'
+  -PassphraseFile 'C:\Users\Lloyd\Cascade-Secrets\supabase-backup-passphrase.txt' \
+  -ConnectionUrlFile 'C:\Users\Lloyd\Cascade-Secrets\supabase-production-db-url.txt'
 ```
 
-The script refuses to write under the repository, uses only the already-present `postgres:17` image with image pulls disabled, and produces an OpenSSL-encrypted custom-format dump, a SHA-256 checksum file, and a non-secret manifest. It removes its temporary plaintext dump and database-password file before returning.
+The script refuses to write under the repository, reads both secrets only from owner-only local files, uses the already-present `postgres:17` image with image pulls disabled, and produces an OpenSSL-encrypted custom-format dump, a SHA-256 checksum file, and a non-secret manifest. It removes its temporary plaintext dump and database-password file before returning.
 
 ## Prove restoration before a production cutover
 
