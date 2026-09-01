@@ -27,8 +27,8 @@ From the repository root, with the connection URL set only in the current proces
 
 ```powershell
 ./scripts/recovery/backup-supabase-production.ps1 \
-  -BackupRoot 'D:\Cascade-Backups' \
-  -PassphraseFile 'D:\Cascade-Secrets\backup-passphrase.txt'
+  -BackupRoot 'C:\Cascade-Backups' \
+  -PassphraseFile 'C:\Users\Lloyd\Cascade-Secrets\supabase-backup-passphrase.txt'
 ```
 
 The script refuses to write under the repository, uses only the already-present `postgres:17` image with image pulls disabled, and produces an OpenSSL-encrypted custom-format dump, a SHA-256 checksum file, and a non-secret manifest. It removes its temporary plaintext dump and database-password file before returning.
