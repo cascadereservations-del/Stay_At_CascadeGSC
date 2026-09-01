@@ -65,6 +65,8 @@ These results verify source controls only. They do not close the production back
 
 On 2026-09-01, `scripts/recovery/backup-supabase-production.ps1` was invoked without `CASCADE_PRODUCTION_DATABASE_URL`. It correctly refused before any database/tool invocation, and no test backup directory was created. The existing `postgres:17` Docker image was also inspected and contains `pg_dump`, `pg_restore`, and OpenSSL. This proves only the missing-credential guardrail and available local runtime; it is not a backup or restore proof.
 
+A separate temporary Docker self-test encrypted and decrypted harmless sample text with the exact OpenSSL options used by the backup script, compared the recovered text successfully, and removed the temporary test directory. No Supabase connection, image pull, or production data was involved.
+
 ## Disposable Supabase recovery rerun
 
 The local disposable Supabase recovery command was started on 2026-08-31. Its uniquely named `cascade-recovery-*` database became healthy, but the process did not reach its final evidence output/cleanup in the tool window. It was therefore **not recorded as a new successful recovery proof**.
