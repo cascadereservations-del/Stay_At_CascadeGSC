@@ -36,6 +36,8 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Scope:** Wave 1.1–1.2.
 
+**Local progress (2026-09-01):** a local-only candidate migration introduces `decide_direct_booking`, a transaction-owned decision record, per-decision idempotency and a property transaction lock. The candidate confirms the booking/reservation/calendar/ledger/projection outbox together, refuses overlapping approved stays, and leaves delivery to the outbox. `approve-booking` now delegates the state decision to that RPC and contains no calendar or ledger update. Two focused source-boundary tests and ten local pgTAP assertions passed. It has not been deployed, and its release is blocked by Module A recovery gates.
+
 - Audited booking and payment-evidence state machine.
 - One database transaction for human-approved direct booking confirmation.
 - Concurrency proof: two overlapping requests result in exactly one confirmation.

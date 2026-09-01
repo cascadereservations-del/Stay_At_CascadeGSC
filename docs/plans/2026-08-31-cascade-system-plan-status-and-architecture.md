@@ -144,7 +144,7 @@ flowchart TB
 | Wave 0.10 | Privacy requests, holds and audit | 🟢 Local release candidate | 49 pgTAP assertions pass; legal/privacy review, owner MFA, backup and deployment approval remain open |
 | Wave 0.11 | Correlation, redaction, degraded mode and independent liveness | 🟢 Local release candidate | 37 Node and 35 Deno tests pass; liveness secret/deployment/Uptime Kuma remain open |
 | Wave 0.12 | Safe database release and rollback discipline | 🟢 Complete locally | First production use requires fresh backup, preflight and approval |
-| Wave 1 | Reliable booking, calendar and payment review | ⚪ Not started | Begin only after Module A gates close or are explicitly re-sequenced |
+| Wave 1 | Reliable booking, calendar and payment review | 🟡 Local source work re-sequenced | Owner deferred Module A recovery exercise on 2026-09-01; local implementation/tests may proceed, but deployment remains blocked until Module A gates close |
 | Wave 2 | Guest chatbot and shared inbox | ⚪ Not started | Requires approved knowledge base, OpenRouter gateway and Meta/shared-inbox setup |
 | Wave 3 | Cleaning and meter verification | ⚪ Not started beyond cleaner foundations | Requires versioned evidence contract and consented calibration set |
 | Wave 4 | Inventory forecasting and purchase approval | ⚪ Not started | Recommendation and approval only; automatic ordering is prohibited |

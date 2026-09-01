@@ -59,6 +59,8 @@ The Supabase Database Settings UI confirms that the current database password ca
 
 The first approved backup attempt made no dump: Docker could not resolve the direct `db.<project-ref>.supabase.co` host. Use the Supabase **Session Pooler** URI on port `5432` in the owner-only connection file for the next retry, not the direct connection URI or the transaction pooler URI. The browser connection dialog is left open for this selection.
 
+**Owner sequencing decision (2026-09-01):** Defer the external backup/restore exercise for now. The Module A production cutover remains frozen: do not apply migrations, deploy functions, activate workflows, or change production data. To keep delivery moving, Module B may proceed as local source work and tests only; its deployment still requires the deferred Module A recovery gates.
+
 ## Production gates still open
 
 Do not claim Module A complete until the following have fresh, action-time proof:
@@ -96,6 +98,17 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | Wave 4 | Inventory forecast + purchase approval | Planned; never auto-order |
 | Wave 5 | Finance, reconciliation, analytics | Planned; internal management reporting while unregistered |
 | Waves 6–8 | CRM, selective marketing, consolidation | Planned |
+
+## Module B local candidate (2026-09-01)
+
+The deferred recovery exercise does not prevent local source work. The first Module B candidate is present but **not deployed**:
+
+- `supabase/migrations/20260901010000_canonical_booking_decision.sql` adds `booking_decisions` and the service-only `decide_direct_booking(uuid, text, text)` RPC.
+- It serializes a repeat decision and a property-wide availability check, then performs booking/reservation/calendar/ledger/projection-outbox writes in one database transaction. Provider delivery is intentionally not performed by the approving Edge Function.
+- `supabase/functions/approve-booking/index.ts` is reduced to authorization, one RPC call and response rendering; it no longer directly updates `calendar_events` or `transactions`.
+- Focused local checks passed: two Node boundary/contract tests and ten pgTAP assertions for confirmation, projection, retry idempotency and an overlapping-stay conflict. The pgTAP test transaction rolled back all fixture data.
+
+While validating this candidate, the local schema showed that legacy `booking_inquiries.id` and `calendar_events.id` do not have usable unique constraints. The candidate deliberately stores logical UUID references instead of adding foreign keys. Do not “fix” those foundational keys in this migration; investigate and release any key repair separately with a compatibility/backup plan.
 
 ## Business and policy decisions already made
 
