@@ -51,7 +51,7 @@ try {
   throw 'ConnectionUrlFile must contain a valid PostgreSQL connection URL.'
 }
 if ($databaseUri.Scheme -notin @('postgres', 'postgresql')) {
-  throw 'CASCADE_PRODUCTION_DATABASE_URL must use postgres:// or postgresql://.'
+  throw 'ConnectionUrlFile must use postgres:// or postgresql://.'
 }
 
 $userInfo = [Uri]::UnescapeDataString($databaseUri.UserInfo)
