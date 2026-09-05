@@ -4,51 +4,60 @@
 Continue the Cascade Hideaway business-system project from:
 C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol
 
-Read these files in order before editing:
-1. HANDOFF.md
-2. docs/handoff/README.md
-3. docs/handoff/COMPLETE-HANDOFF-2026-09-05.md
-4. docs/handoff/CURRENT-STATE.md
-5. docs/handoff/DEVELOPMENT-PLAYBOOK.md
-6. docs/handoff/FILE-MAP.md
-7. docs/plans/module-execution-queue.md
-8. docs/validation/2026-09-05-module-c-local-candidate.md
+Start by running:
+- git status --short
+- git log -7 --oneline
 
-Context:
-- Supabase is canonical for all business facts and state transitions.
-- Existing Portainer n8n is used initially in the Cascade Hideaway folder, but all source workflows remain inactive. n8n is delivery/integration only, never booking/payment authority.
-- Finance/Admin and OPS are strictly separate. OPS never receives money, payment, receipt, bank, rate, deposit, refund, or guest contact information.
-- AI/OpenRouter is advisory only. It cannot confirm payment, post financial decisions, override policy, or approve a booking.
-- Human approval is mandatory for payment/booking confirmation, refunds, discounts, exceptions, cleaning overrides, purchase approval, and social publication.
-- The business is unregistered; do not claim BIR/tax compliance or automate filing.
-- The owner explicitly deferred the Free-plan external backup/restore exercise. Continue local source work only; do not deploy, activate workflows/cron, configure providers, modify Docker/VPS, apply migrations, or send messages without fresh owner approval.
+Then read, in order:
+1. HANDOFF.md
+2. docs/handoff/COMPLETE-HANDOFF-2026-09-05.md
+3. docs/handoff/CURRENT-STATE.md
+4. docs/handoff/DEVELOPMENT-PLAYBOOK.md
+5. docs/plans/module-execution-queue.md
+6. docs/validation/2026-09-05-module-e-local-candidate.md
+7. docs/validation/2026-09-05-wave-2-shared-inbox.md
+8. docs/validation/2026-09-05-wave-3-cleaning-meter.md
 
 Current branch: codex/cascade-waves-0-1-sol
-Run `git log -1 --oneline` for the current handoff commit; do not rely on a copied SHA.
+Expected latest completed commit at handoff: ab39695 Complete Wave 3 cleaning verification foundation. Verify it from Git rather than assuming the copied SHA is current.
 
-Immediate production gates:
-- Dashboard-account MFA is enrolled, but it is not Cascade project Auth MFA/AAL2. Project-owner bootstrap and project TOTP happen only after the staff/RLS migration release is safely applied.
-- Supabase Free has no scheduled backups or point-in-time recovery. The owner has chosen to remain on Free; do not apply the staff/cleaner migrations until the owner explicitly approves and proves the selected encrypted external backup/restore process in `docs/runbooks/supabase-external-backup-recovery.md`.
-- The selected external backup script is `scripts/recovery/backup-supabase-production.ps1`. It passed syntax/secret/fail-closed checks but has not run against production. It uses the existing `postgres:17` Docker image for `pg_dump`, `pg_restore`, and OpenSSL, with image pulls disabled.
-- The owner-only passphrase, empty connection-URL placeholder, and backup destination are already prepared outside Git; see `CURRENT-STATE.md` for paths. Supabase does not display the existing database password. Do not reset it without a separate approved connection-impact plan.
-- The release packet is `docs/plans/2026-08-31-module-a-cutover-packet.md`; it is the only approved order for the coordinated staff/RLS/named-cleaner release.
+Completed local candidates:
+- Module B: canonical atomic booking decision.
+- Module C: advisory payment evidence and named Finance review; 47/47 rollback-only pgTAP assertions pass.
+- Module D: Finance-only review queue and separate inactive delivery boundary. The Admin dashboard source is outside this repository, so its UI wiring remains with the owning product.
+- Module E: booking holds, safe expiry, amendments, cancellations, no-shows, effective-dated rate policies, separate refund authorization, calendar reconciliation, and immutable audit. 43/43 rollback-only pgTAP assertions pass. A two-session collision test proved one overlapping hold wins and the other fails closed.
+- Wave 2: private shared-inbox foundation with encrypted-body fields, redacted previews, deterministic escalation, named assignment, and human-reviewed advisory drafts. 31/31 rollback-only pgTAP assertions pass. Draft approval does not send or queue a message.
+- Wave 3: private cleaning/meter evidence tied to the named cleaner, session, property, and matching meter reading. Named inspectors review evidence; only operations managers may override. 21/21 rollback-only pgTAP assertions pass.
 
-Local Module B/C status:
-- `supabase/migrations/20260901010000_canonical_booking_decision.sql` is a local-only candidate. Its `decide_direct_booking(uuid, text, text)` RPC serializes a decision, verifies live overlap, and writes booking/reservation/calendar/ledger/projection-outbox state atomically.
-- Module C replaces the exposed signature with `decide_direct_booking(uuid, text, text, uuid)`, requiring a matching immutable Finance review. The earlier transaction engine remains private and has no service-role grant.
-- `supabase/functions/approve-booking/index.ts` requires a named AAL2 Finance/Admin session, records the review, then calls only the reviewed RPC. Service-signed approval links were removed.
-- Two Node boundary tests and ten local pgTAP assertions passed. The local schema revealed missing usable unique constraints on legacy `booking_inquiries.id` and `calendar_events.id`; do not repair those keys opportunistically—make a separate reviewed expand/contract release.
-- Module C source checks, two Deno type checks, and four Deno adapter runtime tests pass. Its 47 pgTAP assertions have not run because local Postgres was stopped. Read the dated Module C validation report for exact evidence.
-- Modules B and C are not deployed. Their release remains gated by Module A recovery/cutover proof.
+The next local implementation is Wave 4: inventory forecasting and human purchase approval. Build an independently reversible migration, rollback-only pgTAP suite, source-boundary tests, dated validation record, and one clean commit. Forecasts and recommendations remain advisory. A named authorized human must approve a purchase, and no function may place a supplier order or invoke a provider.
 
-Immediate safe next work: run the Module C pgTAP suite in an approved local/disposable Supabase environment and perform the final release review against that database evidence. If it passes, begin Module D as local Admin review-queue work only. Receipt OCR, OpenRouter output, bank email, and comparison remain advisory; only a named human review may reach `decide_direct_booking`.
+After Wave 4, continue locally in order:
+1. Wave 5 — Finance reconciliation and internal management analytics.
+2. Wave 6 — CRM, consent, retention, and guest lifecycle.
+3. Wave 7 — marketing drafts and exact-content human approval; no publication.
+4. Wave 8 — consolidation, recovery drills, authority inventory, and operational handoff.
 
-Task Master is installed. Its local initialization command succeeded, but the CLI did not create `.taskmaster/tasks/tasks.json`, so manual task creation still failed closed. The prepared PRD was not transmitted to an external model and `tasks.json` was not hand-edited. Repair this through Task Master itself; do not route around the safeguard or add Task Master metadata to generated archives/session mirrors/completed derivative worktrees.
+Non-negotiable boundaries:
+- Supabase is canonical for every business fact and state transition.
+- n8n is delivery/integration only. All 13 source-controlled workflows remain inactive.
+- Finance/Admin and OPS remain strictly separate. OPS receives no money, payment, receipt, bank, rate, deposit, refund, or guest-contact data.
+- AI, OCR, forecasts, classifications, and bank email are advisory only.
+- Named human approval is mandatory for booking/payment confirmation, refunds, discounts, exceptions, cleaning overrides, purchases, and publication.
+- The business is unregistered. Do not claim BIR, statutory, tax, or filing compliance.
+- Do not deploy, apply production migrations, activate workflows or cron, configure providers, modify VPS/Docker configuration, or send messages without fresh action-time owner approval.
+- Production remains frozen behind Module A: encrypted backup/restore proof, coordinated staff/RLS release, project Auth MFA/AAL2, real cleaner authorization checks, monitoring, and shared n8n recovery.
 
-The portable design contract is:
-docs/mockups/cascade-experience-mockups.html
+Local Docker Supabase was running during the completed validations. Database candidate tests were assembled with their migrations inside transactions ending in ROLLBACK; they did not alter the migration ledger or persist fixtures.
 
-The Analytics mockup uses sample values only. Production must calculate gross booking income, approved operating expenses, operating profit, cost per available night, cost per occupied night, electricity/water daily consumption and cost, occupancy, ADR, and RevPAR from reconciled canonical data with owner-approved effective-dated targets.
+The worktree intentionally still contains old uncommitted Task Master setup files and a modified .gitignore. The owner explicitly chose to stop spending time on Task Master. Do not include these files in feature commits and do not make Task Master a prerequisite for continuing:
+- .taskmaster/
+- .env.example
+- AGENTS.md
+- docs/handoff/TASKMASTER.md
+- scripts/taskmaster-codex.mjs
+- scripts/taskmaster-schema.mjs
+- tests/taskmaster/
+- .gitignore changes related to that setup
 
-Work incrementally: read the applicable module plan/runbook, state the authority boundary, implement the smallest reversible change, run focused tests plus secret scan, commit evidence, then stop at the named production gate.
+Before each commit, stage only the files owned by the current wave, run focused tests and git diff --check, record exact evidence, and preserve all unrelated dirty files. Stop before every production or provider action.
 ```
