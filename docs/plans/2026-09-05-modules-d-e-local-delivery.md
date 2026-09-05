@@ -18,10 +18,10 @@
 - Create: `supabase/tests/database/payment_review_queue.sql`
 - Create: `tests/bookings/payment-review-queue-boundary.test.mjs`
 
-- [ ] Write tests requiring a bounded property-scoped request, named AAL2 Finance access, OPS denial, provenance, comparison warnings, immutable history, and no direct decision write.
-- [ ] Add `get_payment_review_queue(uuid,integer)` as a guarded JSON RPC returning minimized queue records from Module C tables.
-- [ ] Add the thin authenticated Edge Function and pure input/parser helpers.
-- [ ] Run the Node, Deno, and rollback-only pgTAP tests; commit the files with dated validation evidence.
+- [x] Write tests requiring a bounded property-scoped request, named AAL2 Finance access, OPS denial, provenance, comparison warnings, immutable history, and no direct decision write.
+- [x] Add `get_payment_review_queue(uuid,integer)` as a guarded JSON RPC returning minimized queue records from Module C tables.
+- [x] Add the thin authenticated Edge Function and pure input/parser helpers.
+- [x] Run the Node, Deno, and rollback-only pgTAP tests; commit the files with dated validation evidence.
 
 ### Task 2: Inactive delivery boundary
 
@@ -33,10 +33,10 @@
 - Modify: `supabase/functions/_shared/automation-delivery.ts`
 - Create: `tests/automation/module-d-delivery-boundary.test.mjs`
 
-- [ ] Write tests for a closed workflow/event matrix and audience-specific field allowlists.
-- [ ] Build Finance, guest, and internal payloads from explicit allowlists; no workflow receives a general booking row.
-- [ ] Make callback retries idempotent by stable workflow/channel/provider identifiers and prevent callbacks from changing business tables.
-- [ ] Validate Deno, source boundaries, 13 inactive workflow exports, and secrets; commit with evidence.
+- [x] Write tests for a closed workflow/event matrix and audience-specific field allowlists.
+- [x] Build Finance, guest, and internal payloads from explicit allowlists; no workflow receives a general booking row.
+- [x] Make callback retries idempotent by stable workflow/channel/provider identifiers and prevent callbacks from changing business tables.
+- [x] Validate Deno, source boundaries, 13 inactive workflow exports, and secrets; commit with evidence.
 
 ### Task 3: Audited booking lifecycle
 
@@ -46,10 +46,10 @@
 - Create: `tests/bookings/booking-lifecycle-boundary.test.mjs`
 - Create: `docs/plans/2026-09-05-legacy-booking-calendar-key-expand-contract.md`
 
-- [ ] Write pgTAP tests for idempotent holds, expiry, amendments, cancellation, no-show, named AAL2 refund authorization, projection reconciliation, and immutable audit history.
-- [ ] Add property-scoped lifecycle tables and guarded RPCs that never bypass `decide_direct_booking` for confirmation.
-- [ ] Add concurrent-session proof for overlapping decisions and document the separate legacy-key expand/contract release.
-- [ ] Run focused and broad local checks; commit with dated validation evidence and stop at the production gate.
+- [x] Write pgTAP tests for idempotent holds, expiry, amendments, cancellation, no-show, named AAL2 refund authorization, projection reconciliation, and immutable audit history.
+- [x] Add property-scoped lifecycle tables and guarded RPCs that never bypass `decide_direct_booking` for confirmation.
+- [x] Add concurrent-session proof for overlapping decisions and document the separate legacy-key expand/contract release.
+- [x] Run focused and broad local checks; commit with dated validation evidence and stop at the production gate.
 
 ### Task 4: Later-wave local foundations
 

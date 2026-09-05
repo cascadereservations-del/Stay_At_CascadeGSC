@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Begin Module E locally over the verified Module C/D contracts
+**Next safe engineering outcome:** Begin Wave 2 locally over the verified Module B–E contracts
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -15,8 +15,9 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Module B has a tested local candidate, but it is not deployed.
 - Module C has a source-complete local candidate and all 47 pgTAP assertions pass.
 - Module D has a Finance review queue and inactive delivery local candidate; Admin UI wiring remains in its owning repository.
+- Module E has a verified local lifecycle candidate, including a real two-session hold-collision proof.
 - Module A production gates remain open, so production is frozen.
-- Modules D and E and Waves 2–8 remain planned work.
+- Waves 2–8 remain planned work.
 - Finance/Admin and OPS must remain strictly separated.
 - OCR, OpenRouter, receipt evidence, and bank-email evidence are advisory. They must never confirm payment or a booking.
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
@@ -44,7 +45,7 @@ Never infer that local code is live. A production claim needs a dated production
 | Module B — canonical booking decision | **Local candidate complete** | Atomic `decide_direct_booking` RPC and delegated approval boundary exist and passed recorded local and Deno checks. | Resolve release prerequisites and deploy only after Module A approval. |
 | Module C — payment evidence and Finance review | **Local candidate verified** | Private evidence/comparison/review records, adapters, fixtures, negative tests, and 47 rollback-only pgTAP assertions pass. | Complete coordinated release review after Module A. |
 | Module D — Admin payment UI and delivery | **Backend/delivery local candidate** | Finance-only queue, closed delivery projections, and idempotent callbacks pass local tests; owning Admin UI source is outside this worktree. | Wire the owning Admin product after its source is available; keep delivery inactive. |
-| Module E — calendar reliability and lifecycle | **Planned** | Module B defines the canonical booking transition; broader lifecycle hardening remains. | Idempotent calendar lifecycle, reconciliation, collision handling, and recovery tests are complete. |
+| Module E — calendar reliability and lifecycle | **Local candidate complete** | Holds, expiry, amendments, cancellations, no-shows, rate versions, refund authorization, audit, and reconciliation pass local tests. | Release only after Module A gates and coordinated review. |
 | Waves 2–8 | **Planned / later** | Roadmap exists; none may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
 
 No percentage-complete figure is used: local candidates, production gates, and future product waves are materially different kinds of progress.
@@ -153,6 +154,8 @@ After Module C is locally verified:
 - Do not configure providers or send test messages without fresh approval.
 
 ### 3. Module E — calendar reliability and booking lifecycle
+
+The local candidate is complete. Five source-boundary tests, 43 rollback-only pgTAP assertions, and a disposable two-session collision proof pass. See [Module E validation](../validation/2026-09-05-module-e-local-candidate.md). Production release remains gated.
 
 - Define the complete inquiry, hold, review, approval, rejection, expiry, cancellation, refund, and calendar lifecycle.
 - Reconcile website and manually entered reservations through the same canonical collision rules.

@@ -72,6 +72,8 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Scope:** Wave 1.8–1.12.
 
+**Local progress (2026-09-05):** property-locked booking holds, safe expiry, effective-dated human-approved rate policies, AAL2 Admin lifecycle commands, separate AAL2 Finance refund authorization, calendar reconciliation, and immutable lifecycle audit are implemented locally. Five source-boundary tests and 43 rollback-only pgTAP assertions pass, including a timezone-boundary expiry check. A disposable two-session proof showed the losing overlapping hold waited for the property lock and failed closed, leaving exactly one active hold. See `docs/validation/2026-09-05-module-e-local-candidate.md`.
+
 - Calendar feed health and safe unpaid-hold expiry.
 - Controlled fixture release proof.
 - Amendments, cancellation, refund, no-show, effective-dated property rates/policy, and transactional delivery health.

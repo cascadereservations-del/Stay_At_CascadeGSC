@@ -91,8 +91,8 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | A | Platform safety completion: authorization, privacy, recovery, release discipline | Gated; finish before normal feature work unless owner explicitly re-sequences |
 | B | Canonical booking decision / transaction / idempotency | Local candidate complete; not deployed |
 | C | Advisory receipt + bank-email evidence | Local candidate; 47/47 pgTAP runtime gate passed |
-| D | Staff review UI and n8n delivery | Not started |
-| E | Calendar reliability and lifecycle release | Not started |
+| D | Staff review UI and n8n delivery | Backend/delivery local candidate; Admin UI source external |
+| E | Calendar reliability and lifecycle release | Local candidate complete; not deployed |
 | Wave 2 | Chatbot/shared inbox | Planned after Wave 1 foundation |
 | Wave 3 | Cleaning + meter verification | Planned after canonical evidence contract |
 | Wave 4 | Inventory forecast + purchase approval | Planned; never auto-order |
@@ -119,6 +119,10 @@ Fresh checks pass: 27 focused Module B/C, booking/security and handoff tests; 37
 ## Module D local candidate (2026-09-05)
 
 The local Finance review queue is property-scoped and available only to named AAL2 Finance/Admin sessions. It exposes canonical evidence provenance, deterministic comparisons, warnings, and immutable history while excluding guest email and phone and retaining approval in the reviewed booking transaction. Inactive delivery detail now uses closed audience-specific field sets, and callback retries update delivery state idempotently without touching booking or payment facts. Focused source checks, Deno runtime tests, 15 queue assertions, and 18 delivery assertions pass. The audited Admin dashboard source is not present in this worktree, so UI consumption remains in that product's owning repository. See `docs/validation/2026-09-05-module-d-local-candidate.md`.
+
+## Module E local candidate (2026-09-05)
+
+The local lifecycle candidate adds property-locked holds, expiry, human-approved effective-dated rate policies, AAL2 Admin amendments/cancellations/no-shows/reconciliation, separate AAL2 Finance refund authorization, and immutable audit history. Five source checks and 43 rollback-only pgTAP assertions pass, including a timezone-boundary expiry check. A disposable two-session test proved overlapping holds serialize and leave exactly one winner. Calendar records remain projections, refund authorization never executes a payment, and confirmation still flows only through the reviewed Module B/C decision boundary. See `docs/validation/2026-09-05-module-e-local-candidate.md`.
 
 ## Business and policy decisions already made
 
