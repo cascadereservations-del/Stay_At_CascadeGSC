@@ -1,22 +1,23 @@
 # Cascade Hideaway — Development Handoff Center
 
-**Prepared:** 2026-08-31
+**Prepared:** 2026-09-05
 
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`
 
 **Branch at handoff:** `codex/cascade-waves-0-1-sol`
-**Latest handoff commit:** `51d2053 docs(cascade): add profitability analytics mockup`
+**Current revision:** Run `git log -1 --oneline`; do not rely on a copied SHA.
 
 This directory is the single starting point for the next developer. It indexes the working code, executable plans, validation evidence, operational runbooks, visual contracts, and historical Obsidian memory without copying credentials, customer data, private evidence, or production exports into a new location.
 
 ## Start here
 
-1. Read [CURRENT-STATE.md](./CURRENT-STATE.md) for what is complete, gated, planned, and intentionally deferred.
-2. Read [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) before editing or deploying anything.
-3. Use [FILE-MAP.md](./FILE-MAP.md) to locate canonical source, plans, tests, workflows, runbooks, data definitions, and mockups.
-4. Open the [interactive system-plan view](./cascade-system-plan.html) for the visual roadmap, production gates, and resume sequence.
-5. Read `docs/plans/module-execution-queue.md` for the current approved execution order.
-6. Before any production-affecting step, read the applicable release/runbook under `docs/runbooks/`, then obtain fresh owner approval.
+1. Read [COMPLETE-HANDOFF-2026-09-05.md](./COMPLETE-HANDOFF-2026-09-05.md) for the complete remaining-work handoff.
+2. Open the [current project-status dashboard](./cascade-project-status.html) for the visual completed/remaining map.
+3. Read [CURRENT-STATE.md](./CURRENT-STATE.md) for detailed state and production gates.
+4. Read [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) before editing or deploying anything.
+5. Use [FILE-MAP.md](./FILE-MAP.md) to locate canonical source, plans, tests, workflows, runbooks, data definitions, and mockups.
+6. Read `docs/plans/module-execution-queue.md` and the dated Module C local-candidate validation before continuing.
+7. Before any production-affecting step, read the applicable release/runbook under `docs/runbooks/`, then obtain fresh owner approval.
 
 ## What this repository is
 
@@ -28,11 +29,14 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 | Area | State | Meaning |
 | --- | --- | --- |
-| Wave 0 safety foundation | Local release candidate / partly protected live | Source, tests, safe-release and privacy/observability packets exist. Production cutover gates are still open. |
+| Module A safety foundation | Local release candidate / partly protected live | Source, tests, safe-release and privacy/observability packets exist. Production cutover gates are still open. |
 | Direct booking site | Existing live product | Do not replace it with a mockup. Wave 1 will connect the final canonical booking decision flow after gates close. |
 | n8n | Existing shared Portainer runtime, workflows inactive | Use `Cascade Hideaway` folder and dedicated Cascade credentials only. Do not publish workflows without approval. |
 | Cleaner and inventory apps | Existing products with local security foundations | Production named-cleaner/RLS cutover remains gated. |
-| AI / OCR / vision / chat | Planned advisory layer | OpenRouter may advise only; it cannot confirm payment, override policy, or post financial decisions. |
+| Module B booking decision | Local candidate, not deployed | Atomic Supabase RPC and approval delegation passed recorded local and Deno checks. Release checks remain. |
+| Module C payment evidence | Local candidate; runtime gated | Source and Deno checks pass; 47 pgTAP assertions remain unverified. |
+| Modules D–E and Waves 2–8 | Planned | Continue only in the approved queue and preserve all authority boundaries. |
+| AI / OCR / vision / chat | Advisory layer only | OpenRouter may advise only; it cannot confirm payment, override policy, or post financial decisions. |
 | Product experience mockups | Complete, local, sample data | Dashboard, cleaner and direct-booking prototypes are implementation contracts, not production UI. |
 
 ## Non-negotiable boundaries
@@ -47,7 +51,9 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-The next engineering outcome is **Module A production-gate closure** (or an explicit owner decision to re-sequence it), followed by **Wave 1: reliable booking, calendar, and human payment review**. Do not start chatbot, cleaning AI, or marketing automation as substitute work while booking authority and authorization gates remain unresolved.
+The next permitted engineering outcome is **Module C database runtime verification, locally only**. Run its 47 pgTAP assertions, resolve failures, then begin Module D over the verified canonical records. Receipt OCR, OpenRouter output, and allowlisted bank-email evidence remain advisory; a deterministic comparison and named Finance review must precede `decide_direct_booking`.
+
+Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 
 ## Visual implementation contract
 
@@ -67,6 +73,8 @@ The numeric values are **sample data only**. Live implementation must compute th
 
 | Document | Purpose |
 | --- | --- |
+| [COMPLETE-HANDOFF-2026-09-05.md](./COMPLETE-HANDOFF-2026-09-05.md) | Current complete remaining-work handoff and exact continuation sequence. |
+| [cascade-project-status.html](./cascade-project-status.html) | Current offline visual status: completed, gated, next, and planned work. |
 | [CURRENT-STATE.md](./CURRENT-STATE.md) | Verified current status, gates, decisions, and known conflicts. |
 | [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) | Safe continuation workflow, test commands, approval gates, and development rules. |
 | [FILE-MAP.md](./FILE-MAP.md) | Canonical file and data map; what each location owns. |

@@ -89,8 +89,8 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | Module | Outcome | State |
 | --- | --- | --- |
 | A | Platform safety completion: authorization, privacy, recovery, release discipline | Gated; finish before normal feature work unless owner explicitly re-sequences |
-| B | Canonical booking decision / transaction / idempotency | Not started |
-| C | Advisory receipt + bank-email evidence | Not started |
+| B | Canonical booking decision / transaction / idempotency | Local candidate complete; not deployed |
+| C | Advisory receipt + bank-email evidence | Local candidate; pgTAP runtime gate open |
 | D | Staff review UI and n8n delivery | Not started |
 | E | Calendar reliability and lifecycle release | Not started |
 | Wave 2 | Chatbot/shared inbox | Planned after Wave 1 foundation |
@@ -103,12 +103,18 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 
 The deferred recovery exercise does not prevent local source work. The first Module B candidate is present but **not deployed**:
 
-- `supabase/migrations/20260901010000_canonical_booking_decision.sql` adds `booking_decisions` and the service-only `decide_direct_booking(uuid, text, text)` RPC.
+- `supabase/migrations/20260901010000_canonical_booking_decision.sql` originally added `booking_decisions` and the service-only `decide_direct_booking(uuid, text, text)` RPC. Module C subsequently made that engine private and exposed only the reviewed four-argument boundary.
 - It serializes a repeat decision and a property-wide availability check, then performs booking/reservation/calendar/ledger/projection-outbox writes in one database transaction. Provider delivery is intentionally not performed by the approving Edge Function.
 - `supabase/functions/approve-booking/index.ts` is reduced to authorization, one RPC call and response rendering; it no longer directly updates `calendar_events` or `transactions`.
 - Focused local checks passed: two Node boundary/contract tests and ten pgTAP assertions for confirmation, projection, retry idempotency and an overlapping-stay conflict. The pgTAP test transaction rolled back all fixture data.
 
 While validating this candidate, the local schema showed that legacy `booking_inquiries.id` and `calendar_events.id` do not have usable unique constraints. The candidate deliberately stores logical UUID references instead of adding foreign keys. Do not “fix” those foundational keys in this migration; investigate and release any key repair separately with a compatibility/backup plan.
+
+## Module C local candidate (2026-09-05)
+
+The local-only Module C candidate adds private payment-evidence candidates, deterministic comparison records, and immutable named Finance reviews. Receipt/OpenRouter/bank/manual evidence remains advisory, the pinned OpenRouter schema and allowlisted bank adapter fail closed to review, and OPS has no Finance-record visibility. The former service-signed approval link was removed. `decide_direct_booking` now requires a matching final Finance review ID; the unreviewed service entry point is revoked.
+
+Fresh checks pass: 27 focused Module B/C, booking/security and handoff tests; 37 platform-safety tests; 13 inactive n8n exports; secret scanning; syntax checks; `git diff --check`; two Deno type checks; and four Deno adapter runtime tests. The 47-assertion pgTAP suite could not connect because local Postgres was stopped. See `docs/validation/2026-09-05-module-c-local-candidate.md`. Do not call the candidate production-ready until the database runtime gate passes.
 
 ## Business and policy decisions already made
 

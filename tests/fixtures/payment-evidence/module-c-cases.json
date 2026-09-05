@@ -1,0 +1,48 @@
+[
+  {
+    "name": "valid-looking receipt and allowlisted bank evidence",
+    "expected_outcome": "exact_match",
+    "expected_amount": 1500,
+    "receipt": { "amount": 1500, "currency": "PHP", "reference": "CAS-1001" },
+    "bank": { "amount": 1500, "currency": "PHP", "reference": "CAS-1001" }
+  },
+  {
+    "name": "wrong amount",
+    "expected_outcome": "mismatch",
+    "expected_amount": 1500,
+    "receipt": { "amount": 1200, "currency": "PHP", "reference": "CAS-1002" }
+  },
+  {
+    "name": "duplicate receipt",
+    "expected_outcome": "duplicate_evidence",
+    "content_hashes": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ]
+  },
+  {
+    "name": "ambiguous single source",
+    "expected_outcome": "ambiguity",
+    "expected_amount": 1500,
+    "receipt": { "amount": 1500, "currency": "PHP", "reference": "CAS-1004" },
+    "bank": null
+  },
+  {
+    "name": "spoofed-looking bank message",
+    "expected_outcome": "missing_fields",
+    "bank": {
+      "sender": "alerts@trusted-bank.example.attacker.invalid",
+      "reply_to": "collector@attacker.invalid",
+      "subject": "Payment received CAS-1005",
+      "authentication": { "spf": "fail", "dkim": "fail", "dmarc": "fail" }
+    },
+    "expected_failure_code": "sender_not_allowlisted"
+  },
+  {
+    "name": "missing bank message remains manually reviewable",
+    "expected_outcome": "ambiguity",
+    "bank": null,
+    "manual_review_allowed": true
+  }
+]
+

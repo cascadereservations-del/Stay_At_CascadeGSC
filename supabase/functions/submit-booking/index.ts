@@ -6,7 +6,7 @@
 //   within 48h (else 50%). The old sanity check only accepted ~50% and clamped the full
 //   payment back to 50%, so last-minute bookings were recorded + emailed as 50%. Now accept
 //   the client deposit if it matches EITHER the 50% reservation fee OR the full total.
-// v11.6: share HMAC-signed approve/decline URLs with Telegram buttons AND host email.
+// v12.1: remove service-signed decision URLs; Module C requires named AAL2 Finance review.
 // v11.5: email relay -> GAS action='ackEmail'. v11.4: approve/decline buttons.
 // v11.2: calendar hold on submit. v11.1: plain-text finance summary. v11: receipt to Finance.
 
@@ -216,7 +216,7 @@ Deno.serve(async (req) => {
   const relayUrl    = Deno.env.get('EMAIL_RELAY_URL');
   const relayToken  = Deno.env.get('EMAIL_RELAY_TOKEN');
 
-  async function notifyTelegram(approveUrl: string, declineUrl: string, receiptSignedUrl: string | null): Promise<void> {
+  async function notifyTelegram(receiptSignedUrl: string | null): Promise<void> {
     if (!tgToken || !tgFinanceId) return;
     const depLabel = near(depositAmount, totalAmount) ? 'Full payment' : `Deposit (${depositPct}%)`;
     const msg = [
@@ -244,15 +244,10 @@ Deno.serve(async (req) => {
       `🔖 Ref: ${ref}`,
     ].join('\n');
 
-    const reply_markup = (approveUrl && declineUrl) ? { inline_keyboard: [[
-      { text: '✅ Approve', url: approveUrl },
-      { text: '❌ Decline', url: declineUrl },
-    ]] } : undefined;
-
     await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: tgFinanceId, text: msg, reply_markup }),
+      body: JSON.stringify({ chat_id: tgFinanceId, text: msg }),
       signal: AbortSignal.timeout(15_000),
     }).catch(() => {});
 
@@ -261,7 +256,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  async function sendEmailRelay(approveUrl: string, declineUrl: string, receiptSignedUrl: string | null): Promise<void> {
+  async function sendEmailRelay(receiptSignedUrl: string | null): Promise<void> {
     if (!relayUrl || !relayToken) return;
     await fetch(relayUrl, {
       method: 'POST',
@@ -286,29 +281,17 @@ Deno.serve(async (req) => {
         receipt_url:  receiptSignedUrl ?? '',
         notes:        notes ?? '',
         contact_type: contactType,
-        approve_url:  approveUrl,
-        decline_url:  declineUrl,
       }),
       signal: AbortSignal.timeout(20_000),
     }).catch((e) => { console.error('[submit-booking] email relay failed:', String(e)); });
   }
 
   async function background(): Promise<void> {
-    const base = SUPABASE_URL + '/functions/v1/approve-booking';
-    let approveUrl = '', declineUrl = '';
-    try {
-      const sc = await hmacHex(SERVICE_KEY, 'approve-booking:v1:' + inquiryId + ':confirm');
-      const sd = await hmacHex(SERVICE_KEY, 'approve-booking:v1:' + inquiryId + ':decline');
-      approveUrl = `${base}?id=${inquiryId}&action=confirm&sig=${sc}`;
-      declineUrl = `${base}?id=${inquiryId}&action=decline&sig=${sd}`;
-    } catch (_e) { /* links optional */ }
-
-    // One signed URL, shared by both Telegram and the email relay, both of
-    // which fire within seconds of each other here. 1 hour of validity is
-    // generous headroom for either fetch, service role mints it (bypasses RLS).
+    // Module C removes service-signed decision links. The future Admin queue
+    // invokes approve-booking only from a named AAL2 Finance/Admin session.
     let receiptSignedUrl: string | null = null;
-    await notifyTelegram(approveUrl, declineUrl, receiptSignedUrl);
-    await sendEmailRelay(approveUrl, declineUrl, receiptSignedUrl);
+    await notifyTelegram(receiptSignedUrl);
+    await sendEmailRelay(receiptSignedUrl);
   }
 
   const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;

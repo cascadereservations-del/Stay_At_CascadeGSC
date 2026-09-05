@@ -7,10 +7,12 @@ C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol
 Read these files in order before editing:
 1. HANDOFF.md
 2. docs/handoff/README.md
-3. docs/handoff/CURRENT-STATE.md
-4. docs/handoff/DEVELOPMENT-PLAYBOOK.md
-5. docs/handoff/FILE-MAP.md
-6. docs/plans/module-execution-queue.md
+3. docs/handoff/COMPLETE-HANDOFF-2026-09-05.md
+4. docs/handoff/CURRENT-STATE.md
+5. docs/handoff/DEVELOPMENT-PLAYBOOK.md
+6. docs/handoff/FILE-MAP.md
+7. docs/plans/module-execution-queue.md
+8. docs/validation/2026-09-05-module-c-local-candidate.md
 
 Context:
 - Supabase is canonical for all business facts and state transitions.
@@ -31,13 +33,17 @@ Immediate production gates:
 - The owner-only passphrase, empty connection-URL placeholder, and backup destination are already prepared outside Git; see `CURRENT-STATE.md` for paths. Supabase does not display the existing database password. Do not reset it without a separate approved connection-impact plan.
 - The release packet is `docs/plans/2026-08-31-module-a-cutover-packet.md`; it is the only approved order for the coordinated staff/RLS/named-cleaner release.
 
-Local Module B status (saved in commit `1a31f68` and subsequent handoff commit):
+Local Module B/C status:
 - `supabase/migrations/20260901010000_canonical_booking_decision.sql` is a local-only candidate. Its `decide_direct_booking(uuid, text, text)` RPC serializes a decision, verifies live overlap, and writes booking/reservation/calendar/ledger/projection-outbox state atomically.
-- `supabase/functions/approve-booking/index.ts` now authorizes then calls only that RPC; it no longer makes direct calendar/ledger writes or sends provider messages.
+- Module C replaces the exposed signature with `decide_direct_booking(uuid, text, text, uuid)`, requiring a matching immutable Finance review. The earlier transaction engine remains private and has no service-role grant.
+- `supabase/functions/approve-booking/index.ts` requires a named AAL2 Finance/Admin session, records the review, then calls only the reviewed RPC. Service-signed approval links were removed.
 - Two Node boundary tests and ten local pgTAP assertions passed. The local schema revealed missing usable unique constraints on legacy `booking_inquiries.id` and `calendar_events.id`; do not repair those keys opportunistically—make a separate reviewed expand/contract release.
-- Module B is not deployed. Its release remains gated by Module A recovery/cutover proof.
+- Module C source checks, two Deno type checks, and four Deno adapter runtime tests pass. Its 47 pgTAP assertions have not run because local Postgres was stopped. Read the dated Module C validation report for exact evidence.
+- Modules B and C are not deployed. Their release remains gated by Module A recovery/cutover proof.
 
-Immediate safe next work: Module C payment-evidence schema and synthetic fixtures. Read `docs/validation/2026-09-01-module-c-payment-evidence-audit.md` first. The contract is non-negotiable: receipt OCR, OpenRouter output, and bank-email evidence remain advisory; no evidence code may confirm a booking or payment. Build deterministic comparison + a Finance review record first, then only a named human may call `decide_direct_booking`.
+Immediate safe next work: run the Module C pgTAP suite in an approved local/disposable Supabase environment and perform the final release review against that database evidence. If it passes, begin Module D as local Admin review-queue work only. Receipt OCR, OpenRouter output, bank email, and comparison remain advisory; only a named human review may reach `decide_direct_booking`.
+
+Task Master is installed. Its local initialization command succeeded, but the CLI did not create `.taskmaster/tasks/tasks.json`, so manual task creation still failed closed. The prepared PRD was not transmitted to an external model and `tasks.json` was not hand-edited. Repair this through Task Master itself; do not route around the safeguard or add Task Master metadata to generated archives/session mirrors/completed derivative worktrees.
 
 The portable design contract is:
 docs/mockups/cascade-experience-mockups.html

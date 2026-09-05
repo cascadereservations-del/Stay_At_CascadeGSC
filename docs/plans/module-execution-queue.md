@@ -48,6 +48,8 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Scope:** Wave 1.3–1.5.
 
+**Local progress (2026-09-05):** the private evidence/comparison/review schema, pinned OpenRouter receipt adapter contract, fail-closed bank-email minimizer, six-case synthetic fixture pack, and named AAL2 Finance review boundary are present. The booking RPC now requires and records an immutable final Finance review; its former unreviewed service entry point and direct service-role table access are revoked. Twenty-seven focused source tests, 37 platform-safety tests, inactive-workflow validation, secret scanning, two Deno type checks, and four Deno adapter runtime tests pass. The 47-assertion pgTAP suite is source-complete but could not run because local Postgres was stopped. See `docs/validation/2026-09-05-module-c-local-candidate.md`.
+
 - Pinned OpenRouter task profile, strict receipt JSON schema, synthetic test fixtures and failure-to-review behaviour.
 - Gmail sender/subject allowlist, metadata-minimized n8n handoff, parser-review lane.
 - Deterministic receipt/bank/expected-amount correlation. AI never decides that money was received.

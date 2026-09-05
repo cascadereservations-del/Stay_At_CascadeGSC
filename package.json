@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "serve": "serve . -l 4173 --no-clipboard",
-    "test:content": "node --test tests/content.test.mjs tests/design-contract.test.mjs tests/link-integrity.test.mjs tests/css-integrity.test.mjs",
+    "test:content": "node --test tests/content.test.mjs tests/design-contract.test.mjs tests/link-integrity.test.mjs tests/css-integrity.test.mjs tests/handoff-status.test.mjs",
     "test:release-safety": "node --test tests/migrations/release-safety.test.mjs",
     "test:recovery": "node --test tests/recovery/recovery-contract.test.mjs",
     "test:platform-safety": "node --test tests/observability/edge-observability-adoption.test.mjs tests/resilience/degraded-modes.test.mjs tests/security/endpoint-boundaries.test.mjs tests/migrations/release-safety.test.mjs tests/recovery/recovery-contract.test.mjs",

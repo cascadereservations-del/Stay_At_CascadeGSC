@@ -4,8 +4,8 @@ select plan(10);
 select has_function(
   'public',
   'decide_direct_booking',
-  array['uuid', 'text', 'text'],
-  'canonical direct-booking decision RPC exists with an explicit idempotency key'
+  array['uuid', 'text', 'text', 'uuid'],
+  'canonical direct-booking decision RPC requires an explicit Finance review'
 );
 
 insert into public.properties (id, name)
@@ -18,7 +18,7 @@ insert into public.calendar_events (property_id, uid, source, status, checkin_da
 values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'direct:66666666-6666-4666-8666-666666666666', 'direct', 'blocked', current_date + 40, current_date + 42, 'manual_entry');
 
 select is(
-  public.decide_direct_booking('66666666-6666-4666-8666-666666666666', 'confirm', 'canonical-success-key-0001')->>'outcome',
+  public.decide_direct_booking_without_finance_review('66666666-6666-4666-8666-666666666666', 'confirm', 'canonical-success-key-0001')->>'outcome',
   'confirmed',
   'confirmation succeeds as one canonical decision'
 );
@@ -27,7 +27,7 @@ select is((select count(*) from public.airbnb_reservations where confirmation_co
 select is((select status from public.calendar_events where uid = 'cascade-direct-66666666-6666-4666-8666-666666666666'), 'confirmed', 'calendar becomes canonical confirmed occupancy');
 select is((select count(*) from public.automation_outbox where event_type = 'calendar.projection_requested' and aggregate_id = (select id from public.calendar_events where uid = 'cascade-direct-66666666-6666-4666-8666-666666666666')), 1::bigint, 'one calendar projection is queued');
 select ok(
-  (public.decide_direct_booking('66666666-6666-4666-8666-666666666666', 'confirm', 'canonical-success-key-0001')->>'already_processed')::boolean,
+  (public.decide_direct_booking_without_finance_review('66666666-6666-4666-8666-666666666666', 'confirm', 'canonical-success-key-0001')->>'already_processed')::boolean,
   'same idempotency key returns the stored decision'
 );
 select is((select count(*) from public.booking_decisions where booking_id = '66666666-6666-4666-8666-666666666666'), 1::bigint, 'retry does not create a second decision');
@@ -38,7 +38,7 @@ insert into public.calendar_events (property_id, uid, source, status, checkin_da
 values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'direct:77777777-7777-4777-8777-777777777777', 'direct', 'blocked', current_date + 41, current_date + 43, 'manual_entry');
 
 select is(
-  public.decide_direct_booking('77777777-7777-4777-8777-777777777777', 'confirm', 'canonical-conflict-key-01')->>'outcome',
+  public.decide_direct_booking_without_finance_review('77777777-7777-4777-8777-777777777777', 'confirm', 'canonical-conflict-key-01')->>'outcome',
   'conflict',
   'overlapping approval is rejected'
 );

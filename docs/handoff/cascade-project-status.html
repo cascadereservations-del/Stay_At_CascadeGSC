@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>Cascade Hideaway — Project Status</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18332d;
+      --ink-soft: #4f625d;
+      --paper: #f8f4eb;
+      --surface: #fffdf8;
+      --line: #d9d2c4;
+      --green: #245f4f;
+      --green-pale: #e2eee8;
+      --gold: #a16b24;
+      --gold-pale: #f4ead5;
+      --red: #9a4138;
+      --red-pale: #f3e2df;
+      --blue: #3f6271;
+      --blue-pale: #e4edf0;
+      --shadow: 0 16px 36px rgba(36, 52, 45, .08);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(36, 95, 79, .035) 1px, transparent 1px),
+        linear-gradient(rgba(36, 95, 79, .035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: var(--green); text-underline-offset: 3px; }
+    a:hover { text-decoration-thickness: 2px; }
+    a:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
+
+    .skip-link {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 50;
+      padding: 9px 13px;
+      transform: translateY(-180%);
+      color: white;
+      background: var(--ink);
+    }
+
+    .skip-link:focus { transform: translateY(0); }
+
+    .shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+
+    .masthead {
+      padding: 24px 0 16px;
+      border-bottom: 1px solid rgba(24, 51, 45, .14);
+      background: rgba(248, 244, 235, .92);
+    }
+
+    .masthead-inner,
+    .title-row,
+    .section-head,
+    .status-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .brand {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+
+    .as-of { color: var(--ink-soft); font-size: .83rem; letter-spacing: .08em; text-transform: uppercase; }
+
+    main { padding: 46px 0 72px; }
+
+    .eyebrow {
+      margin: 0 0 9px;
+      color: var(--gold);
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 { margin-top: 0; color: var(--ink); }
+
+    h1 {
+      max-width: 780px;
+      margin-bottom: 16px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.5rem, 6vw, 5.4rem);
+      font-weight: 500;
+      letter-spacing: -.045em;
+      line-height: .98;
+    }
+
+    h2 {
+      margin-bottom: 8px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(1.7rem, 3vw, 2.6rem);
+      font-weight: 500;
+      letter-spacing: -.025em;
+      line-height: 1.08;
+    }
+
+    h3 { margin-bottom: 8px; font-size: 1.02rem; }
+
+    p { margin: 0 0 14px; }
+
+    .lede { max-width: 700px; color: var(--ink-soft); font-size: 1.12rem; }
+
+    .title-row { align-items: flex-end; }
+
+    .decision-card {
+      width: min(330px, 100%);
+      padding: 22px;
+      color: white;
+      background: var(--ink);
+      border-left: 5px solid var(--gold);
+      box-shadow: var(--shadow);
+    }
+
+    .decision-card small {
+      display: block;
+      margin-bottom: 7px;
+      color: #d7e3de;
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .decision-card strong { display: block; font-family: Georgia, serif; font-size: 1.35rem; line-height: 1.2; }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      margin-top: 38px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .status-stat { min-height: 126px; padding: 19px 20px; border-right: 1px solid var(--line); }
+    .status-stat:last-child { border-right: 0; }
+    .status-stat span { display: block; color: var(--ink-soft); font-size: .76rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .status-stat strong { display: block; margin-top: 7px; font-family: Georgia, serif; font-size: 1.5rem; font-weight: 500; line-height: 1.12; }
+    .status-stat em { display: block; margin-top: 8px; color: var(--ink-soft); font-size: .82rem; font-style: normal; }
+
+    section { margin-top: 72px; scroll-margin-top: 24px; }
+
+    .section-head { align-items: end; margin-bottom: 22px; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+    .section-head p { max-width: 520px; margin: 0; color: var(--ink-soft); }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 9px;
+      border: 1px solid currentColor;
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .055em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .badge::before { width: 7px; height: 7px; background: currentColor; content: ""; }
+    .complete { color: var(--green); background: var(--green-pale); }
+    .next { color: var(--gold); background: var(--gold-pale); }
+    .gated { color: var(--red); background: var(--red-pale); }
+    .planned { color: var(--blue); background: var(--blue-pale); }
+
+    .module-list { display: grid; gap: 12px; }
+
+    .module {
+      display: grid;
+      grid-template-columns: 62px 1.4fr 2fr;
+      gap: 22px;
+      align-items: start;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .module-code {
+      display: grid;
+      width: 48px;
+      height: 48px;
+      place-items: center;
+      color: white;
+      background: var(--ink);
+      font-family: Georgia, serif;
+      font-size: 1.35rem;
+    }
+
+    .module-title p,
+    .module-detail { margin: 0; color: var(--ink-soft); font-size: .91rem; }
+    .module-title .badge { margin-bottom: 10px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+    .panel {
+      padding: 25px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .panel-accent { border-top: 5px solid var(--green); }
+    .panel-warning { border-top: 5px solid var(--red); }
+
+    .checklist { display: grid; gap: 11px; margin: 17px 0 0; padding: 0; list-style: none; }
+    .checklist li { position: relative; padding-left: 30px; color: var(--ink-soft); }
+    .checklist li::before {
+      position: absolute;
+      top: .12em;
+      left: 0;
+      display: grid;
+      width: 19px;
+      height: 19px;
+      place-items: center;
+      border: 1px solid var(--line);
+      color: white;
+      background: var(--surface);
+      content: "";
+      font-size: .72rem;
+      font-weight: 800;
+    }
+    .checklist.done li::before { border-color: var(--green); background: var(--green); content: "✓"; }
+    .checklist.todo li::before { border-color: var(--gold); box-shadow: inset 0 0 0 4px var(--surface); background: var(--gold); }
+    .checklist.gates li::before { border-color: var(--red); box-shadow: inset 0 0 0 4px var(--surface); background: var(--red); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      margin-top: 24px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .flow-step { position: relative; min-height: 140px; padding: 22px 18px; border-right: 1px solid var(--line); }
+    .flow-step:last-child { border-right: 0; }
+    .flow-step span { display: block; margin-bottom: 9px; color: var(--gold); font-size: .72rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+    .flow-step strong { display: block; margin-bottom: 7px; font-family: Georgia, serif; font-size: 1.1rem; line-height: 1.18; }
+    .flow-step p { margin: 0; color: var(--ink-soft); font-size: .8rem; }
+
+    .flow-note {
+      margin-top: 12px;
+      padding: 15px 18px;
+      border-left: 4px solid var(--red);
+      color: var(--red);
+      background: var(--red-pale);
+      font-weight: 750;
+    }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      border-top: 1px solid var(--line);
+    }
+
+    .roadmap dt,
+    .roadmap dd { margin: 0; padding: 17px 0; border-bottom: 1px solid var(--line); }
+    .roadmap dt { color: var(--gold); font-size: .77rem; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
+    .roadmap dd strong { display: block; margin-bottom: 3px; }
+    .roadmap dd span { color: var(--ink-soft); font-size: .9rem; }
+
+    .repo-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .repo { padding: 20px; border-left: 4px solid var(--green); background: var(--surface); box-shadow: 0 8px 20px rgba(36, 52, 45, .06); }
+    .repo code { display: block; margin-bottom: 7px; color: var(--green); font-weight: 800; }
+    .repo p { margin: 0; color: var(--ink-soft); font-size: .88rem; }
+
+    .boundary-table { width: 100%; border-collapse: collapse; background: var(--surface); }
+    .boundary-table th, .boundary-table td { padding: 15px 17px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .boundary-table th { color: var(--ink); background: #eee9dd; font-size: .77rem; letter-spacing: .07em; text-transform: uppercase; }
+    .boundary-table td { color: var(--ink-soft); font-size: .88rem; }
+    .boundary-table td:first-child { color: var(--ink); font-weight: 750; }
+
+    .next-session {
+      padding: clamp(25px, 5vw, 46px);
+      color: white;
+      background: var(--ink);
+      box-shadow: var(--shadow);
+    }
+
+    .next-session h2, .next-session h3 { color: white; }
+    .next-session .eyebrow { color: #eccd9d; }
+    .next-session ol { display: grid; gap: 12px; margin: 23px 0 0; padding-left: 1.4rem; }
+    .next-session li { padding-left: 7px; color: #d7e3de; }
+    .next-session strong { color: white; }
+
+    .evidence-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+    .evidence-links a { padding: 14px 16px; border: 1px solid rgba(255,255,255,.25); color: white; text-decoration: none; }
+    .evidence-links a:hover { background: rgba(255,255,255,.08); }
+
+    footer { padding: 24px 0 46px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: .82rem; }
+    footer p { margin: 0; }
+
+    @media (max-width: 900px) {
+      .title-row { align-items: start; flex-direction: column; }
+      .decision-card { width: 100%; }
+      .status-strip { grid-template-columns: 1fr 1fr; }
+      .status-stat:nth-child(2) { border-right: 0; }
+      .status-stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .module { grid-template-columns: 52px 1fr; }
+      .module-detail { grid-column: 2; }
+      .flow { grid-template-columns: 1fr; }
+      .flow-step { min-height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .flow-step:last-child { border-bottom: 0; }
+      .evidence-links { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 680px) {
+      .shell { width: min(100% - 26px, 1180px); }
+      .masthead-inner, .section-head { align-items: start; flex-direction: column; }
+      main { padding-top: 32px; }
+      h1 { font-size: clamp(2.35rem, 15vw, 4rem); }
+      .status-strip, .two-col, .repo-grid, .evidence-links { grid-template-columns: 1fr; }
+      .status-stat { border-right: 0; border-bottom: 1px solid var(--line); }
+      .status-stat:last-child { border-bottom: 0; }
+      .module { grid-template-columns: 44px 1fr; padding: 18px; gap: 14px; }
+      .module-code { width: 40px; height: 40px; }
+      .roadmap { grid-template-columns: 1fr; }
+      .roadmap dt { padding-bottom: 0; border-bottom: 0; }
+      .roadmap dd { padding-top: 6px; }
+      .boundary-table { display: block; overflow-x: auto; }
+    }
+
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+    @media print {
+      body { background: white; }
+      .shell { width: 100%; }
+      main { padding-top: 20px; }
+      section { margin-top: 36px; break-inside: avoid; }
+      .module, .panel, .repo, .flow, .status-strip, .next-session { box-shadow: none; break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+      .skip-link { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to project status</a>
+
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <div class="brand">Cascade Hideaway</div>
+      <div class="as-of">Project status · 05 September 2026</div>
+    </div>
+  </header>
+
+  <main id="main" class="shell">
+    <div class="title-row">
+      <div>
+        <p class="eyebrow">Business-system delivery map</p>
+        <h1>Built locally. Gated deliberately.</h1>
+        <p class="lede">The safety foundation, booking decision, and Module C payment-evidence boundary have strong local source evidence. Production remains frozen while Module A gates are open. Module C still needs database runtime verification.</p>
+      </div>
+      <aside class="decision-card" aria-label="Immediate project decision">
+        <small>Next safe action</small>
+        <strong>Verify Module C locally. Stop before deployment.</strong>
+      </aside>
+    </div>
+
+    <div class="status-strip" aria-label="Project summary">
+      <div class="status-stat">
+        <span>Production</span>
+        <strong>Frozen</strong>
+        <em>Module A gates remain open</em>
+      </div>
+      <div class="status-stat">
+        <span>Booking authority</span>
+        <strong>Local candidate</strong>
+        <em>Module B is not deployed</em>
+      </div>
+      <div class="status-stat">
+        <span>Delivery layer</span>
+        <strong>13 inactive</strong>
+        <em>Recorded n8n workflow exports</em>
+      </div>
+      <div class="status-stat">
+        <span>Current focus</span>
+        <strong>Payment review</strong>
+        <em>Evidence never equals approval</em>
+      </div>
+    </div>
+
+    <div class="legend" aria-label="Status legend">
+      <span class="badge complete">Local candidate</span>
+      <span class="badge next">Next</span>
+      <span class="badge gated">Production gated</span>
+      <span class="badge planned">Planned</span>
+    </div>
+
+    <section id="modules" aria-labelledby="modules-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Modules A–E</p>
+          <h2 id="modules-title">Current delivery position</h2>
+        </div>
+        <p>“Complete” means a verified local candidate where stated. It never implies that a migration, function, workflow, or provider is live.</p>
+      </div>
+
+      <div class="module-list">
+        <article class="module">
+          <div class="module-code" aria-hidden="true">A</div>
+          <div class="module-title">
+            <span class="badge gated">Production gated</span>
+            <h3>Safety, access, recovery &amp; observability</h3>
+            <p>Release packets and local evidence exist.</p>
+          </div>
+          <p class="module-detail">Still requires project Auth TOTP/AAL2, a real cleaner smoke test, encrypted production backup-and-restore proof, scheduler/liveness completion, and shared n8n runtime recovery. The backup exercise is deferred, so the freeze remains.</p>
+        </article>
+
+        <article class="module">
+          <div class="module-code" aria-hidden="true">B</div>
+          <div class="module-title">
+            <span class="badge complete">Local candidate</span>
+            <h3>Canonical booking decision</h3>
+            <p>Atomic state transition in Supabase.</p>
+          </div>
+          <p class="module-detail"><code>decide_direct_booking</code> serializes the decision, rechecks overlap, and writes booking, reservation, calendar, ledger, and outbox state atomically. Recorded focused and Deno checks passed. Production release checks remain.</p>
+        </article>
+
+        <article class="module">
+          <div class="module-code" aria-hidden="true">C</div>
+          <div class="module-title">
+            <span class="badge complete">Local candidate</span>
+            <h3>Payment evidence &amp; Finance review</h3>
+            <p>Schema, deterministic comparison, human review.</p>
+          </div>
+          <p class="module-detail">Private advisory evidence, deterministic comparisons, synthetic fixtures, and immutable named Finance reviews now exist locally. Source and Deno checks pass; the 47 database assertions remain open.</p>
+        </article>
+
+        <article class="module">
+          <div class="module-code" aria-hidden="true">D</div>
+          <div class="module-title">
+            <span class="badge planned">Planned</span>
+            <h3>Admin review UI &amp; delivery</h3>
+            <p>Finance-only decision queue.</p>
+          </div>
+          <p class="module-detail">Build an Admin-only evidence and exception queue on Module C records. Delivery retries remain idempotent and non-authoritative. OPS receives no financial, bank, receipt, rate, refund, or guest-contact data.</p>
+        </article>
+
+        <article class="module">
+          <div class="module-code" aria-hidden="true">E</div>
+          <div class="module-title">
+            <span class="badge planned">Planned</span>
+            <h3>Calendar reliability &amp; lifecycle</h3>
+            <p>One collision-safe lifecycle.</p>
+          </div>
+          <p class="module-detail">Harden holds, approval, rejection, expiry, cancellation, refunds, calendar reconciliation, timezone behavior, and retries. Treat legacy key constraints as a separately reviewed expand/contract release.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="completed" aria-labelledby="completed-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Verified foundations</p>
+          <h2 id="completed-title">What is already established</h2>
+        </div>
+        <p>These items are backed by checked-in source or dated validation evidence.</p>
+      </div>
+
+      <div class="two-col">
+        <article class="panel panel-accent">
+          <h3>Architecture and operating rules</h3>
+          <ul class="checklist done">
+            <li>Supabase is canonical for business facts and transitions.</li>
+            <li>n8n is an inactive delivery/integration layer.</li>
+            <li>Finance/Admin and OPS authority are separated.</li>
+            <li>High-risk decisions retain named-human approval.</li>
+            <li>Safe release, recovery, privacy, and degraded-operation runbooks exist.</li>
+            <li>Portable experience mockups exist with sample data only.</li>
+          </ul>
+        </article>
+
+        <article class="panel panel-accent">
+          <h3>Recorded local evidence</h3>
+          <ul class="checklist done">
+            <li>Platform safety suite: 37 tests passed.</li>
+            <li>Privacy candidate: 49 pgTAP assertions passed.</li>
+            <li>Module B boundary tests: 2 passed.</li>
+            <li>Module B database behavior: 10 pgTAP assertions passed.</li>
+            <li>Module C focused source checks: 10 tests passed.</li>
+            <li>Module C database behavior: 47 assertions ready; runtime not yet verified.</li>
+            <li>Thirteen n8n exports recorded inactive and recoverable.</li>
+            <li>Receipt storage and existing OCR preserve review-only behavior.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="module-c" aria-labelledby="module-c-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Immediate build contract</p>
+          <h2 id="module-c-title">Module C decision chain</h2>
+        </div>
+        <p>Every machine-produced signal stops at advice. Only a named authorized Finance reviewer can cross the approval boundary.</p>
+      </div>
+
+      <div class="flow" aria-label="Payment evidence review flow">
+        <div class="flow-step">
+          <span>Step 1</span>
+          <strong>Evidence candidate</strong>
+          <p>Receipt, OCR, model advice, allowlisted mail, or manual evidence.</p>
+        </div>
+        <div class="flow-step">
+          <span>Step 2</span>
+          <strong>Deterministic comparison</strong>
+          <p>Record match, mismatch, duplicate, ambiguity, or missing fields.</p>
+        </div>
+        <div class="flow-step">
+          <span>Step 3</span>
+          <strong>Finance review record</strong>
+          <p>Immutable provenance, outcome, reason, reviewer, and time.</p>
+        </div>
+        <div class="flow-step">
+          <span>Step 4</span>
+          <strong>Named human approval</strong>
+          <p>Authorized Finance identity acts explicitly; service identities cannot.</p>
+        </div>
+        <div class="flow-step">
+          <span>Step 5</span>
+          <strong>Booking decision RPC</strong>
+          <p>Canonical atomic transition; delivery stays outside the transaction.</p>
+        </div>
+      </div>
+      <p class="flow-note">OCR, OpenRouter, receipt evidence, bank email, or deterministic comparison alone must never confirm payment or a booking.</p>
+
+      <div class="two-col" style="margin-top: 20px">
+        <article class="panel">
+          <h3>Build next</h3>
+          <ul class="checklist todo">
+            <li>Canonical evidence and comparison schema.</li>
+            <li>Named Finance review record and authorization.</li>
+            <li>Allowlisted bank-email adapter that fails to manual review.</li>
+            <li>Source provenance, hashing/idempotency, parser version, and safe failure states.</li>
+            <li>Synthetic fixtures for match, mismatch, duplicate, ambiguity, spoofing, and absence.</li>
+            <li>Negative tests blocking machine/service approval.</li>
+          </ul>
+        </article>
+
+        <article class="panel panel-warning">
+          <h3>Do not cross</h3>
+          <ul class="checklist gates">
+            <li>No migrations or Edge Functions deployed.</li>
+            <li>No workflows activated or providers configured.</li>
+            <li>No messages or external tests sent.</li>
+            <li>No Finance fields exposed to OPS.</li>
+            <li>No production data used as fixtures.</li>
+            <li>No database/deployment claim without a capable release environment.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="gates" aria-labelledby="gates-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Production freeze</p>
+          <h2 id="gates-title">What must close first</h2>
+        </div>
+        <p>Local development may continue. Production changes require every applicable gate plus fresh owner approval at action time.</p>
+      </div>
+
+      <div class="two-col">
+        <article class="panel panel-warning">
+          <h3>Identity and staffed access</h3>
+          <ul class="checklist gates">
+            <li>Owner project Auth bootstrap and TOTP enrollment.</li>
+            <li>Fresh AAL2 proof after the coordinated release.</li>
+            <li>Real cleaner-to-property authenticated smoke test.</li>
+          </ul>
+        </article>
+        <article class="panel panel-warning">
+          <h3>Recovery and runtime</h3>
+          <ul class="checklist gates">
+            <li>Encrypted production backup and isolated restore reconciliation.</li>
+            <li>Scheduler/liveness secrets and external monitoring.</li>
+            <li>Shared n8n database, credentials, and encryption-key restore proof.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="roadmap" aria-labelledby="roadmap-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">After Modules C–E</p>
+          <h2 id="roadmap-title">Remaining business-system waves</h2>
+        </div>
+        <p>Later waves inherit the same privacy, authority, deterministic validation, and human-approval rules.</p>
+      </div>
+
+      <dl class="roadmap">
+        <dt>Wave 2</dt><dd><strong>Guest messaging and shared inbox</strong><span>Consent-aware conversation timeline, staff assignment, bounded chatbot assistance, and human escalation.</span></dd>
+        <dt>Wave 3</dt><dd><strong>Cleaning and meter verification</strong><span>Named-cleaner access, evidence/correction/inspection flow, and advisory vision only.</span></dd>
+        <dt>Wave 4</dt><dd><strong>Inventory forecast and purchasing</strong><span>Canonical stock movements, forecasts, and approval lists; never automatic supplier ordering.</span></dd>
+        <dt>Wave 5</dt><dd><strong>Finance, reconciliation, and analytics</strong><span>Finance-only exception queues and reconciled internal management metrics, not statutory/tax claims.</span></dd>
+        <dt>Wave 6</dt><dd><strong>CRM and guest lifecycle</strong><span>Consent-aware identity, preference, retention, service-recovery, and stay-history controls.</span></dd>
+        <dt>Wave 7</dt><dd><strong>Selective marketing</strong><span>Drafts and recommendations with approval for targeting, discounts, claims, and publication.</span></dd>
+        <dt>Wave 8</dt><dd><strong>Consolidation and operational handoff</strong><span>Remove duplicate authority paths, complete drills, and deliver final operating/evidence manuals.</span></dd>
+      </dl>
+    </section>
+
+    <section id="repositories" aria-labelledby="repositories-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Critical project set</p>
+          <h2 id="repositories-title">Repository roles</h2>
+        </div>
+        <p>Generated archives, session mirrors, and completed derivative worktrees are excluded from active project tooling.</p>
+      </div>
+
+      <div class="repo-grid">
+        <article class="repo"><code>direct-booking-waves-0-1-sol</code><p>Canonical active engineering and handoff worktree. Continue Modules C–E and release evidence here.</p></article>
+        <article class="repo"><code>direct-booking</code><p>Live direct-booking product line. Preserve live behavior and reconcile through reviewed releases.</p></article>
+        <article class="repo"><code>guest-guide</code><p>Live guest guide. Product-specific updates only; never a booking/payment authority.</p></article>
+        <article class="repo"><code>Nearby-POIS</code><p>Nearby places/map product. Keep outside canonical business-state authority.</p></article>
+      </div>
+    </section>
+
+    <section id="authority" aria-labelledby="authority-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Authority matrix</p>
+          <h2 id="authority-title">Who may do what</h2>
+        </div>
+        <p>This table is a decision boundary, not merely a data-display preference.</p>
+      </div>
+
+      <table class="boundary-table">
+        <thead><tr><th>Actor</th><th>May do</th><th>Must never do</th></tr></thead>
+        <tbody>
+          <tr><td>Supabase</td><td>Store canonical facts; enforce authorization; execute reviewed atomic transitions.</td><td>Be bypassed by a delivery workflow, model, spreadsheet, or provider callback.</td></tr>
+          <tr><td>Finance/Admin</td><td>Review payment evidence and make authorized named-human decisions.</td><td>Delegate payment/booking confirmation to AI, OCR, email, or a service identity.</td></tr>
+          <tr><td>OPS</td><td>Perform assigned operational work using minimum necessary data.</td><td>Receive amounts, payment status, receipts, bank data, rates, deposits, refunds, or guest contacts.</td></tr>
+          <tr><td>n8n</td><td>Deliver approved projections and integrate bounded external services.</td><td>Own booking/payment state or become authoritative because a provider responded.</td></tr>
+          <tr><td>AI / OCR / email</td><td>Produce advisory candidates, extraction, classification, and review cues.</td><td>Confirm payment, approve booking, override policy, or publish/order autonomously.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="resume" class="next-session" aria-labelledby="resume-title">
+      <p class="eyebrow">Safe resume sequence</p>
+      <h2 id="resume-title">Verify Module C without reopening settled decisions</h2>
+      <ol>
+        <li><strong>Read the dated handoff and Module C validation.</strong> Confirm the source and authorization boundaries before editing.</li>
+        <li><strong>Inspect current Git state.</strong> Preserve pre-existing user changes and treat this worktree as canonical.</li>
+        <li><strong>Run the 47 pgTAP assertions.</strong> Use an approved local or disposable Supabase environment and keep fixtures rollback-scoped.</li>
+        <li><strong>Resolve failures and rerun safety checks.</strong> Include inactive workflow validation, secret scan, and change-integrity checks.</li>
+        <li><strong>Update dated evidence and stop.</strong> Do not deploy, activate, configure, send, or change shared infrastructure.</li>
+      </ol>
+
+      <div class="evidence-links" aria-label="Handoff and validation links">
+        <a href="COMPLETE-HANDOFF-2026-09-05.md">Complete dated handoff</a>
+        <a href="CURRENT-STATE.md">Detailed current state</a>
+        <a href="RESUME-PROMPT.md">Copy/paste resume prompt</a>
+        <a href="../plans/module-execution-queue.md">Module execution queue</a>
+        <a href="../validation/2026-09-01-module-b-local-candidate.md">Module B evidence</a>
+        <a href="../validation/2026-09-01-module-c-payment-evidence-audit.md">Module C audit</a>
+        <a href="../validation/2026-09-05-module-c-local-candidate.md">Module C local candidate</a>
+        <a href="../validation/2026-09-05-handoff-status-artifacts.md">Status artifact validation</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell">
+      <p><strong>Cascade Hideaway project status.</strong> Self-contained, offline, and read-only. Prepared 2026-09-05. This page authorizes no production action.</p>
+    </div>
+  </footer>
+</body>
+</html>
