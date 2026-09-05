@@ -92,6 +92,18 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Exit:** met locally. Rollback-only pgTAP and concurrency checks pass; the named-human decision is immutable and still cannot order anything. Production remains gated.
 
+## Wave 5 — Finance reconciliation and management analytics
+
+**Local progress (2026-09-05):** paired opaque source facts are classified deterministically, then a named AAL2 Finance/Admin reviewer creates the immutable reconciled fact. Missing and duplicate evidence cannot approve; mismatch review can select only a compared value. Internal metrics use only reconciled facts and effective-dated owner targets, disclose freshness and exclusions, and deny any statutory/tax claim. Five source checks, 50 rollback-only pgTAP assertions, and a disposable compensating rollback pass. See `docs/validation/2026-09-05-wave-5-finance-analytics.md`.
+
+- Keep Finance data and metric output unavailable to OPS and service integrations.
+- Require a named human review before a candidate becomes a reconciled fact.
+- Use reconciled facts for P&L, cost/night, ADR, RevPAR, occupancy, and daily utility metrics.
+- Keep targets effective-dated, non-overlapping, and owner-approved.
+- Label every report as internal management information while the business is unregistered.
+
+**Exit:** met locally. Database, source-boundary, formula, authorization, and rollback checks pass. Production remains gated.
+
 ## Shared stop conditions
 
 Stop and request action-time owner approval before production schema deployment, n8n activation, cron activation, Docker/VPS changes, Meta/Gmail setup, or sending any provider message. Preserve the two user-owned untracked W01 files until their ownership is explicitly resolved.

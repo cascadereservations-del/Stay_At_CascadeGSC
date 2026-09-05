@@ -39,7 +39,8 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 | Wave 2 | Local candidate | Shared-inbox data, escalation, assignment, and draft-review boundaries pass locally; no delivery path exists. |
 | Wave 3 | Local candidate | Private cleaning/meter evidence and named review pass locally; no production change. |
 | Wave 4 | Local candidate verified | Inventory reconciliation, advisory forecasts, named owner/admin shopping-list review, and compensating rollback pass locally. |
-| Waves 5–8 | Planned | Continue locally in the approved queue and preserve all authority boundaries. |
+| Wave 5 | Local candidate verified | Named Finance reconciliation and internal management metrics pass locally; reports make no compliance claim. |
+| Waves 6–8 | Planned | Continue locally in the approved queue and preserve all authority boundaries. |
 | AI / OCR / vision / chat | Advisory layer only | OpenRouter may advise only; it cannot confirm payment, override policy, or post financial decisions. |
 | Product experience mockups | Complete, local, sample data | Dashboard, cleaner and direct-booking prototypes are implementation contracts, not production UI. |
 
@@ -55,7 +56,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-The next permitted engineering outcome is **Wave 5 local Finance reconciliation and internal management analytics** over canonical, reconciled facts. Reports remain internal management information while the business is unregistered.
+The next permitted engineering outcome is **Wave 6 local consent-aware CRM and guest lifecycle** with deterministic identity resolution and separate marketing permission.
 
 Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 

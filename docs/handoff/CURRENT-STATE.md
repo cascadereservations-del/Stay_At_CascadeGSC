@@ -96,7 +96,7 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | Wave 2 | Chatbot/shared inbox | Local shared-inbox candidate; no delivery |
 | Wave 3 | Cleaning + meter verification | Local evidence/review candidate; not deployed |
 | Wave 4 | Inventory forecast + purchase approval | Local candidate verified; never auto-order |
-| Wave 5 | Finance, reconciliation, analytics | Planned; internal management reporting while unregistered |
+| Wave 5 | Finance, reconciliation, analytics | Local candidate verified; internal management reporting only |
 | Waves 6–8 | CRM, selective marketing, consolidation | Planned |
 
 ## Module B local candidate (2026-09-01)
@@ -156,3 +156,7 @@ Private cleaning/meter evidence is tied to the named cleaner, property, cleaning
 ## Wave 4 local candidate (2026-09-05)
 
 Property-scoped stock reconciliation, recorded-usage forecasts and named AAL2 owner/admin shopping-list decisions are implemented locally. Five source checks and 31 rollback-only pgTAP assertions pass. A disposable two-session proof showed purchase review waits for the canonical item lock and fails stale after a concurrent stock change; the compensating rollback also passed. See [Wave 4 evidence](../validation/2026-09-05-wave-4-inventory-purchase.md). No provider action is authorized by a purchase review.
+
+## Wave 5 local candidate (2026-09-05)
+
+Named AAL2 Finance reconciliation converts deterministic paired-source comparisons into immutable reviewed facts. Five source checks and 50 rollback-only pgTAP assertions pass, as does the compensating rollback. Internal metrics include P&L, cost per night, ADR, RevPAR, occupancy, utilities, data freshness, exclusions, and effective owner targets. OPS has no access, and reports explicitly make no statutory, tax, BIR, or filing claim. See [Wave 5 evidence](../validation/2026-09-05-wave-5-finance-analytics.md).
