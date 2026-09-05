@@ -116,6 +116,12 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Exit:** met locally. Draft and review records retain `publication_authorized = false`; no outbox, provider, send, or publication path exists. Production remains gated.
 
+## Wave 8 — consolidation and operational handoff
+
+**Local progress (2026-09-05):** the authority inventory covers eight business domains and classifies legacy/delivery paths. The operating handoff covers named decisions, access review, recovery, incidents, evidence, and stop conditions. Six consolidation checks, six handoff checks, a clean dormant Compose render, a 13-workflow inactive n8n recovery round trip, and a 38-migration/26-suite isolated Supabase reset pass. See `docs/validation/2026-09-05-wave-8-consolidation-handoff.md`.
+
+**Exit:** met locally. All approved product waves now have local candidates or explicit owning-product boundaries. Production, providers, and Hetzner remain gated by Module A, fresh target preflight, and action-time approval.
+
 ## Shared stop conditions
 
 Stop and request action-time owner approval before production schema deployment, n8n activation, cron activation, Docker/VPS changes, Meta/Gmail setup, or sending any provider message. Preserve the two user-owned untracked W01 files until their ownership is explicitly resolved.

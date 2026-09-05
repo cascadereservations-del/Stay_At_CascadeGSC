@@ -103,6 +103,8 @@ For a production request, provide: exact target, source commit/release file, pre
 | Staff access lifecycle | `docs/runbooks/staff-access-lifecycle.md` |
 | Privacy request or hold | `docs/runbooks/data-subject-request.md` |
 | Personal data breach | `docs/runbooks/personal-data-breach.md` |
+| Consolidated operating authority and recovery | `docs/runbooks/cascade-operational-handoff.md` |
+| Dedicated Hetzner automation direction | `docs/architecture/adr-002-dedicated-hetzner-cascade-operations.md` and `docs/runbooks/cascade-n8n-deploy.md` |
 
 ## Model routing
 

@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "captured_on": "2026-09-05",
+  "evidence_scope": "local_source_only",
+  "production_frozen": true,
+  "canonical_system_of_record": "supabase",
+  "delivery_layer": "n8n_inactive_source_exports",
+  "module_a_open_gates": [
+    "encrypted_production_backup_and_disposable_restore",
+    "coordinated_staff_rls_named_cleaner_release",
+    "project_auth_totp_and_fresh_aal2",
+    "real_cleaner_property_authorization_smoke",
+    "scheduler_liveness_and_external_monitoring",
+    "shared_n8n_database_credential_and_encryption_key_recovery"
+  ],
+  "domains": [
+    {
+      "id": "booking_decision",
+      "workstream": "module_b_c",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.decide_direct_booking(uuid,text,text,uuid)",
+      "named_human_authority": "finance_or_admin_aal2_after_final_finance_review",
+      "advisory_only": ["receipt_ocr", "openrouter", "bank_email", "deterministic_comparison"],
+      "prohibited_effects": ["service_account_confirmation", "model_confirmation", "ops_finance_disclosure"],
+      "source": "supabase/migrations/20260905010000_payment_evidence_finance_review.sql",
+      "validation": "docs/validation/2026-09-05-module-c-local-candidate.md"
+    },
+    {
+      "id": "booking_lifecycle",
+      "workstream": "module_e",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.record_booking_lifecycle_action(uuid,text,text,text)",
+      "named_human_authority": "authorized_booking_manager_with_aal2_for_high_risk_actions",
+      "advisory_only": ["calendar_reconciliation"],
+      "prohibited_effects": ["provider_owned_state", "automatic_refund", "overlap_bypass"],
+      "source": "supabase/migrations/20260905030000_booking_lifecycle.sql",
+      "validation": "docs/validation/2026-09-05-module-e-local-candidate.md"
+    },
+    {
+      "id": "guest_inbox",
+      "workstream": "wave_2",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.manage_guest_conversation(uuid,text,uuid,text,text)",
+      "named_human_authority": "owner_or_admin_aal2_for_management_and_draft_review",
+      "advisory_only": ["assistant_reply_draft", "risk_classification"],
+      "prohibited_effects": ["automatic_send", "finance_payload_to_ops", "raw_body_in_audit"],
+      "source": "supabase/migrations/20260905040000_guest_shared_inbox.sql",
+      "validation": "docs/validation/2026-09-05-wave-2-shared-inbox.md"
+    },
+    {
+      "id": "cleaning_verification",
+      "workstream": "wave_3",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.review_cleaning_verification(uuid,text,text,text)",
+      "named_human_authority": "inspector_for_review_operations_manager_for_override",
+      "advisory_only": ["vision_result", "meter_correction_suggestion"],
+      "prohibited_effects": ["model_approval", "unnamed_cleaner_submission", "finance_data_to_cleaner"],
+      "source": "supabase/migrations/20260905050000_cleaning_meter_verification.sql",
+      "validation": "docs/validation/2026-09-05-wave-3-cleaning-meter.md"
+    },
+    {
+      "id": "inventory_forecast",
+      "workstream": "wave_4",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.review_inventory_purchase(uuid,text,numeric,text,text)",
+      "named_human_authority": "owner_or_admin_aal2",
+      "advisory_only": ["recorded_usage_forecast", "shopping_list_recommendation"],
+      "prohibited_effects": ["supplier_order", "provider_invocation", "financial_transaction"],
+      "source": "supabase/migrations/20260905060000_inventory_forecast_purchase_review.sql",
+      "validation": "docs/validation/2026-09-05-wave-4-inventory-purchase.md"
+    },
+    {
+      "id": "finance_reconciliation",
+      "workstream": "wave_5",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.review_finance_reconciliation(uuid,text,numeric,text,text)",
+      "named_human_authority": "finance_or_admin_aal2",
+      "advisory_only": ["paired_source_comparison", "management_metrics"],
+      "prohibited_effects": ["ops_access", "tax_filing_claim", "statutory_compliance_claim", "bank_action"],
+      "source": "supabase/migrations/20260905070000_finance_reconciliation_analytics.sql",
+      "validation": "docs/validation/2026-09-05-wave-5-finance-analytics.md"
+    },
+    {
+      "id": "crm_consent_lifecycle",
+      "workstream": "wave_6",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.record_crm_consent(uuid,text,text,text,timestamptz,text,text)",
+      "named_human_authority": "owner_or_admin_aal2",
+      "advisory_only": ["marketing_eligibility"],
+      "prohibited_effects": ["raw_contact_duplication", "automatic_deletion", "eligibility_as_send_authority"],
+      "source": "supabase/migrations/20260905080000_crm_consent_lifecycle.sql",
+      "validation": "docs/validation/2026-09-05-wave-6-crm-lifecycle.md"
+    },
+    {
+      "id": "selective_marketing",
+      "workstream": "wave_7",
+      "state": "local_candidate",
+      "property_scoped": true,
+      "canonical_state_owner": "public.review_marketing_draft(uuid,text,text,boolean,boolean,boolean,text,text)",
+      "named_human_authority": "owner_or_admin_aal2_exact_content_review",
+      "advisory_only": ["model_draft", "target_recommendation"],
+      "prohibited_effects": ["publication", "provider_invocation", "outbox_enqueue", "consent_bypass"],
+      "source": "supabase/migrations/20260905090000_selective_marketing_review.sql",
+      "validation": "docs/validation/2026-09-05-wave-7-selective-marketing.md"
+    }
+  ],
+  "legacy_or_delivery_paths": [
+    {
+      "path": "public.decide_direct_booking(uuid,text,text)",
+      "classification": "private_internal_engine",
+      "rule": "not_an_authenticated_or_service_decision_boundary"
+    },
+    {
+      "path": "public.guests.marketing_email_consent_at_and_marketing_whatsapp_consent_at",
+      "classification": "legacy_columns_pending_coordinated_reconciliation",
+      "rule": "not_used_by_wave_6_or_wave_7_eligibility"
+    },
+    {
+      "path": "automation_outbox_and_inactive_n8n_exports",
+      "classification": "delivery_only",
+      "rule": "never_canonical_business_authority"
+    }
+  ]
+}

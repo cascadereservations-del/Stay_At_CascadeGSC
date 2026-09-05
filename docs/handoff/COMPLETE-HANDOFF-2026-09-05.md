@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Begin Wave 8 consolidation, recovery evidence, authority inventory, and operational handoff locally
+**Next safe engineering outcome:** Review Wave 8, then perform a read-only Hetzner capacity and collision preflight when target access is available
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -22,8 +22,9 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Wave 5 has verified local named Finance reconciliation and internal management analytics; OPS is excluded and reports make no compliance claim.
 - Wave 6 has verified local hashed identity, purpose-specific consent, lifecycle/recovery, and retention controls; it contains no communication path.
 - Wave 7 has verified local consent-gated drafts and exact-content named review; publication remains unauthorized and no provider path exists.
+- Wave 8 has verified local authority consolidation, operating handoff, dormant Compose rendering, and disposable n8n/Supabase recovery.
 - Module A production gates remain open, so production is frozen.
-- Wave 8 remains planned local work.
+- The dedicated Hetzner automation plane is an accepted direction, but target preflight and deployment gates remain open.
 - Finance/Admin and OPS must remain strictly separated.
 - OCR, OpenRouter, receipt evidence, and bank-email evidence are advisory. They must never confirm payment or a booking.
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
@@ -58,7 +59,7 @@ Never infer that local code is live. A production claim needs a dated production
 | Wave 5 — Finance reconciliation and analytics | **Local candidate complete** | Paired-source comparisons, named reconciliation, internal metrics, effective owner targets, and rollback pass locally. | Release only after Module A gates and coordinated review. |
 | Wave 6 — CRM, consent, retention, and guest lifecycle | **Local candidate complete** | Hashed identity resolution, purpose-specific consent, service-recovery suppression, retention decisions, and rollback pass locally; no communication path exists. | Release only after Module A gates and coordinated review. |
 | Wave 7 — selective marketing | **Local candidate complete** | Consent-gated ciphertext drafts and exact-content named review pass locally; publication is always unauthorized. | Release only after Module A gates and coordinated review. |
-| Wave 8 — consolidation and handoff | **Planned / later** | Authority, recovery, access, and operating evidence must be consolidated without implying production readiness. | Complete local inventory and keep open production gates explicit. |
+| Wave 8 — consolidation and handoff | **Local candidate complete** | Authority inventory, access/operating handoff, Compose render, and disposable n8n/Supabase recovery pass locally. | Keep production and Hetzner gates explicit until separately closed. |
 
 No percentage-complete figure is used: local candidates, production gates, and future product waves are materially different kinds of progress.
 
@@ -227,9 +228,13 @@ The local Supabase candidate is complete. Four source checks and 31 rollback-onl
 
 ### 10. Wave 8 — consolidation and final operational handoff
 
-- Remove duplicate authority paths and reconcile legacy integrations.
-- Complete disaster recovery, access review, observability, data-retention, and incident drills.
-- Produce final operating manuals, ownership map, and evidence-backed production inventory.
+- Local candidate: `cascade-authority-inventory.json` assigns one canonical Supabase decision boundary to each completed business domain and classifies legacy/delivery paths.
+- The operating handoff covers named decisions, access review, recovery, incidents, evidence handling, and stop conditions.
+- Six consolidation checks, six handoff/status checks, and a dormant Compose render pass.
+- Disposable n8n recovery round-tripped all 13 workflows inactive with matching semantics.
+- Disposable Supabase recovery applied 38 migrations, ran 26 database test files, left the active local database unchanged, and used no production connection.
+- ADR-002 accepts a dedicated Hetzner automation plane as the future direction while retaining Supabase as the canonical system of record.
+- See [Wave 8 validation](../validation/2026-09-05-wave-8-consolidation-handoff.md).
 
 ## Repository map
 
@@ -279,14 +284,15 @@ Keep Task Master out of generated archives, session mirrors, and completed dispo
 | [Wave 5 Finance and analytics](../validation/2026-09-05-wave-5-finance-analytics.md) | Passing reconciliation, formula, authorization, database, and rollback evidence. |
 | [Wave 6 CRM and guest lifecycle](../validation/2026-09-05-wave-6-crm-lifecycle.md) | Passing identity, consent, retention, authorization, database, and rollback evidence. |
 | [Wave 7 selective marketing](../validation/2026-09-05-wave-7-selective-marketing.md) | Passing consent, exact-content review, authorization, database, and rollback evidence. |
+| [Wave 8 consolidation and handoff](../validation/2026-09-05-wave-8-consolidation-handoff.md) | Passing authority, access, Compose render, n8n recovery, Supabase recovery, and handoff evidence. |
 
 ## Exact next-session sequence
 
-1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Wave 7 validation record.
+1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Wave 8 validation record.
 2. Run `git status --short` and preserve all pre-existing user changes.
-3. Inventory every local authority path and record duplicate, legacy, production-gated, and provider boundaries without assuming live state.
-4. Complete Wave 8 local consolidation, recovery checks, access review, and operating handoff without changing production or infrastructure.
-5. Record exact evidence and leave each unresolved Module A or external migration gate explicit.
+3. Review `cascade-authority-inventory.json`, ADR-002, and `cascade-operational-handoff.md` without assuming local candidates are live.
+4. When Hetzner target access is available, perform only the read-only capacity, swap, storage, port, collision, and existing-service preflight.
+5. Record the redacted preflight and leave every unresolved Module A or migration gate explicit before proposing any change.
 6. Wire the Module D Admin UI only in its owning repository after that source is available.
 7. Stop before any deployment, activation, provider setup, message, or infrastructure change.
 
@@ -296,4 +302,4 @@ Use [RESUME-PROMPT.md](./RESUME-PROMPT.md) for a copy/paste continuation block. 
 
 ## Definition of a safe handoff
 
-The next developer can identify the canonical repository, distinguish local evidence from live state, consolidate Wave 8 evidence without weakening consent or publication boundaries, preserve the Finance/OPS and human-approval rules, run the documented checks, and stop at production gates. Any unsupported live-state assertion must be recorded as unverified.
+The next developer can identify the canonical repository, distinguish local evidence from live state, review the consolidated authority and recovery evidence, conduct a read-only Hetzner preflight when access exists, preserve the Finance/OPS and human-approval rules, and stop before every production or infrastructure gate. Any unsupported live-state assertion must be recorded as unverified.

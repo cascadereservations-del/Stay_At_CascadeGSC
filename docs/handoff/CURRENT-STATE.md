@@ -99,7 +99,7 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | Wave 5 | Finance, reconciliation, analytics | Local candidate verified; internal management reporting only |
 | Wave 6 | CRM, consent, retention, guest lifecycle | Local candidate verified; no communication path |
 | Wave 7 | Selective marketing and exact-content review | Local candidate verified; no publication path |
-| Wave 8 | Consolidation and operational handoff | Planned |
+| Wave 8 | Consolidation and operational handoff | Local candidate verified; production and Hetzner gated |
 
 ## Module B local candidate (2026-09-01)
 
@@ -170,3 +170,7 @@ Hashed identity keys, separate purpose consent, private lifecycle/service-recove
 ## Wave 7 local candidate (2026-09-05)
 
 Consent-gated drafts store ciphertext and hashes without recipient contact or delivery state. Named AAL2 owner/admin review rechecks current eligibility, binds the exact content hash, and separately approves targeting, discounts, and claims. Five source checks, 33 rollback-only pgTAP assertions, and a disposable rollback pass. Drafts and reviews retain `publication_authorized = false`; no publication or provider path exists. See [Wave 7 evidence](../validation/2026-09-05-wave-7-selective-marketing.md).
+
+## Wave 8 local candidate (2026-09-05)
+
+The machine-checkable authority inventory, operating handoff, and dedicated-Hetzner direction pass six consolidation checks and six handoff/status checks. A dormant two-service Compose render passed without starting containers. Disposable recovery restored 13 n8n workflows inactive with matching semantics and rebuilt Supabase through 38 migrations and 26 database test files while leaving the active local database unchanged. See [Wave 8 evidence](../validation/2026-09-05-wave-8-consolidation-handoff.md). Production and Hetzner remain gated.

@@ -42,7 +42,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 | Wave 5 | Local candidate verified | Named Finance reconciliation and internal management metrics pass locally; reports make no compliance claim. |
 | Wave 6 | Local candidate verified | Hashed identity, separate-purpose consent, recovery suppression, and retention controls pass locally; no communication path exists. |
 | Wave 7 | Local candidate verified | Consent-gated ciphertext drafts and exact-content named review pass locally; publication remains unauthorized. |
-| Wave 8 | Planned | Consolidate authority and recovery evidence locally while production gates remain open. |
+| Wave 8 | Local candidate verified | Authority inventory, operating handoff, dormant Compose render, and disposable n8n/Supabase recovery pass locally. |
 | AI / OCR / vision / chat | Advisory layer only | OpenRouter may advise only; it cannot confirm payment, override policy, or post financial decisions. |
 | Product experience mockups | Complete, local, sample data | Dashboard, cleaner and direct-booking prototypes are implementation contracts, not production UI. |
 
@@ -58,7 +58,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-The next permitted engineering outcome is **Wave 8 local consolidation, recovery evidence, authority inventory, and operational handoff**, without changing production or infrastructure.
+The next permitted engineering outcome is a **read-only Hetzner capacity and collision preflight after target access is available**, followed by review of the still-open Module A and migration gates. No VPS or Docker change is authorized by the local evidence.
 
 Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 
