@@ -37,7 +37,8 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 | Module C payment evidence | Local candidate; runtime gated | Source and Deno checks pass; 47 pgTAP assertions remain unverified. |
 | Modules D–E | Local candidates | Backend/database boundaries are complete locally; Module D Admin UI wiring remains in its owning repository. |
 | Wave 2 | Local candidate | Shared-inbox data, escalation, assignment, and draft-review boundaries pass locally; no delivery path exists. |
-| Waves 3–8 | Planned | Continue locally in the approved queue and preserve all authority boundaries. |
+| Wave 3 | Local candidate | Private cleaning/meter evidence and named review pass locally; no production change. |
+| Waves 4–8 | Planned | Continue locally in the approved queue and preserve all authority boundaries. |
 | AI / OCR / vision / chat | Advisory layer only | OpenRouter may advise only; it cannot confirm payment, override policy, or post financial decisions. |
 | Product experience mockups | Complete, local, sample data | Dashboard, cleaner and direct-booking prototypes are implementation contracts, not production UI. |
 

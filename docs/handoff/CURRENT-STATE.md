@@ -94,7 +94,7 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | D | Staff review UI and n8n delivery | Backend/delivery local candidate; Admin UI source external |
 | E | Calendar reliability and lifecycle release | Local candidate complete; not deployed |
 | Wave 2 | Chatbot/shared inbox | Local shared-inbox candidate; no delivery |
-| Wave 3 | Cleaning + meter verification | Planned after canonical evidence contract |
+| Wave 3 | Cleaning + meter verification | Local evidence/review candidate; not deployed |
 | Wave 4 | Inventory forecast + purchase approval | Planned; never auto-order |
 | Wave 5 | Finance, reconciliation, analytics | Planned; internal management reporting while unregistered |
 | Waves 6–8 | CRM, selective marketing, consolidation | Planned |
@@ -127,6 +127,10 @@ The local lifecycle candidate adds property-locked holds, expiry, human-approved
 ## Wave 2 local candidate (2026-09-05)
 
 The Supabase shared-inbox foundation stores idempotent inbound records with ciphertext bodies and redacted previews, deterministic escalation, named property-scoped assignment, immutable audit, and human-reviewed advisory drafts. Draft approval explicitly does not authorize or queue delivery. OPS and Finance cannot read or manage the guest inbox. Four source checks and 31 rollback-only pgTAP assertions pass. See `docs/validation/2026-09-05-wave-2-shared-inbox.md`.
+
+## Wave 3 local candidate (2026-09-05)
+
+Private cleaning/meter evidence is tied to the named cleaner, property, cleaning session, and matching meter reading. Advisory outcomes cannot approve evidence. Named inspectors review uncertainty, and only operations managers can override. Two source checks and 21 rollback-only pgTAP assertions pass. See `docs/validation/2026-09-05-wave-3-cleaning-meter.md`.
 
 ## Business and policy decisions already made
 

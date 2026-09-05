@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Begin Wave 3 locally over the verified Module B–E and Wave 2 contracts
+**Next safe engineering outcome:** Begin Wave 4 locally over the verified Module B–E and Waves 2–3 contracts
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -17,8 +17,9 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Module D has a Finance review queue and inactive delivery local candidate; Admin UI wiring remains in its owning repository.
 - Module E has a verified local lifecycle candidate, including a real two-session hold-collision proof.
 - Wave 2 has a local shared-inbox candidate with no delivery path.
+- Wave 3 has a local cleaning/meter evidence and named-review candidate.
 - Module A production gates remain open, so production is frozen.
-- Waves 3–8 remain planned work.
+- Waves 4–8 remain planned work.
 - Finance/Admin and OPS must remain strictly separated.
 - OCR, OpenRouter, receipt evidence, and bank-email evidence are advisory. They must never confirm payment or a booking.
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
@@ -48,7 +49,8 @@ Never infer that local code is live. A production claim needs a dated production
 | Module D — Admin payment UI and delivery | **Backend/delivery local candidate** | Finance-only queue, closed delivery projections, and idempotent callbacks pass local tests; owning Admin UI source is outside this worktree. | Wire the owning Admin product after its source is available; keep delivery inactive. |
 | Module E — calendar reliability and lifecycle | **Local candidate complete** | Holds, expiry, amendments, cancellations, no-shows, rate versions, refund authorization, audit, and reconciliation pass local tests. | Release only after Module A gates and coordinated review. |
 | Wave 2 — guest messaging/shared inbox | **Local candidate complete** | Encrypted-body timeline, redacted previews, escalation, assignment, and human-reviewed drafts pass locally; delivery is absent. | Connect a provider only after Module A and fresh approval. |
-| Waves 3–8 | **Planned / later** | Roadmap exists; none may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
+| Wave 3 — cleaning/meter verification | **Local candidate complete** | Private evidence, correction/inspection outcomes, and named override boundaries pass locally. | Release only after Module A staffed-access gates. |
+| Waves 4–8 | **Planned / later** | Roadmap exists; none may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
 
 No percentage-complete figure is used: local candidates, production gates, and future product waves are materially different kinds of progress.
 

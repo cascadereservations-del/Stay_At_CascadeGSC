@@ -58,7 +58,7 @@
 - Create one dated validation record per completed wave under `docs/validation/`.
 
 - [x] Wave 2: consent-aware conversation timeline, drafts, assignment, redaction, and human escalation; no live sends.
-- [ ] Wave 3: private cleaning/meter evidence, deterministic correction, inspection, and named override audit.
+- [x] Wave 3: private cleaning/meter evidence, deterministic correction, inspection, and named override audit.
 - [ ] Wave 4: stock reconciliation, demand forecast, recommendation, and human purchase approval; no supplier order.
 - [ ] Wave 5: reconciled management metrics and effective-dated targets with freshness/exclusions.
 - [ ] Waves 6–7: consent/retention CRM plus exact-content approval; no publication.
