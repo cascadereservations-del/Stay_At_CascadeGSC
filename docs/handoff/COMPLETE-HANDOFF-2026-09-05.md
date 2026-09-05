@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Begin Wave 4 locally over the verified Module B–E and Waves 2–3 contracts
+**Next safe engineering outcome:** Begin Wave 5 Finance reconciliation and internal management analytics locally
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -18,8 +18,9 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Module E has a verified local lifecycle candidate, including a real two-session hold-collision proof.
 - Wave 2 has a local shared-inbox candidate with no delivery path.
 - Wave 3 has a local cleaning/meter evidence and named-review candidate.
+- Wave 4 has a verified local inventory forecast and named purchase-review candidate, including rollback-only database and two-session concurrency proof.
 - Module A production gates remain open, so production is frozen.
-- Waves 4–8 remain planned work.
+- Waves 5–8 remain planned work.
 - Finance/Admin and OPS must remain strictly separated.
 - OCR, OpenRouter, receipt evidence, and bank-email evidence are advisory. They must never confirm payment or a booking.
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
@@ -50,7 +51,8 @@ Never infer that local code is live. A production claim needs a dated production
 | Module E — calendar reliability and lifecycle | **Local candidate complete** | Holds, expiry, amendments, cancellations, no-shows, rate versions, refund authorization, audit, and reconciliation pass local tests. | Release only after Module A gates and coordinated review. |
 | Wave 2 — guest messaging/shared inbox | **Local candidate complete** | Encrypted-body timeline, redacted previews, escalation, assignment, and human-reviewed drafts pass locally; delivery is absent. | Connect a provider only after Module A and fresh approval. |
 | Wave 3 — cleaning/meter verification | **Local candidate complete** | Private evidence, correction/inspection outcomes, and named override boundaries pass locally. | Release only after Module A staffed-access gates. |
-| Waves 4–8 | **Planned / later** | Roadmap exists; none may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
+| Wave 4 — inventory forecast and purchasing | **Local candidate complete** | Canonical stock reconciliation, advisory recorded-usage forecasts, and immutable named owner/admin shopping-list review pass source, database, concurrency, and rollback checks. | Release only after Module A gates and coordinated review. |
+| Waves 5–8 | **Planned / later** | Roadmap exists; none may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
 
 No percentage-complete figure is used: local candidates, production gates, and future product waves are materially different kinds of progress.
 
@@ -118,7 +120,7 @@ Do not substitute a source-level backup check for a real production backup-and-r
 
 ### 1. Module C — payment evidence and named Finance review
 
-The source candidate is implemented. Complete its runtime validation before treating this exit condition as met.
+The source candidate and runtime validation are complete. Production release remains gated behind Module A.
 
 Build:
 
@@ -183,6 +185,10 @@ The local Supabase candidate is complete. Four source checks and 31 rollback-onl
 
 ### 6. Wave 4 — inventory forecast and purchasing
 
+- Local candidate: property-scoped stock movement/reconciliation, advisory forecast snapshots, and named AAL2 owner/admin purchase review.
+- Review records always retain `order_authorized = false`; no function creates a supplier order, provider action, outbox item, purchase receipt, or financial transaction.
+- Five source-boundary checks and all 31 rollback-only pgTAP assertions pass. A disposable two-session proof showed purchase review waited 5,063 ms for a stock lock and failed stale after the stock change committed. The compensating rollback removed all Wave 4 objects without `CASCADE`.
+- See [Wave 4 validation](../validation/2026-09-05-wave-4-inventory-purchase.md).
 - Reconcile stock movements to canonical inventory.
 - Produce forecasts, recommendations, and approval/shopping lists only.
 - Never place supplier orders automatically.
@@ -254,14 +260,15 @@ Keep Task Master out of generated archives, session mirrors, and completed dispo
 | [Module C payment-evidence audit](../validation/2026-09-01-module-c-payment-evidence-audit.md) | Existing foundations, gaps, and required Module C boundary. |
 | [Module C local candidate](../validation/2026-09-05-module-c-local-candidate.md) | Implemented local source, passing checks, and open runtime gates. |
 | [Handoff/status artifact validation](../validation/2026-09-05-handoff-status-artifacts.md) | Fresh checks for this dated handoff and offline dashboard. |
+| [Wave 4 inventory and purchase review](../validation/2026-09-05-wave-4-inventory-purchase.md) | Passing source, rollback-only database, concurrency, and compensating rollback evidence. |
 
 ## Exact next-session sequence
 
-1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Module C local-candidate validation.
+1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Wave 4 validation record.
 2. Run `git status --short` and preserve all pre-existing user changes.
-3. Confirm the authority boundary in writing: evidence is advisory; named Finance approval is mandatory; OPS sees no Finance data.
-4. Continue Module E locally over the verified Module C/D contracts.
-5. Run focused source/platform/inactive-workflow/secret/diff checks and update dated validation evidence.
+3. Confirm the authority boundary in writing: Finance reconciliation is named-human controlled; dashboards consume reconciled facts and are internal management information only.
+4. Begin Wave 5 locally with independently reversible source, rollback-only pgTAP, and strict Finance/OPS separation.
+5. Record exact runtime evidence before marking Wave 5 complete or beginning Wave 6.
 6. Wire the Module D Admin UI only in its owning repository after that source is available.
 7. Stop before any deployment, activation, provider setup, message, or infrastructure change.
 
@@ -271,4 +278,4 @@ Use [RESUME-PROMPT.md](./RESUME-PROMPT.md) for a copy/paste continuation block. 
 
 ## Definition of a safe handoff
 
-The next developer can identify the canonical repository, distinguish local evidence from live state, verify Module C without re-opening decided architecture, preserve the Finance/OPS and human-approval boundaries, run the documented checks, and stop at production gates. Any unsupported live-state assertion must be recorded as unverified.
+The next developer can identify the canonical repository, distinguish local evidence from live state, begin Wave 5 without weakening Wave 4 or creating a supplier path, preserve the Finance/OPS and human-approval boundaries, run the documented checks, and stop at production gates. Any unsupported live-state assertion must be recorded as unverified.

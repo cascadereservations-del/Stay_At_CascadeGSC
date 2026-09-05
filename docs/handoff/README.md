@@ -34,11 +34,12 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 | n8n | Existing shared Portainer runtime, workflows inactive | Use `Cascade Hideaway` folder and dedicated Cascade credentials only. Do not publish workflows without approval. |
 | Cleaner and inventory apps | Existing products with local security foundations | Production named-cleaner/RLS cutover remains gated. |
 | Module B booking decision | Local candidate, not deployed | Atomic Supabase RPC and approval delegation passed recorded local and Deno checks. Release checks remain. |
-| Module C payment evidence | Local candidate; runtime gated | Source and Deno checks pass; 47 pgTAP assertions remain unverified. |
+| Module C payment evidence | Local candidate verified | Source and Deno checks pass; all 47 rollback-only pgTAP assertions pass. |
 | Modules D–E | Local candidates | Backend/database boundaries are complete locally; Module D Admin UI wiring remains in its owning repository. |
 | Wave 2 | Local candidate | Shared-inbox data, escalation, assignment, and draft-review boundaries pass locally; no delivery path exists. |
 | Wave 3 | Local candidate | Private cleaning/meter evidence and named review pass locally; no production change. |
-| Waves 4–8 | Planned | Continue locally in the approved queue and preserve all authority boundaries. |
+| Wave 4 | Local candidate verified | Inventory reconciliation, advisory forecasts, named owner/admin shopping-list review, and compensating rollback pass locally. |
+| Waves 5–8 | Planned | Continue locally in the approved queue and preserve all authority boundaries. |
 | AI / OCR / vision / chat | Advisory layer only | OpenRouter may advise only; it cannot confirm payment, override policy, or post financial decisions. |
 | Product experience mockups | Complete, local, sample data | Dashboard, cleaner and direct-booking prototypes are implementation contracts, not production UI. |
 
@@ -54,7 +55,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-The next permitted engineering outcome is **Wave 3 local implementation** over the verified Module B–E and Wave 2 contracts. Receipt OCR, OpenRouter output, and allowlisted bank-email evidence remain advisory; a deterministic comparison and named Finance review must precede `decide_direct_booking`.
+The next permitted engineering outcome is **Wave 5 local Finance reconciliation and internal management analytics** over canonical, reconciled facts. Reports remain internal management information while the business is unregistered.
 
 Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 

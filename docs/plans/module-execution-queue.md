@@ -80,6 +80,18 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Exit:** calendar is projection only; every lifecycle action is audited, idempotent and never silently changes financial state.
 
+## Wave 4 — Inventory forecast and purchase review
+
+**Local progress (2026-09-05):** canonical inventory movements and explicit reconciliation feed recorded-usage forecast snapshots. A named AAL2 owner/admin may approve or reject an exact shopping-list quantity with a reason. Review never authorizes or places a supplier order and does not create purchase or Finance facts. Five source-boundary checks and all 31 rollback-only pgTAP assertions pass. A disposable two-session proof showed review waited 5,063 ms for a concurrent stock change and then failed closed; the compensating rollback also passed. See `docs/validation/2026-09-05-wave-4-inventory-purchase.md`.
+
+- Start every item with a verified reconciliation and fail closed on legacy stock drift.
+- Keep forecast inputs and outputs immutable, property-scoped, explainable, and explicitly advisory.
+- Serialize stock changes, forecasts, and review against the canonical inventory item.
+- Keep OPS, Finance-only, anonymous, model, and service identities outside purchase approval.
+- Do not add a provider, delivery outbox, supplier order, expense approval, or automatic purchase path.
+
+**Exit:** met locally. Rollback-only pgTAP and concurrency checks pass; the named-human decision is immutable and still cannot order anything. Production remains gated.
+
 ## Shared stop conditions
 
 Stop and request action-time owner approval before production schema deployment, n8n activation, cron activation, Docker/VPS changes, Meta/Gmail setup, or sending any provider message. Preserve the two user-owned untracked W01 files until their ownership is explicitly resolved.

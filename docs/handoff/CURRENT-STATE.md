@@ -95,7 +95,7 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | E | Calendar reliability and lifecycle release | Local candidate complete; not deployed |
 | Wave 2 | Chatbot/shared inbox | Local shared-inbox candidate; no delivery |
 | Wave 3 | Cleaning + meter verification | Local evidence/review candidate; not deployed |
-| Wave 4 | Inventory forecast + purchase approval | Planned; never auto-order |
+| Wave 4 | Inventory forecast + purchase approval | Local candidate verified; never auto-order |
 | Wave 5 | Finance, reconciliation, analytics | Planned; internal management reporting while unregistered |
 | Waves 6–8 | CRM, selective marketing, consolidation | Planned |
 
@@ -152,3 +152,7 @@ Private cleaning/meter evidence is tied to the named cleaner, property, cleaning
 - Direct booking / legacy products must be inspected in their own repositories before UI work; the prototype is not their source of truth.
 - Real financial reporting requires reconciliation: Airbnb payouts, approved expenses, payment rails, cash handling, and meter data must be normalized before P&L is trusted.
 - The Obsidian vault has historical notes and is not a deployment log; do not place secrets or production credentials there.
+
+## Wave 4 local candidate (2026-09-05)
+
+Property-scoped stock reconciliation, recorded-usage forecasts and named AAL2 owner/admin shopping-list decisions are implemented locally. Five source checks and 31 rollback-only pgTAP assertions pass. A disposable two-session proof showed purchase review waits for the canonical item lock and fails stale after a concurrent stock change; the compensating rollback also passed. See [Wave 4 evidence](../validation/2026-09-05-wave-4-inventory-purchase.md). No provider action is authorized by a purchase review.

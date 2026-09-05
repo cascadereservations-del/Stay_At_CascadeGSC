@@ -17,6 +17,7 @@ Then read, in order:
 6. docs/validation/2026-09-05-module-e-local-candidate.md
 7. docs/validation/2026-09-05-wave-2-shared-inbox.md
 8. docs/validation/2026-09-05-wave-3-cleaning-meter.md
+9. docs/validation/2026-09-05-wave-4-inventory-purchase.md
 
 Current branch: codex/cascade-waves-0-1-sol
 Expected latest completed commit at handoff: ab39695 Complete Wave 3 cleaning verification foundation. Verify it from Git rather than assuming the copied SHA is current.
@@ -29,9 +30,9 @@ Completed local candidates:
 - Wave 2: private shared-inbox foundation with encrypted-body fields, redacted previews, deterministic escalation, named assignment, and human-reviewed advisory drafts. 31/31 rollback-only pgTAP assertions pass. Draft approval does not send or queue a message.
 - Wave 3: private cleaning/meter evidence tied to the named cleaner, session, property, and matching meter reading. Named inspectors review evidence; only operations managers may override. 21/21 rollback-only pgTAP assertions pass.
 
-The next local implementation is Wave 4: inventory forecasting and human purchase approval. Build an independently reversible migration, rollback-only pgTAP suite, source-boundary tests, dated validation record, and one clean commit. Forecasts and recommendations remain advisory. A named authorized human must approve a purchase, and no function may place a supplier order or invoke a provider.
+Wave 4 is a verified local candidate: inventory reconciliation, recorded-usage forecasts and named AAL2 owner/admin shopping-list review. Five source checks and all 31 rollback-only pgTAP assertions pass. A disposable two-session proof showed review waited 5,063 ms for a concurrent stock change, then failed closed as stale; the compensating rollback passed. Forecasts remain advisory, and purchase review never places an order or invokes a provider.
 
-After Wave 4, continue locally in order:
+Continue locally in order:
 1. Wave 5 — Finance reconciliation and internal management analytics.
 2. Wave 6 — CRM, consent, retention, and guest lifecycle.
 3. Wave 7 — marketing drafts and exact-content human approval; no publication.
