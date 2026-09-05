@@ -57,7 +57,7 @@
 - Create one independently reversible migration and pgTAP suite per wave under `supabase/migrations/` and `supabase/tests/database/`.
 - Create one dated validation record per completed wave under `docs/validation/`.
 
-- [ ] Wave 2: consent-aware conversation timeline, drafts, assignment, redaction, and human escalation; no live sends.
+- [x] Wave 2: consent-aware conversation timeline, drafts, assignment, redaction, and human escalation; no live sends.
 - [ ] Wave 3: private cleaning/meter evidence, deterministic correction, inspection, and named override audit.
 - [ ] Wave 4: stock reconciliation, demand forecast, recommendation, and human purchase approval; no supplier order.
 - [ ] Wave 5: reconciled management metrics and effective-dated targets with freshness/exclusions.

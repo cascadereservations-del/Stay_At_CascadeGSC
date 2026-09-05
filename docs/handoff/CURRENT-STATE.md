@@ -93,7 +93,7 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | C | Advisory receipt + bank-email evidence | Local candidate; 47/47 pgTAP runtime gate passed |
 | D | Staff review UI and n8n delivery | Backend/delivery local candidate; Admin UI source external |
 | E | Calendar reliability and lifecycle release | Local candidate complete; not deployed |
-| Wave 2 | Chatbot/shared inbox | Planned after Wave 1 foundation |
+| Wave 2 | Chatbot/shared inbox | Local shared-inbox candidate; no delivery |
 | Wave 3 | Cleaning + meter verification | Planned after canonical evidence contract |
 | Wave 4 | Inventory forecast + purchase approval | Planned; never auto-order |
 | Wave 5 | Finance, reconciliation, analytics | Planned; internal management reporting while unregistered |
@@ -123,6 +123,10 @@ The local Finance review queue is property-scoped and available only to named AA
 ## Module E local candidate (2026-09-05)
 
 The local lifecycle candidate adds property-locked holds, expiry, human-approved effective-dated rate policies, AAL2 Admin amendments/cancellations/no-shows/reconciliation, separate AAL2 Finance refund authorization, and immutable audit history. Five source checks and 43 rollback-only pgTAP assertions pass, including a timezone-boundary expiry check. A disposable two-session test proved overlapping holds serialize and leave exactly one winner. Calendar records remain projections, refund authorization never executes a payment, and confirmation still flows only through the reviewed Module B/C decision boundary. See `docs/validation/2026-09-05-module-e-local-candidate.md`.
+
+## Wave 2 local candidate (2026-09-05)
+
+The Supabase shared-inbox foundation stores idempotent inbound records with ciphertext bodies and redacted previews, deterministic escalation, named property-scoped assignment, immutable audit, and human-reviewed advisory drafts. Draft approval explicitly does not authorize or queue delivery. OPS and Finance cannot read or manage the guest inbox. Four source checks and 31 rollback-only pgTAP assertions pass. See `docs/validation/2026-09-05-wave-2-shared-inbox.md`.
 
 ## Business and policy decisions already made
 
