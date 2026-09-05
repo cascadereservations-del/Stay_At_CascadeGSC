@@ -31,7 +31,7 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
 - The Free-plan external backup/restore exercise remains explicitly deferred.
 
-For a visual summary, open [cascade-project-status.html](./cascade-project-status.html).
+For a visual summary, open [cascade-project-status.html](./cascade-project-status.html). For the interactive Alfred capacity, hosting-option, and open-source comparison, open [cascade-hosting-decision.html](./cascade-hosting-decision.html).
 
 ## Evidence authority
 
