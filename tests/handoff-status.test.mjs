@@ -3,17 +3,18 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
-const handoffUrl = new URL('../docs/handoff/COMPLETE-HANDOFF-2026-09-05.md', import.meta.url);
+const handoffUrl = new URL('../docs/handoff/COMPLETE-HANDOFF-2026-09-06.md', import.meta.url);
 const statusUrl = new URL('../docs/handoff/cascade-project-status.html', import.meta.url);
 const handoff = await readFile(handoffUrl, 'utf8');
 const status = await readFile(statusUrl, 'utf8');
 
-test('handoff states the production freeze and verified Module C/D boundary', () => {
-  assert.match(handoff, /Production posture:\*\* Frozen pending Module A gates/i);
-  assert.match(handoff, /all 47 pgTAP assertions pass/i);
-  assert.match(handoff, /Module D has a Finance review queue/i);
-  assert.match(handoff, /named Finance review must precede/i);
-  assert.match(handoff, /must never confirm payment or a booking/i);
+test('handoff states the production freeze, selected hosting, and human authority boundary', () => {
+  assert.match(handoff, /Production posture:\*\* Frozen pending recovery, hosting, Module A/i);
+  assert.match(handoff, /Portainer CE \+ separate n8n\/PostgreSQL stack is canonical/i);
+  assert.match(handoff, /47\/47 pgTAP pass/i);
+  assert.match(handoff, /Module D's Admin UI wiring remains/i);
+  assert.match(handoff, /named human approves booking\/payment confirmation/i);
+  assert.match(handoff, /AI, OCR, forecasts, classifications, and email evidence are advisory/i);
 });
 
 test('handoff covers every remaining module and wave', () => {

@@ -16,7 +16,7 @@ SOL is therefore used for narrow high-risk checkpoints rather than routine outpu
 
 `automation/n8n/workflows/` is the canonical existing workflow folder. It already contains 13 inactive, validated exports (`CH-S01`, `CH-W01` through `CH-W12`). Reuse and extend these exports in place; do not create another n8n application or duplicate workflow tree.
 
-Alfred's existing Portainer n8n remains unchanged while all Cascade workflows are inactive. The future Cascade runtime is the isolated `infrastructure/cascade-n8n/` stack under ADR-002. A capped same-host deployment is conditionally feasible only after the detailed recovery, swap, capacity, soak, and approval gates; use a separate VPS if any threshold fails. Keep the 13 canonical exports in this repository and use only `Cascade — <provider/purpose>` credentials after their separate approval.
+Alfred's existing Portainer n8n remains unchanged while all Cascade workflows are inactive. The selected zero-subscription runtime is the isolated `infrastructure/cascade-n8n/` stack on Alfred's existing Docker Engine, managed through Portainer CE. Do not add a second Docker daemon. Recovery, at least 2 GiB swap, a fresh capacity baseline, a 72-hour dormant soak, Module A, and action approvals remain mandatory; use a separate VPS if any threshold fails. Keep the 13 canonical exports in this repository and use only `Cascade — <provider/purpose>` credentials after their separate approval. The executable remaining sequence is `docs/plans/2026-09-06-portainer-n8n-completion-plan.md`.
 
 ## Module A — Platform safety completion
 
@@ -120,7 +120,7 @@ Alfred's existing Portainer n8n remains unchanged while all Cascade workflows ar
 
 **Local progress (2026-09-05):** the authority inventory covers eight business domains and classifies legacy/delivery paths. The operating handoff covers named decisions, access review, recovery, incidents, evidence, and stop conditions. Six consolidation checks, six handoff checks, a clean dormant Compose render, a 13-workflow inactive n8n recovery round trip, and a 38-migration/26-suite isolated Supabase reset pass. See `docs/validation/2026-09-05-wave-8-consolidation-handoff.md`.
 
-**Exit:** met locally. All approved product waves now have local candidates or explicit owning-product boundaries. Production, providers, and Hetzner remain gated by Module A, fresh target preflight, and action-time approval.
+**Exit:** met locally. All approved product waves now have local candidates or explicit owning-product boundaries. Portainer CE is selected for the isolated same-host stack; production, providers, and all live hosting work remain gated by recovery, fresh target preflight, Module A, soak, and action-time approval.
 
 ## Shared stop conditions
 

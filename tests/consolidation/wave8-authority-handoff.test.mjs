@@ -48,9 +48,10 @@ test('operating handoff preserves access, recovery, incident, and production sto
   assert.match(runbook, /active local database identity is unchanged/);
 });
 
-test('Hetzner direction uses an isolated two-service stack and remains deployment gated', () => {
-  assert.match(adr, /Accepted direction; source-only and deployment-gated/);
-  assert.match(adr, /initial budget-conscious target may be Alfred's existing Docker Engine/);
+test('selected Portainer direction uses an isolated two-service stack and remains deployment gated', () => {
+  assert.match(adr, /Accepted architecture; Portainer CE path selected; source-only and deployment-gated/);
+  assert.match(adr, /Use Alfred's existing Docker Engine and manage the stack through the existing Portainer CE/);
+  assert.match(adr, /do not install a second Docker daemon/i);
   assert.match(adr, /separate Cascade VPS remains the fallback/);
   assert.match(adr, /Supabase remains the canonical business-state authority/);
   assert.match(adr, /fresh owner approval before creating directories, swap, DNS, secrets, containers, volumes/);

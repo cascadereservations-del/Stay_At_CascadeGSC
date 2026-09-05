@@ -1,6 +1,6 @@
 # Cascade Hideaway — Development Handoff Center
 
-**Prepared:** 2026-09-05
+**Prepared:** 2026-09-06
 
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`
 
@@ -11,12 +11,12 @@ This directory is the single starting point for the next developer. It indexes t
 
 ## Start here
 
-1. Read [COMPLETE-HANDOFF-2026-09-05.md](./COMPLETE-HANDOFF-2026-09-05.md) for the complete remaining-work handoff.
+1. Read [COMPLETE-HANDOFF-2026-09-06.md](./COMPLETE-HANDOFF-2026-09-06.md) for the complete remaining-work handoff.
 2. Open the [current project-status dashboard](./cascade-project-status.html) for the visual completed/remaining map.
 3. Read [CURRENT-STATE.md](./CURRENT-STATE.md) for detailed state and production gates.
 4. Read [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) before editing or deploying anything.
 5. Use [FILE-MAP.md](./FILE-MAP.md) to locate canonical source, plans, tests, workflows, runbooks, data definitions, and mockups.
-6. Read `docs/plans/module-execution-queue.md` and the dated Module C local-candidate validation before continuing.
+6. Read the [Portainer CE + n8n completion plan](../plans/2026-09-06-portainer-n8n-completion-plan.md), then `docs/plans/module-execution-queue.md`.
 7. Before any production-affecting step, read the applicable release/runbook under `docs/runbooks/`, then obtain fresh owner approval.
 
 ## What this repository is
@@ -58,7 +58,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-The Hetzner read-only preflight is complete. Capacity and collision checks pass, but **0 MiB swap fails the required 1 GiB gate**. The next outcome is to close Module A and review the exact swap and deployment actions; no VPS or Docker change is authorized by the local evidence.
+Portainer CE on Alfred with a separate capped Cascade n8n/PostgreSQL stack is the selected zero-subscription direction. The next outcome is the Phase P1 recovery and deployment packet: prove recovery for Alfred's existing n8n, review the exact image/security state, render the isolated configuration, and make every swap/stack/rollback action reviewable. Alfred still has 0 MiB swap, so no stack may start yet.
 
 Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 
@@ -80,7 +80,8 @@ The numeric values are **sample data only**. Live implementation must compute th
 
 | Document | Purpose |
 | --- | --- |
-| [COMPLETE-HANDOFF-2026-09-05.md](./COMPLETE-HANDOFF-2026-09-05.md) | Current complete remaining-work handoff and exact continuation sequence. |
+| [COMPLETE-HANDOFF-2026-09-06.md](./COMPLETE-HANDOFF-2026-09-06.md) | Current complete remaining-work handoff and exact continuation sequence. |
+| [Portainer CE + n8n completion plan](../plans/2026-09-06-portainer-n8n-completion-plan.md) | Selected architecture and phases P0–P10, including gates, aborts, and fallback. |
 | [cascade-project-status.html](./cascade-project-status.html) | Current offline visual status: completed, gated, next, and planned work. |
 | [CURRENT-STATE.md](./CURRENT-STATE.md) | Verified current status, gates, decisions, and known conflicts. |
 | [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) | Safe continuation workflow, test commands, approval gates, and development rules. |

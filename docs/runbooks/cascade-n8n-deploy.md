@@ -1,6 +1,6 @@
 # Cascade n8n Deployment Runbook
 
-This runbook defines a new Cascade-only n8n service under `/opt/cascade/n8n`. It may use Alfred's existing Docker Engine only after the detailed same-host gates pass. It never reuses the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
+This runbook defines the selected new Cascade-only n8n service under `/opt/cascade/n8n`, managed through Alfred's existing Portainer CE and Docker Engine only after the detailed same-host gates pass. Do not add a second Docker daemon. The stack never reuses the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
 
 The configuration pins n8n 2.34.6, the stable line observed in August 2026. The newer 2.35.x line was still used as a beta in contemporary reports and has scheduler/tool-call issue reports. Review the official release and security notes again before any upgrade. n8n is fair-code under its Sustainable Use License; it is not described as OSI open source.
 

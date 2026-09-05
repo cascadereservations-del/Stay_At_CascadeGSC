@@ -10,24 +10,24 @@ Start by running:
 
 Then read, in order:
 1. HANDOFF.md
-2. docs/handoff/COMPLETE-HANDOFF-2026-09-05.md
+2. docs/handoff/COMPLETE-HANDOFF-2026-09-06.md
 3. docs/handoff/CURRENT-STATE.md
 4. docs/handoff/DEVELOPMENT-PLAYBOOK.md
-5. docs/plans/module-execution-queue.md
-6. docs/validation/2026-09-05-module-e-local-candidate.md
-7. docs/validation/2026-09-05-wave-2-shared-inbox.md
-8. docs/validation/2026-09-05-wave-3-cleaning-meter.md
-9. docs/validation/2026-09-05-wave-4-inventory-purchase.md
-10. docs/validation/2026-09-05-wave-5-finance-analytics.md
-11. docs/validation/2026-09-05-wave-6-crm-lifecycle.md
-12. docs/validation/2026-09-05-wave-7-selective-marketing.md
-13. docs/validation/2026-09-05-wave-8-consolidation-handoff.md
-14. docs/validation/2026-09-05-hetzner-read-only-preflight.md
-15. docs/validation/2026-09-06-portainer-capacity-feasibility.md
-16. docs/validation/2026-09-06-alfred-detailed-capacity-audit.md
+5. docs/plans/2026-09-06-portainer-n8n-completion-plan.md
+6. docs/plans/module-execution-queue.md
+7. docs/architecture/adr-002-dedicated-hetzner-cascade-operations.md
+8. docs/runbooks/cascade-n8n-deploy.md
+9. docs/validation/2026-09-06-alfred-detailed-capacity-audit.md
+10. docs/validation/2026-09-05-wave-8-consolidation-handoff.md
 
 Current branch: codex/cascade-waves-0-1-sol
-Expected latest completed commit at handoff: the Wave 8 consolidation and operational-handoff candidate. Verify it from Git rather than relying on a copied SHA.
+Expected latest completed commit at handoff: the Portainer CE + n8n decision, updated completion plan, and 2026-09-06 handoff. Verify it from Git rather than relying on a copied SHA.
+
+Selected hosting decision:
+- Use Alfred's existing Docker Engine and Portainer CE to manage a separate capped `cascade-n8n` Compose project with its own PostgreSQL database.
+- Do not add a second Docker daemon, replace Alfred's existing n8n, or share its volumes, database, keys, credentials, networks, hostname, or backups.
+- This adds no subscription. A separate Cascade VPS remains the fallback if a pre-start or 72-hour dormant-soak threshold fails.
+- The platform choice is approved; no server, stack, swap, DNS, secret, provider, workflow, or production action has happened or is implied.
 
 Completed local candidates:
 - Module B: canonical atomic booking decision.
@@ -43,9 +43,11 @@ Completed local candidates:
 - Wave 8: a machine-checkable authority inventory, local operating handoff, and gated dedicated-Hetzner direction pass consolidation checks. Disposable recovery round-tripped 13 n8n workflows inactive and rebuilt Supabase through 38 migrations and 26 database test files without changing the active local database.
 
 Next gated work:
-1. Review the Wave 8 evidence and revised dedicated Hetzner decision.
-2. Preserve Alfred's existing services. The detailed read-only audit permits a separate capped Cascade Compose stack on the same Docker host only after recovery, 2 GiB swap, capacity, inactive-soak, and action-time approval gates.
-3. Close the Module A and migration gates, then obtain separately reviewed action approval before adding swap or making any VPS, Docker, DNS, secret, workflow, provider, or production change. Use a separate VPS if any same-host threshold fails.
+1. Execute Phase P1 locally: complete the redacted recovery/deployment packet, including Alfred's existing n8n disposable restore, action-time n8n image/security review, rendered capped Compose, secrets/proxy plan, exact smoke/abort checks, and rollback.
+2. Present the concrete P2/P3 action packet before adding at least 2 GiB swap or creating the dormant stack. Re-run the host baseline after swap.
+3. Import all 13 workflows inactive without provider credentials, prove the new stack's encrypted restore, and complete a 72-hour dormant soak.
+4. Close every Module A production gate before releasing Modules B–E or Waves 2–7.
+5. Continue phases P6–P10 from docs/plans/2026-09-06-portainer-n8n-completion-plan.md. Activate only one separately approved provider/workflow batch at a time.
 
 Non-negotiable boundaries:
 - Supabase is canonical for every business fact and state transition.
@@ -55,7 +57,7 @@ Non-negotiable boundaries:
 - Named human approval is mandatory for booking/payment confirmation, refunds, discounts, exceptions, cleaning overrides, purchases, and publication.
 - The business is unregistered. Do not claim BIR, statutory, tax, or filing compliance.
 - Do not deploy, apply production migrations, activate workflows or cron, configure providers, modify VPS/Docker configuration, or send messages without fresh action-time owner approval.
-- Do not add swap or deploy the Cascade stack on Alfred without the recovery, capacity, dormant-soak, and action-time approval gates in the detailed audit.
+- Do not add swap or deploy the Cascade stack on Alfred without the recovery, capacity, and action-time approval gates. Do not activate it for business delivery until the dormant-soak and Module A gates pass.
 - Production remains frozen behind Module A: encrypted backup/restore proof, coordinated staff/RLS release, project Auth MFA/AAL2, real cleaner authorization checks, monitoring, and shared n8n recovery.
 
 Local Docker Supabase was running during the completed validations. Database candidate tests were assembled with their migrations inside transactions ending in ROLLBACK; they did not alter the migration ledger or persist fixtures.
@@ -70,5 +72,5 @@ The worktree intentionally still contains old uncommitted Task Master setup file
 - tests/taskmaster/
 - .gitignore changes related to that setup
 
-Before each commit, stage only the files owned by the current wave, run focused tests and git diff --check, record exact evidence, and preserve all unrelated dirty files. Stop before every production or provider action.
+Before each commit, stage only the files owned by the current phase, run focused tests and git diff --check, record exact evidence, and preserve all unrelated dirty files. Stop before every server mutation, production action, provider action, message, order, or publication.
 ```

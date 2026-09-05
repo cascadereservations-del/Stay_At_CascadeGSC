@@ -1,6 +1,6 @@
-# ADR-002 — Dedicated Hetzner Cascade operations plane
+# ADR-002 — Portainer-managed Cascade operations plane on Alfred
 
-**Status:** Accepted direction; source-only and deployment-gated; revised to conditional Alfred co-location after detailed read-only audit on 2026-09-06
+**Status:** Accepted architecture; Portainer CE path selected; source-only and deployment-gated as of 2026-09-06
 
 **Supersedes:** the future deployment target in ADR-001 after its migration gates pass
 
@@ -8,7 +8,7 @@
 
 ## Decision
 
-Move Cascade automation to its own Compose project when the Module A, capacity, backup, access, and action-time approval gates are closed. The initial budget-conscious target may be Alfred's existing Docker Engine because the detailed audit found stable low load, about 3.2 GiB available RAM, no current unhealthy containers, and no OOM/restart evidence. Use the reviewed candidate under `infrastructure/cascade-n8n/`: one n8n application container, one dedicated PostgreSQL container, Cascade-only networks, volumes, credentials, encryption key, backup set, hostname, and access policy.
+Move Cascade automation to its own Compose project when the Module A, capacity, backup, access, soak, and action-time approval gates are closed. Use Alfred's existing Docker Engine and manage the stack through the existing Portainer CE; do not install a second Docker daemon. The detailed audit found stable low load, about 3.2 GiB available RAM, no current unhealthy containers, and no OOM/restart evidence. Use the reviewed candidate under `infrastructure/cascade-n8n/`: one n8n application container, one dedicated PostgreSQL container, Cascade-only networks, volumes, credentials, encryption key, backup set, hostname, and access policy.
 
 “All Cascade operations” means the isolated automation plane and its execution database. Supabase remains the canonical business-state authority. The public booking site and static guides remain on their reviewed hosts, and Google Apps Script remains a narrow legacy integration until separately replaced. Combining those systems into one container would create a second business authority and a single recovery boundary, so it is outside this decision.
 

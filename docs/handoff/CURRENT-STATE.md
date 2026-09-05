@@ -15,7 +15,7 @@ Obsidian is valuable but includes session-era live snapshots. Some are older tha
 
 | Workstream | State at handoff | Evidence / canonical location |
 | --- | --- | --- |
-| n8n hosting decision | Revised | Preserve Alfred's existing n8n. A separate capped Cascade Compose stack on the same Docker host is conditionally feasible after recovery, swap, capacity, and approval gates; a separate VPS is the fallback. `docs/architecture/adr-002-dedicated-hetzner-cascade-operations.md` |
+| n8n hosting decision | Selected | Use Alfred's existing Docker Engine and Portainer CE for a separate capped Cascade n8n/PostgreSQL Compose stack after recovery, swap, capacity, and approval gates. A separate VPS is the fallback. `docs/plans/2026-09-06-portainer-n8n-completion-plan.md` |
 | Finance/OPS delivery boundary | Protected in source and narrow production guard | `supabase/migrations/20260829173700_notification_route_guard.sql`, `tests/security/` |
 | Direct booking trigger isolation | Protected | `supabase/migrations/20260829044725_revoke_w01_dispatch_rpc_execution.sql` |
 | Named staff / cleaner access | Local release candidate | `supabase/migrations/20260828000400_staff_roles_and_sessions.sql`, `supabase/functions/staff-access/`, tests |
@@ -76,7 +76,7 @@ Do not claim Module A complete until the following have fresh, action-time proof
 ## n8n status and rules
 
 - Current runtime: Alfred's shared Portainer n8n remains unchanged while all Cascade workflows are inactive.
-- Future runtime direction: an isolated Cascade Compose project, conditionally on Alfred after all same-host gates; use a separate VPS if any threshold fails.
+- Selected runtime direction: an isolated Cascade Compose project on Alfred's existing Docker Engine, managed through Portainer CE after all same-host gates; use a separate VPS if any threshold fails. Do not add a second Docker daemon.
 - Current editor location: `Personal → Cascade Hideaway` folder/project.
 - Canonical exports: `automation/n8n/workflows/CH-S01...CH-W12`.
 - All Cascade workflows remain **inactive/unpublished**.
@@ -100,7 +100,7 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | Wave 5 | Finance, reconciliation, analytics | Local candidate verified; internal management reporting only |
 | Wave 6 | CRM, consent, retention, guest lifecycle | Local candidate verified; no communication path |
 | Wave 7 | Selective marketing and exact-content review | Local candidate verified; no publication path |
-| Wave 8 | Consolidation and operational handoff | Local candidate verified; production and Hetzner gated |
+| Wave 8 | Consolidation and operational handoff | Local candidate verified; Portainer CE path selected, live work gated |
 
 ## Module B local candidate (2026-09-01)
 
@@ -174,7 +174,7 @@ Consent-gated drafts store ciphertext and hashes without recipient contact or de
 
 ## Wave 8 local candidate (2026-09-05)
 
-The machine-checkable authority inventory, operating handoff, and dedicated-Hetzner direction pass six consolidation checks and six handoff/status checks. A dormant two-service Compose render passed without starting containers. Disposable recovery restored 13 n8n workflows inactive with matching semantics and rebuilt Supabase through 38 migrations and 26 database test files while leaving the active local database unchanged. See [Wave 8 evidence](../validation/2026-09-05-wave-8-consolidation-handoff.md). Production and Hetzner remain gated.
+The machine-checkable authority inventory and operating handoff pass six consolidation checks and six handoff/status checks. A dormant two-service Compose render passed without starting containers. Disposable recovery restored 13 n8n workflows inactive with matching semantics and rebuilt Supabase through 38 migrations and 26 database test files while leaving the active local database unchanged. Portainer CE on Alfred is now the selected management path for the isolated stack; all live work remains gated. See [Wave 8 evidence](../validation/2026-09-05-wave-8-consolidation-handoff.md) and the [updated completion plan](../plans/2026-09-06-portainer-n8n-completion-plan.md).
 
 ## Hetzner read-only preflight (2026-09-05)
 
@@ -182,4 +182,4 @@ The configured Alfred target has current Docker/Compose, no Cascade container-na
 
 ## Portainer isolation review (2026-09-06)
 
-The initial Portainer review correctly identified coupling and shared-host risk but lacked live resource and OOM evidence. A detailed follow-up found stable low load, about 3.2 GiB available RAM, no current unhealthy container, no OOM/restart evidence, and no active Ollama model. The AppFlowy exit-137 containers report `OOMKilled=false`. Same-host deployment is therefore conditionally feasible as a separate capped Compose stack after recovery, 2 GiB swap, inactive soak, and action approval. See [detailed Alfred capacity evidence](../validation/2026-09-06-alfred-detailed-capacity-audit.md) and the [interactive hosting decision](./cascade-hosting-decision.html).
+The initial Portainer review correctly identified coupling and shared-host risk but lacked live resource and OOM evidence. A detailed follow-up found stable low load, about 3.2 GiB available RAM, no current unhealthy container, no OOM/restart evidence, and no active Ollama model. The AppFlowy exit-137 containers report `OOMKilled=false`. The owner selected the existing Portainer CE plus a separate capped Cascade stack, with recovery, 2 GiB swap, fresh capacity, 72-hour inactive soak, and action approvals still mandatory. See [detailed Alfred capacity evidence](../validation/2026-09-06-alfred-detailed-capacity-audit.md), the [interactive hosting decision](./cascade-hosting-decision.html), and the [updated completion plan](../plans/2026-09-06-portainer-n8n-completion-plan.md).

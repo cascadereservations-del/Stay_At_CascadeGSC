@@ -1,5 +1,7 @@
 # Cascade Hideaway — Complete Remaining-Work Handoff
 
+> Superseded by the [2026-09-06 complete continuation handoff](./COMPLETE-HANDOFF-2026-09-06.md), which records the selected Portainer CE + n8n path and updated remaining phases.
+
 **Prepared:** 2026-09-05  
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
