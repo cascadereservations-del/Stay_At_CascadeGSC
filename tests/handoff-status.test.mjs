@@ -8,10 +8,10 @@ const statusUrl = new URL('../docs/handoff/cascade-project-status.html', import.
 const handoff = await readFile(handoffUrl, 'utf8');
 const status = await readFile(statusUrl, 'utf8');
 
-test('handoff states the production freeze and Module C runtime boundary', () => {
+test('handoff states the production freeze and verified Module C/D boundary', () => {
   assert.match(handoff, /Production posture:\*\* Frozen pending Module A gates/i);
-  assert.match(handoff, /Verify the Module C pgTAP gate/i);
-  assert.match(handoff, /Deno-verified local candidate/i);
+  assert.match(handoff, /all 47 pgTAP assertions pass/i);
+  assert.match(handoff, /Module D has a Finance review queue/i);
   assert.match(handoff, /named Finance review must precede/i);
   assert.match(handoff, /must never confirm payment or a booking/i);
 });

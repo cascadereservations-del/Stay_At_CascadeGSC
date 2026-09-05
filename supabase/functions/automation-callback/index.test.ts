@@ -1,5 +1,5 @@
 import { signAutomationPayload, verifyAutomationSignature } from '../_shared/automation-auth.ts';
-import { deliveryIsComplete, nextOutboxStatus } from '../_shared/automation-delivery.ts';
+import { deliveryIsComplete, nextOutboxStatus, parseDeliveryCallback } from '../_shared/automation-delivery.ts';
 
 const SECRET = 'test-automation-secret';
 const BODY = '{"event_id":"11111111-1111-4111-8111-111111111111","status":"completed"}';
@@ -25,4 +25,18 @@ Deno.test('keeps an outbox event dispatchable until its workflow finalizes inter
   equal(deliveryIsComplete('sent'), true, 'sent delivery is complete');
   equal(deliveryIsComplete('skipped'), true, 'skipped delivery is complete');
   equal(deliveryIsComplete('failed'), false, 'failed delivery is not complete');
+});
+
+Deno.test('requires a stable callback id and rejects unknown fields', () => {
+  const valid = {
+    callback_id: 'CH-W03:provider:0001',
+    event_id: '11111111-1111-4111-8111-111111111111',
+    workflow_id: 'CH-W03',
+    channel: 'email',
+    status: 'sent',
+    provider_message_id: 'synthetic-message',
+  };
+  equal(parseDeliveryCallback(valid)?.callback_id, valid.callback_id, 'valid callback');
+  equal(parseDeliveryCallback({ ...valid, callback_id: 'short' }), null, 'short callback id');
+  equal(parseDeliveryCallback({ ...valid, booking_status: 'confirmed' }), null, 'unknown business field');
 });

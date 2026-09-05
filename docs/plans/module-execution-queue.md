@@ -48,7 +48,7 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Scope:** Wave 1.3–1.5.
 
-**Local progress (2026-09-05):** the private evidence/comparison/review schema, pinned OpenRouter receipt adapter contract, fail-closed bank-email minimizer, six-case synthetic fixture pack, and named AAL2 Finance review boundary are present. The booking RPC now requires and records an immutable final Finance review; its former unreviewed service entry point and direct service-role table access are revoked. Twenty-seven focused source tests, 37 platform-safety tests, inactive-workflow validation, secret scanning, two Deno type checks, and four Deno adapter runtime tests pass. The 47-assertion pgTAP suite is source-complete but could not run because local Postgres was stopped. See `docs/validation/2026-09-05-module-c-local-candidate.md`.
+**Local progress (2026-09-05):** the private evidence/comparison/review schema, pinned OpenRouter receipt adapter contract, fail-closed bank-email minimizer, six-case synthetic fixture pack, and named AAL2 Finance review boundary are present. The booking RPC now requires and records an immutable final Finance review; its former unreviewed service entry point and direct service-role table access are revoked. The 47-assertion pgTAP gate passed in a rollback-only local transaction, alongside the focused source, platform, inactive-workflow, secret, Deno type, and adapter runtime checks. See `docs/validation/2026-09-05-module-c-database-runtime.md`.
 
 - Pinned OpenRouter task profile, strict receipt JSON schema, synthetic test fixtures and failure-to-review behaviour.
 - Gmail sender/subject allowlist, metadata-minimized n8n handoff, parser-review lane.
@@ -59,6 +59,8 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 ## Module D — Staff review and automation delivery
 
 **Scope:** Wave 1.6–1.7.
+
+**Local progress (2026-09-05):** a Finance-only AAL2/property-scoped review queue RPC and Edge Function expose Module C provenance, comparisons, warnings, and review history without guest contact details or decision authority. Booking events now receive closed Finance/guest templates; event detail is shaped by a closed workflow/event/audience matrix; signed callbacks require a stable ID and update delivery state through an idempotent RPC only. Eleven focused source-boundary checks, ten Deno runtime tests, 15 queue pgTAP assertions and 18 delivery pgTAP assertions pass. The existing Admin dashboard source is outside this worktree, so its UI wiring remains for the owning product repository. All n8n exports remain inactive. See `docs/validation/2026-09-05-module-d-local-candidate.md`.
 
 - Clean clone of the admin dashboard before changing its payment-review UI.
 - Reuse `CH-W01`–`CH-W04`, `CH-W09`, and `CH-W12` as the only booking workflow exports; extend their signed event-detail/callback contracts.

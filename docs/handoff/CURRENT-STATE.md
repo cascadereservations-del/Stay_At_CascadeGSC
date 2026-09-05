@@ -90,7 +90,7 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | --- | --- | --- |
 | A | Platform safety completion: authorization, privacy, recovery, release discipline | Gated; finish before normal feature work unless owner explicitly re-sequences |
 | B | Canonical booking decision / transaction / idempotency | Local candidate complete; not deployed |
-| C | Advisory receipt + bank-email evidence | Local candidate; pgTAP runtime gate open |
+| C | Advisory receipt + bank-email evidence | Local candidate; 47/47 pgTAP runtime gate passed |
 | D | Staff review UI and n8n delivery | Not started |
 | E | Calendar reliability and lifecycle release | Not started |
 | Wave 2 | Chatbot/shared inbox | Planned after Wave 1 foundation |
@@ -114,7 +114,11 @@ While validating this candidate, the local schema showed that legacy `booking_in
 
 The local-only Module C candidate adds private payment-evidence candidates, deterministic comparison records, and immutable named Finance reviews. Receipt/OpenRouter/bank/manual evidence remains advisory, the pinned OpenRouter schema and allowlisted bank adapter fail closed to review, and OPS has no Finance-record visibility. The former service-signed approval link was removed. `decide_direct_booking` now requires a matching final Finance review ID; the unreviewed service entry point is revoked.
 
-Fresh checks pass: 27 focused Module B/C, booking/security and handoff tests; 37 platform-safety tests; 13 inactive n8n exports; secret scanning; syntax checks; `git diff --check`; two Deno type checks; and four Deno adapter runtime tests. The 47-assertion pgTAP suite could not connect because local Postgres was stopped. See `docs/validation/2026-09-05-module-c-local-candidate.md`. Do not call the candidate production-ready until the database runtime gate passes.
+Fresh checks pass: 27 focused Module B/C, booking/security and handoff tests; 37 platform-safety tests; 13 inactive n8n exports; secret scanning; syntax checks; `git diff --check`; two Deno type checks; four Deno adapter runtime tests; and all 47 rollback-only pgTAP assertions. See `docs/validation/2026-09-05-module-c-database-runtime.md`. The candidate remains local and production-gated.
+
+## Module D local candidate (2026-09-05)
+
+The local Finance review queue is property-scoped and available only to named AAL2 Finance/Admin sessions. It exposes canonical evidence provenance, deterministic comparisons, warnings, and immutable history while excluding guest email and phone and retaining approval in the reviewed booking transaction. Inactive delivery detail now uses closed audience-specific field sets, and callback retries update delivery state idempotently without touching booking or payment facts. Focused source checks, Deno runtime tests, 15 queue assertions, and 18 delivery assertions pass. The audited Admin dashboard source is not present in this worktree, so UI consumption remains in that product's owning repository. See `docs/validation/2026-09-05-module-d-local-candidate.md`.
 
 ## Business and policy decisions already made
 

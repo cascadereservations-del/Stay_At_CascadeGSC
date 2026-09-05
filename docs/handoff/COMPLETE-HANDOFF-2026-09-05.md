@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Verify the Module C pgTAP gate, then begin Module D locally
+**Next safe engineering outcome:** Begin Module E locally over the verified Module C/D contracts
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -13,7 +13,8 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Supabase is the canonical system of record and the only owner of business state transitions.
 - The existing Portainer n8n instance is a delivery/integration layer only. All source workflows remain inactive.
 - Module B has a tested local candidate, but it is not deployed.
-- Module C has a source-complete, Deno-verified local candidate; its pgTAP database gate remains open.
+- Module C has a source-complete local candidate and all 47 pgTAP assertions pass.
+- Module D has a Finance review queue and inactive delivery local candidate; Admin UI wiring remains in its owning repository.
 - Module A production gates remain open, so production is frozen.
 - Modules D and E and Waves 2–8 remain planned work.
 - Finance/Admin and OPS must remain strictly separated.
@@ -41,8 +42,8 @@ Never infer that local code is live. A production claim needs a dated production
 | --- | --- | --- | --- |
 | Module A — safety, access, recovery, observability | **Production gated** | Local release packets and tests exist; some earlier protections are live. The coordinated staff/RLS/named-cleaner cutover is not complete. | Close every production gate below with fresh evidence and owner approval. |
 | Module B — canonical booking decision | **Local candidate complete** | Atomic `decide_direct_booking` RPC and delegated approval boundary exist and passed recorded local and Deno checks. | Resolve release prerequisites and deploy only after Module A approval. |
-| Module C — payment evidence and Finance review | **Local candidate; database gated** | Private evidence/comparison/review records, adapters, fixtures, and negative tests exist locally. Source and Deno checks pass; pgTAP is unverified. | Run 47 pgTAP assertions, then complete the final release review. |
-| Module D — Admin payment UI and delivery | **Planned** | Design direction exists; no production implementation is authorized. | Admin-only queue uses Module C review records; delivery remains inactive and non-authoritative. |
+| Module C — payment evidence and Finance review | **Local candidate verified** | Private evidence/comparison/review records, adapters, fixtures, negative tests, and 47 rollback-only pgTAP assertions pass. | Complete coordinated release review after Module A. |
+| Module D — Admin payment UI and delivery | **Backend/delivery local candidate** | Finance-only queue, closed delivery projections, and idempotent callbacks pass local tests; owning Admin UI source is outside this worktree. | Wire the owning Admin product after its source is available; keep delivery inactive. |
 | Module E — calendar reliability and lifecycle | **Planned** | Module B defines the canonical booking transition; broader lifecycle hardening remains. | Idempotent calendar lifecycle, reconciliation, collision handling, and recovery tests are complete. |
 | Waves 2–8 | **Planned / later** | Roadmap exists; none may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
 
@@ -93,7 +94,7 @@ These are local or dated validation results, not proof that the remaining produc
 - The pinned OpenRouter receipt contract and bank-email minimizer fail closed to manual review and store only opaque hashes plus normalized fields.
 - Service-signed decision links were removed; the booking decision requires a matching final review from a named AAL2 Finance/Admin user.
 - Twenty-seven focused Module B/C, booking/security and handoff source tests, 37 platform-safety tests, inactive n8n validation, secret scanning and diff checks pass.
-- Two Deno type checks and four Deno adapter runtime tests pass. The 47-assertion pgTAP suite remains unverified because local Postgres is stopped.
+- Two Deno type checks, four Deno adapter runtime tests, and all 47 pgTAP assertions pass. The suite rolled back its DDL and synthetic fixtures.
 
 ## Open Module A production gates
 
@@ -250,9 +251,9 @@ Keep Task Master out of generated archives, session mirrors, and completed dispo
 1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Module C local-candidate validation.
 2. Run `git status --short` and preserve all pre-existing user changes.
 3. Confirm the authority boundary in writing: evidence is advisory; named Finance approval is mandatory; OPS sees no Finance data.
-4. Run the 47 Module C pgTAP assertions in an approved local/disposable Supabase environment.
-5. Resolve any failures, rerun focused source/platform/inactive-workflow/secret/diff checks, and update the dated validation report.
-6. If the database runtime gate passes, begin Module D locally over the canonical review records.
+4. Continue Module E locally over the verified Module C/D contracts.
+5. Run focused source/platform/inactive-workflow/secret/diff checks and update dated validation evidence.
+6. Wire the Module D Admin UI only in its owning repository after that source is available.
 7. Stop before any deployment, activation, provider setup, message, or infrastructure change.
 
 ## Resume prompt
