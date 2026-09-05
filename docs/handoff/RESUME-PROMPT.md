@@ -22,6 +22,7 @@ Then read, in order:
 11. docs/validation/2026-09-05-wave-6-crm-lifecycle.md
 12. docs/validation/2026-09-05-wave-7-selective-marketing.md
 13. docs/validation/2026-09-05-wave-8-consolidation-handoff.md
+14. docs/validation/2026-09-05-hetzner-read-only-preflight.md
 
 Current branch: codex/cascade-waves-0-1-sol
 Expected latest completed commit at handoff: the Wave 8 consolidation and operational-handoff candidate. Verify it from Git rather than relying on a copied SHA.
@@ -41,8 +42,8 @@ Completed local candidates:
 
 Next gated work:
 1. Review the Wave 8 evidence and dedicated Hetzner decision.
-2. With target access available, perform only the fresh read-only Hetzner capacity and collision preflight.
-3. Close the Module A and migration gates before any VPS, Docker, DNS, secret, workflow, provider, or production change.
+2. The read-only Hetzner preflight is complete: capacity and collisions pass, but 0 MiB swap fails the required 1 GiB gate.
+3. Close the Module A and migration gates, then obtain the separately reviewed action approval before adding swap or making any VPS, Docker, DNS, secret, workflow, provider, or production change.
 
 Non-negotiable boundaries:
 - Supabase is canonical for every business fact and state transition.

@@ -174,3 +174,7 @@ Consent-gated drafts store ciphertext and hashes without recipient contact or de
 ## Wave 8 local candidate (2026-09-05)
 
 The machine-checkable authority inventory, operating handoff, and dedicated-Hetzner direction pass six consolidation checks and six handoff/status checks. A dormant two-service Compose render passed without starting containers. Disposable recovery restored 13 n8n workflows inactive with matching semantics and rebuilt Supabase through 38 migrations and 26 database test files while leaving the active local database unchanged. See [Wave 8 evidence](../validation/2026-09-05-wave-8-consolidation-handoff.md). Production and Hetzner remain gated.
+
+## Hetzner read-only preflight (2026-09-05)
+
+The configured target has sufficient available RAM and disk, current Docker/Compose, no Cascade container-name collision, no listener on port 5679, and no existing `/opt/cascade/n8n` path. It has 0 MiB swap, so the required 1 GiB swap gate fails. No VPS or Docker change was made. See [redacted preflight evidence](../validation/2026-09-05-hetzner-read-only-preflight.md).

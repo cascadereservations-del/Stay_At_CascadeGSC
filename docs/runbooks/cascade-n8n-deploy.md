@@ -4,7 +4,7 @@ This runbook defines a new Cascade-only n8n service under `/opt/cascade/n8n`. It
 
 The configuration pins n8n 2.34.6, the stable line observed in August 2026. The newer 2.35.x line was still used as a beta in contemporary reports and has scheduler/tool-call issue reports. Review the official release and security notes again before any upgrade. n8n is fair-code under its Sustainable Use License; it is not described as OSI open source.
 
-The last recorded VPS audit showed approximately 7.6 GiB RAM and no swap. That evidence is not fresh enough for deployment, and the no-swap result fails the gate below. The stack therefore remains source-only until a new read-only preflight passes and swap is added through a separately approved VPS change.
+The 2026-09-05 read-only preflight found 3,224 MiB available RAM, 37,208 MiB free on `/opt`, Docker 29.5.3, Compose 5.1.4, no Cascade container-name collision, no port 5679 listener, and no existing target path. Swap was 0 MiB, so the deployment gate failed. See `docs/validation/2026-09-05-hetzner-read-only-preflight.md`. The stack remains source-only until at least 1 GiB swap is added through a separately approved VPS change and every Module A and migration gate is closed.
 
 ## Read-only capacity preflight
 

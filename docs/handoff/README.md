@@ -58,7 +58,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-The next permitted engineering outcome is a **read-only Hetzner capacity and collision preflight after target access is available**, followed by review of the still-open Module A and migration gates. No VPS or Docker change is authorized by the local evidence.
+The Hetzner read-only preflight is complete. Capacity and collision checks pass, but **0 MiB swap fails the required 1 GiB gate**. The next outcome is to close Module A and review the exact swap and deployment actions; no VPS or Docker change is authorized by the local evidence.
 
 Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 

@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Review Wave 8, then perform a read-only Hetzner capacity and collision preflight when target access is available
+**Next safe engineering outcome:** Close Module A and review the exact swap and dedicated-Hetzner deployment actions
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -25,6 +25,7 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Wave 8 has verified local authority consolidation, operating handoff, dormant Compose rendering, and disposable n8n/Supabase recovery.
 - Module A production gates remain open, so production is frozen.
 - The dedicated Hetzner automation plane is an accepted direction, but target preflight and deployment gates remain open.
+- The 2026-09-05 read-only Hetzner preflight passed capacity and collision checks but failed the required swap gate: 0 MiB observed, at least 1 GiB required.
 - Finance/Admin and OPS must remain strictly separated.
 - OCR, OpenRouter, receipt evidence, and bank-email evidence are advisory. They must never confirm payment or a booking.
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
@@ -285,14 +286,15 @@ Keep Task Master out of generated archives, session mirrors, and completed dispo
 | [Wave 6 CRM and guest lifecycle](../validation/2026-09-05-wave-6-crm-lifecycle.md) | Passing identity, consent, retention, authorization, database, and rollback evidence. |
 | [Wave 7 selective marketing](../validation/2026-09-05-wave-7-selective-marketing.md) | Passing consent, exact-content review, authorization, database, and rollback evidence. |
 | [Wave 8 consolidation and handoff](../validation/2026-09-05-wave-8-consolidation-handoff.md) | Passing authority, access, Compose render, n8n recovery, Supabase recovery, and handoff evidence. |
+| [Hetzner read-only preflight](../validation/2026-09-05-hetzner-read-only-preflight.md) | Capacity and collisions pass; 0 MiB swap blocks deployment. No change made. |
 
 ## Exact next-session sequence
 
 1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Wave 8 validation record.
 2. Run `git status --short` and preserve all pre-existing user changes.
 3. Review `cascade-authority-inventory.json`, ADR-002, and `cascade-operational-handoff.md` without assuming local candidates are live.
-4. When Hetzner target access is available, perform only the read-only capacity, swap, storage, port, collision, and existing-service preflight.
-5. Record the redacted preflight and leave every unresolved Module A or migration gate explicit before proposing any change.
+4. Review the completed redacted Hetzner preflight: capacity and collisions pass, but the swap gate fails.
+5. Close every unresolved Module A or migration gate, then obtain separately reviewed action approval before adding swap or changing the VPS.
 6. Wire the Module D Admin UI only in its owning repository after that source is available.
 7. Stop before any deployment, activation, provider setup, message, or infrastructure change.
 
@@ -302,4 +304,4 @@ Use [RESUME-PROMPT.md](./RESUME-PROMPT.md) for a copy/paste continuation block. 
 
 ## Definition of a safe handoff
 
-The next developer can identify the canonical repository, distinguish local evidence from live state, review the consolidated authority and recovery evidence, conduct a read-only Hetzner preflight when access exists, preserve the Finance/OPS and human-approval rules, and stop before every production or infrastructure gate. Any unsupported live-state assertion must be recorded as unverified.
+The next developer can identify the canonical repository, distinguish local evidence from live state, review the consolidated authority and recovery evidence plus the failed swap gate, preserve the Finance/OPS and human-approval rules, and stop before every production or infrastructure gate. Any unsupported live-state assertion must be recorded as unverified.
