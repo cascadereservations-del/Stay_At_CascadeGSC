@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Begin Wave 6 consent-aware CRM and guest lifecycle locally
+**Next safe engineering outcome:** Begin Wave 7 selective-marketing drafts and exact-content approval locally
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -20,8 +20,9 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Wave 3 has a local cleaning/meter evidence and named-review candidate.
 - Wave 4 has a verified local inventory forecast and named purchase-review candidate, including rollback-only database and two-session concurrency proof.
 - Wave 5 has verified local named Finance reconciliation and internal management analytics; OPS is excluded and reports make no compliance claim.
+- Wave 6 has verified local hashed identity, purpose-specific consent, lifecycle/recovery, and retention controls; it contains no communication path.
 - Module A production gates remain open, so production is frozen.
-- Waves 5–8 remain planned work.
+- Waves 7–8 remain planned work.
 - Finance/Admin and OPS must remain strictly separated.
 - OCR, OpenRouter, receipt evidence, and bank-email evidence are advisory. They must never confirm payment or a booking.
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
@@ -54,7 +55,8 @@ Never infer that local code is live. A production claim needs a dated production
 | Wave 3 — cleaning/meter verification | **Local candidate complete** | Private evidence, correction/inspection outcomes, and named override boundaries pass locally. | Release only after Module A staffed-access gates. |
 | Wave 4 — inventory forecast and purchasing | **Local candidate complete** | Canonical stock reconciliation, advisory recorded-usage forecasts, and immutable named owner/admin shopping-list review pass source, database, concurrency, and rollback checks. | Release only after Module A gates and coordinated review. |
 | Wave 5 — Finance reconciliation and analytics | **Local candidate complete** | Paired-source comparisons, named reconciliation, internal metrics, effective owner targets, and rollback pass locally. | Release only after Module A gates and coordinated review. |
-| Waves 6–8 | **Planned / later** | Roadmap exists; none may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
+| Wave 6 — CRM, consent, retention, and guest lifecycle | **Local candidate complete** | Hashed identity resolution, purpose-specific consent, service-recovery suppression, retention decisions, and rollback pass locally; no communication path exists. | Release only after Module A gates and coordinated review. |
+| Waves 7–8 | **Planned / later** | Roadmap exists; neither may bypass booking, payment, privacy, or approval boundaries. | Implement sequentially after prerequisites and per-wave approval. |
 
 No percentage-complete figure is used: local candidates, production gates, and future product waves are materially different kinds of progress.
 
@@ -207,8 +209,11 @@ The local Supabase candidate is complete. Four source checks and 31 rollback-onl
 
 ### 8. Wave 6 — CRM and guest lifecycle
 
-- Implement consent-aware profiles, preferences, stay history, service recovery, and retention controls.
-- Resolve identities deterministically and keep marketing permission separate from operational communication.
+- Local candidate: property-scoped profiles use hashed identity keys and do not duplicate raw contact fields.
+- Purpose-specific consent, lifecycle/service-recovery events, and retention decisions are append-only and restricted to named AAL2 owner/admin users.
+- Deterministic marketing eligibility requires current marketing consent, no open recovery, and no restrictive retention state; eligibility authorizes no communication or publication.
+- Five source checks, 31 rollback-only pgTAP assertions, and the disposable compensating rollback pass.
+- See [Wave 6 validation](../validation/2026-09-05-wave-6-crm-lifecycle.md).
 
 ### 9. Wave 7 — selective marketing
 
@@ -268,14 +273,15 @@ Keep Task Master out of generated archives, session mirrors, and completed dispo
 | [Handoff/status artifact validation](../validation/2026-09-05-handoff-status-artifacts.md) | Fresh checks for this dated handoff and offline dashboard. |
 | [Wave 4 inventory and purchase review](../validation/2026-09-05-wave-4-inventory-purchase.md) | Passing source, rollback-only database, concurrency, and compensating rollback evidence. |
 | [Wave 5 Finance and analytics](../validation/2026-09-05-wave-5-finance-analytics.md) | Passing reconciliation, formula, authorization, database, and rollback evidence. |
+| [Wave 6 CRM and guest lifecycle](../validation/2026-09-05-wave-6-crm-lifecycle.md) | Passing identity, consent, retention, authorization, database, and rollback evidence. |
 
 ## Exact next-session sequence
 
-1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Wave 4 validation record.
+1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Wave 6 validation record.
 2. Run `git status --short` and preserve all pre-existing user changes.
-3. Confirm the authority boundary in writing: operational communication and marketing consent are separate; identity correlation is deterministic and reviewable.
-4. Begin Wave 6 locally with independently reversible source, rollback-only pgTAP, property isolation, and retention controls.
-5. Record exact runtime evidence before marking Wave 6 complete or beginning Wave 7.
+3. Confirm the authority boundary in writing: eligibility and drafts never authorize publication; approval must bind the exact content and named reviewer.
+4. Begin Wave 7 locally with independently reversible source, rollback-only pgTAP, property isolation, and consent rechecks.
+5. Record exact runtime evidence before marking Wave 7 complete or beginning Wave 8.
 6. Wire the Module D Admin UI only in its owning repository after that source is available.
 7. Stop before any deployment, activation, provider setup, message, or infrastructure change.
 
@@ -285,4 +291,4 @@ Use [RESUME-PROMPT.md](./RESUME-PROMPT.md) for a copy/paste continuation block. 
 
 ## Definition of a safe handoff
 
-The next developer can identify the canonical repository, distinguish local evidence from live state, begin Wave 6 without weakening Finance or consent boundaries, preserve the Finance/OPS and human-approval rules, run the documented checks, and stop at production gates. Any unsupported live-state assertion must be recorded as unverified.
+The next developer can identify the canonical repository, distinguish local evidence from live state, begin Wave 7 without weakening consent or publication boundaries, preserve the Finance/OPS and human-approval rules, run the documented checks, and stop at production gates. Any unsupported live-state assertion must be recorded as unverified.

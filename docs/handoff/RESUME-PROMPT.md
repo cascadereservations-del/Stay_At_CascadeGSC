@@ -19,9 +19,10 @@ Then read, in order:
 8. docs/validation/2026-09-05-wave-3-cleaning-meter.md
 9. docs/validation/2026-09-05-wave-4-inventory-purchase.md
 10. docs/validation/2026-09-05-wave-5-finance-analytics.md
+11. docs/validation/2026-09-05-wave-6-crm-lifecycle.md
 
 Current branch: codex/cascade-waves-0-1-sol
-Expected latest completed commit at handoff: the Wave 5 Finance reconciliation candidate. Verify it from Git rather than relying on a copied SHA.
+Expected latest completed commit at handoff: the Wave 6 CRM and guest-lifecycle candidate. Verify it from Git rather than relying on a copied SHA.
 
 Completed local candidates:
 - Module B: canonical atomic booking decision.
@@ -32,11 +33,11 @@ Completed local candidates:
 - Wave 3: private cleaning/meter evidence tied to the named cleaner, session, property, and matching meter reading. Named inspectors review evidence; only operations managers may override. 21/21 rollback-only pgTAP assertions pass.
 - Wave 4: inventory reconciliation, recorded-usage forecasts and named AAL2 owner/admin shopping-list review. Five source checks and all 31 rollback-only pgTAP assertions pass. A disposable two-session proof showed review waited for a concurrent stock change, then failed closed as stale; the compensating rollback passed. Purchase review never orders or invokes a provider.
 - Wave 5: named AAL2 Finance reconciliation creates immutable facts from deterministic paired-source comparisons. Internal metrics and effective owner targets pass 50/50 rollback-only pgTAP assertions and a compensating rollback. OPS has no access; reports make no statutory/tax claim.
+- Wave 6: hashed identity resolution, separate purpose consent, lifecycle/recovery events, and retention controls pass 31/31 rollback-only pgTAP assertions and a compensating rollback. Eligibility never authorizes communication or publication.
 
 Continue locally in order:
-1. Wave 6 — CRM, consent, retention, and guest lifecycle.
-2. Wave 7 — marketing drafts and exact-content human approval; no publication.
-3. Wave 8 — consolidation, recovery drills, authority inventory, and operational handoff.
+1. Wave 7 — marketing drafts and exact-content human approval; no publication.
+2. Wave 8 — consolidation, recovery drills, authority inventory, and operational handoff.
 
 Non-negotiable boundaries:
 - Supabase is canonical for every business fact and state transition.

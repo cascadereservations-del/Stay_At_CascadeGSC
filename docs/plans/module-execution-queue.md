@@ -104,6 +104,12 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Exit:** met locally. Database, source-boundary, formula, authorization, and rollback checks pass. Production remains gated.
 
+## Wave 6 — CRM, consent, retention, and guest lifecycle
+
+**Local progress (2026-09-05):** hashed identity keys resolve deterministically without duplicating raw contact data. Named AAL2 owner/admin staff record append-only purpose consent, lifecycle/recovery events, and retention decisions. Marketing eligibility requires separate current consent, no open recovery, and no restrictive retention action. Five source checks, 31 rollback-only pgTAP assertions, and the disposable rollback pass. See `docs/validation/2026-09-05-wave-6-crm-lifecycle.md`.
+
+**Exit:** met locally. Identity conflicts fail closed, consent purposes remain separate, recovery and retention suppress marketing, and no automatic deletion or communication path exists. Production remains gated.
+
 ## Shared stop conditions
 
 Stop and request action-time owner approval before production schema deployment, n8n activation, cron activation, Docker/VPS changes, Meta/Gmail setup, or sending any provider message. Preserve the two user-owned untracked W01 files until their ownership is explicitly resolved.

@@ -97,7 +97,8 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | Wave 3 | Cleaning + meter verification | Local evidence/review candidate; not deployed |
 | Wave 4 | Inventory forecast + purchase approval | Local candidate verified; never auto-order |
 | Wave 5 | Finance, reconciliation, analytics | Local candidate verified; internal management reporting only |
-| Waves 6–8 | CRM, selective marketing, consolidation | Planned |
+| Wave 6 | CRM, consent, retention, guest lifecycle | Local candidate verified; no communication path |
+| Waves 7–8 | Selective marketing and consolidation | Planned |
 
 ## Module B local candidate (2026-09-01)
 
@@ -160,3 +161,7 @@ Property-scoped stock reconciliation, recorded-usage forecasts and named AAL2 ow
 ## Wave 5 local candidate (2026-09-05)
 
 Named AAL2 Finance reconciliation converts deterministic paired-source comparisons into immutable reviewed facts. Five source checks and 50 rollback-only pgTAP assertions pass, as does the compensating rollback. Internal metrics include P&L, cost per night, ADR, RevPAR, occupancy, utilities, data freshness, exclusions, and effective owner targets. OPS has no access, and reports explicitly make no statutory, tax, BIR, or filing claim. See [Wave 5 evidence](../validation/2026-09-05-wave-5-finance-analytics.md).
+
+## Wave 6 local candidate (2026-09-05)
+
+Hashed identity keys, separate purpose consent, private lifecycle/service-recovery events, and retention decisions pass 5 source checks, 31 rollback-only pgTAP assertions, and a disposable rollback. Marketing eligibility is deterministic but authorizes no targeting, sending, or publication. See [Wave 6 evidence](../validation/2026-09-05-wave-6-crm-lifecycle.md).
