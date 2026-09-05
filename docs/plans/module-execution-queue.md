@@ -110,6 +110,12 @@ The approved initial runtime is the existing Portainer n8n instance. Create one 
 
 **Exit:** met locally. Identity conflicts fail closed, consent purposes remain separate, recovery and retention suppress marketing, and no automatic deletion or communication path exists. Production remains gated.
 
+## Wave 7 — selective marketing drafts and exact-content review
+
+**Local progress (2026-09-05):** consent-gated private drafts store ciphertext and hashes without recipient contact or delivery state. Named AAL2 owner/admin review rechecks eligibility, binds the exact content hash, and separately approves targeting, discounts, and claims. Five source checks, 33 rollback-only pgTAP assertions, and the disposable rollback pass. See `docs/validation/2026-09-05-wave-7-selective-marketing.md`.
+
+**Exit:** met locally. Draft and review records retain `publication_authorized = false`; no outbox, provider, send, or publication path exists. Production remains gated.
+
 ## Shared stop conditions
 
 Stop and request action-time owner approval before production schema deployment, n8n activation, cron activation, Docker/VPS changes, Meta/Gmail setup, or sending any provider message. Preserve the two user-owned untracked W01 files until their ownership is explicitly resolved.

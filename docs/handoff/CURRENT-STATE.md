@@ -98,7 +98,8 @@ See `docs/runbooks/n8n-live-baseline-2026-08-29.md` for the read-only runtime in
 | Wave 4 | Inventory forecast + purchase approval | Local candidate verified; never auto-order |
 | Wave 5 | Finance, reconciliation, analytics | Local candidate verified; internal management reporting only |
 | Wave 6 | CRM, consent, retention, guest lifecycle | Local candidate verified; no communication path |
-| Waves 7–8 | Selective marketing and consolidation | Planned |
+| Wave 7 | Selective marketing and exact-content review | Local candidate verified; no publication path |
+| Wave 8 | Consolidation and operational handoff | Planned |
 
 ## Module B local candidate (2026-09-01)
 
@@ -165,3 +166,7 @@ Named AAL2 Finance reconciliation converts deterministic paired-source compariso
 ## Wave 6 local candidate (2026-09-05)
 
 Hashed identity keys, separate purpose consent, private lifecycle/service-recovery events, and retention decisions pass 5 source checks, 31 rollback-only pgTAP assertions, and a disposable rollback. Marketing eligibility is deterministic but authorizes no targeting, sending, or publication. See [Wave 6 evidence](../validation/2026-09-05-wave-6-crm-lifecycle.md).
+
+## Wave 7 local candidate (2026-09-05)
+
+Consent-gated drafts store ciphertext and hashes without recipient contact or delivery state. Named AAL2 owner/admin review rechecks current eligibility, binds the exact content hash, and separately approves targeting, discounts, and claims. Five source checks, 33 rollback-only pgTAP assertions, and a disposable rollback pass. Drafts and reviews retain `publication_authorized = false`; no publication or provider path exists. See [Wave 7 evidence](../validation/2026-09-05-wave-7-selective-marketing.md).
