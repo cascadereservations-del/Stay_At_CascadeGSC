@@ -1,6 +1,8 @@
 # Portainer capacity and isolation feasibility — 2026-09-06
 
-Status: read-only review complete. Alfred was not changed. No stack, container, volume, network, provider, workflow, DNS record, swap file, or server was created or modified.
+Status: read-only review complete; its conservative host-placement conclusion was superseded by the detailed capacity audit later on 2026-09-06. Alfred was not changed. No stack, container, volume, network, provider, workflow, DNS record, swap file, or server was created or modified.
+
+See `2026-09-06-alfred-detailed-capacity-audit.md` for live Docker statistics, limits, health, restart/OOM history, and the resulting conditional same-host decision.
 
 ## Safe observations
 

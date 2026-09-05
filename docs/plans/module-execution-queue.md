@@ -16,7 +16,7 @@ SOL is therefore used for narrow high-risk checkpoints rather than routine outpu
 
 `automation/n8n/workflows/` is the canonical existing workflow folder. It already contains 13 inactive, validated exports (`CH-S01`, `CH-W01` through `CH-W12`). Reuse and extend these exports in place; do not create another n8n application or duplicate workflow tree.
 
-Alfred's existing Portainer n8n remains unchanged while all Cascade workflows are inactive. The future Cascade runtime is the isolated `infrastructure/cascade-n8n/` stack on a separate VPS under ADR-002. Do not deploy it on Alfred. Keep the 13 canonical exports in this repository and use only `Cascade — <provider/purpose>` credentials after their separate approval.
+Alfred's existing Portainer n8n remains unchanged while all Cascade workflows are inactive. The future Cascade runtime is the isolated `infrastructure/cascade-n8n/` stack under ADR-002. A capped same-host deployment is conditionally feasible only after the detailed recovery, swap, capacity, soak, and approval gates; use a separate VPS if any threshold fails. Keep the 13 canonical exports in this repository and use only `Cascade — <provider/purpose>` credentials after their separate approval.
 
 ## Module A — Platform safety completion
 

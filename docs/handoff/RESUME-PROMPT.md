@@ -24,6 +24,7 @@ Then read, in order:
 13. docs/validation/2026-09-05-wave-8-consolidation-handoff.md
 14. docs/validation/2026-09-05-hetzner-read-only-preflight.md
 15. docs/validation/2026-09-06-portainer-capacity-feasibility.md
+16. docs/validation/2026-09-06-alfred-detailed-capacity-audit.md
 
 Current branch: codex/cascade-waves-0-1-sol
 Expected latest completed commit at handoff: the Wave 8 consolidation and operational-handoff candidate. Verify it from Git rather than relying on a copied SHA.
@@ -43,8 +44,8 @@ Completed local candidates:
 
 Next gated work:
 1. Review the Wave 8 evidence and revised dedicated Hetzner decision.
-2. Preserve Alfred unchanged. The read-only Portainer review rejects co-location because the existing n8n service is coupled to Alfred and the host has limited operating margin.
-3. Close the Module A and migration gates, then obtain separately reviewed action approval before ordering a separate Cascade VPS or making any VPS, Docker, DNS, secret, workflow, provider, or production change.
+2. Preserve Alfred's existing services. The detailed read-only audit permits a separate capped Cascade Compose stack on the same Docker host only after recovery, 2 GiB swap, capacity, inactive-soak, and action-time approval gates.
+3. Close the Module A and migration gates, then obtain separately reviewed action approval before adding swap or making any VPS, Docker, DNS, secret, workflow, provider, or production change. Use a separate VPS if any same-host threshold fails.
 
 Non-negotiable boundaries:
 - Supabase is canonical for every business fact and state transition.
@@ -54,7 +55,7 @@ Non-negotiable boundaries:
 - Named human approval is mandatory for booking/payment confirmation, refunds, discounts, exceptions, cleaning overrides, purchases, and publication.
 - The business is unregistered. Do not claim BIR, statutory, tax, or filing compliance.
 - Do not deploy, apply production migrations, activate workflows or cron, configure providers, modify VPS/Docker configuration, or send messages without fresh action-time owner approval.
-- Do not add swap or deploy the Cascade stack on Alfred. The future target is a separate Cascade VPS with its own Docker and recovery boundary.
+- Do not add swap or deploy the Cascade stack on Alfred without the recovery, capacity, dormant-soak, and action-time approval gates in the detailed audit.
 - Production remains frozen behind Module A: encrypted backup/restore proof, coordinated staff/RLS release, project Auth MFA/AAL2, real cleaner authorization checks, monitoring, and shared n8n recovery.
 
 Local Docker Supabase was running during the completed validations. Database candidate tests were assembled with their migrations inside transactions ending in ROLLBACK; they did not alter the migration ledger or persist fixtures.

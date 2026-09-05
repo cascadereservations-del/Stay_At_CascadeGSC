@@ -1,12 +1,12 @@
 # Cascade n8n Deployment Runbook
 
-This runbook defines a new Cascade-only n8n service under `/opt/cascade/n8n` on a separate Cascade VPS. It must not be deployed on Alfred and does not reuse the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
+This runbook defines a new Cascade-only n8n service under `/opt/cascade/n8n`. It may use Alfred's existing Docker Engine only after the detailed same-host gates pass. It never reuses the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
 
 The configuration pins n8n 2.34.6, the stable line observed in August 2026. The newer 2.35.x line was still used as a beta in contemporary reports and has scheduler/tool-call issue reports. Review the official release and security notes again before any upgrade. n8n is fair-code under its Sustainable Use License; it is not described as OSI open source.
 
-The 2026-09-05 SSH preflight found 3,224 MiB available RAM and 0 MiB swap on Alfred. The 2026-09-06 Portainer review then found a busy 8.1 GB host with 19 running containers and an n8n service coupled to Alfred's Compose project, network, SQLite volume, and LifeVault host files. The deployment gate therefore fails for co-location, even if swap were added. See `docs/validation/2026-09-05-hetzner-read-only-preflight.md` and `docs/validation/2026-09-06-portainer-capacity-feasibility.md`.
+The 2026-09-05 SSH preflight found 3,224 MiB available RAM and 0 MiB swap on Alfred. A more detailed 2026-09-06 audit found 3,196–3,209 MiB available across repeated samples, load below 0.3 on four cores, 36 GB free disk, no current unhealthy container, no running-container restart/OOM flag, no kernel/Docker OOM evidence, and no active Ollama model. It also found Metabase consistently using about 1.459 GiB of its 1.5 GiB limit. See `docs/validation/2026-09-06-alfred-detailed-capacity-audit.md`.
 
-Run the remaining capacity checks against the separately approved Cascade VPS. The stack remains source-only until that server exists, has at least 4 GB RAM and 2 GB swap, and every Module A and migration gate is closed. An 8 GB server is preferred for operating margin and future Cascade-only services.
+The same-host stack remains source-only until Alfred has at least 2 GiB swap, its recovery proof passes, the baseline still meets every threshold, and every Module A and migration gate is closed. A separate 8 GB Cascade VPS remains the fallback if the dormant trial crosses an abort threshold.
 
 ## Read-only capacity preflight
 
@@ -25,7 +25,7 @@ Stop before deployment unless all gates pass:
 
 - At least 2.5 GiB RAM remains available during normal peak load.
 - At least 10 GiB free disk remains after projected images, database growth and two encrypted backups.
-- At least 2 GiB swap exists on the new Cascade VPS. Do not add swap to Alfred as part of this migration.
+- At least 2 GiB swap exists on the selected host. Adding it to Alfred is a separate maintenance action and is not authorized by this runbook.
 - Local port 5679 and the proposed hostname are unused.
 - Existing services are healthy and their container/network/volume names do not begin with `cascade-n8n`.
 - An external encrypted backup destination and an age recovery identity are available.
@@ -36,7 +36,7 @@ Record timestamped output in the Wave 0 recovery report, redacting public IPs, u
 
 Fresh owner approval is required before each of these actions:
 
-1. Ordering the separate VPS, creating `/opt/cascade/n8n`, or changing its packages/swap.
+1. Creating `/opt/cascade/n8n`, changing host packages/swap, or ordering a fallback VPS.
 2. Creating DNS, Cloudflare Access/service-token policy or TLS routing for `cascade-n8n.rocloyd.com`.
 3. Copying real `.env` secrets or OAuth/provider credentials.
 4. Starting containers, importing workflows, sending provider test messages or activating a workflow.
@@ -58,6 +58,8 @@ Reject output containing an unbound public port, an unpinned image, a non-Cascad
 ## Deploy and validate
 
 After owner approval, start PostgreSQL first, confirm its health, then start n8n. Confirm both containers stay within the declared memory/CPU ceilings and that n8n is reachable only at `127.0.0.1:5679` from the VPS.
+
+For an Alfred trial, keep all workflows inactive and omit real provider credentials for at least 72 hours. Stop only the `cascade-n8n` project if available memory remains below 1.5 GiB, swap use rises continuously, 15-minute load exceeds 3, an existing service restarts/OOMs, or free disk falls below 15 GB.
 
 Install the Caddy fragment only after its syntax check passes. Configure Cloudflare so the editor requires owner/admin identity. Create a separate scoped service token for signed webhook traffic; never share an interactive login credential. Do not log Authorization, Cookie or query-string values.
 

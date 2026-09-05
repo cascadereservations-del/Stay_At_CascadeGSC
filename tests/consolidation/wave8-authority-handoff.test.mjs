@@ -50,10 +50,10 @@ test('operating handoff preserves access, recovery, incident, and production sto
 
 test('Hetzner direction uses an isolated two-service stack and remains deployment gated', () => {
   assert.match(adr, /Accepted direction; source-only and deployment-gated/);
-  assert.match(adr, /Do not place the new stack on Alfred/);
-  assert.match(adr, /separate Cascade VPS with its own Docker Engine/);
+  assert.match(adr, /initial budget-conscious target may be Alfred's existing Docker Engine/);
+  assert.match(adr, /separate Cascade VPS remains the fallback/);
   assert.match(adr, /Supabase remains the canonical business-state authority/);
-  assert.match(adr, /fresh owner approval before ordering a server or creating directories, swap, DNS, secrets, containers, volumes/);
+  assert.match(adr, /fresh owner approval before creating directories, swap, DNS, secrets, containers, volumes/);
   assert.match(compose, /^  postgres:/m);
   assert.match(compose, /^  n8n:/m);
   assert.match(compose, /127\.0\.0\.1:\$\{CASCADE_N8N_BIND_PORT:-5679\}:5678/);

@@ -4,7 +4,7 @@
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`  
 **Branch:** `codex/cascade-waves-0-1-sol`  
 **Production posture:** Frozen pending Module A gates  
-**Next safe engineering outcome:** Close Module A and review the exact separate-VPS procurement and deployment actions
+**Next safe engineering outcome:** Close Module A and review the exact capped Alfred-stack prerequisites and deployment actions
 
 This is the current source-of-truth handoff for unfinished Cascade Hideaway system work. It consolidates the remaining modules, safety boundaries, recorded validation, repository roles, and exact resume sequence. It does not authorize a deployment or other production action.
 
@@ -24,8 +24,8 @@ This is the current source-of-truth handoff for unfinished Cascade Hideaway syst
 - Wave 7 has verified local consent-gated drafts and exact-content named review; publication remains unauthorized and no provider path exists.
 - Wave 8 has verified local authority consolidation, operating handoff, dormant Compose rendering, and disposable n8n/Supabase recovery.
 - Module A production gates remain open, so production is frozen.
-- The dedicated Hetzner automation plane is an accepted direction, but it must use a separate Cascade VPS; target procurement, preflight, and deployment gates remain open.
-- The 2026-09-06 read-only Portainer review rejects Alfred co-location because the existing n8n service is coupled to Alfred and the host has limited operating margin. Adding swap does not resolve that isolation risk.
+- The dedicated Hetzner automation plane is an accepted direction. A separate capped Compose stack on Alfred is conditionally feasible; a separate VPS remains the fallback.
+- The detailed 2026-09-06 audit found about 3.2 GiB available RAM, low load, no current unhealthy container, no OOM/restart evidence, and no active Ollama model. Recovery, 2 GiB swap, capacity recheck, 72-hour inactive soak, and action approvals remain open.
 - Finance/Admin and OPS must remain strictly separated.
 - OCR, OpenRouter, receipt evidence, and bank-email evidence are advisory. They must never confirm payment or a booking.
 - A deterministic comparison and a named Finance review must precede the existing `decide_direct_booking` RPC.
@@ -288,14 +288,15 @@ Keep Task Master out of generated archives, session mirrors, and completed dispo
 | [Wave 8 consolidation and handoff](../validation/2026-09-05-wave-8-consolidation-handoff.md) | Passing authority, access, Compose render, n8n recovery, Supabase recovery, and handoff evidence. |
 | [Hetzner read-only preflight](../validation/2026-09-05-hetzner-read-only-preflight.md) | Capacity and collisions pass; 0 MiB swap blocks deployment. No change made. |
 | [Portainer capacity and isolation feasibility](../validation/2026-09-06-portainer-capacity-feasibility.md) | Alfred co-location rejected; separate Cascade VPS recommended. No change made. |
+| [Alfred detailed capacity audit](../validation/2026-09-06-alfred-detailed-capacity-audit.md) | Supersedes the initial host-placement conclusion; capped same-host stack is conditionally feasible. No change made. |
 
 ## Exact next-session sequence
 
 1. Read this file, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, `module-execution-queue.md`, and the Wave 8 validation record.
 2. Run `git status --short` and preserve all pre-existing user changes.
 3. Review `cascade-authority-inventory.json`, ADR-002, and `cascade-operational-handoff.md` without assuming local candidates are live.
-4. Review the redacted Hetzner and Portainer evidence: preserve Alfred and use a separate Cascade VPS.
-5. Close every unresolved Module A or migration gate, then obtain separately reviewed action approval before ordering or changing the new VPS.
+4. Review the detailed capacity audit: preserve Alfred's existing services and use only a separate capped Compose stack after every same-host gate.
+5. Close every unresolved Module A or migration gate, then obtain separately reviewed action approval before adding swap or changing Docker/VPS state.
 6. Wire the Module D Admin UI only in its owning repository after that source is available.
 7. Stop before any deployment, activation, provider setup, message, or infrastructure change.
 

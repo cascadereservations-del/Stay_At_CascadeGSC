@@ -15,7 +15,7 @@ Obsidian is valuable but includes session-era live snapshots. Some are older tha
 
 | Workstream | State at handoff | Evidence / canonical location |
 | --- | --- | --- |
-| n8n hosting decision | Revised | Preserve Alfred's existing n8n unchanged. The future Cascade automation plane belongs on a separate VPS; no deployment is authorized. `docs/architecture/adr-002-dedicated-hetzner-cascade-operations.md` |
+| n8n hosting decision | Revised | Preserve Alfred's existing n8n. A separate capped Cascade Compose stack on the same Docker host is conditionally feasible after recovery, swap, capacity, and approval gates; a separate VPS is the fallback. `docs/architecture/adr-002-dedicated-hetzner-cascade-operations.md` |
 | Finance/OPS delivery boundary | Protected in source and narrow production guard | `supabase/migrations/20260829173700_notification_route_guard.sql`, `tests/security/` |
 | Direct booking trigger isolation | Protected | `supabase/migrations/20260829044725_revoke_w01_dispatch_rpc_execution.sql` |
 | Named staff / cleaner access | Local release candidate | `supabase/migrations/20260828000400_staff_roles_and_sessions.sql`, `supabase/functions/staff-access/`, tests |
@@ -76,7 +76,7 @@ Do not claim Module A complete until the following have fresh, action-time proof
 ## n8n status and rules
 
 - Current runtime: Alfred's shared Portainer n8n remains unchanged while all Cascade workflows are inactive.
-- Future runtime direction: a separate Cascade VPS and isolated Docker Compose project after all gates; do not deploy it on Alfred.
+- Future runtime direction: an isolated Cascade Compose project, conditionally on Alfred after all same-host gates; use a separate VPS if any threshold fails.
 - Current editor location: `Personal → Cascade Hideaway` folder/project.
 - Canonical exports: `automation/n8n/workflows/CH-S01...CH-W12`.
 - All Cascade workflows remain **inactive/unpublished**.
@@ -182,4 +182,4 @@ The configured Alfred target has current Docker/Compose, no Cascade container-na
 
 ## Portainer isolation review (2026-09-06)
 
-Read-only Portainer evidence supersedes the earlier conclusion that adding swap would make Alfred an acceptable target. Alfred has 19 running containers on 4 cores/8.1 GB, and its n8n service is coupled to the `deploy` project, `alfred_internal`, SQLite storage, and a LifeVault host mount. Several stopped AppFlowy containers show exit code 137; this does not prove OOM, but it reinforces the risk of co-location. Preserve Alfred unchanged and use a separate Cascade VPS. See [Portainer feasibility evidence](../validation/2026-09-06-portainer-capacity-feasibility.md).
+The initial Portainer review correctly identified coupling and shared-host risk but lacked live resource and OOM evidence. A detailed follow-up found stable low load, about 3.2 GiB available RAM, no current unhealthy container, no OOM/restart evidence, and no active Ollama model. The AppFlowy exit-137 containers report `OOMKilled=false`. Same-host deployment is therefore conditionally feasible as a separate capped Compose stack after recovery, 2 GiB swap, inactive soak, and action approval. See [detailed Alfred capacity evidence](../validation/2026-09-06-alfred-detailed-capacity-audit.md).
