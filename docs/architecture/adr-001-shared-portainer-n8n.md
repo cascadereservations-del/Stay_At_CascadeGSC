@@ -1,6 +1,6 @@
 # ADR-001 — Use the existing Portainer n8n runtime initially
 
-**Status:** Accepted on 2026-08-28
+**Status:** Superseded for future Cascade hosting by ADR-002 on 2026-09-06; retained as the historical initial-runtime decision
 
 ## Decision
 
@@ -15,13 +15,15 @@ Supabase remains the booking, payment, calendar, identity and audit authority. n
 - Import/export and fixture runs begin inactive. Activation, real messages, OAuth setup, and credential creation require action-time owner approval.
 - Workflows must preserve the Finance/OPS route boundary: OPS receives no payment, amount, receipt, bank, payout, or balance information.
 
-## Deferred Docker migration
+## Superseded Docker migration direction
 
-`infrastructure/cascade-n8n/` is retained as a tested migration path, not an initial deployment target. Reconsider it only if one or more triggers occur:
+`infrastructure/cascade-n8n/` is retained as a tested migration path. The read-only 2026-09-06 Portainer review found that the existing n8n service is coupled to Alfred's project, network, storage, and LifeVault host files. ADR-002 now directs this migration to a separate Cascade VPS while preserving Alfred unchanged.
+
+The original reconsideration triggers were:
 
 1. The shared n8n runtime has recurring outages that affect Cascade.
 2. Credential/access separation from Alfred/Alex cannot be enforced or audited.
 3. Cascade workload materially degrades Alfred/Alex execution reliability.
 4. Cascade expands to multiple properties or staff teams and needs independent scaling, recovery, or change windows.
 
-When a trigger occurs, perform a read-only Portainer/VPS inventory and a fresh capacity/backup preflight before proposing migration. Do not run the standalone Compose stack automatically.
+The isolation trigger is now met. Do not run the standalone Compose stack automatically; procurement and every infrastructure action remain separately gated.

@@ -15,7 +15,7 @@ Obsidian is valuable but includes session-era live snapshots. Some are older tha
 
 | Workstream | State at handoff | Evidence / canonical location |
 | --- | --- | --- |
-| Shared n8n decision | Accepted | Existing Portainer n8n is the initial runtime; isolated Docker is deferred. `docs/architecture/adr-001-shared-portainer-n8n.md` |
+| n8n hosting decision | Revised | Preserve Alfred's existing n8n unchanged. The future Cascade automation plane belongs on a separate VPS; no deployment is authorized. `docs/architecture/adr-002-dedicated-hetzner-cascade-operations.md` |
 | Finance/OPS delivery boundary | Protected in source and narrow production guard | `supabase/migrations/20260829173700_notification_route_guard.sql`, `tests/security/` |
 | Direct booking trigger isolation | Protected | `supabase/migrations/20260829044725_revoke_w01_dispatch_rpc_execution.sql` |
 | Named staff / cleaner access | Local release candidate | `supabase/migrations/20260828000400_staff_roles_and_sessions.sql`, `supabase/functions/staff-access/`, tests |
@@ -75,8 +75,9 @@ Do not claim Module A complete until the following have fresh, action-time proof
 
 ## n8n status and rules
 
-- Approved runtime: shared Portainer n8n, not a new Docker deployment.
-- Approved location: `Personal → Cascade Hideaway` folder/project.
+- Current runtime: Alfred's shared Portainer n8n remains unchanged while all Cascade workflows are inactive.
+- Future runtime direction: a separate Cascade VPS and isolated Docker Compose project after all gates; do not deploy it on Alfred.
+- Current editor location: `Personal → Cascade Hideaway` folder/project.
 - Canonical exports: `automation/n8n/workflows/CH-S01...CH-W12`.
 - All Cascade workflows remain **inactive/unpublished**.
 - A duplicate/older W01 draft is unsafe because it included Finance/guest detail in an OPS route. Never publish it.
@@ -177,4 +178,8 @@ The machine-checkable authority inventory, operating handoff, and dedicated-Hetz
 
 ## Hetzner read-only preflight (2026-09-05)
 
-The configured target has sufficient available RAM and disk, current Docker/Compose, no Cascade container-name collision, no listener on port 5679, and no existing `/opt/cascade/n8n` path. It has 0 MiB swap, so the required 1 GiB swap gate fails. No VPS or Docker change was made. See [redacted preflight evidence](../validation/2026-09-05-hetzner-read-only-preflight.md).
+The configured Alfred target has current Docker/Compose, no Cascade container-name collision, no listener on port 5679, and no existing `/opt/cascade/n8n` path. It has 0 MiB swap. No VPS or Docker change was made. See [redacted preflight evidence](../validation/2026-09-05-hetzner-read-only-preflight.md).
+
+## Portainer isolation review (2026-09-06)
+
+Read-only Portainer evidence supersedes the earlier conclusion that adding swap would make Alfred an acceptable target. Alfred has 19 running containers on 4 cores/8.1 GB, and its n8n service is coupled to the `deploy` project, `alfred_internal`, SQLite storage, and a LifeVault host mount. Several stopped AppFlowy containers show exit code 137; this does not prove OOM, but it reinforces the risk of co-location. Preserve Alfred unchanged and use a separate Cascade VPS. See [Portainer feasibility evidence](../validation/2026-09-06-portainer-capacity-feasibility.md).

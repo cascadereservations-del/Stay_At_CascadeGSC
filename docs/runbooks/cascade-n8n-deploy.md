@@ -1,10 +1,12 @@
 # Cascade n8n Deployment Runbook
 
-This runbook defines a new Cascade-only n8n service under `/opt/cascade/n8n`. It does not reuse the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
+This runbook defines a new Cascade-only n8n service under `/opt/cascade/n8n` on a separate Cascade VPS. It must not be deployed on Alfred and does not reuse the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
 
 The configuration pins n8n 2.34.6, the stable line observed in August 2026. The newer 2.35.x line was still used as a beta in contemporary reports and has scheduler/tool-call issue reports. Review the official release and security notes again before any upgrade. n8n is fair-code under its Sustainable Use License; it is not described as OSI open source.
 
-The 2026-09-05 read-only preflight found 3,224 MiB available RAM, 37,208 MiB free on `/opt`, Docker 29.5.3, Compose 5.1.4, no Cascade container-name collision, no port 5679 listener, and no existing target path. Swap was 0 MiB, so the deployment gate failed. See `docs/validation/2026-09-05-hetzner-read-only-preflight.md`. The stack remains source-only until at least 1 GiB swap is added through a separately approved VPS change and every Module A and migration gate is closed.
+The 2026-09-05 SSH preflight found 3,224 MiB available RAM and 0 MiB swap on Alfred. The 2026-09-06 Portainer review then found a busy 8.1 GB host with 19 running containers and an n8n service coupled to Alfred's Compose project, network, SQLite volume, and LifeVault host files. The deployment gate therefore fails for co-location, even if swap were added. See `docs/validation/2026-09-05-hetzner-read-only-preflight.md` and `docs/validation/2026-09-06-portainer-capacity-feasibility.md`.
+
+Run the remaining capacity checks against the separately approved Cascade VPS. The stack remains source-only until that server exists, has at least 4 GB RAM and 2 GB swap, and every Module A and migration gate is closed. An 8 GB server is preferred for operating margin and future Cascade-only services.
 
 ## Read-only capacity preflight
 
@@ -23,7 +25,7 @@ Stop before deployment unless all gates pass:
 
 - At least 2.5 GiB RAM remains available during normal peak load.
 - At least 10 GiB free disk remains after projected images, database growth and two encrypted backups.
-- At least 1 GiB swap exists. If swap is absent, add it through a separately reviewed VPS change before deployment.
+- At least 2 GiB swap exists on the new Cascade VPS. Do not add swap to Alfred as part of this migration.
 - Local port 5679 and the proposed hostname are unused.
 - Existing services are healthy and their container/network/volume names do not begin with `cascade-n8n`.
 - An external encrypted backup destination and an age recovery identity are available.
@@ -34,7 +36,7 @@ Record timestamped output in the Wave 0 recovery report, redacting public IPs, u
 
 Fresh owner approval is required before each of these actions:
 
-1. Creating `/opt/cascade/n8n` or changing VPS packages/swap.
+1. Ordering the separate VPS, creating `/opt/cascade/n8n`, or changing its packages/swap.
 2. Creating DNS, Cloudflare Access/service-token policy or TLS routing for `cascade-n8n.rocloyd.com`.
 3. Copying real `.env` secrets or OAuth/provider credentials.
 4. Starting containers, importing workflows, sending provider test messages or activating a workflow.

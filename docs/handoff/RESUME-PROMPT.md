@@ -23,6 +23,7 @@ Then read, in order:
 12. docs/validation/2026-09-05-wave-7-selective-marketing.md
 13. docs/validation/2026-09-05-wave-8-consolidation-handoff.md
 14. docs/validation/2026-09-05-hetzner-read-only-preflight.md
+15. docs/validation/2026-09-06-portainer-capacity-feasibility.md
 
 Current branch: codex/cascade-waves-0-1-sol
 Expected latest completed commit at handoff: the Wave 8 consolidation and operational-handoff candidate. Verify it from Git rather than relying on a copied SHA.
@@ -41,9 +42,9 @@ Completed local candidates:
 - Wave 8: a machine-checkable authority inventory, local operating handoff, and gated dedicated-Hetzner direction pass consolidation checks. Disposable recovery round-tripped 13 n8n workflows inactive and rebuilt Supabase through 38 migrations and 26 database test files without changing the active local database.
 
 Next gated work:
-1. Review the Wave 8 evidence and dedicated Hetzner decision.
-2. The read-only Hetzner preflight is complete: capacity and collisions pass, but 0 MiB swap fails the required 1 GiB gate.
-3. Close the Module A and migration gates, then obtain the separately reviewed action approval before adding swap or making any VPS, Docker, DNS, secret, workflow, provider, or production change.
+1. Review the Wave 8 evidence and revised dedicated Hetzner decision.
+2. Preserve Alfred unchanged. The read-only Portainer review rejects co-location because the existing n8n service is coupled to Alfred and the host has limited operating margin.
+3. Close the Module A and migration gates, then obtain separately reviewed action approval before ordering a separate Cascade VPS or making any VPS, Docker, DNS, secret, workflow, provider, or production change.
 
 Non-negotiable boundaries:
 - Supabase is canonical for every business fact and state transition.
@@ -53,6 +54,7 @@ Non-negotiable boundaries:
 - Named human approval is mandatory for booking/payment confirmation, refunds, discounts, exceptions, cleaning overrides, purchases, and publication.
 - The business is unregistered. Do not claim BIR, statutory, tax, or filing compliance.
 - Do not deploy, apply production migrations, activate workflows or cron, configure providers, modify VPS/Docker configuration, or send messages without fresh action-time owner approval.
+- Do not add swap or deploy the Cascade stack on Alfred. The future target is a separate Cascade VPS with its own Docker and recovery boundary.
 - Production remains frozen behind Module A: encrypted backup/restore proof, coordinated staff/RLS release, project Auth MFA/AAL2, real cleaner authorization checks, monitoring, and shared n8n recovery.
 
 Local Docker Supabase was running during the completed validations. Database candidate tests were assembled with their migrations inside transactions ending in ROLLBACK; they did not alter the migration ledger or persist fixtures.
