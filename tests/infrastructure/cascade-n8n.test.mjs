@@ -12,6 +12,8 @@ test('pins the reviewed n8n and PostgreSQL images', async () => {
   const compose = await read('compose.yaml');
   assert.match(compose, /image:\s*n8nio\/n8n:2\.37\.10\b/);
   assert.match(compose, /image:\s*postgres:17\.11-alpine3\.24\b/);
+  assert.match(compose, /n8nio\/n8n:2\.37\.10@sha256:[a-f0-9]{64}/);
+  assert.match(compose, /postgres:17\.11-alpine3\.24@sha256:[a-f0-9]{64}/);
   assert.doesNotMatch(compose, /:(?:latest|stable|beta)\b/);
 });
 
@@ -44,6 +46,10 @@ test('requires independent credentials and encryption secrets', async () => {
 test('binds only to localhost and applies health and resource boundaries', async () => {
   const compose = await read('compose.yaml');
   assert.match(compose, /127\.0\.0\.1:\$\{CASCADE_N8N_BIND_PORT/);
+  assert.match(compose, /\/opt\/cascade\/n8n\/files:\/files/);
+  assert.match(compose, /CASCADE_N8N_PROTOCOL:-http/);
+  assert.match(compose, /CASCADE_N8N_PROXY_HOPS:-0/);
+  assert.match(compose, /CASCADE_N8N_EDITOR_BASE_URL:-http:\/\/localhost:5679/);
   assert.match(compose, /healthcheck:/);
   assert.match(compose, /mem_limit:/);
   assert.match(compose, /cpus:/);

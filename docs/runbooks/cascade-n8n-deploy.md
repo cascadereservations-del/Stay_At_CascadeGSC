@@ -2,6 +2,8 @@
 
 This runbook defines the selected new Cascade-only n8n service under `/opt/cascade/n8n`, managed through Alfred's existing Portainer CE and Docker Engine only after the detailed same-host gates pass. Do not add a second Docker daemon. The stack never reuses the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
 
+For the P3 dormant trial, keep the editor loopback-only and reach it through an owner SSH tunnel at `http://localhost:5679`. Do not create DNS, Cloudflare, Caddy, webhook bypass or a public hostname in P3. The source Caddy fragment remains a later reviewed candidate for P9 provider delivery. P3 still requires a named n8n owner and personally enrolled MFA before acceptance.
+
 The isolated Cascade candidate pins n8n 2.37.10. The September 6 review found the historical 2.34.6 pin within affected ranges for newly published advisories; official advisories identify 2.37.7 or later on that release line as patched. See the [P1 recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) for official sources and validation evidence. Recheck releases and advisories at action time. Do not upgrade Alfred's existing n8n as part of this deployment. n8n is fair-code under its Sustainable Use License; it is not described as OSI open source.
 
 The 2026-09-05 SSH preflight found 3,224 MiB available RAM and 0 MiB swap on Alfred. A more detailed 2026-09-06 audit found 3,196–3,209 MiB available across repeated samples, load below 0.3 on four cores, 36 GB free disk, no current unhealthy container, no running-container restart/OOM flag, no kernel/Docker OOM evidence, and no active Ollama model. It also found Metabase consistently using about 1.459 GiB of its 1.5 GiB limit. See `docs/validation/2026-09-06-alfred-detailed-capacity-audit.md`.
@@ -63,7 +65,7 @@ For an Alfred trial, keep all workflows inactive and omit real provider credenti
 
 The two-service dormant trial uses n8n's internal JavaScript runner and must not execute Code nodes. Every current Cascade workflow contains a JavaScript Code node. Before any P9 workflow activation, add and capacity-test a version-matched external runner sidecar or record a new reviewed architecture decision; n8n's official guidance does not recommend internal runners for production.
 
-Install the Caddy fragment only after its syntax check passes. Configure Cloudflare so the editor requires owner/admin identity. Create a separate scoped service token for signed webhook traffic; never share an interactive login credential. Do not log Authorization, Cookie or query-string values.
+When a later provider phase requires the public route, install the Caddy fragment only after its syntax check passes. Configure Cloudflare so the editor requires owner/admin identity. Create a separate scoped service token for signed webhook traffic; never share an interactive login credential. Do not log Authorization, Cookie or query-string values.
 
 Create named n8n users and enable MFA for owner/admin identities before connecting provider credentials.
 

@@ -2,7 +2,7 @@ name: cascade-n8n
 
 services:
   postgres:
-    image: postgres:17.11-alpine3.24
+    image: postgres:17.11-alpine3.24@sha256:7456ef82e5f5bc43d997f4781bbd7c0d6389bff397564649a356e206ba473aee
     container_name: cascade-n8n-postgres
     restart: unless-stopped
     environment:
@@ -31,7 +31,7 @@ services:
         max-file: "3"
 
   n8n:
-    image: n8nio/n8n:2.37.10
+    image: n8nio/n8n:2.37.10@sha256:848166b4051fd4251869f48c18455bddff922f04cb2f2676929463ba973dbde2
     container_name: cascade-n8n-app
     restart: unless-stopped
     depends_on:
@@ -46,12 +46,12 @@ services:
       DB_POSTGRESDB_PASSWORD: ${CASCADE_N8N_DB_PASSWORD:?required}
       N8N_ENCRYPTION_KEY: ${CASCADE_N8N_ENCRYPTION_KEY:?required}
       N8N_USER_MANAGEMENT_JWT_SECRET: ${CASCADE_N8N_USER_MANAGEMENT_JWT_SECRET:?required}
-      N8N_HOST: ${CASCADE_N8N_HOST:-cascade-n8n.rocloyd.com}
+      N8N_HOST: ${CASCADE_N8N_HOST:-localhost}
       N8N_PORT: 5678
-      N8N_PROTOCOL: https
-      N8N_EDITOR_BASE_URL: ${CASCADE_N8N_EDITOR_BASE_URL:-https://cascade-n8n.rocloyd.com}
-      N8N_WEBHOOK_URL: ${CASCADE_N8N_WEBHOOK_URL:-https://cascade-n8n.rocloyd.com/}
-      N8N_PROXY_HOPS: 1
+      N8N_PROTOCOL: ${CASCADE_N8N_PROTOCOL:-http}
+      N8N_EDITOR_BASE_URL: ${CASCADE_N8N_EDITOR_BASE_URL:-http://localhost:5679}
+      N8N_WEBHOOK_URL: ${CASCADE_N8N_WEBHOOK_URL:-http://localhost:5679/}
+      N8N_PROXY_HOPS: ${CASCADE_N8N_PROXY_HOPS:-0}
       N8N_SECURE_COOKIE: "true"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_DIAGNOSTICS_ENABLED: "false"
@@ -91,7 +91,7 @@ services:
       - "127.0.0.1:${CASCADE_N8N_BIND_PORT:-5679}:5678"
     volumes:
       - cascade_n8n_data:/home/node/.n8n
-      - ./files:/files
+      - /opt/cascade/n8n/files:/files
     networks:
       - cascade_internal
       - cascade_egress
