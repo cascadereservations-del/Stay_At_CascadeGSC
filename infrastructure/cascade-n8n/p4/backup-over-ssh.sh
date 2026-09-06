@@ -29,7 +29,13 @@ case "$AGE_RECIPIENT" in age1*) ;; *) echo 'AGE_RECIPIENT must be an age public 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 case "$(cd "$BACKUP_ROOT" 2>/dev/null && pwd || echo "$BACKUP_ROOT")" in "$repo_root"*) echo 'Backups must be stored outside the repository.' >&2; exit 2;; esac
 
-rssh() { ssh -o BatchMode=yes -o ConnectTimeout=20 "$SSH_HOST" "$@"; }
+# Prefer Windows OpenSSH when present: it reaches the Windows ssh-agent that holds the owner key.
+SSH_BIN="${CASCADE_SSH_BIN:-}"
+if [[ -z "$SSH_BIN" ]]; then
+  if [[ -x /c/Windows/System32/OpenSSH/ssh.exe ]]; then SSH_BIN=/c/Windows/System32/OpenSSH/ssh.exe; else SSH_BIN=ssh; fi
+fi
+# MSYS_NO_PATHCONV stops Git Bash rewriting /opt/... arguments into Windows paths for ssh.exe.
+rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 "$SSH_HOST" "$@"; }
 
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
 set_dir="$BACKUP_ROOT/cascade-n8n-$ts"

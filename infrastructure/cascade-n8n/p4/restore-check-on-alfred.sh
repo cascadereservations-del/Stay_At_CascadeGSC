@@ -10,7 +10,8 @@ set -euo pipefail
 
 SSH_HOST="${CASCADE_SSH_HOST:-alfred}"
 SET_DIR="${1:?backup set directory is required}"
-AGE_IDENTITY_FILE="${AGE_IDENTITY_FILE:?AGE_IDENTITY_FILE is required}"
+# Owner-only recovery identity; defaults to the P3 custody location outside Git.
+AGE_IDENTITY_FILE="${AGE_IDENTITY_FILE:-$HOME/Cascade-Secrets/cascade-n8n-recovery-age.txt}"
 SOURCE_WORKFLOWS="${CASCADE_SOURCE_WORKFLOWS:-automation/n8n/workflows}"
 N8N_IMAGE_ID=sha256:848166b4051fd4251869f48c18455bddff922f04cb2f2676929463ba973dbde2
 PG_IMAGE_ID=sha256:7456ef82e5f5bc43d997f4781bbd7c0d6389bff397564649a356e206ba473aee
@@ -24,11 +25,17 @@ for t in ssh age sha256sum node tar; do command -v "$t" >/dev/null || { echo "$t
 [[ ! -e "$SET_DIR/INCOMPLETE" ]] || { echo 'Backup is marked INCOMPLETE.' >&2; exit 2; }
 required=(cascade-postgres.dump.age cascade-n8n-data.tar.gz.age cascade-files.tar.gz.age cascade-environment.env.age recovery-metadata.json.age)
 [[ "$(grep -c . "$SET_DIR/SHA256SUMS")" -eq 5 ]] || { echo 'SHA256SUMS must list exactly five artifacts.' >&2; exit 2; }
-for f in "${required[@]}"; do grep -q "  $f\$" "$SET_DIR/SHA256SUMS" || { echo "SHA256SUMS missing $f" >&2; exit 2; }; done
+for f in "${required[@]}"; do grep -qE "^[a-f0-9]{64} [ *]$f\$" "$SET_DIR/SHA256SUMS" || { echo "SHA256SUMS missing $f" >&2; exit 2; }; done
 ( cd "$SET_DIR" && sha256sum -c --strict SHA256SUMS >/dev/null ) || { echo 'Encrypted artifact checksum failed.' >&2; exit 3; }
 echo 'ciphertext checksums verified'
 
-rssh() { ssh -o BatchMode=yes -o ConnectTimeout=20 "$SSH_HOST" "$@"; }
+# Prefer Windows OpenSSH when present: it reaches the Windows ssh-agent that holds the owner key.
+SSH_BIN="${CASCADE_SSH_BIN:-}"
+if [[ -z "$SSH_BIN" ]]; then
+  if [[ -x /c/Windows/System32/OpenSSH/ssh.exe ]]; then SSH_BIN=/c/Windows/System32/OpenSSH/ssh.exe; else SSH_BIN=ssh; fi
+fi
+# MSYS_NO_PATHCONV stops Git Bash rewriting /opt/... arguments into Windows paths for ssh.exe.
+rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 "$SSH_HOST" "$@"; }
 suffix="$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 prefix="cascade-restore-check-$suffix"
 remote_tmp="/opt/cascade/.restore-check-$suffix"
@@ -90,12 +97,13 @@ unset DBP KEY
 docker network create --internal "$net" >/dev/null
 docker volume create "$dbvol" >/dev/null
 docker volume create "$n8nvol" >/dev/null
-docker run --rm --network none -v "$n8nvol:/restore" -v "$R:/backup:ro" --entrypoint sh "$N8N" -c 'cd /restore && tar -xzf /backup/cascade-n8n-data.tar.gz'
+docker run --rm --network none --user 0:0 -v "$n8nvol:/restore" -v "$R:/backup:ro" --entrypoint sh "$N8N" -c 'cd /restore && tar -xzf /backup/cascade-n8n-data.tar.gz && chown -R 1000:1000 /restore'
 mkdir -p "$R/files" && tar -xzf "$R/cascade-files.tar.gz" -C "$R/files"
 docker run -d --name "$db" --network "$net" --env-file "$R/postgres.env" -v "$dbvol:/var/lib/postgresql/data" --memory 512m --cpus 0.5 "$PG" >/dev/null
 ready=0
-for i in $(seq 1 30); do
-  if docker exec "$db" pg_isready -U "$DBU" -d "$DBN" >/dev/null 2>&1; then ready=1; break; fi
+for i in $(seq 1 45); do
+  # The official image runs a temporary server during initdb; wait for init to finish, then for readiness.
+  if docker logs "$db" 2>&1 | grep -q 'PostgreSQL init process complete' && docker exec "$db" pg_isready -U "$DBU" -d "$DBN" >/dev/null 2>&1; then ready=1; break; fi
   sleep 2
 done
 [[ $ready -eq 1 ]] || { echo 'Disposable PostgreSQL did not become ready.' >&2; exit 5; }
@@ -111,7 +119,8 @@ print("restored aggregates match capture:", json.dumps(a))
 PY
 docker run --rm --name "$prefix-export" --network "$net" --env-file "$R/n8n.env" -v "$n8nvol:/home/node/.n8n" -v "$R/export:/out" --memory 768m --cpus 1 "$N8N" export:workflow --backup --output=/out >/dev/null
 [[ "$(docker network inspect "$net" --format '{{.Internal}}')" == "true" ]] || { echo 'restore network is not internal' >&2; exit 5; }
-ports="$(docker ps -a --filter "name=$prefix" --format '{{.Ports}}' | grep -v '^$' || true)"
+# Only host bindings (rendered as "host->container") count; an image's EXPOSE alone is not a published port.
+ports="$(docker ps -a --filter "name=$prefix" --format '{{.Ports}}' | grep -- '->' || true)"
 [[ -z "$ports" ]] || { echo 'restore published a host port' >&2; exit 5; }
 echo "export files: $(find "$R/export" -maxdepth 1 -name '*.json' | wc -l)"
 REMOTE
