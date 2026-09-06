@@ -18,3 +18,5 @@ Focused validation passed 13/13 infrastructure and consolidation tests, all 13 s
 The P3 environment generator was developed test-first. Three focused tests prove distinct cryptographic random values with the required lengths, localhost-only dormant settings, rejection of relative and repository paths, exclusive creation and overwrite refusal. The CLI reports only its destination path.
 
 The exact proposed action, acceptance criteria and rollback boundary are in [the P3 packet](../plans/2026-09-06-p3-dormant-stack-action-packet.md). Named-owner account creation and TOTP enrollment remain interactive owner steps; no identity values or recovery material may enter Git or chat.
+
+A read-only browser check reached the existing Portainer 2.45.0 login page through `portainer.rocloyd.com`. No authenticated session was present and no field was filled or submitted. After P3 approval, the owner must sign in personally before the stack upload; the assistant must not request or handle the Portainer password.
