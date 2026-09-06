@@ -1,0 +1,11 @@
+[Unit]
+Description=Cascade P4 dormant soak, 60-second interval, UTC-stamped JSONL
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=false
+Unit=cascade-p4-soak.service
+
+[Install]
+WantedBy=timers.target

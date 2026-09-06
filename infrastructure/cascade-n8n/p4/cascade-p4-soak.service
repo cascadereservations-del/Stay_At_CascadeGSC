@@ -1,0 +1,9 @@
+[Unit]
+Description=Cascade P4 dormant soak sampler (one sample per timer tick)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/cascade-soak/soak-sample.py
+Nice=10

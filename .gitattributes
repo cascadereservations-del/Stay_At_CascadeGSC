@@ -1,0 +1,2 @@
+# Scripts streamed to Alfred (Linux) over SSH must stay LF on every checkout.
+infrastructure/cascade-n8n/p4/** text eol=lf
