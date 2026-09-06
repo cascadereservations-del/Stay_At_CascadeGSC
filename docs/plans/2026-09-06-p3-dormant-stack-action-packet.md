@@ -35,7 +35,7 @@ Reject any listener on port 5679, existing target path or symlink, matching cont
 
 ## Secret and source preparation
 
-After approval, generate independent URL-safe random values of at least 48 bytes for the database password and 64 bytes each for the n8n encryption key and user-management JWT secret. Write the complete environment file without console output under `C:\Users\Lloyd\Cascade-Secrets\cascade-n8n-portainer.env`, disable inheritance and grant only the owner full control. Create a separate age identity at `C:\Users\Lloyd\Cascade-Secrets\cascade-n8n-recovery-age.txt` with the same ACL and store its public recipient separately. Do not reuse Alfred's existing n8n encryption key, credentials or database password.
+After approval, run `node scripts/deployment/p3-environment.mjs --output C:\Users\Lloyd\Cascade-Secrets\cascade-n8n-portainer.env`. It uses independent cryptographic random values, refuses relative/repository paths and refuses overwrite without printing any value. Then disable ACL inheritance and grant only the owner full control. Create a separate age identity at `C:\Users\Lloyd\Cascade-Secrets\cascade-n8n-recovery-age.txt` with the same ACL and store its public recipient separately. Do not reuse Alfred's existing n8n encryption key, credentials or database password.
 
 Create `/opt/cascade/n8n` only after collision checks. Use root ownership and mode 0700 for the directory, 0600 for `.env`, and 0750 for `files` and `files/workflows`. Copy only the reviewed Compose, recovery scripts and 13 source workflow JSON files. Store SHA-256 values for copied non-secret files and compare them with the approved local source. Do not print or copy secret contents into evidence.
 

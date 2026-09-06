@@ -15,4 +15,6 @@ The official GitHub release page identifies n8n 2.37.10 as the 2026-09-04 stable
 
 Focused validation passed 13/13 infrastructure and consolidation tests, all 13 source workflows remain inactive, the secret scan passed, the source diff passed whitespace checks, and Alfred's Compose parser accepted the candidate with validation-only placeholders. The local Docker client could not run Compose because the workstation Docker runtime remains broken; the successful Alfred parse did not create a remote file, image, network, volume or container.
 
+The P3 environment generator was developed test-first. Three focused tests prove distinct cryptographic random values with the required lengths, localhost-only dormant settings, rejection of relative and repository paths, exclusive creation and overwrite refusal. The CLI reports only its destination path.
+
 The exact proposed action, acceptance criteria and rollback boundary are in [the P3 packet](../plans/2026-09-06-p3-dormant-stack-action-packet.md). Named-owner account creation and TOTP enrollment remain interactive owner steps; no identity values or recovery material may enter Git or chat.
