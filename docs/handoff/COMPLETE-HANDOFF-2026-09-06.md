@@ -1,5 +1,7 @@
 # Cascade Hideaway — Complete continuation handoff
 
+**P2 update (2026-09-06 06:09 UTC): COMPLETE.** The owner-approved 2049 MiB swap allocation is active and persistent; all 20 existing container fingerprints match the pre-action baseline. RAM, swap and disk thresholds pass. See [P2 evidence](../validation/2026-09-06-p2-host-maintenance.md). This update supersedes P2-held/no-swap statements below. Next: prepare the separate P3 dormant-stack action packet; P3, soak and Module A remain gated.
+
 **Prepared:** 2026-09-06
 
 **Canonical working tree:** `C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol`

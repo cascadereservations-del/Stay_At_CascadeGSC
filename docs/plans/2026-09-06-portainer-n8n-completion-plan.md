@@ -1,5 +1,7 @@
 # Portainer CE + n8n completion plan
 
+**P2 update (2026-09-06 06:09 UTC): COMPLETE.** The owner-approved 2049 MiB swap allocation is active and persistent; all 20 existing container fingerprints match the pre-action baseline. RAM, swap and disk thresholds pass. See [P2 evidence](../validation/2026-09-06-p2-host-maintenance.md). This update supersedes P2-held/no-swap statements below. Next: prepare the separate P3 dormant-stack action packet; P3, soak and Module A remain gated.
+
 **Decision date:** 2026-09-06
 
 **Selected platform:** Alfred's existing Docker Engine, managed through Portainer CE, with a separate capped Cascade n8n + PostgreSQL Compose stack
