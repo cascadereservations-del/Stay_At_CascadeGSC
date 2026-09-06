@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const infra = path.join(root, 'infrastructure', 'cascade-n8n');
 const read = (name) => readFile(path.join(infra, name), 'utf8');
 
-test('pins stable n8n and PostgreSQL images', async () => {
+test('retains explicit historical image pins (not security or deployment approval)', async () => {
   const compose = await read('compose.yaml');
   assert.match(compose, /image:\s*n8nio\/n8n:2\.34\.6\b/);
   assert.match(compose, /image:\s*postgres:17\.11-alpine3\.24\b/);

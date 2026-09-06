@@ -2,6 +2,8 @@
 
 ## Source precedence
 
+P1 continuation on 2026-09-06: [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) prepared locally. P1 remains incomplete: the historical n8n pin is blocked pending a security-tested replacement, existing recovery scripts do not prove credential recovery, and Alfred runtime capture/restore still requires separate approval. P2/P3 are not ready for approval.
+
 Use evidence in this order when records disagree:
 
 1. Current checked-out source, migration/release contracts, and test results.

@@ -81,4 +81,6 @@ Modules B–E and Waves 2–8 are local candidates with recorded tests. Wave 4 a
 
 ## Immediate next safe outcome
 
+Continuation evidence: the [P1 recovery/action packet](./2026-09-06-p1-recovery-action-packet.md) identifies a security blocker in the historical image pin and incomplete recovery tooling. P1 is not complete and P2/P3 must remain held until these findings and the Alfred restore proof are closed.
+
 Complete P1 as a reviewable, redacted action packet. Do not start with Portainer stack creation. The packet must resolve the current n8n image pin against official release/security information at execution time, prove Alfred's existing n8n recovery, and show the exact P2/P3 commands and rollback before seeking action approval.
