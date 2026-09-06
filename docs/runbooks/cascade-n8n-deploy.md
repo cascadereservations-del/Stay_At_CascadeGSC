@@ -6,7 +6,7 @@ The isolated Cascade candidate pins n8n 2.37.10. The September 6 review found th
 
 The 2026-09-05 SSH preflight found 3,224 MiB available RAM and 0 MiB swap on Alfred. A more detailed 2026-09-06 audit found 3,196–3,209 MiB available across repeated samples, load below 0.3 on four cores, 36 GB free disk, no current unhealthy container, no running-container restart/OOM flag, no kernel/Docker OOM evidence, and no active Ollama model. It also found Metabase consistently using about 1.459 GiB of its 1.5 GiB limit. See `docs/validation/2026-09-06-alfred-detailed-capacity-audit.md`.
 
-The same-host stack remains source-only until P1 recovery and image gates pass, Alfred has at least 2 GiB swap, the fresh baseline meets every threshold, and P2/P3 receive action-time approval. P3/P4 permit only a dormant infrastructure trial; Module A must close before business delivery or feature release. A separate 8 GB Cascade VPS remains the fallback if the dormant trial crosses an abort threshold.
+P1 recovery and image gates passed on 2026-09-06. The same-host stack remains source-only until Alfred has at least 2 GiB swap, the fresh baseline meets every threshold, and P2/P3 receive action-time approval. P3/P4 permit only a dormant infrastructure trial; Module A must close before business delivery or feature release. A separate 8 GB Cascade VPS remains the fallback if the dormant trial crosses an abort threshold.
 
 ## Read-only capacity preflight
 

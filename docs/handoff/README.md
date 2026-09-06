@@ -58,7 +58,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-Portainer CE on Alfred with a separate capped Cascade n8n/PostgreSQL stack is the selected zero-subscription direction. The next outcome is the Phase P1 recovery and deployment packet: prove recovery for Alfred's existing n8n, review the exact image/security state, render the isolated configuration, and make every swap/stack/rollback action reviewable. Alfred still has 0 MiB swap, so no stack may start yet.
+Portainer CE on Alfred with a separate capped Cascade n8n/PostgreSQL stack is the selected zero-subscription direction. Phase P1 recovery and deployment preparation passed on 2026-09-06, including Alfred's existing n8n encrypted backup and isolated restore. The next outcome is the separately approved P2 swap/fresh-baseline action. Alfred still has 0 MiB swap, so no stack may start yet.
 
 Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 

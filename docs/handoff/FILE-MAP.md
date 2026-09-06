@@ -10,7 +10,7 @@ This is an ownership index, not a copy of sensitive data. Keep each artifact in 
 | --- | --- | --- |
 | `supabase/` | Database migrations, Edge Functions, SQL tests, release contracts, recovery scripts | Canonical backend source. Never apply a migration without the release runbook and approval. |
 | `automation/n8n/workflows/` | 13 reviewed, inactive n8n workflow exports | Source baseline; no credentials in JSON; must remain inactive until gate closes. |
-| `infrastructure/cascade-n8n/` | Deferred isolated n8n Docker path | Do not deploy unless a documented migration trigger occurs. |
+| `infrastructure/cascade-n8n/` | Selected capped n8n/PostgreSQL source candidate plus encrypted recovery and isolated restore tooling | P1 is complete; do not deploy until P2 passes and P3 receives action-time approval. |
 | `docs/plans/` | Master plan, module queue, phase packets and older handoffs | Use `module-execution-queue.md` to choose the next module. |
 | `docs/architecture/` | ADRs, production/edge/degraded-mode contracts | Read before changing cross-system design. |
 | `docs/runbooks/` | Production and operational procedures | Required reading before an action covered by a runbook. |
@@ -28,6 +28,8 @@ This is an ownership index, not a copy of sensitive data. Keep each artifact in 
 | `docs/plans/2026-08-31-cascade-system-plan-status-and-architecture.md` | Current architectural briefing, wave status, workflows and open production gates. |
 | `docs/plans/module-execution-queue.md` | Approved module sequence, model routing and shared stop conditions. |
 | `docs/plans/HANDOFF-2026-08-30-sol-security-and-release-preflight.md` | Security/release preflight continuation detail. |
+| `docs/plans/2026-09-06-portainer-n8n-completion-plan.md` | Current P0–P10 phase order; P1 complete and P2 next. |
+| `docs/validation/2026-09-06-p1-alfred-recovery.md` | Redacted proof of Alfred's encrypted n8n backup, isolated restore, actual storage/proxy topology, and P1 exit. |
 | `docs/architecture/adr-001-shared-portainer-n8n.md` | Why existing Portainer n8n is used first and when to isolate. |
 | `docs/runbooks/n8n-live-baseline-2026-08-29.md` | Read-only shared n8n inventory and duplicate W01 warning. |
 | `docs/mockups/2026-08-31-product-experience-redesign-audit.md` | Product design critique and UI implementation priorities. |

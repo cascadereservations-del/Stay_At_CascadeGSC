@@ -6,7 +6,7 @@
 
 **Subscription impact:** none
 
-**Current live state:** unchanged; no stack, swap, secret, provider, workflow, DNS, or production change has been made
+**Current live state:** P1 recovery passed; Alfred's existing n8n returned healthy and unchanged after its encrypted capture. No Cascade stack, swap, route change, provider, workflow activation, DNS change, or business-production change has been made.
 
 ## Decision
 
@@ -32,7 +32,7 @@ Supabase remains the canonical owner of business facts and state transitions. n8
 | Phase | Outcome | Work | Exit evidence | Live action? |
 | --- | --- | --- | --- | --- |
 | P0 — Decision and source lock | The hosting direction is unambiguous | Record this plan, update ADR/handoff/resume entry points, preserve Task Master files | Documentation tests, link checks, clean owned diff | No |
-| P1 — Recovery and deployment packet | Every proposed action and rollback is reviewable before touching Alfred | Back up and disposable-restore Alfred's existing n8n database, credential ciphertext, encryption key, and workflows; review the exact image version/security notes; render Compose with placeholders; finalize proxy, secret, backup, smoke, abort, and rollback commands | Redacted recovery report, successful disposable restore, reviewed rendered Compose, no placeholder or public binding | Recovery access may require separate approval; no host mutation |
+| P1 — Recovery and deployment packet | **Complete 2026-09-06** | Backed up and disposable-restored Alfred's existing n8n database, credential ciphertext, encryption key, workflows and binary storage; reviewed the exact image/security state; rendered and tested capped Compose; finalized proxy, secret, backup, smoke, abort, and rollback commands | [Redacted recovery report](../validation/2026-09-06-p1-alfred-recovery.md), successful isolated restore, reviewed rendered Compose, no placeholder or public binding | Completed under separate recovery approval; existing n8n returned healthy |
 | P2 — Host protection and fresh baseline | Alfred can absorb a dormant capped stack without weakening Alfred | Under a separately approved maintenance action, add at least 2 GiB swap; repeat RAM/load/disk/container health checks; confirm port/name/path collisions remain absent | At least 2.5 GiB available before startup, 2 GiB swap, at least 15 GiB free disk, no unhealthy/restarting current service | Yes; stop for action-time approval |
 | P3 — Dormant Cascade stack | The isolated stack exists with zero external business effect | Create only the Cascade stack, volumes, networks, secrets, and loopback route through Portainer CE; start PostgreSQL then n8n; create named users and MFA; omit provider credentials; import all 13 workflows inactive | Both services healthy and inside caps; editor access protected; all workflow exports inactive and hash-matched | Yes; stop for action-time approval |
 | P4 — Recovery drill and 72-hour soak | Co-location is proven under observation | Run encrypted backup and disposable restore of the new stack; observe host/container memory, swap, load, disk, restarts, health, and logs for at least 72 hours with workflows inactive | Restore proof plus soak report with no abort condition | Observation is read-only after approved start |
@@ -81,6 +81,6 @@ Modules B–E and Waves 2–8 are local candidates with recorded tests. Wave 4 a
 
 ## Immediate next safe outcome
 
-Continuation evidence: the [P1 recovery/action packet](./2026-09-06-p1-recovery-action-packet.md) and [local completion record](../validation/2026-09-06-p1-local-completion.md) close the replacement-image, capped-stack and new-stack recovery-tooling work locally. P1 remains open for the separately approved encrypted restore of Alfred's existing shared n8n and verification of its actual storage/proxy topology. P2/P3 remain held.
+The [P1 recovery/action packet](./2026-09-06-p1-recovery-action-packet.md), [local completion record](../validation/2026-09-06-p1-local-completion.md), and [Alfred recovery record](../validation/2026-09-06-p1-alfred-recovery.md) close P1. P2/P3 remain held.
 
-Complete the remaining Alfred recovery step through the [existing-runtime procedure](../runbooks/alfred-existing-n8n-recovery.md). Do not start with Portainer stack creation. Record the redacted encrypted restore and actual proxy/storage topology, then finalize the action-time P2/P3 packet from those observed facts.
+The next safe outcome is the concrete P2 action: add at least 2 GiB swap without restarting unrelated services, then rerun the full RAM/load/disk/container/listener/path baseline. Present that exact host-maintenance action for fresh approval. Only after P2 passes should P3 receive a separate approval to create the dormant, provider-free Cascade stack.

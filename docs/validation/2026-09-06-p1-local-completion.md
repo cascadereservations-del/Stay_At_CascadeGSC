@@ -1,6 +1,6 @@
 # P1 local completion evidence — 2026-09-06
 
-Status: local P1 work complete; Alfred recovery proof open; P2/P3 held. No Alfred connection, production-data capture, Portainer, swap, DNS, proxy, provider, workflow activation or production change occurred.
+Status: local P1 work passed and is now paired with the completed [Alfred recovery proof](./2026-09-06-p1-alfred-recovery.md). Phase P1 is complete; P2/P3 remain held for fresh action-time approval. This local record itself made no Alfred, Portainer, swap, DNS, proxy, provider, workflow activation or production change.
 
 ## Image and security review
 
@@ -35,8 +35,8 @@ Fresh end-to-end synthetic result:
 
 `age` 1.3.1 was installed user-scoped to run this proof. The generated test identity triggered a Windows world-readable-file warning; it protected synthetic data only and was immediately destroyed. A real recovery identity is not accepted until its ACL is owner-only and separately backed up.
 
-## Remaining P1 action
+## P1 closure
 
-Follow [Alfred existing n8n recovery](../runbooks/alfred-existing-n8n-recovery.md). It begins with a narrowly filtered read-only topology inventory, then requires a separately approved consistent encrypted capture and isolated restore. The redacted result must prove Alfred's actual database, credential ciphertext, encryption key, workflows, binary storage, image/config and post-capture health.
+The separately approved [Alfred existing n8n recovery](../runbooks/alfred-existing-n8n-recovery.md) passed on 2026-09-06. Its redacted evidence proves the actual database, credential ciphertext, encryption key, workflows, binary storage, image/config, proxy topology and post-capture health.
 
-P1 cannot close from local evidence alone. P2/P3 remain held until that live-runtime proof passes and the actual proxy topology is recorded.
+Together, the local and Alfred records close P1. P2/P3 remain held until their exact action packet receives fresh approval.

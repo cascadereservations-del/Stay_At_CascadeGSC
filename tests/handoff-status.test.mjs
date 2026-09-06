@@ -9,7 +9,9 @@ const handoff = await readFile(handoffUrl, 'utf8');
 const status = await readFile(statusUrl, 'utf8');
 
 test('handoff states the production freeze, selected hosting, and human authority boundary', () => {
-  assert.match(handoff, /Production posture:\*\* Frozen pending recovery, hosting, Module A/i);
+  assert.match(handoff, /Production posture:\*\* P1 recovery complete; frozen pending P2\/P3, Module A/i);
+  assert.match(handoff, /P1 — Recovery\/deployment packet \| \*\*Complete\*\*/i);
+  assert.match(handoff, /P2 — Swap\/fresh baseline \| Blocked on action approval/i);
   assert.match(handoff, /Portainer CE \+ separate n8n\/PostgreSQL stack is canonical/i);
   assert.match(handoff, /47\/47 pgTAP pass/i);
   assert.match(handoff, /Module D's Admin UI wiring remains/i);

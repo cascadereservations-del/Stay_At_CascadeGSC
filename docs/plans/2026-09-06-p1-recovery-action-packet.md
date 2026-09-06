@@ -2,7 +2,7 @@
 
 Date: 2026-09-06. Continuation baseline: `ba19507`, branch `codex/cascade-waves-0-1-sol`.
 
-**Verdict: local P1 work complete; Alfred recovery proof remains open; P2/P3 NOT READY FOR APPROVAL.** This is a local preparation packet, not permission to capture production data or change Alfred. No Alfred connection, production recovery capture, swap, stack, route, provider or production action was performed for this packet.
+**Verdict: P1 COMPLETE. P2/P3 remain held for fresh action-time approval.** The separately approved Alfred recovery window passed on 2026-09-06; see the [redacted live-runtime evidence](../validation/2026-09-06-p1-alfred-recovery.md). No swap, Cascade stack, route change, provider action, workflow activation or message was performed.
 
 ## Evidence and unresolved inputs
 
@@ -96,4 +96,4 @@ Before execution verify the file's project and container names against this pack
 
 ## Exit record
 
-The image/security decision, new-stack recovery tooling and local capped-stack proof are complete. P1 closes only when Alfred's encrypted restore and actual proxy/storage topology have dated evidence through the dedicated procedure. P2/P3 approval must name the final source commit and action scope. The present packet does not satisfy that remaining live-runtime exit.
+The image/security decision, new-stack recovery tooling, local capped-stack proof, Alfred encrypted restore, and actual proxy/storage topology now have dated evidence. P1 is complete. P2/P3 approval must name the final source commit and exact host-maintenance/deployment scope; the P1 recovery approval did not authorize swap or creation of the dormant Cascade stack.

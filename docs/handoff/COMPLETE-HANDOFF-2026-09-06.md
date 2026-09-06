@@ -10,18 +10,18 @@
 
 **Subscription decision:** No additional subscription
 
-**Production posture:** Frozen pending recovery, hosting, Module A, and action-time approval gates
+**Production posture:** P1 recovery complete; frozen pending P2/P3, Module A, and action-time approval gates
 
-**Next safe outcome:** Complete Phase P1 recovery and deployment packet locally
+**Next safe outcome:** Present and approve the exact P2 swap/fresh-baseline action
 
-**P1 continuation:** See the [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) and [local completion evidence](../validation/2026-09-06-p1-local-completion.md). n8n 2.37.10, the hardened capped stack, inactive workflow recovery and encrypted new-stack restore now pass locally. P1 remains incomplete only for the separately approved encrypted restore of Alfred's existing shared n8n and verification of its actual storage/proxy topology. P2/P3 are not ready for approval.
+**P1 result:** See the [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md), [local completion evidence](../validation/2026-09-06-p1-local-completion.md), and [Alfred recovery evidence](../validation/2026-09-06-p1-alfred-recovery.md). n8n 2.37.10, the hardened capped stack, inactive source-workflow recovery, encrypted new-stack restore, and encrypted existing-runtime restore all pass. P1 is complete. P2/P3 require fresh action-time approval.
 
 This is the canonical continuation handoff. It records the user's Portainer CE + n8n selection and the full path from the current local candidates to staged operational acceptance. The selection does not authorize a server or production change.
 
 ## Current position
 
 - The hosting choice is settled: manage a separate `cascade-n8n` Compose project through the existing Portainer CE on Alfred. Do not add a second Docker daemon and do not replace Alfred's existing n8n.
-- Same-host feasibility is conditional on recovery, at least 2 GiB swap, a fresh capacity baseline, strict resource caps, and a 72-hour dormant soak. A separate Cascade VPS is the fallback if a threshold fails or later load grows.
+- Same-host feasibility is conditional on at least 2 GiB swap, a fresh capacity baseline, strict resource caps, and a 72-hour dormant soak. P1 recovery now passes. A separate Cascade VPS is the fallback if a threshold fails or later load grows.
 - No new stack, volume, network, secret, route, workflow activation, provider configuration, order, message, or production change has been made.
 - Supabase remains the canonical business-state authority. n8n is delivery/integration only.
 - All 13 source-controlled n8n workflows are inactive.
@@ -76,16 +76,15 @@ Module A is complete only when fresh evidence proves all of the following:
 4. A real cleaner Auth identity assigned to the correct property, followed by the full authenticated cleaner smoke and denial checks.
 5. Scheduler/liveness secrets and heartbeat smoke before any schedule or monitor activation.
 6. Corrected price-history view through its own reviewed release.
-7. Recovery proof for Alfred's existing shared n8n database, credential ciphertext, encryption key, and workflows.
 
 ## Remaining phase docket
 
 | Phase | Status | Required outcome |
 | --- | --- | --- |
 | P0 — Decision/source lock | Complete with this handoff when validation passes | Portainer CE + separate n8n/PostgreSQL stack is canonical; no live change |
-| P1 — Recovery/deployment packet | **Next** | Existing n8n disposable restore, current image/security review, rendered Compose, exact secret/proxy/backup/smoke/rollback packet |
+| P1 — Recovery/deployment packet | **Complete** | Existing n8n isolated restore, current image/security review, rendered Compose, exact secret/proxy/backup/smoke/rollback packet passed |
 | P2 — Swap/fresh baseline | Blocked on action approval | At least 2 GiB swap and all pre-start thresholds pass |
-| P3 — Dormant stack | Blocked on P1/P2 and action approval | New stack healthy, isolated, MFA-protected, provider-free; 13 workflows inactive |
+| P3 — Dormant stack | Blocked on P2 and action approval | New stack healthy, isolated, MFA-protected, provider-free; 13 workflows inactive |
 | P4 — Restore + 72-hour soak | Blocked on P3 | New-stack restore proof and no abort threshold |
 | P5 — Module A production closure | Blocked on recovery/action approvals | Every production gate above closed with dated evidence |
 | P6 — Core booking release | Blocked on P5 | Modules B/C/D/E released in coordinated batches; named Finance chain proven |
@@ -100,9 +99,9 @@ The full entry/exit conditions, dependencies, abort thresholds, and fallback are
 
 1. Verify Git status/history and preserve the unrelated Task Master files.
 2. Read this handoff, the updated completion plan, `CURRENT-STATE.md`, `DEVELOPMENT-PLAYBOOK.md`, ADR-002, the deployment runbook, and the detailed capacity audit.
-3. Work on P1 locally: inventory the recovery inputs, prove the existing n8n disposable restore, check official n8n release/security information at execution time, and produce the exact redacted P2/P3 action packet.
-4. Run focused recovery, Compose, inactive-workflow, content/link, and whitespace checks. Record exact evidence.
-5. Stop before adding swap, creating a stack/route/secret, importing into the live editor, configuring a provider, or changing production. Present the concrete P2/P3 packet for action approval.
+3. Treat P1 as complete from the dated local and Alfred recovery records.
+4. Recheck the exact P2 swap command, rollback, current host health, and collision checks. Present that concrete host-maintenance action for fresh approval.
+5. Stop before adding swap or creating a stack/route/secret. After P2 passes, present P3 separately before importing into the new editor or configuring any provider.
 6. After approved P2/P3 work, run the 72-hour dormant soak and close Module A before staging any local candidate.
 7. Release the remaining modules in P6–P9 order, with separate approvals for production and external effects.
 

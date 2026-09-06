@@ -18,7 +18,8 @@ Then read, in order:
 7. docs/architecture/adr-002-dedicated-hetzner-cascade-operations.md
 8. docs/runbooks/cascade-n8n-deploy.md
 9. docs/validation/2026-09-06-alfred-detailed-capacity-audit.md
-10. docs/validation/2026-09-05-wave-8-consolidation-handoff.md
+10. docs/validation/2026-09-06-p1-alfred-recovery.md
+11. docs/validation/2026-09-05-wave-8-consolidation-handoff.md
 
 Current branch: codex/cascade-waves-0-1-sol
 Expected latest completed commit at handoff: the Portainer CE + n8n decision, updated completion plan, and 2026-09-06 handoff. Verify it from Git rather than relying on a copied SHA.
@@ -27,7 +28,7 @@ Selected hosting decision:
 - Use Alfred's existing Docker Engine and Portainer CE to manage a separate capped `cascade-n8n` Compose project with its own PostgreSQL database.
 - Do not add a second Docker daemon, replace Alfred's existing n8n, or share its volumes, database, keys, credentials, networks, hostname, or backups.
 - This adds no subscription. A separate Cascade VPS remains the fallback if a pre-start or 72-hour dormant-soak threshold fails.
-- The platform choice is approved; no server, stack, swap, DNS, secret, provider, workflow, or production action has happened or is implied.
+- P1 recovery is complete. Alfred's existing n8n was captured, restarted healthy, and restored successfully in an isolated local drill. No Cascade stack, swap, DNS/route change, provider action, workflow activation, or message occurred.
 
 Completed local candidates:
 - Module B: canonical atomic booking decision.
@@ -43,8 +44,8 @@ Completed local candidates:
 - Wave 8: a machine-checkable authority inventory, local operating handoff, and gated dedicated-Hetzner direction pass consolidation checks. Disposable recovery round-tripped 13 n8n workflows inactive and rebuilt Supabase through 38 migrations and 26 database test files without changing the active local database.
 
 Next gated work:
-1. Execute Phase P1 locally: complete the redacted recovery/deployment packet, including Alfred's existing n8n disposable restore, action-time n8n image/security review, rendered capped Compose, secrets/proxy plan, exact smoke/abort checks, and rollback.
-2. Present the concrete P2/P3 action packet before adding at least 2 GiB swap or creating the dormant stack. Re-run the host baseline after swap.
+1. Treat Phase P1 as complete from the local and Alfred recovery records.
+2. Present the concrete P2 host-maintenance packet before adding at least 2 GiB swap. Re-run the full host baseline after swap, then present P3 separately before creating the dormant stack.
 3. Import all 13 workflows inactive without provider credentials, prove the new stack's encrypted restore, and complete a 72-hour dormant soak.
 4. Close every Module A production gate before releasing Modules B–E or Waves 2–7.
 5. Continue phases P6–P10 from docs/plans/2026-09-06-portainer-n8n-completion-plan.md. Activate only one separately approved provider/workflow batch at a time.
@@ -58,9 +59,11 @@ Non-negotiable boundaries:
 - The business is unregistered. Do not claim BIR, statutory, tax, or filing compliance.
 - Do not deploy, apply production migrations, activate workflows or cron, configure providers, modify VPS/Docker configuration, or send messages without fresh action-time owner approval.
 - Do not add swap or deploy the Cascade stack on Alfred without the recovery, capacity, and action-time approval gates. Do not activate it for business delivery until the dormant-soak and Module A gates pass.
-- Production remains frozen behind Module A: encrypted backup/restore proof, coordinated staff/RLS release, project Auth MFA/AAL2, real cleaner authorization checks, monitoring, and shared n8n recovery.
+- Production remains frozen behind the still-open Module A gates: encrypted Supabase backup/restore proof, coordinated staff/RLS release, project Auth MFA/AAL2, real cleaner authorization checks, and monitoring. The shared n8n recovery gate passed in P1.
 
 Local Docker Supabase was running during the completed validations. Database candidate tests were assembled with their migrations inside transactions ending in ROLLBACK; they did not alter the migration ledger or persist fixtures.
+
+After the successful P1 isolated restore and cleanup, the local Docker Desktop engine stopped. Its installed backend reported a missing Docker Desktop installation registry key and did not restart. The committed Alfred restore checker is the exact revision that passed. Repair or reinstall the workstation Docker runtime before the next local Docker-dependent validation; this does not affect Alfred's healthy remote runtime or the completed P1 evidence.
 
 The worktree intentionally still contains old uncommitted Task Master setup files and a modified .gitignore. The owner explicitly chose to stop spending time on Task Master. Do not include these files in feature commits and do not make Task Master a prerequisite for continuing:
 - .taskmaster/

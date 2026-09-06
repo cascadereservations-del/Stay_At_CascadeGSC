@@ -2,7 +2,7 @@
 
 ## Source precedence
 
-P1 continuation on 2026-09-06: [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) and [local validation](../validation/2026-09-06-p1-local-completion.md) prepared. The replacement n8n pin, capped stack and new-stack encrypted recovery tooling now pass locally, including a synthetic credential-decryption proof. P1 remains open only for the separately approved encrypted recovery of Alfred's existing shared n8n and verification of its actual storage/proxy topology. P2/P3 are not ready for approval.
+P1 completed on 2026-09-06. The [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md), [local validation](../validation/2026-09-06-p1-local-completion.md), and [Alfred recovery proof](../validation/2026-09-06-p1-alfred-recovery.md) now cover the replacement image, capped stack, encrypted new-stack recovery, actual Alfred storage/proxy topology, encrypted existing-runtime backup, and isolated credential-decryption restore. P2/P3 remain held for fresh action-time approval.
 
 Use evidence in this order when records disagree:
 
@@ -18,6 +18,7 @@ Obsidian is valuable but includes session-era live snapshots. Some are older tha
 | Workstream | State at handoff | Evidence / canonical location |
 | --- | --- | --- |
 | n8n hosting decision | Selected | Use Alfred's existing Docker Engine and Portainer CE for a separate capped Cascade n8n/PostgreSQL Compose stack after recovery, swap, capacity, and approval gates. A separate VPS is the fallback. `docs/plans/2026-09-06-portainer-n8n-completion-plan.md` |
+| P1 n8n recovery/deployment packet | Complete | Existing Alfred n8n encrypted backup and isolated restore passed with matching 60/28/31 aggregates; current source-controlled Cascade names remain inactive. `docs/validation/2026-09-06-p1-alfred-recovery.md` |
 | Finance/OPS delivery boundary | Protected in source and narrow production guard | `supabase/migrations/20260829173700_notification_route_guard.sql`, `tests/security/` |
 | Direct booking trigger isolation | Protected | `supabase/migrations/20260829044725_revoke_w01_dispatch_rpc_execution.sql` |
 | Named staff / cleaner access | Local release candidate | `supabase/migrations/20260828000400_staff_roles_and_sessions.sql`, `supabase/functions/staff-access/`, tests |
@@ -73,11 +74,10 @@ Do not claim Module A complete until the following have fresh, action-time proof
 4. Coordinated staff/RLS/named-cleaner release, followed by authenticated cleaner smoke tests: sign-in, property isolation, private photo upload, meter lookup, report submit, pending expense claim, sign-out, disabled-user denial, and stale-session denial.
 5. Separate scheduler/liveness secrets configured without exposing values, then heartbeat deployment/smoke proof before schedule or Uptime Kuma activation.
 6. Corrected price-history view released under its own reviewed release.
-7. Owner-approved restore exercise for the shared Portainer n8n database, credential ciphertext, encryption key, and workflow set.
 
 ## n8n status and rules
 
-- Current runtime: Alfred's shared Portainer n8n remains unchanged while all Cascade workflows are inactive.
+- Current runtime: Alfred's shared Portainer n8n returned healthy on the same 2.37.10 image/container identity after the approved P1 recovery window. Its database has 60 workflows, 28 active and 31 credentials; all 14 live rows matching the 13 source-controlled Cascade names are inactive.
 - Selected runtime direction: an isolated Cascade Compose project on Alfred's existing Docker Engine, managed through Portainer CE after all same-host gates; use a separate VPS if any threshold fails. Do not add a second Docker daemon.
 - Current editor location: `Personal → Cascade Hideaway` folder/project.
 - Canonical exports: `automation/n8n/workflows/CH-S01...CH-W12`.
@@ -152,6 +152,7 @@ Private cleaning/meter evidence is tied to the named cleaner, property, cleaning
 ## Known technical and operational risks
 
 - Local release candidates are not production activations. Do not conflate passing tests with live cutover.
+- The local Docker Desktop engine stopped after the successful P1 restore proof. Its installed backend subsequently reported a missing Docker Desktop installation registry key and would not restart. The committed Alfred restore checker is the exact revision that already passed; repair or reinstall the workstation Docker runtime before further local Docker-dependent work.
 - Source-controlled n8n exports are intentionally inactive and may not match unsafe legacy drafts in the shared editor.
 - The existing Portainer n8n image is unpinned `latest`; changing it needs its own backup/rollback window.
 - Direct booking / legacy products must be inspected in their own repositories before UI work; the prototype is not their source of truth.

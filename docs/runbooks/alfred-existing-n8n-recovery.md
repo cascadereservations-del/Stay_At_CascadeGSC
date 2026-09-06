@@ -1,6 +1,6 @@
 # Alfred existing n8n recovery procedure
 
-Status: prepared for a separately approved recovery window. This procedure targets Alfred's existing shared `deploy`/`n8n` runtime. It does not create the new Cascade stack, add swap, upgrade n8n, activate a workflow, configure a provider, or send a message.
+Status: executed successfully on 2026-09-06 under the approved P1 recovery window. See the [redacted recovery evidence](../validation/2026-09-06-p1-alfred-recovery.md). This procedure targets Alfred's existing shared `deploy`/`n8n` runtime. It does not create the new Cascade stack, add swap, upgrade n8n, activate a workflow, configure a provider, or send a message.
 
 ## Approval scope
 
@@ -89,4 +89,4 @@ Acceptance requires:
 
 Commit a redacted validation record containing timestamps, versions/digests, aggregate counts, encrypted artifact hashes, quiescence duration, restore result, cleanup result, and Alfred post-check. Do not commit secret values, database URLs, decrypted exports, host addresses or personal data.
 
-P1 closes when this record passes together with the local Cascade stack evidence. P2/P3 remain held until then.
+P1 closed when the [dated Alfred recovery record](../validation/2026-09-06-p1-alfred-recovery.md) passed together with the local Cascade stack evidence. P2/P3 remain held for their separate action-time approval.
