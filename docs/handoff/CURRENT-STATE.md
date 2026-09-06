@@ -1,10 +1,12 @@
 # Current State and Continuation Gate
 
+**Post-P3 update (2026-09-06 15:10 UTC): P0–P3 COMPLETE.** The isolated Portainer stack `cascade-n8n` is healthy, capped and loopback-only; the named owner has MFA enabled; all 13 workflows are inactive and credentials are empty. The final host baseline passed with the 20 pre-existing container fingerprints unchanged. P4 encrypted recovery and the 72-hour dormant soak have not started. Use [the complete post-P3 handoff](./COMPLETE-HANDOFF-P3-2026-09-06.md) and [visual phase dashboard](./cascade-phase-status-p3.html). This update supersedes P2/P3-held statements below.
+
 **P2 update (2026-09-06 06:09 UTC): COMPLETE.** The owner-approved 2049 MiB swap allocation is active and persistent; all 20 existing container fingerprints match the pre-action baseline. RAM, swap and disk thresholds pass. See [P2 evidence](../validation/2026-09-06-p2-host-maintenance.md). This update supersedes P2-held/no-swap statements below. Next: prepare the separate P3 dormant-stack action packet; P3, soak and Module A remain gated.
 
 ## Source precedence
 
-P1 completed on 2026-09-06. The [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md), [local validation](../validation/2026-09-06-p1-local-completion.md), and [Alfred recovery proof](../validation/2026-09-06-p1-alfred-recovery.md) now cover the replacement image, capped stack, encrypted new-stack recovery, actual Alfred storage/proxy topology, encrypted existing-runtime backup, and isolated credential-decryption restore. P2/P3 remain held for fresh action-time approval.
+P1 completed on 2026-09-06. The [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md), [local validation](../validation/2026-09-06-p1-local-completion.md), and [Alfred recovery proof](../validation/2026-09-06-p1-alfred-recovery.md) cover the replacement image, capped stack, encrypted new-stack recovery, actual Alfred storage/proxy topology, encrypted existing-runtime backup, and isolated credential-decryption restore. P2 and P3 subsequently completed; the post-P3 update above is authoritative.
 
 Use evidence in this order when records disagree:
 

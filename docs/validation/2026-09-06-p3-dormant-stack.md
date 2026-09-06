@@ -1,6 +1,6 @@
 # P3 dormant Cascade stack evidence — 2026-09-06
 
-Status: **PENDING OWNER MFA.** The approved Portainer deployment, isolation checks, inactive workflow import, semantic round trip and first post-start Alfred baseline pass. P3 cannot pass until the owner completes the named account, TOTP enrollment and sign-out/sign-in check through the private SSH tunnel.
+Status: **PASS. Phase P3 is complete.** The approved Portainer deployment, isolation checks, inactive workflow import, semantic round trip, named-owner MFA and final Alfred baseline pass. P4 recovery and the 72-hour dormant soak have not started.
 
 ## Approved deployment
 
@@ -49,6 +49,10 @@ A fresh `export:workflow --backup` produced 13 JSON files. `scripts/recovery/rec
 
 The validated temporary export and archive were removed from Alfred and the workstation.
 
+## Named owner and MFA
+
+The owner created the first named account through the private SSH tunnel, enrolled TOTP personally, and reported a successful sign-out/sign-in verification. The authenticated Personal Settings page showed two-factor authentication enabled. Aggregate database checks returned one named credentialed owner and one MFA-enabled user. No identity, email, password, TOTP seed, recovery code, cookie or user ID was recorded in Git, terminal evidence or this handoff.
+
 ## First post-start Alfred baseline
 
 At `2026-09-06T13:04:59Z`:
@@ -61,8 +65,17 @@ At `2026-09-06T13:04:59Z`:
 
 The 20 pre-existing running containers retained their captured identities and start times. Every restart count remained zero and every OOM flag remained false. Their memory and NanoCPU limits were unchanged. Alfred's existing n8n remained healthy on `127.0.0.1:5678`. The two new Cascade containers were the only new running containers.
 
-## Remaining P3 gate
+## Final P3 baseline and exit
 
-The initial n8n placeholder owner row is present, but aggregate checks show zero rows with both a named email and password and zero MFA-enabled users. The owner must complete the first account interactively through the private SSH tunnel, enroll TOTP, sign out, sign in with MFA, and verify the editor shows 13 inactive workflows and no credentials. Evidence must record only aggregate completion, never identity, password, TOTP seed, recovery codes, cookie or user ID.
+At `2026-09-06T15:10:43Z`:
 
-P4's 72-hour dormant soak starts only after this P3 record changes to PASS.
+- available RAM: 2,668,470,272 bytes;
+- usable swap: 2,148,528,128 bytes;
+- free swap: 2,146,168,832 bytes;
+- free disk under `/opt`: 33,292,050,432 bytes;
+- load: 0.15 / 0.12 / 0.12;
+- running containers: 22, consisting of the unchanged 20 pre-existing containers and the two approved Cascade containers.
+
+Swap use was 2,359,296 bytes at both recorded post-start samples, so it had settled rather than grown continuously. Every pre-existing container retained its full ID, start time, restart count, OOM state and resource limits. Both Cascade containers were healthy with zero restarts and OOM false. Aggregate checks remained 13 workflows, zero active workflows and zero credentials. Alfred's existing n8n and the new loopback-only Cascade n8n both returned status ok.
+
+P3 passes. P4 must run the encrypted backup/disposable-restore proof and observe at least 72 hours of complete samples before co-location is accepted. This record does not authorize a public route, provider credential, workflow activation, production database change or message.

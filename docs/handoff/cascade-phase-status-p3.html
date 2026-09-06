@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>Cascade Hideaway — Phase Status after P3</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17352f;
+      --muted: #5d6c68;
+      --paper: #f4f0e7;
+      --surface: #fffdf8;
+      --line: #d9d1c2;
+      --green: #17634f;
+      --green-soft: #e1efe8;
+      --gold: #9a6925;
+      --gold-soft: #f4e8ce;
+      --red: #9d453e;
+      --red-soft: #f4e1de;
+      --blue: #3d6472;
+      --blue-soft: #e2edf0;
+      --shadow: 0 18px 42px rgba(29, 54, 47, .09);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(23, 99, 79, .035) 1px, transparent 1px),
+        linear-gradient(rgba(23, 99, 79, .035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 30px 30px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: var(--green); text-underline-offset: 3px; }
+    a:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
+    .shell { width: min(1200px, calc(100% - 38px)); margin: 0 auto; }
+    .skip { position: fixed; top: 10px; left: 10px; z-index: 10; padding: 9px 12px; color: white; background: var(--ink); transform: translateY(-160%); }
+    .skip:focus { transform: translateY(0); }
+
+    header {
+      padding: 22px 0;
+      border-bottom: 1px solid rgba(23, 53, 47, .15);
+      background: rgba(244, 240, 231, .94);
+    }
+    .header-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { font-family: Georgia, "Times New Roman", serif; font-weight: 700; letter-spacing: .015em; }
+    .stamp { color: var(--muted); font-size: .76rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+
+    main { padding: 48px 0 80px; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr); gap: 28px; align-items: end; }
+    .eyebrow { margin: 0 0 10px; color: var(--gold); font-size: .75rem; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
+    h1, h2, h3 { margin-top: 0; }
+    h1 { max-width: 790px; margin-bottom: 16px; font: 500 clamp(2.65rem, 6vw, 5.8rem)/.96 Georgia, serif; letter-spacing: -.05em; }
+    h2 { margin-bottom: 8px; font: 500 clamp(1.7rem, 3vw, 2.65rem)/1.08 Georgia, serif; letter-spacing: -.025em; }
+    h3 { margin-bottom: 7px; font-size: 1rem; }
+    p { margin: 0 0 13px; }
+    .lede { max-width: 760px; color: var(--muted); font-size: 1.1rem; }
+
+    .next-card { padding: 24px; color: white; background: var(--ink); border-left: 5px solid var(--gold); box-shadow: var(--shadow); }
+    .next-card small { display: block; margin-bottom: 8px; color: #d3e1dc; font-size: .7rem; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+    .next-card strong { display: block; font: 500 1.38rem/1.22 Georgia, serif; }
+    .next-card p { margin: 12px 0 0; color: #d3e1dc; font-size: .86rem; }
+
+    .metrics { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 38px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); }
+    .metric { min-height: 120px; padding: 18px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric span { display: block; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 6px; font: 500 1.45rem/1.15 Georgia, serif; }
+    .metric em { display: block; margin-top: 7px; color: var(--muted); font-size: .8rem; font-style: normal; }
+
+    section { margin-top: 70px; scroll-margin-top: 24px; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 22px; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--line); }
+    .section-head p { max-width: 560px; margin: 0; color: var(--muted); }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+    .badge { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid currentColor; font-size: .69rem; font-weight: 850; letter-spacing: .06em; line-height: 1; text-transform: uppercase; }
+    .badge::before { width: 7px; height: 7px; background: currentColor; content: ""; }
+    .complete { color: var(--green); background: var(--green-soft); }
+    .next { color: var(--gold); background: var(--gold-soft); }
+    .gated { color: var(--red); background: var(--red-soft); }
+    .ready { color: var(--blue); background: var(--blue-soft); }
+
+    .phase-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .phase { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 17px; padding: 21px; border: 1px solid var(--line); background: var(--surface); }
+    .phase.current { border-color: var(--gold); box-shadow: inset 5px 0 0 var(--gold); }
+    .phase-code { display: grid; width: 50px; height: 50px; place-items: center; color: white; background: var(--ink); font: 500 1.2rem Georgia, serif; }
+    .phase .badge { margin-bottom: 10px; }
+    .phase p { margin: 0; color: var(--muted); font-size: .9rem; }
+    .wide { grid-column: 1 / -1; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .panel { padding: 25px; border: 1px solid var(--line); background: var(--surface); }
+    .panel.green { border-top: 5px solid var(--green); }
+    .panel.gold { border-top: 5px solid var(--gold); }
+    .panel.red { border-top: 5px solid var(--red); }
+    .panel p, .panel li { color: var(--muted); }
+    ul, ol { margin: 14px 0 0; padding-left: 21px; }
+    li + li { margin-top: 8px; }
+
+    .candidate-table { width: 100%; border-collapse: collapse; background: var(--surface); box-shadow: var(--shadow); }
+    .candidate-table th, .candidate-table td { padding: 14px 16px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .candidate-table th { color: white; background: var(--ink); font-size: .72rem; letter-spacing: .07em; text-transform: uppercase; }
+    .candidate-table td { color: var(--muted); font-size: .88rem; }
+    .candidate-table td:first-child { color: var(--ink); font-weight: 750; }
+
+    .boundary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; }
+    .boundary { padding: 20px; border: 1px solid var(--line); background: var(--surface); }
+    .boundary b { display: block; margin-bottom: 6px; }
+    .boundary p { margin: 0; color: var(--muted); font-size: .86rem; }
+
+    .links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .links a { padding: 15px; border: 1px solid var(--line); background: var(--surface); font-weight: 700; text-decoration: none; }
+    .links a:hover { border-color: var(--green); }
+
+    footer { padding: 28px 0 42px; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
+
+    @media (max-width: 900px) {
+      .hero, .two-col { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .metric { border-bottom: 1px solid var(--line); }
+      .phase-grid, .boundary-grid, .links { grid-template-columns: 1fr; }
+      .wide { grid-column: auto; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 24px, 1200px); }
+      .header-row, .section-head { align-items: flex-start; flex-direction: column; }
+      .metrics { grid-template-columns: 1fr; }
+      .metric { border-right: 0; }
+      .phase { grid-template-columns: 48px minmax(0, 1fr); padding: 17px; }
+      .phase-code { width: 42px; height: 42px; }
+      .candidate-table { display: block; overflow-x: auto; }
+    }
+
+    @media print {
+      body { background: white; }
+      header { background: white; }
+      .next-card, .candidate-table th { color: black; background: white; border: 1px solid #777; }
+      .metrics, .candidate-table { box-shadow: none; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to phase status</a>
+  <header>
+    <div class="shell header-row">
+      <div class="brand">Cascade Hideaway · Delivery Control</div>
+      <div class="stamp">Verified 06 September 2026 · 15:10 UTC</div>
+    </div>
+  </header>
+
+  <main id="main" class="shell">
+    <div class="hero">
+      <div>
+        <p class="eyebrow">Complete project handoff</p>
+        <h1>P3 is complete. Recovery and the 72-hour soak come next.</h1>
+        <p class="lede">The isolated Cascade n8n stack is healthy, capped, owner-MFA protected and dormant on Alfred. All 13 workflows are inactive and no provider credentials exist. Production remains frozen.</p>
+        <div class="legend" aria-label="Status legend">
+          <span class="badge complete">Complete</span>
+          <span class="badge next">Next</span>
+          <span class="badge ready">Local candidate ready</span>
+          <span class="badge gated">Blocked / approval required</span>
+        </div>
+      </div>
+      <aside class="next-card">
+        <small>Next safe phase · P4</small>
+        <strong>Encrypted recovery proof and a complete 72-hour dormant soak.</strong>
+        <p>Prepare the exact action packet and obtain fresh approval before creating backup or disposable restore resources.</p>
+      </aside>
+    </div>
+
+    <div class="metrics" aria-label="Final P3 metrics">
+      <div class="metric"><span>Completed</span><strong>P0–P3</strong><em>Decision through dormant stack</em></div>
+      <div class="metric"><span>Workflows</span><strong>13 / 0</strong><em>Total / active</em></div>
+      <div class="metric"><span>Credentials</span><strong>0</strong><em>Provider-free</em></div>
+      <div class="metric"><span>Owner access</span><strong>MFA on</strong><em>Named owner verified</em></div>
+      <div class="metric"><span>Host</span><strong>22 healthy</strong><em>20 existing + 2 Cascade</em></div>
+    </div>
+
+    <section aria-labelledby="phases-title">
+      <div class="section-head">
+        <div><p class="eyebrow">P0–P10 roadmap</p><h2 id="phases-title">What is complete and what remains</h2></div>
+        <p>“Ready” means source and local tests exist. It never means a production migration, provider, message or workflow is authorized.</p>
+      </div>
+      <div class="phase-grid">
+        <article class="phase"><div class="phase-code">P0</div><div><span class="badge complete">Complete</span><h3>Decision and source lock</h3><p>Portainer CE on Alfred with a separate capped Cascade stack is the selected no-new-subscription architecture.</p></div></article>
+        <article class="phase"><div class="phase-code">P1</div><div><span class="badge complete">Complete</span><h3>Existing n8n recovery</h3><p>Encrypted capture and isolated restore passed; Alfred's existing n8n returned healthy and unchanged.</p></div></article>
+        <article class="phase"><div class="phase-code">P2</div><div><span class="badge complete">Complete</span><h3>Host protection</h3><p>2049 MiB swap is active and persistent. The full 20-container baseline passed.</p></div></article>
+        <article class="phase"><div class="phase-code">P3</div><div><span class="badge complete">Complete</span><h3>Dormant Cascade stack</h3><p>Healthy, capped and loopback-only; owner MFA on; 13 workflows inactive; zero credentials.</p></div></article>
+        <article class="phase current"><div class="phase-code">P4</div><div><span class="badge next">Next</span><h3>Recovery drill and soak</h3><p>Prove encrypted backup/restore, then collect every 60-second sample for at least 72 hours.</p></div></article>
+        <article class="phase"><div class="phase-code">P5</div><div><span class="badge gated">Blocked</span><h3>Module A production closure</h3><p>Supabase recovery, staff/RLS/privacy release, project AAL2, real cleaner access, liveness and price history.</p></div></article>
+        <article class="phase"><div class="phase-code">P6</div><div><span class="badge ready">Local ready</span><h3>Core booking release</h3><p>Release Modules B–E only after P5, with named Finance review before booking confirmation.</p></div></article>
+        <article class="phase"><div class="phase-code">P7</div><div><span class="badge ready">Local ready</span><h3>Operations and insight</h3><p>Release cleaning, inventory and Finance analytics with real-role isolation and no auto-order.</p></div></article>
+        <article class="phase"><div class="phase-code">P8</div><div><span class="badge ready">Local ready</span><h3>Guest lifecycle</h3><p>Release inbox, consent/retention and reviewed marketing drafts without automatic sending or publication.</p></div></article>
+        <article class="phase"><div class="phase-code">P9</div><div><span class="badge gated">Not authorized</span><h3>Provider activation</h3><p>One named credential and one reviewed workflow at a time, each with separate approval and observation.</p></div></article>
+        <article class="phase wide"><div class="phase-code">P10</div><div><span class="badge gated">Future</span><h3>Operational acceptance</h3><p>Close access review, backup cadence, restore drills, alerts, incident ownership, authority inventory and separately approved retirement work.</p></div></article>
+      </div>
+    </section>
+
+    <section aria-labelledby="live-title">
+      <div class="section-head"><div><p class="eyebrow">Live infrastructure</p><h2 id="live-title">P3 acceptance state</h2></div><p>Final baseline captured at 15:10:43 UTC. P4 has not started.</p></div>
+      <div class="two-col">
+        <article class="panel green">
+          <h3>Verified live</h3>
+          <ul>
+            <li>Both Cascade containers healthy; zero restarts and no OOM.</li>
+            <li>n8n limited to 1536 MiB / 1.5 CPU; PostgreSQL to 768 MiB / 0.75 CPU.</li>
+            <li>Only <code>127.0.0.1:5679</code> exposes the new editor; PostgreSQL has no host port.</li>
+            <li>One named owner and one MFA-enabled user.</li>
+            <li>13 workflows, zero active workflows, zero credentials.</li>
+            <li>All 20 existing container fingerprints unchanged.</li>
+          </ul>
+        </article>
+        <article class="panel gold">
+          <h3>Final host sample</h3>
+          <ul>
+            <li>Available RAM: 2,668,470,272 bytes.</li>
+            <li>Total/free swap: 2,148,528,128 / 2,146,168,832 bytes.</li>
+            <li>Free disk under <code>/opt</code>: 33,292,050,432 bytes.</li>
+            <li>Load average: 0.15 / 0.12 / 0.12.</li>
+            <li>Swap use settled between post-start samples.</li>
+            <li>Existing and Cascade n8n health endpoints both passed.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="p4-title">
+      <div class="section-head"><div><p class="eyebrow">Immediate continuation</p><h2 id="p4-title">P4 acceptance checklist</h2></div><p>The 72-hour clock begins only after the encrypted recovery proof passes.</p></div>
+      <div class="two-col">
+        <article class="panel gold">
+          <h3>Do next</h3>
+          <ol>
+            <li>Refresh the full Alfred and dormant-data baseline.</li>
+            <li>Review the backup and restore scripts and prepare the exact P4 packet.</li>
+            <li>Obtain owner approval for encrypted backup and disposable restore resources.</li>
+            <li>Verify ciphertext, restore integrity, 13/0/0 aggregates and semantic hash.</li>
+            <li>Clean only disposable restore resources; preserve the encrypted backup.</li>
+            <li>Run complete outside-Git samples every 60 seconds for at least 72 hours.</li>
+          </ol>
+        </article>
+        <article class="panel red">
+          <h3>Abort and preserve evidence if</h3>
+          <ul>
+            <li>RAM stays below 1.5 GiB for three samples.</li>
+            <li>Swap grows across five samples, load 15 exceeds 3, or disk drops below 15 GiB.</li>
+            <li>An existing or Cascade service changes identity, restarts, OOMs or becomes unhealthy.</li>
+            <li>A workflow activates, credential appears, provider traffic occurs or the editor becomes public.</li>
+            <li>Samples are missing; extend the soak rather than claiming a pass.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="candidates-title">
+      <div class="section-head"><div><p class="eyebrow">Implemented locally</p><h2 id="candidates-title">Candidates waiting for safe release</h2></div><p>These do not need rebuilding. They need dependency closure, production packets and live proof.</p></div>
+      <table class="candidate-table">
+        <thead><tr><th>Workstream</th><th>Local evidence</th><th>Release boundary</th></tr></thead>
+        <tbody>
+          <tr><td>Module B</td><td>Atomic canonical booking decision and collision checks</td><td>Delivery cannot confirm bookings</td></tr>
+          <tr><td>Module C</td><td>47/47 rollback-only pgTAP plus source/Deno checks</td><td>OCR and bank email remain evidence</td></tr>
+          <tr><td>Module D</td><td>Finance queue and inactive delivery boundary</td><td>OPS receives no Finance/contact data</td></tr>
+          <tr><td>Module E</td><td>43/43 pgTAP plus two-session collision proof</td><td>Refund authorization never executes payment</td></tr>
+          <tr><td>Wave 2</td><td>31/31 pgTAP shared-inbox candidate</td><td>Draft review never sends</td></tr>
+          <tr><td>Wave 3</td><td>21/21 pgTAP cleaning/meter candidate</td><td>AI cannot approve evidence</td></tr>
+          <tr><td>Wave 4</td><td>31/31 pgTAP plus concurrency/rollback</td><td>Purchase review never orders</td></tr>
+          <tr><td>Wave 5</td><td>50/50 pgTAP plus rollback</td><td>Finance-only; no compliance claim</td></tr>
+          <tr><td>Wave 6</td><td>31/31 pgTAP plus rollback</td><td>Eligibility does not authorize contact</td></tr>
+          <tr><td>Wave 7</td><td>33/33 pgTAP plus rollback</td><td>Review does not publish</td></tr>
+          <tr><td>Wave 8</td><td>Authority inventory, handoff and recovery proof</td><td>Local evidence does not authorize release</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section aria-labelledby="rules-title">
+      <div class="section-head"><div><p class="eyebrow">Always preserve</p><h2 id="rules-title">Authority and safety boundaries</h2></div><p>Every future packet and implementation must retain these controls.</p></div>
+      <div class="boundary-grid">
+        <article class="boundary"><b>Supabase is canonical</b><p>n8n delivers and integrates; it does not own business decisions or facts.</p></article>
+        <article class="boundary"><b>Named humans decide</b><p>Payments, bookings, refunds, exceptions, cleaning overrides, purchases and publication require people.</p></article>
+        <article class="boundary"><b>Finance stays separate</b><p>OPS receives no payment, receipt, bank, rate, deposit, refund or guest-contact detail.</p></article>
+        <article class="boundary"><b>AI stays advisory</b><p>OCR, forecasts, classification and email correlation never become approval authority.</p></article>
+        <article class="boundary"><b>No automatic external action</b><p>Review does not send, publish, order or pay unless a later exact action is approved.</p></article>
+        <article class="boundary"><b>No compliance claim</b><p>The business is unregistered; reports do not claim BIR, tax or statutory filing compliance.</p></article>
+      </div>
+    </section>
+
+    <section aria-labelledby="links-title">
+      <div class="section-head"><div><p class="eyebrow">Continue safely</p><h2 id="links-title">Canonical handoff files</h2></div><p>Use the complete Markdown handoff for commands, dependencies, risk detail and source locations.</p></div>
+      <nav class="links" aria-label="Handoff files">
+        <a href="COMPLETE-HANDOFF-P3-2026-09-06.md">Complete post-P3 handoff</a>
+        <a href="RESUME-PROMPT-P3.md">Copy/paste resume prompt</a>
+        <a href="../validation/2026-09-06-p3-dormant-stack.md">P3 evidence</a>
+        <a href="../plans/2026-09-06-portainer-n8n-completion-plan.md">P0–P10 plan</a>
+        <a href="../plans/2026-08-31-module-a-cutover-packet.md">Module A packet</a>
+        <a href="DEVELOPMENT-PLAYBOOK.md">Development playbook</a>
+      </nav>
+    </section>
+  </main>
+
+  <footer><div class="shell">Offline handoff artifact. No scripts, network requests, secrets, personal data or production exports are embedded.</div></footer>
+</body>
+</html>

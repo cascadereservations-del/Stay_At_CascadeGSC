@@ -3,20 +3,24 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
-const handoffUrl = new URL('../docs/handoff/COMPLETE-HANDOFF-2026-09-06.md', import.meta.url);
-const statusUrl = new URL('../docs/handoff/cascade-project-status.html', import.meta.url);
+const handoffUrl = new URL('../docs/handoff/COMPLETE-HANDOFF-P3-2026-09-06.md', import.meta.url);
+const statusUrl = new URL('../docs/handoff/cascade-phase-status-p3.html', import.meta.url);
+const resumeUrl = new URL('../docs/handoff/RESUME-PROMPT-P3.md', import.meta.url);
 const handoff = await readFile(handoffUrl, 'utf8');
 const status = await readFile(statusUrl, 'utf8');
+const resume = await readFile(resumeUrl, 'utf8');
 
-test('handoff states the production freeze, selected hosting, and human authority boundary', () => {
-  assert.match(handoff, /Production posture:\*\* P1 recovery complete; frozen pending P2\/P3, Module A/i);
-  assert.match(handoff, /P1 — Recovery\/deployment packet \| \*\*Complete\*\*/i);
-  assert.match(handoff, /P2 — Swap\/fresh baseline \| Blocked on action approval/i);
-  assert.match(handoff, /Portainer CE \+ separate n8n\/PostgreSQL stack is canonical/i);
-  assert.match(handoff, /47\/47 pgTAP pass/i);
-  assert.match(handoff, /Module D's Admin UI wiring remains/i);
+test('handoff states the verified P3 posture, next phase, and human authority boundary', () => {
+  assert.match(handoff, /Live posture:\*\* P0–P3 complete\. P4 has not started/i);
+  assert.match(handoff, /P1 — Recovery and deployment packet \| \*\*Complete\*\*/i);
+  assert.match(handoff, /P2 — Host protection and fresh baseline \| \*\*Complete\*\*/i);
+  assert.match(handoff, /P3 — Dormant Cascade stack \| \*\*Complete\*\*/i);
+  assert.match(handoff, /P4 — Recovery drill and 72-hour soak \| \*\*Not started\*\*/i);
+  assert.match(handoff, /Portainer CE on Alfred with a separate capped Compose stack is canonical/i);
+  assert.match(handoff, /Module C \| 47 rollback-only pgTAP assertions/i);
+  assert.match(handoff, /Connect Module D's Finance-only review UI in its owning product repository/i);
   assert.match(handoff, /named human approves booking\/payment confirmation/i);
-  assert.match(handoff, /AI, OCR, forecasts, classifications, and email evidence are advisory/i);
+  assert.match(handoff, /AI, OCR, forecasts, classifications and email evidence are advisory/i);
 });
 
 test('handoff covers every remaining module and wave', () => {
@@ -38,13 +42,24 @@ test('every local Markdown link in the handoff resolves', () => {
   }
 });
 
-test('status page is offline, script-free, and explicit about authority', () => {
+test('status page is offline, script-free, and shows the post-P3 phase boundary', () => {
   assert.match(status, /Content-Security-Policy/);
   assert.doesNotMatch(status, /<script\b/i);
   assert.doesNotMatch(status, /\b(?:src|href)=["']https?:/i);
-  assert.match(status, /Production[\s\S]*Frozen/i);
-  assert.match(status, /Only a named authorized Finance reviewer/i);
-  assert.match(status, /must never confirm payment or a booking/i);
+  assert.match(status, /<strong>P0–P3<\/strong>/i);
+  assert.match(status, /P4 has not started/i);
+  assert.match(status, /72-hour/i);
+  assert.match(status, /Named humans decide/i);
+  assert.match(status, /Supabase is canonical/i);
+});
+
+test('resume prompt preserves the exact continuation gate and workspace exclusions', () => {
+  assert.match(resume, /P0–P3 are complete/i);
+  assert.match(resume, /P4 has not started/i);
+  assert.match(resume, /P2 2049 MiB swap, persistence and full host baseline: COMPLETE/i);
+  assert.match(resume, /13 workflows, zero active workflows, zero credentials/i);
+  assert.match(resume, /Task Master/i);
+  assert.match(resume, /fresh owner approval/i);
 });
 
 test('every local link in the status page resolves', () => {

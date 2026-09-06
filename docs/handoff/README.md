@@ -11,13 +11,14 @@ This directory is the single starting point for the next developer. It indexes t
 
 ## Start here
 
-1. Read [COMPLETE-HANDOFF-2026-09-06.md](./COMPLETE-HANDOFF-2026-09-06.md) for the complete remaining-work handoff.
-2. Open the [current project-status dashboard](./cascade-project-status.html) for the visual completed/remaining map.
+1. Read [COMPLETE-HANDOFF-P3-2026-09-06.md](./COMPLETE-HANDOFF-P3-2026-09-06.md) for the complete remaining-work handoff.
+2. Open the [post-P3 phase dashboard](./cascade-phase-status-p3.html) for the visual completed/remaining map.
 3. Read [CURRENT-STATE.md](./CURRENT-STATE.md) for detailed state and production gates.
 4. Read [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) before editing or deploying anything.
 5. Use [FILE-MAP.md](./FILE-MAP.md) to locate canonical source, plans, tests, workflows, runbooks, data definitions, and mockups.
 6. Read the [Portainer CE + n8n completion plan](../plans/2026-09-06-portainer-n8n-completion-plan.md), then `docs/plans/module-execution-queue.md`.
-7. Before any production-affecting step, read the applicable release/runbook under `docs/runbooks/`, then obtain fresh owner approval.
+7. Use [RESUME-PROMPT-P3.md](./RESUME-PROMPT-P3.md) when continuing in a new chat.
+8. Before any production-affecting step, read the applicable release/runbook under `docs/runbooks/`, then obtain fresh owner approval.
 
 ## What this repository is
 
@@ -31,7 +32,8 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 | --- | --- | --- |
 | Module A safety foundation | Local release candidate / partly protected live | Source, tests, safe-release and privacy/observability packets exist. Production cutover gates are still open. |
 | Direct booking site | Existing live product | Do not replace it with a mockup. Wave 1 will connect the final canonical booking decision flow after gates close. |
-| n8n | Existing shared Portainer runtime, workflows inactive | Use `Cascade Hideaway` folder and dedicated Cascade credentials only. Do not publish workflows without approval. |
+| n8n hosting P0–P3 | Complete | The separate `cascade-n8n` Portainer stack is healthy, loopback-only and owner-MFA protected; 13 workflows are inactive and credentials are empty. |
+| P4 recovery and soak | Next | Encrypted backup/disposable restore and a complete 72-hour dormant soak have not started. |
 | Cleaner and inventory apps | Existing products with local security foundations | Production named-cleaner/RLS cutover remains gated. |
 | Module B booking decision | Local candidate, not deployed | Atomic Supabase RPC and approval delegation passed recorded local and Deno checks. Release checks remain. |
 | Module C payment evidence | Local candidate verified | Source and Deno checks pass; all 47 rollback-only pgTAP assertions pass. |
@@ -58,7 +60,7 @@ The repository is the **implementation authority**. Its plans, migrations, Edge 
 
 ## The immediate next outcome
 
-Portainer CE on Alfred with a separate capped Cascade n8n/PostgreSQL stack is the selected zero-subscription direction. Phase P1 recovery and deployment preparation passed on 2026-09-06, including Alfred's existing n8n encrypted backup and isolated restore. The next outcome is the separately approved P2 swap/fresh-baseline action. Alfred still has 0 MiB swap, so no stack may start yet.
+Portainer CE on Alfred now manages the separate capped Cascade n8n/PostgreSQL stack. P0–P3 passed on 2026-09-06: the existing n8n recovery proof, 2049 MiB persistent swap, full host baseline, isolated stack, inactive workflow round trip and named-owner MFA are complete. The next outcome is P4's separately approved encrypted recovery drill followed by a complete 72-hour dormant soak.
 
 Production remains frozen until Module A gates close. Do not deploy Supabase changes, activate n8n, configure providers, modify VPS/Docker, or send messages.
 
@@ -80,13 +82,13 @@ The numeric values are **sample data only**. Live implementation must compute th
 
 | Document | Purpose |
 | --- | --- |
-| [COMPLETE-HANDOFF-2026-09-06.md](./COMPLETE-HANDOFF-2026-09-06.md) | Current complete remaining-work handoff and exact continuation sequence. |
+| [COMPLETE-HANDOFF-P3-2026-09-06.md](./COMPLETE-HANDOFF-P3-2026-09-06.md) | Current complete remaining-work handoff and exact continuation sequence. |
 | [Portainer CE + n8n completion plan](../plans/2026-09-06-portainer-n8n-completion-plan.md) | Selected architecture and phases P0–P10, including gates, aborts, and fallback. |
-| [cascade-project-status.html](./cascade-project-status.html) | Current offline visual status: completed, gated, next, and planned work. |
+| [cascade-phase-status-p3.html](./cascade-phase-status-p3.html) | Current offline visual status: completed, gated, next, and planned work. |
 | [CURRENT-STATE.md](./CURRENT-STATE.md) | Verified current status, gates, decisions, and known conflicts. |
 | [DEVELOPMENT-PLAYBOOK.md](./DEVELOPMENT-PLAYBOOK.md) | Safe continuation workflow, test commands, approval gates, and development rules. |
 | [FILE-MAP.md](./FILE-MAP.md) | Canonical file and data map; what each location owns. |
-| [RESUME-PROMPT.md](./RESUME-PROMPT.md) | Copy/paste context block for a new developer or new coding session. |
+| [RESUME-PROMPT-P3.md](./RESUME-PROMPT-P3.md) | Copy/paste context block for a new developer or new coding session. |
 | `docs/plans/` | Executable plans and handoffs. |
 | `docs/runbooks/` | Production, privacy, recovery, scheduler and n8n procedures. |
 | `docs/validation/` | Evidence for local/prod-related verification. |

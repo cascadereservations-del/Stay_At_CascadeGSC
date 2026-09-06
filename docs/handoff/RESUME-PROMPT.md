@@ -1,5 +1,7 @@
 # Copy/Paste Resume Prompt for the Next Developer
 
+> **Superseded after P3.** Copy [RESUME-PROMPT-P3.md](./RESUME-PROMPT-P3.md). The older P2-era prompt below remains only for history.
+
 ```text
 Continue the Cascade Hideaway business-system project from:
 C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol
