@@ -31,7 +31,7 @@ services:
         max-file: "3"
 
   n8n:
-    image: n8nio/n8n:2.34.6
+    image: n8nio/n8n:2.37.10
     container_name: cascade-n8n-app
     restart: unless-stopped
     depends_on:
@@ -50,20 +50,34 @@ services:
       N8N_PORT: 5678
       N8N_PROTOCOL: https
       N8N_EDITOR_BASE_URL: ${CASCADE_N8N_EDITOR_BASE_URL:-https://cascade-n8n.rocloyd.com}
-      WEBHOOK_URL: ${CASCADE_N8N_WEBHOOK_URL:-https://cascade-n8n.rocloyd.com/}
+      N8N_WEBHOOK_URL: ${CASCADE_N8N_WEBHOOK_URL:-https://cascade-n8n.rocloyd.com/}
       N8N_PROXY_HOPS: 1
       N8N_SECURE_COOKIE: "true"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_DIAGNOSTICS_ENABLED: "false"
+      EXTERNAL_FRONTEND_HOOKS_URLS: ""
+      N8N_DIAGNOSTICS_CONFIG_FRONTEND: ""
+      N8N_DIAGNOSTICS_CONFIG_BACKEND: ""
       N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
       N8N_TEMPLATES_ENABLED: "false"
+      N8N_DISABLED_MODULES: mcp
+      N8N_UNVERIFIED_PACKAGES_ENABLED: "false"
+      N8N_COMMUNITY_PACKAGES_ENABLED: "false"
+      N8N_PUBLIC_API_DISABLED: "true"
+      N8N_PUBLIC_API_SWAGGERUI_DISABLED: "true"
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_HIRING_BANNER_ENABLED: "false"
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
       N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES: "true"
+      N8N_SSRF_PROTECTION_ENABLED: "true"
       N8N_LOG_LEVEL: info
       N8N_LOG_OUTPUT: console
       N8N_CONCURRENCY_PRODUCTION_LIMIT: 5
+      N8N_RUNNERS_TASK_TIMEOUT: 300
+      N8N_RUNNERS_MODE: internal
+      N8N_NATIVE_PYTHON_RUNNER: "false"
+      N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES: 268435456
+      N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES: 1000
       EXECUTIONS_TIMEOUT: 900
       EXECUTIONS_DATA_PRUNE: "true"
       EXECUTIONS_DATA_MAX_AGE: 336
@@ -92,6 +106,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
+      - /home/node/.cache:size=128m,mode=1777
     cap_drop:
       - ALL
     security_opt:

@@ -14,7 +14,7 @@
 
 **Next safe outcome:** Complete Phase P1 recovery and deployment packet locally
 
-**P1 continuation:** See the [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md). Local preparation identified a security blocker in the historical image pin and recovery-tooling gaps. P1 remains incomplete; P2/P3 are not ready for approval. The [validation record](../validation/2026-09-06-p1-packet-review.md) separates fresh local checks from missing runtime proof.
+**P1 continuation:** See the [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) and [local completion evidence](../validation/2026-09-06-p1-local-completion.md). n8n 2.37.10, the hardened capped stack, inactive workflow recovery and encrypted new-stack restore now pass locally. P1 remains incomplete only for the separately approved encrypted restore of Alfred's existing shared n8n and verification of its actual storage/proxy topology. P2/P3 are not ready for approval.
 
 This is the canonical continuation handoff. It records the user's Portainer CE + n8n selection and the full path from the current local candidates to staged operational acceptance. The selection does not authorize a server or production change.
 

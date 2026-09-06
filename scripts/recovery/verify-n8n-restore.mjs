@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { compareWorkflowSets, inventoryWorkflowFiles } from './recovery-contract.mjs';
 
-const IMAGE = 'n8nio/n8n:2.34.6';
+const IMAGE = 'n8nio/n8n:2.37.10';
 const VOLUME_PATTERN = /^cascade-n8n-recovery-[a-z0-9]{8,32}$/;
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 

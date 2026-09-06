@@ -8,9 +8,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const infra = path.join(root, 'infrastructure', 'cascade-n8n');
 const read = (name) => readFile(path.join(infra, name), 'utf8');
 
-test('retains explicit historical image pins (not security or deployment approval)', async () => {
+test('pins the reviewed n8n and PostgreSQL images', async () => {
   const compose = await read('compose.yaml');
-  assert.match(compose, /image:\s*n8nio\/n8n:2\.34\.6\b/);
+  assert.match(compose, /image:\s*n8nio\/n8n:2\.37\.10\b/);
   assert.match(compose, /image:\s*postgres:17\.11-alpine3\.24\b/);
   assert.doesNotMatch(compose, /:(?:latest|stable|beta)\b/);
 });
@@ -49,6 +49,16 @@ test('binds only to localhost and applies health and resource boundaries', async
   assert.match(compose, /cpus:/);
   assert.match(compose, /no-new-privileges:true/);
   assert.match(compose, /internal:\s*true/);
+  assert.match(compose, /\/home\/node\/\.cache:size=128m,mode=1777/);
+  assert.match(compose, /N8N_UNVERIFIED_PACKAGES_ENABLED:\s*"false"/);
+  assert.match(compose, /N8N_COMMUNITY_PACKAGES_ENABLED:\s*"false"/);
+  assert.match(compose, /N8N_PUBLIC_API_DISABLED:\s*"true"/);
+  assert.match(compose, /N8N_DISABLED_MODULES:\s*mcp/);
+  assert.match(compose, /N8N_SSRF_PROTECTION_ENABLED:\s*"true"/);
+  assert.match(compose, /N8N_RUNNERS_MODE:\s*internal/);
+  assert.match(compose, /N8N_NATIVE_PYTHON_RUNNER:\s*"false"/);
+  assert.match(compose, /N8N_WEBHOOK_URL:/);
+  assert.doesNotMatch(compose, /^\s+WEBHOOK_URL:/m);
   assert.doesNotMatch(compose, /(?:^|\s)-?\s*"?0\.0\.0\.0:/m);
 });
 
@@ -59,6 +69,7 @@ test('uses a distinct HTTPS host and security headers', async () => {
   assert.match(caddy, /reverse_proxy\s+127\.0\.0\.1:\{\$CASCADE_N8N_BIND_PORT\}/);
   assert.match(caddy, /Strict-Transport-Security/);
   assert.match(caddy, /X-Content-Type-Options/);
+  assert.match(caddy, /request>uri\s+delete/);
 });
 
 test('requires encrypted external backups and disposable restore checks', async () => {
@@ -66,10 +77,23 @@ test('requires encrypted external backups and disposable restore checks', async 
   const restore = await read('restore-check.ps1');
   assert.match(backup, /CASCADE_BACKUP_DIR/);
   assert.match(backup, /AGE_RECIPIENT/);
+  assert.match(backup, /Quiesce/);
+  assert.match(backup, /cascade-environment\.env/);
+  assert.match(backup, /cascade-files\.tar\.gz/);
+  assert.match(backup, /recovery-metadata\.json/);
+  assert.match(backup, /INCOMPLETE/);
+  assert.match(backup, /COMPLETE/);
+  assert.match(backup, /--network', 'none/);
   assert.match(backup, /age(?:\.exe)?/i);
   assert.match(backup, /finally/i);
   assert.match(restore, /cascade-restore-check-/);
   assert.match(restore, /AGE_IDENTITY_FILE/);
+  assert.match(restore, /SHA256SUMS/);
+  assert.match(restore, /network', 'create', '--internal/);
+  assert.match(restore, /export:credentials/);
+  assert.match(restore, /--decrypted/);
+  assert.match(restore, /workflow_count/);
+  assert.match(restore, /credential_count/);
   assert.doesNotMatch(`${backup}\n${restore}`, /Remove-Item\s+[^\r\n]*(?:\$HOME|~|["']?\/["']?)/i);
 });
 
@@ -86,4 +110,5 @@ test('runbook gates deployment, activation, capacity, and rollback', async () =>
   assert.match(runbook, /disk/i);
   assert.match(runbook, /swap/i);
   assert.match(runbook, /port/i);
+  assert.match(runbook, /external runner sidecar/i);
 });

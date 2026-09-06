@@ -1,6 +1,6 @@
 # P1 packet review — 2026-09-06
 
-Status: local preparation verified; P1 incomplete, P2/P3 held. Starting commit `b00ae93` on `codex/cascade-waves-0-1-sol`. Existing Task Master files and `.gitignore` changes preserved.
+Status: initial local preparation verified; superseded for current status by [P1 local completion](./2026-09-06-p1-local-completion.md). P2/P3 remain held. Starting commit `b00ae93` on `codex/cascade-waves-0-1-sol`. Existing Task Master files and `.gitignore` changes preserved.
 
 ## Findings
 

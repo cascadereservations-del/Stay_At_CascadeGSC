@@ -23,7 +23,7 @@ cascade-n8n.rocloyd.com {
       fields {
         request>headers>Authorization delete
         request>headers>Cookie delete
-        request>uri query
+        request>uri delete
       }
     }
   }

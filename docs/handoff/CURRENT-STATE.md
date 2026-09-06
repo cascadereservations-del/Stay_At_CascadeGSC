@@ -2,7 +2,7 @@
 
 ## Source precedence
 
-P1 continuation on 2026-09-06: [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) prepared locally. P1 remains incomplete: the historical n8n pin is blocked pending a security-tested replacement, existing recovery scripts do not prove credential recovery, and Alfred runtime capture/restore still requires separate approval. P2/P3 are not ready for approval.
+P1 continuation on 2026-09-06: [recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) and [local validation](../validation/2026-09-06-p1-local-completion.md) prepared. The replacement n8n pin, capped stack and new-stack encrypted recovery tooling now pass locally, including a synthetic credential-decryption proof. P1 remains open only for the separately approved encrypted recovery of Alfred's existing shared n8n and verification of its actual storage/proxy topology. P2/P3 are not ready for approval.
 
 Use evidence in this order when records disagree:
 

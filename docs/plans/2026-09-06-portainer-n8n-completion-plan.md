@@ -81,6 +81,6 @@ Modules B–E and Waves 2–8 are local candidates with recorded tests. Wave 4 a
 
 ## Immediate next safe outcome
 
-Continuation evidence: the [P1 recovery/action packet](./2026-09-06-p1-recovery-action-packet.md) identifies a security blocker in the historical image pin and incomplete recovery tooling. P1 is not complete and P2/P3 must remain held until these findings and the Alfred restore proof are closed.
+Continuation evidence: the [P1 recovery/action packet](./2026-09-06-p1-recovery-action-packet.md) and [local completion record](../validation/2026-09-06-p1-local-completion.md) close the replacement-image, capped-stack and new-stack recovery-tooling work locally. P1 remains open for the separately approved encrypted restore of Alfred's existing shared n8n and verification of its actual storage/proxy topology. P2/P3 remain held.
 
-Complete P1 as a reviewable, redacted action packet. Do not start with Portainer stack creation. The packet must resolve the current n8n image pin against official release/security information at execution time, prove Alfred's existing n8n recovery, and show the exact P2/P3 commands and rollback before seeking action approval.
+Complete the remaining Alfred recovery step through the [existing-runtime procedure](../runbooks/alfred-existing-n8n-recovery.md). Do not start with Portainer stack creation. Record the redacted encrypted restore and actual proxy/storage topology, then finalize the action-time P2/P3 packet from those observed facts.

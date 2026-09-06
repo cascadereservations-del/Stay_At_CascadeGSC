@@ -2,7 +2,7 @@
 
 This runbook defines the selected new Cascade-only n8n service under `/opt/cascade/n8n`, managed through Alfred's existing Portainer CE and Docker Engine only after the detailed same-host gates pass. Do not add a second Docker daemon. The stack never reuses the existing n8n container, database, user, encryption key, volume, network, credentials, project/folder, hostname or backup set.
 
-The configuration retains the historical n8n 2.34.6 pin. **Do not deploy that pin:** the September 6 review found a newer published security fix. See the [P1 recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) for official sources, replacement-image validation requirements, recovery-tooling gaps and unresolved access topology. n8n is fair-code under its Sustainable Use License; it is not described as OSI open source.
+The isolated Cascade candidate pins n8n 2.37.10. The September 6 review found the historical 2.34.6 pin within affected ranges for newly published advisories; official advisories identify 2.37.7 or later on that release line as patched. See the [P1 recovery/action packet](../plans/2026-09-06-p1-recovery-action-packet.md) for official sources and validation evidence. Recheck releases and advisories at action time. Do not upgrade Alfred's existing n8n as part of this deployment. n8n is fair-code under its Sustainable Use License; it is not described as OSI open source.
 
 The 2026-09-05 SSH preflight found 3,224 MiB available RAM and 0 MiB swap on Alfred. A more detailed 2026-09-06 audit found 3,196–3,209 MiB available across repeated samples, load below 0.3 on four cores, 36 GB free disk, no current unhealthy container, no running-container restart/OOM flag, no kernel/Docker OOM evidence, and no active Ollama model. It also found Metabase consistently using about 1.459 GiB of its 1.5 GiB limit. See `docs/validation/2026-09-06-alfred-detailed-capacity-audit.md`.
 
@@ -61,6 +61,8 @@ After owner approval, start PostgreSQL first, confirm its health, then start n8n
 
 For an Alfred trial, keep all workflows inactive and omit real provider credentials for at least 72 hours. Stop only the `cascade-n8n` project if available memory remains below 1.5 GiB, swap use rises continuously, 15-minute load exceeds 3, an existing service restarts/OOMs, or free disk falls below 15 GB.
 
+The two-service dormant trial uses n8n's internal JavaScript runner and must not execute Code nodes. Every current Cascade workflow contains a JavaScript Code node. Before any P9 workflow activation, add and capacity-test a version-matched external runner sidecar or record a new reviewed architecture decision; n8n's official guidance does not recommend internal runners for production.
+
 Install the Caddy fragment only after its syntax check passes. Configure Cloudflare so the editor requires owner/admin identity. Create a separate scoped service token for signed webhook traffic; never share an interactive login credential. Do not log Authorization, Cookie or query-string values.
 
 Create named n8n users and enable MFA for owner/admin identities before connecting provider credentials.
@@ -71,7 +73,7 @@ Export a backup of the source workflows first. Import Cascade workflow JSON file
 
 ## Backup and restore proof
 
-Set `CASCADE_BACKUP_DIR` to an absolute path outside the repository and `AGE_RECIPIENT` to the offline recovery public key. The existing `backup.ps1` and `restore-check.ps1` are incomplete candidates: do not execute them against production or accept their success messages as recovery proof until the defects in the [P1 packet](../plans/2026-09-06-p1-recovery-action-packet.md) are resolved. Required proof includes the matching encryption key, credential decryption, consistent database/binary storage, workflow comparison, encrypted checksums, off-host copy and isolated restore. They do not back up Alfred's existing shared runtime.
+Set `CASCADE_BACKUP_DIR` to an absolute path outside the repository and `AGE_RECIPIENT` to the offline recovery public key. Run `backup.ps1 -Quiesce` only in an approved maintenance action, copy the complete encrypted set off-host, then run `restore-check.ps1` from an owner-controlled workstation with `AGE_IDENTITY_FILE`. The scripts passed a local synthetic encrypted round trip with 13 inactive workflows and one credential-decryption proof. Production acceptance still requires protected key custody, the off-host copy, and dated evidence. These scripts target the new Cascade stack; use the separate [Alfred existing-n8n procedure](./alfred-existing-n8n-recovery.md) for the shared runtime.
 
 ## Rollback
 

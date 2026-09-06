@@ -1,20 +1,20 @@
 # P1 recovery and proposed P2/P3 action packet
 
-Date: 2026-09-06. Source baseline: `b00ae93`, branch `codex/cascade-waves-0-1-sol`.
+Date: 2026-09-06. Continuation baseline: `ba19507`, branch `codex/cascade-waves-0-1-sol`.
 
-**Verdict: P1 incomplete; P2/P3 NOT READY FOR APPROVAL.** This is a local preparation packet, not permission to capture production data or change Alfred. No recovery capture, server connection, swap, stack, route, secret, provider or production action was performed for this packet.
+**Verdict: local P1 work complete; Alfred recovery proof remains open; P2/P3 NOT READY FOR APPROVAL.** This is a local preparation packet, not permission to capture production data or change Alfred. No Alfred connection, production recovery capture, swap, stack, route, provider or production action was performed for this packet.
 
 ## Evidence and unresolved inputs
 
 | Item | Current evidence | Required closure |
 | --- | --- | --- |
-| Source workflows | 13 inactive exports; historical disposable source round trip | Repeat on the selected replacement image, without provider credentials |
+| Source workflows | 13 inactive exports round-tripped on 2.37.10 with semantic hash `d3077384d1bc...` | Complete locally |
 | Alfred recovery | No approved runtime backup/restore evidence | Approved encrypted capture and isolated credential-decryption proof |
-| Image | Source pins 2.34.6; rejected for new deployment pending security remediation | Review replacement release, all applicable advisories, registry digest and compatibility |
-| Compose | Capped two-service source; example render is syntax evidence only | Private action-time render with independent secrets and reviewed image digest |
+| Image | 2.37.10 selected; official affected/fixed ranges reviewed; local amd64 digest and workflow compatibility proven | Recheck advisories and host-architecture digest at action time |
+| Compose | Hardened capped two-service candidate starts healthy locally; encrypted synthetic restore passes | Private action-time render with independent secrets |
 | Host | Historical 0 MiB swap; capacity audit is not a fresh baseline | Approved swap action, fresh baseline and peak-load evidence |
 | Proxy | Caddy fragment assumes proxy can reach host loopback | Verify proxy topology, Access enforcement, origin bypass denial and log redaction |
-| Recovery tooling | Current scripts are partial checks | Resolve gaps below before using them as recovery gates |
+| Recovery tooling | Quiesced encrypted capture and isolated restore scripts pass with 13 workflows and one synthetic credential | Alfred uses its separate observed-topology procedure |
 
 ## Action-time image review
 
@@ -22,7 +22,7 @@ The official [2.34.6 release](https://github.com/n8n-io/n8n/releases/tag/n8n%402
 
 [GHSA-6xcw-7xm6-48c6](https://github.com/n8n-io/n8n/security/advisories/GHSA-6xcw-7xm6-48c6), published September 2, describes a high-severity legacy expression-engine escape, patched in 2.37.7 and other supported lines. The existing 2.34.6 pin must not be treated as a deployment-approved stable release. Do not upgrade Alfred's existing runtime as part of Cascade preparation.
 
-Before selecting the new pin, review the full [official advisory inventory](https://github.com/n8n-io/n8n/security/advisories), record applicable affected/fixed ranges, resolve the registry digest for the host architecture, and run inactive import/export plus capped PostgreSQL startup tests on disposable local resources. The existing source pin is retained as historical recovery input, explicitly blocked for deployment. Do not equate release existence with a verified image pull or runtime test.
+The selected candidate is n8n 2.37.10. The official September 2–3 advisories reviewed for the 2.37 line identify 2.37.7 or later as patched. Local `linux/amd64` validation resolved `n8nio/n8n@sha256:307d6065be25619aa24cfc63a7c2f04ca56d084a08c05c8e9f189a89f353b1ec`, round-tripped all 13 workflows inactive with semantic hash `d3077384d1bca5cf6d9941eb1a104183c3348f964ebba49741baf6436c4cd8ce`, and started the capped PostgreSQL/n8n pair healthy with zero restarts. Recheck the official advisory inventory and resolve the target-host digest immediately before P3.
 
 ## Existing Alfred recovery: next separate approval boundary
 
@@ -36,16 +36,19 @@ Restore into uniquely named local resources with no host ports, no production mo
 
 Approval scope for this next step: encrypted production-data capture and local isolated restore only. No Alfred restart, upgrade, swap, stack creation, provider call or workflow execution. Final capture commands depend on a read-only topology inventory and the chosen protected artifact destination; these inputs remain unresolved, so a copy-and-run capture command is intentionally not claimed ready.
 
-## Recovery tooling defects to resolve before execution
+## Recovery tooling closure
 
-`infrastructure/cascade-n8n/backup.ps1` and `restore-check.ps1` are new-Cascade candidates, not Alfred recovery tooling. Their present success messages do not close P1 or P4:
+`infrastructure/cascade-n8n/backup.ps1` and `restore-check.ps1` are verified candidates for the new Cascade stack; they do not back up Alfred's existing shared runtime. The local proof used n8n 2.37.10, PostgreSQL 17.11, 13 inactive workflows, one synthetic encrypted credential, a temporary age identity and no provider access. It proved:
 
-- Backup does not explicitly preserve the environment-supplied encryption key/JWT configuration; a data-volume archive is insufficient when the encryption key comes from the environment.
-- Backup takes database and volume snapshots separately without a consistency protocol and omits the `./files` bind mount.
-- Database/user arguments come from the caller environment, although the Compose environment file is a separate input.
-- Restore does not verify the encrypted manifest before decryption, decrypt credentials, compare workflow semantics, or run n8n readiness checks. A queryable workflow table and a `config` file are insufficient proof.
-- Restore helpers use default Docker networking, allowing outbound access; production-data recovery requires an isolated network before credentials are restored.
-- Helper image availability, runtime prerequisites, and every external process exit status need validation. The host is Linux while these scripts require PowerShell; no PowerShell installation on Alfred is authorized or assumed.
+- explicit `-Quiesce`, with restart only when the script stopped n8n;
+- an engine-supported database dump plus n8n data, `files`, environment/key escrow and metadata artifacts;
+- ciphertext checksums and `INCOMPLETE`/`COMPLETE` markers;
+- a uniquely prefixed Docker-internal restore with no published port;
+- restored workflow, active-workflow and credential counts matching captured metadata;
+- successful workflow export and successful decrypted credential export inside ephemeral container storage;
+- cleanup of the exact disposable containers, volumes, network, plaintext and temporary identity.
+
+The selected host has no assumed PowerShell dependency. Alfred's existing runtime follows [its observed-topology recovery procedure](../runbooks/alfred-existing-n8n-recovery.md); exact capture commands are finalized after its approved read-only inventory.
 
 ## Proposed P2: host protection
 
@@ -93,4 +96,4 @@ Before execution verify the file's project and container names against this pack
 
 ## Exit record
 
-P1 may close only when the image/security decision, Alfred encrypted restore, corrected backup/restore implementation, validated private Compose/proxy plan and exact reviewed host commands all have evidence. P2/P3 approval must name the final source commit and action scope. The present document does not satisfy those exits.
+The image/security decision, new-stack recovery tooling and local capped-stack proof are complete. P1 closes only when Alfred's encrypted restore and actual proxy/storage topology have dated evidence through the dedicated procedure. P2/P3 approval must name the final source commit and action scope. The present packet does not satisfy that remaining live-runtime exit.
