@@ -11,7 +11,9 @@ set -euo pipefail
 
 SSH_HOST="${CASCADE_SSH_HOST:-alfred}"
 BACKUP_ROOT="${CASCADE_BACKUP_DIR:?CASCADE_BACKUP_DIR is required (absolute path outside the repository)}"
-AGE_RECIPIENT="${AGE_RECIPIENT:?AGE_RECIPIENT is required}"
+AGE_RECIPIENT="${AGE_RECIPIENT:-}"
+if [[ -z "$AGE_RECIPIENT" && -n "${AGE_RECIPIENT_FILE:-}" ]]; then AGE_RECIPIENT="$(tr -d '\r\n' < "$AGE_RECIPIENT_FILE")"; fi
+[[ -n "$AGE_RECIPIENT" ]] || { echo 'AGE_RECIPIENT or AGE_RECIPIENT_FILE is required' >&2; exit 2; }
 QUIESCE="${1:-}"
 APP=cascade-n8n-app
 PG=cascade-n8n-postgres
