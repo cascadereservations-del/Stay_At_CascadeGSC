@@ -36,7 +36,8 @@ trap cleanup EXIT
 
 rssh "docker image inspect $PG_IMAGE_ID >/dev/null" || { echo 'pinned postgres image missing on Alfred' >&2; exit 3; }
 rssh "mkdir -p $remote_tmp && chmod 700 $remote_tmp"
-openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha512 -pass "file:$PASS_FILE" -in "$SET_DIR/cascade-production.dump.enc" \
+pass_path="$PASS_FILE"; command -v cygpath >/dev/null && pass_path="$(cygpath -w "$PASS_FILE")"
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha512 -pass "file:$pass_path" -in "$SET_DIR/cascade-production.dump.enc" \
   | rssh "umask 077; cat > $remote_tmp/cascade-production.dump"
 
 rssh bash -s -- "$prefix" "$remote_tmp" "$PG_IMAGE_ID" "$EXPECTED_LEDGER" <<'REMOTE'

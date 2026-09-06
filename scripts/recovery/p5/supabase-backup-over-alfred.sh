@@ -41,8 +41,11 @@ rssh "mkdir -p $remote_tmp && chmod 700 $remote_tmp"
 tr -d '\r\n' < "$URL_FILE" | rssh "umask 077; cat > $remote_tmp/url"
 
 # Stream: pg_dump (custom format) on Alfred -> ssh -> openssl on the workstation.
-rssh "docker run --rm --pull never -v $remote_tmp:/run/secrets:ro --entrypoint sh $PG_IMAGE_ID -c 'exec pg_dump \"\$(cat /run/secrets/url)\" --format=custom --no-owner --no-acl'" \
-  | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -md sha512 -salt -pass "file:$PASS_FILE" -out "$set_dir/cascade-production.dump.enc"
+# Host networking: the Supabase direct host is IPv6-only and the Docker bridge has no IPv6 route.
+# mingw OpenSSL needs a Windows path for -pass file:.
+pass_path="$PASS_FILE"; command -v cygpath >/dev/null && pass_path="$(cygpath -w "$PASS_FILE")"
+rssh "docker run --rm --pull never --network host -v $remote_tmp:/run/secrets:ro --entrypoint sh $PG_IMAGE_ID -c 'exec pg_dump \"\$(cat /run/secrets/url)\" --format=custom --no-owner --no-acl'" \
+  | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -md sha512 -salt -pass "file:$pass_path" -out "$set_dir/cascade-production.dump.enc"
 [[ -s "$set_dir/cascade-production.dump.enc" ]] || { echo 'encrypted dump is empty' >&2; exit 4; }
 trap - EXIT; cleanup
 
