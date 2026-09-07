@@ -1,5 +1,7 @@
 # Portainer CE + n8n completion plan
 
+**P5 update (2026-09-07 ~15:00 UTC): gate 1 attempt 4 FAILED on both hosts** after a fresh password reset and a structurally clean Session-pooler string (pooler and direct IPv6 host both return `password authentication failed for user "postgres"`). Five attempts across four resets now; escalated per the standing rule — next diagnostic is setting the role password by SQL in the dashboard editor rather than the reset dialog, then one run. See vault 00-STATE.
+
 **P5 update (2026-09-07 ~09:45 UTC): gate 2 read-only evidence gathered.** Live ledger = 61 migrations, all present locally; 18 local files unledgered (`20260824045800_dispatch_w01_to_n8n` is live-but-unledgered, the rest are the Module A / B–E candidates awaiting release). Gate 1 unchanged.
 
 **P5 update (2026-09-07 ~06:30 UTC): GATE 1 BLOCKED, DEFERRED.** Supabase production backup (`scripts/recovery/p5/supabase-backup-over-alfred.sh`) has failed `password authentication failed for user "postgres"` on 3 separate password resets, against both the Direct connection host and the Session pooler host — ruling out a host/tab mistake. A redacted structural diagnostic found the stored password value syntactically clean, so the defect is most likely a wrong byte in manual percent-encoding, or a stale password copy. Deferred at Lloyd's request 2026-09-07; see `04-HANDOFF-cascade.md` in the vault for full detail and the next unblock step. Gates 2–6 not started.
