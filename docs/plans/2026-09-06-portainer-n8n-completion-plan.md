@@ -1,5 +1,7 @@
 # Portainer CE + n8n completion plan
 
+**P5 update (2026-09-07 ~09:45 UTC): gate 2 read-only evidence gathered.** Live ledger = 61 migrations, all present locally; 18 local files unledgered (`20260824045800_dispatch_w01_to_n8n` is live-but-unledgered, the rest are the Module A / B–E candidates awaiting release). Gate 1 unchanged.
+
 **P5 update (2026-09-07 ~06:30 UTC): GATE 1 BLOCKED, DEFERRED.** Supabase production backup (`scripts/recovery/p5/supabase-backup-over-alfred.sh`) has failed `password authentication failed for user "postgres"` on 3 separate password resets, against both the Direct connection host and the Session pooler host — ruling out a host/tab mistake. A redacted structural diagnostic found the stored password value syntactically clean, so the defect is most likely a wrong byte in manual percent-encoding, or a stale password copy. Deferred at Lloyd's request 2026-09-07; see `04-HANDOFF-cascade.md` in the vault for full detail and the next unblock step. Gates 2–6 not started.
 
 **P4 update (2026-09-06 ~16:30 UTC): COMPLETE.** Encrypted backup and disposable restore proof both passed (13/0/0 aggregates, semantic hash match, zero cleanup leftovers). 72-hour soak started 2026-09-06T16:16Z on Alfred, completes earliest 2026-09-09T16:16Z — not yet evaluated as of this update. See [P4 evidence](../validation/2026-09-06-p4-recovery-drill.md). This soak gates P9 only; P5 was authorized to proceed in parallel.
