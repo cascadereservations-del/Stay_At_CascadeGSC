@@ -1,0 +1,89 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cascade owner TOTP enrolment</title>
+<style>
+  body{font:15px/1.5 -apple-system,Segoe UI,sans-serif;background:#F7F2E8;color:#1C1006;margin:0;padding:32px;max-width:520px}
+  h1{font-weight:600;font-size:22px;margin:0 0 4px}
+  p{margin:8px 0}
+  label{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#7A6650;margin-top:14px}
+  input{width:100%;box-sizing:border-box;padding:10px;border:1px solid #CDBFA6;border-radius:4px;font-size:16px;background:#fff}
+  button{margin-top:14px;padding:10px 16px;border:0;border-radius:4px;background:#1C1006;color:#F7F2E8;font-size:15px;cursor:pointer}
+  button:disabled{opacity:.5}
+  .box{background:#FCF9F3;border:1px solid #E3D8C6;padding:16px;margin-top:16px;border-radius:4px}
+  .ok{color:#3E7D57;font-weight:600}.err{color:#A33;font-weight:600}
+  img{width:220px;height:220px;display:block;margin:12px auto;background:#fff;border:1px solid #E3D8C6}
+  code{background:#F3E7CF;padding:1px 5px;border-radius:2px}
+</style>
+<h1>Cascade owner TOTP enrolment</h1>
+<p>One-time, local-only page. It talks directly to the Cascade Supabase project with the public key. Nothing you type here leaves your browser except to Supabase Auth.</p>
+
+<div class="box" id="step1">
+  <strong>1. Sign in with the owner account</strong> (the same login as the admin dashboard)
+  <label for="email">E-mail</label><input id="email" type="email" autocomplete="username">
+  <label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">
+  <button id="btn-signin">Sign in</button>
+  <p id="msg1"></p>
+</div>
+
+<div class="box" id="step2" hidden>
+  <strong>2. Scan this in your authenticator app</strong>
+  <img id="qr" alt="TOTP QR code">
+  <p>Manual key if the camera fails: <code id="secret"></code></p>
+  <label for="code">6-digit code from the app</label><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+  <button id="btn-verify">Verify and finish</button>
+  <p id="msg2"></p>
+</div>
+
+<div class="box" id="step3" hidden>
+  <strong>3. Result</strong>
+  <p id="msg3"></p>
+  <button id="btn-signout">Sign out of this page</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = 'https://qkgfhsdppslwunarczeq.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+const $ = id => document.getElementById(id);
+let factorId = null;
+
+$('btn-signin').onclick = async () => {
+  $('btn-signin').disabled = true; $('msg1').textContent = '';
+  const { data, error } = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('pw').value });
+  $('pw').value = '';
+  if (error) { $('msg1').innerHTML = '<span class="err">' + error.message + '</span>'; $('btn-signin').disabled = false; return; }
+  const role = data.user?.app_metadata?.role || 'none';
+  const { data: factors } = await sb.auth.mfa.listFactors();
+  const verified = (factors?.totp || []).filter(f => f.status === 'verified');
+  if (verified.length) {
+    factorId = verified[0].id;
+    $('msg1').innerHTML = 'Signed in (role: <code>' + role + '</code>). A verified TOTP factor already exists. Enter the current code to prove <code>aal2</code>.';
+    $('step2').hidden = false; $('qr').hidden = true; $('secret').parentElement.hidden = true;
+    return;
+  }
+  const { data: enrol, error: enrolErr } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Cascade owner' });
+  if (enrolErr) { $('msg1').innerHTML = '<span class="err">' + enrolErr.message + '</span>'; $('btn-signin').disabled = false; return; }
+  factorId = enrol.id;
+  $('qr').src = enrol.totp.qr_code;
+  $('secret').textContent = enrol.totp.secret;
+  $('msg1').innerHTML = 'Signed in (role: <code>' + role + '</code>). No TOTP factor yet; one has been created and is waiting for its first code.';
+  $('step2').hidden = false;
+};
+
+$('btn-verify').onclick = async () => {
+  $('btn-verify').disabled = true; $('msg2').textContent = '';
+  const { data: ch, error: chErr } = await sb.auth.mfa.challenge({ factorId });
+  if (chErr) { $('msg2').innerHTML = '<span class="err">' + chErr.message + '</span>'; $('btn-verify').disabled = false; return; }
+  const { error: vErr } = await sb.auth.mfa.verify({ factorId, challengeId: ch.id, code: $('code').value.trim() });
+  if (vErr) { $('msg2').innerHTML = '<span class="err">' + vErr.message + '</span>'; $('btn-verify').disabled = false; return; }
+  const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  const { data: factors } = await sb.auth.mfa.listFactors();
+  const verified = (factors?.totp || []).filter(f => f.status === 'verified').length;
+  $('step3').hidden = false;
+  $('msg3').innerHTML = '<span class="ok">Done.</span> Verified TOTP factors: <code>' + verified + '</code>. This session is now <code>' + aal.currentLevel + '</code> (next level <code>' + aal.nextLevel + '</code>). Time: ' + new Date().toISOString();
+};
+
+$('btn-signout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
+</script>
