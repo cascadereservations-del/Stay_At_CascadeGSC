@@ -17,6 +17,11 @@ export type ParseResult =
   | { ok: true; value: ParsedUpload }
   | { ok: false; error: string; status: number };
 
+// The final size ceiling index.ts enforces on decoded bytes, for either
+// shape. Exported so both parse-request.ts's early raw-body Content-Length
+// check and index.ts's post-parse bytes.byteLength check use one number.
+export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
 // Decode a base64 string that may or may not carry a data-URI prefix.
 export function decodeBase64(raw: string): Uint8Array {
   const clean = raw.includes(',') ? raw.split(',')[1] : raw;
@@ -73,6 +78,15 @@ async function parseRawBody(req: Request, contentType: string): Promise<ParseRes
       error: 'x-cascade-file-name, x-cascade-property-id and x-cascade-submission-id headers are required',
       status: 400,
     };
+  }
+  // Same size ceiling the JSON path checks before atob() — reject an
+  // oversized body from its declared Content-Length before buffering it,
+  // rather than only catching it after req.arrayBuffer() has already paid
+  // the cost. A missing/lying Content-Length still falls through to the
+  // post-parse bytes.byteLength check in index.ts, same as before.
+  const declaredLength = Number(req.headers.get('content-length') || 0);
+  if (declaredLength > MAX_UPLOAD_BYTES) {
+    return { ok: false, error: 'invalid_image_size', status: 413 };
   }
   const arrayBuffer = await req.arrayBuffer();
   return { ok: true, value: { bytes: new Uint8Array(arrayBuffer), fileName, mimeType, propertyId, submissionId } };

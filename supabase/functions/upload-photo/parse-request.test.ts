@@ -1,4 +1,4 @@
-import { decodeBase64, parseUploadRequest, safeFileName } from './parse-request.ts';
+import { decodeBase64, MAX_UPLOAD_BYTES, parseUploadRequest, safeFileName } from './parse-request.ts';
 
 function equal(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) throw new Error(`${message}: expected ${String(expected)}, got ${String(actual)}`);
@@ -91,6 +91,25 @@ Deno.test('raw shape (WP3): rejects a raw body missing any x-cascade-* header', 
   equal(result.ok, false, 'missing header must fail');
   if (result.ok) throw new Error('unreachable');
   equal(result.status, 400, 'missing header status');
+});
+
+Deno.test('raw shape: rejects an oversized body by its declared Content-Length, before buffering', async () => {
+  const req = new Request('https://example.test/upload-photo', {
+    method: 'POST',
+    headers: {
+      'content-type': 'image/jpeg',
+      'content-length': String(MAX_UPLOAD_BYTES + 1),
+      'x-cascade-file-name': 'x.jpg',
+      'x-cascade-property-id': PROPERTY_ID,
+      'x-cascade-submission-id': SUBMISSION_ID,
+    },
+    body: new ArrayBuffer(4), // small actual body — the declared header is what must be checked
+  });
+  const result = await parseUploadRequest(req);
+  equal(result.ok, false, 'oversized declared Content-Length must fail');
+  if (result.ok) throw new Error('unreachable');
+  equal(result.status, 413, 'oversized status');
+  equal(result.error, 'invalid_image_size', 'oversized error code');
 });
 
 Deno.test('safeFileName rejects unsupported extensions', () => {

@@ -2,7 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
-import { parseUploadRequest, safeFileName } from './parse-request.ts';
+import { MAX_UPLOAD_BYTES, parseUploadRequest, safeFileName } from './parse-request.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -45,7 +45,7 @@ Deno.serve(withObservability({ functionName: 'upload-photo', route: 'ops' }, asy
       { auth: { persistSession: false } }
     );
 
-    if (bytes.byteLength === 0 || bytes.byteLength > 5 * 1024 * 1024) {
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_UPLOAD_BYTES) {
       return json({ ok: false, error: 'invalid_image_size' }, 413);
     }
     const path = `${propertyId}/${identity.userId}/${submissionId}/${crypto.randomUUID()}-${safeFileName(fileName)}`;
