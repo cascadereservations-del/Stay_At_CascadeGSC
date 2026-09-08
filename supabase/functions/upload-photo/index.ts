@@ -2,10 +2,12 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
+import { parseUploadRequest, safeFileName } from './parse-request.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-cascade-file-name, x-cascade-property-id, x-cascade-submission-id',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -16,33 +18,19 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-// Decode base64 string that may or may not carry a data-URI prefix
-function decodeBase64(raw: string): Uint8Array {
-  const clean = raw.includes(',') ? raw.split(',')[1] : raw;
-  const binary = atob(clean);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-function safeFileName(raw: string): string {
-  const clean = raw.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  if (!clean || clean.length > 120 || !/\.(jpe?g|png|webp)$/.test(clean)) {
-    throw new Error('invalid_file_name');
-  }
-  return clean;
-}
-
 Deno.serve(withObservability({ functionName: 'upload-photo', route: 'ops' }, async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
   try {
-    const body = await req.json();
-    const { fileData, fileName, mimeType = 'image/jpeg', propertyId, submissionId } = body;
+    // Accepts the original JSON shape (fileData as base64) and, since WP3,
+    // a raw image body (Content-Type: image/*, metadata in x-cascade-*
+    // headers) — see parse-request.ts. Both converge on the same
+    // {bytes, fileName, mimeType, propertyId, submissionId} shape below, so
+    // nothing past this point branches on which one arrived.
+    const parsed = await parseUploadRequest(req);
+    if (!parsed.ok) return json({ ok: false, error: parsed.error }, parsed.status);
+    const { bytes, fileName, mimeType, propertyId, submissionId } = parsed.value;
 
-    if (!fileData || !fileName || !propertyId || !submissionId) {
-      return json({ ok: false, error: 'fileData, fileName, propertyId and submissionId are required' }, 400);
-    }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
       return json({ ok: false, error: 'unsupported_image_type' }, 415);
     }
@@ -57,10 +45,6 @@ Deno.serve(withObservability({ functionName: 'upload-photo', route: 'ops' }, asy
       { auth: { persistSession: false } }
     );
 
-    if (typeof fileData !== 'string' || fileData.length > 7_100_000) {
-      return json({ ok: false, error: 'invalid_image_size' }, 413);
-    }
-    const bytes = decodeBase64(fileData);
     if (bytes.byteLength === 0 || bytes.byteLength > 5 * 1024 * 1024) {
       return json({ ok: false, error: 'invalid_image_size' }, 413);
     }
