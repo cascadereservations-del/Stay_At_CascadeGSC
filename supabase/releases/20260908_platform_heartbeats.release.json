@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "release_id": "platform_heartbeats_20260908",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "a0bf38fc980a172ef691820dc4f13fcee79f0566"
+  },
+  "migrations": [
+    "20260828000300_job_heartbeats.sql",
+    "20260830070000_fix_price_history_view_recursion.sql"
+  ],
+  "migration_sha256": {
+    "20260828000300_job_heartbeats.sql": "c67f5afeec1a85faed2fce59560e432fc908f7e20ad8e7a46f4b8b03446e8e99",
+    "20260830070000_fix_price_history_view_recursion.sql": "9a2eb791cb7d2ffa75113ab5620d132fa8f89489c89919cc944b10ac84be1c2c"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260908T082012Z",
+    "verified_at": "2026-09-08T08:22:50Z",
+    "production_rule": "take a fresh encrypted set immediately before the window; the named set is 1,674,192 bytes with SHA256SUMS verified OK on 2026-09-08 and has no restore proof yet"
+  },
+  "forward_verification": [
+    {
+      "name": "job_heartbeat_objects_exist",
+      "query": "select to_regclass('public.job_heartbeats') is not null and has_function_privilege('service_role','public.record_job_heartbeat(text,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "job_heartbeats_are_not_client_readable",
+      "query": "select not has_table_privilege('anon','public.job_heartbeats','select') and not has_table_privilege('authenticated','public.job_heartbeats','select')",
+      "expect": true
+    },
+    {
+      "name": "price_history_view_no_longer_recurses",
+      "query": "select count(*) >= 0 from public.price_history_by_item",
+      "expect": true
+    },
+    {
+      "name": "price_history_keeps_its_six_column_contract",
+      "query": "select count(*) = 6 from information_schema.columns where table_schema = 'public' and table_name = 'price_history_by_item'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - neither change carries operational data. Heartbeat rows are observability only, and the view fix restores a contract that currently raises 42P17",
+    "steps": [
+      {
+        "name": "stop_heartbeat_writes",
+        "action": "revoke service_role EXECUTE on public.record_job_heartbeat; callers already tolerate a failed heartbeat by logging a warning and continuing"
+      },
+      {
+        "name": "retain_heartbeat_history",
+        "action": "keep public.job_heartbeats and its rows; they are the only record of scheduled-job liveness"
+      },
+      {
+        "name": "revert_the_view_only_if_it_regresses",
+        "action": "re-apply the previous price_history_by_item definition from the schema dump. The current production definition selects from itself and raises 42P17, so reverting restores a broken view - prefer a forward fix"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "scheduler_heartbeat_monitoring",
+      "required_state": "off until the job-heartbeat monitor function is deployed and its alert routing is reviewed; writing heartbeats is safe on its own"
+    }
+  ],
+  "compatibility": {
+    "mode": "additive_private_table_plus_view_repair",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "job_heartbeats adds one private table and two functions and nothing existing references them. The price-history change replaces a view whose live definition selects from itself and therefore always errors, so no working reader can regress. A static scan on 2026-09-08 found no destructive statement in either file. Left unverified until supabase/tests/database/job_heartbeats.sql and price_history_view.sql are actually run, which needs a working local Postgres."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "migration ledger differs from source",
+    "the production restore point is older than the window",
+    "any forward verification query returns anything other than its expected value",
+    "turnover-verifier v10 already calls record_job_heartbeat and currently logs a warning because the function does not exist. Applying this release makes those writes start landing, which is the intended effect and not a regression"
+  ]
+}

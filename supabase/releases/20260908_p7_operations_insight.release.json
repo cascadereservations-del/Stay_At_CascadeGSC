@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "release_id": "p7_operations_insight_20260908",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "a0bf38fc980a172ef691820dc4f13fcee79f0566"
+  },
+  "migrations": [
+    "20260905050000_cleaning_meter_verification.sql",
+    "20260905060000_inventory_forecast_purchase_review.sql",
+    "20260905070000_finance_reconciliation_analytics.sql"
+  ],
+  "migration_sha256": {
+    "20260905050000_cleaning_meter_verification.sql": "2bb425b650fc5d6214b936f581800d1ab0072e5eef92c9763f778fd621e2ccc4",
+    "20260905060000_inventory_forecast_purchase_review.sql": "649c5467de7a7481a006c5cd4f277ef50a95620f450cbeab677a3cf5ff90bce3",
+    "20260905070000_finance_reconciliation_analytics.sql": "2aa10afc29af997620adb063d8381abf3bc08419ae31130b0fc1a7f17ff69da0"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260908T082012Z",
+    "verified_at": "2026-09-08T08:22:50Z",
+    "production_rule": "take a fresh encrypted set immediately before the window; the named set is 1,674,192 bytes with SHA256SUMS verified OK on 2026-09-08 and has no restore proof yet"
+  },
+  "forward_verification": [
+    {
+      "name": "wave_3_to_5_tables_exist",
+      "query": "select to_regclass('public.cleaning_verification_evidence') is not null and to_regclass('public.cleaning_verification_reviews') is not null and to_regclass('public.inventory_stock_movements') is not null and to_regclass('public.inventory_forecasts') is not null and to_regclass('public.inventory_purchase_reviews') is not null and to_regclass('public.finance_reconciliation_candidates') is not null and to_regclass('public.finance_reconciliation_reviews') is not null and to_regclass('public.finance_reconciled_facts') is not null and to_regclass('public.management_target_versions') is not null",
+      "expect": true
+    },
+    {
+      "name": "operations_tables_are_not_anon_readable",
+      "query": "select not has_table_privilege('anon','public.cleaning_verification_evidence','select') and not has_table_privilege('anon','public.inventory_purchase_reviews','select') and not has_table_privilege('anon','public.finance_reconciled_facts','select')",
+      "expect": true
+    },
+    {
+      "name": "ops_roles_cannot_read_finance",
+      "query": "select not public.staff_access_allowed('cleaner','read_finance',null,'aal2') and not public.staff_access_allowed('inspector','read_finance',null,'aal2') and not public.staff_access_allowed('maintenance','read_finance',null,'aal2') and public.staff_access_allowed('finance','read_finance',null,'aal2')",
+      "expect": true
+    },
+    {
+      "name": "one_final_reconciliation_review_per_candidate",
+      "query": "select count(*) = 1 from pg_indexes where schemaname = 'public' and indexname = 'finance_reconciliation_final_review_idx'",
+      "expect": true
+    },
+    {
+      "name": "one_final_cleaning_review_per_session",
+      "query": "select count(*) = 1 from pg_indexes where schemaname = 'public' and indexname = 'cleaning_verification_final_review_idx'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "before any verification evidence, purchase review or reconciliation review row is written; after writes, retain the rows and apply a forward fix or restore the named production set",
+    "steps": [
+      {
+        "name": "disable_wave_entry_points",
+        "action": "revoke EXECUTE on public.record_cleaning_verification_evidence and public.review_cleaning_verification; the inventory and finance tables have no RPC entry point of their own yet"
+      },
+      {
+        "name": "preserve_review_records",
+        "action": "retain evidence, forecast, purchase-review and reconciliation rows; they are the audit trail for every decision already taken"
+      },
+      {
+        "name": "leave_existing_operations_untouched",
+        "action": "do not revert record_inventory_usage or submit-cleaning behaviour; this release adds parallel tables and reads nothing the live path writes"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "purchase_review_ui",
+      "required_state": "off until the owning product surfaces it; review must never be able to place an order"
+    },
+    {
+      "name": "finance_reconciliation_reporting",
+      "required_state": "off until reports disclose freshness and exclusions, which is a stated P7 acceptance criterion"
+    }
+  ],
+  "compatibility": {
+    "mode": "additive_private_tables",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "All three migrations create new tables, indexes and functions only. A static scan on 2026-09-08 found no rename, drop, truncate or delete in any of them, and none replaces public.staff_access_allowed, so no existing authority decision changes. Left unverified until the matching pgTAP files under supabase/tests/database are run, which needs a working local Postgres."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": true,
+    "automatic_deployment_authorized": false,
+    "real_role_smoke_required": true
+  },
+  "stop_conditions": [
+    "migration ledger differs from source",
+    "the production restore point is older than the window",
+    "any forward verification query returns anything other than its expected value",
+    "a real-role smoke test has not confirmed that purchase review cannot order and that an OPS role cannot read Finance - both are stated P7 acceptance criteria, not optional checks"
+  ]
+}

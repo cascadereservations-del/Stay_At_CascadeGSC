@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "release_id": "p8_guest_lifecycle_20260908",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "a0bf38fc980a172ef691820dc4f13fcee79f0566"
+  },
+  "migrations": [
+    "20260905040000_guest_shared_inbox.sql",
+    "20260905080000_crm_consent_lifecycle.sql",
+    "20260905090000_selective_marketing_review.sql"
+  ],
+  "migration_sha256": {
+    "20260905040000_guest_shared_inbox.sql": "126f5fa5db423db3e3dc66549e2cde53f78f61de62ea6874e8a685275d5205e0",
+    "20260905080000_crm_consent_lifecycle.sql": "a0778b043f7a8163b99ed0d15366c800c8f0765aa60191cb01a2aa714850967e",
+    "20260905090000_selective_marketing_review.sql": "421e3891281df6b1e813610fbbf91ff1995025503fbe832dbfb829154c78b5e3"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260908T082012Z",
+    "verified_at": "2026-09-08T08:22:50Z",
+    "production_rule": "take a fresh encrypted set immediately before the window; the named set is 1,674,192 bytes with SHA256SUMS verified OK on 2026-09-08 and has no restore proof yet"
+  },
+  "forward_verification": [
+    {
+      "name": "guest_lifecycle_tables_exist",
+      "query": "select to_regclass('public.guest_conversations') is not null and to_regclass('public.crm_guest_profiles') is not null and to_regclass('public.crm_consent_events') is not null and to_regclass('public.crm_lifecycle_events') is not null and to_regclass('public.crm_retention_decisions') is not null and to_regclass('public.marketing_drafts') is not null and to_regclass('public.marketing_draft_reviews') is not null",
+      "expect": true
+    },
+    {
+      "name": "guest_and_crm_tables_are_not_anon_readable",
+      "query": "select not has_table_privilege('anon','public.guest_conversations','select') and not has_table_privilege('anon','public.crm_guest_profiles','select') and not has_table_privilege('anon','public.marketing_drafts','select')",
+      "expect": true
+    },
+    {
+      "name": "inbox_management_requires_aal2_owner_or_admin",
+      "query": "select public.staff_access_allowed('admin','manage_guest_inbox',null,'aal2') and not public.staff_access_allowed('admin','manage_guest_inbox',null,'aal1') and not public.staff_access_allowed('cleaner','manage_guest_inbox',null,'aal2') and not public.staff_access_allowed('finance','manage_guest_inbox',null,'aal2')",
+      "expect": true
+    },
+    {
+      "name": "earlier_authority_actions_survive_the_function_replacement",
+      "query": "select public.staff_access_allowed('admin','manage_privacy',null,'aal2') and public.staff_access_allowed('admin','manage_booking',null,'aal2') and public.staff_access_allowed('finance','approve_refund',null,'aal2') and public.staff_access_allowed('cleaner','submit_cleaning',null,'aal1')",
+      "expect": true
+    },
+    {
+      "name": "guest_contact_details_are_indexed_as_hashes",
+      "query": "select count(*) = 2 from pg_indexes where schemaname = 'public' and indexname in ('crm_guest_email_hash_idx','crm_guest_phone_hash_idx')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "before any conversation, consent event or marketing draft is written; consent and retention rows are legally meaningful once they exist, so after writes retain them and apply a forward fix",
+    "steps": [
+      {
+        "name": "disable_inbox_and_marketing_entry_points",
+        "action": "revoke EXECUTE on the guest inbox RPCs and the marketing draft review RPCs; leave every table and row in place"
+      },
+      {
+        "name": "preserve_consent_and_retention_records",
+        "action": "never delete crm_consent_events or crm_retention_decisions rows as part of a rollback - they are the evidence that consent was given or withdrawn at a point in time"
+      },
+      {
+        "name": "restore_the_previous_authority_function",
+        "action": "re-apply the staff_access_allowed body from 20260905030000_booking_lifecycle.sql. Never drop the function: every operational endpoint reaches it through current_staff_authorized"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "guest_inbox_ui",
+      "required_state": "off until the owning product surfaces it; no draft approval may send"
+    },
+    {
+      "name": "marketing_send",
+      "required_state": "off until a separate reviewed decision. Eligibility is not send authority, and consent must be re-checked at review and action time"
+    }
+  ],
+  "compatibility": {
+    "mode": "additive_private_tables_plus_superset_authority_function",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "All three migrations create new tables, indexes and functions. A static scan on 2026-09-08 found no rename, drop, truncate or delete. The only replacement is public.staff_access_allowed, whose 20260905040000 body is a strict superset of 20260905030000's - it adds manage_guest_inbox and keeps every earlier action. Left unverified until the matching pgTAP files under supabase/tests/database are run, which needs a working local Postgres."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": true,
+    "current_privacy_review_required": true,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "migration ledger differs from source",
+    "ORDERING HAZARD - this release replaces public.staff_access_allowed with the widest body in the chain (20260828000500, 20260831010000, 20260905030000, 20260905040000). Applying it before the P6 core-booking release would silently strip manage_booking, approve_refund and publish_rate_policy once P6 is applied later, and applying it before the privacy release would strip manage_privacy. Apply strictly in timestamp order and re-run every authority forward check afterwards",
+    "the privacy enforcement release and the P6 core booking release are not both applied first",
+    "the production restore point is older than the window",
+    "any forward verification query returns anything other than its expected value",
+    "no marketing send path may be enabled by this release under any circumstance"
+  ]
+}
