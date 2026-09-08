@@ -9,6 +9,7 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { turnoverWindow } from './manila-dates.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 
@@ -44,7 +45,15 @@ function fmtIssues(issues: string[]): string {
 Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }, async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
-  if (!cronSecretMatches(Deno.env.get('CASCADE_CRON_SHARED_SECRET'), req.headers.get('x-cascade-cron-secret'))) {
+  // pg_cron job 8 posts without a secret header today, and
+  // CASCADE_CRON_SHARED_SECRET is not configured on this project yet. Enforcing
+  // the header unconditionally would 401 every real run — which is why this
+  // hardened build could never be deployed. Enforce it only once the secret
+  // exists, so configuring the secret is itself the switch that turns the check
+  // on. Until then the posture is exactly what it is today: an open POST
+  // endpoint that only reads and alerts, and never accepts caller data.
+  const cronSecret = Deno.env.get('CASCADE_CRON_SHARED_SECRET');
+  if (cronSecret && !cronSecretMatches(cronSecret, req.headers.get('x-cascade-cron-secret'))) {
     return json({ ok: false, error: 'unauthorized' }, 401);
   }
 
@@ -77,21 +86,23 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
     return json({ ok: false, error: 'configuration_missing' }, 500);
   }
 
-  // Today in Manila time
-  const nowManila   = new Date(new Date().toLocaleString('en-CA', { timeZone: 'Asia/Manila' }));
-  const yesterday   = new Date(nowManila); yesterday.setDate(yesterday.getDate() - 1);
-  const twoDaysAgo  = new Date(nowManila); twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+  // Manila calendar dates, computed without round-tripping a locale string
+  // through Date — see manila-dates.ts for the v9 bug this replaces.
+  const { yesterday, twoDaysAgo } = turnoverWindow();
 
-  function toDateStr(d: Date): string {
-    return d.toISOString().slice(0, 10);
-  }
+  // ?dry=1 runs the read-only checks and reports what WOULD happen: no
+  // Telegram message, no row written, no alert stamp. It exists so this
+  // function can be verified by hand without messaging Finance or OPS.
+  const dryRun = new URL(req.url).searchParams.get('dry') === '1';
 
-  const results: Record<string, unknown> = {};
+  const results: Record<string, unknown> = { dry_run: dryRun };
 
   // PASS 1: yesterday -> Finance alert if issues
   try {
-    const d1 = toDateStr(yesterday);
-    const { data: v1 } = await supabase.rpc('verify_turnover', { p_checkout_date: d1 });
+    const d1 = yesterday;
+    const { data: v1, error: e1 } = await supabase.rpc('verify_turnover', { p_checkout_date: d1 });
+    if (e1) throw new Error(`verify_turnover failed: ${e1.message}`);
+    if (!v1) throw new Error('verify_turnover returned no result');
     const result1 = v1 as {
       check_passed: boolean;
       session_id: string | null;
@@ -107,7 +118,8 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
     // Upsert turnover_verification row
     const { data: prop } = await supabase.from('properties').select('id').limit(1).maybeSingle();
     const propertyId = prop?.id;
-    if (propertyId) {
+    if (!propertyId) throw new Error('no property row found');
+    if (propertyId && !dryRun) {
       await supabase
         .from('turnover_verification')
         .upsert({
@@ -128,7 +140,9 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
         .eq('checkout_date', d1)
         .maybeSingle();
 
-      if (!existingRow?.alert_24h_sent_at) {
+      if (dryRun) {
+        results.yesterday_would_alert = true;
+      } else if (!existingRow?.alert_24h_sent_at) {
         const issueText = fmtIssues(result1.issues);
         const sessionLine = result1.session_id
           ? `\uD83E\uDDF9 Cleaner: ${result1.cleaner_name ?? 'unknown'}  \u00b7  Photos: ${result1.total_photo_count}  \u00b7  Complete: ${result1.is_complete ? '\u2705' : '\u274C'}`
@@ -175,7 +189,7 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
 
   // PASS 2: two days ago -> OPS escalation if unresolved
   try {
-    const d2 = toDateStr(twoDaysAgo);
+    const d2 = twoDaysAgo;
     const { data: prop } = await supabase.from('properties').select('id').limit(1).maybeSingle();
     const propertyId = prop?.id;
 
@@ -187,13 +201,16 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
         .eq('checkout_date', d2)
         .maybeSingle();
 
-      if (
+      const escalationDue = Boolean(
         tvRow &&
         !tvRow.check_passed &&
         tvRow.alert_24h_sent_at &&
         !tvRow.alert_36h_sent_at &&
         !tvRow.resolved_at
-      ) {
+      );
+      if (escalationDue && dryRun) {
+        results.would_escalate = d2;
+      } else if (escalationDue && tvRow) {
         const issueText = fmtIssues(tvRow.issues ?? []);
         const lines = [
           `\uD83D\uDEA8 *Turnover Unresolved \u2014 ESCALATION*`,
