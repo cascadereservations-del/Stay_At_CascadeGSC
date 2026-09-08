@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "release_id": "p6_core_booking_20260908",
+  "phase": "contract",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "a0bf38fc980a172ef691820dc4f13fcee79f0566"
+  },
+  "migrations": [
+    "20260901010000_canonical_booking_decision.sql",
+    "20260905010000_payment_evidence_finance_review.sql",
+    "20260905020000_payment_review_queue.sql",
+    "20260905030000_booking_lifecycle.sql"
+  ],
+  "migration_sha256": {
+    "20260901010000_canonical_booking_decision.sql": "53f1fde58fe042dd5bc968c353c448b27a6350112ba3000c5cf0ea12b6ad73cd",
+    "20260905010000_payment_evidence_finance_review.sql": "9c1abecd6557d5ca717f7ffc8a845a09a2bca060b2e32a6b162ffeb11a8bec7c",
+    "20260905020000_payment_review_queue.sql": "25cbae70568b4ee6dbb8466cd554cbbd66ebae2349842f3a4ce2366d5e43b4ff",
+    "20260905030000_booking_lifecycle.sql": "df012b679c3f079ce77f2085e8d5711248bb658a3d4133b3ac53285f892bc462"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260908T082012Z",
+    "verified_at": "2026-09-08T08:22:50Z",
+    "production_rule": "restore-proved on 2026-09-08 in a disposable container: 44 public tables, 75 functions, ledger 68/68, zero leftovers. Take a fresh set immediately before the cutover window if this one has aged"
+  },
+  "forward_verification": [
+    {
+      "name": "booking_decision_objects_exist",
+      "query": "select to_regclass('public.booking_decisions') is not null and to_regclass('public.payment_evidence_candidates') is not null and to_regclass('public.payment_evidence_comparisons') is not null and to_regclass('public.payment_finance_reviews') is not null and to_regclass('public.booking_rate_policy_versions') is not null and to_regclass('public.booking_holds') is not null and to_regclass('public.booking_refund_authorizations') is not null and to_regclass('public.booking_lifecycle_events') is not null",
+      "expect": true
+    },
+    {
+      "name": "module_b_entry_point_was_superseded_not_left_open",
+      "query": "select to_regprocedure('public.decide_direct_booking_without_finance_review(uuid,text,text)') is not null and not has_function_privilege('anon','public.decide_direct_booking_without_finance_review(uuid,text,text)','execute') and not has_function_privilege('authenticated','public.decide_direct_booking_without_finance_review(uuid,text,text)','execute') and not has_function_privilege('service_role','public.decide_direct_booking_without_finance_review(uuid,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "booking_tables_are_not_anon_readable",
+      "query": "select not has_table_privilege('anon','public.booking_decisions','select') and not has_table_privilege('anon','public.payment_finance_reviews','select') and not has_table_privilege('anon','public.booking_refund_authorizations','select')",
+      "expect": true
+    },
+    {
+      "name": "refund_and_rate_policy_require_aal2",
+      "query": "select public.staff_access_allowed('admin','approve_refund',null,'aal2') and not public.staff_access_allowed('admin','approve_refund',null,'aal1') and public.staff_access_allowed('finance','approve_refund',null,'aal2') and not public.staff_access_allowed('cleaner','publish_rate_policy',null,'aal2')",
+      "expect": true
+    },
+    {
+      "name": "earlier_authority_actions_survive_the_function_replacement",
+      "query": "select public.staff_access_allowed('admin','manage_privacy',null,'aal2') and public.staff_access_allowed('cleaner','submit_cleaning',null,'aal1') and public.staff_access_allowed('finance','read_finance',null,'aal2') and not public.staff_access_allowed('cleaner','read_finance',null,'aal2')",
+      "expect": true
+    },
+    {
+      "name": "one_final_payment_review_per_booking",
+      "query": "select count(*) = 1 from pg_indexes where schemaname = 'public' and indexname = 'payment_finance_review_one_final_idx'",
+      "expect": true
+    },
+    {
+      "name": "existing_booking_data_survived_the_release",
+      "query": "select (select count(*) from public.booking_inquiries) >= 0 and (select count(*) from public.calendar_events) >= 0 and (select count(*) from public.airbnb_reservations) >= 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "before any booking decision, payment evidence row, finance review or refund authorization is written; after writes, retain the rows and apply a forward fix or restore the named production set",
+    "steps": [
+      {
+        "name": "disable_the_reviewed_booking_entry_point",
+        "action": "revoke EXECUTE on the reviewed decide_direct_booking overload; the live host-confirmed booking path does not call it, so nothing guest-facing changes"
+      },
+      {
+        "name": "do_not_rename_the_superseded_function_back",
+        "action": "decide_direct_booking_without_finance_review is deliberately unreachable and has no grants. Renaming it back would re-open an entry point that can decide a booking without Finance review"
+      },
+      {
+        "name": "disable_finance_review_entry_points",
+        "action": "revoke EXECUTE on public.record_payment_evidence_candidate and public.get_payment_review_queue; leave the tables and their rows in place"
+      },
+      {
+        "name": "restore_the_previous_authority_function",
+        "action": "re-apply the staff_access_allowed body from 20260831010000_privacy_requests_and_holds.sql, which is live as of 2026-09-08. Never drop the function: every operational endpoint reaches it through current_staff_authorized"
+      },
+      {
+        "name": "preserve_review_records",
+        "action": "retain decision, evidence, review, hold and lifecycle rows while the forward fix is prepared; they are the audit trail"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "direct_booking_decision_rpc",
+      "required_state": "off until a staffed smoke window confirms a decision round-trip and the Finance review queue renders"
+    },
+    {
+      "name": "payment_finance_review_ui",
+      "required_state": "off until the owning product surfaces the queue; the RPCs exist before any UI does"
+    }
+  ],
+  "compatibility": {
+    "mode": "contract_phase_supersede_plus_superset_authority_function",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed on 2026-09-08 by scripts/recovery/p6/migration-rehearsal-on-host.sh: the 2026-09-08 production set was restored into a disposable, network-internal container on the Docker host, all four migrations applied in timestamp order under ON_ERROR_STOP, and every forward_verification query asserted against the result. This is a contract-phase release because 20260905010000 renames Module B's decide_direct_booking to decide_direct_booking_without_finance_review and revokes every grant on it - a deliberate supersession of an entry point that could decide a booking without Finance review. Nothing outside this batch referenced the old name: it is created by 20260901010000 in the same batch and has never existed in production. The only other replacement is public.staff_access_allowed, whose 20260905030000 body is a strict superset of the live one, adding manage_booking, approve_refund and publish_rate_policy while keeping manage_privacy and every earlier action."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": true,
+    "automatic_deployment_authorized": false,
+    "staffed_smoke_window_required": true
+  },
+  "stop_conditions": [
+    "migration ledger differs from source",
+    "ORDERING HAZARD - public.staff_access_allowed is redefined by four migrations (20260828000500, 20260831010000, 20260905030000, 20260905040000) and each body is a superset of the one before it. Applying them out of timestamp order silently REMOVES actions. The privacy release went live on 2026-09-08, so this release must come next and the P8 guest-lifecycle release strictly after it",
+    "the production restore point is older than the cutover window",
+    "any forward verification query returns anything other than its expected value",
+    "decide_direct_booking_without_finance_review has any grant after the release - it must be unreachable"
+  ]
+}
