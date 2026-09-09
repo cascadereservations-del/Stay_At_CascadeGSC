@@ -77,10 +77,11 @@ privacy decision; park it.
       `job-heartbeat-monitor-every-15m` started/succeeded 21:15:03Z, 0 stale jobs. **Monitor is live.**
 - [ ] **S01 is authored** (`automation/n8n/workflows/CH-S01-host-alert-router.json`, Telegram node disabled) and its
       poll/ack endpoint `automation-host-alerts` is in source + manifest. Lloyd's setup, in order:
-      1. Deploy the endpoint: `npx supabase functions deploy automation-host-alerts --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
+      1. Deploy the endpoint **from the repo folder** (`cd C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol` first, or the CLI cannot find `supabase/functions/`):
+         `npx supabase functions deploy automation-host-alerts --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
       2. Two edge secrets in one PowerShell line (value generated locally, never pasted):
-         `$s = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 48 | ForEach-Object {[char]$_}); npx supabase secrets set N8N_HOST_ALERTS_SECRET=$s N8N_HOST_ALERTS_CHAT_ID=<your telegram chat id> --project-ref qkgfhsdppslwunarczeq; Set-Clipboard "Bearer $s"; "done - clipboard holds the Authorization header value"`
-         (chat id: message `@userinfobot` on Telegram; it is a number, not a secret)
+         `$s = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 48 | ForEach-Object {[char]$_}); npx supabase secrets set N8N_HOST_ALERTS_SECRET=$s N8N_HOST_ALERTS_CHAT_ID_FINANCE=-1003819352746 N8N_HOST_ALERTS_CHAT_ID_OPS=-1003798341977 --project-ref qkgfhsdppslwunarczeq; Set-Clipboard "Bearer $s"; "done - clipboard holds the Authorization header value"`
+         (group chat ids from @userinfobot, 2026-09-09: finance `-1003819352746`, ops `-1003798341977`; the bot must be a member of both groups)
       3. Tunnel to the stack editor: `ssh -L 5679:127.0.0.1:5679 alfred` then open http://localhost:5679 (owner MFA).
       4. Credentials, exactly these names: **Header Auth** `Cascade — Supabase/host-alerts` (Name `Authorization`, Value = paste clipboard);
          **Telegram API** `Cascade — Telegram/owner-alerts` (bot token from @BotFather).
