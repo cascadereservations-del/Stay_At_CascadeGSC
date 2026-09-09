@@ -26,12 +26,14 @@ for f in "$BT" "$DP" "$DO" "$WT"; do cp -p "$f" "$f.bak-$TS"; done
 echo "backups written with suffix .bak-$TS"
 
 # Digests observed running on 2026-09-09 (docker image inspect ... RepoDigests).
+# budget-tracker uses a templated tag ${IMAGE_TAG:-latest}; a digest reference
+# replaces the whole tag, so IMAGE_TAG in /opt/budget-tracker/.env becomes inert.
 python3 - "$BT" "$DP" "$DO" "$WT" <<'PY'
 import sys
 bt, dp, do, wt = sys.argv[1:5]
 pins = {
- "letehaha/budget-tracker-be:latest": "letehaha/budget-tracker-be@sha256:025b510fa45f8dadb263325a62158c4c5d06843228587ba48d6aa6b2c0c67c59",
- "letehaha/budget-tracker-fe:latest": "letehaha/budget-tracker-fe@sha256:4e59662cd67e01f5ecc4ba0ff5fb2cb801963b90e2d97b8ce0864a6c60f2f826",
+ "letehaha/budget-tracker-be:${IMAGE_TAG:-latest}": "letehaha/budget-tracker-be@sha256:025b510fa45f8dadb263325a62158c4c5d06843228587ba48d6aa6b2c0c67c59",
+ "letehaha/budget-tracker-fe:${IMAGE_TAG:-latest}": "letehaha/budget-tracker-fe@sha256:4e59662cd67e01f5ecc4ba0ff5fb2cb801963b90e2d97b8ce0864a6c60f2f826",
  "n8nio/n8n:latest":                  "n8nio/n8n@sha256:9f21fbf422982bbdddc31085c180bef82d59cc608ba16dfec4fc48611d0b51b8",
  "metabase/metabase:latest":          "metabase/metabase@sha256:94e647ce8ad35a639980778e9d422e5d55fcb48b5f7f1a055723ff4ee1faa46d",
 }
