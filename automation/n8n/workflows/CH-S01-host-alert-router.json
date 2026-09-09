@@ -139,7 +139,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').item.json.event_id, channel: 'telegram', status: $json.message_id ? 'sent' : 'skipped', provider_message_id: $json.message_id ? String($json.message_id) : null }) }}",
+        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').all()[$itemIndex].json.event_id, channel: 'telegram', status: $json.message_id ? 'sent' : 'skipped', provider_message_id: $json.message_id ? String($json.message_id) : null }) }}",
         "options": {
           "timeout": 15000
         }
@@ -166,7 +166,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').item.json.event_id, channel: 'internal', status: 'sent' }) }}",
+        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').all()[$itemIndex].json.event_id, channel: 'internal', status: 'sent' }) }}",
         "options": {
           "timeout": 15000
         }
@@ -195,7 +195,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').item.json.event_id, channel: 'telegram', status: 'failed', error_code: 'TELEGRAM_SEND_FAILED' }) }}",
+        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').all()[$itemIndex].json.event_id, channel: 'telegram', status: 'failed', error_code: 'TELEGRAM_SEND_FAILED' }) }}",
         "options": {
           "timeout": 15000
         }

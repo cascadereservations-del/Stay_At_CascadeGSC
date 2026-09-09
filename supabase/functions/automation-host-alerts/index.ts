@@ -50,7 +50,7 @@ Deno.serve(async (request) => {
 
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return json({ error: 'invalid_payload' }, 400); }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'invalid_payload' }, 400);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'invalid_payload', reason: 'body' }, 400);
 
   const url = Deno.env.get('SUPABASE_URL');
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -106,11 +106,12 @@ Deno.serve(async (request) => {
     const status = body.status;
     const providerMessageId = body.provider_message_id ?? null;
     const errorCode = body.error_code ?? null;
-    if (typeof eventId !== 'string' || !UUID.test(eventId)) return json({ error: 'invalid_payload' }, 400);
-    if (channel !== 'telegram' && channel !== 'internal') return json({ error: 'invalid_payload' }, 400);
-    if (status !== 'sent' && status !== 'failed' && status !== 'skipped') return json({ error: 'invalid_payload' }, 400);
-    if (providerMessageId !== null && (typeof providerMessageId !== 'string' || providerMessageId.length > 256)) return json({ error: 'invalid_payload' }, 400);
-    if (errorCode !== null && (typeof errorCode !== 'string' || !ERROR_CODE.test(errorCode))) return json({ error: 'invalid_payload' }, 400);
+    // Reasons name the field only, never its value.
+    if (typeof eventId !== 'string' || !UUID.test(eventId)) return json({ error: 'invalid_payload', reason: 'event_id' }, 400);
+    if (channel !== 'telegram' && channel !== 'internal') return json({ error: 'invalid_payload', reason: 'channel' }, 400);
+    if (status !== 'sent' && status !== 'failed' && status !== 'skipped') return json({ error: 'invalid_payload', reason: 'status' }, 400);
+    if (providerMessageId !== null && (typeof providerMessageId !== 'string' || providerMessageId.length > 256)) return json({ error: 'invalid_payload', reason: 'provider_message_id' }, 400);
+    if (errorCode !== null && (typeof errorCode !== 'string' || !ERROR_CODE.test(errorCode))) return json({ error: 'invalid_payload', reason: 'error_code' }, 400);
 
     let recipientHash: string | null = null;
     if (channel === 'telegram') {
@@ -132,5 +133,5 @@ Deno.serve(async (request) => {
     return json({ ok: true, result: data }, 202);
   }
 
-  return json({ error: 'invalid_payload' }, 400);
+  return json({ error: 'invalid_payload', reason: 'action' }, 400);
 });
