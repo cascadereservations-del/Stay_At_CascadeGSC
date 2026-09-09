@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "release_id": "heartbeat_monitor_cron_20260909",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "584573ced6ec690647eaab02fc93b92cd3b270a9"
+  },
+  "migrations": [
+    "20260909160000_heartbeat_monitor_cron.sql"
+  ],
+  "migration_sha256": {
+    "20260909160000_heartbeat_monitor_cron.sql": "e2558f7b27d272fb6ab8cb560c76db21481dd7a85c18e165b3c18e24da0495da"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260909T145049Z",
+    "verified_at": "2026-09-09T15:00:00Z",
+    "production_rule": "restore-proved 76/76 tables; this release changes only cron.job rows (one insert, one command update) and no schema object, so the named set remains a valid restore point"
+  },
+  "forward_verification": [
+    {
+      "name": "monitor_job_scheduled_every_15_minutes",
+      "query": "select exists (select 1 from cron.job where jobname = 'job-heartbeat-monitor-every-15m' and schedule = '*/15 * * * *' and active)",
+      "expect": true
+    },
+    {
+      "name": "turnover_verifier_job_now_sends_the_cron_secret_header",
+      "query": "select exists (select 1 from cron.job where jobname = 'turnover-verifier-daily' and command like '%x-cascade-cron-secret%' and command like '%functions/v1/turnover-verifier%')",
+      "expect": true
+    },
+    {
+      "name": "no_secret_value_is_embedded_in_any_cron_command",
+      "query": "select not exists (select 1 from cron.job where command ~ 'x-cascade-cron-secret''\\s*,\\s*''[^(]')",
+      "expect": true
+    },
+    {
+      "name": "exactly_one_monitor_job",
+      "query": "select (select count(*) from cron.job where jobname = 'job-heartbeat-monitor-every-15m') = 1",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - cron rows only",
+    "steps": [
+      {
+        "name": "unschedule_the_monitor",
+        "action": "select cron.unschedule('job-heartbeat-monitor-every-15m')"
+      },
+      {
+        "name": "restore_job_8_command",
+        "action": "cron.alter_job on turnover-verifier-daily with the pre-release command (plain Content-Type header, no secret); recorded in docs/validation before apply"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "scheduler_heartbeat_monitoring",
+      "required_state": "effectively off until Lloyd creates Vault secret cascade_cron_shared_secret and sets edge secret CASCADE_CRON_SHARED_SECRET to the same value; until then both jobs receive 401 and nothing is delivered. Alert delivery additionally needs CH-S01 (P9 #1)."
+    }
+  ],
+  "compatibility": {
+    "mode": "cron_rows_only",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "One cron.schedule guarded by name, one cron.alter_job guarded by name and command shape. The header value is a Vault subquery evaluated at run time, so no secret is stored in cron.job. Rehearsal is NOT APPLICABLE: pg_cron is Supabase-managed and absent from any restored copy, and Postgres parses every reference to cron.job even behind a short-circuit, so the checks cannot be made tolerant; the DO block skips cleanly on a copy and the proof is the --verify-only pre-state (3 FAIL, 1 ok on 2026-09-09) followed by the post-apply 4/4."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "turnover-verifier-daily is missing or its command is not the expected http_post - the DO block raises",
+    "any forward verification query returns anything other than its expected value",
+    "the Vault secret must be created by Lloyd, never by an agent, and its value must never be printed",
+    "do not run migration-rehearsal-on-host.sh for this contract and treat its failure as expected; rely on --verify-only before and after"
+  ]
+}
