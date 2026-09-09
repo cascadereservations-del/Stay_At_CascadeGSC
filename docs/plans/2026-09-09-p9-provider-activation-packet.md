@@ -69,8 +69,15 @@ privacy decision; park it.
 ## Lloyd's checklist (names only — values never enter the repo or vault)
 
 - [x] Deploy the monitor — done 2026-09-09 15:05Z (v1, 401 without header as designed).
-- [ ] `CASCADE_CRON_SHARED_SECRET` as an edge-function secret **and** the matching header on
-      pg_cron job 8 in the same change (D-036), plus a new `*/15 * * * *` job for the monitor.
+- [ ] **Run the Watchtower pin on Alfred** (agents are blocked from it): `scp` or paste
+      `scripts/host/pin-watchtower-images.sh`, then `sudo bash pin-watchtower-images.sh`. Do it before
+      04:00 PHT or tonight's run recreates the four containers again.
+- [x] pg_cron wiring — release `20260909_heartbeat_monitor_cron` applied 4/4: monitor job every 15 min,
+      job 8 header added; both read `vault.decrypted_secrets` name `cascade_cron_shared_secret` at run time.
+- [ ] **Create the secret, both halves in one sitting:** SQL editor
+      `select vault.create_secret('<value>', 'cascade_cron_shared_secret');` and
+      `npx supabase secrets set CASCADE_CRON_SHARED_SECRET=<same value> --project-ref qkgfhsdppslwunarczeq`.
+      Proof: a `job-heartbeat-monitor-every-15m` row appears in `job_heartbeats` within 15 min.
 - [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07)
 - [ ] `Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)
 - [ ] `Cascade — Supabase/outbox-read` (W04)
