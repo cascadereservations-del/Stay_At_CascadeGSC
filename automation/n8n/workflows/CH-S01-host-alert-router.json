@@ -43,6 +43,7 @@
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "zjS6PgNdgTwrQ57o",
           "name": "Cascade — Supabase/host-alerts"
         }
       },
@@ -116,6 +117,7 @@
       },
       "credentials": {
         "telegramApi": {
+          "id": "aolyppsD1OYbZkpF",
           "name": "Cascade — Telegram/owner-alerts"
         }
       },
@@ -144,6 +146,7 @@
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "zjS6PgNdgTwrQ57o",
           "name": "Cascade — Supabase/host-alerts"
         }
       }
@@ -170,6 +173,7 @@
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "zjS6PgNdgTwrQ57o",
           "name": "Cascade — Supabase/host-alerts"
         }
       },
@@ -198,6 +202,7 @@
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "zjS6PgNdgTwrQ57o",
           "name": "Cascade — Supabase/host-alerts"
         }
       },
@@ -304,5 +309,6 @@
   "meta": {
     "templateCredsSetupCompleted": false
   },
-  "tags": []
+  "tags": [],
+  "id": "a6suf8qOJnp7ASdG"
 }
