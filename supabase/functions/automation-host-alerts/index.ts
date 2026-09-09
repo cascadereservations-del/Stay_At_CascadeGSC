@@ -56,7 +56,13 @@ Deno.serve(async (request) => {
   const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) return json({ error: 'unavailable' }, 503);
   const db = createClient(url, key, { auth: { persistSession: false } });
-  const chatId = Deno.env.get('N8N_HOST_ALERTS_CHAT_ID') ?? null;
+  // Route-class recipients. Finance and OPS are separate Telegram groups by
+  // design (OPS payloads structurally carry no money fields); the plain
+  // N8N_HOST_ALERTS_CHAT_ID is the fallback for either.
+  const defaultChatId = Deno.env.get('N8N_HOST_ALERTS_CHAT_ID') ?? null;
+  const chatIdFor = (routeClass: string | null | undefined): string | null =>
+    (routeClass === 'ops' ? Deno.env.get('N8N_HOST_ALERTS_CHAT_ID_OPS') : Deno.env.get('N8N_HOST_ALERTS_CHAT_ID_FINANCE')) ?? defaultChatId;
+  const chatId = defaultChatId;
 
   if (body.action === 'claim') {
     const now = new Date().toISOString();
@@ -88,6 +94,7 @@ Deno.serve(async (request) => {
         text: typeof payload.rendered_text === 'string' ? payload.rendered_text : null,
         correlation_id: typeof payload.correlation_id === 'string' ? payload.correlation_id : null,
         created_at: r.created_at,
+        recipient_chat_id: chatIdFor(r.route_class),
       };
     });
     return json({ ok: true, workflow_id: WORKFLOW_ID, recipient_chat_id: chatId, events });
@@ -105,7 +112,12 @@ Deno.serve(async (request) => {
     if (providerMessageId !== null && (typeof providerMessageId !== 'string' || providerMessageId.length > 256)) return json({ error: 'invalid_payload' }, 400);
     if (errorCode !== null && (typeof errorCode !== 'string' || !ERROR_CODE.test(errorCode))) return json({ error: 'invalid_payload' }, 400);
 
-    const recipientHash = channel === 'telegram' && chatId ? await sha256(chatId) : null;
+    let recipientHash: string | null = null;
+    if (channel === 'telegram') {
+      const { data: row } = await db.from('automation_outbox').select('route_class').eq('id', eventId).maybeSingle();
+      const recipient = chatIdFor(row?.route_class ?? null);
+      recipientHash = recipient ? await sha256(recipient) : null;
+    }
     const { data, error } = await db.rpc('record_automation_delivery_callback', {
       p_callback_id: `s01:${channel}:${eventId.toLowerCase()}`,
       p_outbox_id: eventId,
