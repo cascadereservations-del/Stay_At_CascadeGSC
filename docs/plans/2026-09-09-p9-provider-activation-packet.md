@@ -73,10 +73,8 @@ privacy decision; park it.
       ("Only checking containers using enable label"), production containers untouched (D-050).
 - [x] pg_cron wiring — release `20260909_heartbeat_monitor_cron` applied 4/4: monitor job every 15 min,
       job 8 header added; both read `vault.decrypted_secrets` name `cascade_cron_shared_secret` at run time.
-- [ ] **Create the secret, both halves in one sitting:** SQL editor
-      `select vault.create_secret('<value>', 'cascade_cron_shared_secret');` and
-      `npx supabase secrets set CASCADE_CRON_SHARED_SECRET=<same value> --project-ref qkgfhsdppslwunarczeq`.
-      Proof: a `job-heartbeat-monitor-every-15m` row appears in `job_heartbeats` within 15 min.
+- [x] Secret created 2026-09-09 21:05Z (Vault + edge, 48-char, same value). First 200 at 21:15Z; heartbeat row
+      `job-heartbeat-monitor-every-15m` started/succeeded 21:15:03Z, 0 stale jobs. **Monitor is live.**
 - [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07)
 - [ ] `Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)
 - [ ] `Cascade — Supabase/outbox-read` (W04)

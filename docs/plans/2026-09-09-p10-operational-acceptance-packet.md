@@ -19,9 +19,9 @@ a credential, or a signature).
 | Vault secrets (names) | `cascade_n8n_w01_webhook_secret`, `cascade_cf_w01_client_id`, `cascade_cf_w01_client_secret` |
 | Staff access profiles (enabled) | owner 1 · admin 2 · cleaner 1 |
 | Verified MFA factors | 1 (owner) |
-| `job_heartbeats` rows | 2 (turnover-verifier, since the platform batch) |
+| `job_heartbeats` rows | 2 — `turnover-verifier-daily` and `job-heartbeat-monitor-every-15m`, both succeeding |
 | `automation_outbox` pending | 0 |
-| Feature flags | all off — `guest_inbox_ui`, `marketing_send`, `scheduler_heartbeat_monitoring`, every P6/P7 flag |
+| Feature flags | `scheduler_heartbeat_monitoring` **effectively on** since 2026-09-09 21:15Z (monitor writes heartbeats and enqueues `system.job_stale`; delivery still needs CH-S01). All others off — `guest_inbox_ui`, `marketing_send`, every P6/P7 flag. |
 | `staff_access_allowed` chain | privacy → P6 → P8 complete, in order (D-046) |
 | n8n plane | `cascade-n8n` stack healthy, 13 workflows, 0 active, 0 credentials |
 | Latest backup set | `cascade-supabase-20260909T145049Z`, restore-proved 76/76 tables on the pgvector image |
@@ -33,7 +33,7 @@ a credential, or a signature).
 | 1 | **Access review** | Lloyd | Inventory above. Decide: is `admin=2` right (Marifel + Lloyd on the admin account)? Cleaner sign-in dropdown still lists Marifel/Rocloyd who cannot use it. |
 | 2 | **Backup schedule** | staged | Canonical: `scripts/recovery/p5/supabase-backup-over-alfred.sh` (pg_dump on Alfred, encrypted on the workstation). No scheduler exists because the passphrase lives only on the workstation. Proposal: weekly Sunday 00:00 UTC via Windows Task Scheduler on the workstation, plus **always** before any apply (already enforced by every contract's `backup.required`). Lloyd approves the cadence. |
 | 3 | **Restore drill cadence** | staged | `supabase-restore-check-on-alfred.sh` now asserts restored tables == dump TOC (D-045 fix) and runs on the pgvector image. Proposal: monthly, and after every backup that precedes an apply. |
-| 4 | **Alerts** | Lloyd | Monitor deployed and scheduled every 15 min; job 8 header wired (both read Vault). Remaining: Lloyd creates `cascade_cron_shared_secret` in Vault + the matching edge secret, then CH-S01 (P9 #1). |
+| 4 | **Alerts** | staged | Monitor **live** (first 200 at 2026-09-09 21:15Z, heartbeat row populated, 0 stale). Detection is complete; delivery to a human needs CH-S01 (P9 #1) — the Telegram credential is the only remaining input. |
 | 5 | **Incident ownership** | Lloyd | Proposal: Lloyd = owner/on-call; Finance route = Lloyd; OPS route = Honey (cleaner lead) for turnover only. Record in `01-FACTS`. |
 | 6 | **Runbooks** | done | `docs/runbooks/production-apply.md`, `docs/runbooks/heartbeat-stale.md`, `scripts/recovery/p5/README.md`, plus privacy request/breach (`docs/privacy/`) and the P1–P4 recovery packets. |
 | 7 | **Final authority inventory** | done | `docs/architecture/edge-auth-manifest.json` (26 entries) + `staff_access_allowed` matrix verified live 2026-09-09 (D-046). |
