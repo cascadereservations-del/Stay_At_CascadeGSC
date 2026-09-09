@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
-// calendar-sync v12 - Cascade Hideaway
+// calendar-sync v13 - Cascade Hideaway
 //
 // SOURCE-CONTROL NOTE (2026-08-25): this function was deployed (v10, function
 // version 21) but had no source in this repository. It was recovered from the
@@ -9,6 +9,10 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // supabase/functions/calendar-sync/index.ts so the reaper defect below is
 // reviewable.
 //
+// v13 (2026-09-09): Horizon guard. Airbnb's iCal is a rolling ~365-day window; the
+// clipped tail of a block at the horizon gets a fresh uid daily, so v12 reaped and
+// announced one phantom row every midnight. Rows within two days of the feed
+// horizon are now skipped and uncounted; failed reap updates are uncounted too.
 // v12 (2026-08-25): Reconciliation visibility. v11 auto-heals drift every run,
 //   so there is no longer a persistent gap to alert on — but nothing told
 //   anyone a gap had existed at all, which is exactly how the v10 defect went
@@ -157,26 +161,39 @@ Deno.serve(async (req: Request) => {
     //
     // Still scoped to source='airbnb' so direct holds (source='direct', never in
     // the feed) are untouched. Past events are left alone.
+    //
+    // v13: the feed is a rolling ~365-day window. A long block that crosses the
+    // horizon is emitted as a clipped one-night tail with a fresh uid every day,
+    // so yesterday's tail "vanishes" each midnight and v12 reaped and announced
+    // it daily. Rows within two days of the feed's own horizon are left alone
+    // and not counted. A reap whose update fails is no longer counted either.
     const uidsInFeed = new Set<string>(events.map(e => e.uid));
     const today = new Date().toISOString().slice(0, 10);
+    const feedHorizon = events.reduce((max, e) => (e.checkout && e.checkout > max ? e.checkout : max), '');
+    const horizonGuard = feedHorizon
+      ? new Date(new Date(`${feedHorizon}T00:00:00Z`).getTime() - 2 * 86_400_000).toISOString().slice(0, 10)
+      : null;
     let reaped = 0;
+    let horizonSkipped = 0;
     try {
       const { data: upcoming } = await supabase
-        .from('calendar_events').select('id,uid,status')
+        .from('calendar_events').select('id,uid,status,checkin_date')
         .eq('property_id', propertyId).eq('source', 'airbnb')
         .in('status', ['confirmed', 'blocked'])
         .gte('checkout_date', today);
       for (const row of upcoming ?? []) {
-        if (!uidsInFeed.has(row.uid)) {
-          await supabase.from('calendar_events')
-            .update({ status: 'cancelled', synced_at: new Date().toISOString() })
-            .eq('id', row.id);
-          reaped++;
-        }
+        if (uidsInFeed.has(row.uid)) continue;
+        if (horizonGuard && row.checkin_date >= horizonGuard) { horizonSkipped++; continue; }
+        const { error: reapUpdateErr } = await supabase.from('calendar_events')
+          .update({ status: 'cancelled', synced_at: new Date().toISOString() })
+          .eq('id', row.id);
+        if (reapUpdateErr) { console.warn('calendar-sync v13: reap update failed for', row.uid, reapUpdateErr.message); continue; }
+        reaped++;
       }
-      if (reaped > 0) console.log(`calendar-sync v12: reaped ${reaped} stale event(s)`);
+      if (reaped > 0) console.log(`calendar-sync v13: reaped ${reaped} stale event(s)`);
+      if (horizonSkipped > 0) console.log(`calendar-sync v13: ${horizonSkipped} horizon-tail row(s) left alone (feed horizon ${feedHorizon})`);
     } catch (reapErr) {
-      console.warn('calendar-sync v12: reap step failed (non-fatal):', String(reapErr));
+      console.warn('calendar-sync v13: reap step failed (non-fatal):', String(reapErr));
     }
 
     // -- v8: Backfill guest_name from airbnb_reservations -----------
@@ -203,7 +220,7 @@ Deno.serve(async (req: Request) => {
         }
       }
     } catch (backfillErr) {
-      console.warn('calendar-sync v12: guest_name backfill failed:', String(backfillErr));
+      console.warn('calendar-sync v13: guest_name backfill failed:', String(backfillErr));
     }
 
     await supabase.from('calendar_sync_log').insert({
@@ -221,7 +238,7 @@ Deno.serve(async (req: Request) => {
         `🧹 *Calendar reconciliation*`,
         `📍 Cascade Hideaway`, ``,
         `${reaped} Airbnb calendar row${reaped !== 1 ? 's' : ''} no longer in the live feed — marked cancelled.`,
-        `This is automatic (calendar-sync v12) and needs no action.`,
+        `This is automatic (calendar-sync v13) and needs no action.`,
         `Worth a look only if this number is unusually large or keeps recurring every run.`,
         `⏰ ${manilaDatetime()}`,
       ].join('\n');

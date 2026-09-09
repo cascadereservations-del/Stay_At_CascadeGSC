@@ -93,6 +93,10 @@ privacy decision; park it.
          Then run the workflow once manually (Telegram still disabled): expect the row to end `completed` with delivery log rows
          `s01:telegram:<id>` = skipped and `s01:internal:<id>` = sent. Say "check S01" and I verify.
       7. Activation approval: enable the Telegram node, run once on a second fixture, confirm the message arrives, then activate the workflow. Observe 24 h.
+- [ ] **Deploy calendar-sync v13** (stops the nightly "1 Airbnb calendar row no longer in the live feed" note — it was the
+      rolling 365-day horizon tail, a fresh uid every midnight, not a real cancellation). From the repo folder:
+      `npx supabase functions deploy calendar-sync --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
+      Proof: no reconciliation note at the next 00:15 PHT run; `cancelled_reaped` stays 0 and the log shows `horizon-tail row(s) left alone`.
 - [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07) — created by Lloyd 2026-09-09; must be entered in the **cascade-n8n** stack (step 4), not the shared deploy n8n
 - [ ] `Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)
 - [ ] `Cascade — Supabase/outbox-read` (W04)
