@@ -19,6 +19,7 @@ const json = (body: Record<string, unknown>, status = 200) => new Response(JSON.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ERROR_CODE = /^[A-Za-z0-9_]{1,64}$/;
 const MAX_CLAIM = 10;
+const STALE_DISPATCH_MS = 15 * 60 * 1000;
 const WORKFLOW_ID = 'CH-S01';
 
 function fixedLengthEqual(left: string, right: string): boolean {
@@ -66,11 +67,15 @@ Deno.serve(async (request) => {
 
   if (body.action === 'claim') {
     const now = new Date().toISOString();
+    // Also re-claim rows that were claimed but never acked (workflow died mid-run):
+    // dispatched, attempt_count still 0, and older than the stale window. The ack
+    // RPC increments attempt_count, so a row with any ack is never re-claimed here.
+    const staleBefore = new Date(Date.now() - STALE_DISPATCH_MS).toISOString();
     const { data, error } = await db
       .from('automation_outbox')
       .select('id,event_type,route_class,template_key,payload,created_at')
       .eq('event_type', 'system.job_stale')
-      .eq('status', 'pending')
+      .or(`status.eq.pending,and(status.eq.dispatched,attempt_count.eq.0,dispatched_at.lt.${staleBefore})`)
       .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
       .order('created_at', { ascending: true })
       .limit(MAX_CLAIM);
@@ -81,7 +86,7 @@ Deno.serve(async (request) => {
         .from('automation_outbox')
         .update({ status: 'dispatched', dispatched_at: now })
         .in('id', rows.map((r) => r.id))
-        .eq('status', 'pending');
+        .in('status', ['pending', 'dispatched']);
       if (markError) return json({ error: 'claim_failed' }, 503);
     }
     const events = rows.map((r) => {

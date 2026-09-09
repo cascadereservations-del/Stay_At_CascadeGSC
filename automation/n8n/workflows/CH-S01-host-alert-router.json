@@ -92,10 +92,11 @@
       ],
       "parameters": {
         "fieldToSplitOut": "events",
-        "include": "selectedOtherFields",
-        "fieldsToInclude": "workflow_id",
+        "include": "noOtherFields",
         "options": {}
-      }
+      },
+      "notes": "Each output item IS one event (event_id, text, recipient_chat_id at top level). Do not enable include-other-fields: n8n then nests the event under the field name.",
+      "notesInFlow": true
     },
     {
       "name": "Send to owner (Telegram)",
