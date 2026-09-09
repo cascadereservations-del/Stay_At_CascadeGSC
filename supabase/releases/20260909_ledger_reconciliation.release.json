@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "release_id": "ledger_reconciliation_20260909",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "b06522ee7bddd53c3984aaa864151e2ba1b31bcb"
+  },
+  "migrations": [
+    "20260909140000_ledger_reconciliation.sql"
+  ],
+  "migration_sha256": {
+    "20260909140000_ledger_reconciliation.sql": "5bea99faaac9dc5494fd3e156eac753b419ff7d26f2759a174d4497bc7f9eea9"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260909T145049Z",
+    "verified_at": "2026-09-09T14:55:00Z",
+    "production_rule": "taken after P8 landed; rehearsal against it restored 76 tables / 82 ledger rows and passed 4/4; supabase_migrations.schema_migrations_backup_20260908 additionally holds the pre-change rows"
+  },
+  "forward_verification": [
+    {
+      "name": "nine_source_versions_present_under_their_names",
+      "query": "select count(*) = 9 from supabase_migrations.schema_migrations where (version, name) in (('20260831010000','privacy_requests_and_holds'),('20260901010000','canonical_booking_decision'),('20260905010000','payment_evidence_finance_review'),('20260905020000','payment_review_queue'),('20260905030000','booking_lifecycle'),('20260905050000','cleaning_meter_verification'),('20260905060000','inventory_forecast_purchase_review'),('20260905070000','finance_reconciliation_analytics'),('20260908000200','staff_users_service_grants'))",
+      "expect": true
+    },
+    {
+      "name": "no_mcp_assigned_versions_remain",
+      "query": "select count(*) = 0 from supabase_migrations.schema_migrations where version in ('20260908130108','20260908130955','20260908131435','20260908131602','20260908131746','20260908131938','20260908132035','20260908132249','20260908021745')",
+      "expect": true
+    },
+    {
+      "name": "every_repo_migration_since_privacy_is_recorded_by_filename",
+      "query": "select count(*) = 14 from supabase_migrations.schema_migrations where version in ('20260831010000','20260901010000','20260905010000','20260905020000','20260905030000','20260905040000','20260905050000','20260905060000','20260905070000','20260905080000','20260905090000','20260908000200','20260828000300','20260830070000')",
+      "expect": true
+    },
+    {
+      "name": "rollback_evidence_table_still_exists",
+      "query": "select to_regclass('supabase_migrations.schema_migrations_backup_20260908') is not null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - only version labels change; no schema object is touched",
+    "steps": [
+      {
+        "name": "restore_the_nine_labels",
+        "action": "update supabase_migrations.schema_migrations s set version = b.version from supabase_migrations.schema_migrations_backup_20260908 b where b.name = s.name and s.name in the nine reconciled names; then delete the 20260909140000 ledger row"
+      },
+      {
+        "name": "keep_the_backup_table_until_verified",
+        "action": "drop supabase_migrations.schema_migrations_backup_20260908 only after the forward checks have passed in production and the next backup set has been taken"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "ledger_reconciliation_20260909",
+      "required_state": "not a runtime flag - this release changes ledger metadata only; nothing user-facing exists to gate"
+    }
+  ],
+  "compatibility": {
+    "mode": "ledger_metadata_only",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "The migration updates version strings on nine existing ledger rows and asserts before/after counts and the full post-state inside one DO block; ON_ERROR_STOP plus the apply script's transaction make it all-or-nothing. Content equivalence of the nine rows to their source files was proved on 2026-09-09 by md5 of the stored statements. Rehearsed 2026-09-09 against cascade-supabase-20260909T145049Z: 4/4 forward checks, zero leftovers."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any of the nine old versions is missing or any target version already exists under a different name - the DO block raises and nothing is committed",
+    "ledger row count changes during the migration",
+    "any forward verification query returns anything other than its expected value",
+    "20260824045800_dispatch_w01_to_n8n must NOT be given a ledger row by this or any release (D-022, D-028)"
+  ]
+}

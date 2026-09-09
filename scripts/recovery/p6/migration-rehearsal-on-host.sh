@@ -22,7 +22,9 @@ SSH_HOST="${CASCADE_SSH_HOST:-alfred}"
 SET_DIR="${1:?backup set directory is required}"
 RELEASE="${2:?release contract path is required}"
 PASS_FILE="${CASCADE_SUPABASE_PASSPHRASE_FILE:-$HOME/Cascade-Secrets/supabase-backup-passphrase.txt}"
-PG_IMAGE_ID=sha256:7456ef82e5f5bc43d997f4781bbd7c0d6389bff397564649a356e206ba473aee
+# pgvector/pgvector:pg17 (PostgreSQL 17.11). Restores need the vector extension for
+# kb_documents.embedding; the bare image silently lost that table (D-045).
+PG_IMAGE_ID=sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
 SSH_BIN="${CASCADE_SSH_BIN:-}"
 if [[ -z "$SSH_BIN" ]]; then
   if [[ -x /c/Windows/System32/OpenSSH/ssh.exe ]]; then SSH_BIN=/c/Windows/System32/OpenSSH/ssh.exe; else SSH_BIN=ssh; fi

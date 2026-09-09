@@ -11,7 +11,9 @@ SSH_HOST="${CASCADE_SSH_HOST:-alfred}"
 SET_DIR="${1:?backup set directory is required}"
 EXPECTED_LEDGER="${2:?expected migration ledger count is required}"
 PASS_FILE="${CASCADE_SUPABASE_PASSPHRASE_FILE:-$HOME/Cascade-Secrets/supabase-backup-passphrase.txt}"
-PG_IMAGE_ID=sha256:7456ef82e5f5bc43d997f4781bbd7c0d6389bff397564649a356e206ba473aee
+# pgvector/pgvector:pg17 (PostgreSQL 17.11). Restores need the vector extension for
+# kb_documents.embedding; the bare image silently lost that table (D-045).
+PG_IMAGE_ID=sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
 SSH_BIN="${CASCADE_SSH_BIN:-}"
 if [[ -z "$SSH_BIN" ]]; then
   if [[ -x /c/Windows/System32/OpenSSH/ssh.exe ]]; then SSH_BIN=/c/Windows/System32/OpenSSH/ssh.exe; else SSH_BIN=ssh; fi
@@ -67,6 +69,10 @@ tables="$(docker exec "$db" psql -At -U restorecheck -d restorecheck -c "select 
 ledger="$(docker exec "$db" psql -At -U restorecheck -d restorecheck -c "select count(*) from supabase_migrations.schema_migrations" 2>/dev/null || echo missing)"
 functions="$(docker exec "$db" psql -At -U restorecheck -d restorecheck -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'")"
 echo "public base tables: $tables"; echo "public functions: $functions"; echo "migration ledger rows: $ledger (expected $EXPECTED)"
+# D-045: the restore must bring back every table the dump contains, not just "some".
+toc_tables="$(grep -cE '^[0-9]+; [0-9]+ [0-9]+ TABLE public ' "$R/toc.txt" || true)"  # excludes 'PUBLICATION TABLE' entries
+echo "tables in dump TOC: $toc_tables"
+[[ "$tables" == "$toc_tables" ]] || { echo "restored table count $tables differs from dump TOC $toc_tables" >&2; exit 6; }
 [[ "$ledger" == "$EXPECTED" ]] || { echo 'ledger count mismatch' >&2; exit 6; }
 [[ "$(docker network inspect "$net" --format '{{.Internal}}')" == "true" ]] || { echo 'network not internal' >&2; exit 5; }
 [[ -z "$(docker ps -a --filter "name=$prefix" --format '{{.Ports}}' | grep -- '->' || true)" ]] || { echo 'published a host port' >&2; exit 5; }
