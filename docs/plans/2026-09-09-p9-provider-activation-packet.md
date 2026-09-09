@@ -25,7 +25,7 @@ What *is* in place on the Supabase side:
 | Vault secrets | `cascade_n8n_w01_webhook_secret`, `cascade_cf_w01_client_id`, `cascade_cf_w01_client_secret` — names exist, values set by Lloyd |
 | Route/template guard | `notification_routes` + `_shared/notifications.ts`; OPS templates structurally cannot carry money fields |
 | Job heartbeats | `job_heartbeats` live and `turnover-verifier` writing to it since the platform batch |
-| `job-heartbeat-monitor` | **in source, not deployed** — the MCP deploy was classifier-blocked 2026-09-09; see Lloyd's checklist |
+| `job-heartbeat-monitor` | **deployed v1 by Lloyd 2026-09-09 15:05Z** via the CLI; returns 401 until `CASCADE_CRON_SHARED_SECRET` exists |
 | Pending outbox rows | 0 |
 
 ## Activation order and why
@@ -68,9 +68,7 @@ privacy decision; park it.
 
 ## Lloyd's checklist (names only — values never enter the repo or vault)
 
-- [ ] Deploy the monitor (classifier blocks agents): from the waves repo,
-      `npx supabase functions deploy job-heartbeat-monitor --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
-      — it authenticates with the cron header, and returns 401 until the secret below exists.
+- [x] Deploy the monitor — done 2026-09-09 15:05Z (v1, 401 without header as designed).
 - [ ] `CASCADE_CRON_SHARED_SECRET` as an edge-function secret **and** the matching header on
       pg_cron job 8 in the same change (D-036), plus a new `*/15 * * * *` job for the monitor.
 - [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07)

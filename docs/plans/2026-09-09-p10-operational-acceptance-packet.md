@@ -14,7 +14,7 @@ a credential, or a signature).
 | Public base tables | 76 |
 | Public functions | 118 |
 | Migration ledger rows | 82 (83 after the reconciliation release lands) |
-| Edge functions deployed | 22 of 26 in source — undeployed: `job-heartbeat-monitor`, `job-heartbeat-liveness`, `staff-access`, `payment-review-queue` |
+| Edge functions deployed | 23 of 26 in source — `job-heartbeat-monitor` v1 deployed by Lloyd 2026-09-09 15:05Z (401 until its secret exists); undeployed: `job-heartbeat-liveness`, `staff-access`, `payment-review-queue` |
 | pg_cron jobs | 7 active (ids 1,3,4,5,6,7,8); none for the heartbeat monitor |
 | Vault secrets (names) | `cascade_n8n_w01_webhook_secret`, `cascade_cf_w01_client_id`, `cascade_cf_w01_client_secret` |
 | Staff access profiles (enabled) | owner 1 · admin 2 · cleaner 1 |
@@ -33,7 +33,7 @@ a credential, or a signature).
 | 1 | **Access review** | Lloyd | Inventory above. Decide: is `admin=2` right (Marifel + Lloyd on the admin account)? Cleaner sign-in dropdown still lists Marifel/Rocloyd who cannot use it. |
 | 2 | **Backup schedule** | staged | Canonical: `scripts/recovery/p5/supabase-backup-over-alfred.sh` (pg_dump on Alfred, encrypted on the workstation). No scheduler exists because the passphrase lives only on the workstation. Proposal: weekly Sunday 00:00 UTC via Windows Task Scheduler on the workstation, plus **always** before any apply (already enforced by every contract's `backup.required`). Lloyd approves the cadence. |
 | 3 | **Restore drill cadence** | staged | `supabase-restore-check-on-alfred.sh` now asserts restored tables == dump TOC (D-045 fix) and runs on the pgvector image. Proposal: monthly, and after every backup that precedes an apply. |
-| 4 | **Alerts** | Lloyd | `job-heartbeat-monitor` in source, deploy blocked for agents; needs `CASCADE_CRON_SHARED_SECRET` + a 15-min pg_cron job + CH-S01 activated (P9 #1). Until then, heartbeat rows accumulate silently. |
+| 4 | **Alerts** | Lloyd | `job-heartbeat-monitor` **deployed** (v1, verified 401 without header). Still needs `CASCADE_CRON_SHARED_SECRET` set together with pg_cron job 8's header (D-036), a 15-min pg_cron job, and CH-S01 activated (P9 #1). Until then, heartbeat rows accumulate silently. |
 | 5 | **Incident ownership** | Lloyd | Proposal: Lloyd = owner/on-call; Finance route = Lloyd; OPS route = Honey (cleaner lead) for turnover only. Record in `01-FACTS`. |
 | 6 | **Runbooks** | staged | Exist: privacy request/breach (`docs/privacy/`), P1–P4 recovery packets, migration rehearsal/apply (this session). Missing: a one-page "production apply" runbook and a "heartbeat stale" response page — both under `docs/runbooks/`, agent-writable. |
 | 7 | **Final authority inventory** | done | `docs/architecture/edge-auth-manifest.json` (26 entries) + `staff_access_allowed` matrix verified live 2026-09-09 (D-046). |
@@ -51,6 +51,6 @@ a credential, or a signature).
 
 ## 4. Lloyd-only steps
 
-- Deploy `job-heartbeat-monitor`; set the cron secret and job 8 header together (D-036); add the 15-min job.
+- Set the cron secret and job 8 header together (D-036); add the 15-min job for the already-deployed monitor.
 - Approve backup and drill cadences (items 2–3); name incident owners (item 5).
 - Decide the retirements (item 8), then sign (item 9).
