@@ -75,7 +75,24 @@ privacy decision; park it.
       job 8 header added; both read `vault.decrypted_secrets` name `cascade_cron_shared_secret` at run time.
 - [x] Secret created 2026-09-09 21:05Z (Vault + edge, 48-char, same value). First 200 at 21:15Z; heartbeat row
       `job-heartbeat-monitor-every-15m` started/succeeded 21:15:03Z, 0 stale jobs. **Monitor is live.**
-- [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07)
+- [ ] **S01 is authored** (`automation/n8n/workflows/CH-S01-host-alert-router.json`, Telegram node disabled) and its
+      poll/ack endpoint `automation-host-alerts` is in source + manifest. Lloyd's setup, in order:
+      1. Deploy the endpoint: `npx supabase functions deploy automation-host-alerts --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
+      2. Two edge secrets in one PowerShell line (value generated locally, never pasted):
+         `$s = -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 48 | ForEach-Object {[char]$_}); npx supabase secrets set N8N_HOST_ALERTS_SECRET=$s N8N_HOST_ALERTS_CHAT_ID=<your telegram chat id> --project-ref qkgfhsdppslwunarczeq; Set-Clipboard "Bearer $s"; "done - clipboard holds the Authorization header value"`
+         (chat id: message `@userinfobot` on Telegram; it is a number, not a secret)
+      3. Tunnel to the stack editor: `ssh -L 5679:127.0.0.1:5679 alfred` then open http://localhost:5679 (owner MFA).
+      4. Credentials, exactly these names: **Header Auth** `Cascade — Supabase/host-alerts` (Name `Authorization`, Value = paste clipboard);
+         **Telegram API** `Cascade — Telegram/owner-alerts` (bot token from @BotFather).
+      5. Import the workflow: `scp automation/n8n/workflows/CH-S01-host-alert-router.json alfred:/tmp/` then
+         `ssh alfred "docker cp /tmp/CH-S01-host-alert-router.json cascade-n8n-app:/tmp/ && docker exec cascade-n8n-app n8n import:workflow --input=/tmp/CH-S01-host-alert-router.json"`
+         — it replaces the stub by name; in the editor, open it and pick the two credentials on the four HTTP nodes and the Telegram node.
+      6. Fixture (SQL editor, one synthetic row):
+         `insert into public.automation_outbox (event_type, aggregate_type, aggregate_id, idempotency_key, route_class, template_key, payload) values ('system.job_stale','scheduled_job',gen_random_uuid(),'fixture:s01:'||to_char(now(),'YYYYMMDDHH24MISS'),'finance','finance.system_failure', jsonb_build_object('job_name','fixture-job','reason_code','JOB_HEARTBEAT_STALE','correlation_id',gen_random_uuid()::text,'last_succeeded_at','never','consecutive_failures',0,'rendered_text','FIXTURE - Cascade System Failure test'));`
+         Then run the workflow once manually (Telegram still disabled): expect the row to end `completed` with delivery log rows
+         `s01:telegram:<id>` = skipped and `s01:internal:<id>` = sent. Say "check S01" and I verify.
+      7. Activation approval: enable the Telegram node, run once on a second fixture, confirm the message arrives, then activate the workflow. Observe 24 h.
+- [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07) — created by Lloyd 2026-09-09; must be entered in the **cascade-n8n** stack (step 4), not the shared deploy n8n
 - [ ] `Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)
 - [ ] `Cascade — Supabase/outbox-read` (W04)
 - [ ] Confirm the three `cascade_*_w01_*` Vault values are current

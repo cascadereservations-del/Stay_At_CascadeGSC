@@ -3,89 +3,156 @@
   "active": false,
   "nodes": [
     {
-      "name": "Manual event preflight",
-      "type": "n8n-nodes-base.manualTrigger",
-      "parameters": {},
-      "typeVersion": 1,
-      "position": [
-        260,
-        300
-      ]
-    },
-    {
-      "name": "Idempotency check",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        500,
-        300
-      ],
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300],
       "parameters": {
-        "jsCode": "// Safe draft: execution is blocked until an authenticated source and provider credentials are configured.\nreturn items.map((item) => ({ json: { ...item.json, automation_state: 'configuration_required' } }));"
+        "rule": { "interval": [ { "field": "minutes", "minutesInterval": 5 } ] }
       }
     },
     {
-      "name": "Configuration gate",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        760,
-        300
-      ],
-      "parameters": {},
-      "notes": "Replace this safe gate with the authenticated Supabase event-detail request and the approved channel/provider nodes before activation.",
+      "name": "Claim host alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/automation-host-alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"action\":\"claim\"}",
+        "options": { "timeout": 15000 }
+      },
+      "credentials": { "httpHeaderAuth": { "name": "Cascade — Supabase/host-alerts" } },
+      "notes": "Bearer secret = N8N_HOST_ALERTS_SECRET (edge secret). Claims up to 10 pending system.job_stale rows; the function marks them dispatched so a second poll cannot double-send.",
       "notesInFlow": true
     },
     {
-      "name": "Callback delivery result",
+      "name": "Any events?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [680, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "has-events",
+              "leftValue": "={{ ($json.events || []).length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Split events",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [920, 220],
+      "parameters": {
+        "fieldToSplitOut": "events",
+        "include": "selectedOtherFields",
+        "fieldsToInclude": "recipient_chat_id, workflow_id",
+        "options": {}
+      }
+    },
+    {
+      "name": "Send to owner (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1160, 220],
+      "disabled": true,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "chatId": "={{ $json.recipient_chat_id }}",
+        "text": "={{ $json.text || ('Cascade system event ' + $json.event_id) }}",
+        "additionalFields": { "appendAttribution": false, "disable_notification": false }
+      },
+      "credentials": { "telegramApi": { "name": "Cascade — Telegram/owner-alerts" } },
+      "notes": "DISABLED until Lloyd approves activation. While disabled, items pass through untouched, so the ack below records the delivery as skipped, not sent.",
+      "notesInFlow": true
+    },
+    {
+      "name": "Ack telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 220],
+      "parameters": {
+        "method": "POST",
+        "url": "https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/automation-host-alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').item.json.event_id, channel: 'telegram', status: $json.message_id ? 'sent' : 'skipped', provider_message_id: $json.message_id ? String($json.message_id) : null }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "credentials": { "httpHeaderAuth": { "name": "Cascade — Supabase/host-alerts" } }
+    },
+    {
+      "name": "Ack internal (close event)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1640, 220],
+      "parameters": {
+        "method": "POST",
+        "url": "https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/automation-host-alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').item.json.event_id, channel: 'internal', status: 'sent' }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "credentials": { "httpHeaderAuth": { "name": "Cascade — Supabase/host-alerts" } },
+      "notes": "Only the internal callback closes the outbox event (record_automation_delivery_callback: internal -> completed).",
+      "notesInFlow": true
+    },
+    {
+      "name": "Ack telegram failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/automation-host-alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').item.json.event_id, channel: 'telegram', status: 'failed', error_code: 'TELEGRAM_SEND_FAILED' }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "credentials": { "httpHeaderAuth": { "name": "Cascade — Supabase/host-alerts" } },
+      "notes": "Marks the event failed so CH-W04 reconciliation surfaces it; the outbox row is the durable retry source.",
+      "notesInFlow": true
+    },
+    {
+      "name": "Nothing pending",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [
-        1020,
-        300
-      ],
-      "parameters": {},
-      "notes": "No callback is made by this draft. Configure a signed automation-callback request only after every required delivery branch is wired and tested.",
-      "notesInFlow": true
+      "position": [920, 420],
+      "parameters": {}
     }
   ],
   "connections": {
-    "Manual event preflight": {
-      "main": [
-        [
-          {
-            "node": "Idempotency check",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Idempotency check": {
-      "main": [
-        [
-          {
-            "node": "Configuration gate",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Configuration gate": {
-      "main": [
-        [
-          {
-            "node": "Callback delivery result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+    "Every 5 minutes": { "main": [ [ { "node": "Claim host alerts", "type": "main", "index": 0 } ] ] },
+    "Claim host alerts": { "main": [ [ { "node": "Any events?", "type": "main", "index": 0 } ] ] },
+    "Any events?": { "main": [ [ { "node": "Split events", "type": "main", "index": 0 } ], [ { "node": "Nothing pending", "type": "main", "index": 0 } ] ] },
+    "Split events": { "main": [ [ { "node": "Send to owner (Telegram)", "type": "main", "index": 0 } ] ] },
+    "Send to owner (Telegram)": { "main": [ [ { "node": "Ack telegram", "type": "main", "index": 0 } ], [ { "node": "Ack telegram failure", "type": "main", "index": 0 } ] ] },
+    "Ack telegram": { "main": [ [ { "node": "Ack internal (close event)", "type": "main", "index": 0 } ] ] }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Asia/Manila"
   },
   "meta": {
     "templateCredsSetupCompleted": false
