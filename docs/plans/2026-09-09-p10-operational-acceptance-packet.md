@@ -13,7 +13,7 @@ a credential, or a signature).
 |---|---|
 | Public base tables | 76 |
 | Public functions | 118 |
-| Migration ledger rows | 82 (83 after the reconciliation release lands) |
+| Migration ledger rows | 83 — reconciliation release landed 2026-09-09 (D-047); 0 MCP-assigned versions |
 | Edge functions deployed | 23 of 26 in source — `job-heartbeat-monitor` v1 deployed by Lloyd 2026-09-09 15:05Z (401 until its secret exists); undeployed: `job-heartbeat-liveness`, `staff-access`, `payment-review-queue` |
 | pg_cron jobs | 7 active (ids 1,3,4,5,6,7,8); none for the heartbeat monitor |
 | Vault secrets (names) | `cascade_n8n_w01_webhook_secret`, `cascade_cf_w01_client_id`, `cascade_cf_w01_client_secret` |
@@ -24,7 +24,7 @@ a credential, or a signature).
 | Feature flags | all off — `guest_inbox_ui`, `marketing_send`, `scheduler_heartbeat_monitoring`, every P6/P7 flag |
 | `staff_access_allowed` chain | privacy → P6 → P8 complete, in order (D-046) |
 | n8n plane | `cascade-n8n` stack healthy, 13 workflows, 0 active, 0 credentials |
-| Latest backup set | `cascade-supabase-20260908T233141Z`, restore-proved |
+| Latest backup set | `cascade-supabase-20260909T145049Z`, restore-proved 76/76 tables on the pgvector image |
 
 ## 2. Acceptance items
 
@@ -35,19 +35,16 @@ a credential, or a signature).
 | 3 | **Restore drill cadence** | staged | `supabase-restore-check-on-alfred.sh` now asserts restored tables == dump TOC (D-045 fix) and runs on the pgvector image. Proposal: monthly, and after every backup that precedes an apply. |
 | 4 | **Alerts** | Lloyd | `job-heartbeat-monitor` **deployed** (v1, verified 401 without header). Still needs `CASCADE_CRON_SHARED_SECRET` set together with pg_cron job 8's header (D-036), a 15-min pg_cron job, and CH-S01 activated (P9 #1). Until then, heartbeat rows accumulate silently. |
 | 5 | **Incident ownership** | Lloyd | Proposal: Lloyd = owner/on-call; Finance route = Lloyd; OPS route = Honey (cleaner lead) for turnover only. Record in `01-FACTS`. |
-| 6 | **Runbooks** | staged | Exist: privacy request/breach (`docs/privacy/`), P1–P4 recovery packets, migration rehearsal/apply (this session). Missing: a one-page "production apply" runbook and a "heartbeat stale" response page — both under `docs/runbooks/`, agent-writable. |
+| 6 | **Runbooks** | done | `docs/runbooks/production-apply.md`, `docs/runbooks/heartbeat-stale.md`, `scripts/recovery/p5/README.md`, plus privacy request/breach (`docs/privacy/`) and the P1–P4 recovery packets. |
 | 7 | **Final authority inventory** | done | `docs/architecture/edge-auth-manifest.json` (26 entries) + `staff_access_allowed` matrix verified live 2026-09-09 (D-046). |
 | 8 | **Old path retirement** | Lloyd | Candidates: the archived Cloudflare Worker (already archived, D-028); the legacy `backup-supabase-production.ps1` (PowerShell-7-only, needs local Docker — supersede by the Alfred path); GAS relays (`airbnb-email-sync`, `telegram-expense`) stay until n8n W02/W08 are live. Retirement is a separate approval per the plan. |
 | 9 | **Signed acceptance** | Lloyd | When 1–8 are green: dated signature in `02-DECISIONS` plus this inventory refreshed the same day. |
 
 ## 3. Agent-completable next steps (no approval needed)
 
-1. Write `docs/runbooks/production-apply.md` and `docs/runbooks/heartbeat-stale.md` (item 6).
-2. Add a `scripts/recovery/p5/README.md` that names the canonical backup path and marks the
-   `.ps1` legacy (item 8, documentation half).
-3. Land the ledger reconciliation release (rehearsed today) so item "ledger rows" reads 83 and
-   `migration list --linked` is honest.
+1. ~~Runbooks~~ done. 2. ~~`scripts/recovery/p5/README.md`~~ done. 3. ~~Ledger reconciliation~~ landed (83 rows).
 4. After P4 closes (2026-09-09 16:15:37 UTC): evaluate, write the report, mark P4 — it gates P9.
+5. Refresh section 1 on the day Lloyd signs.
 
 ## 4. Lloyd-only steps
 
