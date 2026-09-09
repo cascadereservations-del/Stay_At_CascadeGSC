@@ -69,9 +69,8 @@ privacy decision; park it.
 ## Lloyd's checklist (names only — values never enter the repo or vault)
 
 - [x] Deploy the monitor — done 2026-09-09 15:05Z (v1, 401 without header as designed).
-- [ ] **Run the Watchtower pin on Alfred** (agents are blocked from it): `scp` or paste
-      `scripts/host/pin-watchtower-images.sh`, then `sudo bash pin-watchtower-images.sh`. Do it before
-      04:00 PHT or tonight's run recreates the four containers again.
+- [x] Watchtower pin run by Lloyd 2026-09-09 15:54Z: four images digest-pinned, Watchtower in opt-in mode
+      ("Only checking containers using enable label"), production containers untouched (D-050).
 - [x] pg_cron wiring — release `20260909_heartbeat_monitor_cron` applied 4/4: monitor job every 15 min,
       job 8 header added; both read `vault.decrypted_secrets` name `cascade_cron_shared_secret` at run time.
 - [ ] **Create the secret, both halves in one sitting:** SQL editor
