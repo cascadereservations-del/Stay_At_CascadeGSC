@@ -42,6 +42,45 @@ const isStub = (nodes) =>
   nodes.some((node) => node.name === 'Configuration gate') &&
   nodes.some((node) => node.name === 'Callback delivery result');
 
+/**
+ * True when a raw newline sits inside a quoted string in an n8n expression.
+ *
+ * A JavaScript single- or double-quoted literal cannot span lines, so this is a
+ * syntax error that n8n only reports as "invalid syntax" the first time the node
+ * actually runs. Both CH-W04 and CH-W07 shipped with it on 2026-09-10 — the
+ * message text had been written with real newlines instead of \n escapes, and
+ * neither node had ever executed, so nothing caught it. A clean sweep never
+ * reaches the alert branch, and an error handler only runs once something else
+ * has already failed.
+ *
+ * Multi-line expressions are otherwise legal, so only newlines *inside a string*
+ * are rejected.
+ */
+function hasRawNewlineInString(expression) {
+  let quote = null;
+  for (let i = 0; i < expression.length; i += 1) {
+    const char = expression[i];
+    if (quote && char === '\\') { i += 1; continue; }
+    if (quote) {
+      if (char === quote) quote = null;
+      else if (char === '\n') return true;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    }
+  }
+  return false;
+}
+
+/** Every string parameter on a node, walked depth-first. */
+function* stringParameters(value, path = '') {
+  if (typeof value === 'string') { yield [path, value]; return; }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) yield* stringParameters(item, `${path}[${index}]`);
+  } else if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) yield* stringParameters(item, path ? `${path}.${key}` : key);
+  }
+}
+
 /** Node names reachable by following main connections out of any trigger node. */
 function reachableFromTrigger(nodes, connections) {
   const seen = new Set(nodes.filter((n) => TRIGGER_TYPE.test(n.type ?? '')).map((n) => n.name));
@@ -105,6 +144,18 @@ for (const name of files) {
   }
   if (nodes.some((node) => /googleCalendar/i.test(node.type ?? '') && /availability|calendar_events/i.test(JSON.stringify(node)))) {
     fail(file, 'Google Calendar must not write availability');
+  }
+
+  // Expression syntax. Applies to stubs too — a stub can carry a broken
+  // expression forward into the workflow it becomes.
+  for (const node of nodes) {
+    if (/\.code$/i.test(node.type ?? '')) continue; // Code nodes hold real multi-line source
+    for (const [path, value] of stringParameters(node.parameters ?? {})) {
+      if (!value.startsWith('=')) continue;
+      if (hasRawNewlineInString(value)) {
+        fail(file, `node "${node.name}" parameter ${path} has a raw newline inside a quoted string — a JS string literal cannot span lines, so this throws "invalid syntax" at run time. Use \\n, or join an array of lines.`);
+      }
+    }
   }
 
   if (isStub(nodes)) { stubCount += 1; continue; }

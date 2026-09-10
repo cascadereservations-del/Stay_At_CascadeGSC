@@ -92,7 +92,7 @@
     {
       "parameters": {
         "chatId": "-1003819352746",
-        "text": "={{ 'Cascade outbox reconciliation - ANOMALIES FOUND\n' + 'window: ' + $json.window_minutes + ' min, checked ' + $json.checked_at + '\n' + 'stuck dispatched: ' + $json.counts.stuck_dispatched + '\n' + 'stale pending: ' + $json.counts.stale_pending + '\n' + 'failed: ' + $json.counts.failed + '\n' + 'completed with no delivery record: ' + $json.counts.completed_without_delivery + ($json.truncated ? '\n(results truncated - more may exist)' : '') + '\nfirst ids: ' + [].concat($json.anomalies.stuck_dispatched, $json.anomalies.stale_pending, $json.anomalies.failed, $json.anomalies.completed_without_delivery).slice(0, 5).map(r => r.id).join(', ') }}",
+        "text": "={{ ['Cascade outbox reconciliation - ANOMALIES FOUND', 'window: ' + $json.window_minutes + ' min, checked ' + $json.checked_at, 'stuck dispatched: ' + $json.counts.stuck_dispatched, 'stale pending: ' + $json.counts.stale_pending, 'failed: ' + $json.counts.failed, 'completed with no delivery record: ' + $json.counts.completed_without_delivery, 'first ids: ' + [].concat($json.anomalies.stuck_dispatched, $json.anomalies.stale_pending, $json.anomalies.failed, $json.anomalies.completed_without_delivery).slice(0, 5).map(r => r.id).join(', ')].join('\\n') }}",
         "additionalFields": {
           "appendAttribution": false,
           "disable_notification": false
