@@ -56,7 +56,12 @@
       }
     ]
   },
-  "feature_flags": [],
+  "feature_flags": [
+    {
+      "name": "turnover_verification_alerting",
+      "required_state": "already ON and staying on - this release does not gate anything, it narrows when the existing alert fires. Before: any day without a cleaning session alerted, including days with no guest checkout. After: only a day where a confirmed guest stay ended can alert. The turnover-verifier edge function carrying the matching guard was deployed 2026-09-10 ~06:10Z and is inert until this migration lands."
+    }
+  ],
   "compatibility": {
     "mode": "function_body_only",
     "old_reader": true,

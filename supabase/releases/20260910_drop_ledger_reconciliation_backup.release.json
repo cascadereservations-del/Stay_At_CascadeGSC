@@ -51,7 +51,12 @@
       }
     ]
   },
-  "feature_flags": [],
+  "feature_flags": [
+    {
+      "name": "ledger_backup_retention_20260908",
+      "required_state": "not a runtime flag - this release removes a ledger backup table only; nothing user-facing exists to gate"
+    }
+  ],
   "compatibility": {
     "mode": "remove_unreferenced_backup_table",
     "old_reader": true,
