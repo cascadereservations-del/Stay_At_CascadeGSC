@@ -1,6 +1,6 @@
 # P10 operational-acceptance packet
 
-**Prepared:** 2026-09-09 UTC · **Refreshed:** 2026-09-10 UTC · **Status:** rows 2–4 and Lloyd's signature remain open
+**Prepared:** 2026-09-09 UTC · **Refreshed:** 2026-09-11 UTC · **Status:** rows 2–3, the final production alert close, and Lloyd's signature remain open
 **Parent:** `2026-09-06-portainer-n8n-completion-plan.md` §P10 — "The new plane is supportable and the old Cascade path is safely retired."
 
 P10 is a checklist with evidence, not a release. Each row below is either **done** (with the
@@ -32,7 +32,7 @@ a credential, or a signature).
 | 1 | **Access review** | **DONE 2026-09-10 (D-054/D-059)** | Two admin profiles stand; cleaner selector is Honey + Other; staff note is live end-to-end. The protected save/reload human smoke remains an operational check, not an access-policy decision. |
 | 2 | **Backup schedule** | **DECIDED; REGISTRATION HELD** | Weekly Sunday 00:00 UTC + always before an apply. Source-controlled Task Scheduler wrapper and contract tests are ready. Persistent registration needs explicit Lloyd approval because the task repeatedly accesses owner-only production credentials and writes sensitive backups to `C:\Cascade-Backups`. |
 | 3 | **Restore drill cadence** | **DECIDED; REGISTRATION HELD** | Monthly first Sunday + after every pre-apply backup. New backups carry `EXPECTED_LEDGER_ROWS`; the restore checker can consume it automatically. Persistent registration has the same explicit-approval gate as row 2. |
-| 4 | **Alerts** | **IN OBSERVATION** | S01 and W04 are live and clean. S01's 24-hour window closes 2026-09-11 00:55 UTC; W07 remains disabled pending a clean close and exact approval. |
+| 4 | **Alerts** | **CLOSE PENDING** | The n8n-side S01 window is clean: 276 executions since the boundary with 0 non-success statuses; containers, workflow count and credential count are unchanged. See `docs/validation/2026-09-11-s01-observation-n8n-check.md`. A fresh owner-authorized aggregate production delivery/outbox check is still required; W07 remains disabled pending that check and exact approval. |
 | 5 | **Incident ownership** | **DONE 2026-09-10 (D-054)** | Lloyd = owner/on-call; Finance route = Lloyd and Marifel; OPS route = Honey for turnover only. |
 | 6 | **Runbooks** | done | `docs/runbooks/production-apply.md`, `docs/runbooks/heartbeat-stale.md`, `scripts/recovery/p5/README.md`, plus privacy request/breach (`docs/privacy/`) and the P1–P4 recovery packets. |
 | 7 | **Final authority inventory** | done | `docs/architecture/edge-auth-manifest.json` (26 entries) + `staff_access_allowed` matrix verified live 2026-09-09 (D-046). |
@@ -43,7 +43,7 @@ a credential, or a signature).
 
 1. ~~Runbooks and retirement~~ done. 2. ~~Ledger reconciliation~~ clean at 86 rows.
 3. With explicit Lloyd approval, run `scripts/recovery/p5/Install-CascadeRecoverySchedule.ps1` as Lloyd and verify both tasks' principals and next-run times.
-4. At the S01 window close, rerun read-only delivery checks; do not enable W07 without the exact approval.
+4. Complete the owner-authorized aggregate production delivery/outbox close for S01; do not enable W07 without the exact approval.
 5. Refresh section 1 again on the day Lloyd signs.
 
 ## 4. Lloyd-only steps
