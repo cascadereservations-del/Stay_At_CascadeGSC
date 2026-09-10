@@ -106,14 +106,14 @@
         920,
         220
       ],
-      "disabled": true,
+      "disabled": false,
       "credentials": {
         "telegramApi": {
           "id": "aolyppsD1OYbZkpF",
           "name": "Cascade — Telegram/owner-alerts"
         }
       },
-      "notes": "DISABLED until Lloyd approves this workflow's sends. Same bot as CH-S01; the Finance chat id is fixed here because a sweep summary is not tied to one event's route_class."
+      "notes": "Enabled 2026-09-10 on Lloyd's approval (D-056). Same bot as CH-S01; the Finance chat id is fixed here because a sweep summary is not tied to one event's route_class."
     },
     {
       "parameters": {},
