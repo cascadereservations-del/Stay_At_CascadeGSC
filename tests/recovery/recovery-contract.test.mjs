@@ -13,6 +13,7 @@ import {
   compareWorkflowSets,
   inventoryWorkflowFiles,
   normalizeWorkflow,
+  prepareRecoveryMigrationContent,
   rewriteDisposableSupabaseConfig,
   selectRecoveryMigrationFiles,
   validateRecoveryBaselineManifest,
@@ -202,6 +203,24 @@ test('CI recovery plan excludes explicitly identified production-only cleanup mi
     '20260824002834_first_forward.sql',
     '20260910030000_next_forward.sql',
   ]);
+});
+
+test('recovery preparation retains DDL while omitting an explicitly marked production-data assertion', () => {
+  const source = [
+    'create or replace function public.example() returns void language sql as $$ select; $$;',
+    '',
+    '-- Assertions against the live data that motivated the change. These run inside',
+    '-- the apply transaction, so a wrong result rolls the whole thing back.',
+    'do $$ begin raise exception \'production fixture\'; end $$;',
+  ].join('\n');
+  const prepared = prepareRecoveryMigrationContent(
+    '20260910070000_verify_turnover_requires_a_guest_checkout.sql',
+    source,
+    ['20260910070000_verify_turnover_requires_a_guest_checkout.sql'],
+  );
+  assert.match(prepared, /create or replace function public\.example/i);
+  assert.doesNotMatch(prepared, /production fixture/i);
+  assert.match(prepared, /omitted from the disposable recovery copy/i);
 });
 
 test('recovery baseline hashes are stable across Windows and Linux line endings', () => {

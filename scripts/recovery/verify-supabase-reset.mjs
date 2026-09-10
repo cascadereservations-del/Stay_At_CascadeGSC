@@ -10,6 +10,7 @@ import { parseAppliedMigrationVersions } from '../migrations/release-safety.mjs'
 import { prepareCommandSpawn } from './process-runner.mjs';
 import {
   assertDisposableProjectId,
+  prepareRecoveryMigrationContent,
   rewriteDisposableSupabaseConfig,
   selectRecoveryMigrationFiles,
   validateRecoveryBaselineManifest,
@@ -133,7 +134,13 @@ async function main() {
       path.join(tempMigrationDirectory, `${validatedBaseline.compatibility_migration_version}_pre_forward_compat.sql`),
     );
     for (const migrationFile of forwardMigrationFiles) {
-      copyFileSync(path.join(sourceMigrationDirectory, migrationFile), path.join(tempMigrationDirectory, migrationFile));
+      const source = readFileSync(path.join(sourceMigrationDirectory, migrationFile), 'utf8');
+      const prepared = prepareRecoveryMigrationContent(
+        migrationFile,
+        source,
+        validatedBaseline.recovery_assertion_only_migrations,
+      );
+      writeFileSync(path.join(tempMigrationDirectory, migrationFile), prepared, 'utf8');
     }
     const configPath = path.join(tempSupabase, 'config.toml');
     const config = rewriteDisposableSupabaseConfig(readFileSync(configPath, 'utf8'), { projectId, dbPort, shadowPort });

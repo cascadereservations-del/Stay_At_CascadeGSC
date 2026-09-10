@@ -8,6 +8,8 @@ function normalizedSqlHash(source) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
 }
 
+const LIVE_DATA_ASSERTION_MARKER = '-- Assertions against the live data that motivated the change.';
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') {
@@ -190,6 +192,19 @@ export function validateRecoveryBaselineManifest(manifest, { baselineSql, prereq
       names.add(fileName);
     }
   }
+  if (manifest.recovery_assertion_only_migrations !== undefined) {
+    if (!Array.isArray(manifest.recovery_assertion_only_migrations) || manifest.recovery_assertion_only_migrations.length === 0) {
+      throw new Error('Recovery assertion-only migrations must be a non-empty array when provided.');
+    }
+    const excluded = new Set(manifest.recovery_excluded_migrations ?? []);
+    const names = new Set();
+    for (const fileName of manifest.recovery_assertion_only_migrations) {
+      if (!/^\d{14}_[A-Za-z0-9._-]+\.sql$/.test(fileName) || names.has(fileName) || excluded.has(fileName)) {
+        throw new Error('Recovery assertion-only migrations must be unique filename-shaped SQL migrations that are not excluded.');
+      }
+      names.add(fileName);
+    }
+  }
   const prerequisiteHash = normalizedSqlHash(prerequisiteSql);
   if (manifest.prerequisite_sha256 !== prerequisiteHash) {
     throw new Error(`Recovery prerequisite hash mismatch: expected ${manifest.prerequisite_sha256}, actual ${prerequisiteHash}.`);
@@ -220,6 +235,16 @@ export function selectRecoveryMigrationFiles(fileNames, forwardFrom, excludedFil
   }
   const excluded = new Set(excludedFiles);
   return forward.filter(name => !excluded.has(name));
+}
+
+export function prepareRecoveryMigrationContent(fileName, source, assertionOnlyFiles = []) {
+  if (!Array.isArray(assertionOnlyFiles)) throw new Error('Recovery assertion-only migrations must be an array.');
+  if (!assertionOnlyFiles.includes(fileName)) return source;
+  const markerIndex = source.indexOf(LIVE_DATA_ASSERTION_MARKER);
+  if (markerIndex < 0 || source.indexOf(LIVE_DATA_ASSERTION_MARKER, markerIndex + LIVE_DATA_ASSERTION_MARKER.length) >= 0) {
+    throw new Error(`Recovery assertion-only migration must contain exactly one live-data assertion marker: ${fileName}.`);
+  }
+  return `${source.slice(0, markerIndex).trimEnd()}\n\n-- Production-data assertions intentionally omitted from the disposable recovery copy.\n`;
 }
 
 export function buildRecoveryMigrationPlan(manifest, sourceMigrationFiles) {

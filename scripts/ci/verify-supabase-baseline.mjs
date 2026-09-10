@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { cpSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import {
   assertDisposableProjectId,
   buildRecoveryMigrationPlan,
+  prepareRecoveryMigrationContent,
   rewriteDisposableSupabaseConfig,
   validateRecoveryBaselineManifest,
 } from '../recovery/recovery-contract.mjs';
@@ -57,7 +58,11 @@ function writePreparedMigrations({ sourceSupabase, destinationSupabase, baseline
   writeFileSync(path.join(destinationDirectory, plan[0]), baseline.prerequisiteSql, 'utf8');
   writeFileSync(path.join(destinationDirectory, plan[1]), baseline.baselineSql, 'utf8');
   writeFileSync(path.join(destinationDirectory, plan[2]), baseline.compatibilitySql, 'utf8');
-  for (const file of plan.slice(3)) copyFileSync(path.join(sourceDirectory, file), path.join(destinationDirectory, file));
+  for (const file of plan.slice(3)) {
+    const source = readFileSync(path.join(sourceDirectory, file), 'utf8');
+    const prepared = prepareRecoveryMigrationContent(file, source, baseline.manifest.recovery_assertion_only_migrations);
+    writeFileSync(path.join(destinationDirectory, file), prepared, 'utf8');
+  }
   return plan;
 }
 

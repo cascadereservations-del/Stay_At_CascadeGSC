@@ -14,5 +14,8 @@
   "recovery_excluded_migrations": [
     "20260910020000_drop_ledger_reconciliation_backup.sql"
   ],
-  "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials. The excluded migration only removes production ledger backup rows that are not contained in this snapshot; its irreversible production guard remains validated by its release contract."
+  "recovery_assertion_only_migrations": [
+    "20260910070000_verify_turnover_requires_a_guest_checkout.sql"
+  ],
+  "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials. The excluded migration only removes production ledger backup rows that are not contained in this snapshot; its irreversible production guard remains validated by its release contract. The assertion-only migration preserves its function replacement while omitting its production-date assertions, which require historical calendar data absent from this schema-only baseline."
 }
