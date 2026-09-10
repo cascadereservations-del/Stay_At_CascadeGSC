@@ -211,6 +211,11 @@ test('recovery baseline hashes are stable across Windows and Linux line endings'
   );
 });
 
+test('recovery prerequisites leave production-managed scheduler state absent', async () => {
+  const prerequisites = await readFile(path.join(repoRoot, 'supabase', 'recovery', 'prerequisites.sql'), 'utf8');
+  assert.doesNotMatch(prerequisites, /create extension if not exists pg_cron/i);
+});
+
 test('recovered schema does not define the price-history view recursively', async () => {
   const schema = await readFile(path.join(repoRoot, 'supabase', 'schemas', '000_remote_public_schema.sql'), 'utf8');
   const view = schema.match(/CREATE OR REPLACE VIEW "public"\."price_history_by_item"[\s\S]*?;\r?\n/i)?.[0] ?? '';

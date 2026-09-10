@@ -2,7 +2,7 @@
   "schema_version": 1,
   "prerequisite_migration_version": "20260823999999",
   "prerequisite_source": "recovery/prerequisites.sql",
-  "prerequisite_sha256": "5c4b7028e64e91dd2206c56fa6f634b7c868ad561505141c6e5d79447fc3928f",
+  "prerequisite_sha256": "21947c1225f695182e95ee5c35786d0b91ca69d10e0fe9cb4c677ddfa1991bcf",
   "baseline_migration_version": "20260824000000",
   "baseline_source": "schemas/000_remote_public_schema.sql",
   "baseline_sha256": "ca8f98ff2952a4a6db73ff02d8e8fb6d0f3cf622899c0a0ee7b7259c721af7c6",
