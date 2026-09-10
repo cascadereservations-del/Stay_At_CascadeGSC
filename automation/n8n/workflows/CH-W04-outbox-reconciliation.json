@@ -1,82 +1,168 @@
 {
+  "id": "ms3Se1z2vKW9fLO5",
   "name": "CH-W04 Outbox Reconciliation",
   "active": false,
   "nodes": [
     {
-      "name": "Manual preflight trigger",
-      "type": "n8n-nodes-base.manualTrigger",
-      "parameters": {},
-      "typeVersion": 1,
-      "position": [
-        260,
-        300
-      ]
-    },
-    {
-      "name": "Idempotency check",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        500,
-        300
-      ],
       "parameters": {
-        "jsCode": "// Safe draft: execution is blocked until an authenticated source and provider credentials are configured.\nreturn items.map((item) => ({ json: { ...item.json, automation_state: 'configuration_required' } }));"
-      }
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "w04-daily",
+      "name": "Daily 08:00 Manila",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        300
+      ],
+      "notes": "Workflow timezone is Asia/Manila, so this fires at 08:00 local (00:00 UTC). Daily rather than hourly: a stuck row stays stuck, and re-reporting it every hour would train everyone to ignore the alert."
     },
     {
-      "name": "Configuration gate",
+      "parameters": {
+        "method": "POST",
+        "url": "https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/automation-host-alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"action\":\"sweep\",\"window_minutes\":1440}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "w04-sweep",
+      "name": "Sweep outbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "zjS6PgNdgTwrQ57o",
+          "name": "Cascade — Supabase/host-alerts"
+        }
+      },
+      "notes": "Read-only sweep action on the same endpoint CH-S01 uses, so this workflow needs no Supabase key of its own (D-051). Returns ids and statuses only, never payloads."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-healthy",
+              "leftValue": "={{ $json.healthy }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "w04-anomalies",
+      "name": "Anomalies found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "True branch = something is wrong. The healthy path deliberately sends nothing; a daily 'all clear' would be noise."
+    },
+    {
+      "parameters": {
+        "chatId": "-1003819352746",
+        "text": "={{ 'Cascade outbox reconciliation - ANOMALIES FOUND\n' + 'window: ' + $json.window_minutes + ' min, checked ' + $json.checked_at + '\n' + 'stuck dispatched: ' + $json.counts.stuck_dispatched + '\n' + 'stale pending: ' + $json.counts.stale_pending + '\n' + 'failed: ' + $json.counts.failed + '\n' + 'completed with no delivery record: ' + $json.counts.completed_without_delivery + ($json.truncated ? '\n(results truncated - more may exist)' : '') + '\nfirst ids: ' + [].concat($json.anomalies.stuck_dispatched, $json.anomalies.stale_pending, $json.anomalies.failed, $json.anomalies.completed_without_delivery).slice(0, 5).map(r => r.id).join(', ') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_notification": false
+        }
+      },
+      "id": "w04-telegram",
+      "name": "Report to Finance (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        920,
+        220
+      ],
+      "disabled": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "aolyppsD1OYbZkpF",
+          "name": "Cascade — Telegram/owner-alerts"
+        }
+      },
+      "notes": "DISABLED until Lloyd approves this workflow's sends. Same bot as CH-S01; the Finance chat id is fixed here because a sweep summary is not tied to one event's route_class."
+    },
+    {
+      "parameters": {},
+      "id": "w04-clean",
+      "name": "Clean sweep",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        760,
-        300
+        920,
+        400
       ],
-      "parameters": {},
-      "notes": "Replace this safe gate with the authenticated Supabase event-detail request and the approved channel/provider nodes before activation.",
-      "notesInFlow": true
-    },
-    {
-      "name": "Callback delivery result",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        1020,
-        300
-      ],
-      "parameters": {},
-      "notes": "No callback is made by this draft. Configure a signed automation-callback request only after every required delivery branch is wired and tested.",
-      "notesInFlow": true
+      "notes": "Healthy result. Terminal on purpose - no alert, no callback. This workflow never writes."
     }
   ],
   "connections": {
-    "Manual preflight trigger": {
+    "Daily 08:00 Manila": {
       "main": [
         [
           {
-            "node": "Idempotency check",
+            "node": "Sweep outbox",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Idempotency check": {
+    "Sweep outbox": {
       "main": [
         [
           {
-            "node": "Configuration gate",
+            "node": "Anomalies found?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Configuration gate": {
+    "Anomalies found?": {
       "main": [
         [
           {
-            "node": "Callback delivery result",
+            "node": "Report to Finance (Telegram)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Clean sweep",
             "type": "main",
             "index": 0
           }
@@ -85,7 +171,9 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Asia/Manila",
+    "errorWorkflow": "SAm8geADy5x8hz0y"
   },
   "meta": {
     "templateCredsSetupCompleted": false

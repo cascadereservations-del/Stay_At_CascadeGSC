@@ -10,6 +10,10 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 //   POST { action: "ack", event_id, channel, status, provider_message_id?, error_code? }
 //                             -> record_automation_delivery_callback, server-side,
 //                                so n8n never holds the callback HMAC secret.
+//   POST { action: "sweep", window_minutes? }
+//                             -> CH-W04 reconciliation. Read-only: outbox rows that
+//                                stalled, failed, or completed without a delivery
+//                                record. Ids and statuses only, never payloads.
 //
 // Auth: constant-time bearer compare against N8N_HOST_ALERTS_SECRET, the same
 // pattern as automation-event-detail. Only system.job_stale rows are reachable.
@@ -21,6 +25,8 @@ const ERROR_CODE = /^[A-Za-z0-9_]{1,64}$/;
 const MAX_CLAIM = 10;
 const STALE_DISPATCH_MS = 15 * 60 * 1000;
 const WORKFLOW_ID = 'CH-S01';
+const SWEEP_WORKFLOW_ID = 'CH-W04';
+const SWEEP_LIMIT = 50;
 
 function fixedLengthEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
@@ -103,6 +109,74 @@ Deno.serve(async (request) => {
       };
     });
     return json({ ok: true, workflow_id: WORKFLOW_ID, recipient_chat_id: chatId, events });
+  }
+
+  if (body.action === 'sweep') {
+    // CH-W04 outbox reconciliation. Strictly read-only: it never writes, never
+    // claims, and never returns a payload — only ids, statuses and timestamps,
+    // so guest data cannot reach n8n through this path. Reusing this endpoint
+    // (and therefore the existing header-auth credential) is deliberate: the
+    // alternative was minting a privileged Supabase key and storing it in the
+    // stack, which is exactly what D-051 exists to avoid.
+    const rawWindow = body.window_minutes;
+    const windowMinutes = typeof rawWindow === 'number' && Number.isFinite(rawWindow)
+      ? Math.min(Math.max(Math.trunc(rawWindow), 5), 10080)
+      : 1440;
+    const since = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
+    const staleBefore = new Date(Date.now() - STALE_DISPATCH_MS).toISOString();
+    const shape = 'id,event_type,route_class,status,attempt_count,created_at,dispatched_at,completed_at,last_error_code';
+
+    // Acked at least once but never closed. The claim path deliberately will
+    // not re-claim these (attempt_count > 0), so nothing else would surface them.
+    const stuck = await db.from('automation_outbox').select(shape)
+      .eq('status', 'dispatched').gt('attempt_count', 0).lt('dispatched_at', staleBefore)
+      .order('dispatched_at', { ascending: true }).limit(SWEEP_LIMIT);
+
+    // Due to be picked up and still sitting there — nothing is polling, or the
+    // event type has no workflow claiming it.
+    const stalePending = await db.from('automation_outbox').select(shape)
+      .eq('status', 'pending').lt('created_at', staleBefore)
+      .order('created_at', { ascending: true }).limit(SWEEP_LIMIT);
+
+    const failed = await db.from('automation_outbox').select(shape)
+      .eq('status', 'failed').gte('created_at', since)
+      .order('created_at', { ascending: false }).limit(SWEEP_LIMIT);
+
+    // Closed rows that left no delivery record. Diffed in memory rather than
+    // with a join, so this stays a plain read against both tables.
+    const completed = await db.from('automation_outbox').select('id,event_type,route_class,completed_at')
+      .eq('status', 'completed').gte('completed_at', since)
+      .order('completed_at', { ascending: false }).limit(SWEEP_LIMIT);
+    const completedIds = (completed.data ?? []).map((row) => row.id as string);
+    let orphaned: unknown[] = [];
+    if (completedIds.length > 0) {
+      const logged = await db.from('automation_delivery_log').select('outbox_id').in('outbox_id', completedIds);
+      if (logged.error) return json({ error: 'sweep_failed', reason: 'delivery_log' }, 503);
+      const seen = new Set((logged.data ?? []).map((row) => row.outbox_id as string));
+      orphaned = (completed.data ?? []).filter((row) => !seen.has(row.id as string));
+    }
+
+    const firstError = [stuck, stalePending, failed, completed].find((result) => result.error);
+    if (firstError) return json({ error: 'sweep_failed', reason: 'outbox' }, 503);
+
+    const anomalies = {
+      stuck_dispatched: stuck.data ?? [],
+      stale_pending: stalePending.data ?? [],
+      failed: failed.data ?? [],
+      completed_without_delivery: orphaned,
+    };
+    const counts = Object.fromEntries(Object.entries(anomalies).map(([key, rows]) => [key, (rows as unknown[]).length]));
+    const total = Object.values(counts).reduce((sum, n) => sum + (n as number), 0);
+    return json({
+      ok: true,
+      workflow_id: SWEEP_WORKFLOW_ID,
+      checked_at: new Date().toISOString(),
+      window_minutes: windowMinutes,
+      healthy: total === 0,
+      truncated: Object.values(counts).some((n) => (n as number) >= SWEEP_LIMIT),
+      counts,
+      anomalies,
+    });
   }
 
   if (body.action === 'ack') {
