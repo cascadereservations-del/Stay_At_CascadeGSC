@@ -30,15 +30,15 @@ a credential, or a signature).
 
 | # | Item | State | Evidence / what remains |
 |---|---|---|---|
-| 1 | **Access review** | Lloyd | Inventory above. Decide: is `admin=2` right (Marifel + Lloyd on the admin account)? Cleaner sign-in dropdown still lists Marifel/Rocloyd who cannot use it. |
-| 2 | **Backup schedule** | staged | Canonical: `scripts/recovery/p5/supabase-backup-over-alfred.sh` (pg_dump on Alfred, encrypted on the workstation). No scheduler exists because the passphrase lives only on the workstation. Proposal: weekly Sunday 00:00 UTC via Windows Task Scheduler on the workstation, plus **always** before any apply (already enforced by every contract's `backup.required`). Lloyd approves the cadence. |
-| 3 | **Restore drill cadence** | staged | `supabase-restore-check-on-alfred.sh` now asserts restored tables == dump TOC (D-045 fix) and runs on the pgvector image. Proposal: monthly, and after every backup that precedes an apply. |
+| 1 | **Access review** | **DECIDED 2026-09-10 (D-054)** | Inventory above. Decide: is `admin=2` right (Marifel + Lloyd on the admin account)? Cleaner sign-in dropdown still lists Marifel/Rocloyd who cannot use it. |
+| 2 | **Backup schedule** | **DECIDED 2026-09-10 (D-054)** | Canonical: `scripts/recovery/p5/supabase-backup-over-alfred.sh` (pg_dump on Alfred, encrypted on the workstation). No scheduler exists because the passphrase lives only on the workstation. Proposal: weekly Sunday 00:00 UTC via Windows Task Scheduler on the workstation, plus **always** before any apply (already enforced by every contract's `backup.required`). Lloyd approves the cadence. |
+| 3 | **Restore drill cadence** | **DECIDED 2026-09-10 (D-054)** | `supabase-restore-check-on-alfred.sh` now asserts restored tables == dump TOC (D-045 fix) and runs on the pgvector image. Proposal: monthly, and after every backup that precedes an apply. |
 | 4 | **Alerts** | staged | Monitor **live** (first 200 at 2026-09-09 21:15Z, heartbeat row populated, 0 stale). Detection is complete; delivery to a human needs CH-S01 (P9 #1) — the Telegram credential is the only remaining input. |
-| 5 | **Incident ownership** | Lloyd | Proposal: Lloyd = owner/on-call; Finance route = Lloyd; OPS route = Honey (cleaner lead) for turnover only. Record in `01-FACTS`. |
+| 5 | **Incident ownership** | **DECIDED 2026-09-10 (D-054)** | Proposal: Lloyd = owner/on-call; Finance route = Lloyd; OPS route = Honey (cleaner lead) for turnover only. Record in `01-FACTS`. |
 | 6 | **Runbooks** | done | `docs/runbooks/production-apply.md`, `docs/runbooks/heartbeat-stale.md`, `scripts/recovery/p5/README.md`, plus privacy request/breach (`docs/privacy/`) and the P1–P4 recovery packets. |
 | 7 | **Final authority inventory** | done | `docs/architecture/edge-auth-manifest.json` (26 entries) + `staff_access_allowed` matrix verified live 2026-09-09 (D-046). |
-| 8 | **Old path retirement** | Lloyd | Candidates: the archived Cloudflare Worker (already archived, D-028); the legacy `backup-supabase-production.ps1` (PowerShell-7-only, needs local Docker — supersede by the Alfred path); GAS relays (`airbnb-email-sync`, `telegram-expense`) stay until n8n W02/W08 are live. Retirement is a separate approval per the plan. |
-| 9 | **Signed acceptance** | Lloyd | When 1–8 are green: dated signature in `02-DECISIONS` plus this inventory refreshed the same day. |
+| 8 | **Old path retirement** | **DECIDED 2026-09-10 (D-054)** | Candidates: the archived Cloudflare Worker (already archived, D-028); the legacy `backup-supabase-production.ps1` (PowerShell-7-only, needs local Docker — supersede by the Alfred path); GAS relays (`airbnb-email-sync`, `telegram-expense`) stay until n8n W02/W08 are live. Retirement is a separate approval per the plan. |
+| 9 | **Signed acceptance** | Lloyd — ONLY ROW LEFT | When 1–8 are green: dated signature in `02-DECISIONS` plus this inventory refreshed the same day. |
 
 ## 3. Agent-completable next steps (no approval needed)
 
@@ -51,3 +51,14 @@ a credential, or a signature).
 - Create the cron secret (Vault + edge secret, same value, same sitting); run `scripts/host/pin-watchtower-images.sh` on Alfred.
 - Approve backup and drill cadences (items 2–3); name incident owners (item 5).
 - Decide the retirements (item 8), then sign (item 9).
+
+## Decisions taken 2026-09-10 (D-054)
+
+| Row | Decision |
+|---|---|
+| 1 | Two admin profiles stand. Cleaner sign-in dropdown trimmed to **Honey + Other**. Not green until deployed. |
+| 2 | Backup **weekly, Sunday 00:00 UTC** (Task Scheduler on the workstation) **+ always before any apply**. |
+| 3 | Restore drill **monthly** + after every pre-apply backup. |
+| 5 | Lloyd = owner/on-call. **Finance route = Lloyd AND Marifel.** OPS route = Honey, turnover only. |
+| 8 | `backup-supabase-production.ps1` **retired**. Cloudflare Worker stays on the books. GAS relays stay until W02/W08 are live. |
+| 9 | Outstanding. Gated on rows 1–8 green. |

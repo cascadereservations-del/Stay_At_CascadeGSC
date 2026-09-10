@@ -98,6 +98,12 @@ privacy decision; park it.
       `npx supabase functions deploy calendar-sync --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
       Proof: no reconciliation note at the next 00:15 PHT run; `cancelled_reaped` stays 0 and the log shows `horizon-tail row(s) left alone`.
 - [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07) — created by Lloyd 2026-09-09; must be entered in the **cascade-n8n** stack (step 4), not the shared deploy n8n
-- [ ] `Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)
-- [ ] `Cascade — Supabase/outbox-read` (W04)
+- [x] ~~`Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)~~ **CANCELLED 2026-09-10** —
+      unnecessary. One bot (`@CascadeHideawayBot`) is already a member of both groups, and
+      `automation-host-alerts` selects the chat id from the event's `route_class` at claim time.
+      CH-S01 has worked this way since it went live. One Telegram credential serves every route.
+- [x] ~~`Cascade — Supabase/outbox-read` (W04)~~ **CANCELLED 2026-09-10** — replaced by a read-only
+      `sweep` action on `automation-host-alerts`. CH-W04 authenticates with the header credential
+      the stack already holds, so no Supabase key ever lands in n8n — the property D-051 exists to
+      protect. Cost is one edge redeploy instead of a minted key.
 - [ ] Confirm the three `cascade_*_w01_*` Vault values are current
