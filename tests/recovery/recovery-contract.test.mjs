@@ -182,6 +182,28 @@ test('CI recovery plan replaces historical migrations with the verified snapshot
   ]);
 });
 
+test('CI recovery plan excludes explicitly identified production-only cleanup migrations', () => {
+  const manifest = {
+    prerequisite_migration_version: '20260823999999',
+    baseline_migration_version: '20260824000000',
+    compatibility_migration_version: '20260824002000',
+    forward_migrations_from: '20260824002834',
+    recovery_excluded_migrations: ['20260910020000_drop_ledger_reconciliation_backup.sql'],
+  };
+  const plan = buildRecoveryMigrationPlan(manifest, [
+    '20260824002834_first_forward.sql',
+    '20260910020000_drop_ledger_reconciliation_backup.sql',
+    '20260910030000_next_forward.sql',
+  ]);
+  assert.deepEqual(plan, [
+    '20260823999999_recovery_prerequisites.sql',
+    '20260824000000_recovered_production_baseline.sql',
+    '20260824002000_pre_forward_compat.sql',
+    '20260824002834_first_forward.sql',
+    '20260910030000_next_forward.sql',
+  ]);
+});
+
 test('recovery baseline hashes are stable across Windows and Linux line endings', () => {
   const baselineSql = 'create table public.example(id bigint primary key);\n';
   const prerequisiteSql = 'create extension if not exists vector with schema extensions;\n';

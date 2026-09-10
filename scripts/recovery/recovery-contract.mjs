@@ -178,6 +178,18 @@ export function validateRecoveryBaselineManifest(manifest, { baselineSql, prereq
     && manifest.compatibility_migration_version < manifest.forward_migrations_from)) {
     throw new Error('Recovery baseline versions must satisfy includes_through < prerequisites < baseline < compatibility < forward boundary.');
   }
+  if (manifest.recovery_excluded_migrations !== undefined) {
+    if (!Array.isArray(manifest.recovery_excluded_migrations) || manifest.recovery_excluded_migrations.length === 0) {
+      throw new Error('Recovery excluded migrations must be a non-empty array when provided.');
+    }
+    const names = new Set();
+    for (const fileName of manifest.recovery_excluded_migrations) {
+      if (!/^\d{14}_[A-Za-z0-9._-]+\.sql$/.test(fileName) || names.has(fileName)) {
+        throw new Error('Recovery excluded migrations must be unique, filename-shaped SQL migrations.');
+      }
+      names.add(fileName);
+    }
+  }
   const prerequisiteHash = normalizedSqlHash(prerequisiteSql);
   if (manifest.prerequisite_sha256 !== prerequisiteHash) {
     throw new Error(`Recovery prerequisite hash mismatch: expected ${manifest.prerequisite_sha256}, actual ${prerequisiteHash}.`);
@@ -193,19 +205,29 @@ export function validateRecoveryBaselineManifest(manifest, { baselineSql, prereq
   return { ...manifest };
 }
 
-export function selectRecoveryMigrationFiles(fileNames, forwardFrom) {
+export function selectRecoveryMigrationFiles(fileNames, forwardFrom, excludedFiles = []) {
   if (!/^\d{14}$/.test(forwardFrom ?? '')) throw new Error('Recovery forward migration boundary is invalid.');
+  if (!Array.isArray(excludedFiles)) throw new Error('Recovery excluded migrations must be an array.');
   const migrations = fileNames
     .filter(name => /^\d{14}_.+\.sql$/.test(name))
     .sort((left, right) => left.localeCompare(right));
   if (!migrations.some(name => name.startsWith(`${forwardFrom}_`))) {
     throw new Error(`Recovery forward migration boundary is missing: ${forwardFrom}.`);
   }
-  return migrations.filter(name => name.slice(0, 14) >= forwardFrom);
+  const forward = migrations.filter(name => name.slice(0, 14) >= forwardFrom);
+  for (const excluded of excludedFiles) {
+    if (!forward.includes(excluded)) throw new Error(`Recovery excluded migration is not a forward migration: ${excluded}.`);
+  }
+  const excluded = new Set(excludedFiles);
+  return forward.filter(name => !excluded.has(name));
 }
 
 export function buildRecoveryMigrationPlan(manifest, sourceMigrationFiles) {
-  const forward = selectRecoveryMigrationFiles(sourceMigrationFiles, manifest?.forward_migrations_from);
+  const forward = selectRecoveryMigrationFiles(
+    sourceMigrationFiles,
+    manifest?.forward_migrations_from,
+    manifest?.recovery_excluded_migrations,
+  );
   return [
     `${manifest.prerequisite_migration_version}_recovery_prerequisites.sql`,
     `${manifest.baseline_migration_version}_recovered_production_baseline.sql`,

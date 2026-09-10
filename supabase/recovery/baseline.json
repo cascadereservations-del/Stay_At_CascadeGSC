@@ -11,5 +11,8 @@
   "compatibility_sha256": "0ad30130c9df1a8ce778de46439eea534834f4872933efcc01715b65846fe662",
   "includes_through": "20260817044851",
   "forward_migrations_from": "20260824002834",
-  "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials."
+  "recovery_excluded_migrations": [
+    "20260910020000_drop_ledger_reconciliation_backup.sql"
+  ],
+  "source_description": "Historical production public-schema snapshot captured before the Wave 0 booking/security migrations, with the recursive price-history view corrected from its base-table contract; contains no table data or credentials. The excluded migration only removes production ledger backup rows that are not contained in this snapshot; its irreversible production guard remains validated by its release contract."
 }

@@ -93,7 +93,11 @@ async function main() {
   const prerequisiteSql = readFileSync(prerequisitePath, 'utf8');
   const compatibilitySql = readFileSync(compatibilityPath, 'utf8');
   const validatedBaseline = validateRecoveryBaselineManifest(manifest, { baselineSql, prerequisiteSql, compatibilitySql });
-  const forwardMigrationFiles = selectRecoveryMigrationFiles(sourceMigrationFiles, validatedBaseline.forward_migrations_from);
+  const forwardMigrationFiles = selectRecoveryMigrationFiles(
+    sourceMigrationFiles,
+    validatedBaseline.forward_migrations_from,
+    validatedBaseline.recovery_excluded_migrations,
+  );
   const sourceVersions = [
     validatedBaseline.prerequisite_migration_version,
     validatedBaseline.baseline_migration_version,
