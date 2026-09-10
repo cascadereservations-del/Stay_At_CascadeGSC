@@ -199,3 +199,13 @@ export function selectRecoveryMigrationFiles(fileNames, forwardFrom) {
   }
   return migrations.filter(name => name.slice(0, 14) >= forwardFrom);
 }
+
+export function buildRecoveryMigrationPlan(manifest, sourceMigrationFiles) {
+  const forward = selectRecoveryMigrationFiles(sourceMigrationFiles, manifest?.forward_migrations_from);
+  return [
+    `${manifest.prerequisite_migration_version}_recovery_prerequisites.sql`,
+    `${manifest.baseline_migration_version}_recovered_production_baseline.sql`,
+    `${manifest.compatibility_migration_version}_pre_forward_compat.sql`,
+    ...forward,
+  ];
+}

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   assertDisposableProjectId,
+  buildRecoveryMigrationPlan,
   compareWorkflowSets,
   inventoryWorkflowFiles,
   normalizeWorkflow,
@@ -157,6 +158,28 @@ test('recovery baseline is hash-bound and selects only post-snapshot migrations'
     () => selectRecoveryMigrationFiles(['20260824044700_second.sql'], manifest.forward_migrations_from),
     /forward migration boundary is missing/i,
   );
+});
+
+test('CI recovery plan replaces historical migrations with the verified snapshot sequence', () => {
+  const manifest = {
+    prerequisite_migration_version: '20260823999999',
+    baseline_migration_version: '20260824000000',
+    compatibility_migration_version: '20260824002000',
+    forward_migrations_from: '20260824002834',
+  };
+  const plan = buildRecoveryMigrationPlan(manifest, [
+    '20260525010807_historical.sql',
+    '20260817044851_snapshot_tail.sql',
+    '20260824002834_first_forward.sql',
+    '20260824044700_second_forward.sql',
+  ]);
+  assert.deepEqual(plan, [
+    '20260823999999_recovery_prerequisites.sql',
+    '20260824000000_recovered_production_baseline.sql',
+    '20260824002000_pre_forward_compat.sql',
+    '20260824002834_first_forward.sql',
+    '20260824044700_second_forward.sql',
+  ]);
 });
 
 test('recovered schema does not define the price-history view recursively', async () => {
