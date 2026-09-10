@@ -257,6 +257,12 @@ test('recovery prerequisites leave production-managed scheduler state absent', a
   assert.doesNotMatch(prerequisites, /create extension if not exists pg_cron/i);
 });
 
+test('heartbeat pgTAP assertions skip scheduler wiring when pg_cron is unavailable', async () => {
+  const testSql = await readFile(path.join(repoRoot, 'supabase', 'tests', 'database', 'job_heartbeats.sql'), 'utf8');
+  assert.match(testSql, /to_regclass\('cron\.job'\) is null/i);
+  assert.match(testSql, /skip\(3,/i);
+});
+
 test('recovered schema does not define the price-history view recursively', async () => {
   const schema = await readFile(path.join(repoRoot, 'supabase', 'schemas', '000_remote_public_schema.sql'), 'utf8');
   const view = schema.match(/CREATE OR REPLACE VIEW "public"\."price_history_by_item"[\s\S]*?;\r?\n/i)?.[0] ?? '';

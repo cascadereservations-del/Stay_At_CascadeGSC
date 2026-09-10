@@ -26,30 +26,42 @@ select throws_ok(
   'unknown heartbeat phases are rejected'
 );
 
-do $fixture$
+create function public.test_scheduler_contract()
+returns setof text
+language plpgsql
+as $scheduler$
 begin
+  -- The recovered baseline intentionally omits pg_cron and its production-only
+  -- job rows. Keep the heartbeat schema contract covered there while reserving
+  -- these scheduler wiring checks for environments that provide pg_cron.
+  if to_regclass('cron.job') is null then
+    return query select * from skip(3, 'pg_cron is absent from the schema-only recovery baseline');
+    return;
+  end if;
+
   perform vault.create_secret('http://127.0.0.1:9', 'cascade_supabase_url', 'disposable recovery fixture');
   perform vault.create_secret('DISPOSABLE_RECOVERY_ONLY', 'cascade_cron_shared_secret', 'disposable recovery fixture');
+
+  return query select lives_ok(
+    $$select public.configure_cascade_scheduler()$$,
+    'scheduler configuration succeeds with disposable secret-backed inputs'
+  );
+  return query select is(
+    (select count(*) from cron.job where jobname in ('turnover-verifier-daily', 'job-heartbeat-monitor-every-15m')),
+    2::bigint,
+    'only the two named Cascade recovery schedules are configured'
+  );
+  return query select ok(
+    (select bool_and(command like '%X-Cascade-Cron-Secret%')
+     from cron.job
+     where jobname in ('turnover-verifier-daily', 'job-heartbeat-monitor-every-15m')),
+    'disposable schedules use the shared-secret header contract'
+  );
 end;
-$fixture$;
+$scheduler$;
 
-select lives_ok(
-  $$select public.configure_cascade_scheduler()$$,
-  'scheduler configuration succeeds with disposable secret-backed inputs'
-);
-
-select is(
-  (select count(*) from cron.job where jobname in ('turnover-verifier-daily', 'job-heartbeat-monitor-every-15m')),
-  2::bigint,
-  'only the two named Cascade recovery schedules are configured'
-);
-
-select ok(
-  (select bool_and(command like '%X-Cascade-Cron-Secret%')
-   from cron.job
-   where jobname in ('turnover-verifier-daily', 'job-heartbeat-monitor-every-15m')),
-  'disposable schedules use the shared-secret header contract'
-);
+select * from public.test_scheduler_contract();
+drop function public.test_scheduler_contract();
 
 select * from finish();
 rollback;
