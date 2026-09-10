@@ -37,7 +37,7 @@ a credential, or a signature).
 | 6 | **Runbooks** | done | `docs/runbooks/production-apply.md`, `docs/runbooks/heartbeat-stale.md`, `scripts/recovery/p5/README.md`, plus privacy request/breach (`docs/privacy/`) and the P1–P4 recovery packets. |
 | 7 | **Final authority inventory** | done | `docs/architecture/edge-auth-manifest.json` (26 entries) + `staff_access_allowed` matrix verified live 2026-09-09 (D-046). |
 | 8 | **Old path retirement** | **DONE 2026-09-10 (D-054)** | Removed legacy `scripts/recovery/backup-supabase-production.ps1`; the runbook now names only the Alfred path. Cloudflare Worker and GAS relays remain exactly as decided. Git retains the retired script's history. |
-| 9 | **Signed acceptance** | Lloyd — ONLY ROW LEFT | When 1–8 are green: dated signature in `02-DECISIONS` plus this inventory refreshed the same day. |
+| 9 | **Signed acceptance** | Lloyd — final row after 1–8 are green | When 1–8 are green: dated signature in `02-DECISIONS` plus this inventory refreshed the same day. |
 
 ## 3. Agent-completable next steps (no approval needed)
 
