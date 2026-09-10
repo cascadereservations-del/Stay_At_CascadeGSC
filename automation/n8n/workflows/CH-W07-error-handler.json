@@ -1,82 +1,53 @@
 {
+  "id": "SAm8geADy5x8hz0y",
   "name": "CH-W07 Error Handler",
   "active": false,
   "nodes": [
     {
-      "name": "Manual event preflight",
-      "type": "n8n-nodes-base.manualTrigger",
       "parameters": {},
+      "id": "w07-error-trigger",
+      "name": "Workflow failed",
+      "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
       "position": [
-        260,
-        300
-      ]
-    },
-    {
-      "name": "Idempotency check",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        500,
+        400,
         300
       ],
+      "notes": "n8n error workflow. Set settings.errorWorkflow = SAm8geADy5x8hz0y on every Cascade workflow (S01 first). Not activated by a trigger; n8n invokes it when a referenced workflow fails."
+    },
+    {
       "parameters": {
-        "jsCode": "// Safe draft: execution is blocked until an authenticated source and provider credentials are configured.\nreturn items.map((item) => ({ json: { ...item.json, automation_state: 'configuration_required' } }));"
-      }
-    },
-    {
-      "name": "Configuration gate",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
+        "chatId": "-1003819352746",
+        "text": "={{ 'Cascade n8n workflow FAILED\n' + 'Workflow: ' + ($json.workflow.name || $json.workflow.id) + '\n' + 'Execution: ' + ($json.execution.id || 'n/a') + ' (' + ($json.execution.mode || 'unknown') + ')\n' + 'Last node: ' + ($json.execution.lastNodeExecuted || 'n/a') + '\n' + 'Error: ' + (($json.execution.error && $json.execution.error.message) || 'no message') + '\n' + 'URL: ' + ($json.execution.url || 'n/a') }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_notification": false
+        }
+      },
+      "id": "w07-telegram-owner",
+      "name": "Send to owner (Telegram)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
       "position": [
-        760,
+        700,
         300
       ],
-      "parameters": {},
-      "notes": "Replace this safe gate with the authenticated Supabase event-detail request and the approved channel/provider nodes before activation.",
-      "notesInFlow": true
-    },
-    {
-      "name": "Callback delivery result",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        1020,
-        300
-      ],
-      "parameters": {},
-      "notes": "No callback is made by this draft. Configure a signed automation-callback request only after every required delivery branch is wired and tested.",
-      "notesInFlow": true
+      "disabled": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "aolyppsD1OYbZkpF",
+          "name": "Cascade — Telegram/owner-alerts"
+        }
+      },
+      "notes": "Cascade Finance group, same route as S01 finance.system_failure. DISABLED until Lloyd approves activation. Deliberately no Supabase callback: an n8n failure is the case where the outbox path itself may be broken."
     }
   ],
   "connections": {
-    "Manual event preflight": {
+    "Workflow failed": {
       "main": [
         [
           {
-            "node": "Idempotency check",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Idempotency check": {
-      "main": [
-        [
-          {
-            "node": "Configuration gate",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Configuration gate": {
-      "main": [
-        [
-          {
-            "node": "Callback delivery result",
+            "node": "Send to owner (Telegram)",
             "type": "main",
             "index": 0
           }
@@ -85,7 +56,8 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Asia/Manila"
   },
   "meta": {
     "templateCredsSetupCompleted": false

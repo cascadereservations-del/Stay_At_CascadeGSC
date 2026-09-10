@@ -106,7 +106,7 @@
         1160,
         220
       ],
-      "disabled": true,
+      "disabled": false,
       "onError": "continueErrorOutput",
       "parameters": {
         "chatId": "={{ $json.recipient_chat_id }}",
@@ -140,7 +140,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').all()[$itemIndex].json.event_id, channel: 'telegram', status: $json.message_id ? 'sent' : 'skipped', provider_message_id: $json.message_id ? String($json.message_id) : null }) }}",
+        "jsonBody": "={{ JSON.stringify({ action: 'ack', event_id: $('Split events').all()[$itemIndex].json.event_id, channel: 'telegram', status: ($json.result && $json.result.message_id) ? 'sent' : 'skipped', provider_message_id: ($json.result && $json.result.message_id) ? String($json.result.message_id) : null }) }}",
         "options": {
           "timeout": 15000
         }
@@ -305,7 +305,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "timezone": "Asia/Manila"
+    "timezone": "Asia/Manila",
+    "errorWorkflow": "SAm8geADy5x8hz0y"
   },
   "meta": {
     "templateCredsSetupCompleted": false
