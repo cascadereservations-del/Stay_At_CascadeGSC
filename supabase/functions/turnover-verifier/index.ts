@@ -131,8 +131,16 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
         }, { onConflict: 'property_id,checkout_date', ignoreDuplicates: false });
     }
 
+    // A day with no confirmed guest checkout is not a turnover, so there is
+    // nothing to alert about. verify_turnover reports this as check_passed:true
+    // with issues:['no_checkout_scheduled'] (migration 20260910070000); without
+    // this guard the issues.length test below would still fire, which is how
+    // 2026-09-08 and 2026-09-09 produced false alarms. Pass 2 already gates on
+    // check_passed, so it needs no equivalent change.
+    const noCheckoutScheduled = result1.issues.includes('no_checkout_scheduled');
+
     // Fire Finance alert only if issues found AND alert not already sent
-    if (!result1.check_passed || result1.issues.length > 0) {
+    if (!noCheckoutScheduled && (!result1.check_passed || result1.issues.length > 0)) {
       const { data: existingRow } = await supabase
         .from('turnover_verification')
         .select('alert_24h_sent_at')

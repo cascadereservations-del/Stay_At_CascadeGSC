@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "release_id": "verify_turnover_guest_checkout_20260910",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "9e90cedb5147ad6a95fe853f48d1a0ec7f3b827e"
+  },
+  "migrations": [
+    "20260910070000_verify_turnover_requires_a_guest_checkout.sql"
+  ],
+  "migration_sha256": {
+    "20260910070000_verify_turnover_requires_a_guest_checkout.sql": "3a38c20c27d2b0ec0b29768dfa81ccca43b4247d100d2f555da821e5d6622929"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken before this apply",
+    "verified_at": null,
+    "production_rule": "Replaces one function body with CREATE OR REPLACE. No table, column, policy or grant changes. The prior body is recoverable from this file's git history as well as from the named backup set."
+  },
+  "forward_verification": [
+    {
+      "name": "blocked_period_no_longer_alerts",
+      "query": "select (select public.verify_turnover('2026-09-09'::date))->'issues' ? 'no_checkout_scheduled'",
+      "expect": true
+    },
+    {
+      "name": "day_with_no_event_no_longer_alerts",
+      "query": "select (select public.verify_turnover('2026-09-08'::date))->'issues' ? 'no_checkout_scheduled'",
+      "expect": true
+    },
+    {
+      "name": "real_missed_turnover_still_caught",
+      "query": "select (select public.verify_turnover('2026-09-07'::date))->'issues' ? 'no_session_found'",
+      "expect": true
+    },
+    {
+      "name": "real_missed_turnover_still_fails",
+      "query": "select not ((select public.verify_turnover('2026-09-07'::date))->>'check_passed')::boolean",
+      "expect": true
+    },
+    {
+      "name": "a_good_turnover_still_passes",
+      "query": "select ((select public.verify_turnover('2026-09-06'::date))->>'session_id') is not null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - one function body, no data touched",
+    "steps": [
+      {
+        "name": "restore_the_previous_body",
+        "action": "Re-apply the prior verify_turnover definition, which is preserved in git history immediately before this migration. No data migration is involved."
+      }
+    ]
+  },
+  "feature_flags": [],
+  "compatibility": {
+    "mode": "function_body_only",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Same signature and same return shape; one new early return adds the issue code 'no_checkout_scheduled' with check_passed true. The only caller, turnover-verifier pass 1, is updated in the same change to skip alerting on that code; pass 2 already gates on check_passed and needs no change. The migration asserts all three live cases inside the apply transaction, so a wrong result rolls back."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "backup.restore_point still reads PENDING",
+    "any assertion in the migration's DO block raises - in particular, 2026-09-07 must still fail as a real missed turnover",
+    "any forward verification query returns anything other than its expected value",
+    "the turnover-verifier edge function must be deployed in the same window, or the false alarms continue despite the fix"
+  ]
+}
