@@ -67,6 +67,9 @@ pass_path="$PASS_FILE"; command -v cygpath >/dev/null && pass_path="$(cygpath -w
 rssh "docker run --rm --pull never --network host --env-file $remote_tmp/pg.env $PG_IMAGE_ID pg_dump --format=custom --no-owner --no-acl" \
   | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -md sha512 -salt -pass "file:$pass_path" -out "$set_dir/cascade-production.dump.enc"
 [[ -s "$set_dir/cascade-production.dump.enc" ]] || { echo 'encrypted dump is empty' >&2; exit 4; }
+ledger_count="$(rssh "docker run --rm --pull never --network host --env-file $remote_tmp/pg.env $PG_IMAGE_ID psql -Atqc 'select count(*) from supabase_migrations.schema_migrations'")"
+[[ "$ledger_count" =~ ^[0-9]+$ ]] || { echo 'migration ledger count was not numeric' >&2; exit 4; }
+printf '%s\n' "$ledger_count" > "$set_dir/EXPECTED_LEDGER_ROWS"
 trap - EXIT; cleanup
 
 ( cd "$set_dir" && sha256sum cascade-production.dump.enc > SHA256SUMS )

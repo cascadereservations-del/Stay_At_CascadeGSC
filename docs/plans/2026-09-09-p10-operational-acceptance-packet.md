@@ -1,56 +1,56 @@
 # P10 operational-acceptance packet
 
-**Prepared:** 2026-09-09 UTC · **Status:** inventory complete; acceptance items staged; signature is Lloyd's
+**Prepared:** 2026-09-09 UTC · **Refreshed:** 2026-09-10 UTC · **Status:** rows 2–4 and Lloyd's signature remain open
 **Parent:** `2026-09-06-portainer-n8n-completion-plan.md` §P10 — "The new plane is supportable and the old Cascade path is safely retired."
 
 P10 is a checklist with evidence, not a release. Each row below is either **done** (with the
 evidence file), **staged** (agent can finish without approval), or **Lloyd** (needs a decision,
 a credential, or a signature).
 
-## 1. Live-state inventory (read 2026-09-09, production `qkgfhsdppslwunarczeq`)
+## 1. Live-state inventory (read 2026-09-10 08:28 UTC, production `qkgfhsdppslwunarczeq`)
 
 | Item | Value |
 |---|---|
 | Public base tables | 76 |
 | Public functions | 118 |
-| Migration ledger rows | 84 — reconciliation (D-047) and heartbeat-monitor cron wiring landed 2026-09-09; 0 MCP-assigned versions |
-| Edge functions deployed | 23 of 26 in source — `job-heartbeat-monitor` v1 deployed by Lloyd 2026-09-09 15:05Z (401 until its secret exists); undeployed: `job-heartbeat-liveness`, `staff-access`, `payment-review-queue` |
-| pg_cron jobs | 8 active — ids 1,3,4,5,6,7,8 plus `job-heartbeat-monitor-every-15m` (release `20260909_heartbeat_monitor_cron`) |
-| Vault secrets (names) | `cascade_n8n_w01_webhook_secret`, `cascade_cf_w01_client_id`, `cascade_cf_w01_client_secret` |
+| Migration ledger rows | 86; 0 non-filename versions |
+| pg_cron jobs | 8 active |
 | Staff access profiles (enabled) | owner 1 · admin 2 · cleaner 1 |
 | Verified MFA factors | 1 (owner) |
-| `job_heartbeats` rows | 2 — `turnover-verifier-daily` and `job-heartbeat-monitor-every-15m`, both succeeding |
+| `job_heartbeats` rows | 2; 0 non-success rows |
 | `automation_outbox` pending | 0 |
-| Feature flags | `scheduler_heartbeat_monitoring` **effectively on** since 2026-09-09 21:15Z (monitor writes heartbeats and enqueues `system.job_stale`; delivery still needs CH-S01). All others off — `guest_inbox_ui`, `marketing_send`, every P6/P7 flag. |
-| `staff_access_allowed` chain | privacy → P6 → P8 complete, in order (D-046) |
-| n8n plane | `cascade-n8n` stack healthy, 13 workflows, 0 active, 0 credentials |
-| Latest backup set | `cascade-supabase-20260909T145049Z`, restore-proved 76/76 tables on the pgvector image |
+| Delivery health | 0 stuck dispatched, 0 stale pending, 0 failures or completed-without-delivery in the last 24 hours, 0 S01 delivery errors |
+| Turnover failures | 0 unresolved |
+| Staff note schema | `staff_access_profiles.note` present |
+| n8n plane | Both containers healthy with 0 restarts/OOM; 13 workflows, **2 active** (S01/W04), 2 credentials; W07 inactive |
+| Latest backup set | `cascade-supabase-20260910T061420Z`, encrypted and COMPLETE; the prior `20260909T145049Z` set is restore-proved 76/76 |
 
 ## 2. Acceptance items
 
 | # | Item | State | Evidence / what remains |
 |---|---|---|---|
-| 1 | **Access review** | **DECIDED 2026-09-10 (D-054)** | Inventory above. Decide: is `admin=2` right (Marifel + Lloyd on the admin account)? Cleaner sign-in dropdown still lists Marifel/Rocloyd who cannot use it. |
-| 2 | **Backup schedule** | **DECIDED 2026-09-10 (D-054)** | Canonical: `scripts/recovery/p5/supabase-backup-over-alfred.sh` (pg_dump on Alfred, encrypted on the workstation). No scheduler exists because the passphrase lives only on the workstation. Proposal: weekly Sunday 00:00 UTC via Windows Task Scheduler on the workstation, plus **always** before any apply (already enforced by every contract's `backup.required`). Lloyd approves the cadence. |
-| 3 | **Restore drill cadence** | **DECIDED 2026-09-10 (D-054)** | `supabase-restore-check-on-alfred.sh` now asserts restored tables == dump TOC (D-045 fix) and runs on the pgvector image. Proposal: monthly, and after every backup that precedes an apply. |
-| 4 | **Alerts** | staged | Monitor **live** (first 200 at 2026-09-09 21:15Z, heartbeat row populated, 0 stale). Detection is complete; delivery to a human needs CH-S01 (P9 #1) — the Telegram credential is the only remaining input. |
-| 5 | **Incident ownership** | **DECIDED 2026-09-10 (D-054)** | Proposal: Lloyd = owner/on-call; Finance route = Lloyd; OPS route = Honey (cleaner lead) for turnover only. Record in `01-FACTS`. |
+| 1 | **Access review** | **DONE 2026-09-10 (D-054/D-059)** | Two admin profiles stand; cleaner selector is Honey + Other; staff note is live end-to-end. The protected save/reload human smoke remains an operational check, not an access-policy decision. |
+| 2 | **Backup schedule** | **DECIDED; REGISTRATION HELD** | Weekly Sunday 00:00 UTC + always before an apply. Source-controlled Task Scheduler wrapper and contract tests are ready. Persistent registration needs explicit Lloyd approval because the task repeatedly accesses owner-only production credentials and writes sensitive backups to `C:\Cascade-Backups`. |
+| 3 | **Restore drill cadence** | **DECIDED; REGISTRATION HELD** | Monthly first Sunday + after every pre-apply backup. New backups carry `EXPECTED_LEDGER_ROWS`; the restore checker can consume it automatically. Persistent registration has the same explicit-approval gate as row 2. |
+| 4 | **Alerts** | **IN OBSERVATION** | S01 and W04 are live and clean. S01's 24-hour window closes 2026-09-11 00:55 UTC; W07 remains disabled pending a clean close and exact approval. |
+| 5 | **Incident ownership** | **DONE 2026-09-10 (D-054)** | Lloyd = owner/on-call; Finance route = Lloyd and Marifel; OPS route = Honey for turnover only. |
 | 6 | **Runbooks** | done | `docs/runbooks/production-apply.md`, `docs/runbooks/heartbeat-stale.md`, `scripts/recovery/p5/README.md`, plus privacy request/breach (`docs/privacy/`) and the P1–P4 recovery packets. |
 | 7 | **Final authority inventory** | done | `docs/architecture/edge-auth-manifest.json` (26 entries) + `staff_access_allowed` matrix verified live 2026-09-09 (D-046). |
-| 8 | **Old path retirement** | **DECIDED 2026-09-10 (D-054)** | Candidates: the archived Cloudflare Worker (already archived, D-028); the legacy `backup-supabase-production.ps1` (PowerShell-7-only, needs local Docker — supersede by the Alfred path); GAS relays (`airbnb-email-sync`, `telegram-expense`) stay until n8n W02/W08 are live. Retirement is a separate approval per the plan. |
+| 8 | **Old path retirement** | **DONE 2026-09-10 (D-054)** | Removed legacy `scripts/recovery/backup-supabase-production.ps1`; the runbook now names only the Alfred path. Cloudflare Worker and GAS relays remain exactly as decided. Git retains the retired script's history. |
 | 9 | **Signed acceptance** | Lloyd — ONLY ROW LEFT | When 1–8 are green: dated signature in `02-DECISIONS` plus this inventory refreshed the same day. |
 
 ## 3. Agent-completable next steps (no approval needed)
 
-1. ~~Runbooks~~ done. 2. ~~`scripts/recovery/p5/README.md`~~ done. 3. ~~Ledger reconciliation~~ landed (83 rows).
-4. After P4 closes (2026-09-09 16:15:37 UTC): evaluate, write the report, mark P4 — it gates P9.
-5. Refresh section 1 on the day Lloyd signs.
+1. ~~Runbooks and retirement~~ done. 2. ~~Ledger reconciliation~~ clean at 86 rows.
+3. With explicit Lloyd approval, run `scripts/recovery/p5/Install-CascadeRecoverySchedule.ps1` as Lloyd and verify both tasks' principals and next-run times.
+4. At the S01 window close, rerun read-only delivery checks; do not enable W07 without the exact approval.
+5. Refresh section 1 again on the day Lloyd signs.
 
 ## 4. Lloyd-only steps
 
-- Create the cron secret (Vault + edge secret, same value, same sitting); run `scripts/host/pin-watchtower-images.sh` on Alfred.
-- Approve backup and drill cadences (items 2–3); name incident owners (item 5).
-- Decide the retirements (item 8), then sign (item 9).
+- Explicitly approve or decline the two Windows scheduled tasks described in rows 2–3.
+- Sign row 9 only after rows 1–8 are green.
+- Complete the protected staff-note save/reload check while signed in; never share the password or OTP with an agent.
 
 ## Decisions taken 2026-09-10 (D-054)
 

@@ -1,5 +1,17 @@
 # Current State and Continuation Gate
 
+**Current update (2026-09-10 08:28 UTC): P0–P8 are live; P9/P10 are partially open.** The isolated
+Cascade n8n stack is healthy with 13 workflows, two active (S01/W04), two credentials, and W07
+disabled. Production has no pending/stuck outbox work, no delivery errors since S01 activation,
+no unresolved turnover failures, and 86 migration-ledger rows with zero naming drift. The admin
+site upgrade is live. S01's 24-hour observation closes 2026-09-11 00:55 UTC; W07 requires exact
+Lloyd approval after a clean close. P10's backup/restore cadences are decided and scheduler source
+is tested, but persistent registration is held for explicit approval; final acceptance remains
+Lloyd's signature. See [current verification](../validation/2026-09-10-current-status-and-site-upgrade.md),
+[P9](../plans/2026-09-09-p9-provider-activation-packet.md), and
+[P10](../plans/2026-09-09-p10-operational-acceptance-packet.md). This paragraph supersedes the
+historical status snapshots below.
+
 **Post-P3 update (2026-09-06 15:10 UTC): P0–P3 COMPLETE.** The isolated Portainer stack `cascade-n8n` is healthy, capped and loopback-only; the named owner has MFA enabled; all 13 workflows are inactive and credentials are empty. The final host baseline passed with the 20 pre-existing container fingerprints unchanged. P4 encrypted recovery and the 72-hour dormant soak have not started. Use [the complete post-P3 handoff](./COMPLETE-HANDOFF-P3-2026-09-06.md) and [visual phase dashboard](./cascade-phase-status-p3.html). This update supersedes P2/P3-held statements below.
 
 **P2 update (2026-09-06 06:09 UTC): COMPLETE.** The owner-approved 2049 MiB swap allocation is active and persistent; all 20 existing container fingerprints match the pre-action baseline. RAM, swap and disk thresholds pass. See [P2 evidence](../validation/2026-09-06-p2-host-maintenance.md). This update supersedes P2-held/no-swap statements below. Next: prepare the separate P3 dormant-stack action packet; P3, soak and Module A remain gated.
@@ -58,7 +70,10 @@ The production project is on a Supabase Free plan. Its Backups UI reports no sch
 
 **Owner decision (2026-09-01):** Keep all Cascade operations on the Supabase Free plan. The selected recovery direction is the external encrypted-backup candidate; do not upgrade the Supabase subscription. Capturing production data and proving a restore remain separate action-time approvals.
 
-`docs/runbooks/supabase-external-backup-recovery.md` and `scripts/recovery/backup-supabase-production.ps1` are the selected low-cost external-backup path. The script has passed PowerShell syntax validation and fail-closed checks. The already-present local `postgres:17` Docker image provides `pg_dump`, `pg_restore`, and OpenSSL with no new installation or image pull; no production backup or restore proof has been attempted.
+`docs/runbooks/supabase-external-backup-recovery.md` and the Alfred-hosted scripts under
+`scripts/recovery/p5/` are the selected and production-proven low-cost recovery path. The earlier
+local-Docker `backup-supabase-production.ps1` candidate was retired and removed under P10 decision
+D-054 on 2026-09-10; its history remains in Git.
 
 Local preparation completed on 2026-09-01: an owner-only passphrase file was created outside Git at `C:\Users\Lloyd\Cascade-Secrets\supabase-backup-passphrase.txt`, an owner-only encrypted-backup destination was prepared at `C:\Cascade-Backups`, and an empty owner-only connection-URL file was prepared at `C:\Users\Lloyd\Cascade-Secrets\supabase-production-db-url.txt`. The passphrase and connection URL are not displayed, logged, or recorded in this repository. The script rejects the empty URL file before Docker or database access.
 

@@ -1,5 +1,12 @@
 # Portainer CE + n8n completion plan
 
+**P9/P10 update (2026-09-10 08:28 UTC): PARTIALLY OPEN.** P0–P8 are live. CH-S01 and CH-W04 are
+the only active Cascade workflows; CH-W07 is staged with Telegram disabled. Current production
+checks are clean. The S01 observation closes 2026-09-11 00:55 UTC, after which W07 still needs an
+exact provider-node approval. P10 rows 1, 5–8 are green; the backup/restore scheduler source is
+tested but registration is held for explicit approval, alert observation is still running, and
+the final signature is Lloyd's. See [current verification](../validation/2026-09-10-current-status-and-site-upgrade.md).
+
 **P5 update (2026-09-08 02:50 UTC): MODULE A CUTOVER EXECUTED.** Backup, five migrations (Lloyd pasted, MCP blocked), forward checks, owner/admin/cleaner staff rows, owner TOTP, four functions (`last-readings` v26, `upload-photo` v26, `submit-cleaning` v36, `staff-users` v1), three Pages pushes, anonymous access refused, bucket private. One in-window fix migration (`20260908000200`, service_role grants). Remaining: Honey's first sign-in at her next shift; heartbeat readiness (packet Task 4) stays a separate approval. See [evidence](../validation/2026-09-08-module-a-cutover.md).
 
 **P5 update (2026-09-08 ~01:10 UTC): WINDOW PREP COMPLETE.** Owner TOTP is back in the window at Lloyd's request. Built and committed locally, nothing deployed or pushed: cleaner PWA session patch (`cleaners-auth-sol` `fffc5ce`), Inventory app one-time sign-in + attributed usage RPC (`inventory` clone), `tools/owner-mfa-enrol.html`, migration `20260908000100_record_inventory_usage_rpc.sql`, window SQL, evidence template. `deno check` clean on the three auth functions; contract verifier `ok`; window is turnover-free until 2026-09-13. Live batch runs on Lloyd's "go" with him present (Honey's password, his authenticator, two pushes).

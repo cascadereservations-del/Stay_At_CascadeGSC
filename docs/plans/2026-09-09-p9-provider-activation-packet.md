@@ -1,20 +1,33 @@
 # P9 provider-activation action packet
 
-**Prepared:** 2026-09-09 UTC · **Status:** ready for Lloyd's credential actions; nothing activated
+**Prepared:** 2026-09-09 UTC · **Refreshed:** 2026-09-10 UTC · **Status:** S01 and W04 live; W07 staged and disabled
 **Parent:** `2026-09-06-portainer-n8n-completion-plan.md` §P9 — "Delivery is introduced one narrow path at a time."
-**Gate:** P4 soak must pass first (closes 2026-09-09 16:15:37 UTC).
+**Gate:** P4 closed PASS WITH EXCEPTION on 2026-09-09. S01's 24-hour observation window closes
+2026-09-11 00:55 UTC; W07 remains disabled until that window is clean and Lloyd gives the exact
+provider-node approval.
 
-## What is actually true on 2026-09-09
+## What is actually true on 2026-09-10
+
+The original skeleton-only inventory below is historical. Three workflows have since been authored:
+
+| Workflow | Current state |
+|---|---|
+| CH-S01 Host Alert Router | **Active**, Telegram enabled under D-053; two delivery rows and no delivery errors since activation |
+| CH-W04 Outbox Reconciliation | **Active**, daily 08:00 Asia/Manila; Telegram enabled under D-056 and a live run proved |
+| CH-W07 Error Handler | Imported and wired as n8n's error workflow; Telegram disabled; deliberately unproven until S01's observation gate closes |
+| Remaining ten exports | Inactive; no provider activation is authorized |
+
+The live Cascade stack has 13 workflows, two active workflows, and two credentials. Production has
+zero pending outbox rows, zero failed deliveries in the last 24 hours, and zero delivery errors
+since S01 activation as of the 2026-09-10 verification.
 
 This packet exists because the plan's one-line P9 description hid a fact that changes the work:
 
-**The 13 source-controlled workflow exports are skeletons.** Every file in
-`automation/n8n/workflows/` is `manualTrigger → code → noOp → noOp`. There is no Telegram,
-HTTP, email or webhook node anywhere in source, and therefore no credential reference. The
-live `cascade-n8n` stack on Alfred holds the same 13 workflows (ids below), all inactive, zero
-credentials (P3 evidence; list re-checked today). "Provider activation" therefore cannot mean
-flipping these on — it means **authoring each real workflow, reviewing it, then activating
-it**, one at a time.
+At packet creation, **the 13 source-controlled workflow exports were skeletons.** Every file in
+`automation/n8n/workflows/` was `manualTrigger → code → noOp → noOp`; there was no Telegram,
+HTTP, email or webhook node in source and no credential reference. The live `cascade-n8n` stack
+held the same 13 workflows, all inactive, with zero credentials. The author/review/approve/export
+discipline remains binding even though S01, W04, and W07 have now advanced beyond that baseline.
 
 What *is* in place on the Supabase side:
 
@@ -75,8 +88,9 @@ privacy decision; park it.
       job 8 header added; both read `vault.decrypted_secrets` name `cascade_cron_shared_secret` at run time.
 - [x] Secret created 2026-09-09 21:05Z (Vault + edge, 48-char, same value). First 200 at 21:15Z; heartbeat row
       `job-heartbeat-monitor-every-15m` started/succeeded 21:15:03Z, 0 stale jobs. **Monitor is live.**
-- [ ] **S01 is authored** (`automation/n8n/workflows/CH-S01-host-alert-router.json`, Telegram node disabled) and its
-      poll/ack endpoint `automation-host-alerts` is in source + manifest. Lloyd's setup, in order:
+- [x] **S01 authored, fixture-proved, activated, and exported.** The setup steps below are retained as historical execution evidence; do not repeat them against production.
+      (`automation/n8n/workflows/CH-S01-host-alert-router.json`; D-053; 24-hour window closes 2026-09-11 00:55 UTC.)
+      The poll/ack endpoint `automation-host-alerts` is in source + manifest. The original setup was:
       1. Deploy the endpoint **from the repo folder** (`cd C:\Users\Lloyd\Claude\Projects\Cascade\direct-booking-waves-0-1-sol` first, or the CLI cannot find `supabase/functions/`):
          `npx supabase functions deploy automation-host-alerts --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
       2. Two edge secrets in one PowerShell line (value generated locally, never pasted):
@@ -93,11 +107,11 @@ privacy decision; park it.
          Then run the workflow once manually (Telegram still disabled): expect the row to end `completed` with delivery log rows
          `s01:telegram:<id>` = skipped and `s01:internal:<id>` = sent. Say "check S01" and I verify.
       7. Activation approval: enable the Telegram node, run once on a second fixture, confirm the message arrives, then activate the workflow. Observe 24 h.
-- [ ] **Deploy calendar-sync v13** (stops the nightly "1 Airbnb calendar row no longer in the live feed" note — it was the
+- [ ] **Calendar-sync v13 is source-ready but not yet deployed** (stops the nightly "1 Airbnb calendar row no longer in the live feed" note — it was the
       rolling 365-day horizon tail, a fresh uid every midnight, not a real cancellation). From the repo folder:
       `npx supabase functions deploy calendar-sync --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
       Proof: no reconciliation note at the next 00:15 PHT run; `cancelled_reaped` stays 0 and the log shows `horizon-tail row(s) left alone`.
-- [ ] `Cascade — Telegram/owner-alerts` bot token (S01, W07) — created by Lloyd 2026-09-09; must be entered in the **cascade-n8n** stack (step 4), not the shared deploy n8n
+- [x] `Cascade — Telegram/owner-alerts` is present in the **cascade-n8n** stack and used by S01/W04. W07's Telegram node remains disabled.
 - [x] ~~`Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)~~ **CANCELLED 2026-09-10** —
       unnecessary. One bot (`@CascadeHideawayBot`) is already a member of both groups, and
       `automation-host-alerts` selects the chat id from the event's `route_class` at claim time.
@@ -106,4 +120,12 @@ privacy decision; park it.
       `sweep` action on `automation-host-alerts`. CH-W04 authenticates with the header credential
       the stack already holds, so no Supabase key ever lands in n8n — the property D-051 exists to
       protect. Cost is one edge redeploy instead of a minted key.
-- [ ] Confirm the three `cascade_*_w01_*` Vault values are current
+- [x] The signed host-alert boundary is live; the three legacy W01 Vault names remain an inventory item, not a prerequisite for S01/W04.
+
+## Current next gate
+
+At or after 2026-09-11 00:55 UTC, rerun the read-only delivery/outbox checks. If clean, Lloyd must
+explicitly approve enabling W07's Telegram provider node and the one controlled failure used to
+prove it. No generic site-upgrade instruction substitutes for that provider-action approval.
+Calendar-sync v13 also remains a separate production release: prove the named backup restore first,
+then deploy and observe the next 00:15 Asia/Manila run.

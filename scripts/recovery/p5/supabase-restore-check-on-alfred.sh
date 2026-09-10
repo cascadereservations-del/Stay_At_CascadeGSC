@@ -4,12 +4,17 @@
 # Alfred, restores into a uniquely named cascade-supabase-restore-<suffix> PostgreSQL
 # container on an internal network with no host port, runs aggregate-only checks, and
 # removes everything by trap. Prints only counts; never rows.
-# Usage: supabase-restore-check-on-alfred.sh <backup-set-dir> <expected-ledger-count>
+# Usage: supabase-restore-check-on-alfred.sh <backup-set-dir> [expected-ledger-count]
+# If the count is omitted, it is read from the backup set's EXPECTED_LEDGER_ROWS marker.
 set -euo pipefail
 
 SSH_HOST="${CASCADE_SSH_HOST:-alfred}"
 SET_DIR="${1:?backup set directory is required}"
-EXPECTED_LEDGER="${2:?expected migration ledger count is required}"
+EXPECTED_LEDGER="${2:-}"
+if [[ -z "$EXPECTED_LEDGER" && -f "$SET_DIR/EXPECTED_LEDGER_ROWS" ]]; then
+  EXPECTED_LEDGER="$(tr -d '[:space:]' < "$SET_DIR/EXPECTED_LEDGER_ROWS")"
+fi
+[[ "$EXPECTED_LEDGER" =~ ^[0-9]+$ ]] || { echo 'expected migration ledger count is required and must be numeric' >&2; exit 2; }
 PASS_FILE="${CASCADE_SUPABASE_PASSPHRASE_FILE:-$HOME/Cascade-Secrets/supabase-backup-passphrase.txt}"
 # pgvector/pgvector:pg17 (PostgreSQL 17.11). Restores need the vector extension for
 # kb_documents.embedding; the bare image silently lost that table (D-045).
