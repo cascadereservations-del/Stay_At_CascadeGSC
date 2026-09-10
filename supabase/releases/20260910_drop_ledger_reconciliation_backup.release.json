@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "release_id": "drop_ledger_reconciliation_backup_20260910",
+  "phase": "contract",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "dbf7a074cbdb958f15cd1256de95aa1318719baa"
+  },
+  "migrations": [
+    "20260910020000_drop_ledger_reconciliation_backup.sql"
+  ],
+  "migration_sha256": {
+    "20260910020000_drop_ledger_reconciliation_backup.sql": "5ebdc8a47d1373d146ebbb98aec3c484f686c0d9a3d973f96ef4f124989f3b41"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": null,
+    "production_rule": "This release removes the only surviving copy of the pre-D-047 ledger. A fresh backup set is mandatory and its id must replace PENDING before apply; applying while it still reads PENDING is a stop condition."
+  },
+  "forward_verification": [
+    {
+      "name": "backup_table_is_gone",
+      "query": "select to_regclass('supabase_migrations.schema_migrations_backup_20260908') is null",
+      "expect": true
+    },
+    {
+      "name": "live_ledger_intact",
+      "query": "select (select count(*) from supabase_migrations.schema_migrations) >= 84",
+      "expect": true
+    },
+    {
+      "name": "no_mcp_era_version_strings_remain",
+      "query": "select not exists (select 1 from supabase_migrations.schema_migrations where version !~ '^[0-9]{14}$')",
+      "expect": true
+    },
+    {
+      "name": "no_other_ledger_backup_survives",
+      "query": "select (select count(*) from information_schema.tables where table_schema='supabase_migrations' and table_name like 'schema_migrations_backup%') = 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "restore_only",
+    "safe_until": "irreversible once applied - there is no compensating recreate",
+    "steps": [
+      {
+        "name": "restore_from_the_named_backup_set",
+        "action": "The pre-apply backup set named in backup.restore_point is the only recovery path. The row data exists nowhere else once this runs."
+      }
+    ]
+  },
+  "feature_flags": [],
+  "compatibility": {
+    "mode": "remove_unreferenced_backup_table",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Nothing reads schema_migrations_backup_20260908: no migration, function, view or script in the repo references it (grepped 2026-09-10). The Supabase CLI reads only supabase_migrations.schema_migrations. The guarded DO block refuses to proceed unless the live ledger holds at least 84 rows and every version string is filename-shaped, so a damaged ledger cannot lose its backup."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "backup.restore_point still reads PENDING - name the fresh backup set first",
+    "the live ledger has fewer than 84 rows, or any version string is not 14 digits - the DO block raises and nothing is removed",
+    "any forward verification query returns anything other than its expected value",
+    "this is irreversible; do not apply it in the same window as any other change"
+  ]
+}
