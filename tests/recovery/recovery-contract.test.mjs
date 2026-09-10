@@ -182,6 +182,35 @@ test('CI recovery plan replaces historical migrations with the verified snapshot
   ]);
 });
 
+test('recovery baseline hashes are stable across Windows and Linux line endings', () => {
+  const baselineSql = 'create table public.example(id bigint primary key);\n';
+  const prerequisiteSql = 'create extension if not exists vector with schema extensions;\n';
+  const compatibilitySql = 'drop policy if exists example_policy on public.example;\n';
+  const hash = source => createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
+  const manifest = {
+    schema_version: 1,
+    prerequisite_migration_version: '20260823999999',
+    prerequisite_source: 'recovery/prerequisites.sql',
+    prerequisite_sha256: hash(prerequisiteSql),
+    baseline_migration_version: '20260824000000',
+    baseline_source: 'schemas/000_remote_public_schema.sql',
+    baseline_sha256: hash(baselineSql),
+    compatibility_migration_version: '20260824002000',
+    compatibility_source: 'recovery/pre_forward_compat.sql',
+    compatibility_sha256: hash(compatibilitySql),
+    includes_through: '20260817044851',
+    forward_migrations_from: '20260824002834',
+  };
+  assert.deepEqual(
+    validateRecoveryBaselineManifest(manifest, {
+      baselineSql: baselineSql.replace(/\n/g, '\r\n'),
+      prerequisiteSql: prerequisiteSql.replace(/\n/g, '\r\n'),
+      compatibilitySql: compatibilitySql.replace(/\n/g, '\r\n'),
+    }),
+    manifest,
+  );
+});
+
 test('recovered schema does not define the price-history view recursively', async () => {
   const schema = await readFile(path.join(repoRoot, 'supabase', 'schemas', '000_remote_public_schema.sql'), 'utf8');
   const view = schema.match(/CREATE OR REPLACE VIEW "public"\."price_history_by_item"[\s\S]*?;\r?\n/i)?.[0] ?? '';

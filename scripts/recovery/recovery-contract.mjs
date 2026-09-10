@@ -4,6 +4,10 @@ import path from 'node:path';
 
 const DISPOSABLE_PROJECT = /^cascade-recovery-[a-z0-9]{4,32}$/;
 
+function normalizedSqlHash(source) {
+  return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') {
@@ -174,15 +178,15 @@ export function validateRecoveryBaselineManifest(manifest, { baselineSql, prereq
     && manifest.compatibility_migration_version < manifest.forward_migrations_from)) {
     throw new Error('Recovery baseline versions must satisfy includes_through < prerequisites < baseline < compatibility < forward boundary.');
   }
-  const prerequisiteHash = createHash('sha256').update(prerequisiteSql).digest('hex');
+  const prerequisiteHash = normalizedSqlHash(prerequisiteSql);
   if (manifest.prerequisite_sha256 !== prerequisiteHash) {
     throw new Error(`Recovery prerequisite hash mismatch: expected ${manifest.prerequisite_sha256}, actual ${prerequisiteHash}.`);
   }
-  const actualHash = createHash('sha256').update(baselineSql).digest('hex');
+  const actualHash = normalizedSqlHash(baselineSql);
   if (manifest.baseline_sha256 !== actualHash) {
     throw new Error(`Recovery baseline hash mismatch: expected ${manifest.baseline_sha256}, actual ${actualHash}.`);
   }
-  const compatibilityHash = createHash('sha256').update(compatibilitySql).digest('hex');
+  const compatibilityHash = normalizedSqlHash(compatibilitySql);
   if (manifest.compatibility_sha256 !== compatibilityHash) {
     throw new Error(`Recovery compatibility hash mismatch: expected ${manifest.compatibility_sha256}, actual ${compatibilityHash}.`);
   }

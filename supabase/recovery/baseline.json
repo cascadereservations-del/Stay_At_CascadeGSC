@@ -5,7 +5,7 @@
   "prerequisite_sha256": "5c4b7028e64e91dd2206c56fa6f634b7c868ad561505141c6e5d79447fc3928f",
   "baseline_migration_version": "20260824000000",
   "baseline_source": "schemas/000_remote_public_schema.sql",
-  "baseline_sha256": "e01547ae0fe911ff5d0a22972e6605ef313662f6f96b7f63601b839590c6f46d",
+  "baseline_sha256": "ca8f98ff2952a4a6db73ff02d8e8fb6d0f3cf622899c0a0ee7b7259c721af7c6",
   "compatibility_migration_version": "20260824002000",
   "compatibility_source": "recovery/pre_forward_compat.sql",
   "compatibility_sha256": "0ad30130c9df1a8ce778de46439eea534834f4872933efcc01715b65846fe662",

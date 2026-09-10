@@ -113,7 +113,7 @@ async function evaluateDatabaseSnapshot(root, database, errors) {
     return { ...database, available: false };
   }
   const source = await readFile(snapshotPath);
-  const actualHash = createHash('sha256').update(source).digest('hex');
+  const actualHash = createHash('sha256').update(source.toString('utf8').replace(/\r\n/g, '\n')).digest('hex');
   if (actualHash !== database.schema_snapshot_sha256) {
     errors.push(`Schema snapshot hash differs: ${database.schema_snapshot}`);
   }
