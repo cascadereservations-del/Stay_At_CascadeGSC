@@ -79,7 +79,7 @@ Deno.serve(async (req: Request) => {
   try {
     if (action === 'list') {
       const { data: profiles, error } = await admin.from('staff_access_profiles')
-        .select('user_id, role, disabled_at, created_at').order('created_at');
+        .select('user_id, role, disabled_at, created_at, note').order('created_at');
       if (error) throw error;
       const { data: users } = await admin.auth.admin.listUsers({ perPage: 200 });
       const byId = new Map((users?.users ?? []).map(u => [u.id, u]));
@@ -93,6 +93,7 @@ Deno.serve(async (req: Request) => {
           sign_in_name: isStaffLogin ? (u?.email ?? '').split('@')[0] : null,
           is_mailbox_login: !isStaffLogin,
           last_sign_in_at: u?.last_sign_in_at ?? null, created_at: p.created_at,
+          note: (p as { note?: string | null }).note ?? null,
         };
       });
       return json({ ok: true, staff: rows, staff_domain: STAFF_DOMAIN });
@@ -139,6 +140,11 @@ Deno.serve(async (req: Request) => {
       const newPassword = typeof body.password === 'string' ? body.password : '';
       const newRole = typeof body.role === 'string' ? body.role : '';
       const newName = typeof body.name === 'string' ? body.name.trim() : '';
+      // Operator-only free-text note. Sent as '' to clear it, omitted to leave
+      // it alone. Never a credential: the PIN is bcrypt-hashed in auth.users and
+      // cannot be read back, which is exactly why this field exists (D-059).
+      const noteGiven = typeof body.note === 'string';
+      const newNote = noteGiven ? (body.note as string).trim().slice(0, 500) : null;
       const updates: Record<string, unknown> = {};
       if (newPassword) {
         if (newPassword.length < 8) return json({ ok: false, error: 'password_min_8' }, 400);
@@ -160,11 +166,16 @@ Deno.serve(async (req: Request) => {
           .update({ role, sessions_revoked_after: nowIso, updated_at: nowIso }).eq('user_id', targetId);
         if (error) throw error;
       }
+      if (noteGiven) {
+        const { error } = await admin.from('staff_access_profiles')
+          .update({ note: newNote || null, updated_at: nowIso }).eq('user_id', targetId);
+        if (error) throw error;
+      }
       await syncMeta(targetId, role, before.property_ids, !!before.disabled_at, newName ? { display_name: newName } : {});
       const after = await profileOf(targetId);
       await audit(targetId, 'role_changed', before, { ...after, password_changed: !!newPassword, display_name: newName || undefined },
         `Updated by staff-users (${actor.role})`);
-      return json({ ok: true, user_id: targetId, role, password_changed: !!newPassword });
+      return json({ ok: true, user_id: targetId, role, password_changed: !!newPassword, note_changed: noteGiven });
     }
 
     if (action === 'disable' || action === 'enable') {

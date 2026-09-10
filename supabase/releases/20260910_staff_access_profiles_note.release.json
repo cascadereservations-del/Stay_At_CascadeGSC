@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "release_id": "staff_access_profiles_note_20260910",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "5720070e40fed3cd3658563b591e971323799888"
+  },
+  "migrations": [
+    "20260910080000_staff_access_profiles_note.sql"
+  ],
+  "migration_sha256": {
+    "20260910080000_staff_access_profiles_note.sql": "13bf33ad85c1309aa84670c4c00e4ccd0290fe5e7ab9ecd5bbb2b2980ef2565e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260910T061420Z",
+    "verified_at": "2026-09-10T06:14:20Z",
+    "production_rule": "Purely additive: one nullable column on staff_access_profiles. No existing column, policy or grant is touched, so the 06:14Z backup set taken earlier today remains a valid restore point."
+  },
+  "forward_verification": [
+    {
+      "name": "note_column_exists_as_nullable_text",
+      "query": "select exists (select 1 from information_schema.columns where table_schema='public' and table_name='staff_access_profiles' and column_name='note' and data_type='text' and is_nullable='YES')",
+      "expect": true
+    },
+    {
+      "name": "no_existing_row_lost_its_role",
+      "query": "select not exists (select 1 from public.staff_access_profiles where role is null)",
+      "expect": true
+    },
+    {
+      "name": "all_four_staff_profiles_survive",
+      "query": "select (select count(*) from public.staff_access_profiles) >= 4",
+      "expect": true
+    },
+    {
+      "name": "column_carries_the_no_credentials_warning",
+      "query": "select col_description('public.staff_access_profiles'::regclass, (select ordinal_position from information_schema.columns where table_schema='public' and table_name='staff_access_profiles' and column_name='note')::int) like '%Never store a PIN%'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - one nullable additive column",
+    "steps": [
+      {
+        "name": "drop_the_column",
+        "action": "alter table public.staff_access_profiles drop column note; no other object depends on it, and the edge function tolerates its absence by returning null."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "staff_note_field",
+      "required_state": "not a runtime flag - the column is inert until the staff-users edge function and the admin dashboard are deployed to read and write it. Applying this migration alone changes nothing user-facing."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive_nullable_column",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "ADD COLUMN IF NOT EXISTS on a nullable text column. Existing readers select named columns and are unaffected; existing writers never referenced it. The current staff-users function does not read or write note, so deploying the migration before the function is safe and the reverse order is safe too."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the note column must never be used to store a PIN or password - it is not protected to credential standard and the column comment says so"
+  ]
+}
