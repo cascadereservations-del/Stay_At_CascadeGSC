@@ -15,9 +15,9 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken before this apply",
-    "verified_at": null,
-    "production_rule": "Replaces one function body with CREATE OR REPLACE. No table, column, policy or grant changes. The prior body is recoverable from this file's git history as well as from the named backup set."
+    "restore_point": "cascade-supabase-20260910T061420Z",
+    "verified_at": "2026-09-10T06:14:20Z",
+    "production_rule": "Replaces one function body with CREATE OR REPLACE. No table, column, policy or grant changes. Backup set cascade-supabase-20260910T061420Z (2,063,872 bytes encrypted) was taken immediately before this apply. The prior function body is additionally recoverable from this file\u2019s git history."
   },
   "forward_verification": [
     {
@@ -70,7 +70,7 @@
     "automatic_deployment_authorized": false
   },
   "stop_conditions": [
-    "backup.restore_point still reads PENDING",
+    "the turnover-verifier edge function is ALREADY DEPLOYED with the guard (2026-09-10 ~06:10Z); until this migration lands the guard is inert because the database never emits no_checkout_scheduled, so behaviour is unchanged and the false alarms continue",
     "any assertion in the migration's DO block raises - in particular, 2026-09-07 must still fail as a real missed turnover",
     "any forward verification query returns anything other than its expected value",
     "the turnover-verifier edge function must be deployed in the same window, or the false alarms continue despite the fix"
