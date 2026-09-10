@@ -62,6 +62,11 @@ are present. Persistent registration was not performed: it requires explicit app
 recurring tasks access owner-only production credential files and write sensitive encrypted data to
 `C:\Cascade-Backups`.
 
+The calendar-sync v13 horizon guard was extracted into a pure classifier and covered by three Deno
+tests: an in-feed UID is preserved, a missing row before the guard is reaped, a rolling-tail row is
+skipped, and a missing/invalid feed horizon fails closed. All three tests and the Edge Function Deno
+type-check pass. The function remains undeployed pending the separately approved restore proof.
+
 ## Remaining gates
 
 1. At or after 2026-09-11 00:55 UTC, close the S01 observation with fresh read-only checks.

@@ -110,7 +110,9 @@ privacy decision; park it.
 - [ ] **Calendar-sync v13 is source-ready but not yet deployed** (stops the nightly "1 Airbnb calendar row no longer in the live feed" note — it was the
       rolling 365-day horizon tail, a fresh uid every midnight, not a real cancellation). From the repo folder:
       `npx supabase functions deploy calendar-sync --project-ref qkgfhsdppslwunarczeq --no-verify-jwt`
-      Proof: no reconciliation note at the next 00:15 PHT run; `cancelled_reaped` stays 0 and the log shows `horizon-tail row(s) left alone`.
+      Source proof: three focused horizon tests and a Deno type-check pass. Live proof after the
+      separately approved release: no reconciliation note at the next 00:15 PHT run;
+      `cancelled_reaped` stays 0 and the log shows `horizon-tail row(s) left alone`.
 - [x] `Cascade — Telegram/owner-alerts` is present in the **cascade-n8n** stack and used by S01/W04. W07's Telegram node remains disabled.
 - [x] ~~`Cascade — Telegram/ops` and `Cascade — Telegram/finance` (W01+)~~ **CANCELLED 2026-09-10** —
       unnecessary. One bot (`@CascadeHideawayBot`) is already a member of both groups, and

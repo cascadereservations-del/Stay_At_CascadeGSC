@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { classifyMissingAirbnbRows } from './horizon.ts';
 
 // calendar-sync v13 - Cascade Hideaway
 //
@@ -167,12 +168,7 @@ Deno.serve(async (req: Request) => {
     // so yesterday's tail "vanishes" each midnight and v12 reaped and announced
     // it daily. Rows within two days of the feed's own horizon are left alone
     // and not counted. A reap whose update fails is no longer counted either.
-    const uidsInFeed = new Set<string>(events.map(e => e.uid));
     const today = new Date().toISOString().slice(0, 10);
-    const feedHorizon = events.reduce((max, e) => (e.checkout && e.checkout > max ? e.checkout : max), '');
-    const horizonGuard = feedHorizon
-      ? new Date(new Date(`${feedHorizon}T00:00:00Z`).getTime() - 2 * 86_400_000).toISOString().slice(0, 10)
-      : null;
     let reaped = 0;
     let horizonSkipped = 0;
     try {
@@ -181,9 +177,9 @@ Deno.serve(async (req: Request) => {
         .eq('property_id', propertyId).eq('source', 'airbnb')
         .in('status', ['confirmed', 'blocked'])
         .gte('checkout_date', today);
-      for (const row of upcoming ?? []) {
-        if (uidsInFeed.has(row.uid)) continue;
-        if (horizonGuard && row.checkin_date >= horizonGuard) { horizonSkipped++; continue; }
+      const classification = classifyMissingAirbnbRows(events, upcoming ?? []);
+      horizonSkipped = classification.horizonSkipped;
+      for (const row of classification.rowsToReap) {
         const { error: reapUpdateErr } = await supabase.from('calendar_events')
           .update({ status: 'cancelled', synced_at: new Date().toISOString() })
           .eq('id', row.id);
@@ -191,7 +187,7 @@ Deno.serve(async (req: Request) => {
         reaped++;
       }
       if (reaped > 0) console.log(`calendar-sync v13: reaped ${reaped} stale event(s)`);
-      if (horizonSkipped > 0) console.log(`calendar-sync v13: ${horizonSkipped} horizon-tail row(s) left alone (feed horizon ${feedHorizon})`);
+      if (horizonSkipped > 0) console.log(`calendar-sync v13: ${horizonSkipped} horizon-tail row(s) left alone (feed horizon ${classification.feedHorizon || 'unavailable'})`);
     } catch (reapErr) {
       console.warn('calendar-sync v13: reap step failed (non-fatal):', String(reapErr));
     }
