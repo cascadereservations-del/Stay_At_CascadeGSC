@@ -9,7 +9,18 @@ test('public HTML does not expose the exact lot address', () => {
 });
 
 test('public HTML does not claim instant confirmation', () => {
-  assert.doesNotMatch(html, /instant confirmation|confirmed immediately|confirms your stay immediately/i);
+  assert.doesNotMatch(html, /instant confirmation|confirmed immediately|confirms? (?:your stay )?instantly|confirmed the moment we receive|secured when the 50% deposit clears|holds? your dates immediately|held the moment we receive|deposit to confirm|reservation fee holds your dates/i);
+});
+
+test('search metadata and the pre-booking FAQ do not publish payment account identifiers', () => {
+  const jsonLd = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+    .map((match) => match[1])
+    .join('\n');
+  const faq = html.match(/<section[^>]+class="faq-section"[\s\S]*?<\/section>/i)?.[0] ?? '';
+  const accountIdentifier = /0956\s*011\s*5744|1094\s*2361\s*1134|Marifel Suzanne B\./i;
+  assert.ok(faq, 'FAQ section must be present');
+  assert.doesNotMatch(jsonLd, accountIdentifier);
+  assert.doesNotMatch(faq, accountIdentifier);
 });
 
 test('public HTML does not use unsupported luxury superlatives', () => {

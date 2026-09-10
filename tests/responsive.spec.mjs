@@ -91,11 +91,10 @@ test.describe('responsive contract', () => {
         // never settle and the guard timed out instead of checking anything.
         // Scroll through the DOM directly, then read naturalWidth.
         await img.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-        const naturalWidth = await img.evaluate(el => {
-          if (el.decode) { return el.decode().catch(() => {}).then(() => el.naturalWidth); }
-          return el.naturalWidth;
-        }, { timeout: 15000 });
-        expect(naturalWidth, `${selector} #${i} failed to decode`).toBeGreaterThan(0);
+        await expect.poll(
+          () => img.evaluate(el => el.complete ? el.naturalWidth : 0),
+          { timeout: 15000, message: `${selector} #${i} failed to decode` },
+        ).toBeGreaterThan(0);
       }
     }
   });

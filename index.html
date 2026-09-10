@@ -97,7 +97,7 @@
       {
         "@type": "Question",
         "name": "What payment methods are accepted?",
-        "acceptedAnswer": { "@type": "Answer", "text": "GCash (0956 011 5744 \u00b7 Marifel Suzanne B.), UnionBank transfer (1094 2361 1134), or cash on arrival. All payments are directly to the property \u2014 there is no third-party processor." }
+        "acceptedAnswer": { "@type": "Answer", "text": "GCash, UnionBank transfer, or cash on arrival. Payment instructions appear only after dates and guest details are reviewed in the booking flow. All payments are directly to the property \u2014 there is no third-party processor." }
       },
       {
         "@type": "Question",
@@ -134,9 +134,9 @@
   <link rel="preconnect" href="https://drive.google.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <!-- Hero LCP preload — Entrance (IMG_11) — first slide of hero carousel -->
+  <!-- Hero LCP preload — same-origin property photo and first carousel slide -->
   <link rel="preload" as="image"
-        href="https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w1920"
+        href="og-image.jpg"
         fetchpriority="high">
 
   <style>
@@ -4950,25 +4950,15 @@
 
     <div class="hero-photo luxury-hero-media" id="heroPhoto" role="img" aria-label="Cascade Hideaway private stay in General Santos City">
 
-      <!-- No-JS fallback — JS builds Drive-photo slides and replaces this.
-           Task 6: responsive srcset using the existing hosted Drive derivative
-           widths. AVIF/WebP same-origin derivatives are tracked in
-           assets/images/MANIFEST.md until a real image pipeline is set up. -->
+      <!-- No-JS fallback. JS builds the carousel and keeps this same-origin
+           property photo as the reliable first slide and network fallback. -->
       <div class="hero-slide is-active" aria-hidden="true">
-        <picture>
-          <source
-            srcset="
-              https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w640 640w,
-              https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w1280 1280w,
-              https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w1920 1920w"
-            sizes="100vw">
         <img
-          src="https://drive.google.com/thumbnail?id=1wzkooPfoOsa2GzWcixHuZ6xYBf54munt&sz=w1920"
+          src="og-image.jpg"
           alt=""
-          width="1920" height="1080"
+          width="1200" height="630"
           loading="eager" fetchpriority="high" decoding="auto"
         >
-        </picture>
       </div>
 
     </div>
@@ -5124,7 +5114,7 @@
           <h3 class="why-direct-item-heading">Pay your way</h3>
           <p class="why-direct-item-body">
             GCash, bank transfer, or cash on arrival.
-            50% deposit to confirm &#x2014; balance settled when you check in. No card required.
+            A 50% reservation fee is reviewed with availability before confirmation; the balance is settled at check-in. No card required.
           </p>
         </article>
 
@@ -5772,7 +5762,7 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Once you submit the booking form, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. Your stay is secured when the 50% deposit clears. Balance is settled at check-in &mdash; no surprises.</p>
+              <p class="faq-answer">Once you submit the booking form, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. Balance is settled at check-in &mdash; no surprises.</p>
             </div>
           </div>
         </details>
@@ -5786,7 +5776,7 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">GCash (<strong>0956 011 5744</strong> &middot; Marifel Suzanne B.), UnionBank transfer (<strong>1094 2361 1134</strong>), or cash on arrival. All payments go directly to the property &mdash; there is no third-party processor.</p>
+              <p class="faq-answer">GCash, UnionBank transfer, or cash on arrival. Payment instructions appear only after you review available dates and enter your guest details. All payments go directly to the property &mdash; there is no third-party processor.</p>
             </div>
           </div>
         </details>
@@ -5982,7 +5972,7 @@
             <li class="booking-perk">Book direct at the lowest rate &#x2014; your discount is calculated and shown in real time as you select dates</li>
             <li class="booking-perk">Cleaning fee always included &#x2014; no surprise charge at checkout</li>
             <li class="booking-perk">Stay 5 nights or more for a complimentary mid-stay room refresh</li>
-            <li class="booking-perk">50% reservation fee holds your dates &#x2014; balance due at check-in</li>
+            <li class="booking-perk">50% reservation fee starts verification &#x2014; balance due at check-in after confirmation</li>
           </ul>
 
         </div>
@@ -6287,13 +6277,13 @@
                   <div class="pay-action-hero">
                     <div class="pay-action-label">
                       <span id="payActionTitle">Reservation Fee</span>
-                      <small id="payActionSub">50% of total &middot; holds your dates immediately</small>
+                      <small id="payActionSub">50% of total &middot; reviewed before confirmation</small>
                     </div>
                     <div class="pay-action-amount">
                       <span class="pay-amount-currency" aria-hidden="true">&#x20B1;</span><span id="payBdFee"></span>
                     </div>
                   </div>
-                  <p class="pay-action-confirm" id="payActionConfirm">Your dates are held the moment we receive this payment.</p>
+                  <p class="pay-action-confirm" id="payActionConfirm">We verify your payment and availability before confirming your dates.</p>
                 </div>
 
                 <!-- Zone C: Later obligations -->
@@ -6329,7 +6319,7 @@
 
               <!-- Reservation instruction — dynamic: hidden for full payment -->
               <p class="pay-deposit-note" id="payDepositNote">
-                Send the <strong>reservation fee</strong> to hold your dates &mdash; balance and &#x20B1;1,000 refundable deposit collected at check-in.
+                Send the <strong>reservation fee</strong> for review &mdash; after confirmation, the balance and &#x20B1;1,000 refundable deposit are collected at check-in.
               </p>
 
               <!-- Tab switcher — Bank Transfer first (faster confirmation) -->
@@ -7451,8 +7441,9 @@
        * Files must have "Anyone with link can view" sharing (same as gallery).
        */
       /* Hero slides: IMG_11, IMG_10, IMG_05, IMG_08, IMG_02 per v2 brief */
+      var LOCAL_PROPERTY_FALLBACK = 'og-image.jpg';
       var SLIDES = [
-        { id: '1wzkooPfoOsa2GzWcixHuZ6xYBf54munt', alt: 'Cascade Hideaway entrance' },
+        { src: LOCAL_PROPERTY_FALLBACK, alt: 'Cascade Hideaway living and sleeping area' },
         { id: '1kIwtCJt7EUyNhkm_n3yuboZUcWhrl-ED', alt: 'Studio living and sleeping area — sofa and bed' },
         { id: '1iZwQzGq8_yYhihgg2et13eUhre5q4143', alt: 'Hotel-quality bed with crisp linens' },
         { id: '1jIsHRgph5HjgACl3tM2u0E8ybzYx974s', alt: 'Cascade Hideaway — living area' },
@@ -7475,7 +7466,12 @@
         div.setAttribute('aria-hidden', 'true');
 
         var img = document.createElement('img');
-        img.src      = BASE + s.id + SZ;
+        img.addEventListener('error', function () {
+          if (img.dataset.localFallback === 'true') return;
+          img.dataset.localFallback = 'true';
+          img.src = LOCAL_PROPERTY_FALLBACK;
+        });
+        img.src      = s.src || (BASE + s.id + SZ);
         img.alt      = '';
         img.width    = 1920;
         img.height   = 1080;
@@ -7510,6 +7506,20 @@
       document.addEventListener('visibilitychange', function () {
         if (document.hidden) { clearInterval(timer); }
         else { timer = setInterval(advance, INTERVAL); }
+      });
+    }());
+
+    /* Keep property photography usable when Drive thumbnails are blocked or rate-limited.
+       Payment QR images are deliberately excluded: they must fail visibly, never substitute. */
+    (function () {
+      'use strict';
+      var fallback = 'og-image.jpg';
+      document.querySelectorAll('.about-photo-frame img, .gallery-mosaic img, #galleryTrack img').forEach(function (img) {
+        img.addEventListener('error', function () {
+          if (img.dataset.localFallback === 'true') return;
+          img.dataset.localFallback = 'true';
+          img.src = fallback;
+        });
       });
     }());
 
@@ -7915,8 +7925,8 @@
         calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'');
         /* Deposit line — concrete peso amount removes checkout surprise */
         var depNote = isLastMinute
-          ? '\u20B1'+dep.toLocaleString('en-PH')+' full payment (check-in within 48h) \u00B7 confirms instantly'
-          : '\u20B1'+dep.toLocaleString('en-PH')+' deposit to confirm \u00B7 \u20B1'+balance.toLocaleString('en-PH')+' due at check-in';
+          ? '\u20B1'+dep.toLocaleString('en-PH')+' full payment (check-in within 48h) \u00B7 reviewed before confirmation'
+          : '\u20B1'+dep.toLocaleString('en-PH')+' reservation fee for review \u00B7 \u20B1'+balance.toLocaleString('en-PH')+' due at check-in after confirmation';
         var teaserParts=[];
         if (tier.disc>0) teaserParts.push(tier.disc+'% direct discount applied');
         teaserParts.push('cleaning always included');
@@ -8081,7 +8091,7 @@
           if (gcashHint) gcashHint.textContent = '\u20B1' + amountDue.toLocaleString('en-PH');
           if (payActionTitle) payActionTitle.textContent = 'Full Payment';
           if (payActionSub)   payActionSub.textContent   = 'Priority verification';
-          if (payActionConfirm) payActionConfirm.textContent = 'Your booking is confirmed the moment we receive this payment.';
+          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your booking.';
           if (payActionEyebrow) payActionEyebrow.textContent = 'Complete your booking now';
           if (payZoneLater)   payZoneLater.hidden = true;
           if (payDepositNote) payDepositNote.hidden = true;
@@ -8089,8 +8099,8 @@
           if (bdFee) bdFee.textContent = dep.toLocaleString('en-PH');
           if (gcashHint) gcashHint.textContent = '\u20B1' + dep.toLocaleString('en-PH');
           if (payActionTitle) payActionTitle.textContent = 'Reservation Fee';
-          if (payActionSub)   payActionSub.textContent   = '50% of total \u00B7 holds your dates immediately';
-          if (payActionConfirm) payActionConfirm.textContent = 'Your dates are held the moment we receive this payment.';
+          if (payActionSub)   payActionSub.textContent   = '50% of total \u00B7 reviewed before confirmation';
+          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your dates.';
           if (payActionEyebrow) payActionEyebrow.textContent = 'Send now to secure your dates';
           if (payZoneLater)   payZoneLater.hidden = false;
           if (payDepositNote) payDepositNote.hidden = false;
@@ -8755,14 +8765,14 @@
         if (mode === 'full') {
           if (payActionTitle)   payActionTitle.textContent   = 'Full Payment';
           if (payActionSub)     payActionSub.textContent     = 'Priority verification';
-          if (payActionConfirm) payActionConfirm.textContent = 'Your booking is confirmed the moment we receive this payment.';
+          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your booking.';
           if (payActionEyebrow) payActionEyebrow.textContent = 'Complete your booking now';
           if (payZoneLater)   payZoneLater.hidden   = true;
           if (payDepositNote) payDepositNote.hidden = true;
         } else {
           if (payActionTitle)   payActionTitle.textContent   = 'Reservation Fee';
-          if (payActionSub)     payActionSub.textContent     = '50% of total \u00B7 holds your dates immediately';
-          if (payActionConfirm) payActionConfirm.textContent = 'Your dates are held the moment we receive this payment.';
+          if (payActionSub)     payActionSub.textContent     = '50% of total \u00B7 reviewed before confirmation';
+          if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your dates.';
           if (payActionEyebrow) payActionEyebrow.textContent = 'Send now to secure your dates';
           if (payZoneLater)   payZoneLater.hidden   = false;
           if (payDepositNote) payDepositNote.hidden = false;

@@ -1,17 +1,16 @@
 # Image asset manifest — Task 6 (partial, this session)
 
 This session had **no image-processing tooling** (no sharp/imagemagick
-pipeline, no rights-cleared source files beyond what is already hotlinked
-from Google Drive in `index.html`). So this pass only:
+pipeline). The tracked `og-image.jpg` is a rights-cleared local copy of the
+primary property photo, so the current pass:
 
-- Added `<picture>` / `srcset` markup around the hero's no-JS fallback
-  image, pointing at the **existing** Google Drive thumbnail URLs at
-  `sz=w640` / `sz=w1280` / `sz=w1920` (Drive's own thumbnail resizer —
-  not new files).
+- Uses `og-image.jpg` as the same-origin eager hero/LCP image and as the
+  fail-safe for non-payment property photos when Drive is blocked or rate-limited.
+- Deliberately excludes GCash/UnionBank QR images from fallback substitution;
+  a payment QR must fail visibly rather than display unrelated content.
 - Left a broken-image regression test (`tests/responsive.spec.mjs`,
   "conversion-critical images decode successfully") that asserts
-  `naturalWidth > 0` for the hero and gallery lead images after they
-  scroll into view.
+  `naturalWidth > 0` for the hero and gallery lead images after fallback.
 
 **Not done yet — needs Lloyd + a real image pipeline:**
 
