@@ -24,6 +24,7 @@ const DIR = 'automation/n8n/workflows';
 const PROVIDER_SEND_APPROVED = new Map([
   ['CH-S01 Host Alert Router', 'D-053 — Lloyd approved 2026-09-10, proven on fixture 4'],
   ['CH-W04 Outbox Reconciliation', 'D-056 — Lloyd approved 2026-09-10, proven on execution 80'],
+  ['CH-W07 Error Handler', 'D-063 — Lloyd approved 2026-09-11, proven on execution pending'],
 ]);
 
 // The error workflow itself cannot reference an error workflow.

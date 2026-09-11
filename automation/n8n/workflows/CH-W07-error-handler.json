@@ -32,7 +32,7 @@
         700,
         300
       ],
-      "disabled": true,
+      "disabled": false,
       "credentials": {
         "telegramApi": {
           "id": "aolyppsD1OYbZkpF",
