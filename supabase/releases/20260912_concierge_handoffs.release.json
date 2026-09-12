@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "release_id": "concierge_handoffs_20260912",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "27b64a58eccb8343f5a17eef417b24fcfab28898",
+    "note": "migration file is uncommitted at contract time; sha256 below is authoritative"
+  },
+  "migrations": [
+    "20260912010000_concierge_handoffs.sql"
+  ],
+  "migration_sha256": {
+    "20260912010000_concierge_handoffs.sql": "f3db6d53e9ffe9629d8372560d0c021cf1ef4405a7479f39f631a24dc0d25b73"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260910T144230Z",
+    "verified_at": "2026-09-10T14:45:37Z",
+    "production_rule": "additive only: one new service-role table with RLS and an index; no existing object is altered, so the 2026-09-10 D-061 drill set (restore-proven) is an adequate restore point and no fresh backup is taken"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "current_privacy_review_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "migration ledger differs from source",
+    "public.concierge_handoffs already exists with a different column set",
+    "any forward verification query returns anything other than its expected value",
+    "this release creates the table only; the Telegram card path goes live with the messenger-concierge and telegram-expense deploys that follow"
+  ],
+  "forward_verification": [
+    {
+      "name": "concierge_handoffs_exists_with_rls",
+      "query": "select to_regclass('public.concierge_handoffs') is not null and (select relrowsecurity from pg_class where oid = 'public.concierge_handoffs'::regclass)",
+      "expect": true
+    },
+    {
+      "name": "concierge_handoffs_not_client_readable",
+      "query": "select not has_table_privilege('anon','public.concierge_handoffs','select') and not has_table_privilege('authenticated','public.concierge_handoffs','select')",
+      "expect": true
+    },
+    {
+      "name": "concierge_handoffs_status_check_present",
+      "query": "select count(*) = 1 from pg_constraint where conrelid = 'public.concierge_handoffs'::regclass and contype = 'c'",
+      "expect": true
+    }
+  ],
+  "feature_flags": [
+    {
+      "name": "concierge_mode",
+      "required_state": "handoff cards are produced only in auto mode; suggest mode keeps the existing draft card; off produces nothing"
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time; the table holds only handoff cards that the bot recreates on the next handoff",
+    "steps": [
+      {
+        "name": "drop_table",
+        "action": "drop table if exists public.concierge_handoffs"
+      }
+    ]
+  }
+}

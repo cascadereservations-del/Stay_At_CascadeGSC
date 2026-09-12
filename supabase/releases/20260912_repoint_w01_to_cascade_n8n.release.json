@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "release_id": "repoint_w01_to_cascade_n8n_20260912",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "27b64a58eccb8343f5a17eef417b24fcfab28898",
+    "note": "migration file is uncommitted at contract time; sha256 below is authoritative"
+  },
+  "migrations": [
+    "20260912000000_repoint_w01_to_cascade_n8n.sql"
+  ],
+  "migration_sha256": {
+    "20260912000000_repoint_w01_to_cascade_n8n.sql": "ef34c70d4441c1282f97fde850d4acaac478ff449b4f45f4a20c4d0aab6c92ff"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260910T144230Z",
+    "verified_at": "2026-09-10T14:45:37Z",
+    "production_rule": "single create-or-replace of one trigger-only function whose only change is the webhook URL; no table, column, policy, trigger or privilege is touched, and the previous definition is one migration away, so the 2026-09-10 D-061 drill set (restore-proven, 86/86 ledger rows) is an adequate restore point - no fresh backup is taken for this release"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "current_privacy_review_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "migration ledger differs from source",
+    "public.dispatch_w01_booking_requested does not already exist",
+    "trigger automation_outbox_dispatch_w01 is absent from public.automation_outbox before apply",
+    "any forward verification query returns anything other than its expected value",
+    "this release must not activate any n8n workflow: D-022 still holds and every Cascade workflow stays inactive"
+  ],
+  "forward_verification": [
+    {
+      "name": "dispatcher_points_at_cascade_instance",
+      "query": "select pg_get_functiondef('public.dispatch_w01_booking_requested()'::regprocedure) like '%https://cascade-n8n.rocloyd.com/webhook/cascade-w01-booking-requested%'",
+      "expect": true
+    },
+    {
+      "name": "shared_instance_no_longer_referenced",
+      "query": "select pg_get_functiondef('public.dispatch_w01_booking_requested()'::regprocedure) not like '%//n8n.rocloyd.com%'",
+      "expect": true
+    },
+    {
+      "name": "trigger_still_attached",
+      "query": "select count(*) = 1 from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_proc p on p.oid = t.tgfoid where not t.tgisinternal and c.relname = 'automation_outbox' and p.proname = 'dispatch_w01_booking_requested'",
+      "expect": true
+    },
+    {
+      "name": "dispatcher_not_client_executable",
+      "query": "select not has_function_privilege('anon','public.dispatch_w01_booking_requested()','execute') and not has_function_privilege('authenticated','public.dispatch_w01_booking_requested()','execute') and not has_function_privilege('service_role','public.dispatch_w01_booking_requested()','execute')",
+      "expect": true
+    }
+  ],
+  "feature_flags": [
+    {
+      "name": "PROVIDER_SEND_APPROVED",
+      "required_state": "must NOT gain CH-W01. This release only changes where W01 would post; per D-022 every Cascade workflow stays inactive and only CH-S01 (D-053) and CH-W04 (D-056) are approved to send."
+    },
+    {
+      "name": "cascade n8n workflow state",
+      "required_state": "CH-W01 remains inactive in both n8n instances after apply; activation is a separate, explicitly approved step"
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time; the dispatcher swallows delivery errors and the automation_outbox row remains the durable retry source either way",
+    "steps": [
+      {
+        "name": "repoint_back_to_shared_n8n",
+        "action": "re-apply supabase/migrations/20260824045800_dispatch_w01_to_n8n.sql, which recreates the same function with the n8n.rocloyd.com URL and re-creates the trigger"
+      }
+    ]
+  }
+}

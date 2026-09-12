@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "release_id": "concierge_threads_20260911",
+  "phase": "expand",
+  "source": {
+    "branch": "codex/cascade-waves-0-1-sol",
+    "commit": "27b64a58eccb8343f5a17eef417b24fcfab28898",
+    "note": "migration file is uncommitted at contract time; sha256 below is authoritative"
+  },
+  "migrations": [
+    "20260911000000_concierge_threads.sql"
+  ],
+  "migration_sha256": {
+    "20260911000000_concierge_threads.sql": "4a005bea7960cfb0eeaf215f1ff3240d93c334785fb9a5d0304bb720cb8122a0"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20260910T144230Z",
+    "verified_at": "2026-09-10T14:45:37Z",
+    "production_rule": "additive only: one new service-role table and one app_settings row inserted with on-conflict-do-nothing; no existing object is altered, so the 2026-09-10 D-061 drill set (restore-proven) is an acceptable restore point"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "current_privacy_review_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "migration ledger differs from source",
+    "public.concierge_threads already exists with a different column set",
+    "public.app_settings has no primary key or unique constraint on key (the on-conflict clause would fail)",
+    "any forward verification query returns anything other than its expected value",
+    "concierge_mode may not be set to auto by this release"
+  ],
+  "forward_verification": [
+    {
+      "name": "concierge_threads_exists_with_rls",
+      "query": "select to_regclass('public.concierge_threads') is not null and (select relrowsecurity from pg_class where oid = 'public.concierge_threads'::regclass)",
+      "expect": true
+    },
+    {
+      "name": "concierge_threads_not_client_readable",
+      "query": "select not has_table_privilege('anon','public.concierge_threads','select') and not has_table_privilege('authenticated','public.concierge_threads','select')",
+      "expect": true
+    },
+    {
+      "name": "concierge_mode_defaults_to_suggest",
+      "query": "select value = '\"suggest\"'::jsonb from public.app_settings where key = 'concierge_mode'",
+      "expect": true
+    }
+  ],
+  "feature_flags": [
+    {
+      "name": "concierge_mode",
+      "required_state": "suggest after apply; auto only after the Messenger webhook is verified and Business Suite automations are off; off is the kill switch"
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time; the table holds only Messenger thread state that the bot rebuilds on the next message",
+    "steps": [
+      {
+        "name": "silence_bot",
+        "action": "update public.app_settings set value = '\"off\"' where key = 'concierge_mode'"
+      },
+      {
+        "name": "drop_table",
+        "action": "drop table if exists public.concierge_threads; delete from public.app_settings where key = 'concierge_mode'"
+      }
+    ]
+  }
+}
