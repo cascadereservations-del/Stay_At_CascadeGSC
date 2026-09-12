@@ -49,6 +49,14 @@ type ClaimRow = {
   created_at: string;
 };
 
+// Heartbeats for the two n8n schedules (D-075). They already call this endpoint every run, so
+// the endpoint records the pulse and job-heartbeat-monitor alerts when it stops - no n8n change,
+// no new credential. The rows must exist in job_heartbeats (docs/plans/2026-09-12-n8n-heartbeats.sql).
+async function pulse(db: any, job: string): Promise<void> {
+  const { error } = await db.rpc('record_job_heartbeat', { p_job_name: job, p_phase: 'succeeded', p_error_code: null });
+  if (error) console.warn('[automation-host-alerts] heartbeat write failed:', job, error.message);
+}
+
 Deno.serve(async (request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const secret = Deno.env.get('N8N_HOST_ALERTS_SECRET');
@@ -108,6 +116,7 @@ Deno.serve(async (request) => {
         recipient_chat_id: chatIdFor(r.route_class),
       };
     });
+    await pulse(db, 'ch-s01-host-alert-router');
     return json({ ok: true, workflow_id: WORKFLOW_ID, recipient_chat_id: chatId, events });
   }
 
@@ -167,6 +176,7 @@ Deno.serve(async (request) => {
     };
     const counts = Object.fromEntries(Object.entries(anomalies).map(([key, rows]) => [key, (rows as unknown[]).length]));
     const total = Object.values(counts).reduce((sum, n) => sum + (n as number), 0);
+    await pulse(db, 'ch-w04-outbox-reconciliation');
     return json({
       ok: true,
       workflow_id: SWEEP_WORKFLOW_ID,

@@ -1785,6 +1785,14 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
     try{
       if(await alreadyProcessed(db,update?.update_id))return;
       purgeProcessed(db);
+      // Concierge handoff cards (2026-09-12): button taps `ch:...` and replies to a `#CH-` card
+      // belong to messenger-concierge; forward the raw update there with the same webhook secret.
+      const chReply=/#CH-[0-9a-f]{8}/.test(String(update?.message?.reply_to_message?.text??''));
+      if((update.callback_query?.data??'').startsWith('ch:')||chReply){
+        if(!isAllowedChat((update.callback_query?.message??update.message)?.chat?.id))return;
+        await fetch(`${SUPABASE_URL}/functions/v1/messenger-concierge?ops=1`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('concierge forward failed:',String(e)));
+        return;
+      }
       if(update.callback_query){const cq=update.callback_query;if(!isAllowedChat(cq.message?.chat?.id)){await tgAnswerCB(cq.id);return;}await handleCallbackQuery(cq,db);return;}
       const msg=update?.message;if(!msg)return;
       if(!isAllowedChat(msg.chat?.id))return;

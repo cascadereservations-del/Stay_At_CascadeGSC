@@ -6,6 +6,19 @@ import { buildStaleJobNotifications, findStaleHeartbeats, type JobHeartbeat } fr
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const json = (body: Record<string, unknown>, status = 200) => new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 
+const ROUTER_JOB = 'ch-s01-host-alert-router';
+async function directTelegram(text: string): Promise<void> {
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
+  const chatId = Deno.env.get('N8N_HOST_ALERTS_CHAT_ID_FINANCE') ?? Deno.env.get('N8N_HOST_ALERTS_CHAT_ID');
+  if (!token || !chatId) { console.warn('[job-heartbeat-monitor] direct telegram not configured'); return; }
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: `${text}
+(sent directly: the alert router itself is down)` }),
+  }).catch((e) => { console.warn('[job-heartbeat-monitor] direct telegram failed', String(e)); return null; });
+  if (r && !r.ok) console.warn('[job-heartbeat-monitor] direct telegram status', r.status);
+}
+
 async function recordHeartbeat(client: any, phase: 'started' | 'succeeded' | 'failed', errorCode?: string): Promise<void> {
   const { error } = await client.rpc('record_job_heartbeat', {
     p_job_name: 'job-heartbeat-monitor-every-15m',
@@ -39,7 +52,7 @@ Deno.serve(async (request) => {
     const stale = findStaleHeartbeats((data ?? []) as JobHeartbeat[]);
     const notifications = buildStaleJobNotifications(stale, correlationId);
     for (const notification of notifications) {
-      const { error: insertError } = await client.from('automation_outbox').upsert({
+      const { data: inserted, error: insertError } = await client.from('automation_outbox').upsert({
         event_type: 'system.job_stale',
         aggregate_type: 'scheduled_job',
         aggregate_id: crypto.randomUUID(),
@@ -47,8 +60,13 @@ Deno.serve(async (request) => {
         route_class: notification.route_class,
         template_key: notification.template_key,
         payload: notification.payload,
-      }, { onConflict: 'idempotency_key', ignoreDuplicates: true });
+      }, { onConflict: 'idempotency_key', ignoreDuplicates: true }).select('id');
       if (insertError) throw new Error('outbox_enqueue_failed');
+      // The outbox is delivered by CH-S01. When S01 itself is the stale job, nothing would ever
+      // carry this row, so the first alert of the episode goes straight to Telegram (D-075).
+      if ((inserted ?? []).length > 0 && String(notification.payload.job_name) === ROUTER_JOB) {
+        await directTelegram(String(notification.payload.rendered_text ?? `Cascade: ${ROUTER_JOB} is stale`));
+      }
     }
 
     await recordHeartbeat(client, 'succeeded');
