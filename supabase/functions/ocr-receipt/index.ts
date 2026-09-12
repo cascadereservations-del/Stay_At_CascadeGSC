@@ -16,7 +16,7 @@ import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const GEMINI_KEY   = Deno.env.get('GEMINI_BOT_KEY') ?? Deno.env.get('GEMINI_API_KEY') ?? '';
+const GEMINI_KEY   = Deno.env.get('CASCADE_GEMINI_BOT_KEY') ?? Deno.env.get('GEMINI_BOT_KEY') ?? Deno.env.get('GEMINI_API_KEY') ?? '';
 const TG_TOKEN     = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
@@ -121,7 +121,7 @@ function validDate(d: unknown): string | null {
 Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  if (!GEMINI_KEY) return json({ error: 'GEMINI_BOT_KEY not set' }, 500);
+  if (!GEMINI_KEY) return json({ error: 'CASCADE_GEMINI_BOT_KEY not set' }, 500);
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
