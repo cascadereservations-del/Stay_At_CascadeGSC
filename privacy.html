@@ -4,28 +4,30 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy Notice — Cascade Hideaway</title>
+<meta name="description" content="How Cascade Hideaway collects and uses guest information for direct bookings and the Messenger concierge.">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://cascadereservations-del.github.io/Stay_At_CascadeGSC/privacy.html">
-<style>
-  :root { --ch-ink:#1d1712; --ch-bone:#fbf8f2; --ch-brass-dark:#76552f; --ch-line:rgb(43 23 19 / 14%); }
-  body { margin:0; background:var(--ch-bone); color:var(--ch-ink); font-family:Manrope, system-ui, sans-serif; line-height:1.7; }
-  .wrap { max-width: 46rem; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
-  h1 { font-family:"Cormorant Garamond", Georgia, serif; font-weight:400; font-size: clamp(2.2rem, 5vw, 3rem); margin-bottom: 0.25em; }
-  h2 { font-family:"Cormorant Garamond", Georgia, serif; font-weight:500; margin-top: 2.25em; }
-  a { color: var(--ch-brass-dark); }
-  .eff { color: rgb(29 23 18 / 0.6); font-size: 0.9rem; }
-  table { width:100%; border-collapse: collapse; margin: 1em 0; }
-  th, td { text-align:left; padding: 0.5em 0.75em 0.5em 0; border-bottom: 1px solid var(--ch-line); vertical-align: top; }
-  .back { display:inline-block; margin-top: 3rem; }
-</style>
+<meta name="theme-color" content="#1F1D1A">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Manrope:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/css/legal.css">
 </head>
 <body>
-<div class="wrap">
-  <p class="eff">Effective date: 12 September 2026 (concierge section added; first issued 24 August 2026)</p>
-  <h1>Privacy notice</h1>
-  <p>This notice explains how <strong>Cascade Reservations</strong> ("Cascade Hideaway", "we", "us"), operator of the Cascade Hideaway short-term rental in General Santos City, Philippines, collects and uses information when you submit a direct booking request through this website. This notice has not been independently certified as legally compliant; it is a plain-language description of our current practice.</p>
+<header class="legal-hero">
+  <img src="og-image.jpg" alt="" width="1200" height="800" fetchpriority="high" decoding="async">
+  <div class="legal-hero__inner">
+    <p class="legal-hero__brand"><a href="index.html">Cascade Hideaway</a> &middot; General Santos City</p>
+    <h1>Privacy notice</h1>
+    <p class="legal-hero__meta"><span>Effective <strong>12 September 2026</strong></span><span>First issued 24 August 2026</span></p>
+  </div>
+</header>
+<main class="legal-body">
+  <div class="legal-wrap">
+    <p class="legal-lede">This notice explains how <strong>Cascade Reservations</strong> ("Cascade Hideaway", "we", "us"), operator of the Cascade Hideaway short-term rental in General Santos City, Philippines, collects and uses information when you submit a direct booking request through this website. This notice has not been independently certified as legally compliant; it is a plain-language description of our current practice.</p>
+    <nav class="legal-toc" aria-label="On this page"><p>On this page</p><ol><li><a href="#what-we-collect">What we collect</a></li><li><a href="#how-we-use-it">How we use it</a></li><li><a href="#who-processes-it-on-our-behalf">Who processes it on our behalf</a></li><li><a href="#messenger-concierge">Messenger concierge</a></li><li><a href="#retention">Retention</a></li><li><a href="#your-rights">Your rights</a></li><li><a href="#third-party-proof-content">Third-party proof content</a></li><li><a href="#contact">Contact</a></li></ol></nav>
 
-  <h2>What we collect</h2>
+  <h2 id="what-we-collect">What we collect</h2>
   <table>
     <tr><th>Field</th><th>Why we ask</th></tr>
     <tr><td>Name</td><td>To identify your reservation and address you personally.</td></tr>
@@ -36,10 +38,10 @@
     <tr><td>Payment proof (screenshot/receipt)</td><td>To verify your reservation-fee or full payment.</td></tr>
   </table>
 
-  <h2>How we use it</h2>
+  <h2 id="how-we-use-it">How we use it</h2>
   <p>We use your details only to process and manage this stay: checking availability, verifying payment, sending your confirmation, and communicating about your booking. We do not sell your information. We do not use it for marketing unless you separately and explicitly opt in to hear about future offers — transactional booking messages are never conditioned on marketing consent.</p>
 
-  <h2>Who processes it on our behalf</h2>
+  <h2 id="who-processes-it-on-our-behalf">Who processes it on our behalf</h2>
   <table>
     <tr><th>Provider</th><th>Role</th></tr>
     <tr><td>Supabase</td><td>Database and file storage for booking records and payment receipts (system of record).</td></tr>
@@ -49,24 +51,28 @@
     <tr><td>Google Gemini, OpenRouter</td><td>AI language models that draft the automated Messenger concierge's replies (see below). They receive the conversation text only to produce that reply.</td></tr>
   </table>
 
-  <h2>Messenger concierge</h2>
+  <h2 id="messenger-concierge">Messenger concierge</h2>
   <p>When you message our Facebook Page, an automated concierge may answer routine questions (rates, availability, amenities, directions, house rules). To do that we store your Messenger page-scoped ID, the first name Facebook shares with the Page, the text of the conversation, and the times of the messages. We keep the last 24 messages of a conversation for context and drop older ones automatically. Questions the concierge cannot handle (payments, cancellations, complaints, safety, price requests) are shown to our hosts, who reply personally.</p>
   <p>To stop the concierge from replying to you, ask for a host in the chat. To delete your Messenger data, send the message "delete my data" to the Page or email <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a>; we confirm once the deletion is complete.</p>
 
-  <h2>Retention</h2>
+  <h2 id="retention">Retention</h2>
   <p>Messenger conversation history is kept for up to 12 months after the last message, or deleted sooner on request. Booking records are retained for as long as needed for guest-history, tax, and dispute-resolution purposes, and are then deleted or anonymized. Payment receipt images are retained only as long as needed to verify the associated booking and are stored in a private, access-controlled location — not a public link.</p>
 
-  <h2>Your rights</h2>
+  <h2 id="your-rights">Your rights</h2>
   <p>You may ask us to access, correct, or delete the personal data we hold about you, or to explain how it is used, by emailing <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a>. We will respond within a reasonable time.</p>
 
-  <h2>Third-party proof content</h2>
+  <h2 id="third-party-proof-content">Third-party proof content</h2>
   <p>This site may display a live embedded preview of our official Airbnb listing to show current guest reviews. If loaded, that embed is provided directly by Airbnb and may set its own cookies or make its own network requests, governed by Airbnb's own privacy policy. We do not scrape, proxy, or store Airbnb's review content ourselves.</p>
 
-  <h2>Contact</h2>
+  <h2 id="contact">Contact</h2>
   <p>Cascade Reservations &middot; General Santos City, Philippines<br>
   Email: <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a></p>
-
-  <a class="back" href="index.html#booking">&larr; Back to booking</a>
-</div>
+    <div class="legal-foot">
+      <a href="index.html">&larr; Back to booking</a>
+      <span>Cascade Reservations &middot; <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a></span>
+      <a href="booking-terms.html">Booking terms &rarr;</a>
+    </div>
+  </div>
+</main>
 </body>
 </html>
