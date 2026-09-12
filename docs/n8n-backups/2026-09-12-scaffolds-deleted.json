@@ -1,0 +1,135 @@
+{
+  "exported_at": "2026-09-12T04:50:00Z",
+  "instance": "https://cascade-n8n.rocloyd.com",
+  "note": "The ten scaffolds were byte-identical apart from id, name and the trigger node name (W05/W06/W08/W12 used 'Manual preflight trigger'). All inactive, never executed. Deleted per D-070 item 3. Recreate any of them by posting `template` with the name.",
+  "template": {
+    "nodes": [
+      {
+        "name": "Manual event preflight",
+        "type": "n8n-nodes-base.manualTrigger",
+        "parameters": {},
+        "typeVersion": 1,
+        "position": [
+          260,
+          300
+        ]
+      },
+      {
+        "name": "Idempotency check",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          500,
+          300
+        ],
+        "parameters": {
+          "jsCode": "// Safe draft: execution is blocked until an authenticated source and provider credentials are configured.\nreturn items.map((item) => ({ json: { ...item.json, automation_state: 'configuration_required' } }));"
+        }
+      },
+      {
+        "name": "Configuration gate",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          760,
+          300
+        ],
+        "parameters": {},
+        "notes": "Replace this safe gate with the authenticated Supabase event-detail request and the approved channel/provider nodes before activation.",
+        "notesInFlow": true
+      },
+      {
+        "name": "Callback delivery result",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          1020,
+          300
+        ],
+        "parameters": {},
+        "notes": "No callback is made by this draft. Configure a signed automation-callback request only after every required delivery branch is wired and tested.",
+        "notesInFlow": true
+      }
+    ],
+    "connections": {
+      "Manual event preflight": {
+        "main": [
+          [
+            {
+              "node": "Idempotency check",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Idempotency check": {
+        "main": [
+          [
+            {
+              "node": "Configuration gate",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Configuration gate": {
+        "main": [
+          [
+            {
+              "node": "Callback delivery result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    }
+  },
+  "deleted": [
+    {
+      "id": "D7UMKswLGq5GR5Gn",
+      "name": "CH-W12 Reconciliation Report"
+    },
+    {
+      "id": "sLxyjQVXusLnCTE4",
+      "name": "CH-W01 Booking Requested"
+    },
+    {
+      "id": "g14GDFV6CsBbYBU7",
+      "name": "CH-W02 Receipt Review"
+    },
+    {
+      "id": "Njxk2jiH2Cg65nyd",
+      "name": "CH-W03 Booking Lifecycle"
+    },
+    {
+      "id": "ijfHca2h45MaYk85",
+      "name": "CH-W09 Calendar Projection"
+    },
+    {
+      "id": "SqY8ALR4BcoSUOUu",
+      "name": "CH-W10 Returning Guest"
+    },
+    {
+      "id": "z8x7dnl2PSTXjaym",
+      "name": "CH-W11 Identity Conflict"
+    },
+    {
+      "id": "bWmU7OulmjPU3AC6",
+      "name": "CH-W05 Daily Operations Digest"
+    },
+    {
+      "id": "ZLeU5W3uK5izg2KE",
+      "name": "CH-W06 Guest Lifecycle"
+    },
+    {
+      "id": "v3gHI8piCXh6NOYX",
+      "name": "CH-W08 Airbnb Proof Audit Reminder"
+    }
+  ]
+}
