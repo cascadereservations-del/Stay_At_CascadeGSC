@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "release_id": "admin_modernisation_backend_20260913",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "aae44a4aedc27e732901a0d9488ac8f1f00a2acc"
+  },
+  "migrations": [
+    "20260913100000_admin_read_models_v1.sql",
+    "20260913110000_accounting_foundation_v1.sql",
+    "20260913120000_inventory_movement_compat_v1.sql"
+  ],
+  "migration_sha256": {
+    "20260913100000_admin_read_models_v1.sql": "e52af93a83ad4867c1f35151da66d16ba90ca63b5fc6501c25994d37a95b2161",
+    "20260913110000_accounting_foundation_v1.sql": "a5f01cd6eb0b64efbbb7ba3f3b39c43e14a7bc36aa4c52dd1e083f99a1b6987b",
+    "20260913120000_inventory_movement_compat_v1.sql": "f0b383cdb8708b5569a8d90b3f02f4c8da948a7ae792da9bd374848bfe23f1ad"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "NOT_YET_TAKEN - take with supabase-backup-over-alfred.sh and replace this value before apply",
+    "verified_at": "2026-09-13T05:05:41.819Z",
+    "production_rule": "verified_at is the contract authoring time, NOT a backup time. No backup has been taken for this release yet. Take a fresh backup with scripts/recovery/p5/supabase-backup-over-alfred.sh immediately before applying, then set restore_point and verified_at to that backup. Take a fresh backup with scripts/recovery/p5/supabase-backup-over-alfred.sh immediately before applying. The release is additive (new tables, new *_v1 functions, three nullable columns on inventory_items, two nullable columns on ops_notices) but it also REPLACES record_inventory_usage with a contract-compatible v2, so a restore point is mandatory."
+  },
+  "forward_verification": [
+    {
+      "name": "metrics_rpc_exists",
+      "query": "select exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='get_hospitality_metrics_v1')",
+      "expect": true
+    },
+    {
+      "name": "overview_rpc_exists",
+      "query": "select exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='get_admin_overview_v1')",
+      "expect": true
+    },
+    {
+      "name": "posting_rpc_exists",
+      "query": "select exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='post_journal_v1')",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_execute_metrics",
+      "query": "select not has_function_privilege('anon','public.get_hospitality_metrics_v1(uuid,date,date)','execute')",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_execute_posting",
+      "query": "select not has_function_privilege('anon','public.post_journal_v1(uuid,date,text,jsonb,text,text,text,text,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "journals_rls_enabled",
+      "query": "select relrowsecurity from pg_class where oid='public.acct_journals'::regclass",
+      "expect": true
+    },
+    {
+      "name": "no_item_flipped_to_movement_control",
+      "query": "select not exists (select 1 from public.inventory_items where movement_controlled_at is not null)",
+      "expect": true
+    },
+    {
+      "name": "record_inventory_usage_signature_unchanged",
+      "query": "select exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='record_inventory_usage' and pg_get_function_identity_arguments(p.oid)='p_property_id uuid, p_session_date date, p_logged_by text, p_notes text, p_rows jsonb')",
+      "expect": true
+    },
+    {
+      "name": "all_staff_profiles_survive",
+      "query": "select (select count(*) from public.staff_access_profiles) >= 4",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "no journal has been posted and no inventory item has been baseline-reconciled; after that the compensating script refuses and acct_* plus inventory_stock_movements data must be kept",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260913_admin_modernisation_backend.sql with run-sql-on-host.sh: restores record_inventory_usage v1 and removes the v1 RPCs and new tables. It raises if acct_journals rows or movement-controlled items exist."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "admin_v2_entry_point",
+      "required_state": "the new admin build (admin-dashboard dist/) is deployed separately; applying this release alone changes nothing user-facing. Existing PWAs keep working: record_inventory_usage v2 behaves identically for items that have not been baseline-reconciled."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive_plus_compatible_replacement",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "pgTAP suites supabase/tests/database/{admin_read_models_v1,accounting_foundation_v1,inventory_movement_compat_v1}.sql are written; they have NOT yet been executed because no local Postgres/pgTAP was available on 2026-09-13. Run them on a restored rehearsal copy before production. record_inventory_usage keeps its identity arguments and return shape (ok, rows) and adds movements; the inventory PWA and submit-cleaning never read movements."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": true,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "pgTAP suites have not been run against a restored rehearsal copy"
+  ]
+}
