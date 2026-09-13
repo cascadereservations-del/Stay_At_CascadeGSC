@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "release_id": "admin_access_simplification_20260913",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "d34bee36ba3b7c378c2016484e0144bb9ec3290c"
+  },
+  "migrations": [
+    "20260913130000_admin_access_simplification.sql"
+  ],
+  "migration_sha256": {
+    "20260913130000_admin_access_simplification.sql": "7fc423d81530ab6540047de3cbe1272e7f305d4b036e586f48e486212661cb3d"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260913T072349Z (created_at_utc 2026-09-13T07:23:49Z, taken after admin_modernisation_backend_20260913 was applied)",
+    "verified_at": "2026-09-13T07:23:49Z",
+    "production_rule": "verified_at is the backup creation time. Additive: two function bodies replaced with the same signatures, SELECT grants and read policies added on eight tables. No data touched. Apply within one hour of the backup or take a new one."
+  },
+  "forward_verification": [
+    {
+      "name": "password_session_may_approve_payment",
+      "query": "select public.staff_access_allowed('admin','approve_payment',null,'aal1')",
+      "expect": true
+    },
+    {
+      "name": "password_session_may_read_finance",
+      "query": "select public.staff_access_allowed('owner','read_finance',null,'aal1')",
+      "expect": true
+    },
+    {
+      "name": "cleaner_still_cannot_read_finance",
+      "query": "select not public.staff_access_allowed('cleaner','read_finance',null,'aal2')",
+      "expect": true
+    },
+    {
+      "name": "management_owner_authorized_has_no_aal_clause",
+      "query": "select prosrc not like '%aal2%' from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='management_owner_authorized'",
+      "expect": true
+    },
+    {
+      "name": "authenticated_may_select_airbnb_reservations",
+      "query": "select has_table_privilege('authenticated','public.airbnb_reservations','select')",
+      "expect": true
+    },
+    {
+      "name": "authenticated_may_select_job_heartbeats",
+      "query": "select has_table_privilege('authenticated','public.job_heartbeats','select')",
+      "expect": true
+    },
+    {
+      "name": "anon_still_cannot_select_airbnb_reservations",
+      "query": "select not has_table_privilege('anon','public.airbnb_reservations','select')",
+      "expect": true
+    },
+    {
+      "name": "eight_staff_read_policies_exist",
+      "query": "select count(*) = 8 from pg_policies where schemaname='public' and policyname in ('airbnb_reservations_staff_read','booking_inquiries_staff_read','calendar_events_staff_read','calendar_sync_log_staff_read','booking_decisions_staff_read','job_heartbeats_staff_read','concierge_handoffs_staff_read','staff_access_audit_manage_read')",
+      "expect": true
+    },
+    {
+      "name": "rls_still_enabled_on_airbnb_reservations",
+      "query": "select relrowsecurity from pg_class where oid='public.airbnb_reservations'::regclass",
+      "expect": true
+    },
+    {
+      "name": "all_staff_profiles_survive",
+      "query": "select (select count(*) from public.staff_access_profiles) >= 4",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - no data is touched; the script restores both function bodies and drops the added grants and policies",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260913_admin_access_simplification.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "admin_mfa_step",
+      "required_state": "the new admin build removes the authenticator step and the client-side MFA gate in the same release; the legacy admin never used aal2. Applying this migration alone only stops finance and staff actions from being refused on password sessions."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed 2026-09-13 on cascade-supabase-20260913T072349Z (post admin_modernisation_backend): migration applied, 10/10 forward checks, pgTAP admin_access_simplification 12/12, accounting_foundation_v1 24/24, inventory_movement_compat_v1 10/10, admin_read_models_v1 21/22, staff_roles_and_sessions 20/23, privacy_requests_and_holds 47/49, payment_review_queue 14/15. Every remaining failure asserts anon or service_role privileges, which the --no-acl backup cannot carry into a rehearsal copy (verified: all fail identically without this migration); none concerns authenticated staff."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "the rehearsal with the aal-related pgTAP suites has not passed against the same migration bytes"
+  ]
+}

@@ -128,10 +128,10 @@ select lives_ok(
 select lives_ok(
  $$select public.record_booking_lifecycle_action('83000000-0000-4000-8000-000000000006','reconcile_calendar','module-e-reconcile-cal-001','Repair missing calendar projection',null,null)$$,
  'admin reconciles a missing projection');
-set local request.jwt.claims='{"sub":"82000000-0000-4000-8000-000000000002","aal":"aal1"}';
+set local request.jwt.claims='{"sub":"82000000-0000-4000-8000-0000000000ff","aal":"aal1"}';
 select throws_ok(
  $$select public.authorize_booking_refund('83000000-0000-4000-8000-000000000004',500,'PHP','AAL1 refund attempt','module-e-aal1-refund-0001')$$,
- '42501',null,'refund authorization requires AAL2');
+ '42501',null,'unknown user cannot authorize a refund (aal no longer gates, D-094)');
 set local request.jwt.claims='{"sub":"82000000-0000-4000-8000-000000000002","aal":"aal2"}';
 select set_config('cascade.e_refund',(public.authorize_booking_refund(
  '83000000-0000-4000-8000-000000000004',500,'php','Reviewed cancellation refund','module-e-finance-refund-01'

@@ -74,10 +74,10 @@ select throws_ok(
  $$select public.review_guest_reply_draft(current_setting('cascade.w2_draft')::uuid,'approved','Cleaner attempted approval','wave2-cleaner-review-0001')$$,
  '42501',null,'OPS cleaner cannot approve a reply');
 
-set local request.jwt.claims='{"sub":"a2000000-0000-4000-8000-000000000001","aal":"aal1"}';
+set local request.jwt.claims='{"sub":"a2000000-0000-4000-8000-0000000000ff","aal":"aal1"}';
 select throws_ok(
  $$select public.review_guest_reply_draft(current_setting('cascade.w2_draft')::uuid,'approved','AAL1 attempted approval','wave2-aal1-review-000001')$$,
- '42501',null,'reply review requires AAL2');
+ '42501',null,'unknown user cannot review a reply (aal no longer gates, D-094)');
 
 set local request.jwt.claims='{"sub":"a2000000-0000-4000-8000-000000000001","aal":"aal2"}';
 select is(public.manage_guest_conversation(

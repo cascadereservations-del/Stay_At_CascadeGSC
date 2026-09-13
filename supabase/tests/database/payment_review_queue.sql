@@ -59,9 +59,9 @@ select throws_ok(
 );
 
 set local request.jwt.claims = '{"sub":"62000000-0000-4000-8000-000000000001","aal":"aal1"}';
-select throws_ok(
+select lives_ok(
   $$select public.get_payment_review_queue('61000000-0000-4000-8000-000000000001', 50)$$,
-  '42501', null, 'Finance queue requires AAL2'
+  'Finance queue readable on a password session (D-094)'
 );
 
 set local request.jwt.claims = '{"sub":"62000000-0000-4000-8000-000000000001","aal":"aal2"}';

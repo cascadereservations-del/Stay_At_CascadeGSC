@@ -41,8 +41,8 @@ end;
 $$;
 
 set local role authenticated;
-set local request.jwt.claims='{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal1"}';
-select throws_ok($$select pg_temp.make_candidate('operating_expense','PHP',300,'wave5-aal1-candidate-01')$$,'42501',null,'Finance AAL1 denied');
+set local request.jwt.claims='{"sub":"e2000000-0000-4000-8000-0000000000ff","aal":"aal1"}';
+select throws_ok($$select pg_temp.make_candidate('operating_expense','PHP',300,'wave5-aal1-candidate-01')$$,'42501',null,'Unknown user denied (aal no longer gates, D-094)');
 set local request.jwt.claims='{"sub":"e2000000-0000-4000-8000-000000000002","aal":"aal2"}';
 select throws_ok($$select pg_temp.make_candidate('operating_expense','PHP',300,'wave5-cleaner-candidate1')$$,'42501',null,'OPS denied');
 set local request.jwt.claims='{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal2"}';

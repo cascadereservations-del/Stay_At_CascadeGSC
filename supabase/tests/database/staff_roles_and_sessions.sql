@@ -21,7 +21,7 @@ select ok(not public.staff_access_allowed('cleaner','manage_operations',null,'aa
 select ok(public.staff_access_allowed('owner','manage_operations',null,'aal1'), 'owner may manage operational records without finance MFA scope');
 select ok(not public.staff_access_allowed('cleaner','submit_cleaning',now(),'aal1'), 'disabled cleaner cannot submit');
 select ok(not public.staff_access_allowed('inspector','approve_payment',null,'aal2'), 'inspector cannot approve payment');
-select ok(not public.staff_access_allowed('admin','approve_payment',null,'aal1'), 'payment approval requires AAL2');
-select ok(not public.staff_access_allowed('admin','approve_payment',null,null), 'missing assurance level fails closed');
+select ok(public.staff_access_allowed('admin','approve_payment',null,'aal1'), 'payment approval works on a password session (D-094)');
+select ok(public.staff_access_allowed('admin','approve_payment',null,null), 'missing assurance level no longer matters (D-094)');
 select * from finish();
 rollback;

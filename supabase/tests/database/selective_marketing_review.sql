@@ -36,10 +36,10 @@ select lives_ok(
   'marketing consent is recorded separately'
 );
 
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal1"}';
+set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-0000000000ff","aal":"aal1"}';
 select throws_ok(
   $$select public.create_marketing_draft(current_setting('cascade.w7_profile')::uuid, 'email', 'enc:subject:123456789', repeat('4',64), 'enc:content:123456789', repeat('5',64), 'human', null, 'Synthetic prior guest', false, null, false, null, 'wave7-aal1-key-001')$$,
-  '42501', 'marketing draft denied', 'AAL1 cannot create a draft'
+  '42501', 'marketing draft denied', 'unknown user cannot create a draft (aal no longer gates, D-094)'
 );
 
 set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal2"}';

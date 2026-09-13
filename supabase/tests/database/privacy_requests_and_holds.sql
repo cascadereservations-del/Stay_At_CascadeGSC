@@ -27,7 +27,7 @@ select ok(has_function_privilege('authenticated', 'public.manage_privacy_hold(uu
 select ok(not has_function_privilege('anon', 'public.create_privacy_request(uuid,text,text,text,text,text,text)', 'execute'), 'anon cannot create privacy requests');
 select ok(not has_function_privilege('service_role', 'public.create_privacy_request(uuid,text,text,text,text,text,text)', 'execute'), 'service role cannot impersonate a privacy reviewer');
 select ok(public.staff_access_allowed('admin', 'manage_privacy', null, 'aal2'), 'AAL2 admin may manage privacy');
-select ok(not public.staff_access_allowed('admin', 'manage_privacy', null, 'aal1'), 'AAL1 admin cannot manage privacy');
+select ok(public.staff_access_allowed('admin', 'manage_privacy', null, 'aal1'), 'AAL1 admin may manage privacy (D-094)');
 select ok(not public.staff_access_allowed('finance', 'manage_privacy', null, 'aal2'), 'Finance cannot manage privacy');
 
 insert into public.properties (id, name, is_active) values
