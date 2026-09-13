@@ -1,4 +1,16 @@
 // ocr-receipt — receipt OCR for the Cascade Smart Finance Layer.
+// v7 (2026-09-13): provider-agnostic + rotated key names + current model.
+//   Receipt OCR had been failing since the 2026-09-12 key rotation and nobody
+//   noticed, because a failure returns 502 and inserts nothing — a broken OCR
+//   looks exactly like nobody sending receipts. Three faults stacked:
+//     - GEMINI_BOT_KEY / GEMINI_API_KEY were rotated into
+//       CASCADE_GEMINI_BOT_KEY; the old secrets still exist and return
+//       API_KEY_INVALID.
+//     - gemini-2.5-flash is refused for new callers in favour of
+//       gemini-3.6-flash.
+//     - the Gemini account's prepayment credits are depleted anyway.
+//   So this now takes the same shape as verify-meter-photo: VISION_PROVIDER
+//   chooses gemini or openrouter, and the estate already holds both keys.
 // v6: gemini-2.5-flash + GEMINI_BOT_KEY + retry-with-backoff
 //
 // Input (POST JSON):
@@ -16,12 +28,18 @@ import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const GEMINI_KEY   = Deno.env.get('GEMINI_BOT_KEY') ?? Deno.env.get('GEMINI_API_KEY') ?? '';
+const PROVIDER     = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase();
+const GEMINI_KEY   = Deno.env.get('CASCADE_GEMINI_BOT_KEY')
+                  ?? Deno.env.get('GEMINI_BOT_KEY')
+                  ?? Deno.env.get('GEMINI_API_KEY') ?? '';
+const OPENROUTER_KEY = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')
+                  ?? Deno.env.get('OPENROUTER_API_KEY') ?? '';
 const TG_TOKEN     = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const RECEIPTS_BUCKET = 'expense-receipts';
-const GEMINI_MODEL    = 'gemini-2.5-flash';
+const GEMINI_MODEL     = Deno.env.get('VISION_MODEL') ?? 'gemini-3.6-flash';
+const OPENROUTER_MODEL = Deno.env.get('VISION_MODEL') ?? 'google/gemini-3.6-flash';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const CORS = {
@@ -74,6 +92,47 @@ Read this receipt image and return ONLY a JSON object (no markdown, no prose) wi
 }
 Rules: Filipino receipts are often thermal/faded/handwritten. If the total is unclear, set amount to your best single guess and lower confidence. If you cannot read the receipt at all, set amount null and confidence below 0.2. Never invent a vendor you cannot see.`;
 
+function parseExtraction(textOut: string): any {
+  try {
+    return JSON.parse(String(textOut).replace(/^```json\s*|\s*```$/g, '').trim());
+  } catch {
+    return { amount: null, currency: 'PHP', date: null, vendor: null,
+             category_hint: 'other', line_items: [], confidence: 0 };
+  }
+}
+
+async function openrouterExtract(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
+  const res = await geminiFetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: { ...JSON_HEADERS, Authorization: `Bearer ${OPENROUTER_KEY}` },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: EXTRACTION_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(55_000),
+  });
+  const raw = await res.json();
+  if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
+  return { parsed: parseExtraction(raw?.choices?.[0]?.message?.content ?? ''), raw };
+}
+
+async function extractReceipt(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
+  if (PROVIDER === 'openrouter') {
+    if (!OPENROUTER_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
+    return await openrouterExtract(b64, mime);
+  }
+  if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
+  return await geminiExtract(b64, mime);
+}
+
 async function geminiExtract(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
   const res = await geminiFetch(endpoint, {
@@ -87,13 +146,7 @@ async function geminiExtract(b64: string, mime: string): Promise<{ parsed: any; 
   const raw = await res.json();
   if (!res.ok) throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
   const textOut = raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '';
-  let parsed: any = {};
-  try {
-    parsed = JSON.parse(textOut.replace(/^```json\s*|\s*```$/g, '').trim());
-  } catch {
-    parsed = { amount: null, currency: 'PHP', date: null, vendor: null, category_hint: 'other', line_items: [], confidence: 0 };
-  }
-  return { parsed, raw };
+  return { parsed: parseExtraction(textOut), raw };
 }
 
 function mapCategory(hint: unknown, valid: Set<string>): string {
@@ -121,7 +174,9 @@ function validDate(d: unknown): string | null {
 Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  if (!GEMINI_KEY) return json({ error: 'GEMINI_BOT_KEY not set' }, 500);
+  if (PROVIDER === 'openrouter' ? !OPENROUTER_KEY : !GEMINI_KEY) {
+    return json({ error: `no API key for VISION_PROVIDER=${PROVIDER}` }, 500);
+  }
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
@@ -159,7 +214,7 @@ Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, 
 
   let extracted: any;
   try {
-    const r = await geminiExtract(b64, mime);
+    const r = await extractReceipt(b64, mime);
     extracted = r.parsed;
   } catch (e) {
     if (tgChat && !skipTgNotify) await tgSend(tgChat, `⚠️ Receipt OCR failed: ${String(e).slice(0, 150)}`);
