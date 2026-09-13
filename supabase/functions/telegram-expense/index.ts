@@ -13,7 +13,7 @@
 // v51 (session 24): Fast-entry parser gated on numeric-first token.
 //   "void pending 2 receipts" previously matched token `2` as expense amount before LLM dispatch.
 //   Fix: parseAmount() only runs when FIRST token starts with a digit or ₱.
-//   Non-numeric-leading text goes straight to handleConversationalDispatch.
+//   Non-numeric-leading text is forwarded to telegram-cassy (D-104, 2026-09-13); the v45 dispatch is gone.
 // v52 (session I): cleanpayinvoice callback — dashboard "Send Invoice" → OPS card → cleaner tap marks fee_paid_at + fee_acked_at.
 //   Stray backslash in deployed v52 caused Deno compilation error; stub v53 was deployed as placeholder.
 // v53 (2026-06-06): Stub replacement — deploys the fixed v52 source. Version strings updated in handleStatus and handlePing.
@@ -25,7 +25,8 @@ const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const TG_TOKEN        = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 const FINANCE_CHAT    = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID') ?? '';
 const OPS_CHAT        = Deno.env.get('TELEGRAM_CHAT_ID') ?? '';
-const GEMINI_KEY      = Deno.env.get('GEMINI_BOT_KEY') ?? Deno.env.get('GEMINI_API_KEY') ?? '';
+// 2026-09-13: CASCADE_GEMINI_BOT_KEY only - the bare GEMINI_BOT_KEY belongs to another project.
+const GEMINI_KEY      = Deno.env.get('CASCADE_GEMINI_BOT_KEY') ?? '';
 const TG_SECRET       = Deno.env.get('TELEGRAM_WEBHOOK_SECRET') ?? '';
 const BOT_USERNAME    = (Deno.env.get('TELEGRAM_BOT_USERNAME') ?? '').replace(/^@/,'').toLowerCase();
 const WEATHER_KEY     = Deno.env.get('GOOGLE_WEATHER_API_KEY') ?? '';
@@ -116,6 +117,8 @@ async function alreadyProcessed(db: any, updateId: unknown): Promise<boolean> {
 function purgeProcessed(db: any) { db.from('telegram_processed_updates').delete().lt('processed_at',new Date(Date.now()-2*86_400_000).toISOString()).then(()=>{}).catch(()=>{}); }
 
 const shortRef     = (id: string) => id.slice(0,8).toUpperCase();
+// Inverse of shortRef for uuid columns: the closed range of every uuid starting with the 8-hex ref.
+const refRange =(ref: string): [string,string] => { const p=ref.toLowerCase(); return [`${p}-0000-0000-0000-000000000000`,`${p}-ffff-ffff-ffff-ffffffffffff`]; };
 const toManilaDate = () => new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'});
 function daysDiff(d: string) { return Math.max(0,Math.round((new Date(toManilaDate()+'T00:00:00Z').getTime()-new Date(d+'T00:00:00Z').getTime())/86_400_000)); }
 
@@ -223,32 +226,6 @@ function bookingLine(r:any,withPayout:boolean):string{
   const payout=Number(r.payout_amount||r.host_payout||0);
   if(withPayout&&payout>0)line+=`\n   💰 ₱${peso(payout)}${r.payout_date?`  ·  paid ${r.payout_date}`:''}`;
   return line;
-}
-async function handleBookingsQuery(db:any,chatId:any,surface:'ops'|'finance',params:any){
-  const isFin=surface==='finance';const today=toManilaDate();const when=String(params?.when??'').toLowerCase();
-  const cols='guest_name,checkin_date,checkout_date,checkin_time,checkout_time,nights,guest_count,status'+(isFin?',host_payout,payout_amount,payout_date':'');
-  let ci=params?.checkin?validDate(params.checkin):null, co=params?.checkout?validDate(params.checkout):null;
-  if(!ci&&when==='weekend'){const d=new Date(today+'T00:00:00Z');const sat=(6-d.getUTCDay()+7)%7;ci=addDaysStr(today,sat);co=addDaysStr(ci,2);}
-  if(!ci&&when==='this_week'){ci=today;co=addDaysStr(today,7);}
-  if(ci&&co){
-    const{data}=await db.from('airbnb_reservations').select(cols).eq('property_id',PROPERTY_ID).neq('status','cancelled').lt('checkin_date',co).gt('checkout_date',ci).order('checkin_date');
-    const rows=(data??[]) as any[];
-    await tgSend(chatId,[`📅 *${ci} → ${co}*  ${rows.length?'🔴 Booked':'🟢 Open'}`,'',...rows.map(r=>bookingLine(r,isFin))].join('\n\n').trim());return;
-  }
-  if(when==='next'||when===''){
-    const{data}=await db.from('airbnb_reservations').select(cols).eq('property_id',PROPERTY_ID).neq('status','cancelled').gte('checkin_date',today).order('checkin_date').limit(3);
-    const rows=(data??[]) as any[];
-    await tgSend(chatId,rows.length?['📅 *Upcoming Bookings*','',...rows.map(r=>bookingLine(r,isFin))].join('\n\n'):'📅 _No upcoming bookings._');return;
-  }
-  const dstr=when==='today'?today:when==='tomorrow'?addDaysStr(today,1):validDate(params?.when);
-  if(dstr){
-    const{data}=await db.from('airbnb_reservations').select(cols).eq('property_id',PROPERTY_ID).neq('status','cancelled').lte('checkin_date',dstr).gt('checkout_date',dstr).order('checkin_date');
-    const rows=(data??[]) as any[];
-    await tgSend(chatId,rows.length?[`📅 *Bookings — ${dstr}*`,'',...rows.map(r=>bookingLine(r,isFin))].join('\n\n'):`📅 _No one staying on ${dstr}._`);return;
-  }
-  const{data}=await db.from('airbnb_reservations').select(cols).eq('property_id',PROPERTY_ID).neq('status','cancelled').gte('checkin_date',today).order('checkin_date').limit(3);
-  const rows=(data??[]) as any[];
-  await tgSend(chatId,rows.length?['📅 *Upcoming Bookings*','',...rows.map(r=>bookingLine(r,isFin))].join('\n\n'):'📅 _No upcoming bookings._');
 }
 async function handleStatus(db:any,chatId:any){
   const today=toManilaDate();
@@ -634,172 +611,6 @@ async function handleCalendarNotices(chatId:any,db:any) {
   await tgSend(chatId,lines.join('\n'));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// v45 CONVERSATIONAL DISPATCH — Gemini native function calling + context snapshot
-// ═══════════════════════════════════════════════════════════════════════════
-const SHARED_TOOLS = [
-  { name:'get_weather', description:'Get current weather and forecast for Cascade Hideaway, General Santos City. Call for any weather, temperature, rain, forecast, UV, or humidity question.', parameters:{type:'object',properties:{}} },
-  { name:'query_bookings', description:'Check guest bookings, reservations, arrivals, departures. Call when asked who is staying, next guest, any booking on a date, availability, check-in/out schedule.', parameters:{type:'object',properties:{when:{type:'string',description:'today | tomorrow | this_week | weekend | next | YYYY-MM-DD — omit for next upcoming'},checkin:{type:'string',description:'Range start YYYY-MM-DD'},checkout:{type:'string',description:'Range end YYYY-MM-DD'}}} },
-  { name:'query_stock', description:'Check inventory stock levels. Call when asked about supplies, what is low, stock counts, last purchase price of an item.', parameters:{type:'object',properties:{filter:{type:'string',description:'low (default) | all'},item:{type:'string',description:'Specific item name to look up'}}} },
-  { name:'query_notices', description:'List upcoming scheduled notices. Call when asked about scheduled brownouts, holidays, calendar, events, reminders, or what is coming up.', parameters:{type:'object',properties:{notice_type:{type:'string',description:'brownout | holiday | event | reminder | calendar — omit for all'}}} },
-  { name:'create_notice', description:'Save a new notice to the operations board. Call when user wants to post, save, or schedule a brownout, holiday, event, or reminder.', parameters:{type:'object',required:['notice_type','title','effective_date'],properties:{notice_type:{type:'string',enum:['brownout','holiday','event','reminder']},title:{type:'string',description:'Notice title / description'},effective_date:{type:'string',description:'Date YYYY-MM-DD'},effective_time:{type:'string',description:'Time HH:MM:00 (24h) — required for brownouts'},duration_hours:{type:'number',description:'Duration hours — for brownouts'}}} },
-  { name:'get_help', description:'Show what the bot can do. Call when user asks for help, capabilities, commands, or "ano magagawa mo?".', parameters:{type:'object',properties:{}} },
-];
-
-const FINANCE_ONLY_TOOLS = [
-  { name:'log_expense', description:'Record an expense or purchase in the ledger. Call when user describes spending money. Always call this — never just confirm in text.', parameters:{type:'object',required:['amount','category'],properties:{amount:{type:'number',description:'Amount in PHP'},category:{type:'string',enum:['supplies','utilities','cleaning','maintenance','repairs','platform_fees','other']},payee:{type:'string',description:'Vendor or store name'},memo:{type:'string',description:'Additional notes or description'}}} },
-  { name:'query_expenses', description:'Query past expenses and spending totals. Call for spending history, monthly totals, category breakdowns, recent transactions.', parameters:{type:'object',properties:{period:{type:'string',enum:['this_month','last_month','recent'],description:'recent = last few transactions'},category:{type:'string',description:'Filter by expense category — omit for all'}}} },
-  { name:'void_transaction', description:'Cancel, void, or delete expense transactions. Call for "cancel receipt", "void last upload", "discard expense", "tanggalin yung expense".', parameters:{type:'object',properties:{ref_code:{type:'string',description:'8-character transaction ref code'},recent_n:{type:'number',description:'Void last N transactions (max 5)'},status_filter:{type:'string',enum:['pending_review','confirmed']}}} },
-  { name:'void_notice', description:'Cancel or remove a scheduled OPS notice. Call for "cancel the brownout", "remove the holiday notice", "delete that reminder".', parameters:{type:'object',properties:{search_title:{type:'string',description:'Partial title to search'},notice_type:{type:'string',description:'brownout | holiday | event | reminder'},effective_date:{type:'string',description:'YYYY-MM-DD to narrow search'}}} },
-  { name:'edit_notice', description:'Update an existing scheduled notice. Call when user wants to change the date, time, duration, or title of a notice.', parameters:{type:'object',required:['search_title'],properties:{search_title:{type:'string'},changes:{type:'object',description:'Fields to update: title, effective_date, effective_time, duration_hours'}}} },
-  { name:'get_status', description:'Get property and bot status: pending receipts, unpaid cleans, low stock, next checkout. Call for "status", "kumusta ang bot", "any pending items?".', parameters:{type:'object',properties:{}} },
-  { name:'get_finance_summary', description:'Get monthly financial summary: income, expenses, net, category breakdown. Call for "how much did we spend", "finance report", "monthly summary".', parameters:{type:'object',properties:{period:{type:'string',enum:['this_month','last_month']}}} },
-];
-
-async function buildContextSnapshot(db:any, surface:'ops'|'finance'): Promise<string> {
-  const today = toManilaDate();
-  const isFin = surface === 'finance';
-  const [bookings, notices, stock, pendingQ, recentQ] = await Promise.all([
-    db.from('airbnb_reservations').select('guest_name,checkin_date,checkout_date,status').eq('property_id',PROPERTY_ID).neq('status','cancelled').gte('checkout_date',today).order('checkin_date').limit(5),
-    db.from('ops_notices').select('notice_type,title,effective_date,effective_time,duration_hours').eq('property_id',PROPERTY_ID).eq('is_active',true).gte('effective_date',today).order('effective_date').limit(6),
-    db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit,unit_cost').eq('property_id',PROPERTY_ID).eq('is_active',true),
-    isFin ? db.from('transactions').select('id',{count:'exact',head:true}).eq('property_id',PROPERTY_ID).eq('status','pending_review') : Promise.resolve({count:0}),
-    isFin ? db.from('transactions').select('category,gross_amount,transaction_date,payee_name').eq('property_id',PROPERTY_ID).eq('txn_type','expense').eq('status','confirmed').order('created_at',{ascending:false}).limit(4) : Promise.resolve({data:[]}),
-  ]);
-  const now = new Date().toLocaleString('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'});
-  const lines:string[] = [`Now: ${now}`];
-  const bRows = (bookings.data??[]) as any[];
-  const active = bRows.filter((b:any)=>b.checkin_date<=today&&b.checkout_date>today);
-  const upcoming = bRows.filter((b:any)=>b.checkin_date>today);
-  lines.push(active.length?`Active guests: ${active.map((b:any)=>`${b.guest_name||'Guest'} (out ${b.checkout_date})`).join(', ')}`:'Active guests: None (property vacant)');
-  if(upcoming.length) lines.push(`Upcoming: ${upcoming.slice(0,3).map((b:any)=>`${b.guest_name||'Guest'} ${b.checkin_date}→${b.checkout_date}`).join(' | ')}`);
-  const sRows = (stock.data??[]) as any[];
-  const low = sRows.filter((r:any)=>Number(r.qty_on_hand)<=Number(r.reorder_below));
-  lines.push(low.length?`Low stock (${low.length}): ${low.map((r:any)=>`${r.name} ${r.qty_on_hand}${r.unit?' '+r.unit:''}${isFin&&Number(r.unit_cost)>0?' @₱'+r.unit_cost:''}`).join(', ')}`:'Stock: All above reorder levels');
-  const nRows = (notices.data??[]) as any[];
-  if(nRows.length) lines.push(`Notices: ${nRows.map((n:any)=>`[${n.notice_type}] ${n.effective_date}${n.effective_time?' '+String(n.effective_time).slice(0,5):''} — ${n.title}`).join(' | ')}`);
-  else lines.push('Notices: None scheduled');
-  if(isFin){
-    const pc = (pendingQ as any).count??0;
-    if(pc>0) lines.push(`Pending receipts: ${pc} awaiting review`);
-    const rRows = (recentQ.data??[]) as any[];
-    if(rRows.length) lines.push(`Recent expenses: ${rRows.map((e:any)=>`₱${e.gross_amount} ${e.category} ${e.transaction_date}`).join(' | ')}`);
-  }
-  return lines.join('\n');
-}
-
-function buildSystemPrompt(surface:'ops'|'finance', context:string, today:string, tomorrow:string): string {
-  const surfaceRule = surface==='ops'
-    ? 'SURFACE: OPS — You are talking to operational staff (may include cleaners). STRICT RULE: Never share financial figures — no peso amounts, no expense totals, no unit costs, no payout data. Only operational data (names, dates, stock quantities, notice schedules) is allowed.'
-    : 'SURFACE: FINANCE — You are talking to admin (Lloyd or Marifel). All data including financial figures, expense totals, payouts, and unit costs is permitted.';
-  return `You are the Cascade Hideaway operations assistant. You manage a boutique Airbnb at Block 47 Lot 39, Bria Homes, Brgy San Isidro, General Santos City, Philippines. Power: SOCOTECO II, Feeder 14-3, Leon Llido Substation.\n\n${surfaceRule}\n\nLIVE PROPERTY CONTEXT:\n${context}\n\nBEHAVIOR:\n- Respond in the user's language: English, Filipino/Tagalog, or Taglish — match their register\n- Be concise and warm. Mobile chat — keep responses short and scannable\n- If the context above already answers the question, respond directly WITHOUT calling a tool\n- Call tools for real-time detail, data entry, or actions the context doesn't cover\n- For casual conversation (greetings, thanks, general chat, unrelated questions) respond naturally — no tools needed\n- When logging expenses, creating notices, or voiding transactions: ALWAYS use the tool, never just confirm in text\n- Today: ${today}. Tomorrow: ${tomorrow}.`;
-}
-
-async function getChatHistory(db:any, chatId:string, limit=6): Promise<any[]> {
-  try {
-    const{data}=await db.from('telegram_chat_history').select('role,parts').eq('chat_id',chatId).order('created_at',{ascending:false}).limit(limit);
-    return ((data??[]) as any[]).reverse();
-  } catch { return []; }
-}
-
-async function saveChatHistory(db:any, chatId:string, turns:{role:string;parts:any[]}[]): Promise<void> {
-  try {
-    await db.from('telegram_chat_history').insert(turns.map(t=>({chat_id:chatId,role:t.role,parts:t.parts})));
-    const{data:old}=await db.from('telegram_chat_history').select('id').eq('chat_id',chatId).order('created_at',{ascending:true});
-    const rows=(old??[]) as any[];
-    if(rows.length>12) await db.from('telegram_chat_history').delete().in('id',rows.slice(0,rows.length-12).map((r:any)=>r.id));
-  } catch(e){ console.warn('saveChatHistory:',String(e)); }
-}
-
-async function callGeminiWithTools(systemPrompt:string, history:any[], userMessage:string, tools:any[]): Promise<{type:'text';text:string}|{type:'tool_call';name:string;args:any}|null> {
-  if(!GEMINI_KEY) return null;
-  const contents = userMessage ? [...history,{role:'user',parts:[{text:userMessage}]}] : history;
-  const body:any = { system_instruction:{parts:[{text:systemPrompt}]}, contents, generationConfig:{temperature:0.4,maxOutputTokens:600} };
-  if(tools.length){ body.tools=[{functionDeclarations:tools}]; body.tool_config={function_calling_config:{mode:'AUTO'}}; }
-  try {
-    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${DISPATCH_MODEL}:generateContent?key=${GEMINI_KEY}`,{method:'POST',headers:JSON_H,body:JSON.stringify(body),signal:AbortSignal.timeout(20_000)});
-    if(!res.ok){console.warn('Gemini tools HTTP',res.status);return null;}
-    const data=await res.json();
-    const parts=data?.candidates?.[0]?.content?.parts??[];
-    for(const p of parts){ if(p.functionCall) return{type:'tool_call',name:p.functionCall.name,args:p.functionCall.args??{}}; if(p.text?.trim()) return{type:'text',text:p.text.trim()}; }
-    return null;
-  } catch(e){console.warn('callGeminiWithTools:',String(e));return null;}
-}
-
-type ToolResult = {directResponse?:boolean;needsConfirmation?:boolean;confirmText?:string};
-
-async function executeToolCall(db:any,chatId:any,from:any,toolName:string,args:any,surface:'ops'|'finance'): Promise<ToolResult> {
-  switch(toolName) {
-    case 'get_weather': await sendWeather(chatId); return{directResponse:true};
-    case 'query_bookings': await handleBookingsQuery(db,chatId,surface,args); return{directResponse:true};
-    case 'query_stock': await handleStockQuery(db,chatId,surface,args??{}); return{directResponse:true};
-    case 'query_notices': {
-      const nt=args?.notice_type;
-      if(nt&&['brownout','holiday','event','reminder'].includes(nt)) await handleNoticesByType(chatId,db,nt);
-      else if(nt==='calendar') await handleCalendarNotices(chatId,db);
-      else await handleNoticesList(chatId,db);
-      return{directResponse:true};
-    }
-    case 'create_notice': {
-      if(!args.notice_type||!args.title||!args.effective_date){ await tgSend(chatId,'⚠️ Need notice type, title, and date. Try: /brownout tomorrow 8am 4h SOCOTECO maintenance'); return{directResponse:true}; }
-      const pid=await createPending(db,chatId,'llm_notice',{params:args,from:{first_name:from?.first_name,username:from?.username,id:from?.id}});
-      const icon=NOTICE_ICON[args.notice_type]??'📌';
-      const ct=`${icon} Save ${args.notice_type} on ${args.effective_date}${args.effective_time?' at '+String(args.effective_time).slice(0,5):''}${args.duration_hours?' for '+args.duration_hours+'h':''} — ${mdEsc(args.title)}?`;
-      await tgSend(chatId,ct,{reply_markup:{inline_keyboard:[[{text:'✅ Save it',callback_data:`llm_confirm:${pid}`},{text:'❌ Cancel',callback_data:`llm_cancel:${pid}`}]]}});
-      return{needsConfirmation:true,confirmText:ct};
-    }
-    case 'get_help': await showCapabilities(chatId,surface); return{directResponse:true};
-    case 'log_expense': {
-      if(surface!=='finance') return{directResponse:true};
-      const amount=Number(args.amount);
-      if(!isFinite(amount)||amount<=0){await tgSend(chatId,'⚠️ Need a valid amount to log this expense.');return{directResponse:true};}
-      const validCats=new Set(['supplies','utilities','cleaning','maintenance','repairs','platform_fees','other']);
-      const cat=validCats.has(String(args.category))?String(args.category):'other';
-      const label=await getCategoryLabel(db,cat);
-      const payee=args.payee?String(args.payee).slice(0,200):null;
-      const memo=args.memo?String(args.memo).slice(0,500):null;
-      const loggedBy=whoFrom(from);
-      const pid=await createPending(db,chatId,'llm_expense',{amount,category:cat,label,payee,notes:memo??payee,loggedBy});
-      const ct=`🧾 ₱${peso(amount)} ${label}${payee?` — ${mdEsc(payee)}`:''}?`;
-      await tgSend(chatId,ct,{reply_markup:{inline_keyboard:[[{text:'✅ Log it',callback_data:`llm_expense_confirm:${pid}`},{text:'❌ Cancel',callback_data:`llm_cancel:${pid}`}]]}});
-      return{needsConfirmation:true,confirmText:ct};
-    }
-    case 'query_expenses': if(surface!=='finance') return{directResponse:true}; await handleLLMExpenseQuery(db,chatId,args??{}); return{directResponse:true};
-    case 'get_finance_summary': if(surface!=='finance') return{directResponse:true}; await runSummary(db,chatId); return{directResponse:true};
-    case 'void_transaction': if(surface!=='finance') return{directResponse:true}; await handleLLMVoidTransaction(db,chatId,args??{},''); return{needsConfirmation:true};
-    case 'void_notice': await handleLLMNoticeVoid(db,chatId,args??{},''); return{needsConfirmation:true};
-    case 'edit_notice': await handleLLMNoticeEdit(db,chatId,args??{},''); return{needsConfirmation:true};
-    case 'get_status': if(surface!=='finance') return{directResponse:true}; await handleStatus(db,chatId); return{directResponse:true};
-    default: console.warn('Unknown tool called:',toolName); return{directResponse:false};
-  }
-}
-
-async function handleConversationalDispatch(db:any,chatId:any,from:any,userText:string,surface:'ops'|'finance'): Promise<boolean> {
-  if(!GEMINI_KEY) return false;
-  const today=toManilaDate();
-  const tomorrow=addDaysStr(today,1);
-  const safeText=userText.slice(0,600);
-  const[context,history]=await Promise.all([buildContextSnapshot(db,surface).catch(()=>'Context unavailable'),getChatHistory(db,String(chatId))]);
-  const systemPrompt=buildSystemPrompt(surface,context,today,tomorrow);
-  const tools=surface==='finance'?[...SHARED_TOOLS,...FINANCE_ONLY_TOOLS]:SHARED_TOOLS;
-  const result=await callGeminiWithTools(systemPrompt,history,safeText,tools);
-  if(!result) return false;
-  const userTurn={role:'user',parts:[{text:safeText}]};
-  if(result.type==='text'){
-    await tgSend(chatId,result.text);
-    await saveChatHistory(db,String(chatId),[userTurn,{role:'model',parts:[{text:result.text}]}]);
-    return true;
-  }
-  if(result.type==='tool_call'){
-    const toolResult=await executeToolCall(db,chatId,from,result.name,result.args,surface);
-    const modelToolTurn={role:'model',parts:[{functionCall:{name:result.name,args:result.args}}]};
-    if(toolResult.directResponse){ await saveChatHistory(db,String(chatId),[userTurn,modelToolTurn]); return true; }
-    if(toolResult.needsConfirmation){ const confirmText=toolResult.confirmText??`[${result.name} pending]`; await saveChatHistory(db,String(chatId),[userTurn,{role:'model',parts:[{text:confirmText}]}]); return true; }
-    return true;
-  }
-  return false;
-}
-
 async function geminiFetch(url:string,init:RequestInit,tries=3):Promise<Response> {
   for(let i=0;i<tries;i++){const res=await fetch(url,init);if(res.ok||(res.status!==429&&res.status!==503))return res;if(i<tries-1)await new Promise(r=>setTimeout(r,800*(i+1)));}
   return fetch(url,init);
@@ -882,64 +693,6 @@ function buildSummaryCard(s:any):string{
   return lines.join('\n');
 }
 async function runSummary(db:any,chatId:any){const{data:s,error}=await db.rpc('get_finance_summary');if(error||!s){await tgSend(chatId,'⚠️ Could not load summary.');return;}await tgSend(chatId,buildSummaryCard(s));}
-
-async function handleLLMVoidTransaction(db:any, chatId:any, params:any, confirmText:string) {
-  const recentN = params?.recent_n ? Math.min(Number(params.recent_n)||1, 5) : null;
-  const refCode = params?.ref_code ? String(params.ref_code).toUpperCase().slice(0,8) : null;
-  const statusFilter = params?.status_filter ?? null;
-  if (refCode) {
-    const{data:rows}=await db.from('transactions').select('id,gross_amount,category,status').eq('property_id',PROPERTY_ID).ilike('id',`${refCode.toLowerCase()}%`).limit(1);
-    const txn=rows?.[0];
-    if(!txn){await tgSend(chatId,`⚠️ No transaction with ref \`${refCode}\`.`);return;}
-    if(txn.status==='void'){await tgSend(chatId,`ℹ️ \`${refCode}\` is already void.`);return;}
-    const pid=await createPending(db,chatId,'llm_void_txn',{txnId:txn.id,refCode,amount:txn.gross_amount,category:txn.category});
-    const ct=confirmText||`🗑️ Void ₱${peso(txn.gross_amount)} ${txn.category}? Ref \`${refCode}\``;
-    await tgSend(chatId,mdEsc(ct),{reply_markup:{inline_keyboard:[[{text:'✅ Void it',callback_data:`lvt_confirm:${pid}`},{text:'❌ Cancel',callback_data:`llm_cancel:${pid}`}]]}});
-    return;
-  }
-  if (recentN) {
-    let q=db.from('transactions').select('id,gross_amount,category,status,transaction_date,payee_name').eq('property_id',PROPERTY_ID).neq('status','void').order('created_at',{ascending:false}).limit(recentN);
-    if(statusFilter) q=q.eq('status',statusFilter);
-    const{data:rows}=await q;
-    const txns=(rows??[]) as any[];
-    if(!txns.length){await tgSend(chatId,`⚠️ No${statusFilter==='pending_review'?' pending':''} transactions found.`);return;}
-    const lines=txns.map((t:any,i:number)=>`${i+1}. ₱${peso(t.gross_amount)} · ${mdEsc(t.category)}${t.payee_name?` · ${mdEsc(t.payee_name)}`:''} · \`${shortRef(t.id)}\``);
-    const pid=await createPending(db,chatId,'llm_void_txns',{txnIds:txns.map((t:any)=>t.id),count:txns.length});
-    const ct=confirmText||`🗑️ Void ${txns.length} transaction${txns.length!==1?'s':''}?`;
-    await tgSend(chatId,[mdEsc(ct),...lines,'','_This cannot be undone._'].join('\n'),{reply_markup:{inline_keyboard:[[{text:`✅ Void ${txns.length}`,callback_data:`lvts_confirm:${pid}`},{text:'❌ Cancel',callback_data:`llm_cancel:${pid}`}]]}});
-    return;
-  }
-  await tgSend(chatId,'⚠️ Tell me which to void — e.g. "void last 2 uploaded receipts" or use `/void REFCODE`.');
-}
-
-async function handleLLMNoticeVoid(db:any,chatId:any,params:any,_confirmText:string){
-  const{data:rows}=await db.from('ops_notices').select('id,notice_type,title,effective_date').eq('property_id',PROPERTY_ID).eq('is_active',true).ilike('title',`%${String(params?.search_title??'').slice(0,60)}%`).limit(3);
-  const notices=(rows??[]) as any[];
-  if(!notices.length){await tgSend(chatId,'⚠️ No matching notice found.');return;}
-  const n=notices[0];const icon=NOTICE_ICON[n.notice_type]??'📌';
-  const pid=await createPending(db,chatId,'llm_void_notice',{noticeId:n.id});
-  await tgSend(chatId,`${icon} Remove: *${mdEsc(n.title)}* on ${n.effective_date}?`,{reply_markup:{inline_keyboard:[[{text:'✅ Remove it',callback_data:`llm_void_confirm:${pid}`},{text:'❌ Cancel',callback_data:`llm_cancel:${pid}`}]]}});
-}
-async function handleLLMNoticeEdit(db:any,chatId:any,params:any,_confirmText:string){
-  const{data:rows}=await db.from('ops_notices').select('id,notice_type,title,effective_date,effective_time,duration_hours').eq('property_id',PROPERTY_ID).eq('is_active',true).ilike('title',`%${String(params?.search_title??'').slice(0,60)}%`).limit(3);
-  const notices=(rows??[]) as any[];
-  if(!notices.length){await tgSend(chatId,'⚠️ No matching notice found.');return;}
-  const n=notices[0];const icon=NOTICE_ICON[n.notice_type]??'📌';const ch=params?.changes??{};
-  const pid=await createPending(db,chatId,'llm_edit_notice',{noticeId:n.id,changes:ch});
-  const preview=Object.entries(ch).map(([k,v])=>`${k}: ${v}`).join(', ');
-  await tgSend(chatId,`${icon} Update *${mdEsc(n.title)}*\n${preview}?`,{reply_markup:{inline_keyboard:[[{text:'✅ Update it',callback_data:`llm_edit_confirm:${pid}`},{text:'❌ Cancel',callback_data:`llm_cancel:${pid}`}]]}});
-}
-async function handleLLMExpenseQuery(db:any,chatId:any,params:any){
-  const period=params?.period??'recent';const catFilter=params?.category??null;
-  if(period==='this_month'||period==='last_month'){await runSummary(db,chatId);return;}
-  let q=db.from('transactions').select('id,category,gross_amount,transaction_date,payee_name,status').eq('property_id',PROPERTY_ID).eq('txn_type','expense').neq('status','void').order('created_at',{ascending:false}).limit(8);
-  if(catFilter)q=q.eq('category',catFilter);
-  const{data:rows}=await q;
-  const txns=(rows??[]) as any[];
-  if(!txns.length){await tgSend(chatId,'No expenses found.');return;}
-  const lines=txns.map((t:any)=>`• ₱${peso(t.gross_amount)} · ${mdEsc(t.category)}${t.payee_name?` · ${mdEsc(t.payee_name)}`:''} · ${t.transaction_date} (\`${shortRef(t.id)}\`)`);
-  await tgSend(chatId,['📋 *Recent expenses*',''].concat(lines).join('\n'));
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // v46: AIRBNB CSV IMPORT — Finance only
@@ -1565,8 +1318,10 @@ async function handleTextMessage(msg:any,db:any){
     if(cmd==='/refund')      {await handleRefundCommand(db,chatId,from,args);return;}
     if(cmd==='/void'){
       const refCode=(args[0]??'').toUpperCase();
-      if(refCode.length!==8){await tgSend(chatId,'⚠️ Usage: `/void REFCODE` — e.g. `/void 5EB836FA`');return;}
-      const{data:rows}=await db.from('transactions').select('id,gross_amount,category,status').eq('property_id',PROPERTY_ID).ilike('id',`${refCode.toLowerCase()}%`).limit(1);
+      if(!/^[0-9A-F]{8}$/.test(refCode)){await tgSend(chatId,'⚠️ Usage: `/void REFCODE` — e.g. `/void 5EB836FA`');return;}
+      // id is uuid: ilike never matches. uuid sorts bytewise, so a prefix is the range [ref-0000…, ref-ffff…].
+      const[lo,hi]=refRange(refCode);
+      const{data:rows}=await db.from('transactions').select('id,gross_amount,category,status').eq('property_id',PROPERTY_ID).gte('id',lo).lte('id',hi).limit(1);
       const txn=rows?.[0];if(!txn){await tgSend(chatId,`⚠️ No transaction with ref \`${refCode}\`.`);return;}
       if(txn.status==='void'){await tgSend(chatId,`ℹ️ \`${refCode}\` is already void.`);return;}
       await db.from('transactions').update({status:'void',notes:'Voided via /void',updated_at:new Date().toISOString()}).eq('id',txn.id);
@@ -1575,9 +1330,9 @@ async function handleTextMessage(msg:any,db:any){
     await showMenu(chatId);return;
   }
 
+  // Free text is Cassy's (telegram-cassy, D-104); only replies to bot prompts and numeric text reach here.
   if(!isFinanceChat(chatId)){
-    const handled = await handleConversationalDispatch(db,chatId,from,text,'ops');
-    if(!handled) await tgSend(chatId,'_Sorry, I couldn\'t connect to the AI right now. Tap /menu to use the command interface._');
+    await tgSend(chatId,'_Ask Cassy by name, e.g. "Cassy, what is low in stock?" — or tap /menu._');
     return;
   }
 
@@ -1594,8 +1349,7 @@ async function handleTextMessage(msg:any,db:any){
     await validateAndInsert(db,chatId,{category:slug,amount,label,payee:stripped||null,notes:remainder||null,loggedBy});return;
   }
 
-  const dispatched = await handleConversationalDispatch(db,chatId,from,text,'finance').catch(()=>false);
-  if(!dispatched){
+  {
     const det=detectAmountAnywhere(text);
     await tgSend(chatId,`🧾 *Log an Expense*\n${det>0?`💡 Detected *₱${peso(det)}* — select a category:`:'Select a category to log an expense:'}`,{reply_markup:categoryKeyboard(det)});
   }
@@ -1792,6 +1546,20 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
         if(!isAllowedChat((update.callback_query?.message??update.message)?.chat?.id))return;
         await fetch(`${SUPABASE_URL}/functions/v1/messenger-concierge?ops=1`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('concierge forward failed:',String(e)));
         return;
+      }
+      // Cassy (D-104, deploy 2, 2026-09-13): plain text addressed to "cassy" belongs to telegram-cassy,
+      // forwarded raw with the same webhook secret. Replies to bot prompts stay here (expense flows).
+      // Deploy 3: every bot-addressed free text goes to Cassy too, except commands, replies to the bot's
+      // own prompts (expense/notice flows) and numeric fast entry ("500 supplies"), which stay here.
+      {
+        const m=update?.message; const t=String(m?.text??'');
+        const named=/^\s*@?cassy\b/i.test(t)||/^\s*\/deep\b/i.test(t);
+        const free=t&&!m?.from?.is_bot&&!m?.reply_to_message&&!t.trimStart().startsWith('/')&&!/^\s*[₱\d]/.test(stripBotMention(t.trim()))&&isBotAddressed(m);
+        if(named||free){
+          if(!isAllowedChat(m?.chat?.id))return;
+          await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy${named?'':'?any=1'}`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy forward failed:',String(e)));
+          return;
+        }
       }
       if(update.callback_query){const cq=update.callback_query;if(!isAllowedChat(cq.message?.chat?.id)){await tgAnswerCB(cq.id);return;}await handleCallbackQuery(cq,db);return;}
       const msg=update?.message;if(!msg)return;

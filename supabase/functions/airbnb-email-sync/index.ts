@@ -383,13 +383,16 @@ async function handlePayout(
     .map(d => d.confirmation_code!);
 
   for (const code of homeCodes) {
-    // Mark reservation completed and update payout fields from email
+    // Record payout fields from email; mark completed unless the stay was cancelled.
+    // A cancelled booking still pays out its non-refunded share (HMWAX9DAHZ, 2026-08-12) and
+    // that payout must not resurrect the stay — August 2026 read 119 % occupancy because it did.
     await supabase.from('airbnb_reservations').update({
       payout_amount:           event.payout_amount / (homeCodes.length || 1),
       payout_date:             payoutDate,
       payout_email_message_id: event.gmail_message_id,
-      status:                  'completed',
     }).eq('confirmation_code', code);
+    await supabase.from('airbnb_reservations').update({ status: 'completed' })
+      .eq('confirmation_code', code).neq('status', 'cancelled');
 
     // Void the booking-email estimate — superseded by the canonical payout row (Option B)
     await supabase.from('transactions').update({ status: 'void' })
