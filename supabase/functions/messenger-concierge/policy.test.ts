@@ -4,7 +4,8 @@ import { classify, gate, needsDatesFirst, trimRepeatedInvite } from './policy.ts
 Deno.test('mandatory escalations are caught before the model', () => {
   assertEquals(classify('Hi, what is the door code? I am locked out'), 'access');
   assertEquals(classify('I already paid via GCash, here is the reference number'), 'payment');
-  assertEquals(classify('Can I get a discount for 3 nights?'), 'policy_exception');
+  // A general discount ask is routine for the gate: index.ts answers it AND opens the host card (Lloyd 2026-09-13).
+  assertEquals(classify('Can I get a discount for 3 nights?'), 'routine');
   assertEquals(classify('Pwede po tawad?'), 'policy_exception');
   assertEquals(classify('Can you do 1500 per night for 3 nights? Student lang po ako'), 'policy_exception');
   assertEquals(classify('Possible po ba 1,500 per night from March 18-20?'), 'policy_exception');
@@ -16,6 +17,8 @@ Deno.test('mandatory escalations are caught before the model', () => {
 
 Deno.test('routine inquiries stay routine', () => {
   assertEquals(classify('Available po ba Oct 12-14 for 2 pax? How much?'), 'routine');
+  assertEquals(classify('asa ang pinakaduol nga mall?'), 'routine');
+  assertEquals(classify('what is the door pin?'), 'access');
   assertEquals(classify('Is it 1780 per night?'), 'routine');
   assertEquals(classify('Available Sep 20 to 22 for 2 adults?'), 'routine');
   assertEquals(classify('Is there parking and wifi?'), 'routine');
@@ -44,7 +47,8 @@ Deno.test('gate honours mode, human takeover and turn cap', () => {
   assertEquals(gate('rates?', { mode: 'off', humanUntil: null, botTurns: 0, now }).reply, false);
   assertEquals(gate('rates?', { mode: 'auto', humanUntil: '2026-09-12T00:00:00Z', botTurns: 0, now }).reply, false);
   assertEquals(gate('rates?', { mode: 'auto', humanUntil: '2026-09-10T00:00:00Z', botTurns: 0, now }), { reply: true, handoff: false, risk: 'routine' });
-  assertEquals(gate('rates?', { mode: 'auto', humanUntil: null, botTurns: 12, now }).handoff, true);
+  assertEquals(gate('rates?', { mode: 'auto', humanUntil: null, botTurns: 12, now }).handoff, false);
+  assertEquals(gate('rates?', { mode: 'auto', humanUntil: null, botTurns: 30, now }).handoff, true);
   assertEquals(gate('refund please', { mode: 'auto', humanUntil: null, botTurns: 0, now }), { reply: true, handoff: true, risk: 'refund' });
 });
 

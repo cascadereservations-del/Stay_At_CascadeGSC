@@ -6,7 +6,8 @@ export type RiskCode =
 
 const RULES: Array<[RiskCode, RegExp]> = [
   ['safety',           /\b(emergency|fire|flood|injur|hurt|bleed|police|ambulance|unsafe|threat|suicid|kill myself|harass|stalk)/i],
-  ['access',           /\b(door code|access code|pin|passcode|keypad|locked out|can'?t (get in|open)|door won'?t|smart ?lock)/i],
+  // "pin" needs a closing boundary: Bisaya "pinakaduol" (nearest) was gated as an access request (live 2026-09-13).
+  ['access',           /\b(door code|access code|pin\b|passcode|keypad|locked out|can'?t (get in|open)|door won'?t|smart ?lock)/i],
   // "Is the deposit refundable?" is a routine policy question; asking for money back is not.
   ['refund',           /\b(refund(?!able)|money back|chargeback|ibalik|balik ang pera)/i],
   // How to pay is routine (the booking page lists the options); reporting a payment is not.
@@ -14,7 +15,10 @@ const RULES: Array<[RiskCode, RegExp]> = [
   // The cancellation policy is routine; changing an actual booking is not.
   ['cancellation',     /\b(cancel\w*\s+(my|our|the|ang|yung)\s*(booking|reservation|stay|dates|reserba)|cancel po kasi|reschedul|move (my|the) (dates|booking)|change (my|the) dates)/i],
   ['complaint',        /\b(complain|disappoint|terrible|dirty|broken|not working|no water|no wifi|no internet|brownout|noisy|scam|report you|review you)/i],
-  ['policy_exception', /\b(discount|lower price|best price|cheaper|haggle|tawad|pets?|dogs?|cats?|party|event|extra guest|more than \d+|overnight visitor)/i],
+  // Lloyd 2026-09-13: a general "discount?" / "cheaper?" is answered from the rate tiers (the site
+  // applies the best rate automatically; longer stays, higher discount). Only haggling and a
+  // named price (next rule) go to the host.
+  ['policy_exception', /\b(haggle|tawad|pets?|dogs?|cats?|party|event|extra guest|more than \d+|overnight visitor)/i],
   // A guest proposing their own price ("can you do 1500", "pwede po ba 1,500 per night", "student rate")
   // is a negotiation: the host decides (D-067). A proposal verb near a 3-5 digit amount, or a budget plea.
   ['policy_exception', /\b(can you (do|make it|give)|could you do|possible( po)?( ba)?|pwede( po)?( ba)?|kaya( po)?( ba)?|make it|how about)\b[^.?!]{0,30}?\b\d{1,2},?\d{3}\b|\b(student|senior|budget) (rate|price|discount)|\brate na lang\b|\bmagkano na lang\b/i],
@@ -35,8 +39,10 @@ export function gate(text: string, opts: { mode: string; humanUntil: string | nu
   if (opts.mode === 'off') return { reply: false, handoff: false, risk };
   if (opts.humanUntil && new Date(opts.humanUntil) > now) return { reply: false, handoff: false, risk };
   if (risk !== 'routine') return { reply: true, handoff: true, risk };
-  // ponytail: flat cap of 12 bot turns then a human; add per-intent caps if guests hit it.
-  if (opts.botTurns >= 12) return { reply: true, handoff: true, risk: 'uncertain' };
+  // ponytail: flat cap of 30 bot turns in one conversation (the counter resets after a 6 h gap),
+  // then a human. 12 was hit by a real live chat on 2026-09-13 and turned every later message into
+  // a handoff; 30 only stops a runaway loop.
+  if (opts.botTurns >= 30) return { reply: true, handoff: true, risk: 'uncertain' };
   return { reply: true, handoff: false, risk };
 }
 
