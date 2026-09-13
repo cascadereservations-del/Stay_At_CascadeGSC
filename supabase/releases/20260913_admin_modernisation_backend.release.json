@@ -19,9 +19,9 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "NOT_YET_TAKEN - take with supabase-backup-over-alfred.sh and replace this value before apply",
-    "verified_at": "2026-09-13T05:05:41.819Z",
-    "production_rule": "verified_at is the contract authoring time, NOT a backup time. No backup has been taken for this release yet. Take a fresh backup with scripts/recovery/p5/supabase-backup-over-alfred.sh immediately before applying, then set restore_point and verified_at to that backup. Take a fresh backup with scripts/recovery/p5/supabase-backup-over-alfred.sh immediately before applying. The release is additive (new tables, new *_v1 functions, three nullable columns on inventory_items, two nullable columns on ops_notices) but it also REPLACES record_inventory_usage with a contract-compatible v2, so a restore point is mandatory."
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260913T061633Z (created_at_utc 2026-09-13T06:16:33Z, restore proof passed 78/78 tables, ledger 89/89)",
+    "verified_at": "2026-09-13T06:16:33Z",
+    "production_rule": "verified_at is the backup creation time of restore_point, proven by supabase-restore-check-on-alfred.sh the same session. Apply within one hour of it or take a new backup. The release is additive (new tables, new *_v1 functions, three nullable columns on inventory_items, two nullable columns on ops_notices) but it also REPLACES record_inventory_usage with a contract-compatible v2, so a restore point is mandatory."
   },
   "forward_verification": [
     {
