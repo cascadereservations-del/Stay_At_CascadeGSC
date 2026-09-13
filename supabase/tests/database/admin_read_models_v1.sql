@@ -41,7 +41,7 @@ select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000
 select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->'metrics'->'revpar'->>'value'),null,'RevPAR is withheld under partial coverage');
 select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->'metrics'->'future_booked_nights'->>'value'),'2','future nights are reported separately');
 select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2025-06-01','2025-07-01')->'metrics'->'occupancy'->>'value'),null,'zero sellable nights yields null, not 0');
-select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->'metrics'->'cancellation_rate'->>'value'),'33.33','cancellation cohort by scheduled arrival: 1 of 3 (A is January)');
+select is((public.get_hospitality_metrics_v1('e1000000-0000-4000-8000-0000000000a1','2026-02-01','2026-03-01')->'metrics'->'cancellation_rate'->>'value'),'50.00','cancellation cohort by scheduled arrival: 1 of 2 (A arrives in January, C in 2099)');
 
 -- Cleaner (aal1) gets operational metrics without finance values.
 select set_config('request.jwt.claims', json_build_object('sub','e2000000-0000-4000-8000-0000000000a2','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);

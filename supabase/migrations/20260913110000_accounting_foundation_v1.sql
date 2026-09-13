@@ -475,7 +475,9 @@ create or replace function public.acct_balances_v1(p_property_id uuid, p_from da
 returns table (account_id uuid, code text, name text, class text, subtype text, is_cash boolean, opening numeric, debits numeric, credits numeric, closing numeric)
 language sql stable security definer set search_path = '' as $$
   with l as (
-    select jl.account_id, j.entry_date, jl.debit, jl.credit
+    -- The approved opening-balance journal is dated on accounting_start; it is a
+    -- position, not activity, so it always counts as opening, never as movement.
+    select jl.account_id, case when j.event_kind = 'opening_balance' then least(j.entry_date, p_from) - 1 else j.entry_date end entry_date, jl.debit, jl.credit
     from public.acct_journal_lines jl join public.acct_journals j on j.id = jl.journal_id
     where j.property_id = p_property_id
   )
@@ -545,6 +547,7 @@ begin
         select j.id journal_id, jl.debit - jl.credit delta
         from public.acct_journal_lines jl join public.acct_accounts a on a.id = jl.account_id join public.acct_journals j on j.id = jl.journal_id
         where j.property_id = p_property_id and a.is_cash and j.entry_date >= p_start and j.entry_date < p_end_exclusive
+          and j.event_kind is distinct from 'opening_balance'
       ), cp as (
         select c.delta, (select string_agg(distinct b.subtype, ',') from public.acct_journal_lines x join public.acct_accounts b on b.id = x.account_id where x.journal_id = c.journal_id and not b.is_cash) counterpart
         from cash_lines c

@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(10);
 
 select has_column('public','inventory_items','movement_controlled_at','baseline flag column exists');
 select has_function('public','reconcile_inventory_baseline_v1',array['uuid','numeric','text','text'],'baseline RPC exists');
@@ -17,9 +17,15 @@ select set_config('role','authenticated',true);
 select is((public.reconcile_inventory_baseline_v1('e4000000-0000-4000-8000-0000000000c1',10,'Counted on shelf','key-000000000000-baseline')->>'after'),'10','baseline sets 10');
 select ok((public.record_inventory_receipt_v1('e4000000-0000-4000-8000-0000000000c1',5,20,'SM','2026-09-01',null,null,'key-000000000000-receipt-1')->>'ok')::boolean,'receipt of 5 recorded');
 select ok((public.record_inventory_usage('e1000000-0000-4000-8000-0000000000c1','2026-09-02','Honey',null,'[{"item_id":"e4000000-0000-4000-8000-0000000000c1","used_qty":3,"usage_key":"usage-abc-1"}]')->>'ok')::boolean,'usage of 3 recorded');
+-- Direct table reads run as the test owner: rehearsal copies are restored from a
+-- --no-acl backup, so table grants do not exist there. RPC calls stay authenticated.
+reset role;
 select is((select qty_on_hand from public.inventory_items where id='e4000000-0000-4000-8000-0000000000c1'),12::numeric,'10 + 5 - 3 = 12');
+select set_config('role','authenticated',true);
 select ok((public.record_inventory_usage('e1000000-0000-4000-8000-0000000000c1','2026-09-02','Honey',null,'[{"item_id":"e4000000-0000-4000-8000-0000000000c1","used_qty":3,"usage_key":"usage-abc-1"}]')->>'ok')::boolean,'replayed usage accepted');
-select is((select qty_on_hand from public.inventory_items where id='e4000000-0000-4000-8000-0000000000c1'),12::numeric,'replay leaves 12 and creates no second movement');
+reset role;
+select is((select qty_on_hand from public.inventory_items where id='e4000000-0000-4000-8000-0000000000c1'),12::numeric,'replay leaves 12');
+select is((select count(*) from public.inventory_stock_movements where item_id='e4000000-0000-4000-8000-0000000000c1' and kind='usage'),1::bigint,'replay created no second usage movement');
 
 select * from finish();
 rollback;

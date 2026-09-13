@@ -1,5 +1,5 @@
 begin;
-select plan(20);
+select plan(24);
 
 select has_table('public','acct_journals','journals table exists');
 select has_table('public','acct_journal_lines','journal lines table exists');
@@ -38,9 +38,12 @@ select throws_ok($$select public.post_journal_v1('e1000000-0000-4000-8000-000000
 select ok((public.post_journal_v1('e1000000-0000-4000-8000-0000000000b1','2026-03-04','Contribution',(public.prepare_simple_entry_v1('e1000000-0000-4000-8000-0000000000b1','owner_contribution',jsonb_build_object('amount','10000','paid_into','1010')))->'lines',null,null,null,null,'key-000000000000-contrib-1')->>'ok')::boolean,'contribution posted');
 select ok((public.post_journal_v1('e1000000-0000-4000-8000-0000000000b1','2026-03-05','Transfer',(public.prepare_simple_entry_v1('e1000000-0000-4000-8000-0000000000b1','transfer',jsonb_build_object('amount','1000','from_code','1010','to_code','1020')))->'lines',null,null,null,null,'key-000000000000-transfer-1')->>'ok')::boolean,'transfer posted');
 select is((public.get_financial_statement_v1('e1000000-0000-4000-8000-0000000000b1','pnl','2026-03-01','2026-04-01')->'body'->>'netProfit'),'2000.00','contribution and transfer do not touch profit');
-select is((public.get_financial_statement_v1('e1000000-0000-4000-8000-0000000000b1','cash_flow','2026-03-01','2026-04-01')->'body'->>'financing'),'10000.00','contribution is a financing inflow');
--- Immutability.
+select is((public.get_financial_statement_v1('e1000000-0000-4000-8000-0000000000b1','cash_flow','2026-03-01','2026-04-01')->'body'->>'financing'),'10000.00','contribution is a financing inflow; the opening-balance journal on accounting_start is position, not flow');
+select is((public.get_financial_statement_v1('e1000000-0000-4000-8000-0000000000b1','cash_flow','2026-03-01','2026-04-01')->'body'->>'openingCash'),'50000.00','opening balances are the opening cash position');
+-- Immutability is enforced by trigger even for a role that holds table privileges.
+reset role;
 select throws_ok($$update public.acct_journals set description = 'edited' where idempotency_key = 'key-000000000000-contrib-1'$$,'55000','posted journals are immutable; post a reversal','posted journals cannot be edited');
+select set_config('role','authenticated',true);
 -- Close and correction in a closed period.
 select ok((public.close_accounting_period_v1('e1000000-0000-4000-8000-0000000000b1','2026-03-01','{"ingestion_verified":true,"cash_and_settlements_reconciled":true,"duplicates_and_classifications_resolved":true,"obligations_deposits_refunds_reviewed":true,"stock_and_depreciation_reviewed":true,"statement_identities_verified":true}','key-000000000000-close-mar')->>'ok')::boolean,'March closes with all identities holding');
 select throws_ok($$select public.post_journal_v1('e1000000-0000-4000-8000-0000000000b1','2026-03-20','Late','[{"account_code":"5900","debit":"5","credit":"0"},{"account_code":"1000","debit":"0","credit":"5"}]',null,null,null,null,'key-000000000000-late-entry')$$,'22023','period is closed; reopen it with a reason or post a correction in an open period','closed period rejects direct edits');

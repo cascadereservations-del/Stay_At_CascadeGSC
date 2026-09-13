@@ -13,7 +13,7 @@
   ],
   "migration_sha256": {
     "20260913100000_admin_read_models_v1.sql": "e52af93a83ad4867c1f35151da66d16ba90ca63b5fc6501c25994d37a95b2161",
-    "20260913110000_accounting_foundation_v1.sql": "a5f01cd6eb0b64efbbb7ba3f3b39c43e14a7bc36aa4c52dd1e083f99a1b6987b",
+    "20260913110000_accounting_foundation_v1.sql": "97721a64950ea508b2a1d65767c325b87d6fff109622a1b1870c46d402828a0a",
     "20260913120000_inventory_movement_compat_v1.sql": "f0b383cdb8708b5569a8d90b3f02f4c8da948a7ae792da9bd374848bfe23f1ad"
   },
   "backup": {
@@ -90,8 +90,8 @@
     "mode": "additive_plus_compatible_replacement",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "pgTAP suites supabase/tests/database/{admin_read_models_v1,accounting_foundation_v1,inventory_movement_compat_v1}.sql are written; they have NOT yet been executed because no local Postgres/pgTAP was available on 2026-09-13. Run them on a restored rehearsal copy before production. record_inventory_usage keeps its identity arguments and return shape (ok, rows) and adds movements; the inventory PWA and submit-cleaning never read movements."
+    "verified": true,
+    "evidence": "Rehearsed 2026-09-13 with scripts/recovery/p6/migration-rehearsal-on-host.sh against restored set cascade-supabase-20260913T000007Z: 3 migrations applied in order, 9/9 forward checks, pgTAP admin_read_models_v1 22/22, accounting_foundation_v1 24/24, inventory_movement_compat_v1 10/10 (56 assertions). Fix found by the suites: acct_balances_v1 and the cash-flow statement now treat the approved opening-balance journal (event_kind opening_balance, dated on accounting_start) as opening position, not period activity. record_inventory_usage keeps its identity arguments and return shape (ok, rows) and adds movements; the inventory PWA and submit-cleaning never read movements."
   },
   "approvals": {
     "production_required": true,
@@ -101,6 +101,6 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour",
-    "pgTAP suites have not been run against a restored rehearsal copy"
+    "the rehearsal (migration-rehearsal-on-host.sh with the three pgTAP suites) has not passed against the same migration bytes (migration_sha256)"
   ]
 }
