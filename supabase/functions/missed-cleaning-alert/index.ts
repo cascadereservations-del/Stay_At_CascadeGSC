@@ -94,9 +94,6 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
 
     console.log(`[missed-cleaning] ${rows.length} checkout(s) still without a report`);
 
-    if (rows.length === 0) {
-      return json({ ok: true, missed: 0 });
-    }
 
     // One Telegram message per missing report (OPS group, no financial data)
     for (const r of rows) {
@@ -131,7 +128,47 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
       await tgSend(TG_TOKEN, TG_CHAT_ID, text);
     }
 
-    return json({ ok: true, missed: rows.length });
+    // ── Meter photos needing a look (2026-09-13) ────────────────────────
+    // Same morning message, same OPS group. A report that arrived but whose
+    // meter photo was skipped, or which the vision check disagreed with, is
+    // an unverifiable turnover exactly like a missing report — so it is
+    // chased here rather than in a second alert nobody would subscribe to.
+    //
+    // Deliberately quiet about blame: 'unreadable' is usually a dark photo or
+    // a dial caught mid-roll, not a dishonest one.
+    const { data: followups, error: fErr } = await supabase
+      .rpc('get_meter_photo_followups', { p_property_id: propertyId, p_lookback: 14 });
+
+    if (fErr) {
+      // A missing function means the 2026-09-13 migration is not applied.
+      // Whatever went out above still went out; note it and carry on.
+      console.warn('[missed-cleaning] meter follow-up RPC unavailable:', fErr.message);
+    } else if ((followups ?? []).length > 0) {
+      const lines = (followups as Array<Record<string, unknown>>).slice(0, 5).map((f) => {
+        const when = fmtDate(String(f.cleaned_at ?? '').slice(0, 10));
+        const who  = (f.cleaner_name as string) || 'unknown cleaner';
+        const why  = (f.reason as string) || 'needs another look';
+        const seen = f.vision_verdict === 'mismatch' && f.vision_electric != null
+          ? ` \u2014 photo reads ${f.vision_electric}, report says ${f.typed_electric ?? '\u2014'}`
+          : '';
+        return `\u2022 ${when} \u00B7 ${who}: ${why}${seen}`;
+      });
+
+      await tgSend(TG_TOKEN, TG_CHAT_ID, [
+        `\uD83D\uDC40 *Meter photos needing a look*`,
+        `\uD83C\uDFE0 Cascade Hideaway`,
+        ``,
+        ...lines,
+        ``,
+        `_The cleaner is asked to re-upload at her next sign-in. Worth checking before the cleaning fee is paid._`,
+      ].join('\n'));
+    }
+
+    return json({
+      ok: true,
+      missed: rows.length,
+      meter_followups: (followups ?? []).length,
+    });
 
   } catch (err) {
     console.error('[missed-cleaning] fatal:', err);
