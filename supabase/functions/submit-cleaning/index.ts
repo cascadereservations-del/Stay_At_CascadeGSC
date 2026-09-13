@@ -1,3 +1,16 @@
+// submit-cleaning v28
+// v28 (2026-09-13): persist the forgotten-photo allowance.
+//   The checklist has been sending meterPhotosSkipped and meterPhotoSkipNote
+//   since 2026-09-13 and this function silently dropped both, so
+//   cleaning_sessions.meter_photos_skipped stayed false for every row and
+//   can_skip_meter_photos would have answered "allowed" forever — the
+//   never-two-in-a-row rule existed on screen and nowhere else.
+//
+//   The claim is also CHECKED here rather than trusted. The client asks the
+//   server whether a skip is permitted, but a client can be modified and this
+//   is the only place the answer is written down. If the previous turnover
+//   also skipped, the report is still accepted — a report is never refused
+//   (D-084) — but it is marked, so the pattern is visible instead of silent.
 // submit-cleaning v27
 // Changes from v25:
 // - MID-STAY (v7.8): cleaningType 'mid_stay' is a light refresh while the guest is
@@ -502,6 +515,27 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       : 0;
 
     const reasons: string[] = [];
+    // The one-time allowance (2026-09-13). The note is required by the client
+    // but re-checked here, because "skipped, reason unknown" is worth less
+    // than no claim at all.
+    const meterSkipNote     = typeof payload.meterPhotoSkipNote === 'string'
+      ? payload.meterPhotoSkipNote.trim().slice(0, 300) : '';
+    const meterPhotosSkipped = payload.meterPhotosSkipped === true && meterSkipNote.length >= 4;
+
+    // Was the PREVIOUS turnover also skipped? Service role reads this directly;
+    // can_skip_meter_photos needs an auth.uid() this function does not have.
+    let previousSkipped = false;
+    if (meterPhotosSkipped && propertyId) {
+      const { data: prev } = await supabase
+        .from('cleaning_sessions')
+        .select('meter_photos_skipped')
+        .eq('property_id', propertyId)
+        .in('cleaning_type', ['turnover', 'deep_clean'])
+        .order('cleaned_at', { ascending: false })
+        .limit(1);
+      previousSkipped = prev?.[0]?.meter_photos_skipped === true;
+    }
+
     if (cleaningType === 'emergency') {
       if (totalPhotoCount < 2) reasons.push(`emergency_photos_short_${totalPhotoCount}_of_2`);
       if (!urgentItems.trim() && issueCount === 0) reasons.push('emergency_no_issue_note');
@@ -513,11 +547,25 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     } else {
       if (precleanCount   < 5) reasons.push(`preclean_short_${precleanCount}_of_5`);
       if (aftercleanCount < 5) reasons.push(`afterclean_short_${aftercleanCount}_of_5`);
-      if (meterCount      < 2) reasons.push(`meter_photos_${meterCount}_of_2`);
+      if (meterCount < 2) {
+        // A declared skip is a different fact from photos simply missing, and
+        // the report should say which. It still counts as incomplete either
+        // way — that is deliberate and unchanged, because the report genuinely
+        // lacks its evidence. Whether a declared skip should still withhold
+        // the completeness flag is a policy question for Lloyd, not something
+        // to change quietly here.
+        reasons.push(meterPhotosSkipped
+          ? `meter_photos_skipped_declared_${meterCount}_of_2`
+          : `meter_photos_${meterCount}_of_2`);
+        if (meterPhotosSkipped && previousSkipped) {
+          reasons.push('meter_skip_consecutive_not_permitted');
+        }
+      }
       if (isNaN(elecNum))  reasons.push('electric_reading_missing');
       if (isNaN(waterNum)) reasons.push('water_reading_missing');
     }
     const isComplete = reasons.length === 0;
+
 
     const { data: session, error: sessionErr } = await supabase
       .from('cleaning_sessions')
@@ -544,6 +592,8 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         issue_count:            issueCount,
         is_complete:            isComplete,
         incomplete_reasons:     reasons.length ? reasons : null,
+        meter_photos_skipped:   meterPhotosSkipped,
+        meter_photo_skip_note:  meterPhotosSkipped ? meterSkipNote : null,
       })
       .select('id')
       .single();
