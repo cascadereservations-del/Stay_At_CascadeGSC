@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "release_id": "admin_audit_feed_v2_20260914",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "ebe25dbb34cecb31501f856128f6dee7205b1139"
+  },
+  "migrations": [
+    "20260914250000_admin_audit_feed_v2.sql"
+  ],
+  "migration_sha256": {
+    "20260914250000_admin_audit_feed_v2.sql": "757dfaf282b1eba8685a7bfe2faa877ac9e2063ff9769ad75ffea796af1d5e02"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260914T092826Z",
+    "verified_at": "2026-09-14T09:28:26Z",
+    "production_rule": "verified_at is the backup creation time. One function body replaced with the same signature; two new union branches read existing history tables. No data touched."
+  },
+  "forward_verification": [
+    {
+      "name": "function_present",
+      "query": "select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'admin_audit_feed_v1'",
+      "expect": true
+    },
+    {
+      "name": "staff_details_branch_present",
+      "query": "select prosrc like '%staff_details_history%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'admin_audit_feed_v1'",
+      "expect": true
+    },
+    {
+      "name": "companion_branch_present",
+      "query": "select prosrc like '%guest_companion_history%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'admin_audit_feed_v1'",
+      "expect": true
+    },
+    {
+      "name": "authenticated_can_run",
+      "query": "select has_function_privilege('authenticated', 'public.admin_audit_feed_v1(uuid, integer)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_run",
+      "query": "select not has_function_privilege('anon', 'public.admin_audit_feed_v1(uuid, integer)', 'execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - a function body only, no data touched",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260914_admin_audit_feed_v2.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "admin_audit_history",
+      "required_state": "Settings > Audit history already calls admin_audit_feed_v1; no client change needed, staff_details and companion edits simply start appearing."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Two more union all branches over existing history tables; every prior branch's SQL is unchanged."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
