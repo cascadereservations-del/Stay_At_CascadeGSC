@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "release_id": "run_health_checks_v1_fix_20260914",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "aaab0cd37821d49a143bf631c36137fe838eb614"
+  },
+  "migrations": [
+    "20260914210000_run_health_checks_v1_fix.sql"
+  ],
+  "migration_sha256": {
+    "20260914210000_run_health_checks_v1_fix.sql": "50fcf9379d8badc6a11bda0e1470638bce54cb08521e6d37f475f5bdbd78f7fa"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260914T024658Z (created_at_utc 2026-09-14T02:46:58Z, taken before run_health_checks_v1_fix_20260914)",
+    "verified_at": "2026-09-14T02:46:58Z",
+    "production_rule": "verified_at is the backup creation time. One function body replaced with the same signature. No data touched."
+  },
+  "forward_verification": [
+    {
+      "name": "function_present",
+      "query": "select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'run_health_checks_v1'",
+      "expect": true
+    },
+    {
+      "name": "loop_variable_renamed",
+      "query": "select prosrc like '%for v_hc in%' and prosrc not like '%for r in%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'run_health_checks_v1'",
+      "expect": true
+    },
+    {
+      "name": "authenticated_can_run",
+      "query": "select has_function_privilege('authenticated', 'public.run_health_checks_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_run",
+      "query": "select not has_function_privilege('anon', 'public.run_health_checks_v1(uuid)', 'execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - a function body only; the full admin_crud_audit_v1 rollback removes it",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260914_admin_crud_audit_v1.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "admin_health_checks",
+      "required_state": "Settings > System health > Run all checks calls run_health_checks_v1; the admin build 5bc3d8d already ships the button."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Function body replacement; the previous body raised on every call, so nothing depended on it."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
