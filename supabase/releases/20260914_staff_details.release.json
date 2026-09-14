@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "release_id": "staff_details_20260914",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "582536a7c3ee2c4ab1547b87d09d613d81dc33a4"
+  },
+  "migrations": [
+    "20260914230000_staff_details.sql"
+  ],
+  "migration_sha256": {
+    "20260914230000_staff_details.sql": "637841d0743d7155bda68bf80454c57c13b32647b789b1c814815d7315362b3e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260914T065351Z",
+    "verified_at": "2026-09-14T06:53:51Z",
+    "production_rule": "verified_at is the backup creation time. Purely additive: two new tables (staff_details, staff_details_history), two new functions with their own execute grants, RLS enabled with a manage_staff-scoped select policy. No existing table, function, or grant touched. Apply within one hour of the backup or take a new one."
+  },
+  "forward_verification": [
+    {
+      "name": "staff_details_table_exists",
+      "query": "select to_regclass('public.staff_details') is not null",
+      "expect": true
+    },
+    {
+      "name": "staff_details_history_table_exists",
+      "query": "select to_regclass('public.staff_details_history') is not null",
+      "expect": true
+    },
+    {
+      "name": "staff_details_rls_enabled",
+      "query": "select relrowsecurity from pg_class where oid = 'public.staff_details'::regclass",
+      "expect": true
+    },
+    {
+      "name": "save_staff_details_v1_exists",
+      "query": "select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'save_staff_details_v1'",
+      "expect": true
+    },
+    {
+      "name": "list_staff_details_v1_exists",
+      "query": "select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'list_staff_details_v1'",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_call_save_staff_details",
+      "query": "select not has_function_privilege('anon', 'public.save_staff_details_v1(uuid, jsonb, integer, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "authenticated_can_call_save_staff_details",
+      "query": "select has_function_privilege('authenticated', 'public.save_staff_details_v1(uuid, jsonb, integer, text)', 'execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any staff_details row has a non-null value in any of its optional columns; after that clear or migrate that data out first",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260914_staff_details.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "staff_details_admin_ui",
+      "required_state": "will be wired into Settings -> Staff (staff-page.tsx) immediately after this release, in the same session."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Purely additive, new objects only. Not rehearsed on Alfred (no local Docker this session); the migration is transactional and the forward checks run before commit is trusted. cleaner_rate_schedule remains the source of truth for actual cleaner_fee booking amounts; staff_details.fee_* columns are descriptive/editable reference only, not read by any booking path in this release."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
