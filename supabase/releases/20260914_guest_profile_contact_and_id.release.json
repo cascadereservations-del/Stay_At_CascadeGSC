@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "release_id": "guest_profile_contact_and_id_20260914",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "53f1c648bc3d1719d014b7473a21c18c4257f7d5"
+  },
+  "migrations": [
+    "20260914220000_guest_profile_contact_and_id.sql"
+  ],
+  "migration_sha256": {
+    "20260914220000_guest_profile_contact_and_id.sql": "72c049cc2c9ea4b42c1a5c29d36548e9df7bcaffb95ce7ff8eddbed01d42f630"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260914T063422Z",
+    "verified_at": "2026-09-14T06:34:22Z",
+    "production_rule": "verified_at is the backup creation time. Additive only: nine new nullable columns on guest_profile_details, save_guest_profile_v1 redefined with the same signature to accept the new patch keys. No data touched, no column renamed or dropped. Apply within one hour of the backup or take a new one."
+  },
+  "forward_verification": [
+    {
+      "name": "nine_new_columns_exist",
+      "query": "select count(*) = 9 from information_schema.columns where table_schema = 'public' and table_name = 'guest_profile_details' and column_name in ('contact_number','birthday','address','airbnb_profile_id','id_on_file','id_type','id_number','id_drive_url','id_verified_at')",
+      "expect": true
+    },
+    {
+      "name": "save_guest_profile_v1_same_signature",
+      "query": "select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'save_guest_profile_v1' and pg_get_function_identity_arguments(p.oid) = 'p_guest_id uuid, p_patch jsonb, p_expected_version integer, p_reason text'",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_call_save_guest_profile",
+      "query": "select not has_function_privilege('anon', 'public.save_guest_profile_v1(uuid, jsonb, integer, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "authenticated_can_call_save_guest_profile",
+      "query": "select has_function_privilege('authenticated', 'public.save_guest_profile_v1(uuid, jsonb, integer, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "id_on_file_defaults_false",
+      "query": "select column_default = 'false' from information_schema.columns where table_schema = 'public' and table_name = 'guest_profile_details' and column_name = 'id_on_file'",
+      "expect": true
+    },
+    {
+      "name": "no_existing_guest_profile_lost_a_row",
+      "query": "select (select count(*) from public.guest_profile_details) >= 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any guest_profile_details row has a non-null value in one of the nine new columns; after that clear or migrate that data out first",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260914_guest_profile_contact_and_id.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "guest_id_on_file_admin_ui",
+      "required_state": "not built yet. No admin UI reads or writes the nine new columns; the schema is prepared ahead of the Guests-tab ID import work in session 13."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Additive only, same function signature. Not rehearsed on Alfred (no local Docker this session); the migration is transactional and the forward checks run before commit is trusted. No admin UI reads or writes these columns yet, so nothing in production behavior changes until that UI work ships."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
