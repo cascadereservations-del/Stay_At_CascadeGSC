@@ -152,10 +152,12 @@ select throws_ok(
 );
 
 set local request.jwt.claims = '{"sub":"52000000-0000-4000-8000-000000000001","aal":"aal1"}';
-select throws_ok(
-  $$select public.record_payment_finance_review(current_setting('cascade.x_exact')::uuid,'approved','AAL1 attempted approval')$$,
-  '42501', null, 'Finance review requires AAL2'
+savepoint aal1_check;
+select lives_ok(
+  $$select public.record_payment_finance_review(current_setting('cascade.x_exact')::uuid,'approved','AAL1 finance review after D-094')$$,
+  'Finance review no longer requires AAL2 (D-094): a named Finance user on a password session may review'
 );
+rollback to savepoint aal1_check;
 
 set local request.jwt.claims = '{"sub":"52000000-0000-4000-8000-000000000003","aal":"aal2"}';
 select throws_ok(

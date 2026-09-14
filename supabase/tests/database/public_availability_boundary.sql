@@ -3,13 +3,13 @@ begin;
 select plan(18);
 
 select ok(not has_table_privilege('anon', 'public.airbnb_reservations', 'select'), 'anon cannot read Airbnb reservations');
-select ok(not has_table_privilege('authenticated', 'public.airbnb_reservations', 'select'), 'authenticated cannot read Airbnb reservations');
+select ok(has_table_privilege('authenticated', 'public.airbnb_reservations', 'select'), 'authenticated has staff-scoped read on Airbnb reservations (D-094/D-110, B51)');
 select ok(not has_table_privilege('anon', 'public.calendar_events', 'select'), 'anon cannot read calendar events');
-select ok(not has_table_privilege('authenticated', 'public.calendar_events', 'select'), 'authenticated cannot read calendar events');
+select ok(has_table_privilege('authenticated', 'public.calendar_events', 'select'), 'authenticated has staff-scoped read on calendar events (D-094/D-110, B51)');
 select ok(not has_table_privilege('anon', 'public.calendar_sync_log', 'select'), 'anon cannot read calendar sync logs');
-select ok(not has_table_privilege('authenticated', 'public.calendar_sync_log', 'select'), 'authenticated cannot read calendar sync logs');
+select ok(has_table_privilege('authenticated', 'public.calendar_sync_log', 'select'), 'authenticated has staff-scoped read on calendar sync logs (D-094/D-110, B51)');
 select ok(not has_table_privilege('anon', 'public.booking_inquiries', 'select'), 'anon cannot read booking inquiries');
-select ok(not has_table_privilege('authenticated', 'public.booking_inquiries', 'select'), 'authenticated cannot read booking inquiries');
+select ok(has_table_privilege('authenticated', 'public.booking_inquiries', 'select'), 'authenticated has staff-scoped read on booking inquiries (D-094/D-110, B51)');
 
 select ok(has_table_privilege('service_role', 'public.airbnb_reservations', 'select'), 'service role can read Airbnb reservations');
 select ok(has_table_privilege('service_role', 'public.calendar_events', 'select'), 'service role can read calendar events');
