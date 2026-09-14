@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "release_id": "guest_crm_hardening_20260914",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "ca54d6dbd56850c7dc03d4503ccceb739a18c20e"
+  },
+  "migrations": [
+    "20260914260000_guest_crm_hardening.sql"
+  ],
+  "migration_sha256": {
+    "20260914260000_guest_crm_hardening.sql": "b4c8ac7de85a0ffd823e46d4bdbcaac25e5e4c5e3abacb067b0a6967f7e14d38"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260914T145531Z",
+    "verified_at": "2026-09-14T14:55:31Z",
+    "production_rule": "Take a fresh database backup immediately before apply. Storage: the guest-id-photos bucket held 0 objects on 2026-09-14 (storage.objects count), so no object backup is needed for this apply; if the pre-apply count is not 0, back the objects up first (no script exists yet) because the policy change alters how existing objects are read. Four function bodies replaced with identical signatures; bucket limits and three storage policies replaced; grants restated. No rows or objects rewritten."
+  },
+  "forward_verification": [
+    {
+      "name": "audit_feed_guest_branch_scoped",
+      "query": "select prosrc like '%v_guest%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'admin_audit_feed_v1'",
+      "expect": true
+    },
+    {
+      "name": "merge_preview_scopes_both_guests",
+      "query": "select prosrc like '%guest merge scope denied%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'preview_guest_merge_v1'",
+      "expect": true
+    },
+    {
+      "name": "merge_locks_and_refuses_enriched_source",
+      "query": "select prosrc like '%for update%' and prosrc like '%Review the source profile and companions%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'merge_guests_v1'",
+      "expect": true
+    },
+    {
+      "name": "profile_save_validates_reason_and_links",
+      "query": "select prosrc like '%profile change reason required%' and prosrc like '%invalid Drive document link%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'save_guest_profile_v1'",
+      "expect": true
+    },
+    {
+      "name": "bucket_limits_set",
+      "query": "select file_size_limit = 10485760 and cardinality(allowed_mime_types) = 3 and public = false from storage.buckets where id = 'guest-id-photos'",
+      "expect": true
+    },
+    {
+      "name": "photo_policies_property_scoped",
+      "query": "select count(*) = 3 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'guest id photos%' and coalesce(qual, with_check) like '%foldername%'",
+      "expect": true
+    },
+    {
+      "name": "authenticated_can_run",
+      "query": "select has_function_privilege('authenticated', 'public.merge_guests_v1(uuid, uuid, text, text)', 'execute') and has_function_privilege('authenticated', 'public.save_guest_profile_v1(uuid, jsonb, integer, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_run",
+      "query": "select not has_function_privilege('anon', 'public.merge_guests_v1(uuid, uuid, text, text)', 'execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always - function bodies, bucket limits and policies only; no data touched. Prefer a forward fix because the rollback widens ID-photo access again.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260914_guest_crm_hardening.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "guest_profile_extras",
+      "required_state": "admin-dashboard guest CRM changes (uncommitted at packaging time) already validate reasons, links and photo types client-side; the legacy UI is not affected because it never called these RPCs."
+    }
+  ],
+  "compatibility": {
+    "mode": "restrictive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Every preserved union branch and signature diffed equal to the live definitions on 2026-09-14. Behavioural changes are intentional refusals: name-only or enriched-source merges, reasons under 3 chars, non-Drive/Messenger links, future birthdays, null expected version on a profile past version 1, photo objects outside a companion path, non-image or >10 MB uploads. Rehearsed 2026-09-14 by Lloyd on backup set cascade-supabase-20260914T092826Z: migration applied, 8/8 forward checks, pgTAP 28/28, table count unchanged."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "storage.objects holds any guest-id-photos row at apply time and no separate object backup was taken",
+    "tests/database/guest_crm_hardening.sql did not pass 28/28 in rehearsal (it passed on 2026-09-14 against cascade-supabase-20260914T092826Z)"
+  ]
+}
