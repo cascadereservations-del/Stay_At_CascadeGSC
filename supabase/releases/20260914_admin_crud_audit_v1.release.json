@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "b59ad1a10e35fcfde03c0dc5941d7de9943981c8"
+    "commit": "847e947ae907b1e525425e992adeb70c3ff5fb2f"
   },
   "migrations": [
     "20260914200000_admin_crud_audit_v1.sql"
   ],
   "migration_sha256": {
-    "20260914200000_admin_crud_audit_v1.sql": "560cc236623023b2f9399395de485091f498a07ac9f22114fa77f5341a0bdc99"
+    "20260914200000_admin_crud_audit_v1.sql": "d2c6671f63691b5c291abd9be905bbed687f728f4b481410a1206e18eaa8b15d"
   },
   "backup": {
     "required": true,
