@@ -406,8 +406,15 @@ async function handlePayout(
 
     // Phase D: refresh guest stats for this booking's guest
     const { data: res } = await supabase
-      .from('airbnb_reservations').select('guest_id').eq('confirmation_code', code).maybeSingle();
+      .from('airbnb_reservations').select('id, guest_id').eq('confirmation_code', code).maybeSingle();
     if (res?.guest_id) await refreshGuestStats(supabase, res.guest_id);
+
+    // D-110: the payout row names its stay. An e-mail covering two stays stays
+    // unlinked for the admin to split by hand (booking_id is direct bookings only).
+    if (res?.id && homeCodes.length === 1) {
+      await supabase.from('transactions').update({ reservation_id: res.id })
+        .eq('external_ref', event.gmail_message_id).eq('source', 'airbnb_payout_email').is('reservation_id', null);
+    }
   }
 
   // Finance-only payout notification (unchanged from v4)
