@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "release_id": "admin_crud_audit_v1_20260914",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "032b9cbd26502eb6079d51c3c6bdc22718228995"
+  },
+  "migrations": [
+    "20260914200000_admin_crud_audit_v1.sql"
+  ],
+  "migration_sha256": {
+    "20260914200000_admin_crud_audit_v1.sql": "3f5315aad9b096a899bec6be2504997db417e6b08fac40142a68c42ee054a733"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260914T021937Z (created_at_utc 2026-09-14T02:19:37Z, taken before admin_crud_audit_v1_20260914)",
+    "verified_at": "2026-09-14T02:19:37Z",
+    "production_rule": "verified_at is the backup creation time. Additive: two new tables, one trigger function attached to six tables, eight new functions, transactions.txn_type check widened to allow 'drawing'. No data touched. Apply within one hour of the backup or take a new one."
+  },
+  "forward_verification": [
+    {
+      "name": "six_audit_triggers_exist",
+      "query": "select count(*) = 6 from pg_trigger where tgname = 'admin_audit_row' and not tgisinternal",
+      "expect": true
+    },
+    {
+      "name": "txn_type_allows_drawing",
+      "query": "select pg_get_constraintdef(oid) like '%drawing%' from pg_constraint where conname = 'transactions_txn_type_check'",
+      "expect": true
+    },
+    {
+      "name": "audit_log_rls_on",
+      "query": "select relrowsecurity from pg_class where oid = 'public.admin_audit_log'::regclass",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_run_undo",
+      "query": "select not has_function_privilege('anon', 'public.admin_undo_v1(uuid, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "authenticated_can_run_health_checks",
+      "query": "select has_function_privilege('authenticated', 'public.run_health_checks_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "eight_functions_present",
+      "query": "select count(*) = 8 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('admin_audit_context_v1','admin_table_action_v1','admin_soft_delete_v1','admin_undo_v1','admin_save_transaction_v1','review_meter_reading_v1','admin_audit_feed_v1','run_health_checks_v1')",
+      "expect": true
+    },
+    {
+      "name": "no_transaction_row_changed",
+      "query": "select count(*) = 0 from public.admin_audit_log",
+      "expect": true
+    },
+    {
+      "name": "existing_ledger_totals_untouched",
+      "query": "select (select sum(gross_amount) from public.transactions where source = 'airbnb_payout_email' and status = 'confirmed') = 343495.13",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any 'drawing' transaction row is written; after that retype or void those rows first, then the script drops everything the migration added",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260914_admin_crud_audit_v1.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "admin_rollout_modules",
+      "required_state": "app/src/lib/rollout.ts maps admin_save_transaction_v1 to finance, admin_soft_delete_v1 and admin_undo_v1 to operations, review_meter_reading_v1 to readiness; all six modules enabled since 2026-09-13."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Additive only. The legacy admin and every Edge Function keep writing income/expense rows unchanged; the audit trigger records those writes with a null actor. Not rehearsed on Alfred: the migration is transactional and the eight forward checks run before commit is trusted."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "admin_audit_log already contains rows before this release (a previous partial apply)"
+  ]
+}
