@@ -4,12 +4,11 @@
 -- 1. Merge "Nescafe Stick" (28 pc, created 2026-09-16 from the photo count) into
 --    "3-in-1 Coffee" (33 pc): same product, Nescafe is the brand. The survivor keeps
 --    its id (2 purchase rows, 42 usage logs, legacy_id, unit_cost, purchase_unit) and is
---    renamed "Nescafe 3-in-1 Coffee Stick" so both names fuzzy-match on receipts.
---    Quantity 33 -> 61 through an inventory_stock_movements 'reconcile' row, the same
---    shape reconcile_inventory_baseline_v1 writes (that RPC needs a live staff session
---    this runner does not have). ASSUMPTION flagged in the plan: the 28 was a separate
---    pile from the 33 on the 2026-09-16 count. If Lloyd says it was the same sticks
---    counted twice, change v_merged below to 33 before running.
+--    renamed "Coffee (3-in-1)" with the brand as an editable note ("brand: Nescafe"),
+--    per Lloyd 2026-09-16. Quantity set to 28 -- the 2026-09-16 physical count; the 33
+--    was the stale pre-count figure and the two rows were the same sticks -- through an
+--    inventory_stock_movements 'reconcile' row, the same shape reconcile_inventory_baseline_v1
+--    writes (that RPC needs a live staff session this runner does not have).
 --    "Nescafe Stick" is retired (is_active = false, resolution note), never deleted.
 -- 2. Rename "Coffee sticks (sugar/creamer)" -> "Sugar & Creamer Sticks". The old
 --    CH_Inventory seed always priced it as sugar/creamer (PHP 8 vs PHP 18); it was never
@@ -35,14 +34,14 @@ declare
 begin
   -- ── 1. Merge ─────────────────────────────────────────────────────────────
   select id, qty_on_hand into v_keep, v_keep_qty from public.inventory_items
-   where property_id = v_property and is_active and name in ('3-in-1 Coffee', 'Nescafe 3-in-1 Coffee Stick') limit 1;
+   where property_id = v_property and is_active and name in ('3-in-1 Coffee', 'Coffee (3-in-1)') limit 1;
   select id, qty_on_hand into v_drop, v_drop_qty from public.inventory_items
    where property_id = v_property and is_active and name = 'Nescafe Stick' limit 1;
 
   if v_keep is null then raise exception 'survivor coffee row not found'; end if;
 
   if v_drop is not null then
-    v_merged := v_keep_qty + v_drop_qty;   -- 33 + 28 = 61 on 2026-09-16 (see ASSUMPTION above)
+    v_merged := 28;   -- the 2026-09-16 physical count (Lloyd); the 33 was stale, the rows were the same sticks
 
     -- any history the retired row accumulated moves to the survivor (0 rows on 2026-09-16, kept for safety)
     update public.inventory_usage     set item_id = v_keep where item_id = v_drop;
@@ -52,7 +51,7 @@ begin
       (item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key)
     values
       (v_keep, v_property, 'reconcile', v_keep_qty, v_merged,
-       'Merge: Nescafe Stick (' || v_drop_qty || ' pc) folded into 3-in-1 Coffee -- same product. Session 25, D-160, applied by Claude Code on Lloyd''s approval',
+       'Merge: Nescafe Stick row folded into 3-in-1 Coffee (same sticks, recounted 28 on 2026-09-16). Session 25, D-160, applied by Claude Code on Lloyd''s approval',
        v_actor, 'session25-merge-nescafe-into-3in1-20260916')
     on conflict (idempotency_key) do nothing;
 
@@ -63,13 +62,14 @@ begin
     update public.inventory_items
        set is_active = false,
            resolved_at = now(),
-           resolution_note = 'Merged into "Nescafe 3-in-1 Coffee Stick" (' || v_keep || ') on 2026-09-16, session 25 (D-160). Same product; the 28 pc joined the survivor''s count.'
+           resolution_note = 'Merged into "Coffee (3-in-1)" (' || v_keep || ') on 2026-09-16, session 25 (D-160). Same sticks; the survivor now carries the 28 pc count.'
      where id = v_drop;
   end if;
 
   update public.inventory_items
-     set name = 'Nescafe 3-in-1 Coffee Stick'
-   where id = v_keep and name <> 'Nescafe 3-in-1 Coffee Stick';
+     set name = 'Coffee (3-in-1)',
+         notes = case when coalesce(notes, '') = '' then 'brand: Nescafe' else notes end
+   where id = v_keep;
 
   -- ── 2. Rename the sugar/creamer row ─────────────────────────────────────
   update public.inventory_items
@@ -87,8 +87,8 @@ commit;
 
 -- Forward checks (each should return true):
 -- select count(*) = 73 from public.inventory_items where is_active;
--- select qty_on_hand = 61 from public.inventory_items where name = 'Nescafe 3-in-1 Coffee Stick';
+-- select qty_on_hand = 28 and notes = 'brand: Nescafe' from public.inventory_items where name = 'Coffee (3-in-1)';
 -- select not is_active from public.inventory_items where name = 'Nescafe Stick';
 -- select exists (select 1 from public.inventory_items where name = 'Sugar & Creamer Sticks' and qty_on_hand = 50);
 -- select count(*) = 0 from public.inventory_items where is_active and unit <> 'pc';
--- select name = 'Nescafe 3-in-1 Coffee Stick' from public.match_inventory_item('nescafe') limit 1;
+-- select name = 'Coffee (3-in-1)' from public.match_inventory_item('3-in-1 coffee') limit 1;
