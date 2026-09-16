@@ -1,4 +1,4 @@
-// submit-booking v12
+// submit-booking v14
 // Creates the booking request and returns a short-lived, booking-scoped token
 // for the optional private receipt upload. The browser never supplies a
 // Storage path or URL and cannot write to booking-receipts directly.
@@ -171,7 +171,10 @@ Deno.serve(async (req) => {
   const inquiryId = inquiry.id;
   const ref = inquiry.id.slice(0, 8).toUpperCase();
   const receiptUploadSecret = Deno.env.get('BOOKING_RECEIPT_UPLOAD_SECRET');
-  const receiptUploadExpiresAt = Date.now() + 15 * 60 * 1000;
+  // v14 (session 26, hold-before-pay, D-160 #1): an advance booking is a 24 h HOLD created before
+  // the guest pays, so the receipt token lives as long as the hold. Last-minute (full payment) keeps 15 min.
+  const isHold = !near(depositAmount, totalAmount);
+  const receiptUploadExpiresAt = Date.now() + (isHold ? 24 * 60 : 15) * 60 * 1000;
   const receiptUploadToken = receiptUploadSecret
     ? await issueReceiptUploadToken({ bookingId: inquiry.id, nonce: crypto.randomUUID(), expiresAt: receiptUploadExpiresAt }, receiptUploadSecret)
     : null;
@@ -225,7 +228,7 @@ Deno.serve(async (req) => {
     if (!tgToken || !tgFinanceId) return;
     const depLabel = near(depositAmount, totalAmount) ? 'Full payment' : `Deposit (${depositPct}%)`;
     const ctxLines = guestContextLines(await guestContext(db, { guestId: resolvedGuestId, name: guestName }));
-    const msg = withHeader('booking', `Direct ${ref}`, [
+    const msg = withHeader('booking', `Direct ${ref}${isHold ? ' · HOLD' : ''}`, [
       `📬 New Direct Booking Inquiry`,
       `📍 Cascade Hideaway`,
       ``,
@@ -242,13 +245,15 @@ Deno.serve(async (req) => {
       ``,
       `💰 Total:    ₱${totalAmount.toLocaleString()}`,
       `💳 ${depLabel}:  ₱${depositAmount.toLocaleString()}`,
-      `📎 Receipt upload: pending or not provided`,
+      ...(isHold ? [`🗓️ HOLD — dates held 24 h while the guest pays; released automatically if no receipt arrives`]
+                 : [`📎 Receipt upload: pending or not provided`]),
       ...(notes      ? [``, `📝 ${notes}`] : []),
       ``,
-      `🗓️ Dates held (pending your review)`,
+      ...(isHold ? [`🧾 The receipt arrives here as its own card when the guest uploads it`] : [`🗓️ Dates held (pending your review)`]),
       `📒 Ledger: pending review (confirms on approval)`,
       `⏰ ${manilaDatetime()}`,
       `🔖 Ref: ${ref}`,
+      `🔗 Review: https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${inquiryId}`,
     ].join('\n'));
 
     await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {

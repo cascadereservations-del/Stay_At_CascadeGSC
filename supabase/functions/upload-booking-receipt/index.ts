@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { withHeader } from '../_shared/cascade-core/format.ts';
 import {
   buildReceiptObjectPath,
   validateReceiptUpload,
@@ -76,5 +77,36 @@ Deno.serve(async (request) => {
     return response({ error: 'receipt_already_uploaded' }, 409);
   }
 
+  // v2 (session 26, hold-before-pay D-160 #1): the receipt is Finance's cue to review, so it goes to
+  // the Finance group as its own card the moment it lands (before v2 no receipt was ever forwarded:
+  // submit-booking ran before the upload and always said "pending or not provided").
+  const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+  const notify = notifyFinance(db, claim.bookingId, objectPath).catch((e) => console.error('[upload-booking-receipt] finance card failed:', String(e)));
+  if (edge?.waitUntil) edge.waitUntil(notify); else await notify;
+
   return response({ ok: true });
 });
+
+// deno-lint-ignore no-explicit-any
+async function notifyFinance(db: any, bookingId: string, objectPath: string): Promise<void> {
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN'), chat = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
+  if (!token || !chat) return;
+  const { data: b } = await db.from('booking_inquiries').select('guest_name,checkin_date,checkout_date,deposit_amount,total_amount,status').eq('id', bookingId).maybeSingle() as { data: Record<string, unknown> | null };
+  if (!b) return;
+  const ref = bookingId.slice(0, 8).toUpperCase();
+  const peso = (n: unknown) => Number(n ?? 0).toLocaleString('en-PH');
+  const caption = withHeader('finance', `receipt ${ref}`, [
+    `📎 Receipt uploaded — ${b.guest_name} · ${b.checkin_date} → ${b.checkout_date}`,
+    `💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)} · status ${b.status}`,
+    `🔗 Review: https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${bookingId}`,
+  ].join('\n'));
+  const { data: signed } = await db.storage.from(BUCKET).createSignedUrl(objectPath, 3600);
+  const url = signed?.signedUrl;
+  const isImage = /\.(jpe?g|png|webp)$/i.test(objectPath);
+  const body = url
+    ? { chat_id: chat, [isImage ? 'photo' : 'document']: url, caption: caption.slice(0, 1024) }
+    : { chat_id: chat, text: caption };
+  const method = url ? (isImage ? 'sendPhoto' : 'sendDocument') : 'sendMessage';
+  const r = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
+  if (!r.ok) console.error('[upload-booking-receipt] telegram non-ok', r.status, (await r.text().catch(() => '')).slice(0, 200));
+}
