@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "release_id": "work_orders_and_guest_context_20260916",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "e817116d49ab588cf71b39ccb36737a827ba9162"
+  },
+  "migrations": [
+    "20260916160000_work_orders_and_guest_context.sql"
+  ],
+  "migration_sha256": {
+    "20260916160000_work_orders_and_guest_context.sql": "a99a22345d1d4047249f80de2860fb6d5d2da577db885d7ef63fbd41f3775307"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Two NEW functions only (raise_work_order_v1, guest_context_v1). No table, grant on existing objects, or data touched. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "raise_work_order_exists_for_service_role",
+      "query": "select has_function_privilege('service_role', 'public.raise_work_order_v1(uuid, text, text, text, text, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "raise_work_order_denied_to_authenticated",
+      "query": "select not has_function_privilege('authenticated', 'public.raise_work_order_v1(uuid, text, text, text, text, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "guest_context_exists_for_service_role",
+      "query": "select has_function_privilege('service_role', 'public.guest_context_v1(uuid, uuid, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "guest_context_unknown_name_is_not_found",
+      "query": "select (public.guest_context_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', null, 'zz-no-such-guest-zz')->>'found')::boolean = false",
+      "expect": true
+    },
+    {
+      "name": "guest_context_reads_urgent_note",
+      "query": "select public.guest_context_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', null, 'Dale Anwen De La Cerna')->>'last_issue' = 'gatulo ubos sa aircon'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops two new functions; raised work orders stay as rows)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260916_work_orders_and_guest_context.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "edge_functions_call_rpcs",
+      "required_state": "submit-cleaning, messenger-concierge, airbnb-email-sync, submit-booking and telegram-cassy call the RPCs and only warn when absent; deploy order does not matter."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "New functions only. Edge Functions tolerate the RPC missing (console.warn). Rehearse on Alfred before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
