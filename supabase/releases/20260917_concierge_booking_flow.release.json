@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "PENDING"
+    "commit": "c7e0d1138a61fbfd5265db6369e2499fb2535895"
   },
   "migrations": [
     "20260917010000_concierge_booking_flow.sql"

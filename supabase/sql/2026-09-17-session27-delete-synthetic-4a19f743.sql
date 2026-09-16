@@ -12,10 +12,11 @@ delete from public.transactions                 where booking_id = '4a19f743-c9e
 delete from public.calendar_events              where uid in ('direct:4a19f743-c9ec-4dc6-8582-c0139b798afe', 'cascade-direct-4a19f743-c9ec-4dc6-8582-c0139b798afe');
 delete from public.airbnb_reservations          where confirmation_code = 'DIRECT:4a19f743-c9ec-4dc6-8582-c0139b798afe';
 delete from public.booking_holds                where booking_id = '4a19f743-c9ec-4dc6-8582-c0139b798afe';
--- the synthetic guest row has no other bookings or reservations (checked 2026-09-17 01:10 Manila)
-delete from public.guests where id = (select guest_id from public.booking_inquiries where id = '4a19f743-c9ec-4dc6-8582-c0139b798afe')
-   and not exists (select 1 from public.booking_inquiries b where b.guest_id = public.guests.id and b.id <> '4a19f743-c9ec-4dc6-8582-c0139b798afe');
 delete from public.booking_inquiries            where id = '4a19f743-c9ec-4dc6-8582-c0139b798afe';
+-- the synthetic guest row has no other bookings or reservations (checked 2026-09-17 01:10 Manila)
+delete from public.guests where name = 'Session Twentyseven'
+   and not exists (select 1 from public.booking_inquiries b where b.guest_id = public.guests.id)
+   and not exists (select 1 from public.airbnb_reservations r where r.guest_id = public.guests.id);
 commit;
 -- forward checks (expect 0 everywhere)
 select 'inquiry' k, count(*) from public.booking_inquiries where id = '4a19f743-c9ec-4dc6-8582-c0139b798afe'
