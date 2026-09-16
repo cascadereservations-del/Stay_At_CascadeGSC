@@ -38,11 +38,16 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   // deno-lint-ignore no-explicit-any
   const ctx = guestName ? guestContextLines(await guestContext(db, { name: guestName }).catch(() => ({} as any))) : [];
   const system = `${VOICE}\n\nFACTS:\n${typeof FACTS === 'string' ? FACTS : JSON.stringify(FACTS)}\n\nYou are drafting for the HOST to copy and send from the Facebook Page; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. Do not invent availability or prices beyond FACTS; if dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
-  const q = `${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
+  // The draft never sees the calendar: dates get a "will check" instruction, and a draft that still
+  // claims availability is flagged in code (live 2026-09-17: "Yes, available pa po ang October 3 to 4").
+  const datesAsked = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}[\/-]\d{1,2}|\b(?:available|avail|vacant|bakante|free)\b/i.test(guestText);
+  const datesHint = datesAsked ? '[The guest mentions dates or availability. You cannot see the calendar: do NOT say the dates are available or taken; say you will check and confirm shortly, then give the rate and the link.] ' : '';
+  const q = `${datesHint}${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
   const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: 500, timeoutMs: 30_000 });
   const reply = String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n');
   const lines = [`✍️ Draft reply${risk !== 'routine' ? ` · ${risk.replace('_', ' ')}` : ''}${guestName ? ` · ${guestName}` : ''}`, '', reply, ''];
   if (FLAG[risk]) lines.push(`⚠️ This reads as ${FLAG[risk]}.`);
+  if (datesAsked && /\b(available|avail|open|free|vacant|bakante)\b/i.test(reply) && !/\b(check|confirm)\b/i.test(reply)) lines.push('⚠️ The draft claims availability — check the calendar before sending.');
   if (ctx.length) lines.push(...ctx);
   lines.push(`Do: copy, adjust, send from the Page. Nothing was sent. Site link if needed: ${SITE_URL}`);
   return lines.join('\n');
