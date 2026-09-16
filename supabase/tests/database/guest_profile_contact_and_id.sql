@@ -35,7 +35,7 @@ select throws_ok(
 select set_config('request.jwt.claims', json_build_object('sub','f1000000-0000-4000-8000-0000000000a2','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select is(
   (public.save_guest_profile_v1('f1000000-0000-4000-8000-0000000000a4'::uuid,
-    '{"contact_number":"09171234567","birthday":"1990-05-01","address":"Purok 1","airbnb_profile_id":"abnb-123","id_on_file":true,"id_type":"passport","id_number":"P1234567","id_drive_url":"https://drive.example/x"}'::jsonb,
+    '{"contact_number":"09171234567","birthday":"1990-05-01","address":"Purok 1","airbnb_profile_id":"abnb-123","id_on_file":true,"id_type":"passport","id_number":"P1234567","id_drive_url":"https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view"}'::jsonb,
     null, 'owner fills contact/ID')->>'ok')::boolean,
   true, 'owner save returns ok'
 );
