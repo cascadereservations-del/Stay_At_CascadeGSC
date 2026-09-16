@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "PENDING_COMMIT"
+    "commit": "06bc2333c9d05e7ed8700b34bbd096c2ade1bfbf"
   },
   "migrations": [
     "20260916150000_admin_overview_handoffs_open.sql"
@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING_RESTORE_POINT",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260916T142428Z",
+    "verified_at": "2026-09-16T14:24:28Z",
     "production_rule": "Function replacement only (get_admin_overview_v1, run_health_checks_v1). No table, grant or data touched. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
@@ -51,7 +51,12 @@
       }
     ]
   },
-  "feature_flags": [],
+  "feature_flags": [
+    {
+      "name": "today_handoffs_link",
+      "required_state": "admin-dashboard 66a8f91 (published, pushed 2026-09-16) links Today's handoff rows to /guests?tab=handoffs; no flag to flip."
+    }
+  ],
   "compatibility": {
     "mode": "additive",
     "old_reader": true,
