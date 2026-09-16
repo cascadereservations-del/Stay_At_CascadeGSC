@@ -41,22 +41,26 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
   await hb('started');
   const dry = new URL(req.url).searchParams.get('dry') === '1';
   try {
-    const cutoff = new Date(Date.now() - HOLD_HOURS * 3_600_000).toISOString();
-    const { data: rows, error } = await db.from('booking_inquiries')
-      .select('id,guest_name,guest_email,guest_phone,checkin_date,checkout_date,deposit_amount,total_amount,submitted_at')
-      .eq('property_id', PROPERTY_ID).eq('source', 'direct').eq('status', 'pending').is('receipt_image_path', null).lt('submitted_at', cutoff);
-    if (error) throw new Error(error.message);
+    // v2 (D-162): only rows that hold a booking_holds row can expire, and only the definer RPC can
+    // touch that table. A pay-first request (within 5 days, no hold row) is never expired here,
+    // whatever its receipt state. Before the RPC exists this function releases nothing.
+    let rows: Array<Record<string, any>> = [];
+    if (dry) {
+      const { data, error } = await db.from('booking_inquiries')
+        .select('id,guest_name,checkin_date,submitted_at').eq('property_id', PROPERTY_ID).eq('source', 'direct').eq('status', 'pending').is('receipt_image_path', null)
+        .lt('submitted_at', new Date(Date.now() - HOLD_HOURS * 3_600_000).toISOString());
+      if (error) throw new Error(error.message);
+      rows = (data ?? []) as Array<Record<string, any>>;
+    } else {
+      const { data, error } = await db.rpc('expire_booking_holds_v1');
+      if (error) throw new Error('expire_booking_holds_v1: ' + error.message);
+      rows = (Array.isArray(data) ? data : []) as Array<Record<string, any>>;
+    }
+    const cutoff = 'booking_holds.expires_at < now()';
     const released: string[] = [];
-    for (const b of rows ?? []) {
+    for (const b of rows) {
       const ref = 'DIR-' + String(b.id).slice(0, 8).toUpperCase();
-      if (dry) { released.push(ref); continue; }
-      // Void the ledger row FIRST: fn_direct_booking_cascade (trigger on transactions) flips the
-      // booking to 'cancelled' when its income row is voided (live 2026-09-16), so the status write
-      // below must come last for the row to end as 'expired' (terminal in the lifecycle guard).
-      await db.from('transactions').update({ status: 'void' }).eq('booking_id', b.id).eq('status', 'pending_review');
-      await db.from('calendar_events').update({ status: 'cancelled' }).eq('uid', 'direct:' + b.id).eq('status', 'blocked');
-      const { error: e1 } = await db.from('booking_inquiries').update({ status: 'expired' }).eq('id', b.id).in('status', ['pending', 'cancelled']).is('receipt_image_path', null);
-      if (e1) { console.error('expire failed', ref, e1.message); continue; }
+      if (dry) { released.push(ref + ' (candidate by age; the RPC decides)'); continue; }
       const guestLine = `Hi ${String(b.guest_name).split(' ')[0]}, your hold for ${dm(b.checkin_date)}–${dm(b.checkout_date)} at Cascade Hideaway has been released because we did not receive the ₱${peso(b.deposit_amount)} reservation fee within ${HOLD_HOURS} hours. The dates are open again — if you still want them, book again at the site and send the receipt right after.`;
       await tgSend(withHeader('attention', `hold expired ${ref}`, [
         `Hold released: ${b.guest_name} · ${dm(b.checkin_date)} → ${dm(b.checkout_date)} · ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)} never arrived.`,

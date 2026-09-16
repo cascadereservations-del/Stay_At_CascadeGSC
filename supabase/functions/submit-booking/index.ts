@@ -173,8 +173,19 @@ Deno.serve(async (req) => {
   const receiptUploadSecret = Deno.env.get('BOOKING_RECEIPT_UPLOAD_SECRET');
   // v14 (session 26, hold-before-pay, D-160 #1): an advance booking is a 24 h HOLD created before
   // the guest pays, so the receipt token lives as long as the hold. Last-minute (full payment) keeps 15 min.
-  const isHold = !near(depositAmount, totalAmount);
-  const receiptUploadExpiresAt = Date.now() + (isHold ? 24 * 60 : 15) * 60 * 1000;
+  // D-162: a hold is offered only 5+ days out (the free-cancellation line), only when the site asked
+  // for one, and never for a full payment. The hold itself is a booking_holds row (open_booking_hold_v1,
+  // service_role cannot write the table) that the lifecycle guard and the hourly releaser read.
+  const HOLD_HOURS = 24;
+  const daysOut = Math.round((checkin.getTime() - today.getTime()) / 86_400_000);
+  const isHold = body.hold === true && daysOut >= 5 && !near(depositAmount, totalAmount);
+  let holdExpiresAt: string | null = null;
+  if (isHold) {
+    const { data: hold, error: holdErr } = await db.rpc('open_booking_hold_v1', { p_booking_id: inquiry.id, p_hours: HOLD_HOURS });
+    if (holdErr) console.warn('[submit-booking] open_booking_hold_v1 failed (non-fatal):', holdErr.message);
+    else holdExpiresAt = (hold as { expires_at?: string } | null)?.expires_at ?? null;
+  }
+  const receiptUploadExpiresAt = Date.now() + (isHold ? HOLD_HOURS * 60 : 15) * 60 * 1000;
   const receiptUploadToken = receiptUploadSecret
     ? await issueReceiptUploadToken({ bookingId: inquiry.id, nonce: crypto.randomUUID(), expiresAt: receiptUploadExpiresAt }, receiptUploadSecret)
     : null;
@@ -245,7 +256,7 @@ Deno.serve(async (req) => {
       ``,
       `💰 Total:    ₱${totalAmount.toLocaleString()}`,
       `💳 ${depLabel}:  ₱${depositAmount.toLocaleString()}`,
-      ...(isHold ? [`🗓️ HOLD — dates held 24 h while the guest pays; released automatically if no receipt arrives`]
+      ...(isHold ? [`🗓️ HOLD — dates held ${HOLD_HOURS} h while the guest pays${holdExpiresAt ? ` (until ${new Date(holdExpiresAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })})` : ' (hold row not opened — RPC missing?)'}; released automatically if no receipt arrives`]
                  : [`📎 Receipt upload: pending or not provided`]),
       ...(notes      ? [``, `📝 ${notes}`] : []),
       ``,
@@ -320,6 +331,8 @@ Deno.serve(async (req) => {
     currency:       'PHP',
     receipt_upload_token: receiptUploadToken,
     receipt_upload_expires_at: receiptUploadToken ? new Date(receiptUploadExpiresAt).toISOString() : null,
+    hold: isHold,
+    hold_expires_at: holdExpiresAt,
     message:        'Booking request received. We will confirm via Messenger or phone within 2 hours.',
   });
 });
