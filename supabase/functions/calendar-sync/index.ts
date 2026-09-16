@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { heartbeat } from '../_shared/heartbeat.ts';
 import { classifyMissingAirbnbRows } from './horizon.ts';
 
 // calendar-sync v14 - Cascade Hideaway
@@ -82,6 +83,8 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
+  const hb = heartbeat(supabase, 'calendar-sync-15m');
+  await hb('started');
   try {
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const forceSync: boolean = body.force === true;
@@ -99,6 +102,7 @@ Deno.serve(async (req: Request) => {
       if (lastSync?.synced_at) {
         const age = Date.now() - new Date(lastSync.synced_at).getTime();
         if (age < 30 * 60 * 1000) {
+          await hb('succeeded');
           return new Response(
             JSON.stringify({ skipped: true, reason: 'rate_limited', last_sync: lastSync.synced_at }),
             { headers: { ...CORS, 'Content-Type': 'application/json' } },
@@ -269,6 +273,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    await hb('succeeded');
     return new Response(
       JSON.stringify({
         ok: true, events_parsed: events.length, events_upserted: upserted,
@@ -281,6 +286,7 @@ Deno.serve(async (req: Request) => {
 
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    await hb('failed', msg.slice(0, 80));
     try {
       const sErr = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
       const { data: p } = await sErr.from('properties').select('id').limit(1).single();

@@ -3,6 +3,7 @@
 // cascade-core/format.ts. Runs from pg_cron (see stay-site migration 20260913160000) or any POST.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+import { heartbeat } from '../_shared/heartbeat.ts';
 import { renderReport } from '../_shared/cascade-core/format.ts';
 import { overdue, watchReport } from './watch.ts';
 
@@ -27,6 +28,8 @@ Deno.serve(withObservability({ functionName: 'finance-watch', route: 'finance' }
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
   if (!FINANCE_CHAT) return new Response(JSON.stringify({ ok: false, error: 'FINANCE_CHAT not configured' }), { status: 500, headers: JSON_H });
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const hb = heartbeat(db, 'finance-watch-daily');
+  await hb('started');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   try {
     const [{ data: airbnb, error: e1 }, { data: direct, error: e2 }] = await Promise.all([
@@ -40,9 +43,11 @@ Deno.serve(withObservability({ functionName: 'finance-watch', route: 'finance' }
     const report = watchReport(today, airbnb ?? [], direct ?? []);
     console.log(JSON.stringify({ event: 'finance_watch', date: today, overdue: items.length, codes: items.map((i) => i.code) }));
     if (report) await tgSend(FINANCE_CHAT, renderReport(report));
+    await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, date: today, overdue: items.length, sent: !!report }), { status: 200, headers: JSON_H });
   } catch (err) {
     console.error('finance-watch error:', String(err));
+    await hb('failed', String(err).slice(0, 80));
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: JSON_H });
   }
 }));

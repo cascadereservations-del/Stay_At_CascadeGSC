@@ -21,6 +21,10 @@ const PAGE_ID = '699640026568720'; // Cascades Hideaway; /me fails for some page
 // successor). Override without a redeploy via the CASCADE_GEMINI_MODEL secret.
 // Cascade-scoped secret names (set 2026-09-12); the bare names are the pre-2026-09-12 fallback.
 const HUMAN_HOLD_MS = 24 * 3_600_000;
+// Sprint 0 (Lloyd, 2026-09-16): a host reply from the Page inbox used to mute the bot on that
+// thread for 24 h, so a routine follow-up ("what's the Wi-Fi?") an hour later went unanswered.
+// The echo hold is now 2 h; safety holds and the handoff dedupe window keep the 24 h constant.
+const ECHO_HOLD_MS = 2 * 3_600_000;
 const HISTORY_KEEP = 16; // 32 stored entries; 12 dropped a guest's dates after a 30-turn chat (2026-09-13)
 
 // Guest-facing handoff lines, from Lloyd's approved wording (voice questionnaire, group 8):
@@ -472,7 +476,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   // Staff replied from the Page inbox: hold the bot on this thread.
   if (msg.is_echo) {
     if (env('META_APP_ID') && String(msg.app_id ?? '') === env('META_APP_ID')) return; // our own send
-    await db.from('concierge_threads').upsert({ psid: ev.recipient.id, human_until: new Date(now.getTime() + HUMAN_HOLD_MS).toISOString(), updated_at: now.toISOString() });
+    await db.from('concierge_threads').upsert({ psid: ev.recipient.id, human_until: new Date(now.getTime() + ECHO_HOLD_MS).toISOString(), updated_at: now.toISOString() });
     return;
   }
 

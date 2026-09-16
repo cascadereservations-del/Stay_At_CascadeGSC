@@ -1,14 +1,18 @@
 // missed-cleaning-alert v1
 // Triggered daily by pg_cron at 00:00 UTC (= 08:00 Manila time).
-// Finds reservations that checked out yesterday with no cleaning session recorded.
+// Finds checkouts in the last fortnight with no cleaning report recorded.
 // Sends alert to OPS Telegram group only — guest name and dates only, zero financial data.
 //
-// DB dependency: public.get_missed_cleanings(p_property_id uuid) must exist.
+// DB dependency: public.get_missed_cleanings(p_property_id uuid, p_lookback int).
+// v2 (2026-09-12) reads calendar_events rather than airbnb_reservations, so a
+// DIRECT booking's checkout finally raises an alert, and it looks back a window
+// instead of only at yesterday -- a gap is chased until a report arrives.
 // verify_jwt: false — internal cron-triggered function, no user auth needed.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+import { heartbeat } from '../_shared/heartbeat.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -51,6 +55,8 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
       { auth: { persistSession: false } }
     );
 
+    const hb = heartbeat(supabase, 'missed-cleaning-alert');
+    await hb('started');
     const TG_TOKEN   = Deno.env.get('TELEGRAM_BOT_TOKEN');
     const TG_CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID'); // OPS group ONLY
 
@@ -72,7 +78,7 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
       return json({ ok: false, error: 'No property' }, 500);
     }
 
-    // Call DB function — returns reservations that checked out yesterday with no cleaning
+    // Call DB function — checkouts in the lookback window with no report filed
     const { data: missed, error } = await supabase
       .rpc('get_missed_cleanings', { p_property_id: propertyId });
 
@@ -82,30 +88,42 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
     }
 
     const rows = (missed ?? []) as Array<{
-      confirmation_code:  string;
-      guest_name:         string;
-      checkin_date:       string;
-      checkout_date:      string;
-      reservation_status: string;
+      guest_name:    string | null;
+      checkin_date:  string;
+      checkout_date: string;
+      source:        string | null;
+      days_overdue:  number;
     }>;
 
-    console.log(`[missed-cleaning] ${rows.length} missed cleaning(s) for yesterday`);
+    console.log(`[missed-cleaning] ${rows.length} checkout(s) still without a report`);
 
     if (rows.length === 0) {
+      await hb('succeeded');
       return json({ ok: true, missed: 0 });
     }
 
-    // One Telegram message per missed reservation (OPS group, no financial data)
+    // One Telegram message per missing report (OPS group, no financial data)
     for (const r of rows) {
-      const guest    = r.guest_name || r.confirmation_code || 'Unknown Guest';
+      const guest    = r.guest_name || 'Guest name not on the calendar';
       const checkin  = fmtDate(r.checkin_date);
       const checkout = fmtDate(r.checkout_date);
+      const days     = Number(r.days_overdue ?? 0);
+
+      // The same gap is reported every morning until it is filled, so the
+      // wording has to move -- an unchanging line stops being read.
+      const urgency = days <= 1
+        ? '\u26A0\uFE0F *Missed Cleaning Alert*'
+        : days <= 3
+          ? `\u26A0\uFE0F *Cleaning report still missing \u2014 ${days} days*`
+          : `\uD83D\uDD34 *Cleaning report ${days} days overdue*`;
 
       const text = [
-        `\u26A0\uFE0F *Missed Cleaning Alert*`,
+        urgency,
         `\uD83C\uDFE0 Cascade Hideaway`,
         ``,
-        `No cleaning session was recorded for yesterday\u2019s checkout.`,
+        days <= 1
+          ? `No cleaning report has been filed for this checkout.`
+          : `No cleaning report has been filed for this checkout, ${days} days on.`,
         ``,
         `\uD83D\uDC64 Guest: ${guest}`,
         `\uD83D\uDCE5 Check-in:  ${checkin}`,
@@ -117,10 +135,12 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
       await tgSend(TG_TOKEN, TG_CHAT_ID, text);
     }
 
+    await hb('succeeded');
     return json({ ok: true, missed: rows.length });
 
   } catch (err) {
     console.error('[missed-cleaning] fatal:', err);
+    try { await heartbeat(createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } }), 'missed-cleaning-alert')('failed', String(err).slice(0, 80)); } catch { /* best-effort */ }
     return json({ ok: false, error: String(err) }, 500);
   }
 }));

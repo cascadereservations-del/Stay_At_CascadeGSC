@@ -9,6 +9,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+import { heartbeat } from '../_shared/heartbeat.ts';
 import { renderReport } from '../_shared/cascade-core/format.ts';
 import { financeReport, opsReport, type Weather } from './report.ts';
 
@@ -191,6 +192,8 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
   let mode = 'ops';
   try { const b = await req.json(); mode = String(b?.mode ?? 'ops').toLowerCase(); } catch { /* default ops */ }
   const db    = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const hb    = heartbeat(db, mode === 'finance' ? 'weekly-finance-monday-0700' : 'daily-digest-ops-0700');
+  await hb('started');
   const today = getManilaDateStr();
   const tmr   = addDays(today, 1);
   console.log(`daily-digest v15: mode=${mode} date=${today}`);
@@ -200,6 +203,7 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
       const msg = await buildFinanceMessage(db, today);
       if (msg === null) {
         console.log(`daily-digest v15: skipping Finance — no pending expenses, not 1st of month`);
+        await hb('succeeded');
         return new Response(JSON.stringify({ ok: true, mode, date: today, skipped: true, reason: 'no_pending' }), { status: 200, headers: JSON_H });
       }
       await tgSend(FINANCE_CHAT, msg);
@@ -208,13 +212,16 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
       const msg = await buildOpsMessage(db, today, tmr);
       if (msg === null) {
         console.log(`daily-digest v15: skipping OPS — nothing actionable (${today})`);
+        await hb('succeeded');
         return new Response(JSON.stringify({ ok: true, mode, date: today, skipped: true, reason: 'no_activity' }), { status: 200, headers: JSON_H });
       }
       await tgSend(OPS_CHAT, msg);
     }
+    await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, mode, date: today }), { status: 200, headers: JSON_H });
   } catch (err) {
     console.error('daily-digest v15 error:', String(err));
+    await hb('failed', String(err).slice(0, 80));
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: JSON_H });
   }
 }));
