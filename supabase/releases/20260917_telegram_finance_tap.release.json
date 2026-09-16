@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260916T165452Z",
+    "verified_at": "2026-09-16T16:54:52Z",
     "production_rule": "One nullable column on staff_access_profiles (telegram_user_id, partial unique index, seeded 497550740 on Lloyd's admin profile) and two NEW definer functions (telegram_finance_decide_booking_v1, unreviewed_booking_receipts_v1). No existing function, grant or row is changed except that one seed. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
