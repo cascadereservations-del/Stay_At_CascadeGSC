@@ -1578,7 +1578,7 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
       // Deploy 3: every bot-addressed free text goes to Cassy too, except commands, replies to the bot's
       // own prompts (expense/notice flows) and numeric fast entry ("500 supplies"), which stay here.
       {
-        const m=update?.message; const t=String(m?.text??'');
+        const m=update?.message; const t=String(m?.text??m?.caption??''); // v107: a photo captioned "cassy …" is a draft request (Telegram plan §3)
         const named=/^\s*@?cassy\b/i.test(t)||/^\s*\/deep\b/i.test(t);
         const free=t&&!m?.from?.is_bot&&!m?.reply_to_message&&!t.trimStart().startsWith('/')&&!/^\s*[₱\d]/.test(stripBotMention(t.trim()))&&isBotAddressed(m);
         if(named||free){

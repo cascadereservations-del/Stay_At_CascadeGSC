@@ -13,6 +13,9 @@ import { chatTools, geminiBreaker, type ChatTurn } from '../_shared/cascade-core
 import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaToday, type Card } from '../_shared/cascade-core/tools.ts';
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, deepRequest, deepAllowed, type Surface } from './policy.ts';
+// v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
+// returns a reply for the host to copy. Never sends to the guest.
+import { draftRequest, draftGuestReply, transcribeChat } from './draft.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GATE_ENV = () => ({ financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), opsChat: env('TELEGRAM_CHAT_ID'), dmUserIds: env('CASSY_DM_USER_IDS').split(',').map((s) => s.trim()).filter(Boolean) });
@@ -107,13 +110,48 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
   }
 }
 
+async function photoBytes(msg: any): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  const token = env('TELEGRAM_BOT_TOKEN'); const p = Array.isArray(msg?.photo) ? msg.photo : [];
+  const fileId = p.length ? p[p.length - 1].file_id : null; if (!token || !fileId) return null;
+  const f = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => null);
+  const path = f?.result?.file_path; if (!path) return null;
+  const r = await fetch(`https://api.telegram.org/file/bot${token}/${path}`, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  if (!r || !r.ok) return null;
+  return { bytes: new Uint8Array(await r.arrayBuffer()), mime: /\.png$/i.test(path) ? 'image/png' : 'image/jpeg' };
+}
+
+async function draft(db: any, msg: any, pasted: string): Promise<void> {
+  const chatId = String(msg.chat.id);
+  const t0 = Date.now();
+  try {
+    let guestText = pasted, guestName: string | null = null;
+    // "cassy draft" as a reply to someone's pasted message drafts for that message.
+    if (!guestText && typeof msg.reply_to_message?.text === 'string') guestText = msg.reply_to_message.text;
+    if (Array.isArray(msg.photo) && msg.photo.length) {
+      const ph = await photoBytes(msg);
+      if (!ph) { await tgSend(chatId, 'I could not fetch that screenshot. Paste the guest text instead: "cassy reply: …"', msg.message_id); return; }
+      const t = await transcribeChat(ph.bytes, ph.mime);
+      if (t.guest_messages) { guestText = [guestText, t.guest_messages].filter(Boolean).join('\n'); guestName = t.guest_name; }
+    }
+    const nm = /\b(?:guest|from|for)\s*[:=]\s*([A-Z][\p{L}'-]+(?:\s+[A-Z][\p{L}'-]+){0,3})/u.exec(pasted);
+    if (nm) { guestName = nm[1]; guestText = guestText.replace(nm[0], '').trim(); }
+    if (!guestText.trim()) { await tgSend(chatId, 'Give me the guest\'s message: "cassy reply: <what they wrote>", or send the chat screenshot with the caption "cassy draft".', msg.message_id); return; }
+    const out = await draftGuestReply(db, guestText, guestName);
+    await tgSend(chatId, out, msg.message_id);
+    console.log('cassy_draft', JSON.stringify({ chat: chatId, from: msg.from?.id, photo: !!msg.photo, chars: guestText.length, ms: Date.now() - t0 }));
+  } catch (e) {
+    console.error('cassy_draft_failed', String(e).slice(0, 300));
+    await tgSend(chatId, 'I could not draft that right now. Try again in a minute.', msg.message_id);
+  }
+}
+
 Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, async (req) => {
   if (req.method !== 'POST') return new Response('method_not_allowed', { status: 405 });
   const secret = env('TELEGRAM_WEBHOOK_SECRET');
   if (!secret || req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== secret) return new Response('unauthorized', { status: 401 });
   let update: any; try { update = await req.json(); } catch { return Response.json({ ok: true, skipped: 'bad_json' }); }
   const msg = update?.message;
-  const text = typeof msg?.text === 'string' ? msg.text : '';
+  const text = typeof msg?.text === 'string' ? msg.text : typeof msg?.caption === 'string' ? msg.caption : '';
   if (!msg || !text || msg.from?.is_bot) return Response.json({ ok: true, skipped: 'no_text' });
   const g = gate(msg.chat?.id, msg.chat?.type, msg.from?.id, GATE_ENV());
   if (!g.allowed) { console.warn('cassy_refused', JSON.stringify({ chat: msg.chat?.id, from: msg.from?.id, reason: g.reason })); return Response.json({ ok: true, skipped: g.reason }); }
@@ -121,7 +159,8 @@ Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, a
   const question = new URL(req.url).searchParams.get('any') === '1' || /^\s*\/deep\b/i.test(text) ? unmention(text) : addressed(text);
   if (!question) return Response.json({ ok: true, skipped: 'not_addressed' });
   const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
-  const work = answer(db, msg, g.surface, question);
+  const dr = draftRequest(question);
+  const work = dr.draft ? draft(db, msg, dr.text) : answer(db, msg, g.surface, question);
   // @ts-ignore EdgeRuntime is provided by Supabase
   if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work); else await work;
   return Response.json({ ok: true, surface: g.surface });
