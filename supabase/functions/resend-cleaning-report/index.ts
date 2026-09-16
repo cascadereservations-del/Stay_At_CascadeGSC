@@ -120,10 +120,11 @@ Deno.serve(async (req: Request) => {
     body: JSON.stringify(payload), signal: AbortSignal.timeout(25_000),
   });
   const bodyText = await res.text().catch(() => '');
-  const { failed, reason } = evaluateGasResponse(res.ok, res.status, bodyText);
+  const { failed, reason, stack } = evaluateGasResponse(res.ok, res.status, bodyText);
 
   return json({
     ok: !failed, session_id: sessionId, gas_reason: failed ? reason : undefined,
+    gas_stack: failed ? stack : undefined,
     checkout_date: session.checkout_date, guest: session.last_guest_name,
     photo_sections: Object.keys(photos), photo_count: photoCount,
   }, failed ? 502 : 200);
