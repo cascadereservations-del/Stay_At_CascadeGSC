@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260916T162258Z",
+    "verified_at": "2026-09-16T16:22:58Z",
     "production_rule": "Two NEW functions only (open_booking_hold_v1, expire_booking_holds_v1) over the existing booking_holds table. No table, grant on existing objects, or data touched. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
