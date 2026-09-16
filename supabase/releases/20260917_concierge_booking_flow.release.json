@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260916T172417Z",
+    "verified_at": "2026-09-16T17:24:17Z",
     "production_rule": "One nullable jsonb column on concierge_threads (booking_flow). No function, grant or row is changed. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
