@@ -1,4 +1,20 @@
 // ocr-receipt — receipt OCR for the Cascade Smart Finance Layer.
+// v8 (2026-09-16): structured line_items ({description, qty, unit_cost}) for
+//   the purchase-report Telegram shortcut (PLAN-telegram-ops-shortcuts-and-rag-chatbot.md).
+//   Image-only per the plan's explicit scope cut; add PDF only if it turns out
+//   to matter in practice.
+// v7 (2026-09-13): provider-agnostic + rotated key names + current model.
+//   Receipt OCR had been failing since the 2026-09-12 key rotation and nobody
+//   noticed, because a failure returns 502 and inserts nothing — a broken OCR
+//   looks exactly like nobody sending receipts. Three faults stacked:
+//     - GEMINI_BOT_KEY / GEMINI_API_KEY were rotated into
+//       CASCADE_GEMINI_BOT_KEY; the old secrets still exist and return
+//       API_KEY_INVALID.
+//     - gemini-2.5-flash is refused for new callers in favour of
+//       gemini-3.6-flash.
+//     - the Gemini account's prepayment credits are depleted anyway.
+//   So this now takes the same shape as verify-meter-photo: VISION_PROVIDER
+//   chooses gemini or openrouter, and the estate already holds both keys.
 // v6: gemini-2.5-flash + GEMINI_BOT_KEY + retry-with-backoff
 //
 // Input (POST JSON):
@@ -10,18 +26,30 @@
 //     telegram_chat_id?: number|string,  // if set AND skip_telegram_notify is false, posts a review notice
 //     skip_telegram_notify?: boolean,    // true = caller handles Telegram reply (e.g. with confirm buttons)
 //     notes?: string }
+//
+// extracted.line_items is now { description: string, qty: number|null, unit_cost: number|null }[]
+// instead of flat description strings — the shape a purchase confirm-card needs to
+// match against inventory_items per-line. This function still only writes a single
+// expense row to `transactions`; matching line items to inventory_items and writing
+// inventory_purchases is the caller's job (telegram-cassy's purchase-report tool, not built yet).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const GEMINI_KEY   = Deno.env.get('CASCADE_GEMINI_BOT_KEY') ?? Deno.env.get('GEMINI_BOT_KEY') ?? Deno.env.get('GEMINI_API_KEY') ?? '';
+const PROVIDER     = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase();
+const GEMINI_KEY   = Deno.env.get('CASCADE_GEMINI_BOT_KEY')
+                  ?? Deno.env.get('GEMINI_BOT_KEY')
+                  ?? Deno.env.get('GEMINI_API_KEY') ?? '';
+const OPENROUTER_KEY = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')
+                  ?? Deno.env.get('OPENROUTER_API_KEY') ?? '';
 const TG_TOKEN     = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const RECEIPTS_BUCKET = 'expense-receipts';
-const GEMINI_MODEL    = 'gemini-2.5-flash';
+const GEMINI_MODEL     = Deno.env.get('VISION_MODEL') ?? 'gemini-3.6-flash';
+const OPENROUTER_MODEL = Deno.env.get('VISION_MODEL') ?? 'google/gemini-3.6-flash';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const CORS = {
@@ -69,10 +97,57 @@ Read this receipt image and return ONLY a JSON object (no markdown, no prose) wi
   "date": string | null,          // purchase date as "YYYY-MM-DD", or null if unreadable
   "vendor": string | null,        // store/merchant name, or null
   "category_hint": string,        // ONE of: supplies, utilities, cleaning, maintenance, repairs, platform_fees, other
-  "line_items": string[],         // short list of item descriptions if legible, else []
+  "line_items": [                 // one entry per distinct item legible on the receipt, else []
+    {
+      "description": string,      // item name/description as printed
+      "qty": number | null,       // quantity purchased, or null if not legible/not printed
+      "unit_cost": number | null  // price per unit in pesos, or null if not legible/not printed
+    }
+  ],
   "confidence": number            // 0.0-1.0, your overall confidence the amount+vendor are correct
 }
-Rules: Filipino receipts are often thermal/faded/handwritten. If the total is unclear, set amount to your best single guess and lower confidence. If you cannot read the receipt at all, set amount null and confidence below 0.2. Never invent a vendor you cannot see.`;
+Rules: Filipino receipts are often thermal/faded/handwritten. If the total is unclear, set amount to your best single guess and lower confidence. If you cannot read the receipt at all, set amount null and confidence below 0.2. Never invent a vendor you cannot see. For line_items, never invent a description you cannot see; leave qty/unit_cost null rather than guessing when illegible.`;
+
+function parseExtraction(textOut: string): any {
+  try {
+    return JSON.parse(String(textOut).replace(/^```json\s*|\s*```$/g, '').trim());
+  } catch {
+    return { amount: null, currency: 'PHP', date: null, vendor: null,
+             category_hint: 'other', line_items: [], confidence: 0 };
+  }
+}
+
+async function openrouterExtract(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
+  const res = await geminiFetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: { ...JSON_HEADERS, Authorization: `Bearer ${OPENROUTER_KEY}` },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: EXTRACTION_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(55_000),
+  });
+  const raw = await res.json();
+  if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
+  return { parsed: parseExtraction(raw?.choices?.[0]?.message?.content ?? ''), raw };
+}
+
+async function extractReceipt(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
+  if (PROVIDER === 'openrouter') {
+    if (!OPENROUTER_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
+    return await openrouterExtract(b64, mime);
+  }
+  if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
+  return await geminiExtract(b64, mime);
+}
 
 async function geminiExtract(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
@@ -87,13 +162,7 @@ async function geminiExtract(b64: string, mime: string): Promise<{ parsed: any; 
   const raw = await res.json();
   if (!res.ok) throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
   const textOut = raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '';
-  let parsed: any = {};
-  try {
-    parsed = JSON.parse(textOut.replace(/^```json\s*|\s*```$/g, '').trim());
-  } catch {
-    parsed = { amount: null, currency: 'PHP', date: null, vendor: null, category_hint: 'other', line_items: [], confidence: 0 };
-  }
-  return { parsed, raw };
+  return { parsed: parseExtraction(textOut), raw };
 }
 
 function mapCategory(hint: unknown, valid: Set<string>): string {
@@ -118,10 +187,54 @@ function validDate(d: unknown): string | null {
   return s;
 }
 
+type LineItem = { description: string; qty: number | null; unit_cost: number | null };
+
+function positiveNumberOrNull(n: unknown): number | null {
+  const x = Number(n);
+  return isFinite(x) && x > 0 ? x : null;
+}
+
+// Accepts either the new {description, qty, unit_cost}[] shape or a legacy
+// flat string[] (in case an older provider response or ocr_raw replay is fed
+// back in), and always returns the structured shape.
+function normalizeLineItems(raw: unknown): LineItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry): LineItem | null => {
+      if (typeof entry === 'string') {
+        const description = entry.trim();
+        return description ? { description: description.slice(0, 200), qty: null, unit_cost: null } : null;
+      }
+      if (entry && typeof entry === 'object') {
+        const description = String((entry as any).description ?? '').trim();
+        if (!description) return null;
+        return {
+          description: description.slice(0, 200),
+          qty: positiveNumberOrNull((entry as any).qty),
+          unit_cost: positiveNumberOrNull((entry as any).unit_cost),
+        };
+      }
+      return null;
+    })
+    .filter((x): x is LineItem => x !== null)
+    .slice(0, 50);
+}
+
+function formatLineItemsForNotes(items: LineItem[]): string | null {
+  if (!items.length) return null;
+  const parts = items.map(i => {
+    const qtyCost = i.qty && i.unit_cost ? ` (${i.qty} x ₱${i.unit_cost})` : '';
+    return `${i.description}${qtyCost}`;
+  });
+  return `items: ${parts.join(', ').slice(0, 400)}`;
+}
+
 Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  if (!GEMINI_KEY) return json({ error: 'CASCADE_GEMINI_BOT_KEY not set' }, 500);
+  if (PROVIDER === 'openrouter' ? !OPENROUTER_KEY : !GEMINI_KEY) {
+    return json({ error: `no API key for VISION_PROVIDER=${PROVIDER}` }, 500);
+  }
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
@@ -159,7 +272,7 @@ Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, 
 
   let extracted: any;
   try {
-    const r = await geminiExtract(b64, mime);
+    const r = await extractReceipt(b64, mime);
     extracted = r.parsed;
   } catch (e) {
     if (tgChat && !skipTgNotify) await tgSend(tgChat, `⚠️ Receipt OCR failed: ${String(e).slice(0, 150)}`);
@@ -176,13 +289,9 @@ Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, 
   const confidence = clamp01(extracted.confidence);
   const txnDate = validDate(extracted.date);
   const vendor = extracted.vendor ? String(extracted.vendor).slice(0, 200) : null;
+  const lineItems = normalizeLineItems(extracted.line_items);
 
-  const notesParts = [
-    extraNotes,
-    Array.isArray(extracted.line_items) && extracted.line_items.length
-      ? `items: ${extracted.line_items.join(', ').slice(0, 300)}`
-      : null,
-  ].filter(Boolean);
+  const notesParts = [extraNotes, formatLineItemsForNotes(lineItems)].filter(Boolean);
 
   const insertRow: Record<string, unknown> = {
     property_id: PROPERTY_ID,
@@ -194,7 +303,7 @@ Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, 
     payee_name: vendor,
     receipt_image_path: imagePath,
     ocr_confidence: confidence,
-    ocr_raw: extracted,
+    ocr_raw: { ...extracted, line_items: lineItems },
     logged_by: loggedBy,
     notes: notesParts.length ? notesParts.join(' | ') : null,
   };
@@ -227,6 +336,6 @@ Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, 
     ref: refCode,
     status: 'pending_review',
     ocr_confidence: confidence,
-    extracted: { amount: grossAmount, category, vendor, date: txnDate },
+    extracted: { amount: grossAmount, category, vendor, date: txnDate, line_items: lineItems },
   });
 }));

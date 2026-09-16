@@ -27,6 +27,12 @@ const FINANCE_CHAT    = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID') ?? '';
 const OPS_CHAT        = Deno.env.get('TELEGRAM_CHAT_ID') ?? '';
 // 2026-09-13: CASCADE_GEMINI_BOT_KEY only - the bare GEMINI_BOT_KEY belongs to another project.
 const GEMINI_KEY      = Deno.env.get('CASCADE_GEMINI_BOT_KEY') ?? '';
+// 2026-09-16: receipt/advisory image reads now go through the same VISION_PROVIDER
+// switch as ocr-receipt (D-090) instead of a hardcoded refused model — this file had
+// its own separate inline OCR that never got that fix and was silently broken.
+const VISION_PROVIDER = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase();
+const OPENROUTER_KEY  = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY') ?? '';
+const OPENROUTER_MODEL = Deno.env.get('VISION_MODEL') ?? 'google/gemini-3.6-flash';
 const TG_SECRET       = Deno.env.get('TELEGRAM_WEBHOOK_SECRET') ?? '';
 const BOT_USERNAME    = (Deno.env.get('TELEGRAM_BOT_USERNAME') ?? '').replace(/^@/,'').toLowerCase();
 const WEATHER_KEY     = Deno.env.get('GOOGLE_WEATHER_API_KEY') ?? '';
@@ -34,8 +40,9 @@ const GEN_SAN_LAT     = 6.1164;
 const GEN_SAN_LNG     = 125.1716;
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const RECEIPTS_BUCKET = 'expense-receipts';
-const GEMINI_MODEL    = 'gemini-2.5-flash';
+const GEMINI_MODEL    = Deno.env.get('VISION_MODEL') ?? 'gemini-3.6-flash';
 const DISPATCH_MODEL  = 'gemini-2.5-flash';
+const hasVisionKey    = () => VISION_PROVIDER === 'openrouter' ? !!OPENROUTER_KEY : !!GEMINI_KEY;
 const JSON_H          = { 'Content-Type': 'application/json' };
 
 const LARGE_AMOUNT_THRESHOLD = 10_000;
@@ -299,17 +306,32 @@ function showCapabilities(chatId:any,surface:'ops'|'finance'){
 function buildAdvisoryPrompt(today:string):string{
   return `You are reading a Philippine electric-cooperative power-interruption advisory image (SOCOTECO II or NGCP) for General Santos City. Today is ${today}.\nReturn ONLY a JSON object, no markdown:\n{"is_advisory":boolean,"source":"SOCOTECO"|"NGCP"|null,"purpose":string,"occurrences":[{"date":"YYYY-MM-DD","start_time":"HH:MM:00"|null,"end_time":"HH:MM:00"|null,"duration_hours":number|null}],"affected":{"feeders":string[],"substations":string[],"areas":string[]},"confidence":number}\nRules:\n- is_advisory=false if the image is not a power-interruption advisory; set confidence below 0.3.\n- Ignore any schedule marked RESCHEDULED, struck-through, or cancelled. Return only the ACTIVE schedule.\n- Each distinct time window is its OWN occurrence (a morning AND an evening window on the same day = two occurrences).\n- feeders e.g. ["7-2"] or a range string ["14-1 to 14-4"]. substations e.g. ["Leon Llido"]. areas = barangay/subdivision names if listed instead of feeders.\n- Convert "8am" / "12:00NN" / "6:00 PM" to 24h HH:MM:00. duration_hours from the stated duration or end minus start.\n- purpose: short phrase, e.g. "metering equipment replacement at NGCP Gensan".`;
 }
-async function geminiExtractAdvisory(bytes:Uint8Array,mime:string):Promise<any>{
-  const res=await geminiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,{method:'POST',headers:JSON_H,body:JSON.stringify({contents:[{parts:[{text:buildAdvisoryPrompt(toManilaDate())},{inline_data:{mime_type:mime,data:bytesToBase64(bytes)}}]}],generationConfig:{temperature:0,response_mime_type:'application/json'}}),signal:AbortSignal.timeout(55_000)});
+// Shared by geminiExtract and geminiExtractAdvisory: dispatches to Gemini or
+// OpenRouter per VISION_PROVIDER (mirrors ocr-receipt's extractReceipt/D-090)
+// and returns the raw model text, unparsed — each caller applies its own JSON parse.
+async function visionExtractText(promptText:string,bytes:Uint8Array,mime:string):Promise<string>{
+  if(VISION_PROVIDER==='openrouter'){
+    if(!OPENROUTER_KEY)throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
+    const res=await geminiFetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{...JSON_H,Authorization:`Bearer ${OPENROUTER_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,temperature:0,response_format:{type:'json_object'},messages:[{role:'user',content:[{type:'text',text:promptText},{type:'image_url',image_url:{url:`data:${mime};base64,${bytesToBase64(bytes)}`}}]}]}),signal:AbortSignal.timeout(55_000)});
+    if(!res.ok)throw new Error(`openrouter_${res.status}`);
+    const data=await res.json();
+    return data?.choices?.[0]?.message?.content??'';
+  }
+  if(!GEMINI_KEY)throw new Error('CASCADE_GEMINI_BOT_KEY not set');
+  const res=await geminiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,{method:'POST',headers:JSON_H,body:JSON.stringify({contents:[{parts:[{text:promptText},{inline_data:{mime_type:mime,data:bytesToBase64(bytes)}}]}],generationConfig:{temperature:0,response_mime_type:'application/json'}}),signal:AbortSignal.timeout(55_000)});
   if(!res.ok)throw new Error(`gemini_${res.status}`);
-  const data=await res.json();const txt=data?.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join('')??'';
+  const data=await res.json();
+  return data?.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join('')??'';
+}
+async function geminiExtractAdvisory(bytes:Uint8Array,mime:string):Promise<any>{
+  const txt=await visionExtractText(buildAdvisoryPrompt(toManilaDate()),bytes,mime);
   return JSON.parse(txt.replace(/^```json\s*|\s*```$/g,'').trim());
 }
 function advisoryOccLines(occ:any[]):string[]{
   return occ.map((o:any)=>{const t=o.start_time?` ${String(o.start_time).slice(0,5)}`:'';const tail=o.duration_hours?` (${o.duration_hours}h)`:(o.end_time?`–${String(o.end_time).slice(0,5)}`:'');return `⚡ ${o.date}${t}${tail}`;});
 }
 async function runAdvisoryOcr(db:any,chatId:any,bytes:Uint8Array,mime:string,from:any){
-  if(!GEMINI_KEY){await tgSend(chatId,'⚠️ Advisory reading unavailable (GEMINI_BOT_KEY not set).');return;}
+  if(!hasVisionKey()){await tgSend(chatId,`⚠️ Advisory reading unavailable (no key for VISION_PROVIDER=${VISION_PROVIDER}).`);return;}
   await tgSend(chatId,'📸 Reading the advisory…');
   let adv:any;try{adv=await geminiExtractAdvisory(bytes,mime);}catch(e){console.warn('advisory OCR:',String(e));await tgSend(chatId,'⚠️ Could not read this image.');return;}
   const occ=Array.isArray(adv?.occurrences)?adv.occurrences.filter((o:any)=>validDate(o?.date)):[];
@@ -619,11 +641,10 @@ function buildGeminiPrompt(categoryHint:string) {
   const h=categoryHint?`The user already classified this as "${categoryHint}" — use that as category_hint unless clearly wrong.`:'Infer category_hint from the items.';
   return `You are a receipt data extractor for a Philippine boutique Airbnb expense ledger.\nReturn ONLY a JSON object with these exact keys:\n{"amount":number|null,"currency":"PHP","date":"YYYY-MM-DD"|null,"vendor":string|null,"category_hint":"supplies"|"utilities"|"cleaning"|"maintenance"|"repairs"|"platform_fees"|"other","line_items":[{"name":string,"qty":number,"unit_price":number}],"confidence":number}\n${h}\nRules: amount=total paid. qty=units bought (default 1), unit_price=price per unit. If unreadable set amount null and confidence<0.2. Never invent a vendor.`;
 }
-function parseGeminiResponse(raw:any,cat:string) { const txt=raw?.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join('')??'';try{return JSON.parse(txt.replace(/^```json\s*|\s*```$/g,'').trim());}catch{return{amount:null,currency:'PHP',date:null,vendor:null,category_hint:cat||'other',line_items:[],confidence:0};} }
+function parseGeminiResponse(text:string,cat:string) { try{return JSON.parse(String(text).replace(/^```json\s*|\s*```$/g,'').trim());}catch{return{amount:null,currency:'PHP',date:null,vendor:null,category_hint:cat||'other',line_items:[],confidence:0};} }
 async function geminiExtract(bytes:Uint8Array,mime:string,cat='') {
-  const res=await geminiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,{method:'POST',headers:JSON_H,body:JSON.stringify({contents:[{parts:[{text:buildGeminiPrompt(cat)},{inline_data:{mime_type:mime,data:bytesToBase64(bytes)}}]}],generationConfig:{temperature:0,response_mime_type:'application/json'}}),signal:AbortSignal.timeout(55_000)});
-  if(!res.ok)throw new Error(`gemini_${res.status}`);
-  return parseGeminiResponse(await res.json(),cat);
+  const txt=await visionExtractText(buildGeminiPrompt(cat),bytes,mime);
+  return parseGeminiResponse(txt,cat);
 }
 function categoryKeyboard(pre:number){const cats=[['🛒 Supplies','supplies'],['⚡ Utilities','utilities'],['🧹 Cleaning','cleaning'],['🔧 Maintenance','maintenance'],['🔨 Repairs','repairs'],['💼 Platform Fees','platform_fees'],['📌 Other','other']];const rows:any[][]=[];for(let i=0;i<cats.length;i+=2)rows.push(cats.slice(i,i+2).map(([l,s])=>({text:l,callback_data:`cat:${s}:${pre}`})));return{inline_keyboard:rows};}
 function receiptEditKeyboard(txnId:string,amount:number){const rows:any[][]=[];if(amount>0)rows.push([{text:`✅ Confirm  ₱${peso(amount)}`,callback_data:`ocr_ok:${txnId}`}]);else rows.push([{text:'💵 Enter total',callback_data:`ocr_edit:${txnId}`}]);rows.push([{text:'✏️ Edit item',callback_data:`item_edit:${txnId}`},{text:'➕ Add item',callback_data:`item_add:${txnId}`}]);const r3:any[]=[{text:'🗑️ Remove item',callback_data:`item_remove:${txnId}`}];if(amount>0)r3.push({text:'💵 Edit total',callback_data:`ocr_edit:${txnId}`});rows.push(r3);rows.push([{text:'❌ Discard',callback_data:`ocr_void:${txnId}`}]);return{inline_keyboard:rows};}
@@ -677,7 +698,7 @@ async function handleEditItemReply(db:any,chatId:any,msg:any,prompt:string,text:
 async function handleAddItemReply(db:any,chatId:any,msg:any,prompt:string,text:string){const txnId=extractMarkerTxn(prompt,'ADD_ITEM');if(!txnId){await tgReply(chatId,msg.message_id,'⚠️ Session lost.');return;}const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgReply(chatId,msg.message_id,'⏰ That receipt is no longer editable.');return;}const parsed=parseNamePriceQty(text.trim().split(/\s+/));if(!parsed.name){await tgReply(chatId,msg.message_id,'⚠️ Need an item name.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);items.push({name:parsed.name,qty:parsed.qty,unit_price:parsed.price??0});await persistItems(db,txnId,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txnId,`➕ Added "${parsed.name}".`);}
 async function handleRemoveItemReply(db:any,chatId:any,msg:any,prompt:string,text:string){const txnId=extractMarkerTxn(prompt,'REMOVE_ITEM');if(!txnId){await tgReply(chatId,msg.message_id,'⚠️ Session lost.');return;}const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgReply(chatId,msg.message_id,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);const idx=parseInt(text.trim(),10);if(!Number.isInteger(idx)||idx<1||idx>items.length){await tgReply(chatId,msg.message_id,`⚠️ Item number must be 1–${items.length}.`);return;}const[removed]=items.splice(idx-1,1);await persistItems(db,txnId,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txnId,`🗑️ Removed "${removed?.name??'item'}"`);}
 async function maybeOfferInventorySync(db:any,chatId:any,txnId:string){const{data:txn}=await db.from('transactions').select('category,payee_name,transaction_date,ocr_raw').eq('id',txnId).maybeSingle();if(!txn||!STOCKABLE_CATS.has(txn.category))return;const rawItems=Array.isArray(txn.ocr_raw?.line_items)?txn.ocr_raw.line_items:[];if(!rawItems.length)return;const matched:any[]=[],unmatched:string[]=[];for(const it of rawItems){const name=(typeof it==='string'?it:String(it?.name??'')).trim();if(!name)continue;const qty=(typeof it==='object'&&Number(it?.qty)>0)?Number(it.qty):1;const unitPrice=(typeof it==='object'&&Number(it?.unit_price)>0)?Number(it.unit_price):null;const{data:m}=await db.rpc('match_inventory_item',{p_name:name,p_limit:1});const best=Array.isArray(m)&&m.length?m[0]:null;if(best)matched.push({item_id:best.id,item_name:best.name,qty,unit_price:unitPrice});else unmatched.push(name);}if(!matched.length)return;const pid=await createPending(db,chatId,'inventory_sync',{txnId,vendor:txn.payee_name??null,date:txn.transaction_date??null,items:matched});const lines=matched.map((m:any)=>`  • ${mdEsc(m.item_name)}  +${m.qty}`);const tail=unmatched.length?[``,`_Not tracked: ${mdEsc(unmatched.join(', '))}_`]:[];await tgSend(chatId,[`📦 *Update inventory?*`,`${matched.length} item(s) from this receipt match your stock:`,...lines,...tail].join('\n'),{reply_markup:invSyncKeyboard(pid)});}
-async function runOcr(db:any,chatId:any,objectPath:string,bytes:Uint8Array,mime:string,loggedBy:string|null,notes:string|null,cat=''){if(!GEMINI_KEY){await tgSend(chatId,'⚠️ GEMINI_BOT_KEY not set. Tap a category:',{reply_markup:categoryKeyboard(0)});return;}let extracted:any;try{extracted=await geminiExtract(bytes,mime,cat);}catch(e){console.warn('OCR:',String(e));await tgSend(chatId,'🧾 Could not read receipt. Tap a category:',{reply_markup:categoryKeyboard(0)});return;}const cats=await getCategories(db);const validSlugs=new Set(cats.map(c=>c.slug));const rawCat=String(extracted.category_hint??'').toLowerCase().trim();const category=cat&&validSlugs.has(cat)?cat:(validSlugs.has(rawCat)?rawCat:'other');const catLabel=cats.find(c=>c.slug===category)?.label??category;const amount=Number(extracted.amount);const grossAmount=isFinite(amount)&&amount>0?amount:0;const confidence=clamp01(extracted.confidence);const txnDate=validDate(extracted.date);const vendor=extracted.vendor?String(extracted.vendor).slice(0,200):null;const itemsText=lineItemsToText(extracted.line_items);const noteParts=[notes,itemsText?`items: ${itemsText}`:null].filter(Boolean);const insertRow:Record<string,unknown>={property_id:PROPERTY_ID,txn_type:'expense',category,status:'pending_review',source:'ocr',gross_amount:grossAmount,payee_name:vendor,receipt_image_path:objectPath,ocr_confidence:confidence,ocr_raw:extracted,logged_by:loggedBy,notes:noteParts.length?noteParts.join(' | '):null};if(txnDate)insertRow.transaction_date=txnDate;const{data:row,error}=await db.from('transactions').insert(insertRow).select('id').single();if(error||!row){await tgSend(chatId,`⚠️ OCR save error: ${errMsg(error?.message)}`);return;}const txnId=row.id;const card=renderReceiptCard({id:txnId,gross_amount:grossAmount,payee_name:vendor,transaction_date:txnDate,ocr_confidence:confidence,ocr_raw:extracted},catLabel);await tgSend(chatId,card.text,{reply_markup:card.reply_markup});notifyOps(category,loggedBy,true);}
+async function runOcr(db:any,chatId:any,objectPath:string,bytes:Uint8Array,mime:string,loggedBy:string|null,notes:string|null,cat=''){if(!hasVisionKey()){await tgSend(chatId,`⚠️ No key for VISION_PROVIDER=${VISION_PROVIDER}. Tap a category:`,{reply_markup:categoryKeyboard(0)});return;}let extracted:any;try{extracted=await geminiExtract(bytes,mime,cat);}catch(e){console.warn('OCR:',String(e));await tgSend(chatId,'🧾 Could not read receipt. Tap a category:',{reply_markup:categoryKeyboard(0)});return;}const cats=await getCategories(db);const validSlugs=new Set(cats.map(c=>c.slug));const rawCat=String(extracted.category_hint??'').toLowerCase().trim();const category=cat&&validSlugs.has(cat)?cat:(validSlugs.has(rawCat)?rawCat:'other');const catLabel=cats.find(c=>c.slug===category)?.label??category;const amount=Number(extracted.amount);const grossAmount=isFinite(amount)&&amount>0?amount:0;const confidence=clamp01(extracted.confidence);const txnDate=validDate(extracted.date);const vendor=extracted.vendor?String(extracted.vendor).slice(0,200):null;const itemsText=lineItemsToText(extracted.line_items);const noteParts=[notes,itemsText?`items: ${itemsText}`:null].filter(Boolean);const insertRow:Record<string,unknown>={property_id:PROPERTY_ID,txn_type:'expense',category,status:'pending_review',source:'ocr',gross_amount:grossAmount,payee_name:vendor,receipt_image_path:objectPath,ocr_confidence:confidence,ocr_raw:extracted,logged_by:loggedBy,notes:noteParts.length?noteParts.join(' | '):null};if(txnDate)insertRow.transaction_date=txnDate;const{data:row,error}=await db.from('transactions').insert(insertRow).select('id').single();if(error||!row){await tgSend(chatId,`⚠️ OCR save error: ${errMsg(error?.message)}`);return;}const txnId=row.id;const card=renderReceiptCard({id:txnId,gross_amount:grossAmount,payee_name:vendor,transaction_date:txnDate,ocr_confidence:confidence,ocr_raw:extracted},catLabel);await tgSend(chatId,card.text,{reply_markup:card.reply_markup});notifyOps(category,loggedBy,true);}
 async function validateAndInsert(db:any,chatId:any,opts:InsertOpts){purgePending(db);const{amount,category:slug,label,payee,notes,loggedBy}=opts;const today=toManilaDate();const dupes=await checkRecentDuplicates(db,amount);const exactDupe=dupes.find((d:any)=>d.category===slug&&d.transaction_date===today);const recentDupe=!exactDupe&&amount>=RECENT_DUP_MIN_AMOUNT?dupes[0]:null;const isLarge=!exactDupe&&!recentDupe&&amount>=LARGE_AMOUNT_THRESHOLD;if(exactDupe){const pid=await createPending(db,chatId,'duplicate',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`⚠️ *Possible duplicate detected*`,`₱${peso(amount)} · ${label??slug} already logged *today* (Ref: \`${shortRef(exactDupe.id)}\`).`,``,`Is this a *new* transaction?`].join('\n'),{reply_markup:pendingKeyboard(pid)});return;}if(recentDupe){const pid=await createPending(db,chatId,'duplicate',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`⚠️ *Similar recent entry*`,`₱${peso(amount)} · ${recentDupe.category} logged *${daysDiff(recentDupe.transaction_date)} day(s) ago* (Ref: \`${shortRef(recentDupe.id)}\`).`,``,`Is this a *new* transaction?`].join('\n'),{reply_markup:pendingKeyboard(pid)});return;}if(isLarge){const pid=await createPending(db,chatId,'large_amount',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`💰 *Large expense: ₱${peso(amount)}*`,`${label??slug}${payee?` · ${mdEsc(payee)}`:''}`,`Confirm this entry?`].join('\n'),{reply_markup:pendingKeyboard(pid,'✅ Confirm')});return;}const{data:row,error}=await insertExpense(db,opts);if(error||!row){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error?.message)}`);return;}await tgSend(chatId,confirmMsg(amount,label??slug,payee??null,row.id));}
 function buildSummaryCard(s:any):string{
   const topCats=(s.by_category??[]).filter((c:any)=>c.txn_type==='expense').slice(0,5).map((c:any)=>`   • ${mdEsc(c.label)}  —  ₱${peso(c.total)}`).join('\n');
@@ -1305,8 +1326,10 @@ async function handleTextMessage(msg:any,db:any){
     if(['/brownout','/holiday','/event','/reminder'].includes(cmd)){await handleOpsNoticeCommand(cmd.slice(1),args,chatId,from,db);return;}
     if(cmd==='/notices'){await handleNoticesList(chatId,db);return;}
     if(cmd==='/stock'){await handleStockQuery(db,chatId,isFinanceChat(chatId)?'finance':'ops',{filter:(args[0]??'').toLowerCase()==='all'?'all':'low'});return;}
+    if(cmd==='/inventory'){await handleStockQuery(db,chatId,isFinanceChat(chatId)?'finance':'ops',{filter:'all'});return;}
     if(cmd==='/menu'||cmd==='/help'||cmd==='/start'){await showMenu(chatId);return;}
     if(!isFinanceChat(chatId))return;
+    if(cmd==='/purchase')    {await tgSend(chatId,'📸 Send me the receipt photo and I\'ll read it, then offer to update stock for any matched items.');return;}
     if(cmd==='/status')      {await handleStatus(db,chatId);return;}
     if(cmd==='/ping')        {await handlePing(chatId);return;}
     if(cmd==='/log')         {await tgSend(chatId,'🧾 *Log an Expense*\n\nSelect a category:',{reply_markup:categoryKeyboard(0)});return;}
@@ -1361,8 +1384,12 @@ async function handlePhotoMessage(msg:any,db:any){
   if(msg.from?.is_bot)return;
   const wantsAdvisory=captionWantsAdvisory(msg.caption);
   if(wantsAdvisory){const ph=await fetchPhotoBytes(msg);if(!ph){await tgSend(cid,'⚠️ Could not fetch the image. Try again.');return;}await runAdvisoryOcr(db,cid,ph.bytes,ph.mime,msg.from??{});return;}
-  if(!isBotAddressed(msg))return;
   if(!isFinanceChat(cid)){
+    // Ops chat: require bot-addressing before offering the advisory-scan prompt,
+    // so a random shared photo doesn't trigger a confirm card. Finance chat skips
+    // this gate below — its own help text (MENU_TIPS.ocr) already promises any
+    // photo sent there is read automatically, no @mention needed.
+    if(!isBotAddressed(msg))return;
     const fid=largestPhotoId(msg);if(!fid)return;
     const pid=await createPending(db,cid,'advisory_scan',{file_id:fid,from:{first_name:msg.from?.first_name,username:msg.from?.username,id:msg.from?.id}});
     await tgSend(cid,'📸 Is this a *power advisory* to scan?\n_Regular photos (sharing, etc.) don\'t need scanning — just tap Ignore._',{reply_markup:{inline_keyboard:[[{text:'⚡ Scan advisory',callback_data:`adv_scan:${pid}`},{text:'❌ Ignore',callback_data:`adv_ignore:${pid}`}]]}});
@@ -1517,8 +1544,8 @@ async function handlePing(chatId: any) {
   } catch(e) { await tgSend(chatId, `❌ Gemini error: ${errMsg(e)}`); }
 }
 
-const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'stock',description:'Low-stock check'}];
-const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'void',description:'Void entry: /void REFCODE'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'ping',description:'Diagnostic: test Gemini + env vars'}];
+const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'}];
+const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'void',description:'Void entry: /void REFCODE'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'ping',description:'Diagnostic: test Gemini + env vars'}];
 
 Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' }, async(req)=>{
   const url=new URL(req.url);
