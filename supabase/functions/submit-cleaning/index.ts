@@ -1,4 +1,15 @@
-// submit-cleaning v27
+// submit-cleaning v28
+// v28 (2026-09-16): Lloyd reported turnover-report emails silently stopped
+//   (~Sept 7) while Telegram kept working fine. Root cause: the GAS forward
+//   (email + Drive + Calendar) was fire-and-forget — .catch(console.warn)
+//   only, never awaited, response never inspected. Apps Script web apps
+//   always return HTTP 200 even on a caught internal error, so checking
+//   response.ok alone would not have caught it either; the JSON body's
+//   `result` field has to be read. Now awaited and checked, alerting
+//   Finance on failure. Same fix applied symmetrically to the OPS Telegram
+//   dispatch, which had the identical silent-failure shape (tgPost caught
+//   its own errors and only console.warn'd) — a dead bot token or a
+//   kicked-from-group chat would have failed exactly as invisibly.
 // Changes from v25:
 // - MID-STAY (v7.8): cleaningType 'mid_stay' is a light refresh while the guest is
 //   still in the unit. Completeness branch requires only MIDSTAY photo floor; no
@@ -16,6 +27,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
+import { evaluateGasResponse } from './gas-response.ts';
 
 // This recovered function predates generated database types. Keep its helper
 // boundary structurally untyped until a generated Database contract replaces it.
@@ -81,16 +93,26 @@ interface Payload {
   [key: string]: unknown;
 }
 
-async function tgPost(token: string, method: string, body: Record<string, unknown>): Promise<void> {
-  const resp = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
-    signal:  AbortSignal.timeout(20_000),
-  });
-  if (!resp.ok) {
-    const t = await resp.text().catch(() => '');
-    console.warn(`tgPost ${method} failed ${resp.status}:`, t);
+// v28: returns whether the send actually landed, instead of only console.warn
+// on failure — a Telegram failure was exactly as silent as the GAS/email one
+// used to be (see the GAS-forward comment below), just never yet observed.
+async function tgPost(token: string, method: string, body: Record<string, unknown>): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const resp = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+      signal:  AbortSignal.timeout(20_000),
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      console.warn(`tgPost ${method} failed ${resp.status}:`, t);
+      return { ok: false, reason: `HTTP ${resp.status}: ${t.slice(0, 200)}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.warn(`tgPost ${method} threw:`, err);
+    return { ok: false, reason: String(err) };
   }
 }
 
@@ -173,7 +195,7 @@ async function dispatchTelegram(
   deltaM3:      number | null,
   urgentItems:  string,
   photos:       Record<string, PhotoEntry[]> | undefined,
-): Promise<void> {
+): Promise<{ ok: boolean; reason?: string }> {
 
   const elecStr   = !isNaN(elecNum)  ? `${elecNum} kWh`  : '\u2014';
   const waterStr  = !isNaN(waterNum) ? `${waterNum} m\u00b3` : '\u2014';
@@ -207,11 +229,12 @@ async function dispatchTelegram(
     `\uD83D\uDCF8 Full photo set emailed + archived to Drive.`,
   ];
 
-  await tgPost(token, 'sendMessage', { chat_id: chatId, text: lines.join('\n'), parse_mode: 'Markdown' });
+  const sent = await tgPost(token, 'sendMessage', { chat_id: chatId, text: lines.join('\n'), parse_mode: 'Markdown' });
+  if (!sent.ok) return sent;
 
-  if (!photos || typeof photos !== 'object') return;
+  if (!photos || typeof photos !== 'object') return sent;
   const meterUrls = (photos['section_meter'] ?? []).map(photoUrl).filter((u): u is string => u !== null);
-  if (meterUrls.length === 0) return;
+  if (meterUrls.length === 0) return sent;
 
   const meterCap = `\uD83D\uDCF7 Meter Readings \u2014 ${cleaningDate} (${cleanerName})`;
   if (meterUrls.length === 1) {
@@ -224,6 +247,7 @@ async function dispatchTelegram(
     }));
     await tgPost(token, 'sendMediaGroup', { chat_id: chatId, media });
   }
+  return sent;
 }
 
 async function dispatchFinanceCard(
@@ -622,6 +646,12 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     }
 
     if (TG_TOKEN && TG_CHAT_ID) {
+      // v28: dispatchTelegram now reports whether the OPS message actually
+      // landed. tgPost already caught its own errors and just console.warn'd
+      // them before, so a dead bot token or a kicked-from-group chat failed
+      // exactly as silently as the GAS/email path did — nobody would know
+      // OPS never saw a report. On failure, alert Finance (a different chat,
+      // same bot) instead of a console.warn nobody reads.
       dispatchTelegram(
         TG_TOKEN, TG_CHAT_ID,
         cleanerName, unitName, cleaningDate, cleaningType, startTime,
@@ -629,7 +659,14 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         completionPct, elecNum, waterNum, deltaKwh, deltaM3,
         urgentItems,
         payload.photos as Record<string, PhotoEntry[]> | undefined,
-      ).catch(err => console.warn('Telegram dispatch non-fatal:', err));
+      ).then(async (result) => {
+        if (result.ok || !TG_FINANCE_ID) return;
+        console.warn('Telegram OPS dispatch failed:', result.reason);
+        await tgPost(TG_TOKEN, 'sendMessage', {
+          chat_id: TG_FINANCE_ID,
+          text: `⚠️ OPS Telegram report FAILED — ${unitName} · ${cleaningDate} · ${cleanerName}\nReason: ${result.reason ?? 'unknown'}\nThe cleaning session was recorded; the OPS group likely never saw this report.`,
+        });
+      }).catch(err => console.warn('Telegram dispatch non-fatal:', err));
     } else {
       console.warn('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set');
     }
@@ -637,12 +674,49 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const GAS_URL = Deno.env.get('GAS_SCRIPT_URL');
     if (GAS_URL) {
       const operationalPayload = { ...payload, extraExpenses: undefined };
+      // v28: the GAS forward (email + Drive + Calendar) used to be fully
+      // fire-and-forget — a rejected fetch just logged a console.warn nobody
+      // reads, so the turnover-report email could silently stop for weeks
+      // while Telegram (dispatched separately above) kept working fine,
+      // exactly the failure Lloyd reported 2026-09-16. Apps Script web apps
+      // always return HTTP 200, even for a caught internal error (doPost's
+      // own try/catch returns {result:'error', message}), so response.ok
+      // alone can't detect a failure — the JSON body's `result` field must
+      // be checked too. Any failure now posts to Finance so it's visible the
+      // same day, not discovered weeks later from a missing inbox email.
       fetch(GAS_URL, {
         method:  'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body:    JSON.stringify(operationalPayload),
         signal:  AbortSignal.timeout(25_000),
-      }).catch(err => console.warn('GAS forward non-fatal:', err));
+      }).then(async (res) => {
+        const bodyText = await res.text().catch(() => '');
+        const { failed, reason } = evaluateGasResponse(res.ok, res.status, bodyText);
+        if (!failed) return;
+        console.warn('GAS forward failed:', reason);
+        if (TG_TOKEN && TG_FINANCE_ID) {
+          await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: TG_FINANCE_ID,
+              text: `⚠️ Cleaning report email (GAS) FAILED — ${unitName} · ${cleaningDate} · ${cleanerName}\nReason: ${reason}\nThe Telegram report above still sent; the turnover-report email to cascadereservations@gmail.com likely did not.`,
+            }),
+            signal: AbortSignal.timeout(10_000),
+          }).catch(() => {});
+        }
+      }).catch(async (err) => {
+        console.warn('GAS forward non-fatal:', err);
+        if (TG_TOKEN && TG_FINANCE_ID) {
+          await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: TG_FINANCE_ID,
+              text: `⚠️ Cleaning report email (GAS) FAILED — ${unitName} · ${cleaningDate} · ${cleanerName}\nReason: ${String(err)}\nThe Telegram report above still sent; the turnover-report email to cascadereservations@gmail.com likely did not.`,
+            }),
+            signal: AbortSignal.timeout(10_000),
+          }).catch(() => {});
+        }
+      });
     }
 
     return json({ ok: true, status: 'success', sessionId, is_complete: isComplete, message: 'Report recorded.' });
