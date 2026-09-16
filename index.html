@@ -7932,6 +7932,8 @@
         var isLastMinute   = msUntilCheckin < (48 * 3600 * 1000);
         var dep = isLastMinute ? total : Math.ceil(total * 0.5);
         var balance = total - dep;
+        /* Hold-before-pay (D-160 #1): an advance booking holds the dates first, then pays against a reference. */
+        if (continueBtn) continueBtn.textContent = isLastMinute ? 'Review price & payment' : 'Hold my dates & pay';
         calSelDates.textContent=fmtDate(state.checkin)+' \u2192 '+fmtDate(state.checkout);
         /* Show discounted total — guest sees exactly what they pay */
         calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'');
@@ -8127,11 +8129,70 @@
         var nm=document.getElementById('name');
         if (bankRef&&nm&&nm.value.trim()) bankRef.textContent=nm.value.trim()+' / '+fmtDate(state.checkin);
 
-        step1.hidden=true; step2.hidden=false;
-        stepInd1.classList.remove('is-active'); stepInd1.classList.add('is-done');
-        stepInd2.classList.add('is-active');
-        step2.scrollIntoView({behavior:'smooth',block:'start'});
+        function showStep2(){
+          step1.hidden=true; step2.hidden=false;
+          stepInd1.classList.remove('is-active'); stepInd1.classList.add('is-done');
+          stepInd2.classList.add('is-active');
+          step2.scrollIntoView({behavior:'smooth',block:'start'});
+        }
+
+        /* Hold-before-pay (D-160 #1): for an advance booking the request is created NOW, so the
+           guest pays against a real reference and the dates are held (auto-released after 24 h
+           without a receipt). Same-day / last-minute keeps the pay-then-submit flow. */
+        if (isLastMinute) { state._hold = null; showStep2(); return; }
+        var holdKey = state.checkin + '|' + state.checkout + '|' + (nm ? nm.value.trim() : '') + '|' + dep;
+        if (state._hold && state._hold._key === holdKey) { applyHold(state._hold); showStep2(); return; }
+        continueBtn.disabled = true; continueBtn.textContent = 'Holding your dates\u2026';
+        track('hold_requested', { nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
+        submitBooking(buildPayload(total, dep), function(data){
+          data._key = holdKey;
+          state._hold = data; state._lastBookingData = data; state._receiptUploadToken = data.receipt_upload_token || null;
+          applyHold(data);
+          continueBtn.disabled = false; continueBtn.textContent = 'Hold my dates & pay';
+          showStep2();
+        }, function(err){
+          continueBtn.disabled = false; continueBtn.textContent = 'Hold my dates & pay';
+          track('reservation_error', { error_code: err && err.message && err.message.indexOf('dates_unavailable') > -1 ? 'dates_unavailable' : 'booking_failed' });
+          dateError.textContent = err && err.message && err.message.indexOf('dates_unavailable') > -1
+            ? 'Those dates are no longer available \u2014 please select new dates.'
+            : 'We could not hold your dates just now. Please try again or email cascadereservations@gmail.com.';
+          dateError.hidden = false;
+          dateError.scrollIntoView({behavior:'smooth',block:'nearest'});
+        });
       });
+
+      /* A held request: the transfer memo is "Firstname REF" and the last button only sends the receipt. */
+      function applyHold(data){
+        var bankRef = document.getElementById('payBankRef');
+        var first = ((document.getElementById('name') || {}).value || '').trim().split(' ')[0];
+        if (bankRef && data.ref) bankRef.textContent = (first ? first + ' ' : '') + data.ref;
+        if (bookingSubmit) bookingSubmit.textContent = 'I\u2019ve sent the payment';
+      }
+
+      function buildPayload(total, dep){
+        var _pcSel    = document.getElementById('phoneCode');
+        var _pcCustom = document.getElementById('phoneCodeCustom');
+        var phoneCode = (_pcCustom && _pcCustom.style.display !== 'none' && _pcCustom.value.trim())
+          ? _pcCustom.value.trim()
+          : ((_pcSel || {}).value || '+63');
+        if (!phoneCode || phoneCode === '+other') phoneCode = '+63';
+        var phoneNum       = (document.getElementById('phone')       || {}).value.trim() || '';
+        var guestEmail     = (document.getElementById('email')       || {}).value.trim() || '';
+        var contactTypeVal = (document.getElementById('contactType') || {}).value || 'phone';
+        return {
+          guest_name:     document.getElementById('name').value.trim(),
+          guest_phone:    phoneCode + ' ' + phoneNum,
+          guest_email:    guestEmail || undefined,
+          checkin_date:   state.checkin,
+          checkout_date:  state.checkout,
+          pax:            Number((document.getElementById('guests') || {}).value) || 1,
+          notes:          (document.getElementById('message') || {}).value
+                          ? document.getElementById('message').value.trim() || undefined : undefined,
+          total_amount:   total,
+          deposit_amount: dep,
+          contact_type:   contactTypeVal,
+        };
+      }
 
       backBtn.addEventListener('click', function(){
         step2.hidden=true; step1.hidden=false;
@@ -8442,36 +8503,14 @@
           var n = nights(state.checkin, state.checkout), total = calcTotal(n);
           track('reservation_submit', { nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
           var dep = state.dep || Math.ceil(total * 0.5);
-          var _pcSel    = document.getElementById('phoneCode');
-          var _pcCustom = document.getElementById('phoneCodeCustom');
-          var phoneCode = (_pcCustom && _pcCustom.style.display !== 'none' && _pcCustom.value.trim())
-            ? _pcCustom.value.trim()
-            : ((_pcSel || {}).value || '+63');
-          if (!phoneCode || phoneCode === '+other') phoneCode = '+63';
-          var phoneNum       = (document.getElementById('phone')       || {}).value.trim() || '';
-          var guestEmail     = (document.getElementById('email')       || {}).value.trim() || '';
-          var contactTypeVal = (document.getElementById('contactType') || {}).value || 'phone';
           var guestFile      = state._receiptFile || null;
 
           setLoading(true);
           bookingError.hidden = true;
 
-          var payload = {
-              guest_name:     document.getElementById('name').value.trim(),
-              guest_phone:    phoneCode + ' ' + phoneNum,
-              guest_email:    guestEmail || undefined,
-              checkin_date:   state.checkin,
-              checkout_date:  state.checkout,
-              pax:            Number((document.getElementById('guests') || {}).value) || 1,
-              notes:          (document.getElementById('message') || {}).value
-                              ? document.getElementById('message').value.trim() || undefined : undefined,
-              total_amount:   total,
-              deposit_amount: dep,
-              contact_type:   contactTypeVal,
-            };
-            submitBooking(
-              payload,
-              function(data) {
+          var payload = buildPayload(total, dep);
+          /* Hold-before-pay: the request already exists; this tap only sends the receipt. */
+          var afterRequest = function(data) {
                 bookingSubmit.dataset.submitted = 'true';
                 state._lastBookingData = data;
                 if (!guestFile) {
@@ -8496,7 +8535,11 @@
                   receiptRetry.hidden = false;
                   showBanner('Your reservation request was received, but the screenshot did not upload. Please retry now or email it to cascadereservations@gmail.com.');
                 });
-              },
+              };
+            if (state._hold) { afterRequest(state._hold); return; }
+            submitBooking(
+              payload,
+              afterRequest,
               function(err) {
                 track('reservation_error', { error_code: err && err.message && err.message.indexOf('dates_unavailable') > -1 ? 'dates_unavailable' : 'booking_failed' });
                 console.error('[booking]', err);
