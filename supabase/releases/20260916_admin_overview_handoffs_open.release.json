@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "release_id": "admin_overview_handoffs_open_20260916",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "PENDING_COMMIT"
+  },
+  "migrations": [
+    "20260916150000_admin_overview_handoffs_open.sql"
+  ],
+  "migration_sha256": {
+    "20260916150000_admin_overview_handoffs_open.sql": "d00dc71380fd1f5993c99f38eaf20bfd7a6634adc3377ea7aa068756edccfebf"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING_RESTORE_POINT",
+    "verified_at": "PENDING",
+    "production_rule": "Function replacement only (get_admin_overview_v1, run_health_checks_v1). No table, grant or data touched. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "overview_filters_open_handoffs",
+      "query": "select pg_get_functiondef('public.get_admin_overview_v1(uuid)'::regprocedure) like '%h.status = ''open''%'",
+      "expect": true
+    },
+    {
+      "name": "overview_no_pending_literal",
+      "query": "select pg_get_functiondef('public.get_admin_overview_v1(uuid)'::regprocedure) not like '%h.status = ''pending''%'",
+      "expect": true
+    },
+    {
+      "name": "health_check_has_handoffs",
+      "query": "select pg_get_functiondef('public.run_health_checks_v1(uuid)'::regprocedure) like '%concierge_handoffs_open%'",
+      "expect": true
+    },
+    {
+      "name": "open_handoffs_are_countable",
+      "query": "select count(*) >= 0 from public.concierge_handoffs where status = 'open'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (read-only functions)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260916_admin_overview_handoffs_open.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same JSON shape returned; handoffs array now populated when cards are open. Dashboard today-page already renders it. Rehearse on Alfred before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}

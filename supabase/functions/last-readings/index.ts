@@ -26,8 +26,11 @@ Deno.serve(withObservability({ functionName: 'last-readings', route: 'ops' }, as
     // Fetch the single most-recent meter_readings row
     const { data, error } = await supabase
       .from('meter_readings')
-      .select('electric_curr, water_curr, recorded_at')
+      // Sprint 0 (2026-09-16): a mid-stay reading must not become the next turnover's
+      // baseline (submit-cleaning's own anomaly check already excludes mid-stay).
+      .select('electric_curr, water_curr, recorded_at, cleaning_sessions!inner(cleaning_type)')
       .eq('property_id', propertyId)
+      .neq('cleaning_sessions.cleaning_type', 'mid_stay')
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();

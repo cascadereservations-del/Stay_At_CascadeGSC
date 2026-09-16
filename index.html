@@ -3094,11 +3094,21 @@
     }
 
     /* QR code images */
+    /* Sprint 0 (2026-09-16): 116px was too small to scan from a second phone. Same-origin PNGs,
+       ~220px on desktop, most of the width on a phone. */
     .pay-qr-box {
-      width: 116px; height: 116px; flex-shrink: 0;
+      width: min(220px, 60vw); aspect-ratio: 1 / 1; flex-shrink: 0;
       background: #fff;
       display: flex; align-items: center; justify-content: center;
-      padding: 6px;
+      padding: 8px;
+    }
+    .pay-qr-samephone {
+      font-family: var(--ch-font-body);
+      font-size: var(--step--2); color: rgb(247 242 232 / 0.55); line-height: 1.5;
+      text-align: center; max-width: 220px; margin-top: 6px;
+    }
+    @media (max-width: 420px) {
+      .pay-method-card, .pay-bank-qr-row { flex-direction: column; align-items: center; text-align: center; }
     }
     .pay-qr-box img {
       width: 100%; height: 100%; object-fit: contain;
@@ -6336,11 +6346,12 @@
                   <div class="pay-qr-wrap">
                     <div class="pay-qr-box" role="img" aria-label="GCash QR code for Marifel Suzanne Boncales">
                       <img
-                        src="https://drive.google.com/thumbnail?id=1J2t6G-3iRIY1_HiSY_tRlh3huNHl4n6v&sz=w400"
+                        src="assets/images/qr-gcash.png"
                         alt="GCash QR code — scan to send reservation fee"
-                        loading="lazy" width="104" height="104">
+                        loading="lazy" width="220" height="220">
                     </div>
                     <p class="pay-qr-caption" id="gcashQrCaption">GCash</p>
+                    <p class="pay-qr-samephone">Same phone? Screenshot this and use <strong>Scan from gallery</strong> in GCash.</p>
                   </div>
                   <div class="pay-method-details">
                     <p class="pay-method-label">GCash · Send Money</p>
@@ -6399,11 +6410,12 @@
                   <div class="pay-qr-wrap">
                     <div class="pay-qr-box" role="img" aria-label="UnionBank QR code for InstaPay transfer">
                       <img
-                        src="https://drive.google.com/thumbnail?id=1XxnM2Pt9xnLRYlhufn2lCjpj2Q0mN3fs&sz=w400"
+                        src="assets/images/qr-unionbank.png"
                         alt="UnionBank InstaPay QR code"
-                        loading="lazy" width="104" height="104">
+                        loading="lazy" width="220" height="220">
                     </div>
                     <p class="pay-qr-caption">UnionBank</p>
+                    <p class="pay-qr-samephone">Same phone? Screenshot this and use <strong>Scan QR from gallery</strong> in your bank app.</p>
                   </div>
                   <div style="flex:1;">
                     <p class="pay-method-label" style="margin-bottom:0.5em;">InstaPay / PESONet</p>
