@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "release_id": "concierge_booking_flow_20260917",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20260917010000_concierge_booking_flow.sql"
+  ],
+  "migration_sha256": {
+    "20260917010000_concierge_booking_flow.sql": "1966c4448ba1470e351d8592e575eaaa2dc8d4c343abd46560af293ba1c1e52d"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "One nullable jsonb column on concierge_threads (booking_flow). No function, grant or row is changed. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "booking_flow_column_exists",
+      "query": "select exists (select 1 from information_schema.columns where table_schema='public' and table_name='concierge_threads' and column_name='booking_flow' and data_type='jsonb')",
+      "expect": true
+    },
+    {
+      "name": "service_role_can_still_write_threads",
+      "query": "select has_table_privilege('service_role', 'public.concierge_threads', 'UPDATE')",
+      "expect": true
+    },
+    {
+      "name": "no_thread_has_a_flow_yet",
+      "query": "select count(*) = 0 from public.concierge_threads where booking_flow is not null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops the column; any in-flight Messenger booking state is lost, submitted bookings stay)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260917_concierge_booking_flow.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "messenger_book_intent",
+      "required_state": "messenger-concierge v74 reads/writes booking_flow; until the column exists the upsert fails on a book intent (the deploy waits for this apply). concierge_mode stays whatever it is."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Nullable column, unread by the deployed v73. Rehearse on Alfred before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
