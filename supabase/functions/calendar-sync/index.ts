@@ -2,7 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { classifyMissingAirbnbRows } from './horizon.ts';
 
-// calendar-sync v13 - Cascade Hideaway
+// calendar-sync v14 - Cascade Hideaway
 //
 // SOURCE-CONTROL NOTE (2026-08-25): this function was deployed (v10, function
 // version 21) but had no source in this repository. It was recovered from the
@@ -10,6 +10,12 @@ import { classifyMissingAirbnbRows } from './horizon.ts';
 // supabase/functions/calendar-sync/index.ts so the reaper defect below is
 // reviewable.
 //
+// v14 (2026-09-16): Lloyd flagged the reconciliation note as redundant — a
+//   single reap is always already explained by airbnb-email-sync's own
+//   cancellation card (real bookings) or is one low-stakes transient block
+//   (nothing else announces those, but they're not worth a ping either).
+//   Only send when reaped > 1, matching the note's own "worth a look only if
+//   unusually large" text, which was previously just a footnote nobody acted on.
 // v13 (2026-09-09): Horizon guard. Airbnb's iCal is a rolling ~365-day window; the
 // clipped tail of a block at the horizon gets a fresh uid daily, so v12 reaped and
 // announced one phantom row every midnight. Rows within two days of the feed
@@ -183,13 +189,13 @@ Deno.serve(async (req: Request) => {
         const { error: reapUpdateErr } = await supabase.from('calendar_events')
           .update({ status: 'cancelled', synced_at: new Date().toISOString() })
           .eq('id', row.id);
-        if (reapUpdateErr) { console.warn('calendar-sync v13: reap update failed for', row.uid, reapUpdateErr.message); continue; }
+        if (reapUpdateErr) { console.warn('calendar-sync v14: reap update failed for', row.uid, reapUpdateErr.message); continue; }
         reaped++;
       }
-      if (reaped > 0) console.log(`calendar-sync v13: reaped ${reaped} stale event(s)`);
-      if (horizonSkipped > 0) console.log(`calendar-sync v13: ${horizonSkipped} horizon-tail row(s) left alone (feed horizon ${classification.feedHorizon || 'unavailable'})`);
+      if (reaped > 0) console.log(`calendar-sync v14: reaped ${reaped} stale event(s)`);
+      if (horizonSkipped > 0) console.log(`calendar-sync v14: ${horizonSkipped} horizon-tail row(s) left alone (feed horizon ${classification.feedHorizon || 'unavailable'})`);
     } catch (reapErr) {
-      console.warn('calendar-sync v13: reap step failed (non-fatal):', String(reapErr));
+      console.warn('calendar-sync v14: reap step failed (non-fatal):', String(reapErr));
     }
 
     // -- v8: Backfill guest_name from airbnb_reservations -----------
@@ -216,7 +222,7 @@ Deno.serve(async (req: Request) => {
         }
       }
     } catch (backfillErr) {
-      console.warn('calendar-sync v13: guest_name backfill failed:', String(backfillErr));
+      console.warn('calendar-sync v14: guest_name backfill failed:', String(backfillErr));
     }
 
     await supabase.from('calendar_sync_log').insert({
@@ -227,15 +233,17 @@ Deno.serve(async (req: Request) => {
     const tgFinanceId = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
     const tgOpsId      = Deno.env.get('TELEGRAM_CHAT_ID');
 
-    // v12 reconciliation note — see header. Fires only when there was
-    // something to reconcile; steady-state runs stay silent.
-    if (tgToken && tgOpsId && reaped > 0) {
+    // v14 reconciliation note — see header. A single reap is always already
+    // explained: either airbnb-email-sync just sent a full cancellation card
+    // for the same booking, or it's one low-stakes Airbnb "not available"
+    // block disappearing. Only escalate when more than one row goes at once,
+    // which is the actually-unusual case this note exists to catch.
+    if (tgToken && tgOpsId && reaped > 1) {
       const msg = [
         `🧹 *Calendar reconciliation*`,
         `📍 Cascade Hideaway`, ``,
-        `${reaped} Airbnb calendar row${reaped !== 1 ? 's' : ''} no longer in the live feed — marked cancelled.`,
-        `This is automatic (calendar-sync v13) and needs no action.`,
-        `Worth a look only if this number is unusually large or keeps recurring every run.`,
+        `${reaped} Airbnb calendar rows no longer in the live feed — marked cancelled.`,
+        `This is automatic (calendar-sync v14). Worth a look since more than one went at once.`,
         `⏰ ${manilaDatetime()}`,
       ].join('\n');
       tgSend(tgToken, tgOpsId, msg).catch(() => {});

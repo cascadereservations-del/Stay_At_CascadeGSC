@@ -91,22 +91,25 @@ export function opsReport(i: OpsInput): Report | null {
   const head = a || d ? [a ? plural(a, 'arrival') : '', d ? plural(d, 'departure') : ''].filter(Boolean).join(', ') : 'no arrivals or departures';
   const decision = `${friendlyDate(i.today)}: ${head}${a && d ? ', same-day turnover' : ''}.`;
 
+  // v16: a category glyph on each line groups the flat bullet list at a glance
+  // (guest movement vs supplies vs weather vs tomorrow) without touching the
+  // shared plain-text renderReport() contract other functions also use.
   const lines: string[] = [];
   if (todayNotices.length) lines.push(todayNotices.map(noticeText).join('; '));
-  if (a) lines.push(`Arriving: ${names(i.arrivals, i.resRows, i.today, 'arrival')}`);
-  if (d) lines.push(`Departing: ${names(i.departures, i.resRows, i.today, 'departure')}`);
+  if (a) lines.push(`📥 Arriving: ${names(i.arrivals, i.resRows, i.today, 'arrival')}`);
+  if (d) lines.push(`📤 Departing: ${names(i.departures, i.resRows, i.today, 'departure')}`);
   if (i.stock.length) {
-    lines.push(`Low stock: ${i.stock.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''} (${s.runway <= 1 ? 'order today' : `~${plural(Math.round(s.runway), 'day')} left`})`).join(', ')}`);
+    lines.push(`📦 Low stock: ${i.stock.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''} (${s.runway <= 1 ? 'order today' : `~${plural(Math.round(s.runway), 'day')} left`})`).join(', ')}`);
   }
   const w = weatherLine(i.weather);
-  if (w) lines.push(w);
+  if (w) lines.push(`🌤 ${w}`);
   const tmr: string[] = [];
   if (i.tmrArrivals.length) tmr.push(`arriving ${names(i.tmrArrivals, i.resRows, i.tomorrow, 'arrival')}`);
   if (i.tmrDepartures.length) tmr.push(`departing ${names(i.tmrDepartures, i.resRows, i.tomorrow, 'departure')}`);
   tmr.push(...tmrNotices.map(noticeText));
   const tw = i.weather?.tomorrow;
   if (tw) tmr.push(`${tw.description} ${tw.low}–${tw.high}°C${tw.rainProb >= 40 ? `, ${tw.rainProb}% rain` : ''}${tw.thunderProb >= 40 ? ', thunder' : ''}`);
-  if (tmr.length) lines.push(`Tomorrow: ${tmr.join('; ')}`);
+  if (tmr.length) lines.push(`📆 Tomorrow: ${tmr.join('; ')}`);
 
   const arr = a ? names(i.arrivals, i.resRows, i.today, 'arrival') : '';
   const dep = d ? names(i.departures, i.resRows, i.today, 'departure') : '';

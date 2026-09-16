@@ -1,15 +1,33 @@
-// turnover-verifier v1
+// turnover-verifier v2
 // Runs daily via pg_cron at 00:00 UTC (08:00 Manila).
 // Pass 1 — yesterday's checkout: calls verify_turnover, creates/updates
 //   turnover_verification row, fires Finance alert if issues found.
-// Pass 2 — day-before-yesterday: if alert_24h already sent and not resolved,
-//   fires OPS escalation and stamps alert_36h_sent_at.
+// Pass 2 — every still-open row from two-or-more days ago: fires OPS
+//   escalation on first miss (T+48h), then re-fires once per day (this
+//   function's own daily cadence rate-limits it) for as long as it stays
+//   unresolved AND a confirmed guest is arriving today or tomorrow. A repeat
+//   is stamped by reusing alert_36h_sent_at as "last escalation sent at".
 // No notification fired when all checks pass.
-// Routing: Finance = new issues (T+24h). OPS = unresolved escalation (T+48h).
+// Routing: Finance = new issues (T+24h). OPS = unresolved escalation (T+48h,
+//   repeating while unresolved and an arrival is imminent).
+//
+// v2 (2026-09-16): two fixes from Lloyd.
+//   (a) Repeat escalation: previously a one-shot alert_36h_sent_at gate meant
+//   OPS heard about an unresolved turnover exactly once, even if it stayed
+//   unresolved for days with a new guest about to arrive into an unconfirmed
+//   unit. Pass 2 now scans all open rows, not just exactly two-days-ago, and
+//   re-escalates when an arrival is imminent.
+//   (b) Readable issue codes: raw codes like `no_session_found` were sent
+//   through Telegram legacy Markdown (parse_mode: 'Markdown'), which reads a
+//   matched underscore pair as an italics delimiter — the underscores are
+//   consumed and "no_session_found" renders as the single unbroken word
+//   "nosessionfound". issueLabel() below maps known codes to plain, safe
+//   text; the fallback still replaces underscores with spaces so no future
+//   code can hit the same bug.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { turnoverWindow } from './manila-dates.ts';
+import { turnoverWindow, addDays, manilaDate } from './manila-dates.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 
@@ -38,8 +56,18 @@ async function tgPost(token: string, method: string, body: Record<string, unknow
   }
 }
 
+const ISSUE_LABELS: Record<string, string> = {
+  no_session_found: 'No cleaning session found for this checkout.',
+  no_meter_reading: 'No meter reading recorded for this turnover.',
+  meter_zero_kwh_per_night: 'Meter reading shows 0 kWh/night \u2014 worth a second look.',
+  low_photo_count: 'Fewer than 5 turnover photos uploaded.',
+  session_incomplete: 'Cleaning checklist left incomplete.',
+};
+function issueLabel(code: string): string {
+  return ISSUE_LABELS[code] ?? code.replace(/_/g, ' ');
+}
 function fmtIssues(issues: string[]): string {
-  return issues.map(i => `\u2022 ${i}`).join('\n');
+  return issues.map(i => `\u2022 ${issueLabel(i)}`).join('\n');
 }
 
 Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }, async (req: Request) => {
@@ -88,7 +116,7 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
 
   // Manila calendar dates, computed without round-tripping a locale string
   // through Date — see manila-dates.ts for the v9 bug this replaces.
-  const { yesterday, twoDaysAgo } = turnoverWindow();
+  const { today, yesterday, twoDaysAgo } = turnoverWindow();
 
   // ?dry=1 runs the read-only checks and reports what WOULD happen: no
   // Telegram message, no row written, no alert stamp. It exists so this
@@ -151,22 +179,25 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
       if (dryRun) {
         results.yesterday_would_alert = true;
       } else if (!existingRow?.alert_24h_sent_at) {
-        const issueText = fmtIssues(result1.issues);
+        // no_session_found is dropped from the bullet list below: the
+        // no-session branch of sessionLine already says it, in plain
+        // language, so listing it again would just repeat the same fact.
+        const displayIssues = result1.issues.filter((i) => i !== 'no_session_found');
+        const issueText = fmtIssues(displayIssues);
         const sessionLine = result1.session_id
           ? `\uD83E\uDDF9 Cleaner: ${result1.cleaner_name ?? 'unknown'}  \u00b7  Photos: ${result1.total_photo_count}  \u00b7  Complete: ${result1.is_complete ? '\u2705' : '\u274C'}`
-          : '\u274C No cleaning session found for this checkout.';
+          : '\u274C No cleaning session found \u2014 the cleaner hasn\u2019t submitted a turnover report for this checkout yet.';
 
         const lines = [
           `\uD83D\uDD0D *Turnover Check \u2014 T+24h*`,
           `\uD83D\uDCCD Cascade Bria  \u00b7  Checkout: ${d1}`,
           ``,
           sessionLine,
-          ``,
-          `\u26A0\uFE0F *Issues detected:*`,
-          issueText,
-          ``,
-          `_Resolve before next guest check-in. OPS will be alerted tomorrow if unresolved._`,
         ];
+        if (displayIssues.length) {
+          lines.push(``, `\u26A0\uFE0F *Issues detected:*`, issueText);
+        }
+        lines.push(``, `_Resolve before next guest check-in. OPS will be alerted tomorrow if unresolved._`);
 
         await tgPost(TG_TOKEN, 'sendMessage', {
           chat_id:    TG_FINANCE_ID,
@@ -195,36 +226,51 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
     results.pass1_error = String(e);
   }
 
-  // PASS 2: two days ago -> OPS escalation if unresolved
+  // PASS 2: every still-open turnover from two-or-more days ago -> OPS escalation,
+  // repeating once per day while unresolved and a guest is arriving soon. See v2 note above.
   try {
-    const d2 = twoDaysAgo;
     const { data: prop } = await supabase.from('properties').select('id').limit(1).maybeSingle();
     const propertyId = prop?.id;
 
     if (propertyId) {
-      const { data: tvRow } = await supabase
+      const { data: openRows } = await supabase
         .from('turnover_verification')
         .select('*')
         .eq('property_id', propertyId)
-        .eq('checkout_date', d2)
-        .maybeSingle();
+        .eq('check_passed', false)
+        .not('alert_24h_sent_at', 'is', null)
+        .is('resolved_at', null)
+        .lte('checkout_date', twoDaysAgo)
+        .order('checkout_date', { ascending: true });
 
-      const escalationDue = Boolean(
-        tvRow &&
-        !tvRow.check_passed &&
-        tvRow.alert_24h_sent_at &&
-        !tvRow.alert_36h_sent_at &&
-        !tvRow.resolved_at
-      );
-      if (escalationDue && dryRun) {
-        results.would_escalate = d2;
-      } else if (escalationDue && tvRow) {
+      const tomorrow = addDays(today, 1);
+      const { data: soonArrival } = await supabase
+        .from('calendar_events')
+        .select('checkin_date')
+        .eq('property_id', propertyId).eq('status', 'confirmed')
+        .gte('checkin_date', today).lte('checkin_date', tomorrow)
+        .order('checkin_date', { ascending: true }).limit(1).maybeSingle();
+
+      const escalated: string[] = [];
+      for (const tvRow of openRows ?? []) {
+        const firstEscalation = !tvRow.alert_36h_sent_at;
+        const alreadyEscalatedToday = tvRow.alert_36h_sent_at
+          ? manilaDate(new Date(tvRow.alert_36h_sent_at)) === today
+          : false;
+        const repeatDue = !firstEscalation && Boolean(soonArrival) && !alreadyEscalatedToday;
+        if (!firstEscalation && !repeatDue) continue;
+
+        if (dryRun) { escalated.push(tvRow.checkout_date); continue; }
+
         const issueText = fmtIssues(tvRow.issues ?? []);
+        const openLine = firstEscalation
+          ? `\u26A0\uFE0F Finance was notified 24h ago. Issues still open:`
+          : `\u26A0\uFE0F Still open \u2014 a guest arrives ${soonArrival!.checkin_date === today ? 'today' : 'tomorrow'} and the unit isn\u2019t confirmed ready:`;
         const lines = [
           `\uD83D\uDEA8 *Turnover Unresolved \u2014 ESCALATION*`,
-          `\uD83D\uDCCD Cascade Bria  \u00b7  Checkout: ${d2}`,
+          `\uD83D\uDCCD Cascade Bria  \u00b7  Checkout: ${tvRow.checkout_date}`,
           ``,
-          `\u26A0\uFE0F Finance was notified 24h ago. Issues still open:`,
+          openLine,
           issueText,
           ``,
           `_Please verify the unit is ready for the next guest._`,
@@ -241,10 +287,10 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
           .update({ alert_36h_sent_at: new Date().toISOString() })
           .eq('id', tvRow.id);
 
-        results.escalation_sent = d2;
-      } else {
-        results.no_escalation_needed = d2;
+        escalated.push(tvRow.checkout_date);
       }
+      results[dryRun ? 'would_escalate' : 'escalation_sent'] = escalated;
+      if (!escalated.length) results.no_escalation_needed = true;
     }
   } catch (e) {
     console.error('[pass2] error:', e);

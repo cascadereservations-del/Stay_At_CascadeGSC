@@ -13,7 +13,7 @@ Deno.test('ops: quiet day is null; same-day turnover names both guests and asks 
     resRows: [{ guest_name: 'James Rebaya', checkin_date: '2026-09-12', checkout_date: '2026-09-14' }],
   })!;
   assertEquals(r.decision, 'Mon 14 Sep: 1 arrival, 1 departure, same-day turnover.');
-  assertEquals(r.lines, ['Arriving: Queenie Gonzales (2 nights, from 2:00 PM)', 'Departing: James Rebaya (by 11:00 AM)']);
+  assertEquals(r.lines, ['📥 Arriving: Queenie Gonzales (2 nights, from 2:00 PM)', '📤 Departing: James Rebaya (by 11:00 AM)']);
   assertEquals(r.action, 'Coordinate the cleaning window between James Rebaya (by 11:00 AM) and Queenie Gonzales (2 nights, from 2:00 PM).');
 });
 
@@ -26,9 +26,9 @@ Deno.test('ops: brownout owns the action and forces a send; the render has at mo
   })!;
   assertEquals(r.action, 'Prepare for the Scheduled brownout at 8:00 AM for 4h (Feeder 3).');
   assertEquals(r.lines[0], '⚡ Scheduled brownout at 8:00 AM for 4h (Feeder 3)');
-  assertEquals(r.lines[1], 'Low stock: Bottled water 5 pc (order today), Coffee 15 pc (~3 days left)');
-  assertEquals(r.lines[2], 'Weather: Partly cloudy, 31°C (feels 36°C), UV 8 Very High, rain 1:00 PM–4:00 PM peak 70%, thunder 45%');
-  assertEquals(r.lines[3], 'Tomorrow: arriving Ana; Showers 25–30°C, 60% rain');
+  assertEquals(r.lines[1], '📦 Low stock: Bottled water 5 pc (order today), Coffee 15 pc (~3 days left)');
+  assertEquals(r.lines[2], '🌤 Weather: Partly cloudy, 31°C (feels 36°C), UV 8 Very High, rain 1:00 PM–4:00 PM peak 70%, thunder 45%');
+  assertEquals(r.lines[3], '📆 Tomorrow: arriving Ana; Showers 25–30°C, 60% rain');
   const text = renderReport(r);
   assertEquals(text.split('\n').filter((l) => l.startsWith('• ')).length, 4);
   assert(text.endsWith('Do: Prepare for the Scheduled brownout at 8:00 AM for 4h (Feeder 3).'));
