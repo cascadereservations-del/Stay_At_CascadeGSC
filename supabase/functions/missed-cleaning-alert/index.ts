@@ -13,6 +13,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
+import { withHeader } from '../_shared/cascade-core/format.ts'; // v3 (session 26): 🔴 ALERT first line
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -132,7 +133,7 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
         `_Please confirm the cleaning was done or log the session in the checklist app._`,
       ].join('\n');
 
-      await tgSend(TG_TOKEN, TG_CHAT_ID, text);
+      await tgSend(TG_TOKEN, TG_CHAT_ID, withHeader('alert', `missed cleaning ${days}d`, text));
     }
 
     await hb('succeeded');

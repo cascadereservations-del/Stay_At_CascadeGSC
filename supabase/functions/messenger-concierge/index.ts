@@ -13,6 +13,10 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
 import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
+// Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
+// handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
+import { withHeader } from '../_shared/cascade-core/format.ts';
+import { raiseWorkOrder } from '../_shared/cascade-core/workorders.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GRAPH = 'https://graph.facebook.com/v21.0';
@@ -410,15 +414,26 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
   const { data: row } = await db.from('concierge_handoffs').insert({ psid: thread.psid, guest_name: thread.guest_name, guest_text: text, risk, options }).select('id').single();
   const id: string = row?.id ?? ''; if (!id) return;
   const short = id.slice(0, 8);
-  const body = [
+  // Something is wrong with the unit (or the guest is unsafe): make it a work order too. The
+  // handoff card is the alert; the row is what Today and the readiness check read.
+  let woLine = '';
+  if (risk === 'complaint' || risk === 'safety') {
+    const wo = await raiseWorkOrder(db, {
+      sourceKind: 'guest_report', sourceRef: `concierge_handoff:${id}`, title: text.slice(0, 200),
+      detail: `Messenger ${risk} from ${thread.guest_name ?? thread.psid} (#CH-${short})`, priority: risk === 'safety' ? 'urgent' : 'high',
+    });
+    if (wo?.id) woLine = `🔧 Work order #${wo.id.slice(0, 8)} ${wo.created ? 'raised' : 'already open'}${wo.blocks_arrival ? ' — blocks the next arrival until closed' : ''}`;
+  }
+  const body = withHeader('guest', `handoff · ${risk}`, [
     `🛎 Guest needs the host (${risk})`,
     `Guest: ${thread.guest_name ?? thread.psid}`,
     `> ${text.slice(0, 400)}`,
+    ...(woLine ? [woLine] : []),
     '',
     ...options.map((o, i) => `Option ${i + 1}:\n${o}\n`),
     `Tap an option to send it to the guest, or reply to this message to write your own. #CH-${short}`,
     link,
-  ].join('\n');
+  ].join('\n'));
   const keyboard = [
     options.map((_, i) => ({ text: `Send option ${i + 1}`, callback_data: `ch:${short}:${i + 1}` })),
     [{ text: '✍️ Write my own', callback_data: `ch:${short}:own` }],
@@ -587,7 +602,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   const sentToGuest = Boolean(reply) && mode === 'auto';
   if (reply) {
     if (mode === 'auto') await fbSend(psid, reply);
-    else { await fbSend(psid, ACK_SUGGEST); await tgOps(`💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`); }
+    else { await fbSend(psid, ACK_SUGGEST); await tgOps(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
     if (handoff) {
       // A discount or pet request goes to the host, but it must not mute the bot for 24 h: a
       // prospect who then asks about Wi-Fi still gets an answer (live guest, 2026-09-13). The hold
@@ -598,10 +613,10 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       if (risk === 'safety') thread.human_until = new Date(now.getTime() + HUMAN_HOLD_MS).toISOString();
       if (mode === 'auto') {
         if (text) await openHandoff(db, thread, text, risk, link);
-        else await tgOps(`🛎 Concierge handoff (${risk})\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`);
+        else await tgOps(withHeader('guest', `handoff · ${risk}`, `🛎 Concierge handoff (${risk})\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`));
       }
     } else if (flagOnly && mode === 'auto') {
-      await tgOps(`👀 Concierge answered but wants a host to glance\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`);
+      await tgOps(withHeader('guest', 'glance', `👀 Concierge answered but wants a host to glance\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`));
     }
   }
 

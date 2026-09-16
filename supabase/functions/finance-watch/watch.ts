@@ -38,6 +38,9 @@ export function overdue(today: string, airbnb: AirbnbRow[], direct: DirectRow[])
   return out.sort((a, b) => b.days - a.days);
 }
 
+/** Cadence (session 26, Telegram plan §4): nudge on day 2, day 5, then every 7 days (12, 19, …). */
+export const due = (days: number) => days === 2 || days === 5 || (days > 5 && (days - 5) % 7 === 0);
+
 export function watchReport(today: string, airbnb: AirbnbRow[], direct: DirectRow[]): Report | null {
   const items = overdue(today, airbnb, direct);
   if (!items.length) return null;

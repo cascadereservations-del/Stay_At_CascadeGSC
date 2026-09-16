@@ -13,6 +13,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { normalizeEmail, normalizePhilippinePhone } from '../_shared/guest-identity.ts';
+// v13 (session 26, 2026-09-16, Telegram plan §1/§5): Finance card opens with the shared header
+// and carries guest_context_v1 lines for a returning direct guest (empty for a first-timer).
+import { withHeader } from '../_shared/cascade-core/format.ts';
+import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -153,7 +157,7 @@ Deno.serve(async (req) => {
   }).select('id').single();
   if (ie || !inquiry) return json({ error: 'booking_failed', detail: ie?.message }, 500);
 
-  const { error: identityError } = await db.rpc('upsert_guest_for_booking', {
+  const { data: identity, error: identityError } = await db.rpc('upsert_guest_for_booking', {
     p_property_id: PROPERTY_ID,
     p_booking_id: inquiry.id,
     p_guest_name: guestName,
@@ -162,6 +166,7 @@ Deno.serve(async (req) => {
     p_source: 'direct',
   });
   if (identityError) console.error('[submit-booking] guest identity resolution failed:', identityError.code);
+  const resolvedGuestId: string | null = (Array.isArray(identity) ? identity[0]?.guest_id : (identity as any)?.guest_id) ?? null;
 
   const inquiryId = inquiry.id;
   const ref = inquiry.id.slice(0, 8).toUpperCase();
@@ -219,7 +224,8 @@ Deno.serve(async (req) => {
   async function notifyTelegram(receiptSignedUrl: string | null): Promise<void> {
     if (!tgToken || !tgFinanceId) return;
     const depLabel = near(depositAmount, totalAmount) ? 'Full payment' : `Deposit (${depositPct}%)`;
-    const msg = [
+    const ctxLines = guestContextLines(await guestContext(db, { guestId: resolvedGuestId, name: guestName }));
+    const msg = withHeader('booking', `Direct ${ref}`, [
       `📬 New Direct Booking Inquiry`,
       `📍 Cascade Hideaway`,
       ``,
@@ -227,6 +233,7 @@ Deno.serve(async (req) => {
       `📞 ${guestPhone}`,
       ...(guestEmail  ? [`📧 ${guestEmail}`]  : []),
       ...(contactType === 'whatsapp' ? [`💬 WhatsApp preferred`] : []),
+      ...(ctxLines.length ? [``, ...ctxLines] : []),
       ``,
       `📅 Check-in:  ${checkinStr}`,
       `📤 Check-out: ${checkoutStr}`,
@@ -242,7 +249,7 @@ Deno.serve(async (req) => {
       `📒 Ledger: pending review (confirms on approval)`,
       `⏰ ${manilaDatetime()}`,
       `🔖 Ref: ${ref}`,
-    ].join('\n');
+    ].join('\n'));
 
     await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
       method: 'POST',

@@ -1,7 +1,11 @@
 // deno test finance-watch/watch.test.ts  (run from supabase/functions)
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { renderReport } from '../_shared/cascade-core/format.ts';
-import { watchReport } from './watch.ts';
+import { watchReport, due } from './watch.ts';
+
+Deno.test('cadence: day 2, day 5, then weekly; quiet in between', () => {
+  assertEquals([1, 2, 3, 4, 5, 6, 11, 12, 13, 19, 26].map(due), [false, true, false, false, true, false, false, true, false, true, true]);
+});
 
 const today = '2026-09-14';
 const paid = { confirmation_code: 'HMPAID0001', guest_name: 'Ana', checkin_date: '2026-09-10', host_payout: 3000, payout_email_message_id: 'abc', status: 'confirmed' };

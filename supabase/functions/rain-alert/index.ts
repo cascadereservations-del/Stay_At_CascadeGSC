@@ -8,6 +8,8 @@
 // Routing: OPS group only. Zero financial data.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// v3 (session 26, 2026-09-16, Telegram plan §5): 🟡 ATTENTION first line via the shared helper.
+import { withHeader } from '../_shared/cascade-core/format.ts';
 import { withObservability } from '../_shared/observability.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
@@ -208,7 +210,7 @@ Deno.serve(withObservability({ functionName: 'rain-alert', route: 'ops' }, async
     `_\— Cascade Bot_`,
   ].join('\n');
 
-  await tgSend(OPS_CHAT, msg);
+  await tgSend(OPS_CHAT, withHeader('attention', `rain ${timeRange}`, msg));
 
   // ⑤ Mark sent today
   await db.from('app_settings').upsert(

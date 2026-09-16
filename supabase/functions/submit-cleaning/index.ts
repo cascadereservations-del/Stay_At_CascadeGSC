@@ -1,4 +1,4 @@
-// submit-cleaning v28
+// submit-cleaning v29
 // v28 (2026-09-16): Lloyd reported turnover-report emails silently stopped
 //   (~Sept 7) while Telegram kept working fine. Root cause: the GAS forward
 //   (email + Drive + Calendar) was fire-and-forget — .catch(console.warn)
@@ -28,6 +28,12 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse } from './gas-response.ts';
+// v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
+//   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
+//   per session + note index) and posts an OPS card with a lite-tier suggested action. The
+//   cleaning session is recorded first; work-order failures only warn.
+import { withHeader } from '../_shared/cascade-core/format.ts';
+import { raiseWorkOrder, suggestFix, workOrderCard } from '../_shared/cascade-core/workorders.ts';
 
 // This recovered function predates generated database types. Keep its helper
 // boundary structurally untyped until a generated Database contract replaces it.
@@ -229,7 +235,7 @@ async function dispatchTelegram(
     `\uD83D\uDCF8 Full photo set emailed + archived to Drive.`,
   ];
 
-  const sent = await tgPost(token, 'sendMessage', { chat_id: chatId, text: lines.join('\n'), parse_mode: 'Markdown' });
+  const sent = await tgPost(token, 'sendMessage', { chat_id: chatId, text: withHeader('cleaning', `${isMidStay ? 'mid-stay' : 'report'} ${cleaningDate}`, lines.join('\n')), parse_mode: 'Markdown' });
   if (!sent.ok) return sent;
 
   if (!photos || typeof photos !== 'object') return sent;
@@ -286,7 +292,7 @@ async function dispatchFinanceCard(
     ];
     await tgPost(tgToken, 'sendMessage', {
       chat_id:    tgFinanceId,
-      text:       lines.join('\n'),
+      text:       withHeader('finance', `cleaning fee ${cleaningDate}`, lines.join('\n')),
       parse_mode: 'Markdown',
     });
   } else {
@@ -304,7 +310,7 @@ async function dispatchFinanceCard(
     ];
     await tgPost(tgToken, 'sendMessage', {
       chat_id:    tgFinanceId,
-      text:       lines.join('\n'),
+      text:       withHeader('attention', `cleaning incomplete ${cleaningDate}`, lines.join('\n')),
       parse_mode: 'Markdown',
     });
   }
@@ -643,6 +649,26 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         isComplete, reasons,
         precleanCount, aftercleanCount, meterCount, totalPhotoCount,
       ).catch(err => console.warn('[finance-card] non-fatal:', err));
+    }
+
+    // v29: each [URGENT] note becomes a work order + OPS card (Telegram plan §6). Non-blocking.
+    if (propertyId && Array.isArray(payload.allNotes)) {
+      const urgent = payload.allNotes
+        .map((n) => n as Record<string, unknown>)
+        .filter((n) => n.isUrgent === true && String(n.text ?? '').trim());
+      urgent.forEach((n, i) => {
+        const issue = String(n.text).trim();
+        const args = {
+          sourceKind: 'cleaning_issue' as const, sourceRef: `cleaning_session:${sessionId}:${i + 1}`,
+          title: issue, detail: `Cleaner note (${String(n.section ?? 'checklist')}) by ${cleanerName} on ${cleaningDate}${lastGuestName !== '—' ? ` after ${lastGuestName}` : ''}: ${issue}`,
+          priority: 'high' as const, reporter: cleanerName, guestName: lastGuestName !== '—' ? lastGuestName : undefined,
+        };
+        raiseWorkOrder(supabase, args).then(async (wo) => {
+          if (!wo?.created || !TG_TOKEN || !TG_CHAT_ID) return;
+          const s = await suggestFix(issue, `reported by the cleaner on ${cleaningDate}${wo.next_checkin ? `, next guest arrives ${wo.next_checkin}` : ''}`);
+          await tgPost(TG_TOKEN, 'sendMessage', { chat_id: TG_CHAT_ID, text: workOrderCard('cleaning', args, wo, s) });
+        }).catch((err) => console.warn('[work-order] non-fatal:', err));
+      });
     }
 
     if (TG_TOKEN && TG_CHAT_ID) {

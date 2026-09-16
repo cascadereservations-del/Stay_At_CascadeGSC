@@ -63,7 +63,42 @@ export const TOOL_DECLS: ToolDecl[] = [
     parameters: { type: 'object', properties: {} } },
   { name: 'inventory_report', description: 'Full consumables list with quantity on hand, unit, and days of coverage (measured usage history if available, else an estimate). Use for a general stock check, not just a low-stock alert.',
     parameters: { type: 'object', properties: {} } },
+  { name: 'guest_history', description: 'What we know about one guest by name: stays so far, last stay dates, any [URGENT] issue the cleaner logged after their last stay, stay preferences, tags, VIP reason, host note, birthday and open follow-ups. Only fields with data are returned.',
+    parameters: { type: 'object', required: ['name'], properties: { name: { type: 'string', description: 'Guest name or its first words' } } } },
 ];
+
+// ── Guest context (Telegram plan §1, session 26). One RPC (guest_context_v1, security definer:
+// guest_profile_details is revoked from service_role) shared by the booking cards and Cassy.
+export type GuestContext = {
+  found: boolean; guest_id?: string; name?: string; tier?: string | null; total_stays?: number; total_nights?: number;
+  first_stay?: string; last_stay_checkin?: string; last_stay_checkout?: string; last_issue?: string; last_issue_on?: string;
+  preferences?: string; tags?: string[]; vip_reason?: string; note?: string; birthday?: string; open_follow_ups?: string[];
+};
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dm = (d?: string | null) => { if (!d) return ''; const x = new Date(d.slice(0, 10) + 'T00:00:00Z'); return `${x.getUTCDate()} ${MON[x.getUTCMonth()]}`; };
+
+export async function guestContext(db: any, by: { guestId?: string | null; name?: string | null }): Promise<GuestContext> {
+  const { data, error } = await db.rpc('guest_context_v1', { p_property_id: PROPERTY_ID, p_guest_id: by.guestId ?? null, p_name: by.name ?? null });
+  if (error) { console.warn('guest_context_v1 failed (non-fatal):', error.message); return { found: false }; }
+  return (data ?? { found: false }) as GuestContext;
+}
+
+/** Card lines for a booking notification; only what exists, at most five. Plain text — HTML callers escape. */
+export function guestContextLines(g: GuestContext): string[] {
+  if (!g.found) return [];
+  const out: string[] = [];
+  if ((g.total_stays ?? 0) >= 2) {
+    const last = g.last_stay_checkin ? ` · last stay ${dm(g.last_stay_checkin)}–${dm(g.last_stay_checkout)}` : '';
+    out.push(`🔄 Stay #${g.total_stays}${last}${g.vip_reason ? ` · ⭐ ${g.vip_reason}` : ''}`);
+  } else if (g.vip_reason) out.push(`⭐ ${g.vip_reason}`);
+  if (g.last_issue) out.push(`🧹 Last time: "${g.last_issue}" (URGENT, ${dm(g.last_issue_on)}) — check it is fixed`);
+  if (g.preferences) out.push(`💡 Prefers: ${g.preferences}`);
+  if (g.note) out.push(`📝 ${g.note}`);
+  if (g.tags?.length) out.push(`🏷 ${g.tags.join(', ')}`);
+  if (g.birthday) out.push(`🎂 Birthday ${dm(g.birthday)}`);
+  if (g.open_follow_ups?.length) out.push(`📌 Open: ${g.open_follow_ups.slice(0, 2).join('; ')}`);
+  return out.slice(0, 5);
+}
 
 // ── Write tools (deploy 3): Cassy never writes. She inserts a `telegram_pending` row in the exact
 // shape telegram-expense already consumes and returns a card; the tap in telegram-expense executes.
@@ -169,6 +204,12 @@ export async function runTool(db: any, name: string, args: Record<string, unknow
           return { name: r.name, qty: Number(r.qty_on_hand), unit: r.unit, coverage_days: coverageDays, estimated: coverageDays != null };
         }),
       };
+    }
+    case 'guest_history': {
+      const name = String(args.name ?? '').trim();
+      if (!name) return { error: 'name is required' };
+      const g = await guestContext(db, { name });
+      return g.found ? { ...g, summary_lines: guestContextLines(g) } : { found: false, name, note: 'no guest with that name on file' };
     }
     default: return { error: `unknown tool ${name}` };
   }

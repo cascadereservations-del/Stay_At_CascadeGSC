@@ -1,4 +1,4 @@
-// airbnb-email-sync v12
+// airbnb-email-sync v13
 //
 // v12 (Step 9 of income-model-v2 / Option B — completes the income_stage model):
 //   - Booking insert now sets income_stage='estimated' (Tier 1 estimate).
@@ -35,8 +35,18 @@
 //     (tier badge, name, stay # — NO peso amounts, NO financial fields).
 //     OPS financial isolation rule remains fully intact.
 
+// v7 (session 26, 2026-09-16, Telegram plan §1/§5): every card opens with a withHeader() line;
+//   the new-booking card carries guest_context_v1 lines (stay #, last stay, last [URGENT] note,
+//   preferences, note, tags, birthday, open follow-ups) and only the lines that have data. The
+//   two separate returning-guest cards are folded into it (one card per chat per booking);
+//   returning_guest_alerts is still written and stamped sent.
+
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+import { withHeader } from '../_shared/cascade-core/format.ts';
+import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
+
+const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 type LegacyDatabaseClient = {
   from: (relation: string) => any;
@@ -298,58 +308,30 @@ async function handleBooking(
   const earn = event.host_payout
     ? `₱${event.host_payout.toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—';
   const badge = tierBadge(guest?.tier ?? null, guest?.total_stays ?? 1);
-  const guestLine = `👤 ${event.guest_name} (${event.guest_count ?? '?'} guest${(event.guest_count??1)>1?'s':''})`;
+  const guestLine = `👤 ${esc(event.guest_name)} (${event.guest_count ?? '?'} guest${(event.guest_count??1)>1?'s':''})`;
   const dateLine  = `📅 ${event.checkin_date??'TBD'} → ${event.checkout_date??'TBD'} (${nights}n)`;
+  // v7: guest history lines (empty for a first-timer with nothing on file). No money in them.
+  const ctxLines = guestContextLines(await guestContext(supabase, { guestId, name: event.guest_name })).map(esc);
+  const doLine = isReturning
+    ? `Do: reply with a welcome-back line${ctxLines.some((l) => l.startsWith('🧹')) ? '; confirm the last issue is closed' : ''}.`
+    : `⏳ Prepare for check-in`;
 
   // OPS: operational data only — no financial figures (cleaners present)
-  await sendTelegram(TELEGRAM_OPS_CHAT_ID,
-    `🏠 <b>New Booking — ${event.confirmation_code}</b>\n` +
-    `${badge}\n` +
-    `${guestLine}\n` +
-    `${dateLine}\n` +
-    `⏳ Prepare for check-in`);
+  await sendTelegram(TELEGRAM_OPS_CHAT_ID, withHeader('booking', `Airbnb ${event.confirmation_code}`,
+    [badge, guestLine, dateLine, ...ctxLines, doLine].join('\n')));
 
-  // Finance: full details including tier, payout, VIP note
-  const vipNote = guest?.tier === 'vip'
-    ? `\n⭐ <b>VIP — ${guest.total_stays} stays, ${guest.total_nights_stayed} nights total</b>` : '';
-  const returningNote = guest?.tier === 'returning'
-    ? `\n🔄 Returning — ${guest.total_stays} stays total` : '';
-  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID,
-    `🏠 <b>New Booking — ${event.confirmation_code}</b>\n` +
-    `${guestLine}\n` +
-    `${dateLine}\n` +
-    `💰 Host earns: ${earn}` +
-    vipNote + returningNote);
+  // Finance: same card plus the payout line
+  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID, withHeader('booking', `Airbnb ${event.confirmation_code}`,
+    [badge, guestLine, dateLine, `💰 Host earns: ${earn}`, ...ctxLines, doLine].join('\n')));
 
-  // ── 8. Send returning-guest alert to Finance (separate card) ─────────────
+  // ── 8. The returning-guest alert row is stamped sent: the card above carried it (v7) ────
   if (isReturning && guest) {
-    const tier = guest.tier === 'vip' ? '⭐ VIP' : '🔄 Returning';
-    await sendTelegram(TELEGRAM_FINANCE_CHAT_ID,
-      `${tier} <b>Guest Alert — ${event.guest_name}</b>\n` +
-      `This is their <b>stay #${guest.total_stays}</b> at Cascade Hideaway.\n` +
-      `📊 ${guest.total_stays - 1} prior stay${(guest.total_stays-1)!==1?'s':''} · ` +
-      `${guest.total_nights_stayed} nights total\n` +
-      `📅 First stay: ${guest.first_stay_date ?? 'unknown'}\n` +
-      `_Consider a welcome-back message or small gesture._`);
-
-    // Mark alert as sent
     await supabase.from('returning_guest_alerts')
       .update({ telegram_sent: true, telegram_sent_at: new Date().toISOString() })
       .eq('property_id', PROPERTY_ID)
       .eq('guest_name', event.guest_name)
       .eq('current_checkin', event.checkin_date ?? '')
       .is('telegram_sent', false);
-
-    // ── 9. v6: OPS returning-guest operational card (NO financial data) ─────
-    // Operational awareness only: tier, name, stay number, dates.
-    // OPS financial isolation rule: no peso amounts, no payout figures.
-    const nightsStr = typeof nights === 'number'
-      ? `${nights} night${nights !== 1 ? 's' : ''}` : 'unknown nights';
-    await sendTelegram(TELEGRAM_OPS_CHAT_ID,
-      `${tier} <b>Guest — ${event.guest_name}</b>\n` +
-      `Stay #${guest.total_stays} at Cascade · ${nightsStr}\n` +
-      `📅 ${event.checkin_date ?? 'TBD'} → ${event.checkout_date ?? 'TBD'}\n` +
-      `💡 Prepare a welcome-back touch.`);
   }
 }
 
@@ -421,11 +403,11 @@ async function handlePayout(
   const detailLines = details.filter(d => d.line_type === 'Home')
     .map(d => `  • ${d.guest_name}: ₱${Math.abs(d.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`)
     .join('\n') || '  (no reservation details)';
-  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID,
+  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID, withHeader('finance', 'Airbnb payout',
     `💸 <b>Airbnb Payout Received</b>\n` +
     `💰 Total: ₱${event.payout_amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}\n` +
     `📅 Sent: ${payoutDate}\n` +
-    `🏦 Bank: Rocloyd Ligason, 4647 (PHP)\n${detailLines}`);
+    `🏦 Bank: Rocloyd Ligason, 4647 (PHP)\n${detailLines}`));
 }
 
 // ── Cancellation handler ───────────────────────────────────────────────────
@@ -455,8 +437,8 @@ async function handleCancellation(
                       event.refund_type === 'partial'  ? 'Partial refund issued' : 'Refund per policy';
 
   // OPS: no financial data
-  await sendTelegram(TELEGRAM_OPS_CHAT_ID,
-    `❌ <b>Booking Cancelled${guestLabel}</b>\n` +
-    `🔑 Code: ${event.cancelled_code}\n📅 ${event.cancelled_dates??''}\n` +
-    `💸 ${refundLabel}\n📆 Dates now available for rebooking`);
+  await sendTelegram(TELEGRAM_OPS_CHAT_ID, withHeader('attention', `cancelled ${event.cancelled_code}`,
+    `❌ <b>Booking Cancelled${esc(guestLabel)}</b>\n` +
+    `🔑 Code: ${event.cancelled_code}\n📅 ${esc(event.cancelled_dates??'')}\n` +
+    `💸 ${refundLabel}\n📆 Dates now available for rebooking`));
 }

@@ -4,8 +4,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
-import { renderReport } from '../_shared/cascade-core/format.ts';
-import { overdue, watchReport } from './watch.ts';
+import { renderReport, withHeader } from '../_shared/cascade-core/format.ts';
+import { overdue, watchReport, due } from './watch.ts';
+// v2 (session 26, 2026-09-16, Telegram plan §4/§5): 🟡 ATTENTION header; posts on day 2, day 5,
+// then weekly per overdue item (due() in watch.ts) instead of every morning. The Monday Finance
+// roll-up (daily-digest) still lists everything overdue, so nothing is ever silent for a week.
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -41,10 +44,12 @@ Deno.serve(withObservability({ functionName: 'finance-watch', route: 'finance' }
     if (e1 || e2) throw new Error(String(e1?.message ?? e2?.message));
     const items = overdue(today, airbnb ?? [], direct ?? []);
     const report = watchReport(today, airbnb ?? [], direct ?? []);
-    console.log(JSON.stringify({ event: 'finance_watch', date: today, overdue: items.length, codes: items.map((i) => i.code) }));
-    if (report) await tgSend(FINANCE_CHAT, renderReport(report));
+    const force = new URL(req.url).searchParams.get('force') === '1'; // hand-run check, ignores cadence
+    const send = !!report && (force || items.some((i) => due(i.days)));
+    console.log(JSON.stringify({ event: 'finance_watch', date: today, overdue: items.length, codes: items.map((i) => i.code), send }));
+    if (report && send) await tgSend(FINANCE_CHAT, withHeader('attention', `${items.length} payment${items.length === 1 ? '' : 's'} overdue`, renderReport(report)));
     await hb('succeeded');
-    return new Response(JSON.stringify({ ok: true, date: today, overdue: items.length, sent: !!report }), { status: 200, headers: JSON_H });
+    return new Response(JSON.stringify({ ok: true, date: today, overdue: items.length, sent: send }), { status: 200, headers: JSON_H });
   } catch (err) {
     console.error('finance-watch error:', String(err));
     await hb('failed', String(err).slice(0, 80));

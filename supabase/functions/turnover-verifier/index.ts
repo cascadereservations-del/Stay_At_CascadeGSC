@@ -30,6 +30,8 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { turnoverWindow, addDays, manilaDate } from './manila-dates.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
+// v3 (session 26, 2026-09-16, Telegram plan §5): Finance T+24h card is 🟡 ATTENTION, OPS escalation 🔴 ALERT.
+import { withHeader } from '../_shared/cascade-core/format.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -201,7 +203,7 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
 
         await tgPost(TG_TOKEN, 'sendMessage', {
           chat_id:    TG_FINANCE_ID,
-          text:       lines.join('\n'),
+          text:       withHeader('attention', `turnover check ${d1}`, lines.join('\n')),
           parse_mode: 'Markdown',
         });
 
@@ -278,7 +280,7 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
 
         await tgPost(TG_TOKEN, 'sendMessage', {
           chat_id:    TG_OPS_ID,
-          text:       lines.join('\n'),
+          text:       withHeader('alert', `turnover unresolved ${tvRow.checkout_date}`, lines.join('\n')),
           parse_mode: 'Markdown',
         });
 
