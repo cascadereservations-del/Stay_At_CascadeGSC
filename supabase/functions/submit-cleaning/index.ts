@@ -1,4 +1,9 @@
-// submit-cleaning v29
+// submit-cleaning v30
+// v30 (session 27, 2026-09-17): the SERVER owns the previous meter reading. The form fetches it at
+//   page load, so Honey's second turnover of 16 Sep (submitted 10 min after the first) carried
+//   prev = 0 and a 3914 kWh delta that tripped the anomaly card. Now the latest stored reading for
+//   the property is the previous one, the payload only fills the gap, a zero is never a real meter,
+//   and the deltas are recomputed here.
 // v28 (2026-09-16): Lloyd reported turnover-report emails silently stopped
 //   (~Sept 7) while Telegram kept working fine. Root cause: the GAS forward
 //   (email + Drive + Calendar) was fire-and-forget — .catch(console.warn)
@@ -507,8 +512,22 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
 
     const elecNum  = parseFloat(String(payload.electricReading ?? ''));
     const waterNum = parseFloat(String(payload.waterReading    ?? ''));
-    const deltaKwh = typeof payload.deltaKwh === 'number' ? payload.deltaKwh : null;
-    const deltaM3  = typeof payload.deltaM3  === 'number' ? payload.deltaM3  : null;
+    // v30: previous = latest stored reading for this property; the page's value only fills a gap; 0 = unknown.
+    const asPrev = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+    let prevElec = asPrev(payload.previousElectricReading), prevWater = asPrev(payload.previousWaterReading);
+    if (propertyId) {
+      const { data: last } = await supabase.from('meter_readings').select('electric_curr, water_curr, recorded_at')
+        .eq('property_id', propertyId).order('recorded_at', { ascending: false }).limit(1).maybeSingle();
+      if (last) {
+        if (asPrev(last.electric_curr) !== null) prevElec = asPrev(last.electric_curr);
+        if (asPrev(last.water_curr) !== null) prevWater = asPrev(last.water_curr);
+        if (prevElec !== asPrev(payload.previousElectricReading) || prevWater !== asPrev(payload.previousWaterReading)) {
+          console.log(JSON.stringify({ event: 'meter_prev_corrected', page: [payload.previousElectricReading, payload.previousWaterReading], server: [prevElec, prevWater], last_recorded_at: last.recorded_at }));
+        }
+      }
+    }
+    const deltaKwh = (!isNaN(elecNum)  && prevElec  !== null) ? Number((elecNum  - prevElec).toFixed(2))  : null;
+    const deltaM3  = (!isNaN(waterNum) && prevWater !== null) ? Number((waterNum - prevWater).toFixed(3)) : null;
     const kwhPerNight = (deltaKwh !== null && nights > 0) ? Number((deltaKwh / nights).toFixed(2)) : null;
     const m3PerNight  = (deltaM3  !== null && nights > 0) ? Number((deltaM3  / nights).toFixed(3)) : null;
     const urgentItems = String(payload.urgentItems ?? '');
@@ -612,10 +631,10 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     if (!isNaN(elecNum) || !isNaN(waterNum)) {
       const { error: meterErr } = await supabase.from('meter_readings').insert({
         session_id:     sessionId,
-        electric_prev:  payload.previousElectricReading ?? null,
+        electric_prev:  prevElec,
         electric_curr:  isNaN(elecNum)  ? null : elecNum,
         electric_delta: deltaKwh,
-        water_prev:     payload.previousWaterReading ?? null,
+        water_prev:     prevWater,
         water_curr:     isNaN(waterNum) ? null : waterNum,
         water_delta:    deltaM3,
         kwh_per_night:  kwhPerNight,
