@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "release_id": "telegram_finance_tap_20260917",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20260917000000_telegram_finance_tap.sql"
+  ],
+  "migration_sha256": {
+    "20260917000000_telegram_finance_tap.sql": "38b881b6ec9e3dc4d0e42498025cb83aa57bc81aeb1538937d18cc4f7e64fff2"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "One nullable column on staff_access_profiles (telegram_user_id, partial unique index, seeded 497550740 on Lloyd's admin profile) and two NEW definer functions (telegram_finance_decide_booking_v1, unreviewed_booking_receipts_v1). No existing function, grant or row is changed except that one seed. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "telegram_column_exists",
+      "query": "select exists (select 1 from information_schema.columns where table_schema='public' and table_name='staff_access_profiles' and column_name='telegram_user_id')",
+      "expect": true
+    },
+    {
+      "name": "lloyd_mapped",
+      "query": "select telegram_user_id = 497550740 from public.staff_access_profiles where user_id = 'fea44ac5-61b0-41a6-8616-d7823e99151b'",
+      "expect": true
+    },
+    {
+      "name": "decide_exists_for_service_role",
+      "query": "select has_function_privilege('service_role', 'public.telegram_finance_decide_booking_v1(bigint, uuid, text, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "decide_denied_to_authenticated",
+      "query": "select not has_function_privilege('authenticated', 'public.telegram_finance_decide_booking_v1(bigint, uuid, text, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "decide_refuses_unmapped_id",
+      "query": "select public.telegram_finance_decide_booking_v1(1, '00000000-0000-0000-0000-000000000000'::uuid, 'confirm', null)->>'reason' = 'unmapped_telegram_user'",
+      "expect": true
+    },
+    {
+      "name": "unreviewed_exists_for_service_role",
+      "query": "select has_function_privilege('service_role', 'public.unreviewed_booking_receipts_v1(numeric, numeric)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "unreviewed_returns_array",
+      "query": "select jsonb_typeof(public.unreviewed_booking_receipts_v1(2, 3)) = 'array'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops two new functions and the mapping column; reviews already recorded stay)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260917_telegram_finance_tap.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "edge_functions_call_tap_rpcs",
+      "required_state": "telegram-expense v104 answers a tap with 'not switched on yet' while the RPC is missing; release-expired-holds v3 nudges nothing until unreviewed_booking_receipts_v1 exists; upload-booking-receipt v3 records evidence regardless (those RPCs already exist)."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "New column is nullable and unread by existing code; new functions only. Rehearse on Alfred before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
