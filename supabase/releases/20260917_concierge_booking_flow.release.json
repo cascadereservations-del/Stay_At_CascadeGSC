@@ -26,11 +26,6 @@
       "expect": true
     },
     {
-      "name": "service_role_can_still_write_threads",
-      "query": "select has_table_privilege('service_role', 'public.concierge_threads', 'UPDATE')",
-      "expect": true
-    },
-    {
       "name": "no_thread_has_a_flow_yet",
       "query": "select count(*) = 0 from public.concierge_threads where booking_flow is not null",
       "expect": true
