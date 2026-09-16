@@ -92,7 +92,7 @@
       {
         "@type": "Question",
         "name": "How do I confirm my booking?",
-        "acceptedAnswer": { "@type": "Answer", "text": "Once you submit the booking form, you will receive an Acknowledgement Receipt (AR) by email within 1\u20132 hours. We match your payment and availability, then confirm your stay personally \u2014 your dates are not confirmed until that message arrives. Balance is settled at check-in \u2014 no surprises." }
+        "acceptedAnswer": { "@type": "Answer", "text": "Once you submit the booking form, you will receive an Acknowledgement Receipt (AR) by email within 1\u20132 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee. We match your payment and availability, then confirm your stay personally \u2014 your dates are not confirmed until that message arrives. Balance is settled at check-in \u2014 no surprises." }
       },
       {
         "@type": "Question",
@@ -2244,6 +2244,8 @@
     }
 
     /* Last-minute full-payment notice — warm amber, positive framing */
+    .hold-nudge p { margin: 0; }
+    .hold-nudge p + p { margin-top: 0.55em; }
     .lm-banner {
       padding: var(--space-s) var(--space-m);
       background: rgb(201 150 58 / 0.08);
@@ -5772,7 +5774,7 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Once you submit the booking form, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. Balance is settled at check-in &mdash; no surprises.</p>
+              <p class="faq-answer">Once you submit the booking form, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. Balance is settled at check-in &mdash; no surprises.</p>
             </div>
           </div>
         </details>
@@ -6231,6 +6233,9 @@
             <div class="lm-banner" id="lmBanner" role="status" hidden>
               <strong>Your check-in is within 48 hours.</strong> Full payment is required now to confirm your dates.
             </div>
+
+            <!-- Hold-before-pay nudge (D-162): filled by applyHold() / applyPayFirst() -->
+            <div class="lm-banner hold-nudge" id="holdNudge" role="status" hidden></div>
 
             <div class="payment-panel">
 
@@ -7617,6 +7622,8 @@
       var SUPABASE_URL       = 'https://qkgfhsdppslwunarczeq.supabase.co';
       var SUPABASE_ANON      = 'sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj';
       var EDGE_SUBMIT        = SUPABASE_URL + '/functions/v1/submit-booking';
+      var HOLD_LEAD_MS       = 5 * 24 * 3600 * 1000; /* hold-before-pay gate = the 5-day free-cancellation line */
+      var HOLD_HOURS         = 24;
       var EDGE_RECEIPT_UPLOAD = SUPABASE_URL + '/functions/v1/upload-booking-receipt';
       function track(eventName, properties) { if (window.CascadeAnalytics) window.CascadeAnalytics.track(eventName, properties); }
       function nightsBucket(n) { return n === 1 ? '1' : n <= 4 ? '2-4' : n <= 6 ? '5-6' : n <= 13 ? '7-13' : n <= 27 ? '14-27' : '28+'; }
@@ -7932,8 +7939,9 @@
         var isLastMinute   = msUntilCheckin < (48 * 3600 * 1000);
         var dep = isLastMinute ? total : Math.ceil(total * 0.5);
         var balance = total - dep;
-        /* Hold-before-pay (D-160 #1): an advance booking holds the dates first, then pays against a reference. */
-        if (continueBtn) continueBtn.textContent = isLastMinute ? 'Review price & payment' : 'Hold my dates & pay';
+        /* Hold-before-pay (D-160 #1, D-162): only an advance booking (5+ days out, the same line as the
+           free-cancellation rule) holds the dates first; anything closer pays first as before. */
+        if (continueBtn) continueBtn.textContent = (msUntilCheckin >= HOLD_LEAD_MS) ? 'Hold my dates & pay' : 'Review price & payment';
         calSelDates.textContent=fmtDate(state.checkin)+' \u2192 '+fmtDate(state.checkout);
         /* Show discounted total — guest sees exactly what they pay */
         calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'');
@@ -8139,12 +8147,14 @@
         /* Hold-before-pay (D-160 #1): for an advance booking the request is created NOW, so the
            guest pays against a real reference and the dates are held (auto-released after 24 h
            without a receipt). Same-day / last-minute keeps the pay-then-submit flow. */
-        if (isLastMinute) { state._hold = null; showStep2(); return; }
+        var holdEligible = msUntilCheckin >= HOLD_LEAD_MS;
+        if (!holdEligible) { state._hold = null; applyPayFirst(dep, total); showStep2(); return; }
         var holdKey = state.checkin + '|' + state.checkout + '|' + (nm ? nm.value.trim() : '') + '|' + dep;
         if (state._hold && state._hold._key === holdKey) { applyHold(state._hold); showStep2(); return; }
         continueBtn.disabled = true; continueBtn.textContent = 'Holding your dates\u2026';
         track('hold_requested', { nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
-        submitBooking(buildPayload(total, dep), function(data){
+        var holdPayload = buildPayload(total, dep); holdPayload.hold = true;
+        submitBooking(holdPayload, function(data){
           data._key = holdKey;
           state._hold = data; state._lastBookingData = data; state._receiptUploadToken = data.receipt_upload_token || null;
           applyHold(data);
@@ -8167,6 +8177,36 @@
         var first = ((document.getElementById('name') || {}).value || '').trim().split(' ')[0];
         if (bankRef && data.ref) bankRef.textContent = (first ? first + ' ' : '') + data.ref;
         if (bookingSubmit) bookingSubmit.textContent = 'I\u2019ve sent the payment';
+        var nudge = document.getElementById('holdNudge');
+        if (nudge) {
+          var n = nights(state.checkin, state.checkout), total = calcTotal(n), dep = state.dep || Math.ceil(total * 0.5);
+          var until = new Date(Date.now() + HOLD_HOURS * 3600 * 1000);
+          var untilStr = until.toLocaleString('en-PH', { weekday: 'long', hour: 'numeric', minute: '2-digit' });
+          nudge.textContent = '';
+          var p1 = document.createElement('p');
+          var b = document.createElement('strong');
+          b.textContent = (first ? first + ', y' : 'Y') + 'our dates are held for you until ' + untilStr + '.';
+          p1.appendChild(b);
+          p1.appendChild(document.createTextNode(' One home, one guest at a time \u2014 while the hold stands, nobody else can take ' + fmtDate(state.checkin) + ' to ' + fmtDate(state.checkout) + '.'));
+          var p2 = document.createElement('p');
+          p2.textContent = 'Sending the \u20B1' + dep.toLocaleString('en-PH') + ' reservation fee within that window is all it takes; we confirm personally within a couple of hours of your receipt. Prefer to settle everything now? \u20B1' + total.toLocaleString('en-PH') + ' covers the whole stay, and you arrive with only the \u20B11,000 refundable deposit to hand over.';
+          var p3 = document.createElement('p');
+          p3.textContent = 'If plans change, cancellations five or more days before check-in are refunded in full \u2014 and a hold you let lapse costs nothing at all.';
+          nudge.appendChild(p1); nudge.appendChild(p2); nudge.appendChild(p3);
+          nudge.hidden = false;
+        }
+      }
+
+      /* Within five days of check-in the dates cannot be held; the payment itself reserves them. */
+      function applyPayFirst(dep, total){
+        var nudge = document.getElementById('holdNudge');
+        if (!nudge) return;
+        nudge.textContent = '';
+        var p = document.createElement('p');
+        p.textContent = 'Check-in is close, so we reserve on receipt: send the \u20B1' + dep.toLocaleString('en-PH') + (dep >= total ? ' payment' : ' reservation fee') + ' now and we confirm personally within a couple of hours. Under five days the fee is not refundable, which is exactly why it secures your dates.';
+        nudge.appendChild(p);
+        nudge.hidden = false;
+        if (bookingSubmit) bookingSubmit.textContent = 'Submit reservation request';
       }
 
       function buildPayload(total, dep){

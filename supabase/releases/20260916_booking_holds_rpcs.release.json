@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "release_id": "booking_holds_rpcs_20260916",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20260916170000_booking_holds_rpcs.sql"
+  ],
+  "migration_sha256": {
+    "20260916170000_booking_holds_rpcs.sql": "7950885a7f6897ab449e85bb1137438a90d00908d3af7b469025308387e52b02"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Two NEW functions only (open_booking_hold_v1, expire_booking_holds_v1) over the existing booking_holds table. No table, grant on existing objects, or data touched. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "open_hold_exists_for_service_role",
+      "query": "select has_function_privilege('service_role', 'public.open_booking_hold_v1(uuid, integer)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "open_hold_denied_to_authenticated",
+      "query": "select not has_function_privilege('authenticated', 'public.open_booking_hold_v1(uuid, integer)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "expire_holds_exists_for_service_role",
+      "query": "select has_function_privilege('service_role', 'public.expire_booking_holds_v1()', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "open_hold_refuses_unknown_booking",
+      "query": "select (public.open_booking_hold_v1('00000000-0000-0000-0000-000000000000'::uuid, 24)->>'ok')::boolean = false",
+      "expect": true
+    },
+    {
+      "name": "expire_holds_is_empty_when_nothing_is_due",
+      "query": "select jsonb_typeof(public.expire_booking_holds_v1()) = 'array'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops two new functions; booking_holds rows stay and the lifecycle guard handles them)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260916_booking_holds_rpcs.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "edge_functions_call_hold_rpcs",
+      "required_state": "submit-booking v15 opens the hold (warns if the RPC is missing); release-expired-holds v2 releases nothing until expire_booking_holds_v1 exists."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "New functions only. Until applied, holds are not recorded and the releaser is inert (safe). Rehearse on Alfred before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
