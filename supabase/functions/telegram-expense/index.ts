@@ -1104,7 +1104,7 @@ async function handleCallbackQuery(cq:any,db:any){
     const action=data.startsWith('bk_ok:')?'confirm':'decline';const cmpId=data.slice(6);const who=cq.from?.first_name??'staff';
     const{data:r,error}=await db.rpc('telegram_finance_decide_booking_v1',{p_telegram_user_id:cq.from?.id,p_comparison_id:cmpId,p_action:action,p_reason:`Telegram tap by ${whoFrom(cq.from)}`});
     let line:string,keep=false;
-    if(error){keep=true;line=/does not exist|not found/i.test(error.message)?'⚠️ Telegram confirm is not switched on yet — use the Review link.':`⚠️ ${errMsg(error.message)}`;}
+    if(error){keep=true;line=/does not exist|not found|could not find/i.test(error.message)?'⚠️ Telegram confirm is not switched on yet — use the Review link.':`⚠️ ${String(error.message).slice(0,150)}`;}
     else if(!r?.ok){const k=String(r?.reason??r?.outcome??'');keep=['unmapped_telegram_user','not_authorized','comparison_not_found'].includes(k);
       line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a Finance profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not authorized to approve payments.`,already_reviewed:`ℹ️ Already reviewed (${r?.outcome}).`,conflict:'⚠️ Those dates are no longer available — NOT confirmed.',invalid_state:'ℹ️ This request is no longer pending.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
     else line=action==='confirm'?`✅ Confirmed by ${who} — booking confirmed, calendar updated, guest e-mailed.`:`❌ Declined by ${who} — request cancelled, ledger row voided.`;
