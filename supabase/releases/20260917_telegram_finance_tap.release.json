@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "PENDING"
+    "commit": "5adcd35d77a2aa52ce043b99fc983bfba6e37cc2"
   },
   "migrations": [
     "20260917000000_telegram_finance_tap.sql"
