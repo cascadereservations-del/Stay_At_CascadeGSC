@@ -46,3 +46,15 @@ export function renderReport(r: Report, model = ''): string {
   if (model) out.push('', `— ${model}`);
   return out.join('\n');
 }
+
+// Telegram plan §5 (session 25, 2026-09-16): one first line per message type, shared by every
+// sender. Telegram cannot colour text, so the emoji is the colour. renderReport() is untouched
+// (B56: three surfaces and three test files depend on its shape); this wraps its output.
+export type HeaderKind = 'daily' | 'attention' | 'alert' | 'booking' | 'guest' | 'cleaning' | 'finance' | 'weekly';
+const HEADER: Record<HeaderKind, string> = {
+  daily: '🟢 DAILY', attention: '🟡 ATTENTION', alert: '🔴 ALERT', booking: '🏠 NEW BOOKING',
+  guest: '💬 GUEST', cleaning: '🧹 CLEANING', finance: '🧾 FINANCE', weekly: '📋 WEEKLY',
+};
+export function withHeader(kind: HeaderKind, subject: string, body: string): string {
+  return `${HEADER[kind]}${subject ? ` · ${subject}` : ''}\n\n${body}`;
+}

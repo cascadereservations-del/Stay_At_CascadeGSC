@@ -4,7 +4,7 @@
 // job_name, so a new job needs its job_heartbeats row seeded first (see
 // stay-site/supabase/sql/2026-09-16-sprint0-heartbeats-and-cron.sql).
 // ponytail: a failed heartbeat write only warns; liveness must never break the job.
-export function heartbeat(db: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> }, jobName: string) {
+export function heartbeat(db: { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }> }, jobName: string) {
   return async (phase: 'started' | 'succeeded' | 'failed', errorCode: string | null = null): Promise<void> => {
     try {
       const { error } = await db.rpc('record_job_heartbeat', { p_job_name: jobName, p_phase: phase, p_error_code: errorCode });

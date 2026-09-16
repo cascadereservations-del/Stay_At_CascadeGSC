@@ -10,8 +10,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
-import { renderReport } from '../_shared/cascade-core/format.ts';
-import { financeReport, opsReport, type Weather } from './report.ts';
+import { renderReport, withHeader } from '../_shared/cascade-core/format.ts';
+import { friendlyDate, opsReport, weeklyFinanceReport, weeklyOpsReport, type MidStay, type Weather } from './report.ts';
+import { overdue } from '../finance-watch/watch.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -41,6 +42,8 @@ async function tgSend(chatId: string, text: string): Promise<void> {
 function getManilaDateStr(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 }
+const daysBetween = (from: string, to: string) => Math.round((new Date(to + 'T00:00:00Z').getTime() - new Date(from + 'T00:00:00Z').getTime()) / 86_400_000);
+const isMonday = (d: string) => new Date(d + 'T00:00:00Z').getUTCDay() === 1;
 function addDays(dateStr: string, n: number): string {
   const d = new Date(dateStr + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
@@ -116,6 +119,7 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
     { data: tmrArrivalsData },
     { data: tmrDeparturesData },
     { data: inventoryData },
+    { data: inHouseData },
     { data: noticesData },
     { data: resData },
     weather,
@@ -131,6 +135,8 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
     db.from('inventory_items')
       .select('name,qty_on_hand,reorder_below,unit,consumption_per_booking')
       .eq('property_id', PROPERTY_ID).eq('is_active', true).not('reorder_below', 'is', null).order('name'),
+    db.from('calendar_events').select('guest_name,raw_summary,checkin_date,checkout_date,nights')
+      .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').lt('checkin_date', today).gt('checkout_date', today),
     db.from('ops_notices')
       .select('notice_type,title,effective_date,effective_time,duration_hours,feeder')
       .eq('property_id', PROPERTY_ID).eq('is_active', true)
@@ -157,13 +163,44 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
     .sort((a, b) => a.runway - b.runway)
     .slice(0, 5);
 
+  // Telegram plan §2: a staff nudge on the second morning of any stay of three nights or more.
+  const midStay: MidStay[] = ((inHouseData ?? []) as any[]).flatMap((s) => {
+    const nights = Number(s.nights ?? daysBetween(String(s.checkin_date), String(s.checkout_date)));
+    const night = daysBetween(String(s.checkin_date), today) + 1;
+    if (nights < 3 || night !== 2) return [];
+    const guest = String(s.guest_name ?? '').trim() || (String(s.raw_summary ?? '').toLowerCase() !== 'reserved' && s.raw_summary) || 'the guest';
+    return [{ guest, night, nights }];
+  });
+
   const report = opsReport({
     today, tomorrow,
     arrivals: arrivalsData ?? [], departures: departuresData ?? [],
     tmrArrivals: tmrArrivalsData ?? [], tmrDepartures: tmrDeparturesData ?? [],
-    notices: noticesData ?? [], stock, weather, resRows: resData ?? [],
+    notices: noticesData ?? [], stock, weather, resRows: resData ?? [], midStay,
   });
-  return report ? renderReport(report) : null;
+  return report ? withHeader(report.kind, friendlyDate(today), renderReport(report)) : null;
+}
+
+// ── Weekly OPS roll-up (Mondays, Telegram plan §4): low stock, work orders, handoffs, the week ahead ──
+async function buildWeeklyOpsMessage(db: any, today: string): Promise<string> {
+  const weekEnd = addDays(today, 7);
+  const [{ data: inv }, { data: wo }, { data: ho }, { data: arr }] = await Promise.all([
+    db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit')
+      .eq('property_id', PROPERTY_ID).eq('is_active', true).not('reorder_below', 'is', null).order('name'),
+    db.from('work_orders').select('title,priority').eq('property_id', PROPERTY_ID).not('status', 'in', '("resolved","cancelled")').order('created_at'),
+    db.from('concierge_handoffs').select('guest_name,risk,created_at').eq('status', 'open').order('created_at'),
+    db.from('calendar_events').select('guest_name,raw_summary,checkin_date,nights')
+      .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').gte('checkin_date', today).lt('checkin_date', weekEnd).order('checkin_date'),
+  ]);
+  const lowStock = ((inv ?? []) as any[]).filter((i) => Number(i.qty_on_hand) <= Number(i.reorder_below))
+    .map((i) => ({ name: String(i.name), qty_on_hand: Number(i.qty_on_hand), unit: i.unit, runway: 0 }));
+  const report = weeklyOpsReport({
+    today, lowStock,
+    workOrders: ((wo ?? []) as any[]).map((w) => ({ title: String(w.title), priority: w.priority })),
+    handoffs: ((ho ?? []) as any[]).map((h) => ({ guest: h.guest_name, risk: h.risk, days: Math.max(0, daysBetween(String(h.created_at).slice(0, 10), today)) })),
+    arrivals: ((arr ?? []) as any[]).map((s) => ({ guest: String(s.guest_name ?? '').trim() || String(s.raw_summary ?? 'Guest'), date: String(s.checkin_date), nights: s.nights })),
+  });
+  return withHeader('weekly', `week of ${friendlyDate(today)}`, renderReport(report));
 }
 
 // ── Finance digest ──────────────────────────────────────────────────────────
@@ -182,8 +219,20 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
       .order('txn_date', { ascending: false }).limit(1).maybeSingle();
     lastExport = lastTxn?.txn_date ?? null;
   }
-  const report = financeReport({ pending: pendingRows ?? [], firstOfMonth, lastExport, consoleUrl: CONSOLE_URL });
-  return report ? renderReport(report) : null;
+  // Session 25: cron 4 runs on Mondays now, so the Finance digest is the weekly roll-up —
+  // pending receipts, overdue payouts (finance-watch's own rule) and System-health warnings.
+  const [{ data: airbnb }, { data: direct }, { data: hc }] = await Promise.all([
+    db.from('airbnb_reservations').select('confirmation_code,guest_name,checkin_date,host_payout,payout_email_message_id,status')
+      .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').is('payout_email_message_id', null).lte('checkin_date', today),
+    db.from('booking_inquiries').select('id,guest_name,checkin_date,deposit_amount,submitted_at,receipt_image_path,status')
+      .eq('property_id', PROPERTY_ID).eq('status', 'pending').is('receipt_image_path', null).gte('checkin_date', today),
+    db.from('admin_health_check_runs').select('label,status,count').eq('property_id', PROPERTY_ID).in('status', ['warn', 'fail']).order('check_key'),
+  ]);
+  const overdueLines = overdue(today, airbnb ?? [], direct ?? []).map((o) => o.line);
+  const warns = ((hc ?? []) as any[]).map((h) => ({ label: String(h.label), n: Number(h.count ?? 0), status: String(h.status) }));
+  const weekly = weeklyFinanceReport({ today, pending: pendingRows ?? [], overdueLines, warns, consoleUrl: CONSOLE_URL });
+  if (firstOfMonth) weekly.lines.unshift(`Monthly CSV: download Airbnb Transaction History and send the .csv to this chat (last export covered ${lastExport ?? 'unknown'}).`);
+  return withHeader('weekly', `week of ${friendlyDate(today)}`, renderReport(weekly));
 }
 
 // ── Main handler ────────────────────────────────────────────────────────────
@@ -209,6 +258,7 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
       await tgSend(FINANCE_CHAT, msg);
     } else {
       if (!OPS_CHAT) return new Response(JSON.stringify({ ok: false, error: 'OPS_CHAT not configured' }), { status: 500, headers: JSON_H });
+      if (isMonday(today)) await tgSend(OPS_CHAT, await buildWeeklyOpsMessage(db, today));
       const msg = await buildOpsMessage(db, today, tmr);
       if (msg === null) {
         console.log(`daily-digest v15: skipping OPS — nothing actionable (${today})`);
