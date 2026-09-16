@@ -11,6 +11,9 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
+// Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
+import { answer, BOOK_RE, isActive, paymentReply, prompt, start, type Flow } from './booking.ts';
+import { fbSendImage } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
 import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
@@ -117,7 +120,7 @@ function guestDatesBlock(guestTexts: string[]): string {
 }
 
 type Turn = { role: 'guest' | 'bot'; text: string; at: string };
-type Thread = { psid: string; guest_name: string | null; human_until: string | null; bot_turns: number; history: Turn[]; last_risk: string | null };
+type Thread = { psid: string; guest_name: string | null; human_until: string | null; bot_turns: number; history: Turn[]; last_risk: string | null; booking_flow?: Flow | null };
 // deno-lint-ignore no-explicit-any
 type Db = SupabaseClient<any, 'public', any>;
 
@@ -484,6 +487,37 @@ async function handleOps(db: Db, update: any): Promise<void> {
   if (m && msg?.text) await sendHostReply(db, m[1], String(msg.text), msg.from);
 }
 
+// ---- Book flow I/O (booking PRD §A). The pure parts live in booking.ts. ----
+// SITE_URL is the tinyurl; the QR asset needs the Pages origin.
+const QR_URL = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/assets/images/qr-gcash.png';
+async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }> {
+  const body = { guest_name: thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
+    pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger' };
+  const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
+  const j = r ? await r.json().catch(() => null) : null;
+  if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: `Sorry po, something went wrong on our side — please try again in a minute, or book here: ${SITE_URL}`, image: null }; }
+  if (r.status === 409 || j.error === 'dates_unavailable') return { flow: { ...flow, step: 'dates', updated_at: new Date().toISOString() }, reply: `Those dates just got taken po 😔 Would other dates work? Tell me the check-in and check-out.`, image: null };
+  if (!j.ok) { console.error('submit_flow_rejected', JSON.stringify(j).slice(0, 200)); return { flow, reply: `Sorry po, I couldn't send that request (${String(j.error ?? 'error').replace(/_/g, ' ')}). You can also book here: ${SITE_URL}`, image: null }; }
+  const f: Flow = { ...flow, step: 'await_receipt', booking_id: j.inquiry_id, ref: j.ref, deposit: Number(j.deposit_amount), total: Number(j.total_amount), hold: j.hold === true,
+    hold_expires_at: j.hold_expires_at ?? null, receipt_token: j.receipt_upload_token, receipt_expires_at: j.receipt_upload_expires_at, updated_at: new Date().toISOString() };
+  return { flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL), image: QR_URL };
+}
+async function forwardReceipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }> {
+  const first = name ? name.split(' ')[0] : 'po';
+  if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: `Thanks po! That hold has expired though — say "book" and we'll set the dates up again.` };
+  const img = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  if (!img || !img.ok) return { sent: false, reply: `I couldn't open that image po — could you send it again?` };
+  const bytes = new Uint8Array(await img.arrayBuffer());
+  const mime = (img.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim();
+  const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY') }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  if (r?.ok) return { sent: true, reply: `Salamat, ${first}! Receipt received — our Finance team will confirm shortly and you'll hear from me right here. 🙏` };
+  if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: `We already have your receipt po — Finance is on it. 🙏` };
+  if (r?.status === 401) return { sent: false, reply: `Thanks po! That upload link has expired — say "book" and we'll set the dates up again.` };
+  console.error('forward_receipt_failed', r?.status, JSON.stringify(j).slice(0, 200));
+  return { sent: false, reply: `I couldn't attach that receipt po (${String(j?.error ?? 'error').replace(/_/g, ' ')}). Could you send it again?` };
+}
+
 async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<void> {
   const msg = ev.message; if (!msg) return;
   const now = new Date();
@@ -497,7 +531,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
 
   const psid: string = ev.sender.id;
   const { data: row } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
-  const thread: Thread = (row as Thread | null) ?? { psid, guest_name: null, human_until: null, bot_turns: 0, history: [], last_risk: null };
+  const thread: Thread = (row as Thread | null) ?? { psid, guest_name: null, human_until: null, bot_turns: 0, history: [], last_risk: null, booking_flow: null };
   if (!thread.guest_name) thread.guest_name = await fbName(psid);
 
   const text: string = (msg.text ?? '').trim();
@@ -519,7 +553,28 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
   let reply = '';
 
+  // Book flow: runs before every other branch. A receipt image on a thread that is waiting for one
+  // is evidence, not an attachment handoff; a slot answer is code-parsed; a question mid-flow passes
+  // through to the model with the flow kept where it is.
+  let flow: Flow | null = isActive(thread.booking_flow, now) ? thread.booking_flow! : null;
+  let flowReply: string | null = null, flowImage: string | null = null;
+  const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
+  if (g.reply && flow?.step === 'await_receipt' && attachment) {
+    const r = await forwardReceipt(flow, String(attachment.payload.url), thread.guest_name);
+    flowReply = r.reply; if (r.sent) flow = { ...flow, step: 'receipt_sent', updated_at: now.toISOString() };
+  } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
+    const s = answer(flow, text, now); flow = s.flow;
+    if (s.action === 'ask') flowReply = s.reply ?? prompt(flow, thread.guest_name);
+    else if (s.action === 'cancelled') flowReply = s.reply;
+    else if (s.action === 'submit') { const r = await submitFlow(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
+  } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && BOOK_RE.test(text) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
+    flow = start(text, now); flowReply = prompt(flow, thread.guest_name);
+  }
+  if (flow) thread.booking_flow = flow;
+  if (flowReply) { handoff = false; risk = 'routine'; }
+
   if (!g.reply) { /* mode off, or a human holds this thread */ }
+  else if (flowReply) reply = flowReply;
   else if (handoff) reply = text ? HANDOFF[risk] : ATTACHMENT_REPLY;
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, guestLang(text), THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, guestLang(text));
@@ -601,7 +656,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
 
   const sentToGuest = Boolean(reply) && mode === 'auto';
   if (reply) {
-    if (mode === 'auto') await fbSend(psid, reply);
+    if (mode === 'auto') { await fbSend(psid, reply); if (flowImage) await fbSendImage(psid, flowImage); }
     else { await fbSend(psid, ACK_SUGGEST); await tgOps(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
     if (handoff) {
       // A discount or pet request goes to the host, but it must not mute the bot for 24 h: a
@@ -624,8 +679,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString() });
   await db.from('concierge_threads').upsert({
     psid, guest_name: thread.guest_name, human_until: thread.human_until,
-    bot_turns: priorTurns + (sentToGuest && !handoff ? 1 : 0),
+    bot_turns: priorTurns + (sentToGuest && !handoff && !flowReply ? 1 : 0),
     history: [...thread.history, ...turns].slice(-HISTORY_KEEP * 2), last_risk: risk, updated_at: now.toISOString(),
+    booking_flow: thread.booking_flow ?? null,
   });
 }
 

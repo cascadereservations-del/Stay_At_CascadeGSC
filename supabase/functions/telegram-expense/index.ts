@@ -20,6 +20,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
+import { notifyMessengerBookingConfirmed } from '../_shared/cascade-core/messenger.ts';
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -1109,6 +1110,7 @@ async function handleCallbackQuery(cq:any,db:any){
       line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a Finance profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not authorized to approve payments.`,already_reviewed:`ℹ️ Already reviewed (${r?.outcome}).`,conflict:'⚠️ Those dates are no longer available — NOT confirmed.',invalid_state:'ℹ️ This request is no longer pending.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
     else line=action==='confirm'?`✅ Confirmed by ${who} — booking confirmed, calendar updated, guest e-mailed.`:`❌ Declined by ${who} — request cancelled, ledger row voided.`;
     await tgEditCaption(chatId,msgId,`${cq.message?.caption??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
+    if(r?.ok&&action==='confirm')await notifyMessengerBookingConfirmed(db,String(r.booking_id??'')).catch((e:unknown)=>console.error('messenger confirm:',String(e)));
     if(r?.ok&&action==='confirm'&&OPS_CHAT)await tgSend(OPS_CHAT,`🏠 CONFIRMED · Direct ${String(r.booking_id??'').slice(0,8).toUpperCase()}\n\nDirect booking confirmed by ${who}. Calendar is updated; turnover follows the usual schedule.`);
     return;
   }
