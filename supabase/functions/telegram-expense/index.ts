@@ -19,6 +19,7 @@
 // v53 (2026-06-06): Stub replacement — deploys the fixed v52 source. Version strings updated in handleStatus and handlePing.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -30,9 +31,7 @@ const GEMINI_KEY      = Deno.env.get('CASCADE_GEMINI_BOT_KEY') ?? '';
 // 2026-09-16: receipt/advisory image reads now go through the same VISION_PROVIDER
 // switch as ocr-receipt (D-090) instead of a hardcoded refused model — this file had
 // its own separate inline OCR that never got that fix and was silently broken.
-const VISION_PROVIDER = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase();
-const OPENROUTER_KEY  = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY') ?? '';
-const OPENROUTER_MODEL = Deno.env.get('VISION_MODEL') ?? 'google/gemini-3.6-flash';
+// v104 (session 27): that switch now lives in _shared/cascade-core/vision.ts (booking PRD task 2).
 const TG_SECRET       = Deno.env.get('TELEGRAM_WEBHOOK_SECRET') ?? '';
 const BOT_USERNAME    = (Deno.env.get('TELEGRAM_BOT_USERNAME') ?? '').replace(/^@/,'').toLowerCase();
 const WEATHER_KEY     = Deno.env.get('GOOGLE_WEATHER_API_KEY') ?? '';
@@ -40,9 +39,7 @@ const GEN_SAN_LAT     = 6.1164;
 const GEN_SAN_LNG     = 125.1716;
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const RECEIPTS_BUCKET = 'expense-receipts';
-const GEMINI_MODEL    = Deno.env.get('VISION_MODEL') ?? 'gemini-3.6-flash';
 const DISPATCH_MODEL  = 'gemini-2.5-flash';
-const hasVisionKey    = () => VISION_PROVIDER === 'openrouter' ? !!OPENROUTER_KEY : !!GEMINI_KEY;
 const JSON_H          = { 'Content-Type': 'application/json' };
 
 const LARGE_AMOUNT_THRESHOLD = 10_000;
@@ -108,6 +105,8 @@ async function tgEdit(chatId: any, mid: number, text: string, rm?: unknown): Pro
   if (isParseErr(r)) { const { parse_mode, ...rest } = body; r = await tgCall('editMessageText', rest); }
   return r;
 }
+// v104 (session 27): receipt cards are photos, so a decision edits the caption, not the text.
+const tgEditCaption = (chatId: any, mid: number, caption: string, rm?: unknown) => tgCall('editMessageCaption', { chat_id:chatId, message_id:mid, caption:caption.slice(0,1024), reply_markup: rm ?? {inline_keyboard:[]} });
 const tgAnswerCB = (id: string, text?: string) => tgCall('answerCallbackQuery', { callback_query_id:id, ...(text?{text,show_alert:false}:{}) });
 
 function notifyOps(_category: string, _loggedBy: string|null, _isPendingOcr: boolean): void {}
@@ -305,23 +304,6 @@ function showCapabilities(chatId:any,surface:'ops'|'finance'){
 }
 function buildAdvisoryPrompt(today:string):string{
   return `You are reading a Philippine electric-cooperative power-interruption advisory image (SOCOTECO II or NGCP) for General Santos City. Today is ${today}.\nReturn ONLY a JSON object, no markdown:\n{"is_advisory":boolean,"source":"SOCOTECO"|"NGCP"|null,"purpose":string,"occurrences":[{"date":"YYYY-MM-DD","start_time":"HH:MM:00"|null,"end_time":"HH:MM:00"|null,"duration_hours":number|null}],"affected":{"feeders":string[],"substations":string[],"areas":string[]},"confidence":number}\nRules:\n- is_advisory=false if the image is not a power-interruption advisory; set confidence below 0.3.\n- Ignore any schedule marked RESCHEDULED, struck-through, or cancelled. Return only the ACTIVE schedule.\n- Each distinct time window is its OWN occurrence (a morning AND an evening window on the same day = two occurrences).\n- feeders e.g. ["7-2"] or a range string ["14-1 to 14-4"]. substations e.g. ["Leon Llido"]. areas = barangay/subdivision names if listed instead of feeders.\n- Convert "8am" / "12:00NN" / "6:00 PM" to 24h HH:MM:00. duration_hours from the stated duration or end minus start.\n- purpose: short phrase, e.g. "metering equipment replacement at NGCP Gensan".`;
-}
-// Shared by geminiExtract and geminiExtractAdvisory: dispatches to Gemini or
-// OpenRouter per VISION_PROVIDER (mirrors ocr-receipt's extractReceipt/D-090)
-// and returns the raw model text, unparsed — each caller applies its own JSON parse.
-async function visionExtractText(promptText:string,bytes:Uint8Array,mime:string):Promise<string>{
-  if(VISION_PROVIDER==='openrouter'){
-    if(!OPENROUTER_KEY)throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
-    const res=await geminiFetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{...JSON_H,Authorization:`Bearer ${OPENROUTER_KEY}`},body:JSON.stringify({model:OPENROUTER_MODEL,temperature:0,response_format:{type:'json_object'},messages:[{role:'user',content:[{type:'text',text:promptText},{type:'image_url',image_url:{url:`data:${mime};base64,${bytesToBase64(bytes)}`}}]}]}),signal:AbortSignal.timeout(55_000)});
-    if(!res.ok)throw new Error(`openrouter_${res.status}`);
-    const data=await res.json();
-    return data?.choices?.[0]?.message?.content??'';
-  }
-  if(!GEMINI_KEY)throw new Error('CASCADE_GEMINI_BOT_KEY not set');
-  const res=await geminiFetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`,{method:'POST',headers:JSON_H,body:JSON.stringify({contents:[{parts:[{text:promptText},{inline_data:{mime_type:mime,data:bytesToBase64(bytes)}}]}],generationConfig:{temperature:0,response_mime_type:'application/json'}}),signal:AbortSignal.timeout(55_000)});
-  if(!res.ok)throw new Error(`gemini_${res.status}`);
-  const data=await res.json();
-  return data?.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join('')??'';
 }
 async function geminiExtractAdvisory(bytes:Uint8Array,mime:string):Promise<any>{
   const txt=await visionExtractText(buildAdvisoryPrompt(toManilaDate()),bytes,mime);
@@ -1115,6 +1097,21 @@ async function handleCallbackQuery(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
   await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
 
+  // v104 (session 27, booking PRD C2 / D-160 #3): Finance taps on the receipt card. The definer RPC maps
+  // cq.from.id to staff_access_profiles.telegram_user_id, records the named review and decides the booking;
+  // an unmapped or unauthorized tapper is refused and the buttons stay for someone who is.
+  if(data.startsWith('bk_ok:')||data.startsWith('bk_no:')){
+    const action=data.startsWith('bk_ok:')?'confirm':'decline';const cmpId=data.slice(6);const who=cq.from?.first_name??'staff';
+    const{data:r,error}=await db.rpc('telegram_finance_decide_booking_v1',{p_telegram_user_id:cq.from?.id,p_comparison_id:cmpId,p_action:action,p_reason:`Telegram tap by ${whoFrom(cq.from)}`});
+    let line:string,keep=false;
+    if(error){keep=true;line=/does not exist|not found/i.test(error.message)?'⚠️ Telegram confirm is not switched on yet — use the Review link.':`⚠️ ${errMsg(error.message)}`;}
+    else if(!r?.ok){const k=String(r?.reason??r?.outcome??'');keep=['unmapped_telegram_user','not_authorized','comparison_not_found'].includes(k);
+      line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a Finance profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not authorized to approve payments.`,already_reviewed:`ℹ️ Already reviewed (${r?.outcome}).`,conflict:'⚠️ Those dates are no longer available — NOT confirmed.',invalid_state:'ℹ️ This request is no longer pending.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
+    else line=action==='confirm'?`✅ Confirmed by ${who} — booking confirmed, calendar updated, guest e-mailed.`:`❌ Declined by ${who} — request cancelled, ledger row voided.`;
+    await tgEditCaption(chatId,msgId,`${cq.message?.caption??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
+    if(r?.ok&&action==='confirm'&&OPS_CHAT)await tgSend(OPS_CHAT,`🏠 CONFIRMED · Direct ${String(r.booking_id??'').slice(0,8).toUpperCase()}\n\nDirect booking confirmed by ${who}. Calendar is updated; turnover follows the usual schedule.`);
+    return;
+  }
   if(data.startsWith('refund_ok:')){
     const payload=await consumePending(db,data.slice('refund_ok:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n\u23f0 _Expired._');return;}

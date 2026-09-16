@@ -1,4 +1,4 @@
-// release-expired-holds v1 (session 26, 2026-09-16, hold-before-pay D-160 #1 / audit plan 5b step 5).
+// release-expired-holds v3 (v1 session 26, 2026-09-16, hold-before-pay D-160 #1 / audit plan 5b step 5).
 // Hourly via pg_cron. A direct booking request that is still `pending` with no receipt 24 h after
 // it was submitted stops blocking the calendar: status -> expired, its calendar_events hold ->
 // cancelled, its pending_review income row -> void, one 🟡 ATTENTION card to Finance with the
@@ -78,9 +78,27 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
       }
       released.push(ref);
     }
-    console.log(JSON.stringify({ event: 'release_expired_holds', dry, cutoff, candidates: (rows ?? []).length, released }));
+    // v3 (session 27, booking PRD task 4): a receipt nobody has reviewed for 2 h gets ONE 🟡 nudge. The
+    // window is 2-3 h so the hourly run posts it once with no state; finance-watch takes over from day 2.
+    // Inert (warn only) until unreviewed_booking_receipts_v1 exists.
+    const nudged: string[] = [];
+    if (!dry) {
+      const { data: stale, error: sErr } = await db.rpc('unreviewed_booking_receipts_v1', { p_min_hours: 2, p_max_hours: 3 });
+      if (sErr) console.warn('unreviewed_booking_receipts_v1:', sErr.message);
+      for (const b of (Array.isArray(stale) ? stale : []) as Array<Record<string, any>>) {
+        const ref = 'DIR-' + String(b.id).slice(0, 8).toUpperCase();
+        await tgSend(withHeader('attention', `receipt waiting ${ref}`, [
+          `${b.guest_name} sent a receipt ${Math.round((Date.now() - new Date(b.updated_at).getTime()) / 3_600_000)} h ago and nobody has confirmed or declined it yet.`,
+          `• ${dm(b.checkin_date)} → ${dm(b.checkout_date)} · ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`,
+          '',
+          `Do: scroll up to the 🧾 FINANCE receipt card and tap Confirm or Decline, or open https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${b.id}`,
+        ].join('\n')));
+        nudged.push(ref);
+      }
+    }
+    console.log(JSON.stringify({ event: 'release_expired_holds', dry, cutoff, candidates: (rows ?? []).length, released, nudged }));
     await hb('succeeded');
-    return new Response(JSON.stringify({ ok: true, dry, cutoff, released }), { status: 200, headers: JSON_H });
+    return new Response(JSON.stringify({ ok: true, dry, cutoff, released, nudged }), { status: 200, headers: JSON_H });
   } catch (err) {
     console.error('release-expired-holds error:', String(err));
     await hb('failed', String(err).slice(0, 80));

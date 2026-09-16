@@ -35,21 +35,16 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+// v9 (session 27): the vision call lives in cascade-core/vision.ts, shared with telegram-expense and
+// upload-booking-receipt (booking PRD task 2). Same env contract; this file only parses.
+import { VISION_PROVIDER as PROVIDER, hasVisionKey, bytesToBase64, visionExtractText } from '../_shared/cascade-core/vision.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const PROVIDER     = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase();
-const GEMINI_KEY   = Deno.env.get('CASCADE_GEMINI_BOT_KEY')
-                  ?? Deno.env.get('GEMINI_BOT_KEY')
-                  ?? Deno.env.get('GEMINI_API_KEY') ?? '';
-const OPENROUTER_KEY = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')
-                  ?? Deno.env.get('OPENROUTER_API_KEY') ?? '';
 const TG_TOKEN     = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const RECEIPTS_BUCKET = 'expense-receipts';
-const GEMINI_MODEL     = Deno.env.get('VISION_MODEL') ?? 'gemini-3.6-flash';
-const OPENROUTER_MODEL = Deno.env.get('VISION_MODEL') ?? 'google/gemini-3.6-flash';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const CORS = {
@@ -61,15 +56,6 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS });
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(bin);
-}
-
 async function tgSend(chatId: number | string, text: string): Promise<void> {
   if (!TG_TOKEN) return;
   await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
@@ -77,16 +63,6 @@ async function tgSend(chatId: number | string, text: string): Promise<void> {
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
     signal: AbortSignal.timeout(15_000),
   }).catch(() => {});
-}
-
-// Retry on 429 / 503 with linear backoff
-async function geminiFetch(url: string, init: RequestInit, tries = 3): Promise<Response> {
-  for (let i = 0; i < tries; i++) {
-    const res = await fetch(url, init);
-    if (res.ok || (res.status !== 429 && res.status !== 503)) return res;
-    if (i < tries - 1) await new Promise(r => setTimeout(r, 800 * (i + 1)));
-  }
-  return fetch(url, init);
 }
 
 const EXTRACTION_PROMPT = `You are a receipt data extractor for a Philippine boutique Airbnb's expense ledger.
@@ -117,52 +93,9 @@ function parseExtraction(textOut: string): any {
   }
 }
 
-async function openrouterExtract(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
-  const res = await geminiFetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { ...JSON_HEADERS, Authorization: `Bearer ${OPENROUTER_KEY}` },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: EXTRACTION_PROMPT },
-          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
-        ],
-      }],
-    }),
-    signal: AbortSignal.timeout(55_000),
-  });
-  const raw = await res.json();
-  if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
-  return { parsed: parseExtraction(raw?.choices?.[0]?.message?.content ?? ''), raw };
-}
-
-async function extractReceipt(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
-  if (PROVIDER === 'openrouter') {
-    if (!OPENROUTER_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
-    return await openrouterExtract(b64, mime);
-  }
-  if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
-  return await geminiExtract(b64, mime);
-}
-
-async function geminiExtract(b64: string, mime: string): Promise<{ parsed: any; raw: any }> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
-  const res = await geminiFetch(endpoint, {
-    method: 'POST', headers: JSON_HEADERS,
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: EXTRACTION_PROMPT }, { inline_data: { mime_type: mime, data: b64 } }] }],
-      generationConfig: { temperature: 0, response_mime_type: 'application/json' },
-    }),
-    signal: AbortSignal.timeout(55_000),
-  });
-  const raw = await res.json();
-  if (!res.ok) throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
-  const textOut = raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '';
-  return { parsed: parseExtraction(textOut), raw };
+async function extractReceipt(b64: string, mime: string): Promise<{ parsed: any; raw: string }> {
+  const raw = await visionExtractText(EXTRACTION_PROMPT, b64, mime);
+  return { parsed: parseExtraction(raw), raw };
 }
 
 function mapCategory(hint: unknown, valid: Set<string>): string {
@@ -232,7 +165,7 @@ function formatLineItemsForNotes(items: LineItem[]): string | null {
 Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  if (PROVIDER === 'openrouter' ? !OPENROUTER_KEY : !GEMINI_KEY) {
+  if (!hasVisionKey()) {
     return json({ error: `no API key for VISION_PROVIDER=${PROVIDER}` }, 500);
   }
 
