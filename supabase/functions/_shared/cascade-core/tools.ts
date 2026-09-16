@@ -61,6 +61,8 @@ export const TOOL_DECLS: ToolDecl[] = [
     parameters: { type: 'object', properties: { from: { type: 'string', description: 'YYYY-MM-DD inclusive' }, to: { type: 'string', description: 'YYYY-MM-DD exclusive' } } } },
   { name: 'low_stock', description: 'Inventory items at or below their reorder point, with quantity, unit and reorder point. Also reports how many active items have no reorder point set.',
     parameters: { type: 'object', properties: {} } },
+  { name: 'inventory_report', description: 'Full consumables list with quantity on hand, unit, and days of coverage (measured usage history if available, else an estimate). Use for a general stock check, not just a low-stock alert.',
+    parameters: { type: 'object', properties: {} } },
 ];
 
 // ── Write tools (deploy 3): Cassy never writes. She inserts a `telegram_pending` row in the exact
@@ -138,6 +140,35 @@ export async function runTool(db: any, name: string, args: Record<string, unknow
       const tracked = rows.filter((r) => r.reorder_below != null);
       const low = tracked.filter((r) => Number(r.qty_on_hand) <= Number(r.reorder_below)).map((r) => ({ name: r.name, qty: Number(r.qty_on_hand), reorder_below: Number(r.reorder_below), unit: r.unit, unit_cost: r.unit_cost }));
       return { low, tracked_items: tracked.length, items_without_reorder_point: rows.length - tracked.length };
+    }
+    case 'inventory_report': {
+      // get_inventory_catalogue_v1 (what the admin dashboard's Inventory page
+      // calls) requires admin_require('read_operations', ...) -- a real signed-in
+      // staff session, which a bot never has (same wall D-146/D-148 hit for
+      // inventory writes). Replicates its estimated-coverage formula
+      // (consumption_per_booking x 60-day turnover rate) via plain table reads
+      // instead, matching low_stock's own already-working raw-select pattern.
+      // No unit_cost/pricing field is read at all, so there is nothing for
+      // stripMoney to need to catch on the ops surface.
+      const sixtyDaysAgo = new Date(Date.now() - 60 * 86_400_000).toISOString();
+      const [itemsRes, turnoverRes] = await Promise.all([
+        db.from('inventory_items').select('name,qty_on_hand,unit,consumption_per_booking').eq('property_id', PROPERTY_ID).eq('is_active', true).eq('is_consumable', true),
+        db.from('cleaning_sessions').select('id', { count: 'exact', head: true }).eq('property_id', PROPERTY_ID).in('cleaning_type', ['turnover', 'deep_clean']).gte('cleaned_at', sixtyDaysAgo),
+      ]);
+      if (itemsRes.error) throw new Error(`inventory_items: ${itemsRes.error.message}`);
+      if (turnoverRes.error) throw new Error(`cleaning_sessions: ${turnoverRes.error.message}`);
+      const turnoverRate = (turnoverRes.count ?? 0) / 60;
+      const rows = (itemsRes.data ?? []) as any[];
+      return {
+        turnover_rate_per_day: Math.round(turnoverRate * 10_000) / 10_000,
+        count: rows.length,
+        items: rows.map((r) => {
+          const cpb = r.consumption_per_booking != null ? Number(r.consumption_per_booking) : null;
+          const estDaily = cpb != null && turnoverRate > 0 ? cpb * turnoverRate : null;
+          const coverageDays = estDaily && estDaily > 0 ? Math.round((Number(r.qty_on_hand) / estDaily) * 10) / 10 : null;
+          return { name: r.name, qty: Number(r.qty_on_hand), unit: r.unit, coverage_days: coverageDays, estimated: coverageDays != null };
+        }),
+      };
     }
     default: return { error: `unknown tool ${name}` };
   }
