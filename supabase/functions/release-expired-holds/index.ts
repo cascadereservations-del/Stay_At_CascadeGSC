@@ -50,10 +50,13 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
     for (const b of rows ?? []) {
       const ref = 'DIR-' + String(b.id).slice(0, 8).toUpperCase();
       if (dry) { released.push(ref); continue; }
-      const { error: e1 } = await db.from('booking_inquiries').update({ status: 'expired' }).eq('id', b.id).eq('status', 'pending');
-      if (e1) { console.error('expire failed', ref, e1.message); continue; }
-      await db.from('calendar_events').update({ status: 'cancelled' }).eq('uid', 'direct:' + b.id).eq('status', 'blocked');
+      // Void the ledger row FIRST: fn_direct_booking_cascade (trigger on transactions) flips the
+      // booking to 'cancelled' when its income row is voided (live 2026-09-16), so the status write
+      // below must come last for the row to end as 'expired' (terminal in the lifecycle guard).
       await db.from('transactions').update({ status: 'void' }).eq('booking_id', b.id).eq('status', 'pending_review');
+      await db.from('calendar_events').update({ status: 'cancelled' }).eq('uid', 'direct:' + b.id).eq('status', 'blocked');
+      const { error: e1 } = await db.from('booking_inquiries').update({ status: 'expired' }).eq('id', b.id).in('status', ['pending', 'cancelled']).is('receipt_image_path', null);
+      if (e1) { console.error('expire failed', ref, e1.message); continue; }
       const guestLine = `Hi ${String(b.guest_name).split(' ')[0]}, your hold for ${dm(b.checkin_date)}–${dm(b.checkout_date)} at Cascade Hideaway has been released because we did not receive the ₱${peso(b.deposit_amount)} reservation fee within ${HOLD_HOURS} hours. The dates are open again — if you still want them, book again at the site and send the receipt right after.`;
       await tgSend(withHeader('attention', `hold expired ${ref}`, [
         `Hold released: ${b.guest_name} · ${dm(b.checkin_date)} → ${dm(b.checkout_date)} · ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)} never arrived.`,
