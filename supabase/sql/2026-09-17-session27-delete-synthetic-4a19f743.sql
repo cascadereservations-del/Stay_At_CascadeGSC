@@ -9,8 +9,8 @@ delete from public.payment_evidence_comparisons where booking_id = '4a19f743-c9e
 delete from public.payment_evidence_candidates  where booking_id = '4a19f743-c9ec-4dc6-8582-c0139b798afe';
 delete from public.automation_outbox            where aggregate_id = '4a19f743-c9ec-4dc6-8582-c0139b798afe';
 delete from public.transactions                 where booking_id = '4a19f743-c9ec-4dc6-8582-c0139b798afe' or external_ref = '4a19f743-c9ec-4dc6-8582-c0139b798afe';
-delete from public.airbnb_reservations          where confirmation_code = 'DIRECT:4a19f743-c9ec-4dc6-8582-c0139b798afe';
 delete from public.calendar_events              where uid in ('direct:4a19f743-c9ec-4dc6-8582-c0139b798afe', 'cascade-direct-4a19f743-c9ec-4dc6-8582-c0139b798afe');
+delete from public.airbnb_reservations          where confirmation_code = 'DIRECT:4a19f743-c9ec-4dc6-8582-c0139b798afe';
 delete from public.booking_holds                where booking_id = '4a19f743-c9ec-4dc6-8582-c0139b798afe';
 -- the synthetic guest row has no other bookings or reservations (checked 2026-09-17 01:10 Manila)
 delete from public.guests where id = (select guest_id from public.booking_inquiries where id = '4a19f743-c9ec-4dc6-8582-c0139b798afe')
