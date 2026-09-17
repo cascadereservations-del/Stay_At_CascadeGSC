@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { withHeader, groups } from '../_shared/cascade-core/format.ts';
+import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
+import { guestFollowUp, verdictOf, type Lang } from './followup.ts';
 import { hasVisionKey, visionExtractText, parseModelJson } from '../_shared/cascade-core/vision.ts';
 import {
   buildReceiptObjectPath,
@@ -144,22 +145,29 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
   const r = ev.read;
   const readLine = r && r.amount !== null
     ? `🔍 Read: ₱${peso(r.amount)}${r.channel ? ` via ${r.channel}` : ''}${r.reference ? ` · ref ${r.reference}` : ' · no reference seen'}${r.date ? ` · ${r.date}` : ''} · ${Math.round(r.confidence * 100)} %`
+    : r ? '🔍 Read: no completed payment on this image (no amount found) — it may be the screen before sending'
     : `🔍 Not read automatically${ev.note ? ` (${ev.note})` : ''} — check the image`;
+  // Session 29: a sample reply for the guest when the image is not a payment proof or the amount is short, in the
+  // register of their Messenger thread (site uploads have no thread: English).
+  const v = verdictOf(r, expected);
+  const { data: th } = await db.from('concierge_threads').select('booking_flow').eq('booking_flow->>booking_id', bookingId).maybeSingle() as { data: { booking_flow?: { lang?: Lang } } | null };
+  const sample = guestFollowUp(v, th?.booking_flow?.lang ?? 'en', String(b.guest_name ?? ''), expected, r?.amount ?? 0);
   const verdict = r && r.amount !== null
     ? (Math.abs(r.amount - expected) < 0.5 ? `⚖️ Amount matches the ₱${peso(expected)} expected` : `⚖️ ₱${peso(Math.abs(r.amount - expected))} ${r.amount < expected ? 'SHORT' : 'over'} — expected ₱${peso(expected)}`)
     : null;
   const caption = withHeader('finance', `receipt ${ref}`, groups(
     [`📎 Receipt uploaded — ${b.guest_name}`, `📅 ${b.checkin_date} → ${b.checkout_date} · status ${b.status}`],
     [`💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`, readLine, verdict],
-    [ev.comparisonId ? 'Do: open the image, then tap Confirm if the payment is real — Decline if not.' : 'Do: review in the dashboard (evidence row was not recorded).',
+    [ev.comparisonId ? (sample ? 'Do: open the image. If no full payment shows, reply to the guest; Confirm only once the payment is real.' : 'Do: open the image, then tap Confirm if the payment is real — Decline if not.') : 'Do: review in the dashboard (evidence row was not recorded).',
      `🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${bookingId}`],
+    sample ? doSend('the guest', sample) : [],
   ));
   const { data: signed } = await db.storage.from(BUCKET).createSignedUrl(objectPath, 3600);
   const url = signed?.signedUrl;
   const isImage = /\.(jpe?g|png|webp)$/i.test(objectPath);
-  const reply_markup = ev.comparisonId
-    ? { inline_keyboard: [[{ text: '✅ Confirm booking', callback_data: `bk_ok:${ev.comparisonId}` }, { text: '❌ Decline', callback_data: `bk_no:${ev.comparisonId}` }]] }
-    : undefined;
+  const reply_markup = autoKeyboard(caption, ev.comparisonId
+    ? [{ text: '✅ Confirm booking', callback_data: `bk_ok:${ev.comparisonId}` }, { text: '❌ Decline', callback_data: `bk_no:${ev.comparisonId}` }]
+    : []);
   const body = url
     ? { chat_id: chat, [isImage ? 'photo' : 'document']: url, caption: caption.slice(0, 1024), reply_markup }
     : { chat_id: chat, text: caption, reply_markup };

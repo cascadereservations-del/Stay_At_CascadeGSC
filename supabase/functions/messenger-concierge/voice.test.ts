@@ -1,8 +1,8 @@
 // deno test --allow-env messenger-concierge/voice.test.ts  (from supabase/functions)
 // The communication protocol's build gate: every canned line the book flow can send passes lintReply().
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { lintReply } from './voice.ts';
-import { answer, availabilityAck, availabilityLine, detectLang, opener, paymentReply, prompt, start, type Flow } from './booking.ts';
+import { answerOnly, lintReply, thinPo } from './voice.ts';
+import { answer, availabilityAck, availabilityLine, detectLang, opener, parsePax, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { GCASH_QRPH_BASE, crc16, qrphWithAmount } from '../_shared/cascade-core/qrph.ts';
 
 const now = new Date('2026-09-17T01:00:00Z');
@@ -88,4 +88,25 @@ Deno.test('Bisaya register: Bislish, no po, passes the lint (Lloyd 12:15, D-169)
   for (const l of lines) { assertEquals(/\b(po|opo)\b/i.test(l), false, 'no Tagalog po in Bisaya: ' + l.slice(0, 40)); assertEquals(lintReply(l), [], l.slice(0, 40)); }
   assertEquals(answer(f, '09171234567', now).flow.lang, 'bis'); // a bare number keeps the register
   assertEquals(answer(f, 'Can I change it to 3 guests?', now).flow.lang, 'en');
+});
+
+Deno.test('mid-flow answer: echoed card, site invite and closer are dropped (live 2026-09-17 12:08, session 29)', () => {
+  const live = "Yes, Ben, we offer complimentary roadside parking right in front of the unit. It is CCTV-monitored and can accommodate one vehicle. This is shared with residents, so it is on a first-come, first-served basis. Please let us know if you have any other questions.\n\nHere are your stay details:\n\n📅 Oct 25 to Oct 27 · 2 nights · 3 guests\n\nTo secure your stay, you may reply DEPOSIT to reserve with ₱1,691 now.\n\nAlternatively, you may check and secure your dates directly on our site:\n\n👉 https://tinyurl.com/Stay-at-Cascade\n\nOur direct booking rates are often more favorable, with discounts increasing for longer stays.";
+  assertEquals(answerOnly(live), 'Yes, Ben, we offer complimentary roadside parking right in front of the unit. It is CCTV-monitored and can accommodate one vehicle. This is shared with residents, so it is on a first-come, first-served basis.');
+  const tl = 'Opo, Ben, may libreng roadside parking po kami sa tapat mismo ng unit. Kung may iba pa po kayong katanungan, huwag po kayong mag-atubiling magtanong.\n\nO maaari rin po kayong mag-check at mag-secure ng dates directly sa site namin:';
+  assertEquals(answerOnly(tl), 'Opo, Ben, may libreng roadside parking po kami sa tapat mismo ng unit.');
+  assertEquals(answerOnly('Yes, parking is available in front of the unit.'), 'Yes, parking is available in front of the unit.');
+  // live 12:29, after the first fix: a reworded closer and six po in one answer
+  const po = 'Yes, Ben, may parking po kami. May libreng roadside parking sa harap mismo ng unit, at may CCTV po ito. Kasya po ang isang sasakyan. Shared po ito sa mga residente, kaya first come, first served po. Let us know po if may iba pa kayong tanong.';
+  assertEquals(thinPo(answerOnly(po)), 'Yes, Ben, may parking po kami. May libreng roadside parking sa harap mismo ng unit, at may CCTV po ito. Kasya ang isang sasakyan. Shared ito sa mga residente, kaya first come, first served.');
+  assertEquals(thinPo('Opo, puwede pong i-settle sa check-in.'), 'Opo, puwede pong i-settle sa check-in.');
+  // live 12:58 (Bisaya run): the card came back under a new heading, with Tagalog po in a Bisaya answer
+  const bis = "Yes, Ben, naa mi parking. Naa'y libreng roadside parking atubangan mismo sa unit, ug naay CCTV po kini. Let us know if naa pa mo'y ubang pangutana.\n\nKini ang details sa stay ninyo:\n\nOct 25 to Oct 27 · 2 nights · 3 guests\n\n09475977727 · ben@example.com\n\nTotal ₱3,382";
+  assertEquals(thinPo(answerOnly(bis), 0), "Yes, Ben, naa mi parking. Naa'y libreng roadside parking atubangan mismo sa unit, ug naay CCTV kini.");
+  assertEquals(detectLang('Pwede usbon sa Oct 25 to 27? 3 mi'), 'bis'); // was read as Tagalog -> a po-laden Taglish card
+  assertEquals(parsePax('Pwede usbon sa Oct 25 to 27? 3 mi'), 3);
+  assertEquals(parsePax('3 ka tawo'), 3);
+  // live 13:12, second Bisaya run: parsePax read it, the confirm step's guest-word gate did not
+  const atConfirm = answer({ ...base, lang: 'bis', step: 'confirm', total: 3382, deposit: 1691 }, 'Pwede usbon sa Oct 25 to 27? 3 mi', now).flow;
+  assertEquals([atConfirm.pax, atConfirm.checkin, atConfirm.lang], [3, '2026-10-25', 'bis']);
 });

@@ -18,6 +18,24 @@ const EXCLAIM_RE = /\b(wonderful|amazing|awesome|lovely|fantastic|great news|goo
 // D-168 section 22: corporate / translated filler a real host would never type.
 const BOILERPLATE_RE = /\b(rest assured|please be advised|kindly|absolutely|certainly|great question|happy to help|at your earliest convenience|do not hesitate|utmost (pleasure|satisfaction)|valued (customer|guest)|esteemed guest|highly value your patronage|any inconvenience this may have caused|nagagalak|ipabatid|pahingi|pakibigay|pasayloa kami sa dakong)\b/i;
 
+// Session 29 (live, "is there parking?" at confirm): the model echoed the stay card from history and rephrased the site
+// invite, so the card went out twice with an invite between. When the flow's own ask follows, only the answer is kept.
+const FLOW_NOISE_RE = /^(here are your stay details|ito po ang details|mao ni ang details|📅|📞|💰|💳|to secure (your|the) stay|para ma-secure|👉)|https?:\/\/|\b(our|sa) site\b|\bdirect(ly)? book|\bdetails\b[^\n]{0,20}\bstay\b|\bstay details\b|· \d+ nights?\b|^\W{0,4}total ₱/i;
+const CLOSER_RE = /\s*[^.!?\n]*\b(any (other|more|further) questions|(iba|uban|ubang|lain|laing)\b[^.!?\n]{0,25}(katanungan|questions?|tanong|pangutana)|mag-atubili)\b[^.!?\n]*[.!?]?/gi;
+/** The model's answer without an echoed card, a site invite or an "any other questions" closer. Never returns ''. */
+export function answerOnly(reply: string): string {
+  const paras = reply.split(/\n\s*\n/);
+  const cut = paras.findIndex((p) => FLOW_NOISE_RE.test(p.trim()));
+  return (cut < 0 ? paras : paras.slice(0, cut)).join('\n\n').replace(CLOSER_RE, '').trim() || paras[0].trim();
+}
+
+/** Protocol 07 section 4: "po" is purposeful, one or two per message. The model's Taglish parking answer carried six
+ *  (live, session 29). "po" is an enclitic, so dropping the extras leaves every sentence intact; "opo"/"pong" are untouched. */
+export function thinPo(text: string, keep = 2): string {
+  let n = 0;
+  return text.replace(/ po\b/g, (m) => (++n > keep ? '' : m));
+}
+
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
   const v: Violation[] = [];

@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { lintReply } from './voice.ts';
+import { answerOnly, lintReply, thinPo } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
@@ -267,7 +267,7 @@ const systemPrompt = (thread: Thread, availability: string, landmarks = '', comp
 // Taglish - it gets English back (one "po" welcome). Taglish needs a Tagalog content word.
 function guestLang(text: string): 'taglish' | 'bisaya' | 'english_po' | 'english' {
   const t = ` ${text.toLowerCase()} `;
-  if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini)\b/.test(t)) return 'bisaya';
+  if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini|usbon|usba|mi|kabuok|tawo|ug|og|dili|among|ugma|gahapon|muabot|moabot)\b/.test(t)) return 'bisaya';
   if (/\b(ang|ng|mga|kayo|ninyo|magkano|pwede|puwede|salamat|meron|kailan|saan|paano|bukas|ngayon|opo|hindi|kasi|namin|natin|sige|okay lang|ayos|kami|ako|niyo|nyo)\b/.test(t)) return 'taglish';
   const particles = (t.match(/\b(po|ba|lang|naman|opo)\b/g) ?? []).length;
   if (particles >= 2) return 'taglish';      // "may parking po ba?"
@@ -276,7 +276,7 @@ function guestLang(text: string): 'taglish' | 'bisaya' | 'english_po' | 'english
 }
 const LANG_HINT = {
   taglish: '[Reply in natural conversational Taglish with "po" - everyday Tagalog mixed with English the way a GenSan host texts, not formal Tagalog.] ',
-  bisaya: '[Tubaga sa Bisaya. Reply in Bisaya.] ',
+  bisaya: '[Tubaga sa natural nga Bislish. Reply in natural Bislish (Cebuano with English hospitality terms). Never use Tagalog "po" / "opo" or Tagalog words such as "kasya".] ',
   english_po: '[The guest wrote English with a courtesy "po". Reply in warm English; one "po" is welcome, no Tagalog sentences.] ',
   english: '',
 };
@@ -670,11 +670,11 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       // A guest who calls US "Ma'am"/"Sir" does not become "Ma'am Löyd" (live 2026-09-13, twice
       // despite the prompt rule): drop a title the model put before their name in that case.
       if (thread.guest_name && /\b(ma'?am|sir|maam)\b/i.test(text)) out.reply = out.reply.replace(new RegExp(`\\b(ma'?am|sir)\\s+(?=${thread.guest_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b)`, 'giu'), '');
-      reply = plainText(redactAddress(trimRepeatedInvite(out.reply, thread.history.filter((h) => h.role === 'bot').map((h) => h.text), text, SITE_URL)));
+      reply = thinPo(plainText(redactAddress(trimRepeatedInvite(out.reply, thread.history.filter((h) => h.role === 'bot').map((h) => h.text), text, SITE_URL))), lang === 'bisaya' ? 0 : 2); // protocol 09: no Tagalog po in Bisaya
       // The first substantive reply carries the booking link (VOICE); the model dropped it on
       // "Hello po" (live audit 2026-09-13), so it is guaranteed here.
       if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply += `\n\n👉 ${SITE_URL}`;
-      if (flowFollowUp) reply += `\n\n${flowFollowUp}`; // the answer came first; now the flow's own ask
+      if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { reply += `\n\n${HANDOFF.policy_exception}`; handoff = true; risk = 'policy_exception'; }
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
