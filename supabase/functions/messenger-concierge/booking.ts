@@ -191,16 +191,19 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       f.pay_full = within48h(f.checkin!, now) ? true : undefined; f.step = 'confirm'; return ask();
     }
     case 'confirm': {
-      // The payment choice is the confirmation: DEPOSIT or FULL sends it (YES = deposit, or full inside 48 h).
-      if (FULL_RE.test(text)) { f.pay_full = true; return { flow: f, reply: null, action: 'submit' }; }
-      if (DEPOSIT_RE.test(text) || YES_RE.test(text)) { if (f.pay_full !== true) f.pay_full = false; return { flow: f, reply: null, action: 'submit' }; }
+      // Corrections first, then the payment choice sends it (Lloyd 11:05: "deposit, my email is …" must keep
+      // the e-mail; "full na lang, 3 guests" must keep the 3). A date change re-shows the card: the total moves.
       const d = parseDates(text, now), p = /\b(guest|pax|person|people|tao|adult|kami)/i.test(text) ? parsePax(text) : null, ph = parsePhone(text), e = parseEmail(text);
-      let changed = false;
-      if (d[0] && d[0] >= today) { f.checkin = d[0]; changed = true; if (d[1] && d[1] > d[0]) f.checkout = d[1]; else if (f.checkout! <= d[0]) { f.step = 'checkout'; return ask(); } }
+      let changed = false, datesChanged = false;
+      if (d[0] && d[0] >= today) { f.checkin = d[0]; changed = datesChanged = true; if (d[1] && d[1] > d[0]) f.checkout = d[1]; else if (f.checkout! <= d[0]) { f.step = 'checkout'; return ask(); } }
       if (p && p <= 4) { f.pax = p; changed = true; }
       if (ph) { f.phone = ph; changed = true; }
       if (e) { f.email = e; changed = true; }
-      if (changed) { f.pay_full = within48h(f.checkin!, now) ? true : undefined; return ask(); }
+      if (datesChanged) { f.pay_full = within48h(f.checkin!, now) ? true : undefined; return ask(); }
+      const wantsFull = FULL_RE.test(text), wantsDeposit = DEPOSIT_RE.test(text) || YES_RE.test(text);
+      if (wantsFull) { f.pay_full = true; return { flow: f, reply: null, action: 'submit' }; }
+      if (wantsDeposit) { if (f.pay_full !== true) f.pay_full = false; return { flow: f, reply: null, action: 'submit' }; }
+      if (changed) return ask();
       return retry('that');
     }
     default: return { flow: f, reply: null, action: 'passthrough' };

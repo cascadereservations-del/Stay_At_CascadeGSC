@@ -29,6 +29,11 @@ Deno.test('flow: prefilled start, then contact -> confirm (the payment choice se
   s = answer(s.flow, 'full na lang', now); assertEquals([s.action, s.flow.pay_full], ['submit', true]);
   const d = answer({ ...s.flow, step: 'confirm', pay_full: undefined }, 'deposit', now); assertEquals([d.action, d.flow.pay_full], ['submit', false]);
   const y = answer({ ...s.flow, step: 'confirm', pay_full: undefined }, 'yes po', now); assertEquals([y.action, y.flow.pay_full], ['submit', false]);
+  // mixed replies at confirm (Lloyd 11:05): corrections ride along with the choice; a date change re-shows the card
+  const m1 = answer({ ...s.flow, step: 'confirm', email: null, pay_full: undefined }, 'deposit, my email is ben@example.com', now); assertEquals([m1.action, m1.flow.email, m1.flow.pay_full], ['submit', 'ben@example.com', false]);
+  const m2 = answer({ ...s.flow, step: 'confirm', pay_full: undefined }, 'full na lang, 3 guests', now); assertEquals([m2.action, m2.flow.pax, m2.flow.pay_full], ['submit', 3, true]);
+  const m3 = answer({ ...s.flow, step: 'confirm', pay_full: undefined }, 'deposit but make it Sep 27 to 29', now); assertEquals([m3.action, m3.flow.step, m3.flow.checkin], ['ask', 'confirm', '2026-09-27']);
+  const m4 = answer(start('book Sep 24 to 26 for 2', now), 'ben@example.com 09475977727 deposit', now); assertEquals([m4.action, m4.flow.step, m4.flow.email], ['ask', 'confirm', 'ben@example.com']); // the card (with the total) still asks the choice
   const p = answer(start('book Sep 24 to 26 for 2', now), '09171234567', now); assertEquals([p.flow.step, p.flow.email], ['confirm', null]);
   assertEquals(f.asked, null); // "Can I book …?" is booking intent, not a question to answer first
   assertEquals(start('Hello is Oct 3 to 4 available. i would like to book for 2 adults', now).asked, 'availability');
