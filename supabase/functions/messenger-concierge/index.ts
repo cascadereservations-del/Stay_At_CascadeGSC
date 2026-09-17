@@ -12,8 +12,10 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, BOOK_RE, isActive, opener, paymentReply, prompt, start, type Flow } from './booking.ts';
-import { fbSendImage } from '../_shared/cascade-core/messenger.ts';
+import { answer, availabilityLine, BOOK_RE, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
+import { lintReply } from './voice.ts';
+import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
+import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
 import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
@@ -491,8 +493,9 @@ async function handleOps(db: Db, update: any): Promise<void> {
 // SITE_URL is the tinyurl; the QR asset needs the Pages origin.
 const QR_URL = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/assets/images/qr-gcash.png';
 async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }> {
+  const q = quoteTotal(flow.checkin!, flow.checkout!); // session 28: the guest chose fee or full; submit-booking accepts either
   const body = { guest_name: thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
-    pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger' };
+    pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit };
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
   if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: `Sorry po, something went wrong on our side — please try again in a minute, or book here: ${SITE_URL}`, image: null }; }
@@ -557,18 +560,30 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   // is evidence, not an attachment handoff; a slot answer is code-parsed; a question mid-flow passes
   // through to the model with the flow kept where it is.
   let flow: Flow | null = isActive(thread.booking_flow, now) ? thread.booking_flow! : null;
-  let flowReply: string | null = null, flowImage: string | null = null;
+  let flowReply: string | null = null, flowImage: string | null = null, flowFollowUp: string | null = null;
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
   if (g.reply && flow?.step === 'await_receipt' && attachment) {
     const r = await forwardReceipt(flow, String(attachment.payload.url), thread.guest_name);
     flowReply = r.reply; if (r.sent) flow = { ...flow, step: 'receipt_sent', updated_at: now.toISOString() };
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
     const s = answer(flow, text, now); flow = s.flow;
+    if (s.action === 'passthrough') flowFollowUp = prompt(flow, thread.guest_name); // protocol: the model answers, then the flow's ask follows
     if (s.action === 'ask') flowReply = s.reply ?? prompt(flow, thread.guest_name);
     else if (s.action === 'cancelled') flowReply = s.reply;
     else if (s.action === 'submit') { const r = await submitFlow(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
   } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && BOOK_RE.test(text) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
-    flow = start(text, now); flowReply = opener(flow, thread.guest_name) + prompt(flow, thread.guest_name); // session 28: welcome first
+    flow = start(text, now);
+    // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
+    // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
+    if (flow.asked === 'availability') {
+      const { data: rows } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').lt('checkin_date', flow.checkout!).gt('checkout_date', flow.checkin!).limit(50);
+      const booked = new Set<string>();
+      for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
+      const line = availabilityLine(flow, booked);
+      if (/taken po/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = `${thread.guest_name ? `${thread.guest_name.split(' ')[0]}, ` : ''}${line}`; }
+      else flowReply = opener(flow, thread.guest_name, line) + prompt(flow, thread.guest_name);
+    } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
+    else flowReply = opener(flow, thread.guest_name) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }
@@ -637,7 +652,8 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       reply = plainText(redactAddress(trimRepeatedInvite(out.reply, thread.history.filter((h) => h.role === 'bot').map((h) => h.text), text, SITE_URL)));
       // The first substantive reply carries the booking link (VOICE); the model dropped it on
       // "Hello po" (live audit 2026-09-13), so it is guaranteed here.
-      if ((!followUp || discountAsk) && !reply.includes(SITE_URL)) reply += `\n\n👉 ${SITE_URL}`;
+      if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply += `\n\n👉 ${SITE_URL}`;
+      if (flowFollowUp) reply += `\n\n${flowFollowUp}`; // the answer came first; now the flow's own ask
       if (discountAsk) { reply += `\n\n${HANDOFF.policy_exception}`; handoff = true; risk = 'policy_exception'; }
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
@@ -656,7 +672,17 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
 
   const sentToGuest = Boolean(reply) && mode === 'auto';
   if (reply) {
-    if (mode === 'auto') { await fbSend(psid, reply); if (flowImage) await fbSendImage(psid, flowImage); }
+    const lint = lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
+    if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
+    if (mode === 'auto') {
+      await fbSend(psid, reply);
+      if (flowImage) { // session 28: the QR carries the chosen amount (QR Ph tag 54); the static site QR is the fallback
+        let sent = false;
+        try { const amt = Number(flow?.deposit ?? 0); if (amt > 0) sent = await fbSendImageBytes(psid, await qrPng(qrphWithAmount(GCASH_QRPH_BASE, amt)), `gcash-${amt}.png`); }
+        catch (e) { console.error('qr_amount_failed', String(e).slice(0, 200)); }
+        if (!sent) await fbSendImage(psid, flowImage);
+      }
+    }
     else { await fbSend(psid, ACK_SUGGEST); await tgOps(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
     if (handoff) {
       // A discount or pet request goes to the host, but it must not mute the bot for 24 h: a

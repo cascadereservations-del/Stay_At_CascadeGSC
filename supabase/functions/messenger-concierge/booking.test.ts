@@ -26,8 +26,12 @@ Deno.test('flow: prefilled start, then pax -> phone -> email -> confirm -> submi
   const f = start('Can I book Sep 24 to 26 for 2 adults?', now);
   assertEquals([f.step, f.checkin, f.checkout, f.pax], ['phone', '2026-09-24', '2026-09-26', 2]);
   let s = answer(f, '0917 123 4567', now); assertEquals([s.action, s.flow.step], ['ask', 'email']);
-  s = answer(s.flow, 'skip', now); assertEquals([s.action, s.flow.step, s.flow.email], ['ask', 'confirm', null]);
+  s = answer(s.flow, 'skip', now); assertEquals([s.action, s.flow.step, s.flow.email], ['ask', 'pay', null]);
+  s = answer(s.flow, 'full na lang', now); assertEquals([s.flow.step, s.flow.pay_full], ['confirm', true]);
+  s = answer(s.flow, 'deposit muna', now); assertEquals([s.flow.step, s.flow.pay_full], ['confirm', false]);
   s = answer(s.flow, 'yes po', now); assertEquals(s.action, 'submit');
+  assertEquals(f.asked, null); // "Can I book …?" is booking intent, not a question to answer first
+  assertEquals(start('Hello is Oct 3 to 4 available. i would like to book for 2 adults', now).asked, 'availability');
 });
 
 Deno.test('flow: question passes through, correction at confirm, cancel', () => {
@@ -40,6 +44,7 @@ Deno.test('flow: question passes through, correction at confirm, cancel', () => 
   s = answer(s.flow, '5 adults', now); assertEquals(s.flow.step, 'pax');
   s = answer(s.flow, '3', now); assertEquals(s.flow.step, 'phone');
   s = answer(s.flow, '09171234567', now); s = answer(s.flow, 'me@example.com', now);
+  assertEquals(s.flow.step, 'pay'); s = answer(s.flow, 'the 50%', now);
   assertEquals(s.flow.step, 'confirm');
   s = answer(s.flow, 'make it 2 guests', now); assertEquals([s.action, s.flow.pax, s.flow.step], ['ask', 2, 'confirm']);
   s = answer(s.flow, 'cancel na lang', now); assertEquals(s.action, 'cancelled');

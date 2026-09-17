@@ -739,7 +739,10 @@
     }
   },
   "redirects": {
-    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.112.3"
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.112.3",
+    "https://esm.sh/@types/qrcode@~1.5.6/index.d.ts": "https://esm.sh/@types/qrcode@1.5.6/index.d.ts",
+    "https://esm.sh/dijkstrajs@^1.0.1?target=denonext": "https://esm.sh/dijkstrajs@1.0.3?target=denonext",
+    "https://esm.sh/pngjs@^5.0.0?target=denonext": "https://esm.sh/pngjs@5.0.0?target=denonext"
   },
   "remote": {
     "https://deno.land/std@0.224.0/assert/_constants.ts": "a271e8ef5a573f1df8e822a6eb9d09df064ad66a4390f21b3e31f820a38e0975",
@@ -775,7 +778,15 @@
     "https://deno.land/std@0.224.0/internal/diff.ts": "6234a4b493ebe65dc67a18a0eb97ef683626a1166a1906232ce186ae9f65f4e6",
     "https://deno.land/std@0.224.0/internal/format.ts": "0a98ee226fd3d43450245b1844b47003419d34d210fa989900861c79820d21c2",
     "https://deno.land/std@0.224.0/internal/mod.ts": "534125398c8e7426183e12dc255bb635d94e06d0f93c60a297723abe69d3b22e",
-    "https://esm.sh/@supabase/supabase-js@2.112.3": "f6b9130984301066587e8917dfab3b3d60be47dc966bd3d04c733bc9423c1cf9"
+    "https://deno.land/x/qrcode@v2.0.0/mod.ts": "3e693e8190d5fb4c6ab68a14a1a9473c325d5244fd83240b49cdecdf5fc18a1b",
+    "https://deno.land/x/qrcode@v2.0.0/qrcode.js": "138f870978e21843f48d8b0855b69de6ebf430c3ab9f57c3fa2746d6fba45bf1",
+    "https://esm.sh/@supabase/supabase-js@2.112.3": "f6b9130984301066587e8917dfab3b3d60be47dc966bd3d04c733bc9423c1cf9",
+    "https://esm.sh/dijkstrajs@1.0.3/denonext/dijkstrajs.mjs": "9b67eef6735999e48f6d65584bda995e13231defe9f1b39061d144caefdc639f",
+    "https://esm.sh/dijkstrajs@1.0.3?target=denonext": "1fe91496e9f3733496e88232f618c4b8a2a59a1da1a59a43c9b60cf591e68d4a",
+    "https://esm.sh/pngjs@5.0.0/denonext/pngjs.mjs": "031efe8b685dd2d8dd492ee49f0cbddc02dc815c6a95f348769a12f005e625cb",
+    "https://esm.sh/pngjs@5.0.0?target=denonext": "7821c15edb0826535e6c8c59c6dc52fb190aa6bdecfbf3ecf0dec1339e72f02f",
+    "https://esm.sh/qrcode@1.5.4/denonext/qrcode.mjs": "0def02c940fef53bd2aa3110ba0f3b00a60348b4f5e37fa7dbac9c97c4b76fcb",
+    "https://esm.sh/qrcode@1.5.4?target=denonext": "db5f81bc5a339015d2a6d91018b9c9e382b7d7659aff51a1dd6e0b2c5a9df124"
   },
   "workspace": {
     "packageJson": {

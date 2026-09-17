@@ -22,6 +22,18 @@ export function fbSendText(psid: string, text: string, humanAgent = false): Prom
   const envelope = humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : { messaging_type: 'RESPONSE' };
   return post({ recipient: { id: psid }, ...envelope, message: { text } });
 }
+/** Upload image bytes straight to the Send API (multipart `filedata`), so a generated QR needs no storage or URL. */
+export async function fbSendImageBytes(psid: string, bytes: Uint8Array, filename = 'image.png', mime = 'image/png'): Promise<boolean> {
+  const token = env('META_PAGE_TOKEN'); if (!token) return false;
+  const form = new FormData();
+  form.append('recipient', JSON.stringify({ id: psid }));
+  form.append('messaging_type', 'RESPONSE');
+  form.append('message', JSON.stringify({ attachment: { type: 'image', payload: { is_reusable: false } } }));
+  form.append('filedata', new Blob([bytes as unknown as BlobPart], { type: mime }), filename);
+  const r = await fetch(`${GRAPH}/${PAGE_ID}/messages?access_token=${token}`, { method: 'POST', body: form, signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  if (r && !r.ok) console.error('fb_send_bytes_failed', r.status, (await r.text().catch(() => '')).slice(0, 200));
+  return !!r?.ok;
+}
 export function fbSendImage(psid: string, url: string): Promise<boolean> {
   return post({ recipient: { id: psid }, messaging_type: 'RESPONSE', message: { attachment: { type: 'image', payload: { url, is_reusable: true } } } });
 }
