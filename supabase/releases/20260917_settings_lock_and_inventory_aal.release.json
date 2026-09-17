@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "release_id": "settings_lock_and_inventory_aal_20260917",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "14731a974b6fc87085ffd1d5091e7995c54f0622"
+  },
+  "migrations": [
+    "20260917030000_settings_lock_and_inventory_aal.sql"
+  ],
+  "migration_sha256": {
+    "20260917030000_settings_lock_and_inventory_aal.sql": "027408508afd24365f0ebade020b14093b20e1712448db42207697f4683fd6b9"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260917T091019Z",
+    "verified_at": "2026-09-17T09:10:19Z",
+    "production_rule": "Replaces one RLS policy on app_settings with two (staff read the public keys, an owner or admin reads the rest and writes, admin_pin_hash is never writable through the API) and recreates inventory_human_authorized without its stale aal2 line. No table, column or row is changed. Apply within one hour of the restore point."
+  },
+  "forward_verification": [
+    {
+      "name": "open_staff_policy_is_gone",
+      "query": "select count(*) = 0 from pg_policies where schemaname = 'public' and tablename = 'app_settings' and policyname = 'auth all'",
+      "expect": true
+    },
+    {
+      "name": "three_policies_on_app_settings",
+      "query": "select count(*) = 3 from pg_policies where schemaname = 'public' and tablename = 'app_settings'",
+      "expect": true
+    },
+    {
+      "name": "anon_policy_untouched",
+      "query": "select count(*) = 1 from pg_policies where schemaname = 'public' and tablename = 'app_settings' and policyname = 'anon select public' and cmd = 'SELECT'",
+      "expect": true
+    },
+    {
+      "name": "inventory_gate_no_longer_reads_aal",
+      "query": "select position('aal' in pg_get_functiondef('public.inventory_human_authorized(uuid)'::regprocedure)) = 0",
+      "expect": true
+    },
+    {
+      "name": "inventory_gate_is_security_definer_with_empty_search_path",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] from pg_proc p where p.oid = 'public.inventory_human_authorized(uuid)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (restores the previous policy and function body; not recommended, it re-opens the hole)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260917_settings_lock_and_inventory_aal.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "No front end writes app_settings with a staff JWT (grep 2026-09-17); Edge Functions use the service role. Rehearse on Alfred with supabase/tests/database/settings_lock_and_inventory_aal.sql before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
