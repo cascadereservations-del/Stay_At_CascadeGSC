@@ -10,7 +10,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
-import { renderReport, withHeader } from '../_shared/cascade-core/format.ts';
+import { renderReport, withHeader, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
 import { friendlyDate, opsReport, weeklyFinanceReport, weeklyOpsReport, type MidStay, type Weather } from './report.ts';
 import { overdue } from '../finance-watch/watch.ts';
 
@@ -28,11 +28,11 @@ const AVG_STAY_DAYS = 2;
 const CONSOLE_URL   = 'https://cascadereservations-del.github.io/cascade-admin-dashboard/';
 
 // ── Telegram (plain text: the report is rendered by code, nothing needs escaping) ──
-async function tgSend(chatId: string, text: string): Promise<void> {
+async function tgSend(chatId: string, text: string, reply_markup?: unknown): Promise<void> {
   if (!TG_TOKEN || !chatId) { console.warn('tgSend: missing token or chatId'); return; }
   const res = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
     method: 'POST', headers: JSON_H,
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, reply_markup }),
     signal: AbortSignal.timeout(15_000),
   }).catch(err => { console.error('tgSend fetch error:', String(err)); return null; });
   if (res && !res.ok) console.error('tgSend non-ok:', res.status, await res.text().catch(() => '').then(t => t.slice(0, 200)));
@@ -255,17 +255,17 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
         await hb('succeeded');
         return new Response(JSON.stringify({ ok: true, mode, date: today, skipped: true, reason: 'no_pending' }), { status: 200, headers: JSON_H });
       }
-      await tgSend(FINANCE_CHAT, msg);
+      await tgSend(FINANCE_CHAT, msg, autoKeyboard(msg, BTN.expense)); // session 28: money cards carry Log expense / Records
     } else {
       if (!OPS_CHAT) return new Response(JSON.stringify({ ok: false, error: 'OPS_CHAT not configured' }), { status: 500, headers: JSON_H });
-      if (isMonday(today)) await tgSend(OPS_CHAT, await buildWeeklyOpsMessage(db, today));
+      if (isMonday(today)) { const wk = await buildWeeklyOpsMessage(db, today); await tgSend(OPS_CHAT, wk, autoKeyboard(wk)); }
       const msg = await buildOpsMessage(db, today, tmr);
       if (msg === null) {
         console.log(`daily-digest v15: skipping OPS — nothing actionable (${today})`);
         await hb('succeeded');
         return new Response(JSON.stringify({ ok: true, mode, date: today, skipped: true, reason: 'no_activity' }), { status: 200, headers: JSON_H });
       }
-      await tgSend(OPS_CHAT, msg);
+      await tgSend(OPS_CHAT, msg, autoKeyboard(msg)); // session 28: 📨 -> Copy/Revise, 📦 -> Inventory
     }
     await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, mode, date: today }), { status: 200, headers: JSON_H });

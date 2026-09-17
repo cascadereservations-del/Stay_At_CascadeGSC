@@ -21,6 +21,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { notifyMessengerBookingConfirmed } from '../_shared/cascade-core/messenger.ts';
+import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -497,11 +498,13 @@ const MENU_TIPS:Record<string,string>={
   fastentry:['💡 *Fast entry*','Type `<amount> <category>` — amount must be first.','','e.g. `250 supplies Puregold`','e.g. `1500 electricity`','','_Category is auto-detected from keywords._'].join('\n'),
   ocr:['📸 *Receipt photo (OCR)*','Send any photo directly to this chat.','The bot reads it automatically, then you review each item before confirming.'].join('\n'),
   void:['❌ *Void an entry*','Type `/void REFCODE` to discard a transaction.','','e.g. `/void 28DCABC7`','','_Ref code is shown when the expense is logged._'].join('\n'),
+  cassy:['🤖 *Ask Cassy*','Start a message with her name, or use `/cassy`.','','e.g. `Cassy, who arrives this week?`','e.g. `/cassy what is low in stock?`','e.g. `/deep …` for the deeper model','','_She reads bookings, guests, stock and the ledger. She never writes without a tap._'].join('\n'),
+  draft:['✍️ *Draft a guest reply*','`/draft <what the guest wrote>` or `cassy reply: …`','Or send a chat screenshot captioned `cassy draft`.','','_You get a reply to copy, in our voice, with a risk flag. Nothing is sent._'].join('\n'),
 };
-const TIP_BACK:Record<string,string>={fastentry:'log',ocr:'log',void:'commands'};
+const TIP_BACK:Record<string,string>={fastentry:'log',ocr:'inventory',void:'commands',cassy:'cassy',draft:'cassy'};
 
-function mainMenuKb() { return {inline_keyboard:[[{text:'💰 Log Expense',callback_data:'menu:log'},{text:'🧹 Cleaning Fees',callback_data:'menu:cleaning'}],[{text:'📊 Reports',callback_data:'menu:commands'},{text:'📌 OPS Notices',callback_data:'menu:notices'}]]}; }
-function opsMenuKb() { return {inline_keyboard:[[{text:'⚡ Brownout',callback_data:'menu:do:nt:brownout'},{text:'📅 Calendar',callback_data:'menu:do:cal'}],[{text:'🌦 Weather now',callback_data:'menu:do:weather'},{text:'🔄 Turnover',callback_data:'menu:do:schedule'}],[{text:'📋 View all notices',callback_data:'menu:do:notices'}]]}; }
+function mainMenuKb() { return {inline_keyboard:[[{text:'💰 Log Expense',callback_data:'menu:log'},{text:'🧹 Cleaning Fees',callback_data:'menu:cleaning'}],[{text:'📊 Reports',callback_data:'menu:commands'},{text:'📌 OPS Notices',callback_data:'menu:notices'}],[{text:'📦 Inventory',callback_data:'menu:inventory'},{text:'🤖 Cassy',callback_data:'menu:cassy'}]]}; }
+function opsMenuKb() { return {inline_keyboard:[[{text:'⚡ Brownout',callback_data:'menu:do:nt:brownout'},{text:'📅 Calendar',callback_data:'menu:do:cal'}],[{text:'🌦 Weather now',callback_data:'menu:do:weather'},{text:'🔄 Turnover',callback_data:'menu:do:schedule'}],[{text:'📦 Stock check',callback_data:'menu:do:stock'},{text:'📋 Full inventory',callback_data:'menu:do:inventory'}],[{text:'🤖 Ask Cassy',callback_data:'menu:tip:cassy'},{text:'✍️ Draft a reply',callback_data:'menu:tip:draft'}],[{text:'📋 View all notices',callback_data:'menu:do:notices'}]]}; }
 
 function buildMenuHeader(title:string, subtitle:string, keyboard:{text:string}[][]): string {
   const longestRow = keyboard.length
@@ -538,6 +541,14 @@ function subMenuKb(group:string):{text:string;kb:object} {
     case 'notices':{
       const rows=[[{text:'⚡ Brownout',callback_data:'menu:do:nt:brownout'},{text:'📅 Calendar',callback_data:'menu:do:cal'}],[{text:'📋 All notices',callback_data:'menu:do:notices'},{text:'🌦 Weather',callback_data:'menu:do:weather'}],[{text:'🔄 Turnover',callback_data:'menu:do:schedule'},back]];
       return{text:buildMenuHeader('📌 *OPS Notices*','',rows),kb:{inline_keyboard:rows}};
+    }
+    case 'inventory':{ // session 28
+      const rows=[[{text:'📦 Low stock  /stock',callback_data:'menu:do:stock'},{text:'📋 Full list  /inventory',callback_data:'menu:do:inventory'}],[{text:'📸 Purchase receipt',callback_data:'menu:tip:ocr'},{text:'🖥 Open dashboard',url:'https://cascadereservations-del.github.io/cascade-admin-dashboard/#/inventory'}],[back]];
+      return{text:buildMenuHeader('📦 *Inventory*','',rows),kb:{inline_keyboard:rows}};
+    }
+    case 'cassy':{ // session 28
+      const rows=[[{text:'🤖 How to ask',callback_data:'menu:tip:cassy'},{text:'✍️ Draft a guest reply',callback_data:'menu:tip:draft'}],[back]];
+      return{text:buildMenuHeader('🤖 *Cassy*','',rows),kb:{inline_keyboard:rows}};
     }
     default:{const kb=mainMenuKb();return{text:buildMenuHeader('🏠 *Cascade Finance*','Select a section:',kb.inline_keyboard),kb};}
   }
@@ -1098,6 +1109,19 @@ async function handleCallbackQuery(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
   await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
 
+  // Session 28 (Lloyd's ask 2): 📋 Copy sends the card's 📨 text alone as monospace (long-press copies it;
+  // Telegram has no copy-on-tap); ✏️ Revise hands the same text plus the card head to Cassy (telegram-cassy
+  // "revise:"). Stateless: the tapped message carries the text.
+  if(data==='tpl:copy'||data==='tpl:revise'){
+    const cardText=String(cq.message?.text??cq.message?.caption??'');const tpl=templateOf(cardText);
+    if(!tpl){await tgSend(chatId,'⚠️ No message text on that card.');return;}
+    if(data==='tpl:copy'){await tgSend(chatId,'```\n'+tpl.replace(/```/g,"'''")+'\n```');return;}
+    const head=cardText.split('\n').filter(Boolean).slice(0,4).join('\n');
+    const synthetic={update_id:Number(cq.id)||Date.now(),message:{message_id:msgId,date:Math.floor(Date.now()/1000),chat:cq.message?.chat,from:cq.from,text:`cassy revise: ${tpl} ||| ${head}`}};
+    await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(synthetic),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy revise forward failed:',String(e)));
+    return;
+  }
+
   // v104 (session 27, booking PRD C2 / D-160 #3): Finance taps on the receipt card. The definer RPC maps
   // cq.from.id to staff_access_profiles.telegram_user_id, records the named review and decides the booking;
   // an unmapped or unauthorized tapper is refused and the buttons stay for someone who is.
@@ -1236,6 +1260,8 @@ async function handleCallbackQuery(cq:any,db:any){
       if(cmd.startsWith('nt:'))    {await handleNoticesByType(chatId,db,cmd.slice(3));return;}
       switch(cmd){
         case 'log':         await tgSend(chatId,'🧾 *Log an Expense*\n\nSelect a category:',{reply_markup:categoryKeyboard(0)});break;
+        case 'inventory':   await handleStockQuery(db,chatId,isF?'finance':'ops',{filter:'all'});break; // session 28: [/inventory] button
+        case 'stock':       await handleStockQuery(db,chatId,isF?'finance':'ops',{filter:'low'});break;
         case 'payclean':    if(isF)await payCleanList(db,chatId);break;
         case 'manualclean': if(isF)await promptManualClean(chatId);break;
         case 'notifyclean': if(isF)await notifyCleanAcks(db,chatId);break;
@@ -1543,8 +1569,9 @@ async function handlePing(chatId: any) {
   } catch(e) { await tgSend(chatId, `❌ Gemini error: ${errMsg(e)}`); }
 }
 
-const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'}];
-const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'void',description:'Void entry: /void REFCODE'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'ping',description:'Diagnostic: test Gemini + env vars'}];
+// Session 28: every feature has a command, so the ☰ menu button (setChatMenuButton, commands) lists them all.
+const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'cassy',description:'Ask Cassy: /cassy who arrives this week?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'notices',description:'Active brownouts, holidays, events, reminders'},{command:'brownout',description:'Add a brownout: /brownout <date> <time> <hours>'},{command:'deep',description:'Ask Cassy with the deeper model'}];
+const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'log',description:'Log an expense (guided)'},{command:'cassy',description:'Ask Cassy: /cassy what did we spend this month?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'payclean',description:'Mark a cleaning fee paid'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'notices',description:'Active OPS notices'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'void',description:'Void entry: /void REFCODE'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'deep',description:'Ask Cassy with the deeper model'},{command:'ping',description:'Diagnostic: test the model + env vars'}];
 
 Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' }, async(req)=>{
   const url=new URL(req.url);
@@ -1554,7 +1581,11 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
     if(url.searchParams.get('setup')!==TG_SECRET)return json({error:'setup secret mismatch'},401);
     const webhookUrl=`${SUPABASE_URL}/functions/v1/telegram-expense`;
     const[setWh,,cmdsOps,cmdsFin]=await Promise.all([fetch(`https://api.telegram.org/bot${TG_TOKEN}/setWebhook`,{method:'POST',headers:JSON_H,body:JSON.stringify({url:webhookUrl,secret_token:TG_SECRET,allowed_updates:['message','callback_query'],drop_pending_updates:true})}).then(r=>r.json()).catch(e=>({ok:false,error:String(e)})),fetch(`https://api.telegram.org/bot${TG_TOKEN}/getWebhookInfo`).then(r=>r.json()).catch(()=>null),tgCall('setMyCommands',{commands:OPS_CMDS,scope:{type:'all_group_chats'}}),FINANCE_CHAT?tgCall('setMyCommands',{commands:FIN_CMDS,scope:{type:'chat',chat_id:Number(FINANCE_CHAT)}}):null]);
-    return json({registered_to:webhookUrl,setWebhook:setWh,cmdsOps,cmdsFin});
+    // session 28: the ☰ menu button beside the input box lists the commands (Hermis pattern), so a first-time member sees every feature.
+    const menuBtn=await tgCall('setChatMenuButton',{menu_button:{type:'commands'}});
+    const menuOps=OPS_CHAT?await tgCall('setChatMenuButton',{chat_id:Number(OPS_CHAT),menu_button:{type:'commands'}}):null;
+    const menuFin=FINANCE_CHAT?await tgCall('setChatMenuButton',{chat_id:Number(FINANCE_CHAT),menu_button:{type:'commands'}}):null;
+    return json({registered_to:webhookUrl,setWebhook:setWh,cmdsOps,cmdsFin,menuBtn,menuOps,menuFin});
   }
   if(req.method!=='POST')return json({error:'method_not_allowed'},405);
   const got=req.headers.get('X-Telegram-Bot-Api-Secret-Token')??'';
@@ -1579,7 +1610,9 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
       // own prompts (expense/notice flows) and numeric fast entry ("500 supplies"), which stay here.
       {
         const m=update?.message; const t=String(m?.text??m?.caption??''); // v107: a photo captioned "cassy …" is a draft request (Telegram plan §3)
-        const named=/^\s*@?cassy\b/i.test(t)||/^\s*\/deep\b/i.test(t);
+        // session 28: /cassy <q> and /draft <guest text> are the same requests as "cassy …" / "cassy reply: …"
+        if(m&&typeof m.text==='string'&&/^\s*\/(cassy|draft)(@\w+)?\b/i.test(m.text)) m.text=m.text.replace(/^\s*\/cassy(@\w+)?\s*/i,'cassy ').replace(/^\s*\/draft(@\w+)?\s*/i,'cassy reply: ');
+        const named=/^\s*@?cassy\b/i.test(String(m?.text??t))||/^\s*\/deep\b/i.test(t);
         const free=t&&!m?.from?.is_bot&&!m?.reply_to_message&&!t.trimStart().startsWith('/')&&!/^\s*[₱\d]/.test(stripBotMention(t.trim()))&&isBotAddressed(m);
         if(named||free){
           if(!isAllowedChat(m?.chat?.id))return;

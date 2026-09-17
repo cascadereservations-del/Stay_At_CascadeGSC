@@ -43,7 +43,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
-import { withHeader } from '../_shared/cascade-core/format.ts';
+import { withHeader, groups, doSend, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -62,13 +62,13 @@ const TELEGRAM_FINANCE_CHAT_ID = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
 const TELEGRAM_OPS_CHAT_ID     = Deno.env.get('TELEGRAM_CHAT_ID');
 const TELEGRAM_BOT_TOKEN       = Deno.env.get('TELEGRAM_BOT_TOKEN');
 
-async function sendTelegram(chatId: string|undefined, text: string): Promise<void> {
+async function sendTelegram(chatId: string|undefined, text: string, reply_markup?: unknown): Promise<void> {
   if (!chatId || !TELEGRAM_BOT_TOKEN) return;
   try {
     await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup }),
     });
   } catch (_) {}
 }
@@ -312,17 +312,21 @@ async function handleBooking(
   const dateLine  = `📅 ${event.checkin_date??'TBD'} → ${event.checkout_date??'TBD'} (${nights}n)`;
   // v7: guest history lines (empty for a first-timer with nothing on file). No money in them.
   const ctxLines = guestContextLines(await guestContext(supabase, { guestId, name: event.guest_name })).map(esc);
-  const doLine = isReturning
-    ? `Do: reply with a welcome-back line${ctxLines.some((l) => l.startsWith('🧹')) ? '; confirm the last issue is closed' : ''}.`
-    : `⏳ Prepare for check-in`;
+  // Session 28: a returning guest gets the welcome-back message ready to send (Copy / Revise buttons).
+  const first = String(event.guest_name ?? '').split(' ')[0] || 'there';
+  const when = event.checkin_date && event.checkout_date ? ` on ${event.checkin_date} to ${event.checkout_date}` : '';
+  const welcome = `Hi ${first}, welcome back to Cascade Hideaway! We are glad to have you with us again${when}. Everything will be ready the way you like it - just message us if there is anything you need before you arrive. 🌿`;
+  const doLines = isReturning
+    ? [...doSend(first, esc(welcome)), ...(ctxLines.some((l) => l.startsWith('🧹')) ? ['Then confirm the last issue is closed.'] : [])]
+    : [`Do: prepare for check-in${event.checkin_date ? ` on ${event.checkin_date}` : ''}.`];
 
   // OPS: operational data only — no financial figures (cleaners present)
-  await sendTelegram(TELEGRAM_OPS_CHAT_ID, withHeader('booking', `Airbnb ${event.confirmation_code}`,
-    [badge, guestLine, dateLine, ...ctxLines, doLine].join('\n')));
+  const opsCard = withHeader('booking', `Airbnb ${event.confirmation_code}`, groups([badge, guestLine, dateLine], ctxLines, doLines));
+  await sendTelegram(TELEGRAM_OPS_CHAT_ID, opsCard, autoKeyboard(opsCard));
 
   // Finance: same card plus the payout line
-  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID, withHeader('booking', `Airbnb ${event.confirmation_code}`,
-    [badge, guestLine, dateLine, `💰 Host earns: ${earn}`, ...ctxLines, doLine].join('\n')));
+  const finCard = withHeader('booking', `Airbnb ${event.confirmation_code}`, groups([badge, guestLine, dateLine], [`💰 Host earns: ${earn}`], ctxLines, doLines));
+  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID, finCard, autoKeyboard(finCard));
 
   // ── 8. The returning-guest alert row is stamped sent: the card above carried it (v7) ────
   if (isReturning && guest) {
@@ -403,11 +407,12 @@ async function handlePayout(
   const detailLines = details.filter(d => d.line_type === 'Home')
     .map(d => `  • ${d.guest_name}: ₱${Math.abs(d.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`)
     .join('\n') || '  (no reservation details)';
-  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID, withHeader('finance', 'Airbnb payout',
-    `💸 <b>Airbnb Payout Received</b>\n` +
-    `💰 Total: ₱${event.payout_amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}\n` +
-    `📅 Sent: ${payoutDate}\n` +
-    `🏦 Bank: Rocloyd Ligason, 4647 (PHP)\n${detailLines}`));
+  await sendTelegram(TELEGRAM_FINANCE_CHAT_ID, withHeader('finance', 'Airbnb payout', groups(
+    [`💸 <b>Airbnb Payout Received</b>`, `💰 Total: ₱${event.payout_amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`],
+    [`📅 Sent: ${payoutDate}`, `🏦 Bank: Rocloyd Ligason, 4647 (PHP)`],
+    detailLines.split('\n'),
+    ['Do: nothing - the ledger row is confirmed. Log any expense from this payout with the button below.'],
+  )), autoKeyboard('', BTN.expense)); // session 28
 }
 
 // ── Cancellation handler ───────────────────────────────────────────────────
@@ -437,8 +442,9 @@ async function handleCancellation(
                       event.refund_type === 'partial'  ? 'Partial refund issued' : 'Refund per policy';
 
   // OPS: no financial data
-  await sendTelegram(TELEGRAM_OPS_CHAT_ID, withHeader('attention', `cancelled ${event.cancelled_code}`,
-    `❌ <b>Booking Cancelled${esc(guestLabel)}</b>\n` +
-    `🔑 Code: ${event.cancelled_code}\n📅 ${esc(event.cancelled_dates??'')}\n` +
-    `💸 ${refundLabel}\n📆 Dates now available for rebooking`));
+  await sendTelegram(TELEGRAM_OPS_CHAT_ID, withHeader('attention', `cancelled ${event.cancelled_code}`, groups(
+    [`❌ <b>Booking Cancelled${esc(guestLabel)}</b>`, `🔑 Code: ${event.cancelled_code}`],
+    [`📅 ${esc(event.cancelled_dates??'')}`, `💸 ${refundLabel}`],
+    ['Do: nothing - the dates are open again for rebooking.'],
+  )));
 }

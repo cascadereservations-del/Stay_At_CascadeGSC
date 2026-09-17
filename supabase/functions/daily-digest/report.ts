@@ -100,20 +100,21 @@ export function opsReport(i: OpsInput): OpsReport | null {
   const decision = `${friendlyDate(i.today)}: ${head}${a && d ? ', same-day turnover' : ''}.`;
 
   const lines: string[] = [];
+  const brk = () => { if (lines.length && lines[lines.length - 1] !== '') lines.push(''); }; // group break (session 28)
   if (todayNotices.length) lines.push(todayNotices.map(noticeText).join('; '));
   if (a) lines.push(`📥 Arriving: ${names(i.arrivals, i.resRows, i.today, 'arrival')}`);
   if (d) lines.push(`📤 Departing: ${names(i.departures, i.resRows, i.today, 'departure')}`);
   for (const m of midStay) lines.push(`🛎 Mid-stay: ${m.guest}, night ${m.night} of ${m.nights} — towels and water topped up? everything okay?`);
-  if (outOfStock.length) lines.push(`📦 Out of stock: ${outOfStock.map((s) => s.name).join(', ')}`);
+  if (outOfStock.length) { brk(); lines.push(`📦 Out of stock: ${outOfStock.map((s) => s.name).join(', ')}`); }
   const w = (a || d) ? weatherLine(i.weather) : '';
-  if (w) lines.push(`🌤 ${w}`);
+  if (w) { brk(); lines.push(`🌤 ${w}`); }
   const tmr: string[] = [];
   if (i.tmrArrivals.length) tmr.push(`arriving ${names(i.tmrArrivals, i.resRows, i.tomorrow, 'arrival')}`);
   if (i.tmrDepartures.length) tmr.push(`departing ${names(i.tmrDepartures, i.resRows, i.tomorrow, 'departure')}`);
   tmr.push(...tmrNotices.map(noticeText));
   const tw = (a || d || i.tmrArrivals.length || i.tmrDepartures.length) ? i.weather?.tomorrow : undefined;
   if (tw) tmr.push(`${tw.description} ${tw.low}–${tw.high}°C${tw.rainProb >= 40 ? `, ${tw.rainProb}% rain` : ''}${tw.thunderProb >= 40 ? ', thunder' : ''}`);
-  if (tmr.length) lines.push(`📆 Tomorrow: ${tmr.join('; ')}`);
+  if (tmr.length) { brk(); lines.push(`📆 Tomorrow: ${tmr.join('; ')}`); }
 
   const arr = a ? names(i.arrivals, i.resRows, i.today, 'arrival') : '';
   const dep = d ? names(i.departures, i.resRows, i.today, 'departure') : '';
@@ -122,7 +123,7 @@ export function opsReport(i: OpsInput): OpsReport | null {
     : a && d ? `Coordinate the cleaning window between ${dep} and ${arr}.`
     : a ? `Have the unit ready before ${arr} arrives.`
     : d ? `Inspect the unit after ${dep} checks out.`
-    : midStay.length ? `Send ${midStay[0].guest} a quick "everything okay?" message.`
+    : midStay.length ? `send ${midStay[0].guest} this (Copy, or Revise with Cassy):\n📨 Hi ${midStay[0].guest}, quick check from Cascade Hideaway - is everything okay with the unit? If you need fresh towels, drinking water or anything else, just say the word. 🌿`
     : i.tmrArrivals.length ? `Prepare the unit for ${names(i.tmrArrivals, i.resRows, i.tomorrow, 'arrival')} tomorrow.`
     : todayNotices.length ? `Note ${todayNotices[0].title}.`
     : '';
@@ -140,11 +141,12 @@ export type WeeklyOpsInput = {
 };
 export function weeklyOpsReport(i: WeeklyOpsInput): Report {
   const lines: string[] = [];
+  const brk = () => { if (lines.length && lines[lines.length - 1] !== '') lines.push(''); };
   if (i.arrivals.length) lines.push(`📥 This week: ${i.arrivals.map((x) => `${x.guest} ${friendlyDate(x.date)}${x.nights ? ` (${plural(Number(x.nights), 'night')})` : ''}`).join(', ')}`);
   else lines.push('📥 This week: no arrivals booked yet');
-  if (i.lowStock.length) lines.push(`📦 Low stock: ${i.lowStock.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''}`).join(', ')}`);
-  if (i.workOrders.length) lines.push(`🔧 Open work orders: ${i.workOrders.map((w) => w.title + (w.priority ? ` (${w.priority})` : '')).join('; ')}`);
-  if (i.handoffs.length) lines.push(`💬 Guests still waiting on a reply: ${i.handoffs.map((h) => `${h.guest ?? 'guest'} (${h.risk ?? 'question'}, ${plural(h.days, 'day')})`).join(', ')}`);
+  if (i.lowStock.length) { brk(); lines.push(`📦 Low stock: ${i.lowStock.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''}`).join(', ')}`); }
+  if (i.workOrders.length) { brk(); lines.push(`🔧 Open work orders: ${i.workOrders.map((w) => w.title + (w.priority ? ` (${w.priority})` : '')).join('; ')}`); }
+  if (i.handoffs.length) { brk(); lines.push(`💬 Guests still waiting on a reply: ${i.handoffs.map((h) => `${h.guest ?? 'guest'} (${h.risk ?? 'question'}, ${plural(h.days, 'day')})`).join(', ')}`); }
   const decision = `Week of ${friendlyDate(i.today)}: ${plural(i.arrivals.length, 'arrival')}, ${plural(i.lowStock.length, 'low-stock item')}, ${plural(i.workOrders.length, 'open work order')}, ${plural(i.handoffs.length, 'unanswered guest')}.`;
   const action = i.handoffs.length ? `Reply to ${i.handoffs[0].guest ?? 'the waiting guest'} first.`
     : i.lowStock.length ? `Restock ${i.lowStock.slice(0, 3).map((s) => s.name).join(', ')} this week.`
@@ -163,14 +165,17 @@ export type WeeklyFinanceInput = {
 export function weeklyFinanceReport(i: WeeklyFinanceInput): Report {
   const total = i.pending.reduce((s, r) => s + Number(r.gross_amount ?? 0), 0);
   const lines: string[] = [];
+  const brk = () => { if (lines.length && lines[lines.length - 1] !== '') lines.push(''); };
   if (i.pending.length) lines.push(`🧾 ${plural(i.pending.length, 'receipt')} awaiting review, ₱${peso(total)} in total`);
+  if (i.overdueLines.length) brk();
   for (const l of i.overdueLines.slice(0, 2)) lines.push(`⏳ ${l}`);
+  if (i.warns.length) brk();
   for (const w of i.warns.slice(0, 2)) lines.push(`${w.status === 'fail' ? '🔴' : '🟡'} Health: ${w.label} (${w.n})`);
   const decision = `Finance week of ${friendlyDate(i.today)}: ${plural(i.pending.length, 'receipt')} pending, ${plural(i.overdueLines.length, 'overdue payout')}, ${plural(i.warns.length, 'health warning')}.`;
   const action = i.overdueLines.length ? 'Chase the overdue payout first.'
     : i.pending.length ? `Confirm the receipts in the admin console: ${i.consoleUrl}`
     : i.warns.length ? 'Open Settings → System health and clear the warnings.' : '';
-  return { decision, lines: lines.slice(0, 5), action };
+  return { decision, lines, action };
 }
 
 const sourceLabel = (src: string, category: string) => src === 'ocr' ? `receipt, ${category}` : src === 'telegram' ? category : `${category} (${src})`;

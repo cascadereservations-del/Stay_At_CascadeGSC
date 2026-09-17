@@ -6,7 +6,7 @@
 // ponytail: the suggestion is one cheap JSON call with no retries; a failed suggestion still sends
 // the card. Add a fixed lookup table of common issues when the model output proves unstable.
 import { chatJson } from './providers.ts';
-import { withHeader, type HeaderKind } from './format.ts';
+import { withHeader, groups, TEMPLATE_MARK, type HeaderKind } from './format.ts';
 
 export const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 
@@ -48,13 +48,12 @@ const dm = (d?: string | null) => { if (!d) return ''; const x = new Date(d.slic
 
 /** Plain-text OPS card for a newly created work order (no parse_mode; guest text is untrusted). */
 export function workOrderCard(kind: HeaderKind, a: RaiseArgs, r: Raised, s: { action: string; guest_reply: string }): string {
-  const lines = [
-    `Issue: ${a.title}`,
-    a.reporter ? `Reported by ${a.reporter}${a.guestName ? ` after ${a.guestName}` : ''}` : '',
-    r.next_checkin ? `Next guest: ${r.next_guest ?? 'arrival'} on ${dm(r.next_checkin)}${r.blocks_arrival ? ' — BLOCKS ARRIVAL until closed' : ''}` : '',
-    s.action ? `Suggested: ${s.action}` : '',
-    s.guest_reply ? `Reply to guest (if needed): ${s.guest_reply}` : '',
-  ].filter(Boolean);
-  lines.push('', `Do: fix it, then close work order #${r.id.slice(0, 8)} on the dashboard (Today → readiness).`);
-  return withHeader(kind, 'work order', lines.join('\n'));
+  // Session 28: grouped (issue / next guest / suggestion / Do / guest reply as a 📨 template).
+  return withHeader(kind, 'work order', groups(
+    [`Issue: ${a.title}`, a.reporter && `Reported by ${a.reporter}${a.guestName ? ` after ${a.guestName}` : ''}`],
+    [r.next_checkin && `Next guest: ${r.next_guest ?? 'arrival'} on ${dm(r.next_checkin)}${r.blocks_arrival ? ' — BLOCKS ARRIVAL until closed' : ''}`],
+    [s.action && `Suggested: ${s.action}`],
+    [`Do: fix it, then close work order #${r.id.slice(0, 8)} on the dashboard (Today → readiness).`],
+    s.guest_reply ? ['Reply to the guest if needed (Copy, or Revise with Cassy):', `${TEMPLATE_MARK}${s.guest_reply}`] : [],
+  ));
 }

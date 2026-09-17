@@ -176,6 +176,11 @@ export function paymentReply(flow: Flow, name: string | null, siteUrl: string): 
   const head = flow.hold && until
     ? `${n}, your dates are held for you until ${until} 🎉 Reference: ${flow.ref}.`
     : `${n}, your request is in — reference ${flow.ref}. For stays within five days we confirm as soon as the payment lands.`;
-  const amount = flow.hold ? `To secure them, send the ${peso(flow.deposit!)} reservation fee (50 %; the rest is paid at check-in) — or the full ${peso(flow.total!)} if you prefer.` : `Please send the full ${peso(flow.total!)} within 48 hours.`;
+  // Session 28 (policy check): inside 5 days the site still asks the 50 % fee and reserves on receipt; only
+  // check-in within 48 h asks the full amount (submit-booking decides, we read flow.deposit).
+  const full = (flow.deposit ?? 0) >= (flow.total ?? 0);
+  const amount = flow.hold ? `To secure them, send the ${peso(flow.deposit!)} reservation fee (50 %; the balance and the ₱1,000 refundable security deposit are settled at check-in) — or the full ${peso(flow.total!)} if you prefer.`
+    : full ? `Check-in is within 48 hours, so please send the full ${peso(flow.total!)} now — we reserve on receipt and confirm within a couple of hours. The ₱1,000 refundable security deposit is settled at check-in.`
+    : `Check-in is close, so we reserve on receipt: send the ${peso(flow.deposit!)} reservation fee (50 %) now and we confirm within a couple of hours. The balance and the ₱1,000 refundable security deposit are settled at check-in.`;
   return [head, '', amount, '', `GCash: 0956 011 5744 (Marifel Suzanne Boncales) — QR below.`, `Then send me a screenshot of the receipt here and our Finance team will confirm. 🙏`, '', `Other ways to pay and the full terms: ${siteUrl}`].join('\n');
 }

@@ -28,7 +28,8 @@ Deno.test('ops: brownout owns the action; low-but-not-out stock and weather stay
   assertEquals(r.kind, 'attention');
   assertEquals(r.action, 'Prepare for the Scheduled brownout at 8:00 AM for 4h (Feeder 3).');
   assertEquals(r.lines[0], '⚡ Scheduled brownout at 8:00 AM for 4h (Feeder 3)');
-  assertEquals(r.lines[1], '📆 Tomorrow: arriving Ana; Showers 25–30°C, 60% rain');
+  assertEquals(r.lines[1], ''); // group break (session 28)
+  assertEquals(r.lines[2], '📆 Tomorrow: arriving Ana; Showers 25–30°C, 60% rain');
   const text = renderReport(r);
   assertEquals(text.split('\n').filter((l) => l.startsWith('• ')).length, 2);
   assert(text.endsWith('Do: Prepare for the Scheduled brownout at 8:00 AM for 4h (Feeder 3).'));
@@ -44,14 +45,15 @@ Deno.test('ops: an item at zero fires ATTENTION on a quiet day; a second-morning
   const mid = opsReport({ ...base, midStay: [{ guest: 'Ben', night: 2, nights: 5 }] })!;
   assertEquals(mid.kind, 'daily');
   assertEquals(mid.lines, ['🛎 Mid-stay: Ben, night 2 of 5 — towels and water topped up? everything okay?']);
-  assertEquals(mid.action, 'Send Ben a quick "everything okay?" message.');
+  assert(mid.action.startsWith('send Ben this (Copy, or Revise with Cassy):\n📨 Hi Ben,'));
   assert(withHeader(mid.kind, 'Mon 14 Sep', renderReport(mid)).startsWith('🟢 DAILY · Mon 14 Sep\n\n'));
 });
 
 Deno.test('weekly: ops roll-up leads with the waiting guest; finance roll-up leads with the overdue payout', () => {
   const ops = weeklyOpsReport({ today: '2026-09-21', lowStock: [{ name: 'Tea', qty_on_hand: 3, unit: 'pc', runway: 0 }], workOrders: [{ title: 'Aircon leak', priority: 'high' }], handoffs: [{ guest: 'Ben', risk: 'payment', days: 3 }], arrivals: [{ guest: 'Ana', date: '2026-09-23', nights: 2 }] });
   assertEquals(ops.decision, 'Week of Mon 21 Sep: 1 arrival, 1 low-stock item, 1 open work order, 1 unanswered guest.');
-  assertEquals(ops.lines.length, 4);
+  assertEquals(ops.lines.filter(Boolean).length, 4);
+  assertEquals(ops.lines.filter((l) => l === '').length, 3); // one break between each group
   assertEquals(ops.action, 'Reply to Ben first.');
   const fin = weeklyFinanceReport({ today: '2026-09-21', pending: [{ transaction_date: '2026-09-18', payee_name: 'P', category: 'supplies', gross_amount: 250, source: 'ocr' }], overdueLines: ['Airbnb HMX Ana: checked in 18 Sep, ₱3,000 payout not received (3 days)'], warns: [{ label: 'Duplicate ledger rows', n: 2, status: 'warn' }], consoleUrl: 'u' });
   assertEquals(fin.lines[0], '🧾 1 receipt awaiting review, ₱250 in total');

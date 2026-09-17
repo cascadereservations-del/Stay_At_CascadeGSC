@@ -15,7 +15,7 @@ import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, deepRequest, deepAllowed, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
-import { draftRequest, draftGuestReply, transcribeChat } from './draft.ts';
+import { draftRequest, draftGuestReply, transcribeChat, reviseHostMessage } from './draft.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GATE_ENV = () => ({ financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), opsChat: env('TELEGRAM_CHAT_ID'), dmUserIds: env('CASSY_DM_USER_IDS').split(',').map((s) => s.trim()).filter(Boolean) });
@@ -35,7 +35,7 @@ async function tgSend(chatId: unknown, text: string, replyTo?: number, card?: Ca
   const token = env('TELEGRAM_BOT_TOKEN'); if (!token) return;
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}), ...(card ? { reply_markup: { inline_keyboard: card.keyboard } } : {}) }),
+    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}), ...(card ? { reply_markup: { inline_keyboard: card.keyboard } } : {}) }),
     signal: AbortSignal.timeout(10_000),
   }).catch((e) => console.error('tg_send_failed', String(e).slice(0, 200)));
 }
@@ -145,6 +145,14 @@ async function draft(db: any, msg: any, pasted: string): Promise<void> {
   }
 }
 
+async function revise(db: any, msg: any, raw: string): Promise<void> {
+  const chatId = String(msg.chat.id);
+  const [template, context = ''] = raw.split('|||').map((x) => x.trim());
+  if (!template) { await tgSend(chatId, 'Nothing to revise on that card.', msg.message_id); return; }
+  try { await tgSend(chatId, await reviseHostMessage(db, template, context), msg.message_id); }
+  catch (e) { console.error('cassy_revise_failed', String(e).slice(0, 300)); await tgSend(chatId, 'I could not revise that right now. Try again in a minute.', msg.message_id); }
+}
+
 Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, async (req) => {
   if (req.method !== 'POST') return new Response('method_not_allowed', { status: 405 });
   const secret = env('TELEGRAM_WEBHOOK_SECRET');
@@ -159,8 +167,10 @@ Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, a
   const question = new URL(req.url).searchParams.get('any') === '1' || /^\s*\/deep\b/i.test(text) ? unmention(text) : addressed(text);
   if (!question) return Response.json({ ok: true, skipped: 'not_addressed' });
   const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
+  // Session 28: "revise: <text> ||| <card context>" comes from the ✏️ Revise tap in telegram-expense.
+  const rv = /^\s*revise\s*:\s*([\s\S]*)$/i.exec(question);
   const dr = draftRequest(question);
-  const work = dr.draft ? draft(db, msg, dr.text) : answer(db, msg, g.surface, question);
+  const work = rv ? revise(db, msg, rv[1]) : dr.draft ? draft(db, msg, dr.text) : answer(db, msg, g.surface, question);
   // @ts-ignore EdgeRuntime is provided by Supabase
   if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work); else await work;
   return Response.json({ ok: true, surface: g.surface });

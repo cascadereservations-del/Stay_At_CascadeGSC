@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { withHeader } from '../_shared/cascade-core/format.ts';
+import { withHeader, groups } from '../_shared/cascade-core/format.ts';
 import { hasVisionKey, visionExtractText, parseModelJson } from '../_shared/cascade-core/vision.ts';
 import {
   buildReceiptObjectPath,
@@ -148,15 +148,12 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
   const verdict = r && r.amount !== null
     ? (Math.abs(r.amount - expected) < 0.5 ? `⚖️ Amount matches the ₱${peso(expected)} expected` : `⚖️ ₱${peso(Math.abs(r.amount - expected))} ${r.amount < expected ? 'SHORT' : 'over'} — expected ₱${peso(expected)}`)
     : null;
-  const caption = withHeader('finance', `receipt ${ref}`, [
-    `📎 Receipt uploaded — ${b.guest_name} · ${b.checkin_date} → ${b.checkout_date}`,
-    `💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)} · status ${b.status}`,
-    readLine,
-    ...(verdict ? [verdict] : []),
-    `🔗 Review: https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${bookingId}`,
-    '',
-    ev.comparisonId ? 'Do: open the image, then tap Confirm if the payment is real — Decline if not.' : 'Do: review in the dashboard (evidence row was not recorded).',
-  ].join('\n'));
+  const caption = withHeader('finance', `receipt ${ref}`, groups(
+    [`📎 Receipt uploaded — ${b.guest_name}`, `📅 ${b.checkin_date} → ${b.checkout_date} · status ${b.status}`],
+    [`💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`, readLine, verdict],
+    [ev.comparisonId ? 'Do: open the image, then tap Confirm if the payment is real — Decline if not.' : 'Do: review in the dashboard (evidence row was not recorded).',
+     `🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${bookingId}`],
+  ));
   const { data: signed } = await db.storage.from(BUCKET).createSignedUrl(objectPath, 3600);
   const url = signed?.signedUrl;
   const isImage = /\.(jpe?g|png|webp)$/i.test(objectPath);

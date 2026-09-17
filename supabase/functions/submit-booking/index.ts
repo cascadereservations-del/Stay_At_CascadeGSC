@@ -15,7 +15,7 @@ import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { normalizeEmail, normalizePhilippinePhone } from '../_shared/guest-identity.ts';
 // v13 (session 26, 2026-09-16, Telegram plan §1/§5): Finance card opens with the shared header
 // and carries guest_context_v1 lines for a returning direct guest (empty for a first-timer).
-import { withHeader } from '../_shared/cascade-core/format.ts';
+import { withHeader, groups, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 
 const CORS = {
@@ -240,38 +240,24 @@ Deno.serve(async (req) => {
     if (!tgToken || !tgFinanceId) return;
     const depLabel = near(depositAmount, totalAmount) ? 'Full payment' : `Deposit (${depositPct}%)`;
     const ctxLines = guestContextLines(await guestContext(db, { guestId: resolvedGuestId, name: guestName }));
-    const msg = withHeader('booking', `Direct ${ref}${isHold ? ' · HOLD' : ''}`, [
-      `📬 New Direct Booking Inquiry`,
-      `📍 Cascade Hideaway`,
-      ``,
-      `👤 ${guestName}`,
-      `📞 ${guestPhone}`,
-      ...(guestEmail  ? [`📧 ${guestEmail}`]  : []),
-      ...(contactType === 'whatsapp' ? [`💬 WhatsApp preferred`] : []),
-      ...(ctxLines.length ? [``, ...ctxLines] : []),
-      ``,
-      `📅 Check-in:  ${checkinStr}`,
-      `📤 Check-out: ${checkoutStr}`,
-      `🌙 Nights:    ${nights}`,
-      `👥 Guests:    ${pax}`,
-      ``,
-      `💰 Total:    ₱${totalAmount.toLocaleString()}`,
-      `💳 ${depLabel}:  ₱${depositAmount.toLocaleString()}`,
-      ...(isHold ? [`🗓️ HOLD — dates held ${HOLD_HOURS} h while the guest pays${holdExpiresAt ? ` (until ${new Date(holdExpiresAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })})` : ' (hold row not opened — RPC missing?)'}; released automatically if no receipt arrives`]
-                 : [`📎 Receipt upload: pending or not provided`]),
-      ...(notes      ? [``, `📝 ${notes}`] : []),
-      ``,
-      ...(isHold ? [`🧾 The receipt arrives here as its own card when the guest uploads it`] : [`🗓️ Dates held (pending your review)`]),
-      `📒 Ledger: pending review (confirms on approval)`,
-      `⏰ ${manilaDatetime()}`,
-      `🔖 Ref: ${ref}`,
-      `🔗 Review: https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${inquiryId}`,
-    ].join('\n'));
+    // Session 28: one idea per group (who / history / when / money / what happens next / Do).
+    const msg = withHeader('booking', `Direct ${ref}${isHold ? ' · HOLD' : ''}`, groups(
+      [`📬 New direct request${notes?.includes('via Messenger') ? ' via Messenger' : ''} · ${manilaDatetime()}`],
+      [`👤 ${guestName}`, `📞 ${guestPhone}`, guestEmail && `📧 ${guestEmail}`, contactType === 'whatsapp' && `💬 WhatsApp preferred`],
+      ctxLines,
+      [`📅 ${checkinStr} → ${checkoutStr}`, `🌙 ${nights} night${nights === 1 ? '' : 's'} · 👥 ${pax} guest${pax === 1 ? '' : 's'}`],
+      [`💰 Total ₱${totalAmount.toLocaleString()}`, `💳 ${depLabel} ₱${depositAmount.toLocaleString()}`, `📒 Ledger: pending review (confirms on approval)`],
+      [isHold ? `🗓️ HOLD ${HOLD_HOURS} h while the guest pays${holdExpiresAt ? ` (until ${new Date(holdExpiresAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })})` : ' (hold row not opened — RPC missing?)'}; released automatically if no receipt arrives`
+              : `🗓️ Dates held pending your review · 📎 receipt pending or not provided`,
+       isHold && `🧾 The receipt arrives here as its own card when the guest uploads it`],
+      notes ? [`📝 ${notes}`] : [],
+      [`Do: wait for the receipt card, then tap Confirm there.`, `🔖 Ref ${ref} · 🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${inquiryId}`],
+    ));
 
     await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: tgFinanceId, text: msg }),
+      body: JSON.stringify({ chat_id: tgFinanceId, text: msg, disable_web_page_preview: true, reply_markup: autoKeyboard(msg, BTN.expense) }),
       signal: AbortSignal.timeout(15_000),
     }).catch(() => {});
 

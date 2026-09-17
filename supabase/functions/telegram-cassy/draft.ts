@@ -52,3 +52,14 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   lines.push(`Do: copy, adjust, send from the Page. Nothing was sent. Site link if needed: ${SITE_URL}`);
   return lines.join('\n');
 }
+
+/** Session 28: the ✏️ Revise tap. Rewrites a host message in the Concierge voice; every fact, figure,
+ * date and name stays. Returns the card the host reads (never sent to a guest). */
+// deno-lint-ignore no-explicit-any
+export async function reviseHostMessage(_db: any, template: string, context: string): Promise<string> {
+  const system = `${VOICE}\n\nFACTS:\n${typeof FACTS === 'string' ? FACTS : JSON.stringify(FACTS)}\n\nYou are revising a message the HOST is about to send to a guest. Keep the same language, every fact, figure, date, amount and name exactly; make it warmer, shorter and more natural, one message, no greeting line if the original has none. Return ONLY JSON {"reply": "<the revised message>"}.`;
+  const q = `${context ? `Card context:\n${context.slice(0, 800)}\n\n` : ''}Message to revise:\n\"\"\"${template.slice(0, 1500)}\"\"\"`;
+  const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy revise', temperature: 0.5, maxTokens: 400, timeoutMs: 30_000 });
+  const reply = String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n');
+  return ['✍️ Revised draft', '', reply, '', 'Do: copy and send from the Page or the app. Nothing was sent.', `📨 ${reply}`].join('\n');
+}

@@ -9,7 +9,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
-import { withHeader } from '../_shared/cascade-core/format.ts';
+import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -25,7 +25,7 @@ const JSON_H       = { 'Content-Type': 'application/json' };
 async function tgSend(text: string): Promise<void> {
   if (!TG_TOKEN || !FINANCE_CHAT) return;
   const r = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
-    method: 'POST', headers: JSON_H, body: JSON.stringify({ chat_id: FINANCE_CHAT, text, disable_web_page_preview: true }), signal: AbortSignal.timeout(15_000),
+    method: 'POST', headers: JSON_H, body: JSON.stringify({ chat_id: FINANCE_CHAT, text, disable_web_page_preview: true, reply_markup: autoKeyboard(text) }), signal: AbortSignal.timeout(15_000),
   }).catch((e) => { console.error('tgSend', String(e)); return null; });
   if (r && !r.ok) console.error('tgSend non-ok', r.status, (await r.text().catch(() => '')).slice(0, 200));
 }
@@ -62,15 +62,12 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
       const ref = 'DIR-' + String(b.id).slice(0, 8).toUpperCase();
       if (dry) { released.push(ref + ' (candidate by age; the RPC decides)'); continue; }
       const guestLine = `Hi ${String(b.guest_name).split(' ')[0]}, your hold for ${dm(b.checkin_date)}–${dm(b.checkout_date)} at Cascade Hideaway has been released because we did not receive the ₱${peso(b.deposit_amount)} reservation fee within ${HOLD_HOURS} hours. The dates are open again — if you still want them, book again at the site and send the receipt right after.`;
-      await tgSend(withHeader('attention', `hold expired ${ref}`, [
-        `Hold released: ${b.guest_name} · ${dm(b.checkin_date)} → ${dm(b.checkout_date)} · ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)} never arrived.`,
-        '',
-        `• Submitted ${new Date(b.submitted_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })}`,
-        `• Contact: ${b.guest_phone}${b.guest_email ? ` · ${b.guest_email}` : ''}`,
-        `• Calendar hold cancelled, ledger row voided${EMAIL_ACTION ? ', guest e-mailed' : ''}`,
-        '',
-        `Do: if they paid by another route, restore it from the dashboard; otherwise send them: "${guestLine}"`,
-      ].join('\n')));
+      await tgSend(withHeader('attention', `hold expired ${ref}`, groups(
+        [`Hold released: ${b.guest_name} · ${dm(b.checkin_date)} → ${dm(b.checkout_date)}`, `₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)} never arrived`],
+        [`👤 ${b.guest_phone}${b.guest_email ? ` · ${b.guest_email}` : ''}`, `🕒 Submitted ${new Date(b.submitted_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })}`],
+        [`✅ Calendar hold cancelled, ledger row voided${EMAIL_ACTION ? ', guest e-mailed' : ''}`, `↩️ Paid by another route? Restore it from the dashboard.`],
+        doSend(String(b.guest_name).split(' ')[0], guestLine),
+      )));
       if (EMAIL_ACTION && RELAY_URL && RELAY_TOKEN && b.guest_email) {
         await fetch(RELAY_URL, { method: 'POST', headers: JSON_H, signal: AbortSignal.timeout(20_000),
           body: JSON.stringify({ action: EMAIL_ACTION, token: RELAY_TOKEN, ref: ref.slice(4), guest_name: b.guest_name, guest_email: b.guest_email, checkin: b.checkin_date, checkout: b.checkout_date, deposit: b.deposit_amount, hold_hours: HOLD_HOURS, message: guestLine }),
@@ -87,12 +84,11 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
       if (sErr) console.warn('unreviewed_booking_receipts_v1:', sErr.message);
       for (const b of (Array.isArray(stale) ? stale : []) as Array<Record<string, any>>) {
         const ref = 'DIR-' + String(b.id).slice(0, 8).toUpperCase();
-        await tgSend(withHeader('attention', `receipt waiting ${ref}`, [
-          `${b.guest_name} sent a receipt ${Math.round((Date.now() - new Date(b.updated_at).getTime()) / 3_600_000)} h ago and nobody has confirmed or declined it yet.`,
-          `• ${dm(b.checkin_date)} → ${dm(b.checkout_date)} · ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`,
-          '',
-          `Do: scroll up to the 🧾 FINANCE receipt card and tap Confirm or Decline, or open https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${b.id}`,
-        ].join('\n')));
+        await tgSend(withHeader('attention', `receipt waiting ${ref}`, groups(
+          [`${b.guest_name} sent a receipt ${Math.round((Date.now() - new Date(b.updated_at).getTime()) / 3_600_000)} h ago`, `Nobody has confirmed or declined it yet`],
+          [`📅 ${dm(b.checkin_date)} → ${dm(b.checkout_date)}`, `💳 ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`],
+          [`Do: scroll up to the 🧾 FINANCE receipt card and tap Confirm or Decline`, `🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${b.id}`],
+        )));
         nudged.push(ref);
       }
     }

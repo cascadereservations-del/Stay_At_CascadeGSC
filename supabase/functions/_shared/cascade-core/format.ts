@@ -40,8 +40,17 @@ export function parseReport(text: string): Report {
 /** Model line names who answered; code-built reports (daily-digest) pass '' and get no signature. */
 export function renderReport(r: Report, model = ''): string {
   const out: string[] = [r.decision || 'Nothing needs you right now.'];
-  const lines = r.lines.slice(0, 5);
-  if (lines.length) out.push('', ...lines.map((l) => `• ${l}`));
+  // Session 28 (2026-09-17): an empty entry in r.lines is a group break - one idea per group, a blank
+  // line between groups, at most five bulleted lines per group. parseReport() never emits '', so a
+  // model cannot break groups; only code-built reports (daily-digest) do.
+  const lines: string[] = []; let n = 0;
+  for (const l of r.lines) {
+    if (l === '') { if (lines.length && lines[lines.length - 1] !== '') { lines.push(''); n = 0; } continue; }
+    if (n++ >= 5) continue;
+    lines.push(`• ${l}`);
+  }
+  while (lines[lines.length - 1] === '') lines.pop();
+  if (lines.length) out.push('', ...lines);
   if (r.action) out.push('', `Do: ${r.action}`);
   if (model) out.push('', `— ${model}`);
   return out.join('\n');
@@ -57,4 +66,39 @@ const HEADER: Record<HeaderKind, string> = {
 };
 export function withHeader(kind: HeaderKind, subject: string, body: string): string {
   return `${HEADER[kind]}${subject ? ` · ${subject}` : ''}\n\n${body}`;
+}
+
+// Session 28 (Lloyd, 2026-09-17): cards are read on a phone between two other things. groups() puts a
+// blank line between ideas (who / when / what / Do) and caps a group at five lines. A Do line that asks
+// a human to message someone carries the ready-to-send text on its own 📨 line; the tap handlers in
+// telegram-expense read that line back from the tapped message (Telegram hands the tap the message,
+// so there is no state), send it as monospace for long-press copy, or ask Cassy to revise it.
+export function groups(...gs: Array<Array<string | false | null | undefined>>): string {
+  return gs.map((g) => g.filter((l): l is string => typeof l === 'string' && l.trim() !== '').slice(0, 5).join('\n')).filter(Boolean).join('\n\n');
+}
+export const DASH_URL = 'https://cascadereservations-del.github.io/cascade-admin-dashboard/#/';
+export const TEMPLATE_MARK = '📨 ';
+/** Do lines for messaging someone: the instruction, then the text itself on the 📨 line. */
+export function doSend(to: string, text: string): string[] {
+  return [`Do: send ${to} this (Copy, or Revise with Cassy):`, `${TEMPLATE_MARK}${text}`];
+}
+/** The 📨 text of a card (up to the next blank line), or '' when the card has none. */
+export function templateOf(cardText: string): string {
+  const i = cardText.indexOf(TEMPLATE_MARK); if (i < 0) return '';
+  const rest = cardText.slice(i + TEMPLATE_MARK.length); const end = rest.search(/\n\s*\n/);
+  return (end < 0 ? rest : rest.slice(0, end)).trim();
+}
+export type Btn = { text: string; callback_data?: string; url?: string };
+export const BTN: Record<'template' | 'inventory' | 'expense', Btn[]> = {
+  template:  [{ text: '📋 Copy', callback_data: 'tpl:copy' }, { text: '✏️ Revise', callback_data: 'tpl:revise' }],
+  inventory: [{ text: '📦 Inventory', url: `${DASH_URL}inventory` }, { text: '/inventory', callback_data: 'menu:do:inventory' }],
+  expense:   [{ text: '💰 Log expense', callback_data: 'menu:do:log' }, { text: '🧾 Records', url: `${DASH_URL}inventory/purchases` }],
+};
+/** Buttons a card earns from its own text (📨 -> Copy/Revise, 📦 -> Inventory) plus any the sender adds. */
+export function autoKeyboard(text: string, ...more: Btn[][]): { inline_keyboard: Btn[][] } | undefined {
+  const rows: Btn[][] = [];
+  if (text.includes(TEMPLATE_MARK)) rows.push(BTN.template);
+  if (text.includes('📦')) rows.push(BTN.inventory);
+  for (const r of more) if (r.length) rows.push(r);
+  return rows.length ? { inline_keyboard: rows } : undefined;
 }

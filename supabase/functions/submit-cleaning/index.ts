@@ -37,7 +37,7 @@ import { evaluateGasResponse } from './gas-response.ts';
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
 //   cleaning session is recorded first; work-order failures only warn.
-import { withHeader } from '../_shared/cascade-core/format.ts';
+import { withHeader, autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { raiseWorkOrder, suggestFix, workOrderCard } from '../_shared/cascade-core/workorders.ts';
 
 // This recovered function predates generated database types. Keep its helper
@@ -685,7 +685,8 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         raiseWorkOrder(supabase, args).then(async (wo) => {
           if (!wo?.created || !TG_TOKEN || !TG_CHAT_ID) return;
           const s = await suggestFix(issue, `reported by the cleaner on ${cleaningDate}${wo.next_checkin ? `, next guest arrives ${wo.next_checkin}` : ''}`);
-          await tgPost(TG_TOKEN, 'sendMessage', { chat_id: TG_CHAT_ID, text: workOrderCard('cleaning', args, wo, s) });
+          const card = workOrderCard('cleaning', args, wo, s); // session 28: 📨 guest reply -> Copy/Revise buttons
+          await tgPost(TG_TOKEN, 'sendMessage', { chat_id: TG_CHAT_ID, text: card, reply_markup: autoKeyboard(card) });
         }).catch((err) => console.warn('[work-order] non-fatal:', err));
       });
     }
