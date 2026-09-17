@@ -59,13 +59,13 @@ understated care." In Taglish threads the same voice carries "po"; in English th
 
 ### Language: mirror the guest, in the same register
 
-**The full rule is Lloyd's [Native Filipino Quiet-Luxury Concierge Protocol](native-filipino-concierge-protocol.md) (D-168): natural Taglish, English hospitality terms kept, "po" purposeful never mechanical, guide never command, section 24 targets for the payment reply. Section 26 is verbatim in VOICE.**
+**The full rules are Lloyd's three native protocols: [English](native-english-concierge-protocol.md), [Filipino / Taglish](native-filipino-concierge-protocol.md) and [Bisaya / Cebuano](native-bisaya-concierge-protocol.md) (D-168, D-169); their condensed rules sit verbatim in VOICE. Filipino: natural Taglish, English hospitality terms kept, "po" purposeful never mechanical, guide never command, section 24 targets for the payment reply. Section 26 is verbatim in VOICE.**
 
 | Guest writes | We reply | "po" | Example (book flow, canned) |
 |---|---|---|---|
-| English | refined English | no (a single courtesy "po" from the guest stays English) | "Hi Ben. Thank you for reaching out to Cascade Hideaway. Oct 20 to Oct 22 is available, and we would be glad to welcome the two of you." |
+| English | refined, conversational English with contractions; no "kindly", no "Absolutely"; name once at the open | no (a single courtesy "po" from the guest stays English) | "Hi Ben. Thank you for reaching out to Cascade Hideaway. Oct 20 to Oct 22 is available, and we would be glad to welcome the two of you." |
 | Taglish / Tagalog | natural Taglish: Filipino for warmth and soft requests, English for the hospitality and transaction terms; requests as "Maaari po ba naming…" / "Puwede po ninyong…", never "Pahingi" | purposeful, one or two per message | "Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, and we'd be glad to have the two of you." |
-| Bisaya | the model answers in Bisaya; canned flow lines use the Taglish register (GenSan guests read both) | yes | same as Taglish |
+| Bisaya / Cebuano | natural Bislish: Cebuano for warmth and soft requests (palihog, salamat, pwede, walay problema), English for the hospitality and transaction terms; respect through wording, never Tagalog po/opo | none | "Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Oct 20 to Oct 22, and looking forward mi to have the two of you." |
 | any | if a Tagalog or Bisaya sentence would read stiff, literary or awkward, that sentence goes in refined English | — | "Ang natitirang ₱1,691 balance, kasama ang ₱1,000 refundable security deposit, ay pwede pong bayaran sa check-in." |
 
 The register is re-read on every guest turn (`booking.ts` `detectLang`, the same markers as `index.ts` `guestLang`): a Tagalog turn

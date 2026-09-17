@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
+import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
 import { lintReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -499,7 +499,7 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
   if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: `Sorry po, something went wrong on our side — please try again in a minute, or book here: ${SITE_URL}`, image: null }; }
-  if (r.status === 409 || j.error === 'dates_unavailable') return { flow: { ...flow, step: 'dates', updated_at: new Date().toISOString() }, reply: flow.lang === 'tl' ? `Sorry po, kaka-reserve lang ng dates na iyon. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.` : `My apologies — those dates were reserved just moments ago. Should other dates suit you, kindly share your check-in and check-out and I will gladly check them for you.`, image: null };
+  if (r.status === 409 || j.error === 'dates_unavailable') return { flow: { ...flow, step: 'dates', updated_at: new Date().toISOString() }, reply: reg(flow.lang, { en: `Sorry — those dates were reserved just moments ago. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`, tl: `Sorry po, kaka-reserve lang ng dates na iyon. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`, bis: `Sorry, kaka-reserve lang sa dates nga na. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.` }), image: null };
   if (!j.ok) { console.error('submit_flow_rejected', JSON.stringify(j).slice(0, 200)); return { flow, reply: `Sorry po, I couldn't send that request (${String(j.error ?? 'error').replace(/_/g, ' ')}). You can also book here: ${SITE_URL}`, image: null }; }
   const f: Flow = { ...flow, step: 'await_receipt', booking_id: j.inquiry_id, ref: j.ref, deposit: Number(j.deposit_amount), total: Number(j.total_amount), hold: j.hold === true,
     hold_expires_at: j.hold_expires_at ?? null, receipt_token: j.receipt_upload_token, receipt_expires_at: j.receipt_upload_expires_at, updated_at: new Date().toISOString() };
@@ -507,17 +507,16 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
 }
 async function forwardReceipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }> {
   const first = name ? name.split(' ')[0] : 'po';
-  const tl = flow.lang === 'tl';
-  if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: tl ? `Salamat po. Nag-expire na ang hold na iyon — message lang po "book" and we'll set the dates up again.` : `Thank you. That hold has since expired; you are welcome to say "book" and we will arrange the dates again.` };
+  if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: reg(flow.lang, { en: `Thank you. That hold has since expired — just say "book" and we'll set the dates up again.`, tl: `Salamat po. Nag-expire na ang hold na iyon — message lang po "book" and we'll set the dates up again.`, bis: `Salamat. Na-expire na ang hold — message lang "book" and amo i-set up ang dates again.` }) };
   const img = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
-  if (!img || !img.ok) return { sent: false, reply: tl ? `Sorry po, hindi ko ma-open ang image. Puwede po bang i-send ulit?` : `My apologies — I could not open that image. Would you kindly send it once more?` };
+  if (!img || !img.ok) return { sent: false, reply: reg(flow.lang, { en: `Sorry, I couldn't open that image. Could you send it once more?`, tl: `Sorry po, hindi ko ma-open ang image. Puwede po bang i-send ulit?`, bis: `Sorry, wala nako ma-open ang image. Pwede i-send usab?` }) };
   const bytes = new Uint8Array(await img.arrayBuffer());
   const mime = (img.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim();
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY') }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => ({})) : {};
-  if (r?.ok) return { sent: true, reply: tl ? `Salamat po, ${first}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.` : `Thank you, ${first}. Your receipt has been received, and we will confirm your reservation as soon as it has been reviewed. You will hear from us here.` };
-  if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: tl ? `Nasa amin na po ang receipt ninyo — nire-review na.` : `Your receipt is already with us, and it is being reviewed.` };
-  if (r?.status === 401) return { sent: false, reply: tl ? `Salamat po. Nag-expire na ang upload link — message lang po "book" and we'll set the dates up again.` : `Thank you. That upload link has since expired; you are welcome to say "book" and we will arrange the dates again.` };
+  if (r?.ok) return { sent: true, reply: reg(flow.lang, { en: `Thank you, ${first}. We've received your receipt and we'll confirm the reservation as soon as it's reviewed. You'll hear from us here.`, tl: `Salamat po, ${first}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`, bis: `Salamat, ${first}. Na-receive na namo ang receipt — amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.` }) };
+  if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: reg(flow.lang, { en: `Your receipt is already with us and it's being reviewed.`, tl: `Nasa amin na po ang receipt ninyo — nire-review na.`, bis: `Naa na sa amo ang receipt — gi-review na.` }) };
+  if (r?.status === 401) return { sent: false, reply: reg(flow.lang, { en: `Thank you. That upload link has since expired — just say "book" and we'll set the dates up again.`, tl: `Salamat po. Nag-expire na ang upload link — message lang po "book" and we'll set the dates up again.`, bis: `Salamat. Na-expire na ang upload link — message lang "book" and amo i-set up ang dates again.` }) };
   console.error('forward_receipt_failed', r?.status, JSON.stringify(j).slice(0, 200));
   return { sent: false, reply: `I couldn't attach that receipt po (${String(j?.error ?? 'error').replace(/_/g, ' ')}). Could you send it again?` };
 }
@@ -591,7 +590,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     // answer): dates completed on this turn are checked against the calendar before the next ask.
     if (s.action === 'ask' && flow.checkin && flow.checkout && (flow.checkin !== before.checkin || flow.checkout !== before.checkout)) {
       const line = availabilityLine(flow, await bookedNightsFor(db, flow));
-      if (/already reserved|Reserved na po/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = line; }
+      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = line; }
       else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
