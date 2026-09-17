@@ -173,8 +173,10 @@ export async function runTool(db: any, name: string, args: Record<string, unknow
       if (error) throw new Error(`inventory_items: ${error.message}`);
       const rows = (data ?? []) as any[];
       const tracked = rows.filter((r) => r.reorder_below != null);
-      const low = tracked.filter((r) => Number(r.qty_on_hand) <= Number(r.reorder_below)).map((r) => ({ name: r.name, qty: Number(r.qty_on_hand), reorder_below: Number(r.reorder_below), unit: r.unit, unit_cost: r.unit_cost }));
-      return { low, tracked_items: tracked.length, items_without_reorder_point: rows.length - tracked.length };
+      const low = tracked.filter((r) => Number(r.qty_on_hand) <= Number(r.reorder_below)).map((r) => ({ name: r.name, qty: Number(r.qty_on_hand), reorder_below: Number(r.reorder_below), unit: r.unit, unit_cost: r.unit_cost }))
+        // Most urgent first (session 29, live): the report keeps five bullets and had dropped the one item at 0.
+        .sort((a, b) => a.qty - b.qty || a.qty / (a.reorder_below || 1) - b.qty / (b.reorder_below || 1));
+      return { low, out_of_stock: low.filter((r) => r.qty <= 0).length, most_urgent_first: true, tracked_items: tracked.length, items_without_reorder_point: rows.length - tracked.length };
     }
     case 'inventory_report': {
       // get_inventory_catalogue_v1 (what the admin dashboard's Inventory page

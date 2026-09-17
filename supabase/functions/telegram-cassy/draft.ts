@@ -3,6 +3,8 @@
 // gated by the Concierge's own deterministic risk classifier. Never sends anything to a guest.
 import { FACTS, VOICE, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
+import { detectLang } from '../messenger-concierge/booking.ts';
+import { thinPo } from '../messenger-concierge/voice.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts';
 import { visionExtractText, parseModelJson, hasVisionKey } from '../_shared/cascade-core/vision.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
@@ -57,9 +59,13 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
  * date and name stays. Returns the card the host reads (never sent to a guest). */
 // deno-lint-ignore no-explicit-any
 export async function reviseHostMessage(_db: any, template: string, context: string): Promise<string> {
-  const system = `${VOICE}\n\nFACTS:\n${typeof FACTS === 'string' ? FACTS : JSON.stringify(FACTS)}\n\nYou are revising a message the HOST is about to send to a guest. Keep the same language, every fact, figure, date, amount and name exactly; make it warmer, shorter and more natural, one message, no greeting line if the original has none. Return ONLY JSON {"reply": "<the revised message>"}.`;
+  // Session 29 (live): a Bislish template came back as Tagalog with six "po". The register is read from the template
+  // itself and enforced in code, as the Concierge does (D-170).
+  const lang = detectLang(template);
+  const register = { en: 'refined conversational English, no "po"', tl: 'natural Taglish, at most two "po"', bis: 'natural Bislish (Cebuano with English hospitality terms), never Tagalog words or "po"/"opo"' }[lang];
+  const system = `${VOICE}\n\nFACTS:\n${typeof FACTS === 'string' ? FACTS : JSON.stringify(FACTS)}\n\nYou are revising a message the HOST is about to send to a guest. The message is in ${register}: reply in exactly that register. Keep every fact, figure, date, amount and name exactly; make it warmer, shorter and more natural, one message, no greeting line if the original has none. Return ONLY JSON {"reply": "<the revised message>"}.`;
   const q = `${context ? `Card context:\n${context.slice(0, 800)}\n\n` : ''}Message to revise:\n\"\"\"${template.slice(0, 1500)}\"\"\"`;
   const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy revise', temperature: 0.5, maxTokens: 400, timeoutMs: 30_000 });
-  const reply = String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n');
+  const reply = thinPo(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'), lang === 'bis' ? 0 : lang === 'tl' ? 2 : 1);
   return ['✍️ Revised draft', '', reply, '', 'Do: copy and send from the Page or the app. Nothing was sent.', `📨 ${reply}`].join('\n');
 }
