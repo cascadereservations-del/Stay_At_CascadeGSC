@@ -123,11 +123,21 @@ export const greeting = (name: string | null, lang: 'en' | 'tl' = 'en') => lang 
   ? `${name ? `Hi ${name.split(' ')[0]}.` : 'Hello po.'} Maraming salamat po sa pag-message sa Cascade Hideaway. `
   : `${name ? `Hi ${name.split(' ')[0]}.` : 'Hello.'} Thank you for reaching out to Cascade Hideaway. `;
 /** Cassy persona (D-167): greeting, then the answer, then a calm welcome that names the party. No exclamations. */
-export function opener(flow: Flow, name: string | null, answer = ''): string {
+/** "the two of you" / "kayong dalawa" - the party as a host names it. */
+export function party(flow: Flow): string {
   const tl = flow.lang === 'tl';
-  const who = tl
+  return tl
     ? (!flow.pax || flow.pax === 1 ? 'kayo' : flow.pax === 2 ? 'kayong dalawa' : `ang grupo ninyong ${flow.pax}`)
     : (!flow.pax || flow.pax === 1 ? 'you' : flow.pax === 2 ? 'the two of you' : `your party of ${flow.pax}`);
+}
+/** Mid-flow: new dates were just given and are open - acknowledge before the next ask (protocol rule 1, live 2026-09-17 10:57). */
+export function availabilityAck(flow: Flow, openLine: string): string {
+  const tl = flow.lang === 'tl';
+  return `${openLine}, ${tl ? `at masaya po kaming i-welcome ${party(flow)}.` : `and we would be glad to welcome ${party(flow)}.`}`;
+}
+export function opener(flow: Flow, name: string | null, answer = ''): string {
+  const tl = flow.lang === 'tl';
+  const who = party(flow);
   const welcome = tl ? `masaya po kaming i-welcome ${who}.` : `we would be glad to welcome ${who}.`;
   if (answer) return `${greeting(name, flow.lang)}${answer}, ${tl ? 'at ' : 'and '}${welcome}\n\n`;
   const dates = flow.checkin && flow.checkout

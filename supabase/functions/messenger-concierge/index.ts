@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
+import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
 import { lintReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -522,6 +522,13 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
   return { sent: false, reply: `I couldn't attach that receipt po (${String(j?.error ?? 'error').replace(/_/g, ' ')}). Could you send it again?` };
 }
 
+/** Booked nights overlapping the flow's stay (calendar_events, cancelled excluded). */
+async function bookedNightsFor(db: Db, flow: Flow): Promise<Set<string>> {
+  const { data: rows } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').lt('checkin_date', flow.checkout!).gt('checkout_date', flow.checkin!).limit(50);
+  const booked = new Set<string>();
+  for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
+  return booked;
+}
 async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<void> {
   const msg = ev.message; if (!msg) return;
   const now = new Date();
@@ -576,9 +583,17 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     const r = await forwardReceipt(flow, String(attachment.payload.url), thread.guest_name);
     flowReply = r.reply; if (r.sent) flow = { ...flow, step: 'receipt_sent', updated_at: now.toISOString() };
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
+    const before = flow;
     const s = answer(flow, text, now); flow = s.flow;
     if (s.action === 'passthrough') flowFollowUp = prompt(flow, thread.guest_name); // protocol: the model answers, then the flow's ask follows
     if (s.action === 'ask') flowReply = s.reply ?? prompt(flow, thread.guest_name);
+    // Protocol rule 1 mid-flow (live 2026-09-17 10:57: "Oct 20 to 22 po, available pa po ba?" got the contact ask with no
+    // answer): dates completed on this turn are checked against the calendar before the next ask.
+    if (s.action === 'ask' && flow.checkin && flow.checkout && (flow.checkin !== before.checkin || flow.checkout !== before.checkout)) {
+      const line = availabilityLine(flow, await bookedNightsFor(db, flow));
+      if (/already reserved|Reserved na po/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = line; }
+      else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
+    }
     else if (s.action === 'cancelled') flowReply = s.reply;
     else if (s.action === 'submit') { const r = await submitFlow(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
   } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && BOOK_RE.test(text) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
@@ -586,10 +601,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
     if (flow.asked === 'availability') {
-      const { data: rows } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').lt('checkin_date', flow.checkout!).gt('checkout_date', flow.checkin!).limit(50);
-      const booked = new Set<string>();
-      for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
-      const line = availabilityLine(flow, booked);
+      const line = availabilityLine(flow, await bookedNightsFor(db, flow));
       if (/already reserved/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang) + line; }
       else flowReply = opener(flow, thread.guest_name, line) + prompt(flow, thread.guest_name);
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);

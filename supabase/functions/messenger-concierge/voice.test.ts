@@ -2,7 +2,7 @@
 // The communication protocol's build gate: every canned line the book flow can send passes lintReply().
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { lintReply } from './voice.ts';
-import { answer, availabilityLine, detectLang, opener, paymentReply, prompt, start, type Flow } from './booking.ts';
+import { answer, availabilityAck, availabilityLine, detectLang, opener, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { GCASH_QRPH_BASE, crc16, qrphWithAmount } from '../_shared/cascade-core/qrph.ts';
 
 const now = new Date('2026-09-17T01:00:00Z');
@@ -59,4 +59,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   assertEquals(lintReply(tlPay), []);
   for (const step of ['dates', 'checkout', 'pax', 'contact', 'confirm'] as const) assertEquals(lintReply(prompt({ ...base, lang: 'tl', step }, 'Ben')), [], step);
   assertEquals(lintReply(availabilityLine({ ...base, lang: 'tl' }, new Set(['2026-10-03'])), 'available pa po ba'), []);
+  const mid = availabilityAck({ ...base, lang: 'tl' }, availabilityLine({ ...base, lang: 'tl' }, new Set())) + '\n\n' + prompt({ ...base, lang: 'tl', step: 'contact' }, 'Ben');
+  assertEquals(mid.startsWith('Available po ang Oct 3 to Oct 4, at masaya po kaming i-welcome kayong dalawa.'), true);
+  assertEquals(lintReply(mid, 'Oct 3 to 4 po, available pa po ba?'), []);
 });
