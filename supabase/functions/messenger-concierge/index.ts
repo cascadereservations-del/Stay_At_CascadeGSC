@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { answerOnly, lintReply, thinPo } from './voice.ts';
+import { answerOnly, lintReply, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
@@ -655,7 +655,10 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
       const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
-      let out = await draft(thread, nameHint + discHint + capHint + datesHint + flowHint + LANG_HINT[lang] + text, context, 'full', followUp);
+      // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
+      const knownPax = thread.booking_flow?.pax;
+      const paxHint = knownPax && !flowFollowUp ? `[Already known from this chat: ${knownPax} guest${knownPax === 1 ? '' : 's'}. Do not ask how many guests again; ask something only if it is truly needed.] ` : '';
+      let out = await draft(thread, nameHint + discHint + capHint + datesHint + paxHint + flowHint + LANG_HINT[lang] + text, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
@@ -701,6 +704,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       if (followUp && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply += `\n\n👉 ${SITE_URL}`;
       if (!discountAsk) reply = bookingNudge(reply, lang, datesKnown.length > 0, thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL)));
       reply = linkSolo(reply, SITE_URL);
+      if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.

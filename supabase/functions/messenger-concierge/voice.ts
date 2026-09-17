@@ -36,6 +36,32 @@ export function thinPo(text: string, keep = 2): string {
   return text.replace(/ po\b/g, (m) => (++n > keep ? '' : m));
 }
 
+// Session 30 (live 2026-09-17 18:25, "hello, available Oct 20 to 22?"): the reply read "…directly on our site:" with no
+// link under it, then two more nudges ("Direct bookings offer…", "No pressure at all…"), in stiff uncontracted English.
+const SOFT_NUDGE_RE = /\b(no pressure|whenever you(?:'d| would) like to secure|here whenever you(?:'re| are) ready|walang pressure|kapag handa na (po )?kayo)\b/i;
+const CONTRACTIONS: Array<[RegExp, string]> = [
+  [/\b(We|we|You|you|I|They|they) would\b/g, "$1'd"], [/\b(We|we|You|you|They|they) are\b/g, "$1're"], [/\b(We|we|You|you|I|They|they) will\b/g, "$1'll"],
+  [/\b(We|we|You|you|I|They|they) have\b(?= (?:been|already|prepared|arranged|noted|set|reserved))/g, "$1've"], [/\b(It|it|That|that|There|there) is\b/g, "$1's"],
+  [/\b(D|d)o not\b/g, "$1on't"], [/\b(D|d)oes not\b/g, "$1oesn't"], [/\b(C|c)annot\b/g, "$1an't"], [/\b(I|i)s not\b/g, "$1sn't"],
+];
+/** Code-owned polish for a model reply (D-097: prompt rules alone fail). An invite sentence that ends in ":" always has
+ *  its link under it; when the site is offered, the soft "no pressure" paragraphs go (one invitation per message,
+ *  protocol rule 4); English replies use contractions (protocol 08). Pure, so it is tested. */
+export function tidyReply(reply: string, siteUrl: string, english: boolean): string {
+  let paras = reply.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  for (let i = 0; i < paras.length; i++) {
+    if (!/:\s*$/.test(paras[i])) continue;
+    const next = paras[i + 1] ?? '';
+    if (/^(👉|https?:\/\/|🏡|⭐|📅|•|-)/.test(next)) continue;          // the colon is followed by what it promised
+    if (/\b(site|website|link)\b/i.test(paras[i])) paras.splice(i + 1, 0, `👉 ${siteUrl}`);
+    else paras[i] = paras[i].replace(/\s*:\s*$/, '.');
+  }
+  if (paras.some((p) => p.includes(siteUrl))) paras = paras.filter((p, i) => i === 0 || !SOFT_NUDGE_RE.test(p) || p.includes(siteUrl));
+  let out = paras.join('\n\n');
+  if (english) for (const [re, to] of CONTRACTIONS) out = out.replace(re, to);
+  return out;
+}
+
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
   const v: Violation[] = [];

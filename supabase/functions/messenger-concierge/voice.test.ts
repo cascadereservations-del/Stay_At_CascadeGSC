@@ -1,7 +1,7 @@
 // deno test --allow-env messenger-concierge/voice.test.ts  (from supabase/functions)
 // The communication protocol's build gate: every canned line the book flow can send passes lintReply().
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { answerOnly, lintReply, thinPo } from './voice.ts';
+import { answerOnly, lintReply, thinPo, tidyReply } from './voice.ts';
 import { answer, availabilityAck, availabilityLine, detectLang, opener, parsePax, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { GCASH_QRPH_BASE, crc16, qrphWithAmount } from '../_shared/cascade-core/qrph.ts';
 
@@ -134,4 +134,25 @@ Deno.test("calendar unknown: no availability claim, three registers", () => {
     assertEquals(/confirm shortly/.test(line), true);
     assertEquals(lintReply(opener(f, "Ben", line) + prompt(f, "Ben"), "", { firstTurn: true }), []);
   }
+});
+
+// Session 30, live 18:25 Manila: the exact reply Lloyd called worse and awkward.
+Deno.test('tidyReply: a dangling site invite gets its link, one invitation, contractions', () => {
+  const url = 'https://tinyurl.com/Stay-at-Cascade';
+  const bad = [
+    'Ben, yes, the unit is available from October 20 to 22. We would be pleased to welcome you.',
+    'Alternatively, you may check and secure your dates directly on our site:',
+    'Direct bookings offer our best rates, with savings that increase the longer you stay.',
+    'No pressure at all; we are here whenever you would like to secure those dates.',
+  ].join('\n\n');
+  const out = tidyReply(bad, url, true);
+  assertEquals(out.includes(`on our site:\n\n👉 ${url}`), true);
+  assertEquals(/No pressure/.test(out), false);
+  assertEquals(out.includes("We'd be pleased"), true);
+  assertEquals(out.split(url).length - 1, 1);
+  assertEquals(lintReply(out, 'hello, available Oct 20 to 22?'), []);
+  // a colon already followed by its link is left alone; Taglish is not contracted; a non-site colon becomes a full stop
+  assertEquals(tidyReply(`Our site has the details:\n\n👉 ${url}`, url, false), `Our site has the details:\n\n👉 ${url}`);
+  assertEquals(tidyReply('We are ready po.', url, false), 'We are ready po.');
+  assertEquals(tidyReply('A few things to note:\n\nQuiet hours run 10 PM to 6 AM.', url, true), 'A few things to note.\n\nQuiet hours run 10 PM to 6 AM.');
 });
