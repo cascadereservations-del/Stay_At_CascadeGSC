@@ -96,9 +96,9 @@ export const within48h = (checkin: string, now = new Date()) => Date.parse(check
 export function availabilityLine(flow: Flow, bookedNights: Set<string>): string {
   if (!flow.checkin || !flow.checkout) return '';
   for (let d = flow.checkin; d < flow.checkout; d = new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)) {
-    if (bookedNights.has(d)) return `${dm(flow.checkin)} to ${dm(flow.checkout)} is already taken po — the home is one guest at a time, so it has to be fully yours. Would other dates work for you? Tell me the check-in and check-out and I'll check right away.`;
+    if (bookedNights.has(d)) return `${dm(flow.checkin)} to ${dm(flow.checkout)} is already reserved, as the home welcomes one party at a time. Should other dates suit you, kindly share your check-in and check-out and I will gladly check them for you.`;
   }
-  return `Good news po — ${dm(flow.checkin)} to ${dm(flow.checkout)} is open.`;
+  return `${dm(flow.checkin)} to ${dm(flow.checkout)} is available`;
 }
 
 export function isActive(flow: Flow | null | undefined, now = new Date()): flow is Flow {
@@ -107,36 +107,32 @@ export function isActive(flow: Flow | null | undefined, now = new Date()): flow 
 
 /** The first reply of a flow: a host's welcome that acknowledges what the guest already told us
  * (session 28 - "Your mobile number po?" as an opener read as a form, not a host). */
-export const greeting = (name: string | null) => `${name ? `Hello ${name.split(' ')[0]}!` : 'Hello!'} Thank you for thinking of Cascade Hideaway 🌿 `;
-/** Greeting, then the answer (if any), then the welcome that names the party (Lloyd 09:55: answer-before-hello read inside-out). */
+export const greeting = (name: string | null) => `${name ? `Hi ${name.split(' ')[0]}.` : 'Hello.'} Thank you for reaching out to Cascade Hideaway. `;
+/** Cassy persona (D-167): greeting, then the answer, then a calm welcome that names the party. No exclamations. */
 export function opener(flow: Flow, name: string | null, answer = ''): string {
-  const who = !flow.pax || flow.pax === 1 ? 'you' : flow.pax === 2 ? 'the two of you' : `your group of ${flow.pax}`;
-  if (answer) return `${greeting(name)}${answer} We'd love to have ${who}.
-
-`;
-  const dates = flow.checkin && flow.checkout ? `${dm(flow.checkin)} to ${dm(flow.checkout)} — noted po, I'll check those dates as we go. ` : flow.checkin ? `Check-in ${dm(flow.checkin)} — noted po. ` : '';
-  return `${greeting(name)}${dates}We'd love to have ${who}.
-
-`;
+  const who = !flow.pax || flow.pax === 1 ? 'you' : flow.pax === 2 ? 'the two of you' : `your party of ${flow.pax}`;
+  if (answer) return `${greeting(name)}${answer}, and we would be glad to welcome ${who}.\n\n`;
+  const dates = flow.checkin && flow.checkout ? `${dm(flow.checkin)} to ${dm(flow.checkout)} is noted, and I will check those dates for you as we go. ` : flow.checkin ? `Check-in on ${dm(flow.checkin)} is noted. ` : '';
+  return `${greeting(name)}${dates}We would be glad to welcome ${who}.\n\n`;
 }
 
-/** The question for the current slot, in the Concierge voice: one warm line, one clear ask. */
+/** The question for the current slot, in the Cassy voice: calm, gracious, precise; guide rather than command. */
 export function prompt(flow: Flow, name: string | null): string {
   const n = name ? `${name.split(' ')[0]}, ` : '';
   switch (flow.step) {
-    case 'dates': return `${n ? `${n}which` : 'Which'} dates are you thinking of po — your check-in and check-out? (e.g. "Sep 24 to 26")`;
-    case 'checkout': return `Lovely — check-in ${dm(flow.checkin!)}. And until when would you be staying with us po?`;
-    case 'pax': return `And how many of you will be staying po? The home is most comfortable for up to 3 adults, or 2 adults with 2 little ones.`;
-    case 'contact': return `May we have your mobile number po, so we can reach you about your stay? Add your e-mail too if you'd like the confirmation there — or just the number is fine. 😊`;
+    case 'dates': return `${n ? `${n}which` : 'Which'} dates would you like to stay with us? Your check-in and check-out will do (for example, "Sep 24 to 26").`;
+    case 'checkout': return `Thank you. Check-in on ${dm(flow.checkin!)} is noted. Until which date would you like to stay?`;
+    case 'pax': return `And how many guests will be staying? The home comfortably accommodates up to 3 adults, or 2 adults with 2 children.`;
+    case 'contact': return `May we have your mobile number, so we can reach you about your stay? You are welcome to add an e-mail address as well, if you would like your confirmation there.`;
     case 'confirm': { const q = quoteTotal(flow.checkin!, flow.checkout!); return [
-      `Here's your stay po:`,
-      `📅 ${dm(flow.checkin!)} → ${dm(flow.checkout!)} · ${q.nights} night${q.nights === 1 ? '' : 's'} · ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
+      `Here are your stay details:`,
+      `📅 ${dm(flow.checkin!)} to ${dm(flow.checkout!)} · ${q.nights} night${q.nights === 1 ? '' : 's'} · ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
       `📞 ${flow.phone}${flow.email ? ` · ${flow.email}` : ''}`,
       `💰 Total ${peso(q.total)}`,
       ``,
       flow.pay_full === true
-        ? `Check-in is close, so the full ${peso(q.total)} secures it. Reply FULL to send this through, or tell me what to change.`
-        : `To secure it, reply DEPOSIT (${peso(q.deposit)} now, the rest at check-in) or FULL (${peso(q.total)} now). That sends it through — or tell me what to change.`,
+        ? `As your check-in is near, the full ${peso(q.total)} secures your stay. You may reply FULL to send your request through, or let me know if anything needs changing.`
+        : `To secure your stay, you may reply DEPOSIT to reserve with ${peso(q.deposit)} now and settle the balance at check-in, or FULL to settle ${peso(q.total)} now. Either sends your request through. If anything needs changing, simply let me know.`,
     ].join('\n'); }
     default: return '';
   }
@@ -164,14 +160,14 @@ export function start(text: string, now = new Date()): Flow {
 export function answer(flow: Flow, text: string, now = new Date()): Step {
   const f: Flow = { ...flow, updated_at: now.toISOString() };
   const today = f.updated_at.slice(0, 10);
-  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: `Of course po, no problem at all — nothing was sent. Whenever you're ready, just say "book" and we'll pick it up right where we left off. 😊`, action: 'cancelled' };
+  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: `Of course. Nothing has been sent, and you are welcome to return to this whenever it suits you — simply say "book" and we will pick up from here.`, action: 'cancelled' };
   const ask = (reply?: string): Step => ({ flow: f, reply: reply ?? null, action: 'ask' });
-  const retry = (what: string): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(`Pasensya po, I didn't quite catch ${what}. ${prompt(f, null)}`);
+  const retry = (what: string): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(`My apologies — I could not quite make out ${what}. ${prompt(f, null)}`);
   switch (f.step) {
     case 'dates': {
       const d = parseDates(text, now);
       if (!d[0]) return retry('the dates');
-      if (d[0] < today) return ask(`That date has already passed po — which upcoming dates would suit you?`);
+      if (d[0] < today) return ask(`That date has already passed. Which upcoming dates would suit you?`);
       f.checkin = d[0]; f.step = 'checkout';
       if (d[1] && d[1] > d[0]) { f.checkout = d[1]; f.step = f.pax ? 'contact' : 'pax'; }
       return ask();
@@ -179,13 +175,13 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
     case 'checkout': {
       const d = parseDates(text, now);
       if (!d[0]) return retry('the check-out date');
-      if (d[0] <= f.checkin!) return ask(`Check-out would need to be after ${dm(f.checkin!)} po — until what date would you like to stay?`);
+      if (d[0] <= f.checkin!) return ask(`Check-out would need to fall after ${dm(f.checkin!)}. Until which date would you like to stay?`);
       f.checkout = d[0]; f.step = f.pax ? 'contact' : 'pax'; return ask();
     }
     case 'pax': {
       const p = parsePax(text);
       if (!p) return retry('the number of guests');
-      if (p > 4) return ask(`As much as we'd love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 little ones po — for ${p} a larger place would give you more room to rest. If your group fits that, just tell me the count again.`);
+      if (p > 4) return ask(`As much as we would love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 children. For a party of ${p}, a larger accommodation would give you more room to rest. If your group fits, kindly let me know the count again.`);
       f.pax = p; f.step = 'contact'; return ask();
     }
     case 'contact': {
@@ -214,16 +210,17 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
 // ponytail: one QR (GCash) in Messenger; UnionBank/InstaPay stays on the site page linked below.
 export function paymentReply(flow: Flow, name: string | null, siteUrl: string): string {
   const n = name ? name.split(' ')[0] : 'there';
-  const until = flow.hold_expires_at ? new Date(flow.hold_expires_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : null;
+  const until = flow.hold_expires_at ? new Date(flow.hold_expires_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).replace(', ', ' at ') : null;
   const full = (flow.deposit ?? 0) >= (flow.total ?? 0);
-  // Session 28 (Lloyd 10:10): three short paragraphs, one clearly marked next step, GCash only (Maya did not
-  // sign in on test), the amount rides in the QR. Balance and deposit in one line at the end.
+  // Cassy persona (D-167, Lloyd's own wording 2026-09-17 10:30): four calm paragraphs, "you may", the amount
+  // already arranged, no exclamations, one 🌿 at the close. GCash only.
   const head = flow.hold && until
-    ? `Wonderful, ${n} — ${dm(flow.checkin!)} to ${dm(flow.checkout!)} is held for you until ${until}. Reference ${flow.ref}.`
-    : `Thank you, ${n} — your request is in, reference ${flow.ref}. Your stay is close, so we confirm the moment the payment lands.`;
-  const next = `Next step: send ${peso(flow.deposit!)} via GCash — scan the QR below, the amount is already set. Then send your receipt screenshot here and we'll confirm your stay. 🙏`;
+    ? `Thank you, ${n}. We have reserved ${dm(flow.checkin!)} to ${dm(flow.checkout!)} for you until ${until}. Your booking reference is ${flow.ref}.`
+    : `Thank you, ${n}. Your request has been received, and your booking reference is ${flow.ref}. As your stay is near, we will confirm as soon as your payment is received.`;
+  const pay = `To secure your stay, you may send the ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} via GCash using the QR code below. The amount has already been set for you. Once completed, simply send us a screenshot of the receipt here and we will confirm your reservation.`;
   const later = full
-    ? `Only the ₱1,000 refundable security deposit is left for check-in. Full terms: ${siteUrl}`
-    : `The balance of ${peso(flow.total! - flow.deposit!)} and the ₱1,000 refundable security deposit are settled at check-in. Full terms: ${siteUrl}`;
-  return [head, '', next, '', later].join('\n');
+    ? `Only the ₱1,000 refundable security deposit remains, which may be settled upon check-in.`
+    : `The remaining ${peso(flow.total! - flow.deposit!)} balance, together with the ₱1,000 refundable security deposit, may be settled upon check-in.`;
+  const close = `Thank you again, ${n}. We look forward to welcoming you to Cascade Hideaway and preparing a comfortable stay for you. 🌿`;
+  return [head, '', pay, '', later, '', close].join('\n');
 }

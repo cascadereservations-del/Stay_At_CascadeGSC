@@ -24,9 +24,10 @@ Deno.test('the question is answered before the ask (live failure of 2026-09-17)'
   assertEquals(lintReply(cold, guest, { firstTurn: true }), ['no_answer']);
   const warm = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt({ ...f, step: 'phone' }, 'Ben');
   assertEquals(lintReply(warm, guest, { firstTurn: true }), []);
-  assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith('Oct 3 to Oct 4 is already taken po'), true);
-  assertEquals(warm.startsWith("Hello Ben! Thank you for thinking of Cascade Hideaway 🌿 Good news po — Oct 3 to Oct 4 is open. We'd love to have the two of you."), true);
+  assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith('Oct 3 to Oct 4 is already reserved'), true);
+  assertEquals(warm.startsWith("Hi Ben. Thank you for reaching out to Cascade Hideaway. Oct 3 to Oct 4 is available, and we would be glad to welcome the two of you."), true);
   assertEquals(lintReply('Your mobile number po?', '', { firstTurn: true }), ['form_speak', 'cold_opener']);
+  assertEquals(lintReply('Wonderful, Ben! Send ₱890 now.'), ['command_tone', 'exclaim']); // the persona's two forbidden moves
 });
 
 Deno.test('QR Ph amount payload keeps the CRC valid', () => {

@@ -6,12 +6,15 @@
 // lintReply() is run over every canned prompt in voice.test.ts (fails the build) and over every
 // outgoing reply at runtime (warn-only log `voice_lint`, so live drift is visible without blocking).
 
-export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense';
+export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense' | 'command_tone' | 'exclaim';
 
 const QUESTION_RE = /\?|\b(is it|are there|do you|does it|can we|can i|may i|pwede|meron|may (?:\w+ )?ba|magkano|how (much|far|many|long)|available|avail|bakante)\b/i;
 const FORM_RE = /^\s*(your|enter|provide|input|type)\s+(mobile|number|phone|e-?mail|name|date)/i;
 const ROBOT_RE = /\b(as an ai|language model|bot|automated|process(ing)? (your )?(booking|request)|ticket|form)\b/i;
 const COLD_RE = /^\s*(what|which|when|how many|your)\b[^.!]*\?\s*$/i;
+// Cassy persona (D-167): guide, never command; no exaggerated enthusiasm.
+const COMMAND_RE = /(^|\n|[.!?]\s+)(send|reply|tap|enter|pay|scan|upload|click)\s+(me|us|the|your|a|an|₱|\d|it|here|now|deposit|full)\b/i;
+const EXCLAIM_RE = /\b(wonderful|amazing|awesome|lovely|fantastic|great news|good news)\b|!{2,}/i;
 
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
@@ -26,6 +29,8 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
   if (ROBOT_RE.test(reply)) v.push('robot_word');
   if (/\b[A-Z]{6,}\b/.test(reply.replace(/\b(GCASH|PHP|YES|QR|OK|DEPOSIT|FULL)\b/g, ''))) v.push('shouting');
   if (opts.firstTurn && COLD_RE.test(reply)) v.push('cold_opener');
+  if (COMMAND_RE.test(reply)) v.push('command_tone');
+  if (EXCLAIM_RE.test(reply)) v.push('exclaim');
   // ANSWER: a guest question must be met with an answer before the next ask - a reply that is only
   // a question back to them is the failure Lloyd saw live ("is Oct 3 to 4 available?" -> "Your mobile number po?").
   if (guestText && QUESTION_RE.test(guestText)) {
