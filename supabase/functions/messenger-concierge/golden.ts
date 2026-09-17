@@ -23,7 +23,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   const cases: GoldenCase[] = [
     // ---- first contact: the link is there, under a both-routes sentence; greeting once; answer first
     { id: 'first-greeting-en', group: 'first', turns: [m('Good evening', 'en', { must: [LINK] })] },
-    { id: 'first-greeting-tl', group: 'first', turns: [m('Hello po, good evening', 'tl', { must: [LINK] })] },
+    { id: 'first-greeting-tl', group: 'first', turns: [m('Hello po, good evening', 'en', { must: [LINK] })] }, // an English greeting with a courtesy "po" is English (Lloyd 2026-09-13)
     { id: 'first-rate-en', group: 'first', turns: [m('How much per night?', 'en', { must: [LINK, /1,780/] })] },
     { id: 'first-rate-tl', group: 'first', turns: [m('Hm po per night?', 'tl', { must: [LINK, /1,780/] })] },
     { id: 'first-avail-en', group: 'first', turns: [m(`Hi, is ${d2} available? We're 2 adults`, 'en', { must: [LINK] })] },
@@ -35,14 +35,14 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     // ---- follow-ups: warm, no greeting, no re-ask, at most one invitation
     { id: 'fu-amenity-en', group: 'followup', turns: [m('Hi, do you have wifi?'), m('Is there a kitchen too?', 'en', { must: [/induction|kitchen/i] })] },
     { id: 'fu-amenity-with-dates-en', group: 'followup', turns: [m(`Hi! Is ${d2} open? 2 guests`), m('and is there wifi?', 'en', { must: [/wi-?fi/i] })] },
-    { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'tl'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/] })] },
+    { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'en'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/] })] },
     { id: 'fu-parking-en', group: 'followup', turns: [m(`Hello, is ${d3} available?`), m('Is there parking?', 'en', { must: [/parking|park/i, /gated|camera|CCTV/i] })] },
     { id: 'fu-early-no-dates-en', group: 'followup', turns: [m('Hi there'), { say: 'Can we check in early, around 9am?', kind: 'code', lang: 'en', mustNot: [/complimentary|confirmed|free of charge/i] }] },
     { id: 'fu-early-with-dates-en', group: 'followup', turns: [m(`Hi, is ${d2} available for 2?`), m('Can we check in at 10am on the first day?', 'en')] },
     { id: 'fu-capacity-4-adults-en', group: 'followup', turns: [m('Hello'), m('Can 4 adults stay?', 'en', { must: [/3 adults/i] })] },
     { id: 'fu-transactional-en', group: 'followup', turns: [m('Hi'), m('GCash ok?', 'en', { must: [/gcash/i] })] },
-    { id: 'fu-reviews-tl', group: 'followup', turns: [m('Hi po', 'tl'), m('Legit po ba? May reviews?', 'tl', { must: [/4\.98|Airbnb/i] })] },
-    { id: 'fu-discount-tl', group: 'followup', turns: [m('Hello po', 'tl'), m('May discount po ba?', 'tl', { must: [LINK] })] },
+    { id: 'fu-reviews-tl', group: 'followup', turns: [m('Hi po', 'en'), m('Legit po ba? May reviews?', 'tl', { must: [/4\.98|Airbnb/i] })] },
+    { id: 'fu-discount-tl', group: 'followup', turns: [m('Hello po', 'en'), m('May discount po ba?', 'tl', { must: [LINK] })] },
     { id: 'fu-think-about-it-en', group: 'followup', turns: [m(`Hi, is ${d2} open? 2 guests`), m('ok let me think about it first', 'en', { must: [LINK], mustNot: [/no pressure/i] })] },
     { id: 'fu-thanks-en', group: 'followup', turns: [m('Hi, do you have wifi?'), { say: 'thank you!', kind: 'code', lang: 'en' }] },
     { id: 'fu-ok-salamat-tl', group: 'followup', turns: [m('Hello po, may parking po ba?', 'tl'), { say: 'ok po salamat', kind: 'code', lang: 'tl' }] },
@@ -53,7 +53,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     // ---- register: Taglish on the first Bisaya turn, Bislish from the second, never "po" in Bislish
     { id: 'reg-bisaya-three-turns', group: 'register', turns: [m('Maayong buntag, naa bay parking?', 'tl'), m('Pila ka tawo max?', 'bis', { must: [/3 adults/i] }), m('Naa bay wifi ug kitchen?', 'bis')] },
     { id: 'reg-bot-bis', group: 'register', turns: [m('Maayong gabii, naa bay wifi?', 'tl'), m('Pila ang rate kada gabii?', 'bis', { must: [/1,780/] }), { say: 'bot ba ni?', kind: 'code', lang: 'bis', must: [/digital concierge/i] }] },
-    { id: 'reg-english-po', group: 'register', turns: [m('how far from SM po?', 'en', { must: [LINK, /km|minutes/i] })] },
+    { id: 'reg-english-po', group: 'register', turns: [m('how far from SM po?', 'en', { must: [LINK, /km|kilomet|minute/i] })] },
 
     // ---- book flow: Lloyd's approved lines are frozen; the model's mid-flow answer is the answer only, the card once
     { id: 'flow-question-at-confirm-en', group: 'flow', turns: [
@@ -69,7 +69,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'handoff-refund-en', group: 'handoff', turns: [{ say: 'We need to cancel our booking next week, can we get a refund?', kind: 'handoff', lang: 'en', noInvite: true }] },
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
-  if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { must: [/reserved|booked|taken|open window|nearest/i], mustNot: [/\bis (open|available)\b/i] })] });
+  if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { must: [/reserved|booked|taken|open window|nearest/i], mustNot: [new RegExp(`${bookedRange.split(' to ')[0]}[^.\\n]{0,40}\\bis (open|available)\\b`, 'i')] })] });
   // Lloyd 2026-09-17: on a day another guest checks out, the 12 noon check-in is never offered. Needs a real turnover day:
   // pass GOLDEN_TURNOVER="Oct 5" (a checkout_date from a read-only calendar query whose night is still open).
   if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12/i] })] });

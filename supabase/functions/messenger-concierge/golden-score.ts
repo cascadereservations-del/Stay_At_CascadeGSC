@@ -32,13 +32,14 @@ const ANSWER_RE = /\b(yes|opo|oo|naa|wala|may|mayroon|meron|open|available|free|
 const BANNED_EXTRA_RE = /\b(no pressure|walang pressure|completely understand|as an ai|language model)\b/i;
 const R2_RULES: Violation[] = ['form_speak', 'robot_word', 'shouting', 'command_tone', 'exclaim', 'boilerplate', 'cold_opener'];
 const INVITE_RE = /\b(on|sa) (our|aming|among|the) site\b|\bsite namin\b|\barrange (the|your|a|everything|it)\b|\bsecure (your|the|ang) (dates?|stay)\b|\bbook(ing)? (directly|direct) (on|sa|through)\b/i;
+const ASKING_RE = /\b(you (may|can)|we can arrange|feel free|whenever you('re| are| feel)|when you('ve| have)|puwede|pwede|maaari|kapag|kung ready)\b/i;
 const CHAT_RE = /\b(chat|tell us here|sabihin lang (po )?dito|ingna lang mi diri|share [^.?!\n]{0,20}(here|dito|diri))\b/i;
 const DATES_ASK_RE = /\b(which|what) dates\b|\b(share|send|let us know|tell us)\b[^.?!\n]{0,30}\b(your|ang|inyong) (preferred |target )?dates\b|\bkailan po\b|\bwhen (would|will|are) you\b|\bunsa(ng)? (nga )?dates?\b|\bano(ng)? (po )?(mga )?(dates?|petsa)\b/i;
 const PAX_ASK_RE = /\bhow many (guests|people|persons|of you|adults)\b|\bnumber of guests\b|\bilan (po )?(kayo|ang)\b|\bpila (mo|ka tawo|kabuok)\b/i;
 const NAME_ASK_RE = /\bmay we (know|have|ask)[^.?!\n]{0,15}\bname\b|\byour name\s*\?|\bpangalan\b|\bngalan\b/i;
 const GREET_RE = /^\s*(hello|hi|hey|good (morning|afternoon|evening)|maayong \p{L}+|magandang \p{L}+|kumusta|kamusta)\b/iu;
 const TAGALOG_ONLY_RE = /\b(po|opo|pong|kayo|namin|niyo|kasya|hindi|ngayon|dito|iyong|aming)\b/i;
-const UNCONTRACTED_RE = /\b(we|you|they) (will|are|would)\b|\b(it|that|there) is\b|\bdo not\b|\bdoes not\b|\bcannot\b/i;
+const UNCONTRACTED_RE = /(?<!\b(?:for|to|of|with|from) )\b(we|you|they) (will|are|would)\b|\b(it|that|there) is\b|\bdo not\b|\bdoes not\b|\bcannot\b/i;
 const CAPACITY_RE = /\b(accommodate|welcome|fit|host|take)s?\b[^.?!\n]{0,25}\b(4|four|5|five|6|six) adults\b|\b(4|four|5|five|6|six) adults (is|are) (fine|okay|ok|welcome|possible)\b/i;
 const ADDRESS_RE = /\b(block|blk\.?)\s*\d+|\blot\s*\d+/i;
 
@@ -86,7 +87,8 @@ export function scoreReply(c: Ctx): Score {
 
   // R1 answers first (flow lines answer availability in code; a handoff line is the answer)
   if ((c.kind === 'model' || c.kind === 'midflow') && QUESTION_RE.test(c.guest)) {
-    const first = c.firstTurn && GREET_RE.test(paras[0]) && paras[0].length < 40 ? (paras[1] ?? '') : paras[0];
+    // a first-contact greeting paragraph ("Hi Ben, thank you for reaching out to Cascade Hideaway.") is not where the answer lives
+    const first = c.firstTurn && GREET_RE.test(paras[0]) && paras[0].length < 110 && !/\d|₱/.test(paras[0]) ? (paras[1] ?? '') : paras[0];
     const opening = first.trim().split(/(?<=[.!?])\s+/).find((x) => !(GREET_RE.test(x) && x.length < 40)) ?? '';
     if (/\?\s*$/.test(opening)) s.R1 = 'the first sentence asks back';
     else if (lint.includes('no_answer') && !ANSWER_RE.test(first)) s.R1 = 'no answer in the first paragraph';
@@ -99,7 +101,7 @@ export function scoreReply(c: Ctx): Score {
   if (voiced && isCold(r)) s.R3 = 'substantive reply with no marker of care';
   // R4 one invitation, both routes, the link under its sentence
   if (c.kind !== 'flow' && c.kind !== 'midflow') {
-    const invites = paras.filter((p) => p.includes(c.siteUrl) || INVITE_RE.test(p));
+    const invites = paras.filter((p) => p.includes(c.siteUrl) || (INVITE_RE.test(p) && ASKING_RE.test(p)));
     const dangling = paras.find((p) => /:\s*$/.test(p));
     const bare = paras.find((p, i) => p.includes(c.siteUrl) && (/^(👉|https?:\/\/)/.test(p) || (i === 0 && paras.length === 1)));
     const linked = paras.find((p) => p.includes(c.siteUrl));

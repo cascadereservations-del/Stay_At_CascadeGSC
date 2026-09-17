@@ -9,14 +9,15 @@ import { failures, heldFrom, RUBRIC, scoreReply } from './golden-score.ts';
 const arg = (k: string, d = '') => { const i = Deno.args.indexOf(k); return i >= 0 ? Deno.args[i + 1] ?? d : d; };
 const url = Deno.env.get('CASCADE_PROBE_URL') ?? '', secret = Deno.env.get('CASCADE_PROBE_SECRET') ?? '';
 if (!url || !secret) { console.error('Set CASCADE_PROBE_URL and CASCADE_PROBE_SECRET.'); Deno.exit(2); }
-const runs = Number(arg('--runs', '3')), only = arg('--only'), pause = Number(arg('--pause', '4000')), outPath = arg('--out');
+const runs = Number(arg('--runs', '3')), only = arg('--only'), pause = Number(arg('--pause', '1500')), outPath = arg('--out');
 const NAME = 'Ben';
 const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null).filter((c) => !only || c.group === only || c.id === only);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Row = { id: string; run: number; turn: number; guest: string; reply: string; fails: string[]; step: string | null; ms: number };
 const rows: Row[] = [];
-let compactChars = 0;
+let compactChars = 0, done = 0;
+console.log(`${cases.length} conversations x ${runs} runs. One line per conversation; nothing is sent to anyone.`);
 for (const c of cases) {
   for (let run = 1; run <= runs; run++) {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cascade-probe': secret },
@@ -34,6 +35,8 @@ for (const c of cases) {
       rows.push({ id: c.id, run, turn: i + 1, guest: t.say, reply: got.reply, fails: failures(score), step: got.step, ms: got.ms });
       prev = got.reply;
     }
+    const bad = rows.filter((r) => r.id === c.id && r.run === run && r.fails.length).length;
+    console.log(`[${++done}/${cases.length * runs}] ${c.id} run ${run}: ${bad ? bad + ' failing repl' + (bad > 1 ? 'ies' : 'y') : 'ok'}`);
     await sleep(pause); // free-tier pacing
   }
 }

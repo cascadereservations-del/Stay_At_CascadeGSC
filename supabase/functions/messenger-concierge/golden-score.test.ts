@@ -23,7 +23,7 @@ Deno.test('every example in VOICE passes the rubric: the model copies examples, 
     assertEquals(got, [], `example "${guest}" fails the rubric: ${got.join('; ')}`);
     seen++;
   }
-  assertEquals(seen, 15); // four mid-conversation + eleven first-contact (the turnover-day pair of example 5 included)
+  assertEquals(seen, 16); // four mid-conversation + eleven first-contact (the turnover-day pair of example 5 included)
 });
 
 Deno.test('what Lloyd rejected live fails, rule by rule', () => {

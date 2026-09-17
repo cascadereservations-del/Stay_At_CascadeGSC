@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, decisionInvite, dropPaxAsk, firstInvite, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
+import { addChatRoute, answerOnly, beforeClose, decisionInvite, dropPaxAsk, firstInvite, isCold, lintReply, offRegister, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -301,7 +301,7 @@ function guestLang(text: string): 'taglish' | 'bisaya' | 'english_po' | 'english
   if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini|usbon|usba|mi|kabuok|tawo|ug|og|dili|among|ugma|gahapon|muabot|moabot)\b/.test(t)) return 'bisaya';
   if (/\b(ang|ng|mga|kayo|ninyo|magkano|pwede|puwede|salamat|meron|kailan|saan|paano|bukas|ngayon|opo|hindi|kasi|namin|natin|sige|okay lang|ayos|kami|ako|niyo|nyo)\b/.test(t)) return 'taglish';
   const particles = (t.match(/\b(po|ba|lang|naman|opo)\b/g) ?? []).length;
-  if (particles >= 2) return 'taglish';      // "may parking po ba?"
+  if (particles >= 2 || /\bhm po\b|\bhm\b[^.?!]{0,20}\b(night|gabi|rate)\b/.test(t)) return 'taglish';      // "may parking po ba?"; "hm po per night?" is Filipino text-speak (golden run 2026-09-17: it got plain English)
   if (particles === 1) return 'english_po';  // "how far from SM po"
   return 'english';
 }
@@ -323,7 +323,7 @@ function redactAddress(reply: string): string {
 // Rule of thumb 1-2 (Lloyd, 2026-09-11): positive frame, no negative words. Checked in code; one
 // retry with a hard instruction, then the retry is sent as is and logged (safety lines and the
 // fixed handoff lines never pass through here).
-const NEGATIVE_RE = /\b(unfortunately|sorry|cannot|can'?t|(don'?t|do not|doesn'?t|does not) (have|offer|allow|accept|provide)|not (available|allowed|possible|permitted)|no longer|hindi (po )?(pwede|puwede|available)|wala (po )?(kami|kaming)|bawal)\b/i;
+const NEGATIVE_RE = /\b(unfortunately|sorry|cannot|can'?t|unable to|(don'?t|do not|doesn'?t|does not) (have|offer|allow|accept|provide)|not (available|allowed|possible|permitted)|no longer|hindi (po )?(pwede|puwede|available)|wala (po )?(kami|kaming)|bawal)\b/i;
 // Lloyd 2026-09-13: the booking link stands alone on its own line with a blank line above and
 // below, so it is the one thing that catches the eye. The model tucked it mid-sentence live
 // ("...through our site at https://tinyurl.com/... . If you have...").
@@ -351,6 +351,8 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
   const isEn = lang === 'english' || lang === 'english_po';
   const lastPara = reply.trim().split(/\n{2,}/).pop() ?? '';
   if (reply.includes(SITE_URL)) return reply;
+  // golden run 2026-09-17: a dates ask anywhere in the reply is the next step - never a second one after the warm close
+  if (!datesKnown && /\b(preferred dates|dates in mind|share (your|ang|lang)[^.?!\n]{0,20}dates|which dates|petsa)\b/i.test(reply)) return reply;
   // Lloyd's canonical shape (2026-09-13): the site line plus the direct-booking tagline, link solo,
   // withheld only when one of our last two replies already carried the link.
   // Voice close-out: the saving rides inside the one invitation sentence (it used to be a third paragraph after the link,
@@ -740,6 +742,15 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       }
       // Session 30: a correct but cold answer is a defect (protocol 08 section 6: answer, context, next step, reassurance,
       // warm close). One rewrite, the same way a negative opener gets one; if it fails we keep the first draft.
+      // Golden run 2026-09-17: "How much per night?" (English) got the Taglish reference reply pasted whole. The register
+      // is decided in code, so it is checked in code: one rewrite, the same pattern as the negative opener.
+      if (offRegister(out.reply, l3)) {
+        console.warn('off_register_retry', l3, out.reply.slice(0, 160));
+        const fix = l3 === 'en' ? `[REWRITE REQUIRED. The guest wrote in English and your draft was in Taglish. Write the whole reply in warm, natural English with contractions${lang === 'english_po' ? ' (one courtesy "po" is welcome)' : ', no "po"'}. Keep every fact. Do not copy a reference reply.] `
+          : l3 === 'bis' ? `[REWRITE REQUIRED. The guest writes Bisaya and your draft used Tagalog words. Write it in natural Bislish: no "po", no "kayo", "namin", "dito", "hindi". Keep every fact.] `
+          : `[REWRITE REQUIRED. The guest wrote in Tagalog / Taglish and your draft was plain English. Write it in natural Taglish with "po" once or twice, English for the hospitality and money terms. Keep every fact.] `;
+        out = await draft(thread, fix + paxHint + datesHint + LANG_HINT[lang] + text, context, 'full', followUp).catch(() => out);
+      }
       if (!flowFollowUp && isCold(out.reply)) {
         console.warn('cold_reply_retry', out.reply.slice(0, 160));
         const warm = `[REWRITE REQUIRED. Your draft was correct but read as blunt and transactional. Keep every fact. Write it the way a calm boutique-hotel concierge would type it in chat: the answer first; then one sentence that shows care or preparation done for the guest ("we'll have it ready", "so you can settle in without a second thought"); then the next step made easy; then one short warm close on its own line. Natural contractions. No sales language, no "no pressure", no exclamation words, no second invitation.] `;
@@ -755,7 +766,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
         // asked how to book; otherwise strip them in code rather than hoping the model will.
         // Lloyd 2026-09-13: nudge the direct site wherever it fits - booking intent, rates, dates,
         // availability, "will think about it". Other follow-ups stay link-free.
-        const asksToBook = /\b(book|reserve|reservation|link|site|website|magpa-?book|paano (po )?mag|how (do|can) (i|we)|rate|price|how much|magkano|pila|tagpila|avail|dates?|nights?|weekend|think about|decide|consider)\b/i.test(text);
+        const asksToBook = /\b(discount|promo|book|reserve|reservation|link|site|website|magpa-?book|paano (po )?mag|how (do|can) (i|we)|rate|price|how much|magkano|pila|tagpila|avail|dates?|nights?|weekend|think about|decide|consider)\b/i.test(text);
         if (!asksToBook) {
           out.reply = out.reply.split('\n').filter((l) => !l.includes(SITE_URL) && !/^\s*👉\s*$/.test(l)).join('\n');
           // Only a trailing line after other content is stripped (the leading \n is required):
@@ -780,6 +791,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // Voice close-out: never a bare link - the both-routes sentence goes in before the warm close.
       if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
+      if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }
       if (discountAsk) { reply += `\n\n${HANDOFF.policy_exception}`; handoff = true; risk = 'policy_exception'; }
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
@@ -792,6 +804,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
       if (!flowFollowUp && !discountAsk) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
+      if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2); // golden run: the nudge and the chat route each carried a "po" of their own
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.

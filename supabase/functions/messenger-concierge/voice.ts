@@ -40,7 +40,8 @@ export function thinPo(text: string, keep = 2): string {
 // link under it, then two more nudges ("Direct bookings offer…", "No pressure at all…"), in stiff uncontracted English.
 const SOFT_NUDGE_RE = /\b(no pressure|whenever you(?:'d| would) like to secure|here whenever you(?:'re| are) ready|walang pressure|kapag handa na (po )?kayo)\b/i;
 const CONTRACTIONS: Array<[RegExp, string]> = [
-  [/\b(We|we|You|you|I|They|they) would\b/g, "$1'd"], [/\b(We|we|You|you|They|they) are\b/g, "$1're"], [/\b(We|we|You|you|I|They|they) will\b/g, "$1'll"],
+  // Not after a preposition: "window for you would be" became "for you'd be", "how many of you will" became "of you'll" (golden run 2026-09-17).
+  [/(?<!\b(?:for|to|of|with|from) )\b(We|we|You|you|I|They|they) would\b/g, "$1'd"], [/(?<!\b(?:for|to|of|with|from) )\b(We|we|You|you|They|they) are\b/g, "$1're"], [/(?<!\b(?:for|to|of|with|from) )\b(We|we|You|you|I|They|they) will\b/g, "$1'll"],
   [/\b(We|we|You|you|I|They|they) have\b(?= (?:been|already|prepared|arranged|noted|set|reserved))/g, "$1've"], [/\b(It|it|That|that|There|there) is\b/g, "$1's"],
   [/\b(D|d)o not\b/g, "$1on't"], [/\b(D|d)oes not\b/g, "$1oesn't"], [/\b(C|c)annot\b/g, "$1an't"], [/\b(I|i)s not\b/g, "$1sn't"],
 ];
@@ -56,6 +57,9 @@ export function tidyReply(reply: string, siteUrl: string, english: boolean): str
     if (/\b(site|website|link)\b/i.test(paras[i])) paras.splice(i + 1, 0, `👉 ${siteUrl}`);
     else paras[i] = paras[i].replace(/\s*:\s*$/, '.');
   }
+  for (let i = 1; i < paras.length; i++) {
+    if (/^(👉|https?:\/\/)/.test(paras[i]) && !/:\s*$/.test(paras[i - 1]) && /\b(site|website)\b/i.test(paras[i - 1])) paras[i - 1] = paras[i - 1].replace(/[\s.🌿💚😊]*$/u, ':');
+  }
   if (paras.some((p) => p.includes(siteUrl))) paras = paras.filter((p, i) => i === 0 || !SOFT_NUDGE_RE.test(p) || p.includes(siteUrl));
   let out = paras.join('\n\n');
   if (english) for (const [re, to] of CONTRACTIONS) out = out.replace(re, to);
@@ -67,6 +71,17 @@ export function tidyReply(reply: string, siteUrl: string, english: boolean): str
 // check: a substantive reply shows care somewhere - anticipation, reassurance, an offer of help or a warm close
 // (protocol 08 sections 6, 12, 22; 07 and 09 equivalents).
 const CARE_RE = /\b(glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala)\b|🌿|💚|😊|🙏|✨/i;
+/** True when the reply is not in the register code settled for this turn (golden run 2026-09-17: an English question got
+ *  the Taglish reference reply pasted whole; "Hm po per night?" got plain English). Narrow on purpose: two Tagalog markers
+ *  in an English reply, any Tagalog-only word in a Bislish one, no Filipino word at all in a substantive Taglish one. */
+const TL_MARK_RE = /\b(po|lang|dito|kayo|ninyo|namin|aming|puwede|pwede|salamat|kami|ang|sa|ng|mga)\b/gi;
+export function offRegister(reply: string, lang: 'en' | 'tl' | 'bis'): boolean {
+  const n = (reply.match(TL_MARK_RE) ?? []).length;
+  if (lang === 'en') return n >= 3;
+  if (lang === 'bis') return /\b(po|opo|kayo|namin|niyo|kasya|hindi|ngayon|dito|aming)\b/i.test(reply);
+  return reply.length > 120 && n === 0;
+}
+
 /** True when a model reply is long enough to carry care and carries none. Complaint and safety turns are handed off
  *  before this runs, so it is only used on routine answers. */
 export function isCold(reply: string): boolean {
@@ -78,10 +93,10 @@ export function isCold(reply: string): boolean {
 // Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site. The model copied
 // its own older site-only wording from the history despite the rule and the examples (live 19:19), so code guarantees it.
 type L3 = 'en' | 'tl' | 'bis';
-const CHAT_MENTION_RE = /\b(in (the|this) chat|here in chat|dito (po )?sa chat|diri sa chat|sa chat)\b/i;
+const CHAT_MENTION_RE = /\b(in (the|this) chat|here in chat|dito (po )?sa chat|diri sa chat|sa chat|tell us here|let us know here|(share|send)\b[^.?!\n]{0,25}\b(here|dito|diri))\b/i;
 const CHAT_ROUTE: Record<L3, string> = {
   en: `Or simply tell us here, and we'll arrange the booking for you in this chat.`,
-  tl: `O sabihin lang po dito, and we'll arrange the booking for you sa chat.`,
+  tl: `O sabihin lang dito, and we'll arrange the booking for you sa chat.`,
   bis: `O ingna lang mi diri, and we'll arrange the booking for you sa chat.`,
 };
 /** When the site is offered and the chat route is not, the chat route follows the link. */
