@@ -165,8 +165,9 @@ export function claimsOpen(reply: string): boolean {
 /** Every sentence that states availability for a date gives way to the code's line: the first is replaced, the rest are
  *  dropped (golden run 4: "Oct 7 is already reserved. However, Oct 8 and 9 are open" - Oct 8 was booked too). Never ''. */
 export function setAvailability(reply: string, line: string): string {
-  let placed = false;
   const code = /[.!?]$/.test(line) ? line : `${line}.`;
+  if (reply.includes(code)) return reply; // golden run 8: the rewrite already carried the line, and a second swap doubled its last sentence
+  let placed = false;
   const out = reply.split('\n').map((l) => {
     const ss = sentencesOf(l);
     if (!ss.some(availSentence)) return l;

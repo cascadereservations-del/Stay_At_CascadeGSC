@@ -250,6 +250,16 @@ Deno.test('a booked range is never called open, and the early check-in fee is co
   // golden run 5: 'the unit is open from Oct 9' is a claim; 'not available on Oct 7' is not
   assertEquals(claimsOpen('For Oct 7 to 9, the night of Oct 7 is already reserved, and the unit is open from Oct 9 onwards.'), true);
   assertEquals(claimsOpen('The unit is not available on Oct 7.'), false);
+  // golden run 8: a reply that already carries the line is left as it is (the last sentence was doubled)
+  assertEquals(setAvailability(`Hello, Ben.
+
+${line}
+
+We'd be glad to welcome you.`, line), `Hello, Ben.
+
+${line}
+
+We'd be glad to welcome you.`);
 
   assertEquals(earlyFeeFor('Can we check in at 10am on the first day?'), 200);
   assertEquals(earlyFeeFor('Can we check in early, around 9am?'), 300); // facts.ts: "9 AM would be PHP 300 total"

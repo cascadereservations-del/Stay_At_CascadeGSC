@@ -784,10 +784,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
             console.warn('availability_guard', JSON.stringify({ stay, down: !nights, reply: out.reply.slice(0, 160) }));
             const swapped = setAvailability(out.reply, line);
             if (nights) {
-              const fix = `[REWRITE REQUIRED. The calendar (checked in code) shows these dates are already reserved; your draft said they were open. Put this sentence, word for word, right after any greeting: "${line}" Then answer anything else the guest asked. Do not quote a rate or total for these dates and do not invite the guest to secure or book these dates. Keep the warmth; keep every other fact.] `;
+              const fix = `[REWRITE REQUIRED. The calendar (checked in code) shows these dates are already reserved; your draft said they were open. Put this sentence, word for word, right after any greeting: "${line}" Then answer anything else the guest asked. Then, in its own short paragraph, one sentence of care (for example, that we'd be glad to welcome them on dates that suit). Do not quote a rate or total for these dates and do not invite the guest to secure or book these dates. Keep every other fact.] `;
               const re = await draft(thread, fix + paxHint + LANG_HINT[lang] + text, context, 'full', followUp).catch(() => null);
-              const key = line.slice(0, 24);
-              out.reply = re && re.reply.includes(key) && !claimsOpen(re.reply.replace(line, '')) ? setAvailability(re.reply, line) : swapped;
+              out.reply = re && re.reply.includes(line) && !claimsOpen(re.reply.replace(line, '')) ? re.reply : swapped; // run 8: accept only the full line, never swap it in twice
             } else { out.reply = swapped; flagOnly = true; } // OPS gets the glance card, as on the flow path
           }
         }
