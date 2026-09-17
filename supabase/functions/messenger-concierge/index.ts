@@ -584,7 +584,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
     const before = flow;
     const s = answer(flow, text, now); flow = s.flow;
-    if (s.action === 'passthrough') flowFollowUp = prompt(flow, thread.guest_name); // protocol: the model answers, then the flow's ask follows
+    if (s.action === 'passthrough') flowFollowUp = prompt(flow, thread.guest_name, true); // protocol: the model answers, then the flow's ask follows (resumed card: soft nudge)
     if (s.action === 'ask') flowReply = s.reply ?? prompt(flow, thread.guest_name);
     // Protocol rule 1 mid-flow (live 2026-09-17 10:57: "Oct 20 to 22 po, available pa po ba?" got the contact ask with no
     // answer): dates completed on this turn are checked against the calendar before the next ask.
@@ -623,7 +623,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       // First exchange gets the full model (voice, warmth, facts); follow-ups run on the lite tier.
       // Follow-ups: compact prompt (no exemplars) on the full model - cheaper than the old full
       // prompt AND better behaved than lite; the language hint rides on the guest's own turn.
-      const lang = guestLang(text);
+      // Lloyd 2026-09-17 14:40: Bislish only when the guest keeps writing Bisaya (this turn and their previous one); a lone Bisaya turn gets Taglish.
+      const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
+      const lang = guestLang(text) === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : guestLang(text);
       const guestTexts = [...thread.history.filter((h) => h.role === 'guest').map((h) => h.text), text];
       const context = (await availabilityBlock(db)) + (await pendingBlock(db, psid)) + guestDatesBlock(guestTexts) + stateBlock;
       // The dates also ride on the guest turn: the system-side block alone was ignored for a
@@ -635,7 +637,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       const anchor = stayAnchor(guestTexts.slice(-3).join(' '));
       const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, 5% from 2 nights up to 25% from 28 nights, the longer the stay the higher the discount - then the link. Do not quote any other number and do not promise a special price.] ${anchor}` : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
-      let out = await draft(thread, nameHint + discHint + capHint + datesHint + LANG_HINT[lang] + text, context, 'full', followUp);
+      // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
+      const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
+      let out = await draft(thread, nameHint + discHint + capHint + datesHint + flowHint + LANG_HINT[lang] + text, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
@@ -696,6 +700,8 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     // Mid-flow (session 28 T6): the guest is already booking here - no site invite after the answer, and the composite
     // (model answer + card) is not lint-scored as one message.
     if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
+    // Lloyd 2026-09-17 14:30: show the direct site whenever practicable - once, under a resumed confirm card.
+    if (flowFollowUp && flow?.step === 'confirm') reply += '\n\n' + ({ en: `If you'd like to see more of the home first, everything is on our site, where direct bookings enjoy our best rates:`, tl: `If you'd like to see more of the home first, nasa site namin po ang lahat, with our best rates for direct bookings:`, bis: `If you'd like to see more of the home first, naa sa among site ang tanan, with our best rates for direct bookings:` })[flow.lang ?? 'en'] + `\n\n👉 ${SITE_URL}`;
     const lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     if (mode === 'auto') {

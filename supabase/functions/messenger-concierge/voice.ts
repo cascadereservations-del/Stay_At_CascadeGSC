@@ -20,7 +20,7 @@ const BOILERPLATE_RE = /\b(rest assured|please be advised|kindly|absolutely|cert
 
 // Session 29 (live, "is there parking?" at confirm): the model echoed the stay card from history and rephrased the site
 // invite, so the card went out twice with an invite between. When the flow's own ask follows, only the answer is kept.
-const FLOW_NOISE_RE = /^(here are your stay details|ito po ang details|mao ni ang details|📅|📞|💰|💳|to secure (your|the) stay|para ma-secure|👉)|https?:\/\/|\b(our|sa) site\b|\bdirect(ly)? book|\bdetails\b[^\n]{0,20}\bstay\b|\bstay details\b|· \d+ nights?\b|^\W{0,4}total ₱/i;
+const FLOW_NOISE_RE = /^(here are your stay details|here's your stay|ito po ang details|mao ni ang details|📅|📞|💰|💳|to secure (your|the) stay|para ma-secure|👉)|https?:\/\/|\b(our|sa) site\b|\bdirect(ly)? book|\bdetails\b[^\n]{0,20}\bstay\b|\bstay details\b|· \d+ nights?\b|^\W{0,4}total ₱|ready whenever you are/i;
 const CLOSER_RE = /\s*[^.!?\n]*\b(any (other|more|further) questions|(iba|uban|ubang|lain|laing)\b[^.!?\n]{0,25}(katanungan|questions?|tanong|pangutana)|mag-atubili)\b[^.!?\n]*[.!?]?/gi;
 /** The model's answer without an echoed card, a site invite or an "any other questions" closer. Never returns ''. */
 export function answerOnly(reply: string): string {

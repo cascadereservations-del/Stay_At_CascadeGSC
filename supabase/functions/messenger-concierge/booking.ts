@@ -13,6 +13,7 @@ export type Flow = {
   pay_full?: boolean; asked?: 'availability' | 'question' | null;
   /** session 28: the guest's register, re-read on every turn - 'tl' = Taglish with "po" (Tagalog or Bisaya guests) */
   lang?: Lang;
+  bis_turns?: number; // consecutive Bisaya guest turns (settleLang)
   booking_id?: string; ref?: string; deposit?: number; total?: number; hold?: boolean; hold_expires_at?: string | null;
   receipt_token?: string; receipt_expires_at?: string; started_at: string; updated_at: string;
 };
@@ -26,6 +27,13 @@ const DEPOSIT_RE = /\b(deposit|reservation fee|fee|50|half|kalahati|reserve|part
 const AVAIL_RE = /\b(available|avail|vacant|bakante|open|free|may (?:vacancy|slot)|meron pa)\b/i;
 const ASK_RE = /\?|\b(magkano|how much|pwede|can (i|we)|is (it|there)|are there|meron)\b/i;
 /** Same markers as index.ts guestLang(): Tagalog or Bisaya words, or two particles, mean Taglish; a lone courtesy "po" stays English. */
+/** Lloyd 2026-09-17 14:40: English and Taglish come first; Bislish only once the guest KEEPS replying in Bisaya.
+ *  A first Bisaya turn is answered in Taglish; the second consecutive one switches the register to Bislish. */
+export function settleLang(prev: Lang | undefined, detected: Lang, bisTurns: number): { lang: Lang; bisTurns: number } {
+  if (detected !== 'bis') return { lang: detected, bisTurns: 0 };
+  const n = bisTurns + 1;
+  return { lang: n >= 2 || prev === 'bis' ? 'bis' : 'tl', bisTurns: n };
+}
 export function detectLang(text: string): Lang {
   const t = ` ${text.toLowerCase()} `;
   if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini|namo|nako|unya|gani|diri|didto|wala'y|walay|palihog|tagpila|pwede ba|pila ka|usbon|usba|mi|kabuok|tawo|ug|og|dili|among|ugma|gahapon|muabot|moabot)\b/.test(t)) return 'bis';
@@ -151,7 +159,7 @@ export function opener(flow: Flow, name: string | null, answer = ''): string {
 }
 
 /** The question for the current slot, in the Cassy voice: calm, gracious, precise; guide rather than command. */
-export function prompt(flow: Flow, name: string | null): string {
+export function prompt(flow: Flow, name: string | null, resume = false): string {
   const n = name ? `${name.split(' ')[0]}, ` : '';
   const L = flow.lang;
   switch (flow.step) {
@@ -176,7 +184,9 @@ export function prompt(flow: Flow, name: string | null): string {
       bis: `Pwede namo makuha ang inyong contact number, para ma-contact namo mo about the stay? Pwede pud i-add ang e-mail if gusto ninyo didto ma-receive ang confirmation.`,
     });
     case 'confirm': { const q = quoteTotal(flow.checkin!, flow.checkout!); return [
-      pick(L, { en: `Here are your stay details:`, tl: `Ito po ang details ng stay ninyo:`, bis: `Mao ni ang details sa stay ninyo:` }),
+      resume // after a mid-flow question (Lloyd 2026-09-17: nudge subtly to complete the booking)
+        ? pick(L, { en: `Here's your stay, ready whenever you are:`, tl: `Ito po ang stay ninyo, ready whenever you are:`, bis: `Mao ni ang inyong stay, ready whenever you are:` })
+        : pick(L, { en: `Here are your stay details:`, tl: `Ito po ang details ng stay ninyo:`, bis: `Mao ni ang details sa stay ninyo:` }),
       `📅 ${dm(flow.checkin!)} to ${dm(flow.checkout!)} · ${q.nights} night${q.nights === 1 ? '' : 's'} · ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
       `📞 ${flow.phone}${flow.email ? ` · ${flow.email}` : ''}`,
       `💰 Total ${peso(q.total)}`,
@@ -200,7 +210,8 @@ export type Step = { flow: Flow; reply: string | null; action: 'ask' | 'submit' 
 /** Start a flow from the first message; prefills dates and guests when they are in the text. */
 export function start(text: string, now = new Date()): Flow {
   const at = now.toISOString();
-  const flow: Flow = { step: 'dates', started_at: at, updated_at: at, lang: detectLang(text) };
+  const first = settleLang(undefined, detectLang(text), 0);
+  const flow: Flow = { step: 'dates', started_at: at, updated_at: at, lang: first.lang, bis_turns: first.bisTurns };
   const d = parseDates(text, now);
   const today = at.slice(0, 10);
   if (d[0] && d[0] >= today) { flow.checkin = d[0]; flow.step = 'checkout'; }
@@ -219,10 +230,12 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
   // Mirror the guest: a Tagalog/Bisaya turn switches the register to Taglish; a plain-English turn switches it back
   // (numbers, dates, "skip", "deposit" and the like carry no language and keep the current one).
   { const words = text.replace(/\S+@\S+|https?:\/\/\S+|\+?\d[\d\s-]{5,}\d/g, ' ').replace(/(skip|deposit|full|yes|ok|okay|cancel|stop|sige|opo|oo|po)/gi, ' ').match(/[a-z]{3,}/gi) ?? [];
-    const d = detectLang(text); if (d !== 'en') f.lang = d; else if (words.length >= 2) f.lang = 'en'; }
+    const d = detectLang(text);
+    if (d !== 'en') { const s = settleLang(f.lang, d, f.bis_turns ?? 0); f.lang = s.lang; f.bis_turns = s.bisTurns; }
+    else if (words.length >= 2) { f.lang = 'en'; f.bis_turns = 0; } }
   const L = f.lang;
   const today = f.updated_at.slice(0, 10);
-  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: pick(L, { en: `Of course. Nothing has been sent, and you're welcome to come back to this whenever it suits you — just say "book" and we'll pick up from here.`, tl: `Sige po, no problem. Wala pong na-send. Message lang po "book" anytime and we'll pick up from here.`, bis: `Sige, walay problema. Wala pay na-send. Message lang "book" anytime and we'll pick up from here.` }), action: 'cancelled' };
+  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: pick(L, { en: `Of course, and there's no rush at all. Nothing has been sent, so nothing is committed. Whenever you'd like to continue, just say "book" and we'll pick up right where we left off. 🌿`, tl: `No problem po, take your time. Wala pong na-send, so nothing is committed. Whenever you're ready, message lang po "book" and we'll pick up right where we left off. 🌿`, bis: `Walay problema, take your time. Walay na-send, so nothing is committed. Whenever you're ready, message lang "book" and we'll pick up right where we left off. 🌿` }), action: 'cancelled' };
   const ask = (reply?: string): Step => ({ flow: f, reply: reply ?? null, action: 'ask' });
   const retry = (what: string): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(pick(L, { en: `Sorry, I couldn't quite make out ${what}. ${prompt(f, null)}`, tl: `Sorry po, hindi ko nakuha ${what === 'the mobile number' ? 'ang mobile number' : what === 'the dates' ? 'ang dates' : what === 'the check-out date' ? 'ang check-out date' : what === 'the number of guests' ? 'kung ilan kayo' : 'iyon'}. ${prompt(f, null)}`, bis: `Sorry, wala nako nakuha ${what === 'the mobile number' ? 'ang mobile number' : what === 'the dates' ? 'ang dates' : what === 'the check-out date' ? 'ang check-out date' : what === 'the number of guests' ? 'pila mo' : 'to'}. ${prompt(f, null)}` }));
   switch (f.step) {

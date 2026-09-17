@@ -75,9 +75,14 @@ Deno.test('Bisaya register: Bislish, no po, passes the lint (Lloyd 12:15, D-169)
   const guest = 'Available pa ba ang Oct 20 to 22? Gusto namo mag-book, duha mi';
   assertEquals(detectLang(guest), 'bis');
   assertEquals(detectLang('naa moy parking?'), 'bis');
-  const f = start('Available pa ba ang Oct 20 to 22? Gusto namo mag-book para sa 2', now);
-  assertEquals([f.lang, f.pax, f.asked], ['bis', 2, 'availability']);
-  const first = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
+  // Lloyd 2026-09-17 14:40: English and Taglish first; Bislish only once the guest KEEPS replying in Bisaya.
+  const f0 = start('Available pa ba ang Oct 20 to 22? Gusto namo mag-book para sa 2', now);
+  assertEquals([f0.lang, f0.bis_turns, f0.pax, f0.asked], ['tl', 1, 2, 'availability']); // first Bisaya turn: Taglish
+  assertEquals(answer(f0, '09171234567 ben@example.com', now).flow.lang, 'tl');           // a neutral turn changes nothing
+  assertEquals(answer(f0, 'naa moy parking?', now).flow.lang, 'bis');                     // second Bisaya turn: Bislish
+  assertEquals(answer(f0, 'may parking po ba?', now).flow.bis_turns, 0);                  // a Tagalog turn resets the count
+  const f = { ...f0, lang: 'bis' as const, bis_turns: 2 };
+  const first =opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
   assertEquals(first.startsWith('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Oct 20 to Oct 22, and looking forward mi to have the two of you.'), true);
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
   const pay = paymentReply({ ...base, lang: 'bis', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
@@ -106,6 +111,15 @@ Deno.test('mid-flow answer: echoed card, site invite and closer are dropped (liv
   assertEquals(detectLang('Pwede usbon sa Oct 25 to 27? 3 mi'), 'bis'); // was read as Tagalog -> a po-laden Taglish card
   assertEquals(parsePax('Pwede usbon sa Oct 25 to 27? 3 mi'), 3);
   assertEquals(parsePax('3 ka tawo'), 3);
+  // Lloyd 14:30: the cancel line read too casual; the resumed card nudges softly. All registers stay lint-clean.
+  for (const lang of ['en', 'tl', 'bis'] as const) {
+    const c = answer({ ...base, lang, step: 'confirm', total: 3382, deposit: 1691 }, 'cancel', now);
+    assertEquals([c.action, lintReply(c.reply!)], ['cancelled', []]);
+    assertEquals(/^sige/i.test(c.reply!), false);
+    const card = prompt({ ...base, lang, step: 'confirm', total: 3382, deposit: 1691 }, 'Ben', true);
+    assertEquals(card.includes('ready whenever you are'), true);
+    assertEquals(answerOnly('Yes, parking is right in front.\n\n' + card), 'Yes, parking is right in front.');
+  }
   // live 13:12, second Bisaya run: parsePax read it, the confirm step's guest-word gate did not
   const atConfirm = answer({ ...base, lang: 'bis', step: 'confirm', total: 3382, deposit: 1691 }, 'Pwede usbon sa Oct 25 to 27? 3 mi', now).flow;
   assertEquals([atConfirm.pax, atConfirm.checkin, atConfirm.lang], [3, '2026-10-25', 'bis']);
