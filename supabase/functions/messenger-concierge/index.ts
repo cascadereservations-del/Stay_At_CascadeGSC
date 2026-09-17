@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityLine, BOOK_RE, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
+import { answer, availabilityLine, BOOK_RE, greeting, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
 import { lintReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -580,7 +580,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       const booked = new Set<string>();
       for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
       const line = availabilityLine(flow, booked);
-      if (/taken po/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = `${thread.guest_name ? `${thread.guest_name.split(' ')[0]}, ` : ''}${line}`; }
+      if (/taken po/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name) + line; }
       else flowReply = opener(flow, thread.guest_name, line) + prompt(flow, thread.guest_name);
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
     else flowReply = opener(flow, thread.guest_name) + prompt(flow, thread.guest_name); // session 28: welcome first

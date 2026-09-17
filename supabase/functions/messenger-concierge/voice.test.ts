@@ -25,6 +25,7 @@ Deno.test('the question is answered before the ask (live failure of 2026-09-17)'
   const warm = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt({ ...f, step: 'phone' }, 'Ben');
   assertEquals(lintReply(warm, guest, { firstTurn: true }), []);
   assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith('Oct 3 to Oct 4 is already taken po'), true);
+  assertEquals(warm.startsWith("Hello Ben! Thank you for thinking of Cascade Hideaway 🌿 Good news po — Oct 3 to Oct 4 is open. We'd love to have the two of you."), true);
   assertEquals(lintReply('Your mobile number po?', '', { firstTurn: true }), ['form_speak', 'cold_opener']);
 });
 

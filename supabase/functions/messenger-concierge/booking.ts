@@ -95,9 +95,9 @@ export const within48h = (checkin: string, now = new Date()) => Date.parse(check
 export function availabilityLine(flow: Flow, bookedNights: Set<string>): string {
   if (!flow.checkin || !flow.checkout) return '';
   for (let d = flow.checkin; d < flow.checkout; d = new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)) {
-    if (bookedNights.has(d)) return `${dm(flow.checkin)} to ${dm(flow.checkout)} is already taken po 😔 — the home is one guest at a time, so it has to be fully yours. Would other dates work for you? Tell me the check-in and check-out and I'll check right away.`;
+    if (bookedNights.has(d)) return `${dm(flow.checkin)} to ${dm(flow.checkout)} is already taken po — the home is one guest at a time, so it has to be fully yours. Would other dates work for you? Tell me the check-in and check-out and I'll check right away.`;
   }
-  return `Yes po — ${dm(flow.checkin)} to ${dm(flow.checkout)} is open 🎉`;
+  return `Good news po — ${dm(flow.checkin)} to ${dm(flow.checkout)} is open.`;
 }
 
 export function isActive(flow: Flow | null | undefined, now = new Date()): flow is Flow {
@@ -106,24 +106,24 @@ export function isActive(flow: Flow | null | undefined, now = new Date()): flow 
 
 /** The first reply of a flow: a host's welcome that acknowledges what the guest already told us
  * (session 28 - "Your mobile number po?" as an opener read as a form, not a host). */
+export const greeting = (name: string | null) => `${name ? `Hello ${name.split(' ')[0]}!` : 'Hello!'} Thank you for thinking of Cascade Hideaway 🌿 `;
+/** Greeting, then the answer (if any), then the welcome that names the party (Lloyd 09:55: answer-before-hello read inside-out). */
 export function opener(flow: Flow, name: string | null, answer = ''): string {
-  const hi = name ? `Hello ${name.split(' ')[0]}! ` : 'Hello! ';
-  const got: string[] = [];
-  if (!answer) { // the answer already names the dates; do not repeat them
-    if (flow.checkin && flow.checkout) got.push(`${dm(flow.checkin)} to ${dm(flow.checkout)}`);
-    else if (flow.checkin) got.push(`check-in ${dm(flow.checkin)}`);
-  }
-  if (flow.pax) got.push(`${flow.pax} guest${flow.pax === 1 ? '' : 's'}`);
-  const noted = got.length ? ` ${got.join(', ')} — noted po.` : '';
-  // ANSWER first (protocol rule 1), then the welcome, then the ask.
-  return `${answer ? answer + ' ' : ''}${hi}Thank you for thinking of Cascade Hideaway 🌿 We'd love to have you.${noted}\n\n`;
+  const who = !flow.pax || flow.pax === 1 ? 'you' : flow.pax === 2 ? 'the two of you' : `your group of ${flow.pax}`;
+  if (answer) return `${greeting(name)}${answer} We'd love to have ${who}.
+
+`;
+  const dates = flow.checkin && flow.checkout ? `${dm(flow.checkin)} to ${dm(flow.checkout)} — noted po, I'll check those dates as we go. ` : flow.checkin ? `Check-in ${dm(flow.checkin)} — noted po. ` : '';
+  return `${greeting(name)}${dates}We'd love to have ${who}.
+
+`;
 }
 
 /** The question for the current slot, in the Concierge voice: one warm line, one clear ask. */
 export function prompt(flow: Flow, name: string | null): string {
   const n = name ? `${name.split(' ')[0]}, ` : '';
   switch (flow.step) {
-    case 'dates': return `${n}which dates are you thinking of po — your check-in and check-out? (e.g. "Sep 24 to 26")`;
+    case 'dates': return `${n ? `${n}which` : 'Which'} dates are you thinking of po — your check-in and check-out? (e.g. "Sep 24 to 26")`;
     case 'checkout': return `Lovely — check-in ${dm(flow.checkin!)}. And until when would you be staying with us po?`;
     case 'pax': return `And how many of you will be staying po? The home is most comfortable for up to 3 adults, or 2 adults with 2 little ones.`;
     case 'phone': return `May we have your mobile number po, so we can reach you about your stay? (e.g. 0917 123 4567)`;
