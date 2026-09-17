@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "release_id": "staff_decide_direct_booking_20260917",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "d370c01410ee259389cc95b50097aa882d27614c"
+  },
+  "migrations": [
+    "20260917020000_staff_decide_direct_booking.sql"
+  ],
+  "migration_sha256": {
+    "20260917020000_staff_decide_direct_booking.sql": "2efbdf8a3e65d47bb0a148b685fa1b546b4e282647bec53507f3ccd1724c9a7d"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "FILL-AFTER-BACKUP",
+    "verified_at": "FILL-AFTER-BACKUP",
+    "production_rule": "One NEW definer function (staff_decide_direct_booking_v1) granted to authenticated. No table or row is changed; the service_role-only grant on decide_direct_booking is restated exactly as production already has it. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "gate_exists_for_authenticated",
+      "query": "select has_function_privilege('authenticated', 'public.staff_decide_direct_booking_v1(uuid, text, text, uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "gate_denied_to_anon",
+      "query": "select not has_function_privilege('anon', 'public.staff_decide_direct_booking_v1(uuid, text, text, uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "gate_is_security_definer_with_empty_search_path",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] from pg_proc p where p.oid = 'public.staff_decide_direct_booking_v1(uuid, text, text, uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "inner_function_still_service_role_only",
+      "query": "select not has_function_privilege('authenticated', 'public.decide_direct_booking(uuid, text, text, uuid)', 'execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops one new function; decisions already recorded stay)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260917_staff_decide_direct_booking.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "dashboard_calls_the_gate",
+      "required_state": "The admin dashboard build that calls staff_decide_direct_booking_v1 is published only AFTER this release is applied; the currently published build calls decide_direct_booking and fails closed either way."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "New function only. Rehearse on Alfred with supabase/tests/database/staff_decide_direct_booking.sql before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
