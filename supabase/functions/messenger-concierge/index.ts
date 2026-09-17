@@ -13,10 +13,10 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { answerOnly, dropPaxAsk, lintReply, thinPo, tidyReply } from './voice.ts';
+import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
-import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
+import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
@@ -266,7 +266,11 @@ async function landmarksBlock(db: Db): Promise<string> {
 // brochure answers. First contact keeps the full voice with exemplars.
 // The OUTPUT contract sits after the exemplars, so it must be re-attached or the model stops
 // returning {reply, uncertain} and every follow-up degrades to a handoff (live, 2026-09-13 10:42Z).
-const VOICE_COMPACT = VOICE.split('REFERENCE REPLIES')[0].trim() + '\n\n' + VOICE.slice(VOICE.lastIndexOf('OUTPUT:')).trim();
+// Session 30 ROOT CAUSE of "it always reverts to blunt": this used VOICE.split('REFERENCE REPLIES')[0], and those
+// words also occur in VOICE's FIRST paragraph ("The REFERENCE REPLIES below are Lloyd's approved wording"), so since
+// 2026-09-13 every follow-up ran on 1,751 of ~30,000 characters: no Cassy persona, none of the three native protocols,
+// no voice rules. The cut is now made at the HEADING line, in facts.ts, and voice.test.ts asserts what it keeps.
+const VOICE_COMPACT = voiceCompact();
 const systemPrompt = (thread: Thread, availability: string, landmarks = '', compact = false) =>
   `${compact ? VOICE_COMPACT : VOICE}\n\nGUEST FIRST NAME: ${thread.guest_name ?? 'unknown'}\n\nFACTS\n${FACTS}\n\nLANDMARKS\n${landmarks}\n\nAVAILABILITY\n${availability}`;
 
@@ -667,6 +671,13 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
         const fix = `[REWRITE REQUIRED. Your draft opened with a negative ("${out.reply.slice(0, 60).replace(/\n/g, ' ')}..."). The first sentence must name what we DO offer for this wish - e.g. "For swimming po, EM Jake Wave Pool is about 2 km away" instead of "Wala po kaming pool"; "The unit is best suited to 3 adults" instead of "Hindi po pwede ang 4". Do not use "wala", "hindi pwede", "sorry", "unfortunately", "cannot", "not available" anywhere in the reply.] `;
         out = await draft(thread, fix + LANG_HINT[lang] + text, context, 'full', followUp).catch(() => out);
       }
+      // Session 30: a correct but cold answer is a defect (protocol 08 section 6: answer, context, next step, reassurance,
+      // warm close). One rewrite, the same way a negative opener gets one; if it fails we keep the first draft.
+      if (!flowFollowUp && isCold(out.reply)) {
+        console.warn('cold_reply_retry', out.reply.slice(0, 160));
+        const warm = `[REWRITE REQUIRED. Your draft was correct but read as blunt and transactional. Keep every fact. Write it the way a calm boutique-hotel concierge would type it in chat: the answer first; then one sentence that shows care or preparation done for the guest ("we'll have it ready", "so you can settle in without a second thought"); then the next step made easy; then one short warm close on its own line. Natural contractions. No sales language, no "no pressure", no exclamation words, no second invitation.] `;
+        out = await draft(thread, warm + paxHint + datesHint + LANG_HINT[lang] + text, context, 'full', followUp).catch(() => out);
+      }
       if (followUp) {
         out.reply = out.reply.replace(/^\s*(hello|hi|hey|good (morning|afternoon|evening)|kumusta|kamusta|maayong \w+)[^\n]{0,60}?[!.,]?\s*\n+/i, '');
         // Inline greeting on a follow-up ("Hi Ben, about po sa 4 adults..." live 2026-09-13): drop
@@ -684,7 +695,10 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
           // unanchored, a one-line reply that opened with "We'd be happy to..." was wiped to
           // nothing and nothing was sent (live, 2026-09-13 11:13Z).
           const before = out.reply;
-          out.reply = out.reply.replace(/\n\s*(we'?d be happy to welcome you[^\n]*|we'?d love to (host|welcome) you[^\n]*|we look forward to (hosting|welcoming) you[^\n]*|masaya (po )?naming[^\n]*welcome[^\n]*)\s*$/i, '');
+          // Session 30 (Lloyd: "what happened to the warmth"): this used to delete EVERY warm close on a follow-up. A warm
+          // close is part of the protocol (08 section 22); it goes only when our previous reply ended the same way.
+          const WARM_CLOSE_RE = /\n\s*(we'?d be (happy|glad) to welcome you[^\n]*|we'?d love to (host|welcome) you[^\n]*|we look forward to (hosting|welcoming) you[^\n]*|masaya (po )?naming[^\n]*welcome[^\n]*)\s*$/i;
+          if (WARM_CLOSE_RE.test('\n' + (lastBot?.text ?? '').trim().split('\n').pop())) out.reply = out.reply.replace(WARM_CLOSE_RE, '');
           out.reply = out.reply.replace(/\n\s*(if you (already )?have your dates[^\n]*|you can (also )?(check|view|secure)[^\n]*(availability|booking|dates)[^\n]*:?)\s*$/i, '');
           if (!out.reply.trim()) { console.error('reply_stripped_empty', before.slice(0, 200)); out.reply = before; }
         }

@@ -1,7 +1,30 @@
 // deno test --allow-env messenger-concierge/voice.test.ts  (from supabase/functions)
 // The communication protocol's build gate: every canned line the book flow can send passes lintReply().
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { answerOnly, dropPaxAsk, lintReply, thinPo, tidyReply } from './voice.ts';
+import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
+import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
+
+// Session 30 (Lloyd: "what happened to the warmth… it would always revert back to blunt transactional responses").
+// Root cause: follow-ups ran on a prompt with no examples, a rule asked for "1-3 short sentences", code stripped warm
+// closes, and nothing measured warmth. These tests hold all four in place.
+Deno.test('warmth: the live blunt replies are cold, the protocol-voice examples are not', () => {
+  const blunt1834 = 'Ben, yes, October 27 to 29 is open for your stay. We also provide fiber Wi-Fi in the unit, which is suitable for remote work, video calls, and streaming.\n\nOr you may check and secure your dates directly on our site:\n\n👉 https://tinyurl.com/Stay-at-Cascade\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.';
+  assertEquals(isCold(blunt1834), true);
+  const examples = VOICE.split('MID-CONVERSATION EXAMPLES')[1].split('REFERENCE REPLIES')[0].split(/\nQ: /).slice(1).map((b) => b.slice(b.indexOf('\nA: ') + 4).trim());
+  assertEquals(examples.length, 4);
+  for (const a of examples) { assertEquals(isCold(a), false); assertEquals(lintReply(a), []); }
+  assertEquals(isCold('Yes, parking is available in front of the unit.'), false); // a short direct answer is fine (protocol 08 section 23)
+});
+Deno.test('warmth: the follow-up (compact) prompt keeps the reply shape and the examples', () => {
+  const compact = voiceCompact(); // exactly what index.ts sends on a follow-up
+  assertEquals(compact.includes('THE SHAPE OF EVERY REPLY'), true);
+  assertEquals(compact.includes('MID-CONVERSATION EXAMPLES'), true);
+  // THE regression of 2026-09-13 to 17: the cut landed in VOICE's first paragraph and follow-ups lost the whole voice.
+  for (const must of ['PERSONA - CASSY', 'NATIVE ENGLISH CONCIERGE RULE', 'NATIVE FILIPINO CONCIERGE LANGUAGE RULE', 'NATIVE BISAYA/CEBUANO CONCIERGE RULE', 'HARD LINES', 'OUTPUT: JSON only']) assertEquals(compact.includes(must), true, must);
+  assertEquals(compact.length > 15_000, true);
+  assertEquals(compact.includes('Q: Good evening'), false); // first-contact replies stay out of follow-ups
+  assertEquals(/1-3 short sentences/.test(VOICE), false);
+});
 
 // Session 30, live 18:34 Manila: the chat already held "2 guests" and the model asked again despite the hint.
 Deno.test('dropPaxAsk: a repeated guest-count question goes, the site line no longer opens with "Or"', () => {

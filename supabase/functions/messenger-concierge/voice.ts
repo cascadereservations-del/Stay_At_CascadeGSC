@@ -62,6 +62,19 @@ export function tidyReply(reply: string, siteUrl: string, english: boolean): str
   return out;
 }
 
+// Session 30 (Lloyd: "it would always revert back to blunt transactional responses"): every rule so far REMOVED something,
+// and nothing checked that care was present, so a reply could pass every lint and still be cold. This is the positive
+// check: a substantive reply shows care somewhere - anticipation, reassurance, an offer of help or a warm close
+// (protocol 08 sections 6, 12, 22; 07 and 09 equivalents).
+const CARE_RE = /\b(glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala)\b|🌿|💚|😊|🙏|✨/i;
+/** True when a model reply is long enough to carry care and carries none. Complaint and safety turns are handed off
+ *  before this runs, so it is only used on routine answers. */
+export function isCold(reply: string): boolean {
+  // The canned site invite and its tagline ("…enjoy our best rates…") are not the model's warmth: judge the rest.
+  const own = reply.split(/\n\s*\n/).filter((p) => !/👉|https?:\/\/|best rates|on our site|sa site namin|sa among site/i.test(p)).join('\n\n');
+  return own.trim().length > 140 && !CARE_RE.test(own);
+}
+
 /** The chat already holds the guest count: a paragraph that only asks for it again is dropped (live 2026-09-17 18:34,
  *  the model asked despite the hint - D-097, code owns it). Never returns ''. */
 const PAX_ASK_RE = /^[^\n]*\b(how many (guests|people|persons|of you)|number of guests|ilan po (kayo|ang)|pila (mo|ka tawo))\b[^\n]*\?\s*$/i;
