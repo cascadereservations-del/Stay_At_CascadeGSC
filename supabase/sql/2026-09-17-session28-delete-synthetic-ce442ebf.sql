@@ -18,7 +18,7 @@ delete from public.guests g where g.id = 'ca0f15fc-b38c-4e84-af75-7675cf4f1e03'
    and not exists (select 1 from public.booking_inquiries b where b.guest_id = g.id)
    and not exists (select 1 from public.airbnb_reservations r where r.guest_id = g.id);
 -- the Messenger thread stays (it is Lloyd's real profile); only the flow state is cleared
-update public.concierge_threads set booking_flow = null where psid = '24786231807734398';
+update public.concierge_threads set booking_flow = null, human_until = null where psid = '24786231807734398'; -- human_until: the Meta payment-card echo hold (D-166 addendum)
 commit;
 -- forward checks (expect 0 everywhere)
 select 'inquiry' k, count(*) from public.booking_inquiries where id = 'ce442ebf-3a50-4915-8279-071eabdd7cb0'
