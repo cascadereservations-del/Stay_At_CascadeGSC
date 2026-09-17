@@ -192,7 +192,8 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
   const f: Flow = { ...flow, updated_at: now.toISOString() };
   // Mirror the guest: a Tagalog/Bisaya turn switches the register to Taglish; a plain-English turn switches it back
   // (numbers, dates, "skip", "deposit" and the like carry no language and keep the current one).
-  if (/[a-z]{3,}/i.test(text.replace(/\b(skip|deposit|full|yes|ok|okay|cancel|stop|sige|opo|oo)\b/gi, ''))) f.lang = detectLang(text) === 'tl' ? 'tl' : (/\b(po|opo)\b/i.test(text) && f.lang === 'tl' ? 'tl' : 'en');
+  { const words = text.replace(/\S+@\S+|https?:\/\/\S+|\+?\d[\d\s-]{5,}\d/g, ' ').replace(/(skip|deposit|full|yes|ok|okay|cancel|stop|sige|opo|oo|po)/gi, ' ').match(/[a-z]{3,}/gi) ?? [];
+    if (detectLang(text) === 'tl') f.lang = 'tl'; else if (words.length >= 2) f.lang = 'en'; }
   const tl = f.lang === 'tl';
   const today = f.updated_at.slice(0, 10);
   if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: tl ? `Sige po. Wala pong na-send, at pwede po kayong bumalik dito kahit kailan — sabihin lang po ang "book" at ipagpapatuloy natin.` : `Of course. Nothing has been sent, and you are welcome to return to this whenever it suits you — simply say "book" and we will pick up from here.`, action: 'cancelled' };

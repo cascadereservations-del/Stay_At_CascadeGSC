@@ -50,6 +50,8 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   assertEquals(first.startsWith('Hi Ben. Maraming salamat po sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, at masaya po kaming i-welcome kayong dalawa.'), true);
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
   let s = answer(f, '09171234567', now); assertEquals(s.flow.lang, 'tl'); // a bare number keeps the register
+  assertEquals(answer(f, '09171234567 ben@example.com', now).flow.lang, 'tl'); // an e-mail is not English (live render 11:35)
+  assertEquals(answer(f, 'thanks', now).flow.lang, 'tl'); // one English word does not flip the register
   assertEquals(lintReply(prompt(s.flow, 'Ben')), []);
   s = answer(s.flow, 'Can I change it to 3 guests?', now); assertEquals(s.flow.lang, 'en'); // plain English switches back
   const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x');
