@@ -4,6 +4,27 @@ import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
 import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { BOOK_RE } from './booking.ts';
+import { addChatRoute, beforeClose, decisionInvite } from './voice.ts';
+
+// Session 30, live 19:19 and 19:20 Manila: the model kept its older site-only invite, and "let me think about it" got a
+// bare link tacked on after the warm close.
+Deno.test('the chat route is guaranteed beside the site, and a decision moment never gets a bare link', () => {
+  const url = 'https://tinyurl.com/Stay-at-Cascade';
+  const live = `Ben, yes, the unit is well-suited for remote work.\n\nWhenever you're ready, you may secure your preferred dates on our site, where direct bookings carry our best rates:\n\n👉 ${url}\n\nWe look forward to making your work and stay comfortable.`;
+  const out = addChatRoute(live, url, 'en');
+  assertEquals(out.includes(`👉 ${url}\nOr simply tell us here, and we'll arrange the booking for you in this chat.\n\nWe look forward`), true); // same paragraph as the link
+  assertEquals(addChatRoute(out, url, 'en'), out);                                   // once
+  assertEquals(addChatRoute('Yes, parking is free.', url, 'en'), 'Yes, parking is free.'); // no site offered, nothing added
+  assertEquals(/ po\b/.test(addChatRoute(live, url, 'bis')), false);                  // no Tagalog po in Bisaya
+  assertEquals(lintReply(out, 'is the place good for working remotely?'), []);
+  const think = "That's perfectly fine, Ben. Take all the time you need.\n\nWe're here to assist you whenever you're ready. 🌿";
+  const t = beforeClose(think, decisionInvite('en', url));
+  assertEquals(t.endsWith("We're here to assist you whenever you're ready. 🌿"), true);  // the warm close stays last
+  assertEquals(t.includes(`or you may secure the dates on our site:\n\n👉 ${url}`), true);
+  assertEquals(/in this chat/.test(t), true);
+  assertEquals(lintReply(t, 'ok thanks, let me think about it first'), []);
+  for (const l of ['en', 'tl', 'bis'] as const) assertEquals(lintReply(decisionInvite(l, url)), [], l);
+});
 
 // Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site.
 Deno.test('invitations offer the chat route as well as the site, and its answers start the flow', () => {

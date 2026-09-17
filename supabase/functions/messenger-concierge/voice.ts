@@ -75,6 +75,37 @@ export function isCold(reply: string): boolean {
   return own.trim().length > 140 && !CARE_RE.test(own);
 }
 
+// Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site. The model copied
+// its own older site-only wording from the history despite the rule and the examples (live 19:19), so code guarantees it.
+type L3 = 'en' | 'tl' | 'bis';
+const CHAT_MENTION_RE = /\b(in (the|this) chat|here in chat|dito (po )?sa chat|diri sa chat|sa chat)\b/i;
+const CHAT_ROUTE: Record<L3, string> = {
+  en: `Or simply tell us here, and we'll arrange the booking for you in this chat.`,
+  tl: `O sabihin lang po dito, and we'll arrange the booking for you sa chat.`,
+  bis: `O ingna lang mi diri, and we'll arrange the booking for you sa chat.`,
+};
+/** When the site is offered and the chat route is not, the chat route follows the link. */
+export function addChatRoute(reply: string, siteUrl: string, lang: L3): string {
+  if (!reply.includes(siteUrl) || CHAT_MENTION_RE.test(reply)) return reply;
+  const paras = reply.split(/\n\s*\n/);
+  const i = paras.findIndex((p) => p.includes(siteUrl));
+  paras[i] = paras[i] + String.fromCharCode(10) + CHAT_ROUTE[lang]; // same paragraph as the link: a phone screen reads them as one offer, and the reply stays within four paragraphs
+  return paras.join('\n\n');
+}
+/** A decision moment ("let me think about it"): one sentence with both routes and the link, never a bare link. */
+export const decisionInvite = (lang: L3, siteUrl: string) => ({
+  en: `When you've decided, just tell us here and we'll arrange the booking in this chat, or you may secure the dates on our site:`,
+  tl: `Kapag nakapag-decide po kayo, sabihin lang dito and we'll arrange the booking sa chat, o maaari ninyong i-secure ang dates sa aming site:`,
+  bis: `Kung naka-decide na mo, ingna lang mi diri and we'll arrange the booking sa chat, or pwede pud i-secure ang dates sa among site:`,
+})[lang] + `\n\n👉 ${siteUrl}`;
+/** Insert a block before a short warm close (so the close stays last), else append it. */
+export function beforeClose(reply: string, block: string): string {
+  const paras = reply.trim().split(/\n\s*\n/);
+  const last = paras[paras.length - 1] ?? '';
+  if (paras.length > 1 && last.length < 120 && !/👉|https?:\/\//.test(last)) { paras.splice(paras.length - 1, 0, block); return paras.join('\n\n'); }
+  return `${reply.trim()}\n\n${block}`;
+}
+
 /** The chat already holds the guest count: a paragraph that only asks for it again is dropped (live 2026-09-17 18:34,
  *  the model asked despite the hint - D-097, code owns it). Never returns ''. */
 const PAX_ASK_RE = /^[^\n]*\b(how many (guests|people|persons|of you)|number of guests|ilan po (kayo|ang)|pila (mo|ka tawo))\b[^\n]*\?\s*$/i;
