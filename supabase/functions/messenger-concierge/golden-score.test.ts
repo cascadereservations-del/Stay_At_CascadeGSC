@@ -23,7 +23,7 @@ Deno.test('every example in VOICE passes the rubric: the model copies examples, 
     assertEquals(got, [], `example "${guest}" fails the rubric: ${got.join('; ')}`);
     seen++;
   }
-  assertEquals(seen, 14); // four mid-conversation + ten first-contact
+  assertEquals(seen, 15); // four mid-conversation + eleven first-contact (the turnover-day pair of example 5 included)
 });
 
 Deno.test('what Lloyd rejected live fails, rule by rule', () => {
@@ -53,7 +53,7 @@ Deno.test('the rate card is the only source of peso figures', () => {
 });
 
 Deno.test('the golden set is complete, unique and does not rot', () => {
-  const now = new Date('2026-12-30T00:00:00Z'), cases = goldenCases(now, 'Oct 3 to 5');
+  const now = new Date('2026-12-30T00:00:00Z'), cases = goldenCases(now, 'Oct 3 to 5', 'Oct 5');
   assertEquals(cases.length >= 30, true);
   assertEquals(new Set(cases.map((c) => c.id)).size, cases.length);
   for (const g of ['first', 'followup', 'register', 'flow', 'handoff']) assertEquals(cases.some((c) => c.group === g), true, g);

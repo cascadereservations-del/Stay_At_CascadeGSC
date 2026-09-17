@@ -18,7 +18,7 @@ export function range(now: Date, offset: number, nights: number): string {
 const LINK = /tinyurl\.com\/Stay-at-Cascade/;
 const m = (say: string, lang: Reg = 'en', extra: Partial<GoldenTurn> = {}): GoldenTurn => ({ say, kind: 'model', lang, ...extra });
 
-export function goldenCases(now = new Date(), bookedRange: string | null = null): GoldenCase[] {
+export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null): GoldenCase[] {
   const d2 = range(now, 40, 2), d3 = range(now, 47, 3), d1 = range(now, 54, 1);
   const cases: GoldenCase[] = [
     // ---- first contact: the link is there, under a both-routes sentence; greeting once; answer first
@@ -70,5 +70,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null)
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
   if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { must: [/reserved|booked|taken|open window|nearest/i], mustNot: [/\bis (open|available)\b/i] })] });
+  // Lloyd 2026-09-17: on a day another guest checks out, the 12 noon check-in is never offered. Needs a real turnover day:
+  // pass GOLDEN_TURNOVER="Oct 5" (a checkout_date from a read-only calendar query whose night is still open).
+  if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12/i] })] });
   return cases;
 }

@@ -230,6 +230,16 @@ We can arrange the booking dito sa chat right away, o puwede ninyong i-secure an
 
 We'll have everything ready for you. 🌿
 
+Q: Available ngaun? Mamaya po 12 noon (Taglish, same day, but ANOTHER GUEST CHECKS OUT today - Lloyd 2026-09-17: never offer the 12 noon check-in on a turnover day)
+A: Hi Richell! Available po tonight. Another guest is checking out today, so check-in stays at 2:00 PM while we prepare the unit to the same standard for you.
+
+If the unit is ready earlier, we'll message you right away. For 1 night, the direct rate is PHP 1,780. May I confirm lang po ilan kayo?
+
+We can arrange the booking dito sa chat right away, o puwede ninyong i-secure ang stay sa aming site:
+👉 ${SITE_URL}
+
+We'll have everything ready for you. 🌿
+
 Q: location
 A: Hi Ronnie. We're inside Bria Homes along Conel Road, Barangay San Isidro, General Santos City: a quiet gated community about 10 to 15 minutes from SM, KCC and Veranza, and a calm place to settle in after the day.
 
