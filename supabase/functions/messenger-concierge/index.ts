@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, decisionInvite, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
+import { addChatRoute, answerOnly, beforeClose, decisionInvite, dropPaxAsk, firstInvite, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -43,7 +43,7 @@ const HANDOFF: Record<RiskCode, string> = {
   routine:          '',
   payment:          "Thank you. Our host will personally verify your payment and send your confirmation shortly, so everything is properly recorded.\n\nWe're looking forward to welcoming you to Cascade Hideaway, and we'll have everything ready for your stay.",
   refund:           "Thank you for letting us know. Refunds are reviewed personally by our host, and we've passed this along for their attention right away. We'll make sure it is followed through.",
-  cancellation:     "Thank you for letting us know about the change in your plans. Our host has already been notified and will personally assist you with your booking.\n\nWe completely understand, and we'll keep the next steps as smooth as possible for you.",
+  cancellation:     "Thank you for letting us know about the change in your plans. Our host has already been notified and will personally assist you with your booking.\n\nWe'll keep the next steps as smooth as possible for you.",
   complaint:        "Thank you for letting us know right away. Our host has already been alerted, and our service partners have been notified so they can attend to this as soon as possible.\n\nYour comfort matters to us, and we'll make sure this is followed through promptly.",
   safety:           "Your safety comes first. Our host has been alerted immediately. If anyone is in danger, please call 911 right away.",
   access:           "For your security, access details are shared personally by our host. We've alerted them and they'll message you directly.",
@@ -51,19 +51,22 @@ const HANDOFF: Record<RiskCode, string> = {
   uncertain:        "Let us bring in our host for this one so you receive a complete answer. They'll be with you shortly.",
 };
 // Sticker, photo or reaction with no text: a prospect, so answer with the link rather than a handoff line.
-const ATTACHMENT_REPLY = "Hello! You can view live availability and rates here:\n👉 " + SITE_URL + "\n\nWe offer special savings for direct bookings through our site, and we'd be happy to check specific dates for you.";
+const ATTACHMENT_REPLY = "Thank you for your message. If you have dates in mind, share them here and we'll check the calendar for you, or you may see the home, live availability and our direct rates on our site:\n\n👉 " + SITE_URL;
 // Early/late check-in-out before dates are known (see needsDatesFirst in policy.ts).
 const LOCAL_RE = /(po|pwede|kailan|maaga|naa|moy|kami|namin|ba|ninyo|nyo)/i;
-function datesFirstReply(name: string | null, text: string): string {
-  const hi = name ? `Hello ${name}.` : 'Hello.';
-  if (LOCAL_RE.test(text)) return `${hi}
+// Voice close-out (protocol 10): no greeting on a follow-up, two "po" at most, both routes, never a bare link.
+function datesFirstReply(name: string | null, text: string, followUp: boolean): string {
+  const local = LOCAL_RE.test(text);
+  const open = followUp ? (name ? `${name}, ` : '') : `${name ? `Hi ${name}.` : 'Hello.'} `;
+  const cap = (s: string) => (open.endsWith(', ') ? s[0].toLowerCase() + s.slice(1) : s);
+  if (local) return `${open}${cap('Salamat')} po sa pagtanong. We'd be glad to arrange that for you: depende ito sa calendar ng araw na iyon, and kapag walang ibang guest na dumarating o umaalis that day, madali pong ma-arrange.
 
-Salamat po sa pagtanong - gusto po naming ma-accommodate kayo. Depende po ito sa calendar ng araw na iyon: kapag walang ibang guest na dumarating o umaalis sa parehong araw, madali pong ma-arrange. Ano po ang mga petsa na tinitingnan ninyo? Ite-check po namin agad.
+Share lang dito ang dates ninyo and we'll check right away, o puwede ninyong i-check ang live availability sa aming site:
 
 👉 ${SITE_URL}`;
-  return `${hi}
+  return `${open}${cap('We')}'d be glad to arrange that for you. It depends on the calendar for that day: when no other guest arrives or leaves the same day, it's easy to arrange.
 
-We'd love to make that work for you. It depends on the calendar for that day: when no other guest arrives or leaves the same day, it is easy to arrange. Which dates are you looking at? We'll check right away.
+If you share your dates here, we'll check right away and arrange it in this chat, or you may see live availability on our site:
 
 👉 ${SITE_URL}`;
 }
@@ -77,24 +80,39 @@ const THANKS_RE = /^\s*(ok(ay)?|sige|noted|got it|great|nice)?( po)?[,.! ]*(than
 const CLOSER_ONLY_RE = /^\s*(?:(?:ok(?:ay)?|sige|noted|got it|alright|copy|bye|good ?bye|ingat|see you|talk (?:to you )?later|ttyl|good night|goodnight)(?: po)?(?: na)?[,.! ]*){1,3}$/i;
 const BOT_RE = /\b(are you a (bot|robot|an? ai)|is this a bot|bot (ka|po|ba)|ai (po )?ba|robot (ka|po) ba|chatbot|real person|human ba|tao (po )?ba|automated)\b/i;
 const pick = (xs: string[]) => xs[Math.floor(Math.random() * xs.length)];
+// Voice close-out (protocol 10): three registers, no exclamation words, one or two "po", and the open door offers both
+// routes. `lang` is the SETTLED register of the turn (Bislish only after two Bisaya turns, D-172).
+type L3 = 'en' | 'tl' | 'bis';
+const l3Of = (lang: string): L3 => (lang === 'bisaya' ? 'bis' : lang === 'taglish' ? 'tl' : 'en');
 function closingReply(name: string | null, lang: string, thanks: boolean, lastBotText: string): string {
   const n = name ? `, ${name}` : '';
-  const en = thanks
-    ? pick([`It's truly our pleasure${n}. We're here whenever you need us, and we'd be delighted to welcome you.`, `You're most welcome${n}. It was lovely chatting with you; just message us anytime.`, `Our pleasure${n}. If anything else comes to mind, we're one message away.`])
-    : pick([`Thank you${n}. We're here whenever you need us, and we'd be delighted to welcome you.`, `Noted with thanks${n}. Take care, and just message us anytime.`, `Of course${n}. We'll be right here whenever you're ready.`]);
-  const tl = thanks
-    ? pick([`It's our pleasure po${n}. Nandito lang po kami anytime, at we'd be delighted to welcome you.`, `Walang anuman po${n}. Masaya po kaming nakausap kayo; message lang po kayo anytime.`, `Salamat din po${n}. Kung may maisip pa po kayo, one message away lang po kami.`])
-    : pick([`Salamat po${n}. Nandito lang po kami kapag kailangan ninyo, at we'd be delighted to welcome you.`, `Sige po${n}, ingat po kayo. Message lang po kayo anytime.`, `Noted po${n}. Nandito lang po kami kapag handa na kayo.`]);
-  let reply = lang === 'english' ? en : tl;
-  if (!lastBotText.includes(SITE_URL)) reply += lang === 'english'
-    ? `\n\nWhenever you're ready, our direct booking site is here for you:\n\n👉 ${SITE_URL}`
-    : `\n\nKapag handa na po kayo, nandito po ang direct booking site namin:\n\n👉 ${SITE_URL}`;
+  const l = l3Of(lang);
+  let reply = pick(({
+    en: thanks
+      ? [`It's our pleasure${n}. We're here whenever you need us.`, `You're most welcome${n}. Message us anytime and we'll take care of it.`, `Our pleasure${n}. If anything else comes to mind, we're one message away.`]
+      : [`Thank you${n}. We're here whenever you need us.`, `Noted with thanks${n}. Take care, and message us anytime.`, `Thank you${n}. We'll be right here whenever you're ready.`],
+    tl: thanks
+      ? [`It's our pleasure po${n}. Nandito lang kami anytime.`, `Walang anuman po${n}. Message lang anytime and we'll take care of it.`, `Salamat din po${n}. Kung may maisip pa kayo, one message away lang kami.`]
+      : [`Salamat po${n}. Nandito lang kami kapag kailangan ninyo.`, `Sige po${n}, ingat kayo. Message lang anytime.`, `Noted po${n}. Nandito lang kami kapag ready na kayo.`],
+    bis: thanks
+      ? [`Walay sapayan${n}. Naa ra mi diri anytime.`, `Salamat pud${n}. Message lang if naa moy need and we'll take care of it.`]
+      : [`Salamat${n}. Naa ra mi diri kung naa moy need.`, `Noted${n}. Amping, ug message lang anytime.`],
+  })[l]);
+  if (!lastBotText.includes(SITE_URL)) reply += '\n\n' + ({
+    en: `Whenever you're ready, we can arrange the booking right here in the chat, or you may secure your dates on our site:`,
+    tl: `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site:`,
+    bis: `Kung ready na mo, we can arrange the booking diri sa chat, or pwede pud i-secure ang dates sa among site:`,
+  })[l] + `\n\n👉 ${SITE_URL}`;
   return reply;
 }
+// D-173 / SPEC-01: Lloyd's approved wording, three registers ("automated" failed our own lint; there was no Bisaya line).
 function botReply(name: string | null, lang: string): string {
   const n = name ? `${name}, ` : '';
-  if (lang === 'english') return `${n}I'm Cascade Hideaway's automated assistant, and I'm glad to help with rates, dates, directions and anything about your stay. Whenever you'd like to talk to a person, our host Marifel is one message away.`;
-  return `${n}ako po ang automated assistant ng Cascade Hideaway, at masaya po akong tumulong sa rates, dates, directions at kahit anong tungkol sa stay ninyo. Kapag gusto po ninyong makausap ang tao, si Marifel, ang host namin, ay one message away lang po.`;
+  return ({
+    en: `${n}I'm Cassy, Cascade Hideaway's digital concierge, an AI assistant looked after by our team. I'm glad to help with rates, dates, directions and anything about your stay, and whenever you'd like a person, our host Marifel is one message away.`,
+    tl: `${n}ako po si Cassy, ang digital concierge ng Cascade Hideaway, isang AI assistant na inaalagaan ng aming team. I'm glad to help with rates, dates, directions at anything about your stay, and kapag gusto ninyong makausap ang isang person, si Marifel, ang host namin, ay one message away lang po.`,
+    bis: `${n}ako si Cassy, ang digital concierge sa Cascade Hideaway, usa ka AI assistant nga giatiman sa among team. Glad ko to help with rates, dates, directions ug anything about your stay, ug kung gusto mo makig-istorya og person, si Marifel, among host, one message away ra.`,
+  })[l3Of(lang)];
 }
 // Lloyd 2026-09-13: anchor the saving, not the percentage. When the guest names a stay length,
 // the standard total, the discounted total and the added value are computed here so the
@@ -335,8 +353,10 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
   if (reply.includes(SITE_URL)) return reply;
   // Lloyd's canonical shape (2026-09-13): the site line plus the direct-booking tagline, link solo,
   // withheld only when one of our last two replies already carried the link.
-  const siteEn = `We can arrange the booking right here in the chat, or you may check and secure your dates directly on our site:\n\n👉 ${SITE_URL}\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.`;
-  const siteTl = `We can arrange the booking dito sa chat, o maaari rin po kayong mag-check at mag-secure ng dates directly sa site namin:\n\n👉 ${SITE_URL}\n\nMas mababa po ang rate kapag direct booking, at lalo pong tumitipid habang humahaba ang stay.`;
+  // Voice close-out: the saving rides inside the one invitation sentence (it used to be a third paragraph after the link,
+  // which pushed replies past four paragraphs and read as a second nudge).
+  const siteEn = `We can arrange the booking right here in the chat, or you may secure your dates on our site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
+  const siteTl = `We can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
   // The model already closed with a dates line: add only the site part (no second "let us know").
   if (/\?\s*$/.test(reply.trim()) || /\b(dates?|petsa|book|reserve|availability|i-?hold)\b/i.test(lastPara)) {
     return linkRecent ? reply : `${reply.trim()}\n\n${isEn ? siteEn : siteTl}`;
@@ -345,11 +365,11 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
   const en = !datesKnown
     ? `Just let us know your preferred dates, and we'll gladly check our availability for you.${linkRecent ? '' : ' ' + siteEn}`
     : linkRecent ? '' // session 30: the canned "No pressure at all…" / "Whenever it feels right…" lines stacked a second invitation on the model's own warm close
-    : `Whenever you feel ready, we can arrange the booking right here in the chat, or you may secure your dates directly on our site:\n\n👉 ${SITE_URL}\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.`;
+    : `Whenever you feel ready, we can arrange the booking right here in the chat, or you may secure your dates on our site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
   const tl = !datesKnown
     ? `Sabihin lang po ang preferred dates ninyo at gladly po naming iche-check ang availability para sa inyo.${linkRecent ? '' : ' ' + siteTl}`
     : linkRecent ? ''
-    : `Kapag handa na po kayo, we can arrange the booking dito sa chat, o maaari ninyong i-secure ang dates directly sa site namin:\n\n👉 ${SITE_URL}\n\nMas mababa po ang rate kapag direct booking, at lalo pong tumitipid habang humahaba ang stay.`;
+    : `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
   // english_po replies are English with one courtesy po, so the nudge stays English too
   // (live v55: an English answer got a Taglish nudge).
   const add = isEn ? en : tl;
@@ -519,6 +539,7 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
     hold_expires_at: j.hold_expires_at ?? null, receipt_token: j.receipt_upload_token, receipt_expires_at: j.receipt_upload_expires_at, updated_at: new Date().toISOString() };
   return { flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL), image: QR_URL };
 }
+const receiptThanks = (flow: Flow, first: string) => reg(flow.lang, { en: `Thank you, ${first}. We've received your receipt and we'll confirm the reservation as soon as it's reviewed. You'll hear from us here.`, tl: `Salamat po, ${first}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`, bis: `Salamat, ${first}. Na-receive na namo ang receipt — amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.` });
 async function forwardReceipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }> {
   const first = name ? name.split(' ')[0] : 'po';
   if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: reg(flow.lang, { en: `Thank you. That hold has since expired — just say "book" and we'll set the dates up again.`, tl: `Salamat po. Nag-expire na ang hold na iyon — message lang po "book" and we'll set the dates up again.`, bis: `Salamat. Na-expire na ang hold — message lang "book" and amo i-set up ang dates again.` }) };
@@ -528,7 +549,7 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
   const mime = (img.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim();
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY') }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => ({})) : {};
-  if (r?.ok) return { sent: true, reply: reg(flow.lang, { en: `Thank you, ${first}. We've received your receipt and we'll confirm the reservation as soon as it's reviewed. You'll hear from us here.`, tl: `Salamat po, ${first}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`, bis: `Salamat, ${first}. Na-receive na namo ang receipt — amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.` }) };
+  if (r?.ok) return { sent: true, reply: receiptThanks(flow, first) };
   if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: reg(flow.lang, { en: `Your receipt is already with us and it's being reviewed.`, tl: `Nasa amin na po ang receipt ninyo — nire-review na.`, bis: `Naa na sa amo ang receipt — gi-review na.` }) };
   if (r?.status === 401) return { sent: false, reply: reg(flow.lang, { en: `Thank you. That upload link has since expired — just say "book" and we'll set the dates up again.`, tl: `Salamat po. Nag-expire na ang upload link — message lang po "book" and we'll set the dates up again.`, bis: `Salamat. Na-expire na ang upload link — message lang "book" and amo i-set up ang dates again.` }) };
   console.error('forward_receipt_failed', r?.status, JSON.stringify(j).slice(0, 200));
@@ -545,9 +566,51 @@ async function bookedNightsFor(db: Db, flow: Flow): Promise<Set<string> | null> 
   for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
   return booked;
 }
-async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<void> {
+// ---- Effects seam and probe (voice close-out 2026-09-17, SPEC-06 sections 1-2) -------------------------------
+// Everything handle() does to the outside world goes through `fx`. liveEffects wraps today's functions one to one
+// (no behaviour change on the guest path); probeEffects records the calls and sends nothing, so scripted golden
+// conversations run through the REAL handle() - real prompt, real model, real calendar - on a fresh probe: thread.
+type Effects = {
+  send(psid: string, text: string): Promise<void>;
+  qr(psid: string, flow: Flow | null, fallbackUrl: string): Promise<void>;
+  ops(text: string): Promise<void>;
+  handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string): Promise<void>;
+  submit(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }>;
+  receipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }>;
+  name(psid: string): Promise<string | null>;
+};
+const liveEffects: Effects = {
+  send: (psid, text) => fbSend(psid, text),
+  // session 28: the QR carries the chosen amount (QR Ph tag 54); the static site QR is the fallback
+  qr: async (psid, flow, fallbackUrl) => {
+    let sent = false;
+    try { const amt = Number(flow?.deposit ?? 0); if (amt > 0) sent = await fbSendImageBytes(psid, await qrPng(qrphWithAmount(GCASH_QRPH_BASE, amt)), `gcash-${amt}.png`); }
+    catch (e) { console.error('qr_amount_failed', String(e).slice(0, 200)); }
+    if (!sent) await fbSendImage(psid, fallbackUrl);
+  },
+  ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName,
+};
+type ProbeCall = { fx: string; text?: string; detail?: unknown };
+function probeEffects(calls: ProbeCall[], guestName: string | null): Effects {
+  return {
+    send: (_psid, text) => { calls.push({ fx: 'send', text }); return Promise.resolve(); },
+    qr: (_psid, flow) => { calls.push({ fx: 'qr', detail: { amount: flow?.deposit ?? null } }); return Promise.resolve(); },
+    ops: (text) => { calls.push({ fx: 'ops', text: text.slice(0, 300) }); return Promise.resolve(); },
+    handoff: (_db, _thread, text, risk) => { calls.push({ fx: 'handoff', text: text.slice(0, 200), detail: { risk } }); return Promise.resolve(); },
+    submit: (flow, thread) => {
+      const q = quoteTotal(flow.checkin!, flow.checkout!), deposit = flow.pay_full ? q.total : q.deposit, at = new Date();
+      calls.push({ fx: 'submit', detail: { checkin: flow.checkin, checkout: flow.checkout, pax: flow.pax, total: q.total, deposit } });
+      const until = new Date(at.getTime() + 24 * 3_600_000).toISOString();
+      const f: Flow = { ...flow, step: 'await_receipt', booking_id: 'probe', ref: 'DIR-PROBE', deposit, total: q.total, hold: true, hold_expires_at: until, receipt_token: 'probe', receipt_expires_at: until, updated_at: at.toISOString() };
+      return Promise.resolve({ flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL), image: QR_URL });
+    },
+    receipt: (flow, _url, name) => { calls.push({ fx: 'receipt' }); return Promise.resolve({ sent: true, reply: receiptThanks(flow, name ? name.split(' ')[0] : 'po') }); },
+    name: () => Promise.resolve(guestName),
+  };
+}
+
+async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects = liveEffects, now = new Date()): Promise<void> {
   const msg = ev.message; if (!msg) return;
-  const now = new Date();
 
   // Staff replied from the Page inbox: hold the bot on this thread.
   if (msg.is_echo) {
@@ -568,7 +631,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   const psid: string = ev.sender.id;
   const { data: row } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
   const thread: Thread = (row as Thread | null) ?? { psid, guest_name: null, human_until: null, bot_turns: 0, history: [], last_risk: null, booking_flow: null };
-  if (!thread.guest_name) thread.guest_name = await fbName(psid);
+  if (!thread.guest_name) thread.guest_name = await fx.name(psid);
 
   const text: string = (msg.text ?? '').trim();
   const link = `https://www.facebook.com/messages/t/${psid}`;
@@ -597,7 +660,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   let calendarDown = false; // session 30: the calendar read failed on this turn - the reply does not claim availability and a host is told
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
   if (g.reply && flow?.step === 'await_receipt' && attachment) {
-    const r = await forwardReceipt(flow, String(attachment.payload.url), thread.guest_name);
+    const r = await fx.receipt(flow, String(attachment.payload.url), thread.guest_name);
     flowReply = r.reply; if (r.sent) flow = { ...flow, step: 'receipt_sent', updated_at: now.toISOString() };
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
     const before = flow;
@@ -613,7 +676,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
-    else if (s.action === 'submit') { const r = await submitFlow(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
+    else if (s.action === 'submit') { const r = await fx.submit(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
   } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && BOOK_RE.test(text) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
     flow = start(text, now);
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
@@ -630,12 +693,17 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   if (flowReply) { handoff = false; risk = 'routine'; }
   if (calendarDown) flagOnly = true; // OPS gets the glance card: the guest was told we will confirm the dates
 
+  // Lloyd 2026-09-17 14:40: Bislish only when the guest keeps writing Bisaya (this turn and their previous one); a lone
+  // Bisaya turn gets Taglish. Settled once per turn, so the code-owned lines follow the same register as the model.
+  const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
+  const turnLang = guestLang(text) === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : guestLang(text);
+
   if (!g.reply) { /* mode off, or a human holds this thread */ }
   else if (flowReply) reply = flowReply;
   else if (handoff) reply = text ? HANDOFF[risk] : ATTACHMENT_REPLY;
-  else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, guestLang(text), THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
-  else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, guestLang(text));
-  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text);
+  else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, turnLang, THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
+  else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
+  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
   else {
     try {
       const stateBlock = followUp
@@ -644,9 +712,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       // First exchange gets the full model (voice, warmth, facts); follow-ups run on the lite tier.
       // Follow-ups: compact prompt (no exemplars) on the full model - cheaper than the old full
       // prompt AND better behaved than lite; the language hint rides on the guest's own turn.
-      // Lloyd 2026-09-17 14:40: Bislish only when the guest keeps writing Bisaya (this turn and their previous one); a lone Bisaya turn gets Taglish.
-      const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
-      const lang = guestLang(text) === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : guestLang(text);
+      const lang = turnLang, l3 = l3Of(turnLang);
       const guestTexts = [...thread.history.filter((h) => h.role === 'guest').map((h) => h.text), text];
       const context = (await availabilityBlock(db)) + (await pendingBlock(db, psid)) + guestDatesBlock(guestTexts) + stateBlock;
       // The dates also ride on the guest turn: the system-side block alone was ignored for a
@@ -711,10 +777,10 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       reply = thinPo(plainText(redactAddress(trimRepeatedInvite(out.reply, thread.history.filter((h) => h.role === 'bot').map((h) => h.text), text, SITE_URL))), lang === 'bisaya' ? 0 : 2); // protocol 09: no Tagalog po in Bisaya
       // The first substantive reply carries the booking link (VOICE); the model dropped it on
       // "Hello po" (live audit 2026-09-13), so it is guaranteed here.
-      if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply += `\n\n👉 ${SITE_URL}`;
+      // Voice close-out: never a bare link - the both-routes sentence goes in before the warm close.
+      if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { reply += `\n\n${HANDOFF.policy_exception}`; handoff = true; risk = 'policy_exception'; }
-      const l3 = lang === 'bisaya' ? 'bis' as const : lang === 'taglish' ? 'tl' as const : 'en' as const;
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
       if (followUp && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply = beforeClose(reply, decisionInvite(l3, SITE_URL)); // session 30: never a bare link after the close
@@ -740,21 +806,16 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   if (reply) {
     // Mid-flow (session 28 T6): the guest is already booking here - no site invite after the answer, and the composite
     // (model answer + card) is not lint-scored as one message.
-    if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
+    if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Kapag ready po kayo|We can arrange (the booking|everything)|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
     // Lloyd 2026-09-17 14:30: show the direct site whenever practicable - once, under a resumed confirm card.
     if (flowFollowUp && flow?.step === 'confirm') reply += '\n\n' + ({ en: `If you'd like to see more of the home first, everything is on our site, where direct bookings enjoy our best rates:`, tl: `If you'd like to see more of the home first, nasa site namin po ang lahat, with our best rates for direct bookings:`, bis: `If you'd like to see more of the home first, naa sa among site ang tanan, with our best rates for direct bookings:` })[flow.lang ?? 'en'] + `\n\n👉 ${SITE_URL}`;
     const lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     if (mode === 'auto') {
-      await fbSend(psid, reply);
-      if (flowImage) { // session 28: the QR carries the chosen amount (QR Ph tag 54); the static site QR is the fallback
-        let sent = false;
-        try { const amt = Number(flow?.deposit ?? 0); if (amt > 0) sent = await fbSendImageBytes(psid, await qrPng(qrphWithAmount(GCASH_QRPH_BASE, amt)), `gcash-${amt}.png`); }
-        catch (e) { console.error('qr_amount_failed', String(e).slice(0, 200)); }
-        if (!sent) await fbSendImage(psid, flowImage);
-      }
+      await fx.send(psid, reply);
+      if (flowImage) await fx.qr(psid, flow, flowImage);
     }
-    else { await fbSend(psid, ACK_SUGGEST); await tgOps(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
+    else { await fx.send(psid, ACK_SUGGEST); await fx.ops(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
     if (handoff) {
       // A discount or pet request goes to the host, but it must not mute the bot for 24 h: a
       // prospect who then asks about Wi-Fi still gets an answer (live guest, 2026-09-13). The hold
@@ -764,11 +825,11 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       // only when a human actually replies from the inbox (echo) - or on a safety report.
       if (risk === 'safety') thread.human_until = new Date(now.getTime() + HUMAN_HOLD_MS).toISOString();
       if (mode === 'auto') {
-        if (text) await openHandoff(db, thread, text, risk, link);
-        else await tgOps(withHeader('guest', `handoff · ${risk}`, `🛎 Concierge handoff (${risk})\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`));
+        if (text) await fx.handoff(db, thread, text, risk, link);
+        else await fx.ops(withHeader('guest', `handoff · ${risk}`, `🛎 Concierge handoff (${risk})\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`));
       }
     } else if (flagOnly && mode === 'auto') {
-      await tgOps(withHeader('guest', 'glance', `👀 ${calendarDown ? 'The calendar could not be read: the guest was told we will confirm the dates. Please check and reply.' : 'Concierge answered but wants a host to glance'}\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`));
+      await fx.ops(withHeader('guest', 'glance', `👀 ${calendarDown ? 'The calendar could not be read: the guest was told we will confirm the dates. Please check and reply.' : 'Concierge answered but wants a host to glance'}\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`));
     }
   }
 
@@ -780,6 +841,40 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     history: [...thread.history, ...turns].slice(-HISTORY_KEEP * 2), last_risk: risk, updated_at: now.toISOString(),
     booking_flow: thread.booking_flow ?? null,
   });
+}
+
+/** Scripted turns through the real handle() on a fresh probe: thread; every outward effect is recorded, none is made.
+ *  body: { psid: "probe:<uuid>", name?: string, now?: iso, turns: Array<string | { text?: string, image?: true, advance_minutes?: number }> } */
+async function runProbe(body: string): Promise<Response> {
+  const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
+  let p: { psid?: string; name?: string; now?: string; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }> };
+  try { p = JSON.parse(body); } catch { return json({ ok: false, error: 'bad_json' }, 400); }
+  const psid = String(p.psid ?? '');
+  if (!/^probe:[A-Za-z0-9-]{8,64}$/.test(psid) || !Array.isArray(p.turns) || !p.turns.length || p.turns.length > 12) return json({ ok: false, error: 'probe_psid_and_1_to_12_turns_required' }, 400);
+  const db: Db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
+  dbForLandmarks = db;
+  let now = p.now && Date.parse(p.now) ? new Date(p.now) : new Date();
+  const out: unknown[] = [];
+  try {
+    await db.from('concierge_threads').delete().eq('psid', psid); // a fresh thread, always
+    for (const [i, t] of p.turns.entries()) {
+      const turn = typeof t === 'string' ? { text: t } : t;
+      now = new Date(now.getTime() + (turn.advance_minutes ?? 1) * 60_000);
+      const message: Record<string, unknown> = { mid: `probe-${i}`, text: turn.text ?? undefined };
+      if (turn.image) message.attachments = [{ type: 'image', payload: { url: 'https://example.invalid/receipt.jpg' } }];
+      const calls: ProbeCall[] = [], t0 = Date.now();
+      await handle(db, { sender: { id: psid }, recipient: { id: PAGE_ID }, message }, 'auto', probeEffects(calls, p.name ?? null), now);
+      const { data: row } = await db.from('concierge_threads').select('booking_flow, last_risk, guest_name').eq('psid', psid).maybeSingle();
+      const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
+      out.push({ guest: turn.text ?? '[image]', reply, step: row?.booking_flow?.step ?? null, flow_lang: row?.booking_flow?.lang ?? null, risk: row?.last_risk ?? null,
+        effects: calls.filter((c) => c.fx !== 'send'), lint: lintReply(reply, turn.text ?? '', { firstTurn: i === 0, name: row?.guest_name ?? null }), ms: Date.now() - t0 });
+    }
+    return json({ ok: true, voice_compact_chars: voiceCompact().length, turns: out });
+  } catch (e) {
+    return json({ ok: false, error: String(e).slice(0, 300), turns: out }, 500);
+  } finally {
+    await db.from('concierge_threads').delete().eq('psid', psid);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -802,6 +897,10 @@ Deno.serve(async (req) => {
   }
 
   const body = await req.text();
+  // Probe: header-gated, probe: psids only, sends nothing. A missing or wrong header falls through to the HMAC check,
+  // which rejects it, so the probe adds no unauthenticated surface.
+  const probeSecret = env('CASCADE_PROBE_SECRET'), probeHeader = req.headers.get('x-cascade-probe');
+  if (probeSecret.length >= 24 && probeHeader === probeSecret) return await runProbe(body);
   if (!(await hmacOk(env('META_APP_SECRET'), body, req.headers.get('x-hub-signature-256')))) return new Response('bad signature', { status: 401 });
 
   const db: Db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));

@@ -98,6 +98,13 @@ export const decisionInvite = (lang: L3, siteUrl: string) => ({
   tl: `Kapag nakapag-decide po kayo, sabihin lang dito and we'll arrange the booking sa chat, o maaari ninyong i-secure ang dates sa aming site:`,
   bis: `Kung naka-decide na mo, ingna lang mi diri and we'll arrange the booking sa chat, or pwede pud i-secure ang dates sa among site:`,
 })[lang] + `\n\n👉 ${siteUrl}`;
+/** First contact always carries the link (VOICE). When the model left it out, code used to append a bare "👉 link";
+ *  protocol 10 section 2: a link always sits under a sentence that offers both routes. */
+export const firstInvite = (lang: L3, siteUrl: string) => ({
+  en: `We can arrange everything right here in the chat, or you may see the home and live availability on our site:`,
+  tl: `We can arrange everything dito sa chat, o puwede ninyong i-check ang home at live availability sa aming site:`,
+  bis: `We can arrange everything diri sa chat, or pwede pud i-check ang home ug live availability sa among site:`,
+})[lang] + `\n\n👉 ${siteUrl}`;
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {
   const paras = reply.trim().split(/\n\s*\n/);
