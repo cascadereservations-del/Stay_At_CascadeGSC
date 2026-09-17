@@ -1,3 +1,5 @@
 # Scripts streamed to Alfred (Linux) over SSH must stay LF on every checkout.
 infrastructure/cascade-n8n/p4/** text eol=lf
 scripts/recovery/p5/** text eol=lf
+# bash runners must stay LF: autocrlf=true checked them out as CRLF and bash failed on "set -o pipefail\r" (2026-09-17)
+*.sh text eol=lf
