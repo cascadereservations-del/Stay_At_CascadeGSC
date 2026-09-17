@@ -1582,10 +1582,9 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
     const webhookUrl=`${SUPABASE_URL}/functions/v1/telegram-expense`;
     const[setWh,,cmdsOps,cmdsFin]=await Promise.all([fetch(`https://api.telegram.org/bot${TG_TOKEN}/setWebhook`,{method:'POST',headers:JSON_H,body:JSON.stringify({url:webhookUrl,secret_token:TG_SECRET,allowed_updates:['message','callback_query'],drop_pending_updates:true})}).then(r=>r.json()).catch(e=>({ok:false,error:String(e)})),fetch(`https://api.telegram.org/bot${TG_TOKEN}/getWebhookInfo`).then(r=>r.json()).catch(()=>null),tgCall('setMyCommands',{commands:OPS_CMDS,scope:{type:'all_group_chats'}}),FINANCE_CHAT?tgCall('setMyCommands',{commands:FIN_CMDS,scope:{type:'chat',chat_id:Number(FINANCE_CHAT)}}):null]);
     // session 28: the ☰ menu button beside the input box lists the commands (Hermis pattern), so a first-time member sees every feature.
+    // Default only: setChatMenuButton with a chat_id accepts private chats alone (groups -> 400 invalid chat_id, live 2026-09-17).
     const menuBtn=await tgCall('setChatMenuButton',{menu_button:{type:'commands'}});
-    const menuOps=OPS_CHAT?await tgCall('setChatMenuButton',{chat_id:Number(OPS_CHAT),menu_button:{type:'commands'}}):null;
-    const menuFin=FINANCE_CHAT?await tgCall('setChatMenuButton',{chat_id:Number(FINANCE_CHAT),menu_button:{type:'commands'}}):null;
-    return json({registered_to:webhookUrl,setWebhook:setWh,cmdsOps,cmdsFin,menuBtn,menuOps,menuFin});
+    return json({registered_to:webhookUrl,setWebhook:setWh,cmdsOps,cmdsFin,menuBtn});
   }
   if(req.method!=='POST')return json({error:'method_not_allowed'},405);
   const got=req.headers.get('X-Telegram-Bot-Api-Secret-Token')??'';
