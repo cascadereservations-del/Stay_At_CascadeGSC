@@ -35,7 +35,7 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
   // a question back to them is the failure Lloyd saw live ("is Oct 3 to 4 available?" -> "Your mobile number po?").
   if (guestText && QUESTION_RE.test(guestText)) {
     const firstPara = reply.split(/\n\s*\n/)[0] ?? '';
-    const answers = /\b(yes|yes po|oo|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());
+    const answers = /\b(yes|yes po|oo|opo|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());
     if (!answers) v.push('no_answer');
   }
   return v;

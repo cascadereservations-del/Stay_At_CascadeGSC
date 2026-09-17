@@ -694,7 +694,10 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
 
   const sentToGuest = Boolean(reply) && mode === 'auto';
   if (reply) {
-    const lint = lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
+    // Mid-flow (session 28 T6): the guest is already booking here - no site invite after the answer, and the composite
+    // (model answer + card) is not lint-scored as one message.
+    if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
+    const lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     if (mode === 'auto') {
       await fbSend(psid, reply);
