@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260917T091019Z",
-    "verified_at": "2026-09-17T09:10:19Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260917T100526Z",
+    "verified_at": "2026-09-17T10:05:26Z",
     "production_rule": "Replaces one RLS policy on app_settings with two (staff read the public keys, an owner or admin reads the rest and writes, admin_pin_hash is never writable through the API) and recreates inventory_human_authorized without its stale aal2 line. No table, column or row is changed. Apply within one hour of the restore point."
   },
   "forward_verification": [
@@ -56,7 +56,12 @@
       }
     ]
   },
-  "feature_flags": [],
+  "feature_flags": [
+    {
+      "name": "no_client_change_required",
+      "required_state": "No front end writes app_settings with a staff login and none reads the secret-named keys (grep 2026-09-17); Edge Functions use the service role. Nothing is switched on or off by this release."
+    }
+  ],
   "compatibility": {
     "mode": "additive",
     "old_reader": true,
