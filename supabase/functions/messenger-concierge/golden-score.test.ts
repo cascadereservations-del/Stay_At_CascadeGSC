@@ -68,3 +68,9 @@ Deno.test('the golden set is complete, unique and does not rot', () => {
   assertEquals(range(new Date('2026-10-30T00:00:00Z'), 0, 2), 'Oct 30 to Nov 1');
   assertEquals(range(now, 40, 2), 'Feb 8 to 10'); // a year boundary
 });
+
+Deno.test('R9: an early check-in fee that contradicts PHP 100 per hour before noon fails (golden run 4, K18)', () => {
+  const reply = `Ben, early check-in before noon is PHP 100 per hour, so arriving at 10 AM would be PHP 400 total. We'll have the unit ready for you.`;
+  assertEquals(rules({ guest: 'Can we check in at 10am on the first day?', reply }).includes('R9'), true);
+  assertEquals(rules({ guest: 'Can we check in at 10am on the first day?', reply: reply.replace('400', '200') }).includes('R9'), false);
+});

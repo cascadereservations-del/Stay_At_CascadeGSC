@@ -4,6 +4,7 @@ import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
 import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { BOOK_RE } from './booking.ts';
+import { claimsOpen, earlyFeeFor, fixEarlyFee, setAvailability } from './voice.ts';
 import { addChatRoute, beforeClose, decisionInvite } from './voice.ts';
 
 // Session 30, live 19:19 and 19:20 Manila: the model kept its older site-only invite, and "let me think about it" got a
@@ -221,4 +222,34 @@ Deno.test('tidyReply: a dangling site invite gets its link, one invitation, cont
   assertEquals(tidyReply(`Our site has the details:\n\n👉 ${url}`, url, false), `Our site has the details:\n\n👉 ${url}`);
   assertEquals(tidyReply('We are ready po.', url, false), 'We are ready po.');
   assertEquals(tidyReply('A few things to note:\n\nQuiet hours run 10 PM to 6 AM.', url, true), 'A few things to note.\n\nQuiet hours run 10 PM to 6 AM.');
+});
+
+// K18 (D-182): the golden run 4 replies, verbatim. Oct 7-9 is an airbnb block (nights of Oct 7 and 8).
+Deno.test('a booked range is never called open, and the early check-in fee is computed in code', () => {
+  const f: Flow = { step: 'dates', checkin: '2026-10-07', checkout: '2026-10-09', lang: 'en', started_at: '', updated_at: '' };
+  const line = availabilityLine(f, new Set(['2026-10-07', '2026-10-08']));
+  const taken = `Hello Ben. Thank you for reaching out to Cascade Hideaway. Oct 7 to 9 is available, and we'd be glad to welcome you.\n\nWe'll have everything prepared for your arrival, so you can settle in without a second thought.`;
+  assertEquals(claimsOpen(taken), true);
+  const fixed = setAvailability(taken, line);
+  assertEquals(fixed.startsWith('Hello Ben. Thank you for reaching out to Cascade Hideaway. Oct 7 to Oct 9 is already reserved'), true);
+  assertEquals(/is available|are open/.test(fixed), false);
+  assertEquals(fixed.endsWith(`We'll have everything prepared for your arrival, so you can settle in without a second thought.`), true);
+  const partial = `Hello, Ben. Thank you for reaching out to Cascade Hideaway.\n\nFor Oct 7 to 9, the night of Oct 7 is already reserved. However, Oct 8 and 9 are open, and we'd be glad to welcome you then.`;
+  const p = setAvailability(partial, line);
+  assertEquals((p.match(/already reserved/g) ?? []).length, 1);
+  assertEquals(/are open/.test(p), false);
+  assertEquals(setAvailability(taken, availabilityLine(f, null)).includes(`We're checking Oct 7 to Oct 9 on our calendar and will confirm shortly.`), true);
+  assertEquals(claimsOpen('Oct 7 to 9 is not available.'), false);
+  assertEquals(claimsOpen('You may see live availability on our site.'), false);
+  assertEquals(claimsOpen('Yes po, available po ang Oct 20 to 22.'), true);
+
+  assertEquals(earlyFeeFor('Can we check in at 10am on the first day?'), 200);
+  assertEquals(earlyFeeFor('Can we check in early, around 9am?'), 300); // facts.ts: "9 AM would be PHP 300 total"
+  assertEquals(earlyFeeFor('check in 11:30 am po?'), 100);
+  assertEquals(earlyFeeFor('Is there parking?'), null);
+  const r1 = `Ben, we can arrange for an early check-in at 10 AM on October 27. There's a fee of PHP 100 per hour for arrivals before noon, so that would be PHP 400 for a 10 AM check-in.`;
+  assertEquals(fixEarlyFee(r1, 'Can we check in at 10am on the first day?'), r1.replace('PHP 400', 'PHP 200'));
+  const r2 = 'Early check-in before noon is PHP 100 per hour, so arriving at 10 AM would be PHP 400 total. The PHP 1,000 deposit is settled at check-in.';
+  assertEquals(fixEarlyFee(r2, 'Can we check in at 10am?'), r2.replace('PHP 400', 'PHP 200'));
+  assertEquals(fixEarlyFee(r2, 'Is there wifi?'), r2);
 });

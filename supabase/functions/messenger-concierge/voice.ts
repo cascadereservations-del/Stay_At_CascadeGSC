@@ -146,6 +146,54 @@ export function dropNameAsk(reply: string): string {
   return out || reply;
 }
 
+// K18 fact guards (D-182). Availability and the early check-in fee reached the model as prompt text only, and the golden
+// set caught both wrong: a booked range called open, PHP 400 for a 10 AM arrival. Code owns both facts; no wording added.
+const DATE_REF_RE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.? ?\d{1,2}\b|\b\d{1,2}[/-]\d{1,2}\b|\b(those|these|your|the) (dates|nights)\b/i;
+const OPEN_RE = /\b(available|open|bakante)\b/i;
+const NOT_OPEN_RE = /\b(not|isn't|aren't|no longer|hindi|dili)\s+(yet\s+)?(available|open|bakante)\b/gi;
+const AVAIL_WORD_RE = /\b(available|open|bakante|reserved|booked|taken)\b/i;
+const sentencesOf = (line: string): string[] => line.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [line];
+const availSentence = (s: string) => DATE_REF_RE.test(s) && AVAIL_WORD_RE.test(s);
+/** The reply tells the guest a date is open or available. */
+export function claimsOpen(reply: string): boolean {
+  return reply.split('\n').some((l) => sentencesOf(l).some((s) => DATE_REF_RE.test(s) && OPEN_RE.test(s.replace(NOT_OPEN_RE, ''))));
+}
+/** Every sentence that states availability for a date gives way to the code's line: the first is replaced, the rest are
+ *  dropped (golden run 4: "Oct 7 is already reserved. However, Oct 8 and 9 are open" - Oct 8 was booked too). Never ''. */
+export function setAvailability(reply: string, line: string): string {
+  let placed = false;
+  const code = /[.!?]$/.test(line) ? line : `${line}.`;
+  const out = reply.split('\n').map((l) => {
+    const ss = sentencesOf(l);
+    if (!ss.some(availSentence)) return l;
+    return ss.map((s) => (!availSentence(s) ? s : placed ? '' : ((placed = true), `${code} `))).join('').trim();
+  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return out || reply;
+}
+
+const EARLY_ASK_RE = /\b(early|check[- ]?in|arriv\w*|dating|abot)\b/i;
+const AM_RE = /\b(\d{1,2})(?::(\d{2}))?\s*a\.?m\b|\balas[- ]?(\d{1,2})(?::(\d{2}))?\s+(?:ng umaga|sa buntag)\b/i;
+/** facts.ts: early check-in is PHP 100 per started hour before 12 noon. null = the guest named no morning arrival time. */
+export function earlyFeeFor(guest: string): number | null {
+  const m = EARLY_ASK_RE.test(guest) ? AM_RE.exec(guest) : null;
+  if (!m) return null;
+  const h = Number(m[1] ?? m[3]), min = Number(m[2] ?? m[4] ?? 0);
+  if (h < 5 || h > 11 || min > 59) return null;
+  return Math.ceil((720 - (h * 60 + min)) / 60) * 100;
+}
+const FEE_SENTENCE_RE = /\b(early|before (12 )?noon|check[- ]?in|arriv\w*)\b/i;
+/** A peso figure in an early check-in sentence that contradicts the computed fee is corrected. The hourly rate itself
+ *  ("PHP 100 per hour") and anything above PHP 700 (the deposit, the rates) are left alone. */
+export function fixEarlyFee(reply: string, guest: string): string {
+  const fee = earlyFeeFor(guest);
+  if (fee === null) return reply;
+  return reply.replace(/[^.!?\n]+[.!?]*/g, (s) => !FEE_SENTENCE_RE.test(s) ? s
+    : s.replace(/(₱|\bPHP|\bPhp)(\s?)(\d{1,3}(?:,\d{3})+|\d+)(?![^.!?\n]{0,6}\b(?:per|an|a|\/)\s?hour)/g, (all, cur: string, sp: string, num: string) => {
+      const v = Number(num.replace(/,/g, ''));
+      return v % 100 === 0 && v <= 700 && v !== fee ? `${cur}${sp}${fee}` : all;
+    }));
+}
+
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
   const v: Violation[] = [];

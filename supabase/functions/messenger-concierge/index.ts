@@ -12,8 +12,8 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, decisionInvite, dropNameAsk, dropPaxAsk, firstInvite, isCold, lintReply, offRegister, thinPo, tidyReply } from './voice.ts';
+import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
+import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -138,6 +138,15 @@ const DATES_RE = /\b(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[
 function guestDatesBlock(guestTexts: string[]): string {
   const found = [...new Set(guestTexts.join(' \n ').match(DATES_RE) ?? [])].slice(-3);
   return found.length ? `\n\nGUEST'S DATES SO FAR (from their own messages): ${found.join('; ')}. Treat these as their dates: answer early check-in / late check-out against the CHECKS OUT / CHECKS IN lists for these days, and do not ask for the dates again.` : '';
+}
+/** K18 (D-182): the stay the guest's own words name, newest message first; a single date is one night. */
+function stayFrom(guestTexts: string[], now: Date): { checkin: string; checkout: string } | null {
+  const today = dayStr(new Date(now.getTime() + 8 * 3_600_000)); // Manila
+  for (const t of [...guestTexts].reverse()) {
+    const d = parseDates(t, now);
+    if (d[0] && d[0] >= today) return { checkin: d[0], checkout: d[1] && d[1] > d[0] ? d[1] : addDays(d[0], 1) };
+  }
+  return null;
 }
 
 type Turn = { role: 'guest' | 'bot'; text: string; at: string };
@@ -757,6 +766,10 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
         const warm = `[REWRITE REQUIRED. Your draft was correct but read as blunt and transactional. Keep every fact. Write it the way a calm boutique-hotel concierge would type it in chat: the answer first; then one sentence that shows care or preparation done for the guest ("we'll have it ready", "so you can settle in without a second thought"); then the next step made easy; then one short warm close on its own line. Natural contractions. No sales language, no "no pressure", no exclamation words, no second invitation.] `;
         out = await draft(thread, warm + paxHint + datesHint + LANG_HINT[lang] + text, context, 'full', followUp).catch(() => out);
       }
+      // K18 (D-182): the early check-in fee is computed in code; a contradicting peso figure is corrected (mid-flow too:
+      // this runs on the answer before the flow's card is added).
+      const feeFixed = fixEarlyFee(out.reply, text);
+      if (feeFixed !== out.reply) { console.warn('early_fee_guard', out.reply.slice(0, 160)); out.reply = feeFixed; }
       if (followUp) {
         out.reply = out.reply.replace(/^\s*(hello|hi|hey|good (morning|afternoon|evening)|kumusta|kamusta|maayong \w+)[^\n]{0,60}?[!.,]?\s*\n+/i, '');
         // Inline greeting on a follow-up ("Hi Ben, about po sa 4 adults..." live 2026-09-13): drop
@@ -810,6 +823,21 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.
+      // K18 (D-182): outside the book flow, a reply that calls the guest's dates open is checked against the calendar in
+      // code; a booked night (or an unreadable calendar) replaces the claim with the flow's own approved line (B96).
+      if (!flowFollowUp && claimsOpen(reply)) {
+        const stay = stayFrom(guestTexts, now);
+        if (stay) {
+          const f: Flow = { step: 'dates', ...stay, lang: l3, started_at: now.toISOString(), updated_at: now.toISOString() };
+          const nights = await bookedNightsFor(db, f);
+          if (!nights || nights.size) {
+            console.warn('availability_guard', JSON.stringify({ stay, down: !nights, reply: reply.slice(0, 160) }));
+            reply = setAvailability(reply, availabilityLine(f, nights));
+            if (l3 === 'tl') reply = thinPo(reply, 2);
+            if (!nights) flagOnly = true; // OPS gets the glance card, as on the flow path
+          }
+        }
+      }
       if (out.uncertain) { flagOnly = true; risk = 'uncertain'; }
     } catch (e) {
       console.error('draft_failed', String(e).slice(0, 400));

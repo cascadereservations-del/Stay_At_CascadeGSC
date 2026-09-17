@@ -2,7 +2,7 @@
 // reply. Pure, no I/O, unit-tested (golden-score.test.ts). A check returns null when it passes, else a short reason.
 // The checks are deliberately narrow: a scorer that cries wolf sends us back to tuning by ear.
 import { RATE_TIERS } from '../_shared/cascade-core/facts.ts';
-import { isCold, lintReply, type Violation } from './voice.ts';
+import { earlyFeeFor, fixEarlyFee, isCold, lintReply, type Violation } from './voice.ts';
 
 export type Reg = 'en' | 'tl' | 'bis';
 /** model = a free answer written by the model; code = a code-owned line in index.ts (closer, bot, dates-first, sticker);
@@ -133,6 +133,7 @@ export function scoreReply(c: Ctx): Score {
   // R9 facts
   const strange = pesosIn(r).filter((v) => !PESOS.has(v));
   if (strange.length) s.R9 = `peso figure not on the rate card: ${strange.join(', ')}`;
+  else if (fixEarlyFee(r, c.guest) !== r) s.R9 = `early check-in fee is not PHP ${earlyFeeFor(c.guest)}`; // K18
   else if (CAPACITY_RE.test(r)) s.R9 = 'capacity exceeded';
   else if (ADDRESS_RE.test(r)) s.R9 = 'block or lot number';
   // R10 length
