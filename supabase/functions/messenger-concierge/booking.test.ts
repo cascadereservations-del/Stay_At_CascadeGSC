@@ -32,6 +32,8 @@ Deno.test('flow: prefilled start, then pax -> phone -> email -> confirm -> submi
   s = answer(s.flow, 'yes po', now); assertEquals(s.action, 'submit');
   assertEquals(f.asked, null); // "Can I book …?" is booking intent, not a question to answer first
   assertEquals(start('Hello is Oct 3 to 4 available. i would like to book for 2 adults', now).asked, 'availability');
+  assertEquals(start('is Oct 10 to 12 available? book for 2', now).pax, 2); // live 2026-09-17: asked for the count again
+  assertEquals(start('book Oct 10 to 12 for 3 nights', now).pax, undefined);
 });
 
 Deno.test('flow: question passes through, correction at confirm, cancel', () => {

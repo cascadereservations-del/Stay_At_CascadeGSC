@@ -64,6 +64,7 @@ export function parsePax(text: string): number | null {
   const words: Record<string, number> = { one: 1, isa: 1, two: 2, dalawa: 2, duha: 2, three: 3, tatlo: 3, tulo: 3, four: 4, apat: 4, upat: 4 };
   // A count next to a guest word wins over any other number ("Sep 24 to 26 for 2 adults" -> 2).
   const m = /\b(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:adults?|pax|persons?|people|guests?|tao|kami|ka)\b/i.exec(text)
+    ?? /\b(?:for|para sa|kaming)\s+(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.exec(text) // "book for 2" (live 2026-09-17 09:53)
     ?? /\b(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\b/i.exec(text);
   if (!m) return null;
   const n = /^\d+$/.test(m[1]) ? +m[1] : words[m[1].toLowerCase()];
@@ -153,7 +154,7 @@ export function start(text: string, now = new Date()): Flow {
   const today = at.slice(0, 10);
   if (d[0] && d[0] >= today) { flow.checkin = d[0]; flow.step = 'checkout'; }
   if (flow.checkin && d[1] && d[1] > flow.checkin) { flow.checkout = d[1]; flow.step = 'pax'; }
-  const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat)\s*(adults?|pax|persons?|people|guests?|tao|kami)\b/i.test(text) ? parsePax(text) : null;
+  const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat)\s*(adults?|pax|persons?|people|guests?|tao|kami)\b/i.test(text) || /\b(?:for|para sa|kaming)\s+(\d|one|two|three|four|isa|dalawa|tatlo|apat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.test(text) ? parsePax(text) : null;
   if (p && flow.step === 'pax') { flow.pax = p; flow.step = 'phone'; }
   // What did the guest actually ask? index.ts answers availability from the calendar (code) or hands
   // any other question to the model before the flow's own ask (protocol rule 1).
