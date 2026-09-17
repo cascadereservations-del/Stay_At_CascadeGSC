@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "FILL-AFTER-BACKUP",
-    "verified_at": "FILL-AFTER-BACKUP",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260917T064640Z",
+    "verified_at": "2026-09-17T06:46:40Z",
     "production_rule": "One NEW definer function (staff_decide_direct_booking_v1) granted to authenticated. No table or row is changed; the service_role-only grant on decide_direct_booking is restated exactly as production already has it. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
