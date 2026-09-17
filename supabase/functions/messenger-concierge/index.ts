@@ -191,7 +191,16 @@ const pretty = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString(
 async function availabilityBlock(db: Db): Promise<string> {
   const today = dayStr(new Date(Date.now() + 8 * 3_600_000)); // Manila
   const horizonEnd = addDays(today, HORIZON_DAYS);
-  const { data } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').gte('checkout_date', today).lte('checkin_date', horizonEnd).order('checkin_date').limit(200);
+  const { data, error } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').gte('checkout_date', today).lte('checkin_date', horizonEnd).order('checkin_date').limit(200);
+  // Session 30: supabase-js does not throw. A failed read used to look like an empty calendar, so the model was
+  // told every night was open. Now it is told the calendar is unknown and must not state availability.
+  if (error) {
+    console.error('calendar_read_failed', 'availabilityBlock', String(error.message ?? error).slice(0, 200));
+    return [
+      `TODAY (Manila): ${today}.`,
+      `AVAILABILITY: the calendar could not be read just now. Do NOT say that any date is open, available, booked or taken. Say warmly that we will check those dates and confirm shortly, then answer everything else as usual. Do not promise early check-in or late check-out.`,
+    ].join('\n');
+  }
   const bookedNights = new Set<string>();
   const checkins = new Set<string>(), checkouts = new Set<string>();
   for (const r of data ?? []) {
@@ -522,8 +531,11 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
 }
 
 /** Booked nights overlapping the flow's stay (calendar_events, cancelled excluded). */
-async function bookedNightsFor(db: Db, flow: Flow): Promise<Set<string>> {
-  const { data: rows } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').lt('checkin_date', flow.checkout!).gt('checkout_date', flow.checkin!).limit(50);
+/** Booked nights that overlap the stay, or null when the calendar could not be read (session 30: a failed read
+ *  used to return an empty set, and the guest was told the dates were available). */
+async function bookedNightsFor(db: Db, flow: Flow): Promise<Set<string> | null> {
+  const { data: rows, error } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').lt('checkin_date', flow.checkout!).gt('checkout_date', flow.checkin!).limit(50);
+  if (error) { console.error('calendar_read_failed', 'bookedNightsFor', String(error.message ?? error).slice(0, 200)); return null; }
   const booked = new Set<string>();
   for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
   return booked;
@@ -577,6 +589,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   // through to the model with the flow kept where it is.
   let flow: Flow | null = isActive(thread.booking_flow, now) ? thread.booking_flow! : null;
   let flowReply: string | null = null, flowImage: string | null = null, flowFollowUp: string | null = null;
+  let calendarDown = false; // session 30: the calendar read failed on this turn - the reply does not claim availability and a host is told
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
   if (g.reply && flow?.step === 'await_receipt' && attachment) {
     const r = await forwardReceipt(flow, String(attachment.payload.url), thread.guest_name);
@@ -589,7 +602,8 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     // Protocol rule 1 mid-flow (live 2026-09-17 10:57: "Oct 20 to 22 po, available pa po ba?" got the contact ask with no
     // answer): dates completed on this turn are checked against the calendar before the next ask.
     if (s.action === 'ask' && flow.checkin && flow.checkout && (flow.checkin !== before.checkin || flow.checkout !== before.checkout)) {
-      const line = availabilityLine(flow, await bookedNightsFor(db, flow));
+      const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
+      const line = availabilityLine(flow, nights);
       if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = line; }
       else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
     }
@@ -600,14 +614,16 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
     if (flow.asked === 'availability') {
-      const line = availabilityLine(flow, await bookedNightsFor(db, flow));
-      if (/already reserved/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang) + line; }
+      const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
+      const line = availabilityLine(flow, nights);
+      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang) + line; }
       else flowReply = opener(flow, thread.guest_name, line) + prompt(flow, thread.guest_name);
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
     else flowReply = opener(flow, thread.guest_name) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }
+  if (calendarDown) flagOnly = true; // OPS gets the glance card: the guest was told we will confirm the dates
 
   if (!g.reply) { /* mode off, or a human holds this thread */ }
   else if (flowReply) reply = flowReply;
@@ -727,7 +743,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
         else await tgOps(withHeader('guest', `handoff · ${risk}`, `🛎 Concierge handoff (${risk})\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`));
       }
     } else if (flagOnly && mode === 'auto') {
-      await tgOps(withHeader('guest', 'glance', `👀 Concierge answered but wants a host to glance\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`));
+      await tgOps(withHeader('guest', 'glance', `👀 ${calendarDown ? 'The calendar could not be read: the guest was told we will confirm the dates. Please check and reply.' : 'Concierge answered but wants a host to glance'}\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`));
     }
   }
 

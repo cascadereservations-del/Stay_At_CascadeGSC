@@ -124,3 +124,14 @@ Deno.test('mid-flow answer: echoed card, site invite and closer are dropped (liv
   const atConfirm = answer({ ...base, lang: 'bis', step: 'confirm', total: 3382, deposit: 1691 }, 'Pwede usbon sa Oct 25 to 27? 3 mi', now).flow;
   assertEquals([atConfirm.pax, atConfirm.checkin, atConfirm.lang], [3, '2026-10-25', 'bis']);
 });
+
+// Session 30: a FAILED calendar read (null) must never read as available, in any register, and stays lint-clean.
+Deno.test("calendar unknown: no availability claim, three registers", () => {
+  for (const lang of ["en", "tl", "bis"] as const) {
+    const f = { ...start("book Oct 20 to 22 for 2, is it available?", now), lang } as Flow;
+    const line = availabilityLine(f, null);
+    assertEquals(/(is available|available po|available ang|reserved)/i.test(line), false);
+    assertEquals(/confirm shortly/.test(line), true);
+    assertEquals(lintReply(opener(f, "Ben", line) + prompt(f, "Ben"), "", { firstTurn: true }), []);
+  }
+});

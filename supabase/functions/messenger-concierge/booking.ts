@@ -113,9 +113,15 @@ export function quoteTotal(checkin: string, checkout: string): { nights: number;
 /** Check-in inside 48 h: the site asks the full amount, so the choice is not offered. */
 export const within48h = (checkin: string, now = new Date()) => Date.parse(checkin + 'T14:00:00+08:00') - now.getTime() < 48 * 3_600_000;
 /** A code answer to "is it available?" from the calendar rows that overlap the stay (pure: index.ts fetches). */
-export function availabilityLine(flow: Flow, bookedNights: Set<string>): string {
+export function availabilityLine(flow: Flow, bookedNights: Set<string> | null): string {
   if (!flow.checkin || !flow.checkout) return '';
   const dates = `${dm(flow.checkin)} to ${dm(flow.checkout)}`;
+  // null = the calendar could not be read: never claim the dates are open (session 30).
+  if (!bookedNights) return pick(flow.lang, {
+    en: `We're checking ${dates} on our calendar and will confirm shortly`,
+    tl: `Iche-check po namin ang ${dates} sa calendar and we'll confirm shortly`,
+    bis: `Amo i-check ang ${dates} sa calendar and we'll confirm shortly`,
+  });
   for (let d = flow.checkin; d < flow.checkout; d = new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)) {
     if (bookedNights.has(d)) return pick(flow.lang, {
       en: `${dates} is already reserved, as the home welcomes one party at a time. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`,
