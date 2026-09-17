@@ -256,7 +256,15 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
 }
 
 // ponytail: one QR (GCash) in Messenger; UnionBank/InstaPay stays on the site page linked below.
-export function paymentReply(flow: Flow, name: string | null, _siteUrl: string): string {
+/** "bukas" / "tomorrow", "ngayong araw" / "today", else the weekday - Manila calendar days between now and the hold end. */
+function relDay(iso: string, now: Date, tl: boolean): string {
+  const day = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  const diff = Math.round((Date.parse(day(new Date(iso))) - Date.parse(day(now))) / 86_400_000);
+  if (diff === 0) return tl ? 'ngayong araw' : 'today';
+  if (diff === 1) return tl ? 'bukas' : 'tomorrow';
+  return new Date(iso).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', weekday: 'long' });
+}
+export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, now = new Date()): string {
   const n = name ? name.split(' ')[0] : '';
   const nm = n ? `, ${n}` : '';
   const until = flow.hold_expires_at ? new Date(flow.hold_expires_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).replace(', ', ' at ') : null;
@@ -264,21 +272,22 @@ export function paymentReply(flow: Flow, name: string | null, _siteUrl: string):
   const a = dm(flow.checkin!), z = dm(flow.checkout!);
   const dates = a.slice(0, 3) === z.slice(0, 3) ? `${a}–${z.slice(4)}` : `${a}–${z}`; // "Oct 20–22", "Sep 30–Oct 2"
   const tl = flow.lang === 'tl';
-  // D-168 (Lloyd's Native Filipino protocol, section 24, verbatim): status -> next step -> convenience -> confirmation
-  // -> remaining obligation -> warm close. GCash is the channel; the number lets Messenger raise its own GCash card.
+  const rel = flow.hold_expires_at ? relDay(flow.hold_expires_at, now, tl) : '';
+  // D-168 (Lloyd's Native Filipino protocol, section 24; 12:05 "add po as applicable, explain the 24-hour hold"):
+  // status -> next step -> convenience -> confirmation -> remaining obligation -> warm close. GCash is the channel.
   if (tl) {
     const head = flow.hold && until
-      ? `Hi ${n || 'po'}! 🌿\nNa-hold na po namin ang ${dates} for you until ${until}. Your booking reference is ${flow.ref}.`
-      : `Hi ${n || 'po'}! 🌿\nReceived na po namin ang request ninyo for ${dates}. Your booking reference is ${flow.ref}. Malapit na ang stay, kaya iko-confirm namin as soon as dumating ang payment.`;
-    const pay = `Para ma-secure ang stay, you may send the ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here and we'll confirm the reservation.`;
+      ? `Hi ${n || 'po'}! 🌿\nNa-hold na po namin ang ${dates} for you for 24 hours — until ${until} (${rel}). Ang booking reference ninyo po ay ${flow.ref}.`
+      : `Hi ${n || 'po'}! 🌿\nReceived na po namin ang request ninyo for ${dates}. Ang booking reference ninyo po ay ${flow.ref}. Malapit na ang stay, kaya iko-confirm namin as soon as dumating ang payment.`;
+    const pay = `Para ma-secure ang stay, you may send the ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here at iko-confirm na namin ang reservation.`;
     const later = full
-      ? `Ang ₱1,000 refundable security deposit na lang ang natitira, which can be settled at check-in.`
-      : `The remaining ${peso(flow.total! - flow.deposit!)} balance and ₱1,000 refundable security deposit can be settled at check-in.`;
-    const close = `Salamat${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`;
+      ? `Ang ₱1,000 refundable security deposit na lang po ang natitira, which can be settled at check-in.`
+      : `The remaining ${peso(flow.total! - flow.deposit!)} balance and ₱1,000 refundable security deposit ay puwede pong i-settle sa check-in.`;
+    const close = `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`;
     return [head, '', pay, '', later, '', close].join('\n');
   }
   const head = flow.hold && until
-    ? `Hi ${n || 'there'}, 🌿\nWe've reserved ${dates} for you until ${until}. Your booking reference is ${flow.ref}.`
+    ? `Hi ${n || 'there'}, 🌿\nWe've reserved ${dates} for you for 24 hours, until ${until} (${rel}). Your booking reference is ${flow.ref}.`
     : `Hi ${n || 'there'}, 🌿\nWe've received your request for ${dates}. Your booking reference is ${flow.ref}. As your stay is near, we'll confirm as soon as your payment arrives.`;
   const pay = `To secure your stay, you may send the ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} via GCash (0956 011 5744) using the QR below. The exact amount is already set. Once done, simply send the receipt here and we'll confirm your reservation.`;
   const later = full
