@@ -151,7 +151,7 @@ export function prompt(flow: Flow, name: string | null): string {
       ? `Ilan po kayong mag-stay? Komportable po ang bahay para sa hanggang 3 adults, o 2 adults na may 2 bata.`
       : `And how many guests will be staying? The home comfortably accommodates up to 3 adults, or 2 adults with 2 children.`;
     case 'contact': return tl
-      ? `Pahingi po ng mobile number ninyo, para ma-contact namin kayo tungkol sa stay. Pwede rin po kayong magdagdag ng e-mail kung doon ninyo gustong matanggap ang confirmation.`
+      ? `Maaari po ba naming makuha ang inyong contact number, para ma-contact namin kayo tungkol sa stay? Maaari rin po kayong magdagdag ng e-mail kung doon ninyo nais matanggap ang confirmation.`
       : `May we have your mobile number, so we can reach you about your stay? You are welcome to add an e-mail address as well, if you would like your confirmation there.`;
     case 'confirm': { const q = quoteTotal(flow.checkin!, flow.checkout!); return [
       tl ? `Ito po ang details ng stay ninyo:` : `Here are your stay details:`,
