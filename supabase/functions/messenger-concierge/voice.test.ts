@@ -13,7 +13,9 @@ Deno.test('every canned prompt passes the voice lint', () => {
     assertEquals(lintReply(prompt({ ...base, step }, 'Ben')), [], step);
   }
   assertEquals(lintReply(opener(start('book Oct 3 to 4 for 2', now), 'Ben') + prompt({ ...base, step: 'contact' }, 'Ben'), 'book Oct 3 to 4 for 2', { firstTurn: true }), []);
-  assertEquals(lintReply(paymentReply({ ...base, step: 'await_receipt', ref: 'DIR-1', deposit: 890, total: 1780, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', 'https://x')), []);
+  const enPay = paymentReply({ ...base, step: 'await_receipt', ref: 'DIR-1', deposit: 890, total: 1780, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', 'https://x');
+  assertEquals(lintReply(enPay), []);
+  assertEquals(enPay.startsWith('Hi Ben, 🌿\nWe\'ve reserved Oct 3–4 for you until Sep 18 at 8:00 AM. Your booking reference is DIR-1.'), true);
   for (const t of ['cancel', 'Sep 1', 'zzz']) { const s = answer({ ...base, step: 'contact' }, t, now); if (s.reply) assertEquals(lintReply(s.reply), [], t); }
 });
 
@@ -48,7 +50,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   const f = start(guest, now);
   assertEquals([f.lang, f.pax, f.asked], ['tl', 2, 'availability']);
   const first = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
-  assertEquals(first.startsWith('Hi Ben. Maraming salamat po sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, at masaya po kaming i-welcome kayong dalawa.'), true);
+  assertEquals(first.startsWith("Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, and we'd be glad to have the two of you."), true);
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
   let s = answer(f, '09171234567', now); assertEquals(s.flow.lang, 'tl'); // a bare number keeps the register
   assertEquals(answer(f, '09171234567 ben@example.com', now).flow.lang, 'tl'); // an e-mail is not English (live render 11:35)
@@ -56,11 +58,14 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   assertEquals(lintReply(prompt(s.flow, 'Ben')), []);
   s = answer(s.flow, 'Can I change it to 3 guests?', now); assertEquals(s.flow.lang, 'en'); // plain English switches back
   const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x');
-  assertEquals(tlPay.startsWith('Salamat po, Ben. Naka-reserve na po para sa inyo ang Oct 3 to Oct 4'), true);
+  assertEquals(tlPay.startsWith('Hi Ben! 🌿\nNa-hold na po namin ang Oct 3–4 for you until'), true);
+  assertEquals(tlPay.includes('through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here'), true);
+  assertEquals((tlPay.match(/\bpo\b/g) ?? []).length <= 4, true); // section 4: one or two markers, never every sentence
+  assertEquals(lintReply('Rest assured po, lubos kaming nagagalak.'), ['exclaim', 'boilerplate']);
   assertEquals(lintReply(tlPay), []);
   for (const step of ['dates', 'checkout', 'pax', 'contact', 'confirm'] as const) assertEquals(lintReply(prompt({ ...base, lang: 'tl', step }, 'Ben')), [], step);
   assertEquals(lintReply(availabilityLine({ ...base, lang: 'tl' }, new Set(['2026-10-03'])), 'available pa po ba'), []);
   const mid = availabilityAck({ ...base, lang: 'tl' }, availabilityLine({ ...base, lang: 'tl' }, new Set())) + '\n\n' + prompt({ ...base, lang: 'tl', step: 'contact' }, 'Ben');
-  assertEquals(mid.startsWith('Available po ang Oct 3 to Oct 4, at masaya po kaming i-welcome kayong dalawa.'), true);
+  assertEquals(mid.startsWith("Available po ang Oct 3 to Oct 4, and we'd be glad to have the two of you."), true);
   assertEquals(lintReply(mid, 'Oct 3 to 4 po, available pa po ba?'), []);
 });

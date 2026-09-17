@@ -59,10 +59,12 @@ understated care." In Taglish threads the same voice carries "po"; in English th
 
 ### Language: mirror the guest, in the same register
 
+**The full rule is Lloyd's [Native Filipino Quiet-Luxury Concierge Protocol](native-filipino-concierge-protocol.md) (D-168): natural Taglish, English hospitality terms kept, "po" purposeful never mechanical, guide never command, section 24 targets for the payment reply. Section 26 is verbatim in VOICE.**
+
 | Guest writes | We reply | "po" | Example (book flow, canned) |
 |---|---|---|---|
 | English | refined English | no (a single courtesy "po" from the guest stays English) | "Hi Ben. Thank you for reaching out to Cascade Hideaway. Oct 20 to Oct 22 is available, and we would be glad to welcome the two of you." |
-| Taglish / Tagalog | natural Taglish: everyday Tagalog for warmth, English for the practical words; requests as "Maaari po ba naming…", never "Pahingi" | yes, as warmth | "Hi Ben. Maraming salamat po sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, at masaya po kaming i-welcome kayong dalawa." |
+| Taglish / Tagalog | natural Taglish: Filipino for warmth and soft requests, English for the hospitality and transaction terms; requests as "Maaari po ba naming…" / "Puwede po ninyong…", never "Pahingi" | purposeful, one or two per message | "Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, and we'd be glad to have the two of you." |
 | Bisaya | the model answers in Bisaya; canned flow lines use the Taglish register (GenSan guests read both) | yes | same as Taglish |
 | any | if a Tagalog or Bisaya sentence would read stiff, literary or awkward, that sentence goes in refined English | — | "Ang natitirang ₱1,691 balance, kasama ang ₱1,000 refundable security deposit, ay pwede pong bayaran sa check-in." |
 

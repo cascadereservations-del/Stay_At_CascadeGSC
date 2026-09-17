@@ -107,7 +107,7 @@ export function availabilityLine(flow: Flow, bookedNights: Set<string>): string 
   const tl = flow.lang === 'tl', dates = `${dm(flow.checkin)} to ${dm(flow.checkout)}`;
   for (let d = flow.checkin; d < flow.checkout; d = new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)) {
     if (bookedNights.has(d)) return tl
-      ? `Reserved na po ang ${dates}, dahil isang party lang po ang tinatanggap namin sa bawat stay. Kung may ibang dates po kayong gusto, i-share lang po ang check-in at check-out at iche-check ko po agad.`
+      ? `Reserved na po ang ${dates} — one party lang ang tinatanggap namin per stay. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`
       : `${dates} is already reserved, as the home welcomes one party at a time. Should other dates suit you, kindly share your check-in and check-out and I will gladly check them for you.`;
   }
   return tl ? `Available po ang ${dates}` : `${dates} is available`;
@@ -120,30 +120,29 @@ export function isActive(flow: Flow | null | undefined, now = new Date()): flow 
 /** The first reply of a flow: a host's welcome that acknowledges what the guest already told us
  * (session 28 - "Your mobile number po?" as an opener read as a form, not a host). */
 export const greeting = (name: string | null, lang: 'en' | 'tl' = 'en') => lang === 'tl'
-  ? `${name ? `Hi ${name.split(' ')[0]}.` : 'Hello po.'} Maraming salamat po sa pag-message sa Cascade Hideaway. `
+  ? `${name ? `Hi ${name.split(' ')[0]}!` : 'Hello po!'} Salamat sa pag-message sa Cascade Hideaway. `
   : `${name ? `Hi ${name.split(' ')[0]}.` : 'Hello.'} Thank you for reaching out to Cascade Hideaway. `;
-/** Cassy persona (D-167): greeting, then the answer, then a calm welcome that names the party. No exclamations. */
 /** "the two of you" / "kayong dalawa" - the party as a host names it. */
 export function party(flow: Flow): string {
   const tl = flow.lang === 'tl';
   return tl
-    ? (!flow.pax || flow.pax === 1 ? 'kayo' : flow.pax === 2 ? 'kayong dalawa' : `ang grupo ninyong ${flow.pax}`)
+    ? (!flow.pax || flow.pax === 1 ? 'you' : flow.pax === 2 ? 'the two of you' : `your group of ${flow.pax}`)
     : (!flow.pax || flow.pax === 1 ? 'you' : flow.pax === 2 ? 'the two of you' : `your party of ${flow.pax}`);
 }
 /** Mid-flow: new dates were just given and are open - acknowledge before the next ask (protocol rule 1, live 2026-09-17 10:57). */
 export function availabilityAck(flow: Flow, openLine: string): string {
   const tl = flow.lang === 'tl';
-  return `${openLine}, ${tl ? `at masaya po kaming i-welcome ${party(flow)}.` : `and we would be glad to welcome ${party(flow)}.`}`;
+  return `${openLine}, ${tl ? `and we'd be glad to have ${party(flow)}.` : `and we would be glad to welcome ${party(flow)}.`}`;
 }
 export function opener(flow: Flow, name: string | null, answer = ''): string {
   const tl = flow.lang === 'tl';
   const who = party(flow);
-  const welcome = tl ? `masaya po kaming i-welcome ${who}.` : `we would be glad to welcome ${who}.`;
-  if (answer) return `${greeting(name, flow.lang)}${answer}, ${tl ? 'at ' : 'and '}${welcome}\n\n`;
+  const welcome = tl ? `we'd be glad to have ${who}.` : `we would be glad to welcome ${who}.`;
+  if (answer) return `${greeting(name, flow.lang)}${answer}, and ${welcome}\n\n`;
   const dates = flow.checkin && flow.checkout
-    ? (tl ? `Noted na po ang ${dm(flow.checkin)} to ${dm(flow.checkout)}, at iche-check ko po ang dates habang nag-uusap tayo. ` : `${dm(flow.checkin)} to ${dm(flow.checkout)} is noted, and I will check those dates for you as we go. `)
-    : flow.checkin ? (tl ? `Noted na po ang check-in ninyo sa ${dm(flow.checkin)}. ` : `Check-in on ${dm(flow.checkin)} is noted. `) : '';
-  return `${greeting(name, flow.lang)}${dates}${tl ? 'Masaya' : 'We'} ${tl ? `po kaming i-welcome ${who}.` : `would be glad to welcome ${who}.`}\n\n`;
+    ? (tl ? `Noted po ang ${dm(flow.checkin)} to ${dm(flow.checkout)} — iche-check namin ang dates as we go. ` : `${dm(flow.checkin)} to ${dm(flow.checkout)} is noted, and I will check those dates for you as we go. `)
+    : flow.checkin ? (tl ? `Noted po, check-in on ${dm(flow.checkin)}. ` : `Check-in on ${dm(flow.checkin)} is noted. `) : '';
+  return `${greeting(name, flow.lang)}${dates}${tl ? `We'd be glad to have ${who}.` : `We would be glad to welcome ${who}.`}\n\n`;
 }
 
 /** The question for the current slot, in the Cassy voice: calm, gracious, precise; guide rather than command. */
@@ -152,16 +151,16 @@ export function prompt(flow: Flow, name: string | null): string {
   const tl = flow.lang === 'tl';
   switch (flow.step) {
     case 'dates': return tl
-      ? `${n}kailan po ninyo gustong mag-stay? Check-in at check-out lang po (halimbawa, "Sep 24 to 26").`
+      ? `${n}kailan po ninyo gustong mag-stay? Check-in and check-out lang po (halimbawa, "Sep 24 to 26").`
       : `${n ? `${n}which` : 'Which'} dates would you like to stay with us? Your check-in and check-out will do (for example, "Sep 24 to 26").`;
     case 'checkout': return tl
-      ? `Salamat po. Noted na ang check-in ninyo sa ${dm(flow.checkin!)}. Hanggang kailan po kayo mag-stay?`
+      ? `Noted po, check-in on ${dm(flow.checkin!)}. Hanggang kailan po ang stay ninyo?`
       : `Thank you. Check-in on ${dm(flow.checkin!)} is noted. Until which date would you like to stay?`;
     case 'pax': return tl
-      ? `Ilan po kayong mag-stay? Komportable po ang bahay para sa hanggang 3 adults, o 2 adults na may 2 bata.`
+      ? `Ilan po kayo? Comfortable po ang home for up to 3 adults, or 2 adults with 2 kids.`
       : `And how many guests will be staying? The home comfortably accommodates up to 3 adults, or 2 adults with 2 children.`;
     case 'contact': return tl
-      ? `Maaari po ba naming makuha ang inyong contact number, para ma-contact namin kayo tungkol sa stay? Maaari rin po kayong magdagdag ng e-mail kung doon ninyo nais matanggap ang confirmation.`
+      ? `Maaari po ba naming makuha ang inyong contact number, para ma-contact namin kayo about the stay? Puwede rin po kayong mag-add ng e-mail if gusto ninyong doon matanggap ang confirmation.`
       : `May we have your mobile number, so we can reach you about your stay? You are welcome to add an e-mail address as well, if you would like your confirmation there.`;
     case 'confirm': { const q = quoteTotal(flow.checkin!, flow.checkout!); return [
       tl ? `Ito po ang details ng stay ninyo:` : `Here are your stay details:`,
@@ -170,9 +169,9 @@ export function prompt(flow: Flow, name: string | null): string {
       `💰 Total ${peso(q.total)}`,
       ``,
       flow.pay_full === true
-        ? (tl ? `Dahil malapit na po ang check-in, ang buong ${peso(q.total)} po ang magse-secure ng stay. Pwede po kayong mag-reply ng FULL para i-send ang request, o sabihin lang po kung may kailangang baguhin.`
+        ? (tl ? `Malapit na po ang check-in, kaya ang full ${peso(q.total)} ang magse-secure ng stay. You may reply FULL to send the request through, or sabihin lang po if may kailangang baguhin.`
               : `As your check-in is near, the full ${peso(q.total)} secures your stay. You may reply FULL to send your request through, or let me know if anything needs changing.`)
-        : (tl ? `Para ma-secure ang stay, pwede po kayong mag-reply ng DEPOSIT para i-reserve sa ${peso(q.deposit)} ngayon at bayaran ang balance sa check-in, o FULL para bayaran ang ${peso(q.total)} ngayon. Alinman po ay magse-send ng request ninyo. Kung may kailangang baguhin, sabihin lang po.`
+        : (tl ? `Para ma-secure ang stay, you may reply DEPOSIT (${peso(q.deposit)} now, balance at check-in) or FULL (${peso(q.total)} now). Either one sends the request through. If may kailangang baguhin, sabihin lang po.`
               : `To secure your stay, you may reply DEPOSIT to reserve with ${peso(q.deposit)} now and settle the balance at check-in, or FULL to settle ${peso(q.total)} now. Either sends your request through. If anything needs changing, simply let me know.`),
     ].join('\n'); }
     default: return '';
@@ -206,14 +205,14 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
     if (detectLang(text) === 'tl') f.lang = 'tl'; else if (words.length >= 2) f.lang = 'en'; }
   const tl = f.lang === 'tl';
   const today = f.updated_at.slice(0, 10);
-  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: tl ? `Sige po. Wala pong na-send, at pwede po kayong bumalik dito kahit kailan — sabihin lang po ang "book" at ipagpapatuloy natin.` : `Of course. Nothing has been sent, and you are welcome to return to this whenever it suits you — simply say "book" and we will pick up from here.`, action: 'cancelled' };
+  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: tl ? `Sige po, no problem. Wala pong na-send. Message lang po "book" anytime and we'll pick up from here.` : `Of course. Nothing has been sent, and you are welcome to return to this whenever it suits you — simply say "book" and we will pick up from here.`, action: 'cancelled' };
   const ask = (reply?: string): Step => ({ flow: f, reply: reply ?? null, action: 'ask' });
-  const retry = (what: string): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(tl ? `Pasensya na po — hindi ko po nakuha nang maayos ${what === 'the mobile number' ? 'ang mobile number' : what === 'the dates' ? 'ang dates' : what === 'the check-out date' ? 'ang check-out date' : what === 'the number of guests' ? 'kung ilan kayo' : 'iyon'}. ${prompt(f, null)}` : `My apologies — I could not quite make out ${what}. ${prompt(f, null)}`);
+  const retry = (what: string): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(tl ? `Sorry po, hindi ko nakuha ${what === 'the mobile number' ? 'ang mobile number' : what === 'the dates' ? 'ang dates' : what === 'the check-out date' ? 'ang check-out date' : what === 'the number of guests' ? 'kung ilan kayo' : 'iyon'}. ${prompt(f, null)}` : `My apologies — I could not quite make out ${what}. ${prompt(f, null)}`);
   switch (f.step) {
     case 'dates': {
       const d = parseDates(text, now);
       if (!d[0]) return retry('the dates');
-      if (d[0] < today) return ask(tl ? `Lumipas na po ang date na iyon. Aling paparating na dates po ang gusto ninyo?` : `That date has already passed. Which upcoming dates would suit you?`);
+      if (d[0] < today) return ask(tl ? `Lumipas na po ang date na iyon. Aling upcoming dates po ang gusto ninyo?` : `That date has already passed. Which upcoming dates would suit you?`);
       f.checkin = d[0]; f.step = 'checkout';
       if (d[1] && d[1] > d[0]) { f.checkout = d[1]; f.step = f.pax ? 'contact' : 'pax'; }
       return ask();
@@ -221,13 +220,13 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
     case 'checkout': {
       const d = parseDates(text, now);
       if (!d[0]) return retry('the check-out date');
-      if (d[0] <= f.checkin!) return ask(tl ? `Kailangan po na pagkatapos ng ${dm(f.checkin!)} ang check-out. Hanggang kailan po kayo mag-stay?` : `Check-out would need to fall after ${dm(f.checkin!)}. Until which date would you like to stay?`);
+      if (d[0] <= f.checkin!) return ask(tl ? `Kailangan po after ${dm(f.checkin!)} ang check-out. Hanggang kailan po ang stay ninyo?` : `Check-out would need to fall after ${dm(f.checkin!)}. Until which date would you like to stay?`);
       f.checkout = d[0]; f.step = f.pax ? 'contact' : 'pax'; return ask();
     }
     case 'pax': {
       const p = parsePax(text);
       if (!p) return retry('the number of guests');
-      if (p > 4) return ask(tl ? `Gustuhin man po naming i-host kayong lahat, pinaka-komportable po ang bahay para sa hanggang 3 adults, o 2 adults na may 2 bata. Para sa ${p}, mas magkakaroon po kayo ng espasyo sa mas malaking accommodation. Kung kasya po ang grupo ninyo, sabihin lang po ulit kung ilan kayo.` : `As much as we would love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 children. For a party of ${p}, a larger accommodation would give you more room to rest. If your group fits, kindly let me know the count again.`);
+      if (p > 4) return ask(tl ? `Comfortable po ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maganda po ang mas malaking place para mas may space kayo. If kasya po ang group ninyo, sabihin lang po ulit kung ilan kayo.` : `As much as we would love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 children. For a party of ${p}, a larger accommodation would give you more room to rest. If your group fits, kindly let me know the count again.`);
       f.pax = p; f.step = 'contact'; return ask();
     }
     case 'contact': {
@@ -257,32 +256,34 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
 }
 
 // ponytail: one QR (GCash) in Messenger; UnionBank/InstaPay stays on the site page linked below.
-export function paymentReply(flow: Flow, name: string | null, siteUrl: string): string {
-  const n = name ? name.split(' ')[0] : (flow.lang === 'tl' ? '' : 'there');
+export function paymentReply(flow: Flow, name: string | null, _siteUrl: string): string {
+  const n = name ? name.split(' ')[0] : '';
+  const nm = n ? `, ${n}` : '';
   const until = flow.hold_expires_at ? new Date(flow.hold_expires_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).replace(', ', ' at ') : null;
   const full = (flow.deposit ?? 0) >= (flow.total ?? 0);
-  const dates = `${dm(flow.checkin!)} to ${dm(flow.checkout!)}`;
-  const tl = flow.lang === 'tl', nm = n ? `, ${n}` : '';
-  // Cassy persona (D-167, Lloyd's own wording 2026-09-17 10:30): four calm paragraphs, "you may", the amount
-  // already arranged, no exclamations, one 🌿 at the close. GCash only. Taglish register mirrors the guest.
+  const a = dm(flow.checkin!), z = dm(flow.checkout!);
+  const dates = a.slice(0, 3) === z.slice(0, 3) ? `${a}–${z.slice(4)}` : `${a}–${z}`; // "Oct 20–22", "Sep 30–Oct 2"
+  const tl = flow.lang === 'tl';
+  // D-168 (Lloyd's Native Filipino protocol, section 24, verbatim): status -> next step -> convenience -> confirmation
+  // -> remaining obligation -> warm close. GCash is the channel; the number lets Messenger raise its own GCash card.
   if (tl) {
     const head = flow.hold && until
-      ? `Salamat po${nm}. Naka-reserve na po para sa inyo ang ${dates} hanggang ${until}. Ang booking reference ninyo ay ${flow.ref}.`
-      : `Salamat po${nm}. Natanggap na po namin ang request ninyo, at ang booking reference ninyo ay ${flow.ref}. Dahil malapit na po ang stay, iko-confirm namin ito sa sandaling dumating ang bayad.`;
-    const pay = `Para ma-secure ang stay, pwede na po ninyong i-send ang ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} via GCash gamit ang QR code sa ibaba. Naka-set na po ang amount para sa inyo. Kapag tapos na, i-send lang po dito ang screenshot ng receipt at iko-confirm namin ang reservation ninyo.`;
+      ? `Hi ${n || 'po'}! 🌿\nNa-hold na po namin ang ${dates} for you until ${until}. Your booking reference is ${flow.ref}.`
+      : `Hi ${n || 'po'}! 🌿\nReceived na po namin ang request ninyo for ${dates}. Your booking reference is ${flow.ref}. Malapit na ang stay, kaya iko-confirm namin as soon as dumating ang payment.`;
+    const pay = `Para ma-secure ang stay, you may send the ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here and we'll confirm the reservation.`;
     const later = full
-      ? `Ang ₱1,000 refundable security deposit na lang po ang natitira, na pwedeng bayaran sa check-in.`
-      : `Ang natitirang ${peso(flow.total! - flow.deposit!)} balance, kasama ang ₱1,000 refundable security deposit, ay pwede pong bayaran sa check-in.`;
-    const close = `Maraming salamat po ulit${nm}. Inaabangan po namin kayo sa Cascade Hideaway at ihahanda namin ang komportableng stay para sa inyo. 🌿`;
+      ? `Ang ₱1,000 refundable security deposit na lang ang natitira, which can be settled at check-in.`
+      : `The remaining ${peso(flow.total! - flow.deposit!)} balance and ₱1,000 refundable security deposit can be settled at check-in.`;
+    const close = `Salamat${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`;
     return [head, '', pay, '', later, '', close].join('\n');
   }
   const head = flow.hold && until
-    ? `Thank you, ${n}. We have reserved ${dates} for you until ${until}. Your booking reference is ${flow.ref}.`
-    : `Thank you, ${n}. Your request has been received, and your booking reference is ${flow.ref}. As your stay is near, we will confirm as soon as your payment is received.`;
-  const pay = `To secure your stay, you may send the ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} via GCash using the QR code below. The amount has already been set for you. Once completed, simply send us a screenshot of the receipt here and we will confirm your reservation.`;
+    ? `Hi ${n || 'there'}, 🌿\nWe've reserved ${dates} for you until ${until}. Your booking reference is ${flow.ref}.`
+    : `Hi ${n || 'there'}, 🌿\nWe've received your request for ${dates}. Your booking reference is ${flow.ref}. As your stay is near, we'll confirm as soon as your payment arrives.`;
+  const pay = `To secure your stay, you may send the ${peso(flow.deposit!)} ${full ? 'payment' : 'initial payment'} via GCash (0956 011 5744) using the QR below. The exact amount is already set. Once done, simply send the receipt here and we'll confirm your reservation.`;
   const later = full
-    ? `Only the ₱1,000 refundable security deposit remains, which may be settled upon check-in.`
-    : `The remaining ${peso(flow.total! - flow.deposit!)} balance, together with the ₱1,000 refundable security deposit, may be settled upon check-in.`;
-  const close = `Thank you again, ${n}. We look forward to welcoming you to Cascade Hideaway and preparing a comfortable stay for you. 🌿`;
+    ? `Only the ₱1,000 refundable security deposit remains, which may be settled at check-in.`
+    : `The remaining ${peso(flow.total! - flow.deposit!)} balance and ₱1,000 refundable security deposit may be settled at check-in.`;
+  const close = `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway.`;
   return [head, '', pay, '', later, '', close].join('\n');
 }
