@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityLine, BOOK_RE, greeting, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
+import { answer, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, prompt, quoteTotal, start, type Flow } from './booking.ts';
 import { lintReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -499,7 +499,7 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
   if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: `Sorry po, something went wrong on our side — please try again in a minute, or book here: ${SITE_URL}`, image: null }; }
-  if (r.status === 409 || j.error === 'dates_unavailable') return { flow: { ...flow, step: 'dates', updated_at: new Date().toISOString() }, reply: `My apologies — those dates were reserved just moments ago. Should other dates suit you, kindly share your check-in and check-out and I will gladly check them for you.`, image: null };
+  if (r.status === 409 || j.error === 'dates_unavailable') return { flow: { ...flow, step: 'dates', updated_at: new Date().toISOString() }, reply: flow.lang === 'tl' ? `Pasensya na po — kaka-reserve lang po ng dates na iyon. Kung may ibang dates po kayong gusto, i-share lang po ang check-in at check-out at iche-check ko po agad.` : `My apologies — those dates were reserved just moments ago. Should other dates suit you, kindly share your check-in and check-out and I will gladly check them for you.`, image: null };
   if (!j.ok) { console.error('submit_flow_rejected', JSON.stringify(j).slice(0, 200)); return { flow, reply: `Sorry po, I couldn't send that request (${String(j.error ?? 'error').replace(/_/g, ' ')}). You can also book here: ${SITE_URL}`, image: null }; }
   const f: Flow = { ...flow, step: 'await_receipt', booking_id: j.inquiry_id, ref: j.ref, deposit: Number(j.deposit_amount), total: Number(j.total_amount), hold: j.hold === true,
     hold_expires_at: j.hold_expires_at ?? null, receipt_token: j.receipt_upload_token, receipt_expires_at: j.receipt_upload_expires_at, updated_at: new Date().toISOString() };
@@ -507,16 +507,17 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
 }
 async function forwardReceipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }> {
   const first = name ? name.split(' ')[0] : 'po';
-  if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: `Thank you. That hold has since expired; you are welcome to say "book" and we will arrange the dates again.` };
+  const tl = flow.lang === 'tl';
+  if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: tl ? `Salamat po. Nag-expire na po ang hold na iyon; pwede po kayong mag-"book" ulit at aayusin namin ang dates.` : `Thank you. That hold has since expired; you are welcome to say "book" and we will arrange the dates again.` };
   const img = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
-  if (!img || !img.ok) return { sent: false, reply: `My apologies — I could not open that image. Would you kindly send it once more?` };
+  if (!img || !img.ok) return { sent: false, reply: tl ? `Pasensya na po — hindi ko po mabuksan ang image. Pwede po bang i-send ulit?` : `My apologies — I could not open that image. Would you kindly send it once more?` };
   const bytes = new Uint8Array(await img.arrayBuffer());
   const mime = (img.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim();
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY') }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => ({})) : {};
-  if (r?.ok) return { sent: true, reply: `Thank you, ${first}. Your receipt has been received, and we will confirm your reservation as soon as it has been reviewed. You will hear from us here.` };
-  if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: `Your receipt is already with us, and it is being reviewed.` };
-  if (r?.status === 401) return { sent: false, reply: `Thank you. That upload link has since expired; you are welcome to say "book" and we will arrange the dates again.` };
+  if (r?.ok) return { sent: true, reply: tl ? `Salamat po, ${first}. Natanggap na po namin ang receipt ninyo, at iko-confirm namin ang reservation sa sandaling ma-review ito. Dito po namin kayo iu-update.` : `Thank you, ${first}. Your receipt has been received, and we will confirm your reservation as soon as it has been reviewed. You will hear from us here.` };
+  if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: tl ? `Nasa amin na po ang receipt ninyo at nire-review na ito.` : `Your receipt is already with us, and it is being reviewed.` };
+  if (r?.status === 401) return { sent: false, reply: tl ? `Salamat po. Nag-expire na po ang upload link; pwede po kayong mag-"book" ulit at aayusin namin ang dates.` : `Thank you. That upload link has since expired; you are welcome to say "book" and we will arrange the dates again.` };
   console.error('forward_receipt_failed', r?.status, JSON.stringify(j).slice(0, 200));
   return { sent: false, reply: `I couldn't attach that receipt po (${String(j?.error ?? 'error').replace(/_/g, ' ')}). Could you send it again?` };
 }
@@ -589,7 +590,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       const booked = new Set<string>();
       for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
       const line = availabilityLine(flow, booked);
-      if (/already reserved/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name) + line; }
+      if (/already reserved/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang) + line; }
       else flowReply = opener(flow, thread.guest_name, line) + prompt(flow, thread.guest_name);
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
     else flowReply = opener(flow, thread.guest_name) + prompt(flow, thread.guest_name); // session 28: welcome first

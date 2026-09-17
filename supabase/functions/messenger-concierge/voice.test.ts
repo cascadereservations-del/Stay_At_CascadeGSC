@@ -2,7 +2,7 @@
 // The communication protocol's build gate: every canned line the book flow can send passes lintReply().
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { lintReply } from './voice.ts';
-import { answer, availabilityLine, opener, paymentReply, prompt, start, type Flow } from './booking.ts';
+import { answer, availabilityLine, detectLang, opener, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { GCASH_QRPH_BASE, crc16, qrphWithAmount } from '../_shared/cascade-core/qrph.ts';
 
 const now = new Date('2026-09-17T01:00:00Z');
@@ -37,4 +37,24 @@ Deno.test('QR Ph amount payload keeps the CRC valid', () => {
   assertEquals(q.startsWith('000201010212'), true);
   assertEquals(crc16(q.slice(0, -4)), q.slice(-4));
   assertEquals(q, '00020101021227830012com.p2pqrpay0111GXCHPHM2XXX02089996440303152170200000006560417DWQM4TK3JDNWCFOT15204601653036085406890.005802PH5909Cascades 6005CONEL610412346304D23D'); // round-tripped through a QR decoder 2026-09-17
+});
+
+Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)', () => {
+  const guest = 'Hello po, available pa po ba ang Oct 20 to 22? Gusto ko po mag-book para sa 2';
+  assertEquals(detectLang(guest), 'tl');
+  assertEquals(detectLang('is Oct 20 to 22 available? book for 2'), 'en');
+  assertEquals(detectLang('how far from SM po'), 'en'); // one courtesy po stays English
+  const f = start(guest, now);
+  assertEquals([f.lang, f.pax, f.asked], ['tl', 2, 'availability']);
+  const first = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
+  assertEquals(first.startsWith('Hi Ben. Maraming salamat po sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, at masaya po kaming i-welcome kayong dalawa.'), true);
+  assertEquals(lintReply(first, guest, { firstTurn: true }), []);
+  let s = answer(f, '09171234567', now); assertEquals(s.flow.lang, 'tl'); // a bare number keeps the register
+  assertEquals(lintReply(prompt(s.flow, 'Ben')), []);
+  s = answer(s.flow, 'Can I change it to 3 guests?', now); assertEquals(s.flow.lang, 'en'); // plain English switches back
+  const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x');
+  assertEquals(tlPay.startsWith('Salamat po, Ben. Naka-reserve na po para sa inyo ang Oct 3 to Oct 4'), true);
+  assertEquals(lintReply(tlPay), []);
+  for (const step of ['dates', 'checkout', 'pax', 'contact', 'confirm'] as const) assertEquals(lintReply(prompt({ ...base, lang: 'tl', step }, 'Ben')), [], step);
+  assertEquals(lintReply(availabilityLine({ ...base, lang: 'tl' }, new Set(['2026-10-03'])), 'available pa po ba'), []);
 });
