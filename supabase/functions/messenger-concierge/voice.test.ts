@@ -3,6 +3,16 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
 import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
+import { BOOK_RE } from './booking.ts';
+
+// Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site.
+Deno.test('invitations offer the chat route as well as the site, and its answers start the flow', () => {
+  const ex = VOICE.split('MID-CONVERSATION EXAMPLES')[1].split('REFERENCE REPLIES')[0];
+  assertEquals((ex.match(/in (the|this) chat/g) ?? []).length >= 3, true);
+  assertEquals(voiceCompact().includes('offer BOTH routes'), true);
+  for (const t of ['yes please arrange it here', 'ok dito po sa chat', 'let us settle it here', 'can you book it for me']) assertEquals(BOOK_RE.test(t), true, t);
+  assertEquals(BOOK_RE.test('is there wifi?'), false);
+});
 
 // Session 30 (Lloyd: "what happened to the warmth… it would always revert back to blunt transactional responses").
 // Root cause: follow-ups ran on a prompt with no examples, a rule asked for "1-3 short sentences", code stripped warm

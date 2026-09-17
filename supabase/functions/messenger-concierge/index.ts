@@ -335,8 +335,8 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
   if (reply.includes(SITE_URL)) return reply;
   // Lloyd's canonical shape (2026-09-13): the site line plus the direct-booking tagline, link solo,
   // withheld only when one of our last two replies already carried the link.
-  const siteEn = `Or you may check and secure your dates directly on our site:\n\n👉 ${SITE_URL}\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.`;
-  const siteTl = `O maaari rin po kayong mag-check at mag-secure ng dates directly sa site namin:\n\n👉 ${SITE_URL}\n\nMas mababa po ang rate kapag direct booking, at lalo pong tumitipid habang humahaba ang stay.`;
+  const siteEn = `We can arrange the booking right here in the chat, or you may check and secure your dates directly on our site:\n\n👉 ${SITE_URL}\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.`;
+  const siteTl = `We can arrange the booking dito sa chat, o maaari rin po kayong mag-check at mag-secure ng dates directly sa site namin:\n\n👉 ${SITE_URL}\n\nMas mababa po ang rate kapag direct booking, at lalo pong tumitipid habang humahaba ang stay.`;
   // The model already closed with a dates line: add only the site part (no second "let us know").
   if (/\?\s*$/.test(reply.trim()) || /\b(dates?|petsa|book|reserve|availability|i-?hold)\b/i.test(lastPara)) {
     return linkRecent ? reply : `${reply.trim()}\n\n${isEn ? siteEn : siteTl}`;
@@ -344,15 +344,16 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
   // Soft, warm, friendly - an open door, never a push.
   const en = !datesKnown
     ? `Just let us know your preferred dates, and we'll gladly check our availability for you.${linkRecent ? '' : ' ' + siteEn}`
-    : linkRecent ? pick(['Whenever it feels right, we would be glad to hold those dates for you.', 'No pressure at all; we are here whenever you would like to secure those dates.'])
-    : `Whenever you feel ready, you may secure your dates directly on our site:\n\n👉 ${SITE_URL}\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.`;
+    : linkRecent ? '' // session 30: the canned "No pressure at all…" / "Whenever it feels right…" lines stacked a second invitation on the model's own warm close
+    : `Whenever you feel ready, we can arrange the booking right here in the chat, or you may secure your dates directly on our site:\n\n👉 ${SITE_URL}\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.`;
   const tl = !datesKnown
     ? `Sabihin lang po ang preferred dates ninyo at gladly po naming iche-check ang availability para sa inyo.${linkRecent ? '' : ' ' + siteTl}`
-    : linkRecent ? pick(['Kapag ready na po kayo, gladly po naming i-hold ang dates para sa inyo.', 'Walang pressure po; nandito lang po kami kapag gusto na ninyong i-secure ang dates.'])
-    : `Kapag handa na po kayo, maaari na po ninyong i-secure ang dates directly sa site namin:\n\n👉 ${SITE_URL}\n\nMas mababa po ang rate kapag direct booking, at lalo pong tumitipid habang humahaba ang stay.`;
+    : linkRecent ? ''
+    : `Kapag handa na po kayo, we can arrange the booking dito sa chat, o maaari ninyong i-secure ang dates directly sa site namin:\n\n👉 ${SITE_URL}\n\nMas mababa po ang rate kapag direct booking, at lalo pong tumitipid habang humahaba ang stay.`;
   // english_po replies are English with one courtesy po, so the nudge stays English too
   // (live v55: an English answer got a Taglish nudge).
-  return `${reply.trim()}\n\n${isEn ? en : tl}`;
+  const add = isEn ? en : tl;
+  return add ? `${reply.trim()}\n\n${add}` : reply.trim();
 }
 // Messenger renders markdown literally ("*   Robinsons", "**2:00 PM**" seen live 2026-09-13).
 const plainText = (s: string) => s.replace(/^[ \t]*[*•-][ \t]+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
@@ -716,6 +717,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
       if (followUp && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply += `\n\n👉 ${SITE_URL}`;
+      // Repair a dangling "…on our site:" BEFORE the nudge decides (live 2026-09-17 19:12: the nudge saw no link,
+      // appended its own line, and only then was the link put back - two invitations).
+      if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po');
       if (!discountAsk) reply = bookingNudge(reply, lang, datesKnown.length > 0, thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL)));
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
