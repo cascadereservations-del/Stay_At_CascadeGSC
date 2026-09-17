@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, BOOK_RE, isActive, paymentReply, prompt, start, type Flow } from './booking.ts';
+import { answer, BOOK_RE, isActive, opener, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { fbSendImage } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
 import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
@@ -511,7 +511,7 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
   const mime = (img.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim();
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY') }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => ({})) : {};
-  if (r?.ok) return { sent: true, reply: `Salamat, ${first}! Receipt received — our Finance team will confirm shortly and you'll hear from me right here. 🙏` };
+  if (r?.ok) return { sent: true, reply: `Salamat, ${first}! Your receipt is with us — we'll confirm personally as soon as it's checked, and you'll hear from me right here. 🙏` };
   if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: `We already have your receipt po — Finance is on it. 🙏` };
   if (r?.status === 401) return { sent: false, reply: `Thanks po! That upload link has expired — say "book" and we'll set the dates up again.` };
   console.error('forward_receipt_failed', r?.status, JSON.stringify(j).slice(0, 200));
@@ -568,7 +568,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
     else if (s.action === 'cancelled') flowReply = s.reply;
     else if (s.action === 'submit') { const r = await submitFlow(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
   } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && BOOK_RE.test(text) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
-    flow = start(text, now); flowReply = prompt(flow, thread.guest_name);
+    flow = start(text, now); flowReply = opener(flow, thread.guest_name) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }

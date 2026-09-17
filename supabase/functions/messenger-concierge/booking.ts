@@ -78,22 +78,34 @@ export function isActive(flow: Flow | null | undefined, now = new Date()): flow 
   return !!flow && !['confirmed', 'cancelled'].includes(flow.step) && now.getTime() - Date.parse(flow.updated_at) < FLOW_TTL_MS;
 }
 
-/** The question for the current slot. */
+/** The first reply of a flow: a host's welcome that acknowledges what the guest already told us
+ * (session 28 - "Your mobile number po?" as an opener read as a form, not a host). */
+export function opener(flow: Flow, name: string | null): string {
+  const hi = name ? `Hello ${name.split(' ')[0]}! ` : 'Hello! ';
+  const got: string[] = [];
+  if (flow.checkin && flow.checkout) got.push(`${dm(flow.checkin)} to ${dm(flow.checkout)}`);
+  else if (flow.checkin) got.push(`check-in ${dm(flow.checkin)}`);
+  if (flow.pax) got.push(`${flow.pax} guest${flow.pax === 1 ? '' : 's'}`);
+  const noted = got.length ? ` ${got.join(', ')} — noted po, I'll check those dates for you as we go.` : '';
+  return `${hi}Thank you for thinking of Cascade Hideaway 🌿 We'd love to have you.${noted}\n\n`;
+}
+
+/** The question for the current slot, in the Concierge voice: one warm line, one clear ask. */
 export function prompt(flow: Flow, name: string | null): string {
   const n = name ? `${name.split(' ')[0]}, ` : '';
   switch (flow.step) {
-    case 'dates': return `${n}happy to help you book! Which dates po — check-in and check-out? (e.g. "Sep 24 to 26")`;
-    case 'checkout': return `Got it, check-in ${dm(flow.checkin!)}. Until what date po is your check-out?`;
-    case 'pax': return `How many guests po? (up to 3 adults, or 2 adults + 2 kids)`;
-    case 'phone': return `Your mobile number po, for the booking? (e.g. 0917 123 4567)`;
-    case 'email': return `And your e-mail for the confirmation? (reply "skip" if none)`;
+    case 'dates': return `${n}which dates are you thinking of po — your check-in and check-out? (e.g. "Sep 24 to 26")`;
+    case 'checkout': return `Lovely — check-in ${dm(flow.checkin!)}. And until when would you be staying with us po?`;
+    case 'pax': return `And how many of you will be staying po? The home is most comfortable for up to 3 adults, or 2 adults with 2 little ones.`;
+    case 'phone': return `May we have your mobile number po, so we can reach you about your stay? (e.g. 0917 123 4567)`;
+    case 'email': return `And an e-mail address for your confirmation, if you'd like one po — or just say "skip" and we'll keep everything here on Messenger.`;
     case 'confirm': return [
-      `Here's your request po:`,
+      `Here's what I have for you po — kindly have a look:`,
       `📅 ${dm(flow.checkin!)} → ${dm(flow.checkout!)} (${nights(flow.checkin!, flow.checkout!)} night${nights(flow.checkin!, flow.checkout!) === 1 ? '' : 's'})`,
       `👥 ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
       `📞 ${flow.phone}${flow.email ? `\n📧 ${flow.email}` : ''}`,
       ``,
-      `Reply YES to send it, or tell me what to change.`,
+      `If everything looks right, reply YES and I'll send it through. Anything to change, just tell me. 😊`,
     ].join('\n');
     default: return '';
   }
@@ -118,14 +130,14 @@ export function start(text: string, now = new Date()): Flow {
 export function answer(flow: Flow, text: string, now = new Date()): Step {
   const f: Flow = { ...flow, updated_at: now.toISOString() };
   const today = f.updated_at.slice(0, 10);
-  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: `No problem po — nothing was sent. Just say "book" anytime and we'll pick it up again. 😊`, action: 'cancelled' };
+  if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: `Of course po, no problem at all — nothing was sent. Whenever you're ready, just say "book" and we'll pick it up right where we left off. 😊`, action: 'cancelled' };
   const ask = (reply?: string): Step => ({ flow: f, reply: reply ?? null, action: 'ask' });
-  const retry = (what: string): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(`Sorry po, I didn't catch ${what}. ${prompt(f, null)}`);
+  const retry = (what: string): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(`Pasensya po, I didn't quite catch ${what}. ${prompt(f, null)}`);
   switch (f.step) {
     case 'dates': {
       const d = parseDates(text, now);
       if (!d[0]) return retry('the dates');
-      if (d[0] < today) return ask(`That date has passed po. Which upcoming dates would you like?`);
+      if (d[0] < today) return ask(`That date has already passed po — which upcoming dates would suit you?`);
       f.checkin = d[0]; f.step = 'checkout';
       if (d[1] && d[1] > d[0]) { f.checkout = d[1]; f.step = f.pax ? 'phone' : 'pax'; }
       return ask();
@@ -133,13 +145,13 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
     case 'checkout': {
       const d = parseDates(text, now);
       if (!d[0]) return retry('the check-out date');
-      if (d[0] <= f.checkin!) return ask(`Check-out needs to be after ${dm(f.checkin!)} po. Until what date?`);
+      if (d[0] <= f.checkin!) return ask(`Check-out would need to be after ${dm(f.checkin!)} po — until what date would you like to stay?`);
       f.checkout = d[0]; f.step = f.pax ? 'phone' : 'pax'; return ask();
     }
     case 'pax': {
       const p = parsePax(text);
       if (!p) return retry('the number of guests');
-      if (p > 4) return ask(`The unit is best for up to 3 adults or 2 adults + 2 kids po — for ${p} we'd suggest a larger place. If your group fits, tell me the count again.`);
+      if (p > 4) return ask(`As much as we'd love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 little ones po — for ${p} a larger place would give you more room to rest. If your group fits that, just tell me the count again.`);
       f.pax = p; f.step = 'phone'; return ask();
     }
     case 'phone': {
@@ -174,13 +186,13 @@ export function paymentReply(flow: Flow, name: string | null, siteUrl: string): 
   const peso = (v: number) => `₱${v.toLocaleString('en-PH')}`;
   const until = flow.hold_expires_at ? new Date(flow.hold_expires_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : null;
   const head = flow.hold && until
-    ? `${n}, your dates are held for you until ${until} 🎉 Reference: ${flow.ref}.`
-    : `${n}, your request is in — reference ${flow.ref}. For stays within five days we confirm as soon as the payment lands.`;
+    ? `Wonderful, ${n} — your dates are held for you until ${until} 🎉 Your reference is ${flow.ref}.`
+    : `Thank you, ${n} — your request is in, reference ${flow.ref}. Since your stay is close, we confirm as soon as the payment lands.`;
   // Session 28 (policy check): inside 5 days the site still asks the 50 % fee and reserves on receipt; only
   // check-in within 48 h asks the full amount (submit-booking decides, we read flow.deposit).
   const full = (flow.deposit ?? 0) >= (flow.total ?? 0);
   const amount = flow.hold ? `To secure them, send the ${peso(flow.deposit!)} reservation fee (50 %; the balance and the ₱1,000 refundable security deposit are settled at check-in) — or the full ${peso(flow.total!)} if you prefer.`
     : full ? `Check-in is within 48 hours, so please send the full ${peso(flow.total!)} now — we reserve on receipt and confirm within a couple of hours. The ₱1,000 refundable security deposit is settled at check-in.`
     : `Check-in is close, so we reserve on receipt: send the ${peso(flow.deposit!)} reservation fee (50 %) now and we confirm within a couple of hours. The balance and the ₱1,000 refundable security deposit are settled at check-in.`;
-  return [head, '', amount, '', `GCash: 0956 011 5744 (Marifel Suzanne Boncales) — QR below.`, `Then send me a screenshot of the receipt here and our Finance team will confirm. 🙏`, '', `Other ways to pay and the full terms: ${siteUrl}`].join('\n');
+  return [head, '', amount, '', `GCash: 0956 011 5744 (Marifel Suzanne Boncales) — QR below.`, `Once sent, just drop the receipt screenshot here and we'll confirm personally. 🙏`, '', `Other ways to pay and the full terms are on our site: ${siteUrl}`, '', `We're looking forward to welcoming you. 🌿`].join('\n');
 }
