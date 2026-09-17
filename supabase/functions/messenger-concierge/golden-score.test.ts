@@ -3,6 +3,7 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { SITE_URL, VOICE } from '../_shared/cascade-core/facts.ts';
 import { goldenCases, range } from './golden.ts';
+import { dropNameAsk } from './voice.ts';
 import { allowedPesos, type Ctx, failures, heldFrom, type Reg, scoreReply } from './golden-score.ts';
 
 const base = (o: Partial<Ctx>): Ctx => ({ guest: 'is there wifi?', reply: '', prevReply: null, kind: 'model', lang: 'en', firstTurn: false, siteUrl: SITE_URL, name: 'Ben', ...o });
@@ -44,6 +45,12 @@ Deno.test('what Lloyd rejected live fails, rule by rule', () => {
   assertEquals(rules({ reply: `Yes, Ben, we can accommodate 4 adults, and we'll have it ready.` }), ['R9']);
   assertEquals(rules({ reply: `Ben, I'm Cascade Hideaway's automated assistant, glad to help anytime.`, kind: 'code' }), ['R2']);
   assertEquals(rules({ reply: `Which dates are you looking at?`, guest: 'is it available?' }), ['R1']);
+});
+
+Deno.test('a guest whose name we hold is never asked for it', () => {
+  assertEquals(dropNameAsk(`Good evening! Thank you for reaching out.\n\nWe'd be glad to help.\n\nMay we know your name po?`), `Good evening! Thank you for reaching out.\n\nWe'd be glad to help.`);
+  assertEquals(dropNameAsk(`We'd be glad to help. May we know your name? We'll check the calendar right away.`), `We'd be glad to help. We'll check the calendar right away.`);
+  assertEquals(dropNameAsk('May we know your name?'), 'May we know your name?'); // never empty
 });
 
 Deno.test('the rate card is the only source of peso figures', () => {

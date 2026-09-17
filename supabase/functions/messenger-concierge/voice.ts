@@ -70,7 +70,7 @@ export function tidyReply(reply: string, siteUrl: string, english: boolean): str
 // and nothing checked that care was present, so a reply could pass every lint and still be cold. This is the positive
 // check: a substantive reply shows care somewhere - anticipation, reassurance, an offer of help or a warm close
 // (protocol 08 sections 6, 12, 22; 07 and 09 equivalents).
-const CARE_RE = /\b(glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala)\b|🌿|💚|😊|🙏|✨/i;
+const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala)\b|🌿|💚|😊|🙏|✨/i;
 /** True when the reply is not in the register code settled for this turn (golden run 2026-09-17: an English question got
  *  the Taglish reference reply pasted whole; "Hm po per night?" got plain English). Narrow on purpose: two Tagalog markers
  *  in an English reply, any Tagalog-only word in a Bislish one, no Filipino word at all in a substantive Taglish one. */
@@ -137,6 +137,13 @@ export function dropPaxAsk(reply: string): string {
   if (!kept.length || kept.length === paras.length) return reply;
   // The canned site line opens with "Or…" because it used to follow that question.
   return kept.join('\n\n').replace(/(^|\n\n)Or you may\b/, '$1You may').replace(/(^|\n\n)O maaari rin po\b/, '$1Maaari rin po');
+}
+
+/** The chat already holds the guest's name: a sentence that asks for it is dropped (golden run 2, 2026-09-17). Never returns ''. */
+const NAME_ASK_RE = /[^.?!\n]*\b(may we (know|have|ask)[^.?!\n]{0,20}\bname|what(?:'s| is) your name|ano(?:ng)? (?:po )?(?:ang )?pangalan|unsa(?:y)? (?:imong|inyong) ngalan)\b[^.?!\n]*\?/gi;
+export function dropNameAsk(reply: string): string {
+  const out = reply.replace(NAME_ASK_RE, '').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean).join('\n\n');
+  return out || reply;
 }
 
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */

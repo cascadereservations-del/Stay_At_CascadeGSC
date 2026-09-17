@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, decisionInvite, dropPaxAsk, firstInvite, isCold, lintReply, offRegister, thinPo, tidyReply } from './voice.ts';
+import { addChatRoute, answerOnly, beforeClose, decisionInvite, dropNameAsk, dropPaxAsk, firstInvite, isCold, lintReply, offRegister, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -87,7 +87,8 @@ const l3Of = (lang: string): L3 => (lang === 'bisaya' ? 'bis' : lang === 'taglis
 function closingReply(name: string | null, lang: string, thanks: boolean, lastBotText: string): string {
   const n = name ? `, ${name}` : '';
   const l = l3Of(lang);
-  let reply = pick(({
+  const fresh = (xs: string[]) => { const ys = xs.filter((x) => !lastBotText.includes(x.replace(/^[^.]*\.\s*/, '').slice(0, 40))); return ys.length ? ys : xs; };
+  let reply = pick(fresh(({
     en: thanks
       ? [`It's our pleasure${n}. We're here whenever you need us.`, `You're most welcome${n}. Message us anytime and we'll take care of it.`, `Our pleasure${n}. If anything else comes to mind, we're one message away.`]
       : [`Thank you${n}. We're here whenever you need us.`, `Noted with thanks${n}. Take care, and message us anytime.`, `Thank you${n}. We'll be right here whenever you're ready.`],
@@ -97,7 +98,7 @@ function closingReply(name: string | null, lang: string, thanks: boolean, lastBo
     bis: thanks
       ? [`Walay sapayan${n}. Naa ra mi diri anytime.`, `Salamat pud${n}. Message lang if naa moy need and we'll take care of it.`]
       : [`Salamat${n}. Naa ra mi diri kung naa moy need.`, `Noted${n}. Amping, ug message lang anytime.`],
-  })[l]);
+  })[l]));
   if (!lastBotText.includes(SITE_URL)) reply += '\n\n' + ({
     en: `Whenever you're ready, we can arrange the booking right here in the chat, or you may secure your dates on our site:`,
     tl: `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site:`,
@@ -802,6 +803,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       if (!discountAsk) reply = bookingNudge(reply, lang, datesKnown.length > 0, thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL)));
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
+      if (thread.guest_name) reply = dropNameAsk(reply); // golden run 2: the model asked a guest we already know for their name
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
       if (!flowFollowUp && !discountAsk) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
       if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2); // golden run: the nudge and the chat route each carried a "po" of their own
