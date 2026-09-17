@@ -18,8 +18,11 @@ export function range(now: Date, offset: number, nights: number): string {
 const LINK = /tinyurl\.com\/Stay-at-Cascade/;
 const m = (say: string, lang: Reg = 'en', extra: Partial<GoldenTurn> = {}): GoldenTurn => ({ say, kind: 'model', lang, ...extra });
 
-export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null): GoldenCase[] {
-  const d2 = range(now, 40, 2), d3 = range(now, 47, 3), d1 = range(now, 54, 1);
+// Golden run 6: today + 40 had filled up with a real booking, so the open-date cases tested the reserved path. Pass
+// GOLDEN_OPEN_FROM="2026-11-02" (the first day of 15 open nights, from a read-only calendar query) to pin them.
+export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null, openFrom: Date | null = null): GoldenCase[] {
+  const base = openFrom ?? now, o = openFrom ? 0 : 40;
+  const d2 = range(base, o, 2), d3 = range(base, o + 7, 3), d1 = range(base, o + 14, 1);
   const cases: GoldenCase[] = [
     // ---- first contact: the link is there, under a both-routes sentence; greeting once; answer first
     { id: 'first-greeting-en', group: 'first', turns: [m('Good evening', 'en', { must: [LINK] })] },

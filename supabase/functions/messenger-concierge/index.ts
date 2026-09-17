@@ -770,6 +770,28 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // this runs on the answer before the flow's card is added).
       const feeFixed = fixEarlyFee(out.reply, text);
       if (feeFixed !== out.reply) { console.warn('early_fee_guard', out.reply.slice(0, 160)); out.reply = feeFixed; }
+      // K18 (D-182): outside the book flow, a draft that calls the guest's dates open is checked against the calendar in
+      // code, before the post-processing below. A booked night gets ONE rewrite around the flow's approved line (golden
+      // run 6: a bare sentence swap left a rate quote and "secure your dates" beside "already reserved"); an unreadable
+      // calendar gets the "we're checking" line and the OPS glance card. The code's line wins either way.
+      if (!flowFollowUp && claimsOpen(out.reply)) {
+        const stay = stayFrom(guestTexts, now);
+        if (stay) {
+          const f: Flow = { step: 'dates', ...stay, lang: l3, started_at: now.toISOString(), updated_at: now.toISOString() };
+          const nights = await bookedNightsFor(db, f);
+          if (!nights || nights.size) {
+            const line = availabilityLine(f, nights);
+            console.warn('availability_guard', JSON.stringify({ stay, down: !nights, reply: out.reply.slice(0, 160) }));
+            const swapped = setAvailability(out.reply, line);
+            if (nights) {
+              const fix = `[REWRITE REQUIRED. The calendar (checked in code) shows these dates are already reserved; your draft said they were open. Put this sentence, word for word, right after any greeting: "${line}" Then answer anything else the guest asked. Do not quote a rate or total for these dates and do not invite the guest to secure or book these dates. Keep the warmth; keep every other fact.] `;
+              const re = await draft(thread, fix + paxHint + LANG_HINT[lang] + text, context, 'full', followUp).catch(() => null);
+              const key = line.slice(0, 24);
+              out.reply = re && re.reply.includes(key) && !claimsOpen(re.reply.replace(line, '')) ? setAvailability(re.reply, line) : swapped;
+            } else { out.reply = swapped; flagOnly = true; } // OPS gets the glance card, as on the flow path
+          }
+        }
+      }
       if (followUp) {
         out.reply = out.reply.replace(/^\s*(hello|hi|hey|good (morning|afternoon|evening)|kumusta|kamusta|maayong \w+)[^\n]{0,60}?[!.,]?\s*\n+/i, '');
         // Inline greeting on a follow-up ("Hi Ben, about po sa 4 adults..." live 2026-09-13): drop
@@ -823,21 +845,6 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.
-      // K18 (D-182): outside the book flow, a reply that calls the guest's dates open is checked against the calendar in
-      // code; a booked night (or an unreadable calendar) replaces the claim with the flow's own approved line (B96).
-      if (!flowFollowUp && claimsOpen(reply)) {
-        const stay = stayFrom(guestTexts, now);
-        if (stay) {
-          const f: Flow = { step: 'dates', ...stay, lang: l3, started_at: now.toISOString(), updated_at: now.toISOString() };
-          const nights = await bookedNightsFor(db, f);
-          if (!nights || nights.size) {
-            console.warn('availability_guard', JSON.stringify({ stay, down: !nights, reply: reply.slice(0, 160) }));
-            reply = setAvailability(reply, availabilityLine(f, nights));
-            if (l3 === 'tl') reply = thinPo(reply, 2);
-            if (!nights) flagOnly = true; // OPS gets the glance card, as on the flow path
-          }
-        }
-      }
       if (out.uncertain) { flagOnly = true; risk = 'uncertain'; }
     } catch (e) {
       console.error('draft_failed', String(e).slice(0, 400));

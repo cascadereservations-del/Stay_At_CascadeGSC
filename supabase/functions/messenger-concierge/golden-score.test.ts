@@ -74,3 +74,9 @@ Deno.test('R9: an early check-in fee that contradicts PHP 100 per hour before no
   assertEquals(rules({ guest: 'Can we check in at 10am on the first day?', reply }).includes('R9'), true);
   assertEquals(rules({ guest: 'Can we check in at 10am on the first day?', reply: reply.replace('400', '200') }).includes('R9'), false);
 });
+
+Deno.test('GOLDEN_OPEN_FROM pins the open-date cases to a known-open window (golden run 6)', () => {
+  const avail = (cs: ReturnType<typeof goldenCases>) => cs.find((c) => c.id === 'first-avail-en')!.turns[0].say;
+  assertEquals(avail(goldenCases(new Date('2026-09-17T00:00:00Z'), null, null, new Date('2026-11-02T00:00:00Z'))).includes('Nov 2 to 4'), true);
+  assertEquals(avail(goldenCases(new Date('2026-09-17T00:00:00Z'))).includes('Oct 27 to 29'), true); // unchanged without it
+});
