@@ -4,7 +4,7 @@
 import { RATE_TIERS } from '../_shared/cascade-core/facts.ts';
 
 export type Flow = {
-  step: 'dates' | 'checkout' | 'pax' | 'phone' | 'email' | 'pay' | 'confirm' | 'await_receipt' | 'receipt_sent' | 'confirmed' | 'cancelled';
+  step: 'dates' | 'checkout' | 'pax' | 'contact' | 'confirm' | 'await_receipt' | 'receipt_sent' | 'confirmed' | 'cancelled';
   checkin?: string; checkout?: string; pax?: number; phone?: string; email?: string | null;
   /** session 28: the guest's choice - reservation fee (50 %) or the full amount; forced full inside 48 h */
   pay_full?: boolean; asked?: 'availability' | 'question' | null;
@@ -127,18 +127,16 @@ export function prompt(flow: Flow, name: string | null): string {
     case 'dates': return `${n ? `${n}which` : 'Which'} dates are you thinking of po — your check-in and check-out? (e.g. "Sep 24 to 26")`;
     case 'checkout': return `Lovely — check-in ${dm(flow.checkin!)}. And until when would you be staying with us po?`;
     case 'pax': return `And how many of you will be staying po? The home is most comfortable for up to 3 adults, or 2 adults with 2 little ones.`;
-    case 'phone': return `May we have your mobile number po, so we can reach you about your stay? (e.g. 0917 123 4567)`;
-    case 'email': return `And an e-mail address for your confirmation, if you'd like one po — or just say "skip" and we'll keep everything here on Messenger.`;
-    case 'pay': { const q = quoteTotal(flow.checkin!, flow.checkout!);
-      return `Your stay comes to ${peso(q.total)} po (${q.nights} night${q.nights === 1 ? '' : 's'} at ${peso(q.rate)}). Would you like to reserve with the 50 % fee of ${peso(q.deposit)} and settle the rest at check-in, or pay the full ${peso(q.total)} now? Either is perfectly fine — just say "deposit" or "full".`; }
+    case 'contact': return `May we have your mobile number po, so we can reach you about your stay? Add your e-mail too if you'd like the confirmation there — or just the number is fine. 😊`;
     case 'confirm': { const q = quoteTotal(flow.checkin!, flow.checkout!); return [
-      `Here's what I have for you po — kindly have a look:`,
-      `📅 ${dm(flow.checkin!)} → ${dm(flow.checkout!)} (${q.nights} night${q.nights === 1 ? '' : 's'})`,
-      `👥 ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
-      `📞 ${flow.phone}${flow.email ? `\n📧 ${flow.email}` : ''}`,
-      flow.pay_full ? `💳 Full payment ${peso(q.total)}` : `💳 Reservation fee ${peso(q.deposit)} now · balance ${peso(q.total - q.deposit)} + ₱1,000 refundable deposit at check-in`,
+      `Here's your stay po:`,
+      `📅 ${dm(flow.checkin!)} → ${dm(flow.checkout!)} · ${q.nights} night${q.nights === 1 ? '' : 's'} · ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
+      `📞 ${flow.phone}${flow.email ? ` · ${flow.email}` : ''}`,
+      `💰 Total ${peso(q.total)}`,
       ``,
-      `If everything looks right, reply YES and I'll send it through. Anything to change, just tell me. 😊`,
+      flow.pay_full === true
+        ? `Check-in is close, so the full ${peso(q.total)} secures it. Reply FULL to send this through, or tell me what to change.`
+        : `To secure it, reply DEPOSIT (${peso(q.deposit)} now, the rest at check-in) or FULL (${peso(q.total)} now). That sends it through — or tell me what to change.`,
     ].join('\n'); }
     default: return '';
   }
@@ -155,7 +153,7 @@ export function start(text: string, now = new Date()): Flow {
   if (d[0] && d[0] >= today) { flow.checkin = d[0]; flow.step = 'checkout'; }
   if (flow.checkin && d[1] && d[1] > flow.checkin) { flow.checkout = d[1]; flow.step = 'pax'; }
   const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat)\s*(adults?|pax|persons?|people|guests?|tao|kami)\b/i.test(text) || /\b(?:for|para sa|kaming)\s+(\d|one|two|three|four|isa|dalawa|tatlo|apat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.test(text) ? parsePax(text) : null;
-  if (p && flow.step === 'pax') { flow.pax = p; flow.step = 'phone'; }
+  if (p && flow.step === 'pax') { flow.pax = p; flow.step = 'contact'; }
   // What did the guest actually ask? index.ts answers availability from the calendar (code) or hands
   // any other question to the model before the flow's own ask (protocol rule 1).
   flow.asked = AVAIL_RE.test(text) && flow.checkin ? 'availability' : ASK_RE.test(text) && !/\b(can|could|pwede|possible)\b[^?]*\b(book|reserve)\b/i.test(text) ? 'question' : null;
@@ -175,48 +173,38 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       if (!d[0]) return retry('the dates');
       if (d[0] < today) return ask(`That date has already passed po — which upcoming dates would suit you?`);
       f.checkin = d[0]; f.step = 'checkout';
-      if (d[1] && d[1] > d[0]) { f.checkout = d[1]; f.step = f.pax ? 'phone' : 'pax'; }
+      if (d[1] && d[1] > d[0]) { f.checkout = d[1]; f.step = f.pax ? 'contact' : 'pax'; }
       return ask();
     }
     case 'checkout': {
       const d = parseDates(text, now);
       if (!d[0]) return retry('the check-out date');
       if (d[0] <= f.checkin!) return ask(`Check-out would need to be after ${dm(f.checkin!)} po — until what date would you like to stay?`);
-      f.checkout = d[0]; f.step = f.pax ? 'phone' : 'pax'; return ask();
+      f.checkout = d[0]; f.step = f.pax ? 'contact' : 'pax'; return ask();
     }
     case 'pax': {
       const p = parsePax(text);
       if (!p) return retry('the number of guests');
       if (p > 4) return ask(`As much as we'd love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 little ones po — for ${p} a larger place would give you more room to rest. If your group fits that, just tell me the count again.`);
-      f.pax = p; f.step = 'phone'; return ask();
+      f.pax = p; f.step = 'contact'; return ask();
     }
-    case 'phone': {
+    case 'contact': {
       const ph = parsePhone(text);
       if (!ph) return retry('the mobile number');
-      f.phone = ph; f.step = 'email'; return ask();
-    }
-    case 'email': {
-      const next = () => { if (within48h(f.checkin!, now)) { f.pay_full = true; f.step = 'confirm'; } else f.step = 'pay'; return ask(); };
-      if (SKIP_RE.test(text)) { f.email = null; return next(); }
-      const e = parseEmail(text);
-      if (!e) return retry('the e-mail');
-      f.email = e; return next();
-    }
-    case 'pay': {
-      if (FULL_RE.test(text)) { f.pay_full = true; f.step = 'confirm'; return ask(); }
-      if (DEPOSIT_RE.test(text)) { f.pay_full = false; f.step = 'confirm'; return ask(); }
-      return retry('which you prefer');
+      f.phone = ph; f.email = parseEmail(text) ?? null;
+      f.pay_full = within48h(f.checkin!, now) ? true : undefined; f.step = 'confirm'; return ask();
     }
     case 'confirm': {
-      if (YES_RE.test(text)) return { flow: f, reply: null, action: 'submit' };
+      // The payment choice is the confirmation: DEPOSIT or FULL sends it (YES = deposit, or full inside 48 h).
+      if (FULL_RE.test(text)) { f.pay_full = true; return { flow: f, reply: null, action: 'submit' }; }
+      if (DEPOSIT_RE.test(text) || YES_RE.test(text)) { if (f.pay_full !== true) f.pay_full = false; return { flow: f, reply: null, action: 'submit' }; }
       const d = parseDates(text, now), p = /\b(guest|pax|person|people|tao|adult|kami)/i.test(text) ? parsePax(text) : null, ph = parsePhone(text), e = parseEmail(text);
       let changed = false;
       if (d[0] && d[0] >= today) { f.checkin = d[0]; changed = true; if (d[1] && d[1] > d[0]) f.checkout = d[1]; else if (f.checkout! <= d[0]) { f.step = 'checkout'; return ask(); } }
       if (p && p <= 4) { f.pax = p; changed = true; }
       if (ph) { f.phone = ph; changed = true; }
       if (e) { f.email = e; changed = true; }
-      if (FULL_RE.test(text)) { f.pay_full = true; changed = true; } else if (DEPOSIT_RE.test(text)) { f.pay_full = false; changed = true; }
-      if (changed) return ask();
+      if (changed) { f.pay_full = within48h(f.checkin!, now) ? true : undefined; return ask(); }
       return retry('that');
     }
     default: return { flow: f, reply: null, action: 'passthrough' };
@@ -226,18 +214,16 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
 // ponytail: one QR (GCash) in Messenger; UnionBank/InstaPay stays on the site page linked below.
 export function paymentReply(flow: Flow, name: string | null, siteUrl: string): string {
   const n = name ? name.split(' ')[0] : 'there';
-  const peso = (v: number) => `₱${v.toLocaleString('en-PH')}`;
   const until = flow.hold_expires_at ? new Date(flow.hold_expires_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : null;
-  const head = flow.hold && until
-    ? `Wonderful, ${n} — your dates are held for you until ${until} 🎉 Your reference is ${flow.ref}.`
-    : `Thank you, ${n} — your request is in, reference ${flow.ref}. Since your stay is close, we confirm as soon as the payment lands.`;
-  // Session 28 (policy check): inside 5 days the site still asks the 50 % fee and reserves on receipt; only
-  // check-in within 48 h asks the full amount (submit-booking decides, we read flow.deposit).
   const full = (flow.deposit ?? 0) >= (flow.total ?? 0);
-  const amount = flow.hold
-    ? (full ? `To secure them, send the full ${peso(flow.total!)} — only the ₱1,000 refundable security deposit is left for check-in.`
-            : `To secure them, send the ${peso(flow.deposit!)} reservation fee — the balance of ${peso(flow.total! - flow.deposit!)} and the ₱1,000 refundable security deposit are settled at check-in.`)
-    : full ? `Check-in is close, so we reserve on receipt: please send the full ${peso(flow.total!)} now and we confirm within a couple of hours. The ₱1,000 refundable security deposit is settled at check-in.`
-    : `Check-in is close, so we reserve on receipt: send the ${peso(flow.deposit!)} reservation fee now and we confirm within a couple of hours. The balance and the ₱1,000 refundable security deposit are settled at check-in.`;
-  return [head, '', amount, '', `GCash or Maya: scan the QR below — the ${peso(flow.deposit!)} is already set, so there's nothing to type. (0956 011 5744, Marifel Suzanne Boncales)`, `Once sent, just drop the receipt screenshot here and we'll confirm personally. 🙏`, '', `Other ways to pay and the full terms are on our site: ${siteUrl}`, '', `We're looking forward to welcoming you. 🌿`].join('\n');
+  // Session 28 (Lloyd 10:10): three short paragraphs, one clearly marked next step, GCash only (Maya did not
+  // sign in on test), the amount rides in the QR. Balance and deposit in one line at the end.
+  const head = flow.hold && until
+    ? `Wonderful, ${n} — ${dm(flow.checkin!)} to ${dm(flow.checkout!)} is held for you until ${until}. Reference ${flow.ref}.`
+    : `Thank you, ${n} — your request is in, reference ${flow.ref}. Your stay is close, so we confirm the moment the payment lands.`;
+  const next = `Next step: send ${peso(flow.deposit!)} via GCash — scan the QR below, the amount is already set. Then send your receipt screenshot here and we'll confirm your stay. 🙏`;
+  const later = full
+    ? `Only the ₱1,000 refundable security deposit is left for check-in. Full terms: ${siteUrl}`
+    : `The balance of ${peso(flow.total! - flow.deposit!)} and the ₱1,000 refundable security deposit are settled at check-in. Full terms: ${siteUrl}`;
+  return [head, '', next, '', later].join('\n');
 }

@@ -28,6 +28,13 @@ Concierge wrote it, has to feel like a host who is glad they wrote, not a form t
 3. **Advance.** One ask at most, phrased as a host would ("May we have your mobile number po, so we can reach
    you about your stay?"), and never a dead end: the guest always knows the next step.
 
+4. **Easy to consume.** A phone screen, read between two other things: at most three or four short
+   paragraphs, one blank line between ideas, the next step named as "Next step:" and carrying the exact
+   amount or date, numbers on their own line, one payment channel (GCash), no repeated information.
+   Fewer steps beat more: ask for two things in one message when the guest can answer both at once
+   (mobile number + optional e-mail), and let the decisive answer do the confirming (DEPOSIT / FULL sends
+   the request; there is no separate YES). Nudges stay gentle: one invitation, never repeated.
+
 ## Voice rules that are enforced
 
 | Rule | Where it lives | How it is enforced |
@@ -35,7 +42,7 @@ Concierge wrote it, has to feel like a host who is glad they wrote, not a form t
 | Answer first | `booking.ts` `start()` records `asked`; `index.ts` answers availability from `calendar_events` before the flow's ask, or lets the model answer and appends the ask | `voice.test.ts` (build fails); `voice_lint` warning at runtime |
 | Welcome before any ask on the first turn | `booking.ts` `opener()` | `voice.test.ts` `cold_opener` |
 | No form-speak ("Your mobile number?", "Enter…") | `booking.ts` `prompt()` | `voice.ts` `form_speak` |
-| One idea per message, ≤ 2 questions, ≤ 900 chars | every canned prompt | `voice.ts` `two_asks`, `too_long` |
+| One idea per message, ≤ 2 questions, ≤ 700 chars, ≤ 4 paragraphs of ≤ 320 chars | every canned prompt | `voice.ts` `two_asks`, `too_long`, `too_dense` |
 | No robot vocabulary (bot, automated, processing, ticket, form) | all replies | `voice.ts` `robot_word` |
 | Positive frame, warm vocabulary, name early, no exclamation stacking | `facts.ts` VOICE rules 1-8, 5a | model prompt; live audit |
 | Money is exact and the guest's choice | `booking.ts` `pay` step (fee or full), `quoteTotal()` from the rate card; QR carries the amount (QR Ph tag 54) | `voice.test.ts` CRC test; `submit-booking` accepts only the fee or the full total |

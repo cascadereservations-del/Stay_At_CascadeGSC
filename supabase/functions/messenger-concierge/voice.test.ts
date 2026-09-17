@@ -9,12 +9,12 @@ const now = new Date('2026-09-17T01:00:00Z');
 const base: Flow = { step: 'dates', started_at: now.toISOString(), updated_at: now.toISOString(), checkin: '2026-10-03', checkout: '2026-10-04', pax: 2, phone: '09171234567', email: null };
 
 Deno.test('every canned prompt passes the voice lint', () => {
-  for (const step of ['dates', 'checkout', 'pax', 'phone', 'email', 'pay', 'confirm'] as const) {
+  for (const step of ['dates', 'checkout', 'pax', 'contact', 'confirm'] as const) {
     assertEquals(lintReply(prompt({ ...base, step }, 'Ben')), [], step);
   }
-  assertEquals(lintReply(opener(start('book Oct 3 to 4 for 2', now), 'Ben') + prompt({ ...base, step: 'phone' }, 'Ben'), 'book Oct 3 to 4 for 2', { firstTurn: true }), []);
+  assertEquals(lintReply(opener(start('book Oct 3 to 4 for 2', now), 'Ben') + prompt({ ...base, step: 'contact' }, 'Ben'), 'book Oct 3 to 4 for 2', { firstTurn: true }), []);
   assertEquals(lintReply(paymentReply({ ...base, step: 'await_receipt', ref: 'DIR-1', deposit: 890, total: 1780, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', 'https://x')), []);
-  for (const t of ['cancel', 'Sep 1', 'zzz']) { const s = answer({ ...base, step: 'pay' }, t, now); if (s.reply) assertEquals(lintReply(s.reply), [], t); }
+  for (const t of ['cancel', 'Sep 1', 'zzz']) { const s = answer({ ...base, step: 'contact' }, t, now); if (s.reply) assertEquals(lintReply(s.reply), [], t); }
 });
 
 Deno.test('the question is answered before the ask (live failure of 2026-09-17)', () => {
