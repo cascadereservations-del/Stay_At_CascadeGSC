@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { answerOnly, lintReply, thinPo, tidyReply } from './voice.ts';
+import { answerOnly, dropPaxAsk, lintReply, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS } from '../_shared/cascade-core/facts.ts';
@@ -704,6 +704,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
       if (followUp && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply += `\n\n👉 ${SITE_URL}`;
       if (!discountAsk) reply = bookingNudge(reply, lang, datesKnown.length > 0, thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL)));
       reply = linkSolo(reply, SITE_URL);
+      if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only

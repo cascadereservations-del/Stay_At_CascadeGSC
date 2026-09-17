@@ -62,6 +62,17 @@ export function tidyReply(reply: string, siteUrl: string, english: boolean): str
   return out;
 }
 
+/** The chat already holds the guest count: a paragraph that only asks for it again is dropped (live 2026-09-17 18:34,
+ *  the model asked despite the hint - D-097, code owns it). Never returns ''. */
+const PAX_ASK_RE = /^[^\n]*\b(how many (guests|people|persons|of you)|number of guests|ilan po (kayo|ang)|pila (mo|ka tawo))\b[^\n]*\?\s*$/i;
+export function dropPaxAsk(reply: string): string {
+  const paras = reply.split(/\n\s*\n/);
+  const kept = paras.filter((p) => !PAX_ASK_RE.test(p.trim()));
+  if (!kept.length || kept.length === paras.length) return reply;
+  // The canned site line opens with "Or…" because it used to follow that question.
+  return kept.join('\n\n').replace(/(^|\n\n)Or you may\b/, '$1You may').replace(/(^|\n\n)O maaari rin po\b/, '$1Maaari rin po');
+}
+
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
   const v: Violation[] = [];

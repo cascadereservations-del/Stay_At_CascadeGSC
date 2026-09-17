@@ -1,7 +1,19 @@
 // deno test --allow-env messenger-concierge/voice.test.ts  (from supabase/functions)
 // The communication protocol's build gate: every canned line the book flow can send passes lintReply().
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { answerOnly, lintReply, thinPo, tidyReply } from './voice.ts';
+import { answerOnly, dropPaxAsk, lintReply, thinPo, tidyReply } from './voice.ts';
+
+// Session 30, live 18:34 Manila: the chat already held "2 guests" and the model asked again despite the hint.
+Deno.test('dropPaxAsk: a repeated guest-count question goes, the site line no longer opens with "Or"', () => {
+  const url = 'https://tinyurl.com/Stay-at-Cascade';
+  const live = `Ben, yes, October 27 to 29 is open for your stay. We also provide fiber Wi-Fi in the unit.\n\nMay we know how many guests will be staying with you, please?\n\nOr you may check and secure your dates directly on our site:\n\n👉 ${url}\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.`;
+  const out = dropPaxAsk(live);
+  assertEquals(/how many guests/.test(out), false);
+  assertEquals(out.includes('\n\nYou may check and secure your dates directly on our site:'), true);
+  assertEquals(lintReply(out, 'hi, is Oct 27 to 29 open? and is there wifi?'), []);
+  assertEquals(dropPaxAsk('How many guests will be staying?'), 'How many guests will be staying?'); // never empties a reply
+  assertEquals(dropPaxAsk('Yes, the home fits up to 3 adults.'), 'Yes, the home fits up to 3 adults.');
+});
 import { answer, availabilityAck, availabilityLine, detectLang, opener, parsePax, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { GCASH_QRPH_BASE, crc16, qrphWithAmount } from '../_shared/cascade-core/qrph.ts';
 
