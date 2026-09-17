@@ -528,6 +528,15 @@ async function handle(db: Db, ev: Record<string, any>, mode: string): Promise<vo
   // Staff replied from the Page inbox: hold the bot on this thread.
   if (msg.is_echo) {
     if (env('META_APP_ID') && String(msg.app_id ?? '') === env('META_APP_ID')) return; // our own send
+    // Session 28 (live 2026-09-17 08:54): Messenger renders our GCash number and QR into its own
+    // "Transfer with GCash" / "QR transfer" cards and echoes them as Page messages with no app_id and
+    // no text. They are not a staff reply: an attachment-only echo within 3 min of our last bot turn
+    // is Meta's, and holding the bot on it silenced the guest's next two questions for 2 h.
+    if (!msg.text && Array.isArray(msg.attachments)) {
+      const { data: t } = await db.from('concierge_threads').select('history').eq('psid', ev.recipient.id).maybeSingle();
+      const lastBot = [...((t?.history ?? []) as Turn[])].reverse().find((h) => h.role === 'bot');
+      if (lastBot && now.getTime() - Date.parse(lastBot.at) < 3 * 60_000) { console.log('echo_ignored_meta_card', JSON.stringify({ psid: ev.recipient.id, types: msg.attachments.map((a: any) => a?.type) })); return; }
+    }
     await db.from('concierge_threads').upsert({ psid: ev.recipient.id, human_until: new Date(now.getTime() + ECHO_HOLD_MS).toISOString(), updated_at: now.toISOString() });
     return;
   }
