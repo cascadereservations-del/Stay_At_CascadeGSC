@@ -26,4 +26,10 @@ comment on function public.staff_decide_direct_booking_v1(uuid, text, text, uuid
 revoke all on function public.staff_decide_direct_booking_v1(uuid, text, text, uuid) from public, anon;
 grant execute on function public.staff_decide_direct_booking_v1(uuid, text, text, uuid) to authenticated;
 
+-- The inner decision stays behind its gates. Production already has exactly this (verified 2026-09-17:
+-- service_role only), so these two lines change nothing there; they make the invariant explicit and hold
+-- in a --no-acl restore, where the original revoke is missing.
+revoke all on function public.decide_direct_booking(uuid, text, text, uuid) from public, anon, authenticated;
+grant execute on function public.decide_direct_booking(uuid, text, text, uuid) to service_role;
+
 commit;
