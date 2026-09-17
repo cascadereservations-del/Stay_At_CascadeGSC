@@ -148,15 +148,19 @@ export function dropNameAsk(reply: string): string {
 
 // K18 fact guards (D-182). Availability and the early check-in fee reached the model as prompt text only, and the golden
 // set caught both wrong: a booked range called open, PHP 400 for a 10 AM arrival. Code owns both facts; no wording added.
-const DATE_REF_RE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.? ?\d{1,2}\b|\b\d{1,2}[/-]\d{1,2}\b|\b(those|these|your|the) (dates|nights)\b/i;
-const OPEN_RE = /\b(available|open|bakante)\b/i;
+// Golden run 6: "Wi-Fi is available ... for your dates" was read as a date claim and the Wi-Fi answer was replaced. A claim
+// needs the DATE to be what is open: "Oct 27 to 29 is open", "those dates are available", "available po ang Oct 20",
+// "the unit is open from Oct 9".
+const MD = String.raw`(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.? ?\d{1,2}\b|\b\d{1,2}[/-]\d{1,2}\b)`;
+const OPEN_CLAIM_RE = new RegExp(String.raw`(?:${MD}|\b(?:those|these|your|the) (?:dates|nights)\b)[^.!?\n]{0,40}\b(?:is|are|remains?)\s+(?:still\s+)?(?:open|available|bakante)\b|\b(?:open|available|bakante)\s+(?:po\s+)?(?:ang|from|on|for|sa)\s+(?:the\s+)?(?:night\s+of\s+)?${MD}`, 'i');
+const BOOKED_CLAIM_RE = new RegExp(String.raw`${MD}[^.!?\n]*\b(?:reserved|booked|taken)\b|\b(?:reserved|booked|taken)\b[^.!?\n]*${MD}`, 'i');
 const NOT_OPEN_RE = /\b(not|isn't|aren't|no longer|hindi|dili)\s+(yet\s+)?(available|open|bakante)\b/gi;
-const AVAIL_WORD_RE = /\b(available|open|bakante|reserved|booked|taken)\b/i;
 const sentencesOf = (line: string): string[] => line.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [line];
-const availSentence = (s: string) => DATE_REF_RE.test(s) && AVAIL_WORD_RE.test(s);
+const openClaim = (s: string) => OPEN_CLAIM_RE.test(s.replace(NOT_OPEN_RE, ''));
+const availSentence = (s: string) => openClaim(s) || BOOKED_CLAIM_RE.test(s);
 /** The reply tells the guest a date is open or available. */
 export function claimsOpen(reply: string): boolean {
-  return reply.split('\n').some((l) => sentencesOf(l).some((s) => DATE_REF_RE.test(s) && OPEN_RE.test(s.replace(NOT_OPEN_RE, ''))));
+  return reply.split('\n').some((l) => sentencesOf(l).some(openClaim));
 }
 /** Every sentence that states availability for a date gives way to the code's line: the first is replaced, the rest are
  *  dropped (golden run 4: "Oct 7 is already reserved. However, Oct 8 and 9 are open" - Oct 8 was booked too). Never ''. */

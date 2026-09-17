@@ -242,6 +242,14 @@ Deno.test('a booked range is never called open, and the early check-in fee is co
   assertEquals(claimsOpen('Oct 7 to 9 is not available.'), false);
   assertEquals(claimsOpen('You may see live availability on our site.'), false);
   assertEquals(claimsOpen('Yes po, available po ang Oct 20 to 22.'), true);
+  // golden run 6: an amenity that is 'available for your dates' is not a date claim, and it is never replaced
+  const wifi = `Yes, Ben, fiber Wi-Fi is available for your dates. It's steady enough for video calls.`;
+  assertEquals(claimsOpen(wifi), false);
+  assertEquals(claimsOpen('Yes, Ben, fast fiber Wi-Fi is available for the nights you stay.'), false);
+  assertEquals(setAvailability(`Oct 7 to 9 is open. ${wifi}`, line).includes('fiber Wi-Fi is available for your dates'), true);
+  // golden run 5: 'the unit is open from Oct 9' is a claim; 'not available on Oct 7' is not
+  assertEquals(claimsOpen('For Oct 7 to 9, the night of Oct 7 is already reserved, and the unit is open from Oct 9 onwards.'), true);
+  assertEquals(claimsOpen('The unit is not available on Oct 7.'), false);
 
   assertEquals(earlyFeeFor('Can we check in at 10am on the first day?'), 200);
   assertEquals(earlyFeeFor('Can we check in early, around 9am?'), 300); // facts.ts: "9 AM would be PHP 300 total"
