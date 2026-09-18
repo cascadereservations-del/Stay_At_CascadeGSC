@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "release_id": "concierge_last_mid_20260918",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "f78194a4a76463117aae3738b4a3e657b0d10e62"
+  },
+  "migrations": [
+    "20260918010000_concierge_last_mid.sql"
+  ],
+  "migration_sha256": {
+    "20260918010000_concierge_last_mid.sql": "fcff6fd29716627525f54b8cc45c05167ee084c8b68983fc36299350ea6e853f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "One nullable column added to concierge_threads. No row is read or written by the migration, no constraint, no default, no rewrite. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "last_mid_column_exists",
+      "query": "select exists(select 1 from information_schema.columns where table_schema='public' and table_name='concierge_threads' and column_name='last_mid')",
+      "expect": true
+    },
+    {
+      "name": "last_mid_is_nullable_text",
+      "query": "select data_type='text' and is_nullable='YES' from information_schema.columns where table_schema='public' and table_name='concierge_threads' and column_name='last_mid'",
+      "expect": true
+    },
+    {
+      "name": "existing_threads_read_null",
+      "query": "select coalesce(bool_and(last_mid is null), true) from public.concierge_threads",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops one added column; no conversation data lives in it)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260918_concierge_last_mid.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "concierge_writes_and_reads_last_mid",
+      "required_state": "The messenger-concierge build that reads and writes last_mid is deployed only AFTER this release. Deployed earlier it would write an unknown column and the upsert would fail, so the order matters. Applied without the deploy, the column simply stays null and nothing changes."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "One nullable column. The currently deployed function neither selects it by name (it uses select *) nor writes it, so it keeps working untouched. Rehearse on Alfred with supabase/tests/database/concierge_last_mid.sql before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "the rehearsal's pgTAP run is not 5/5"
+  ]
+}

@@ -11,20 +11,24 @@ select ok((select p.prosecdef and p.proconfig = array['search_path=""']
              from pg_proc p where p.oid = 'public.telegram_apply_inventory_count_v1(bigint,jsonb,text)'::regprocedure),
           'definer with an empty search_path');
 
--- Synthetic fixtures: an admin and a cleaner, each with a Telegram id, plus three items.
+-- Synthetic fixtures: our OWN property (the CI baseline database has no production rows, so
+-- assuming the real property id exists fails staff_property_access_property_id_fkey - the same
+-- way two older suites fail on main today), an admin and a cleaner each with a Telegram id, and
+-- three items.
+insert into public.properties(id,name,is_active) values('f3300000-0000-4000-8000-0000000000f1','Synthetic Count',true);
 insert into auth.users(id) values
   ('f3300000-0000-4000-8000-0000000000a1'),('f3300000-0000-4000-8000-0000000000a2');
 insert into public.staff_access_profiles(user_id,role,telegram_user_id) values
   ('f3300000-0000-4000-8000-0000000000a1','admin',9000000001),
   ('f3300000-0000-4000-8000-0000000000a2','cleaner',9000000002);
 insert into public.staff_property_access(user_id,property_id) values
-  ('f3300000-0000-4000-8000-0000000000a1','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'),
-  ('f3300000-0000-4000-8000-0000000000a2','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd');
+  ('f3300000-0000-4000-8000-0000000000a1','f3300000-0000-4000-8000-0000000000f1'),
+  ('f3300000-0000-4000-8000-0000000000a2','f3300000-0000-4000-8000-0000000000f1');
 
 insert into public.inventory_items(id,name,category,unit,qty_on_hand,is_consumable,is_active,sort_order,property_id,movement_controlled_at) values
-  ('f3300000-0000-4000-8000-0000000000b1','Count Fixture A','Consumables','pc',10,true,true,9001,'6ae230f4-c189-4547-84b1-cb6e0b2cc9bd',null),
-  ('f3300000-0000-4000-8000-0000000000b2','Count Fixture B','Consumables','pc',4,true,true,9002,'6ae230f4-c189-4547-84b1-cb6e0b2cc9bd',null),
-  ('f3300000-0000-4000-8000-0000000000b3','Count Fixture Controlled','Consumables','pc',7,true,true,9003,'6ae230f4-c189-4547-84b1-cb6e0b2cc9bd',now());
+  ('f3300000-0000-4000-8000-0000000000b1','Count Fixture A','Consumables','pc',10,true,true,9001,'f3300000-0000-4000-8000-0000000000f1',null),
+  ('f3300000-0000-4000-8000-0000000000b2','Count Fixture B','Consumables','pc',4,true,true,9002,'f3300000-0000-4000-8000-0000000000f1',null),
+  ('f3300000-0000-4000-8000-0000000000b3','Count Fixture Controlled','Consumables','pc',7,true,true,9003,'f3300000-0000-4000-8000-0000000000f1',now());
 
 -- An id nobody is mapped to, and a cleaner who is mapped but lacks manage_inventory.
 select is((public.telegram_apply_inventory_count_v1(9000000003,
