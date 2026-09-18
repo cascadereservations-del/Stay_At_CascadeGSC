@@ -34,7 +34,11 @@ const HUMAN_HOLD_MS = 24 * 3_600_000;
 // thread for 24 h, so a routine follow-up ("what's the Wi-Fi?") an hour later went unanswered.
 // The echo hold is now 2 h; safety holds and the handoff dedupe window keep the 24 h constant.
 const ECHO_HOLD_MS = 2 * 3_600_000;
-const HISTORY_KEEP = 16; // 32 stored entries; 12 dropped a guest's dates after a 30-turn chat (2026-09-13)
+// 32 stored entries. 16 was set on 2026-09-13 so a long chat kept the guest's dates; the dates now ride on the guest
+// turn (guestDatesBlock / datesHint) from the STORED history, so the model's window can be short again. Live read
+// 2026-09-18 (Lloyd, "the whole thread reads wrong"): with 16 turns of earlier chat the model recycled its own answers
+// and volunteered Wi-Fi to a guest who had only asked about dates.
+const HISTORY_KEEP = 8;
 
 // Guest-facing handoff lines, from Lloyd's approved wording (voice questionnaire, group 8):
 // warm, positively framed, "we" not "I", emoji only where it earns its place, and no "po" —
@@ -736,12 +740,15 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       const anchor = stayAnchor(guestTexts.slice(-3).join(' '));
       const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, 5% from 2 nights up to 25% from 28 nights, the longer the stay the higher the discount - then the link. Do not quote any other number and do not promise a special price.] ${anchor}` : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
+      // Live read 2026-09-18: "is Nov 10 to 12 available? 2 adults" came back with Wi-Fi and a workspace nobody had asked
+      // about, copied from earlier turns of the same chat.
+      const scopeHint = '[Answer ONLY what this message asks. Do not volunteer amenities, facts or offers the guest did not ask about in it, and never repeat a sentence you have already sent in this chat.] ';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
       const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
       const knownPax = thread.booking_flow?.pax;
       const paxHint = knownPax && !flowFollowUp ? `[Already known from this chat: ${knownPax} guest${knownPax === 1 ? '' : 's'}. Do not ask how many guests again; ask something only if it is truly needed.] ` : '';
-      let out = await draft(thread, nameHint + discHint + capHint + datesHint + paxHint + flowHint + LANG_HINT[lang] + text, context, 'full', followUp);
+      let out = await draft(thread, nameHint + scopeHint + discHint + capHint + datesHint + paxHint + flowHint + LANG_HINT[lang] + text, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }

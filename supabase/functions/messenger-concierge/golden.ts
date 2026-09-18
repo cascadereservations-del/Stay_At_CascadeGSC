@@ -38,6 +38,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     // ---- follow-ups: warm, no greeting, no re-ask, at most one invitation
     { id: 'fu-amenity-en', group: 'followup', turns: [m('Hi, do you have wifi?'), m('Is there a kitchen too?', 'en', { must: [/induction|kitchen/i] })] },
     { id: 'fu-amenity-with-dates-en', group: 'followup', turns: [m(`Hi! Is ${d2} open? 2 guests`), m('and is there wifi?', 'en', { must: [/wi-?fi/i] })] },
+    // Live read 2026-09-18 (Lloyd): an availability question came back with the Wi-Fi and workspace of an earlier turn.
+    { id: 'fu-no-volunteering-en', group: 'followup', turns: [m('Hi, do you have wifi?'), m(`Is ${d3} available? 2 adults`, 'en', { mustNot: [/wi-?fi|workspace|induction/i] })] },
     { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'en'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/] })] },
     { id: 'fu-parking-en', group: 'followup', turns: [m(`Hello, is ${d3} available?`), m('Is there parking?', 'en', { must: [/parking|park/i, /gated|camera|CCTV/i] })] },
     { id: 'fu-early-no-dates-en', group: 'followup', turns: [m('Hi there'), { say: 'Can we check in early, around 9am?', kind: 'code', lang: 'en', mustNot: [/complimentary|confirmed|free of charge/i] }] },
