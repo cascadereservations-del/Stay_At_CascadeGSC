@@ -2,6 +2,16 @@
 -- ("Ben", psid 24786231807734398): F21FBEC9 (Oct 10-12, CONFIRMED via the Telegram tap - calendar, reservation and
 -- ledger rows exist) and 395A8549 (Oct 25-27, pending hold). Guest rows are resolved from the bookings themselves.
 -- Order matters for the FKs. The receipt PNG in the private booking-receipts bucket cannot be deleted by SQL.
+--
+-- COMPANION STEP, every time this file or one like it is run (SPEC-04 item 3 step 4, 2026-09-18).
+-- Deleting a synthetic booking leaves its receipt behind in Storage as an object named
+--   <deleted booking id>/<uuid>.<png|jpg>
+-- with nothing left in any table pointing at it. Audited 2026-09-18: five such orphans had accumulated
+-- from sessions 27 to 29 alone. Storage -> booking-receipts in the Supabase dashboard, delete the folder
+-- named after each booking id in the DELETEs above. Do this in the same sitting, not on a cron: a cron
+-- that deletes payment evidence by inference is exactly the wrong thing to automate, and the fraud
+-- design (T13) wants a human between a real receipt and a permanent delete.
+-- Current orphan list and the keep/delete classification: vault note RECEIPTS-AUDIT-2026-09-18.
 begin;
 create temp table _s28_guests as select distinct guest_id from public.booking_inquiries where id in ('f21fbec9-82c1-4199-9296-84aad72c5735', '395a8549-ab22-4b5d-8a33-a0bbd4c57cbb') and guest_id is not null;
 delete from public.booking_decisions            where booking_id in ('f21fbec9-82c1-4199-9296-84aad72c5735', '395a8549-ab22-4b5d-8a33-a0bbd4c57cbb');
