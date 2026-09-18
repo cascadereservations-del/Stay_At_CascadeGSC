@@ -94,7 +94,8 @@ export function availStart(text: string, now = new Date()): boolean {
 export function parsePax(text: string): number | null {
   const words: Record<string, number> = { one: 1, isa: 1, two: 2, dalawa: 2, duha: 2, three: 3, tatlo: 3, tulo: 3, four: 4, apat: 4, upat: 4 };
   // A count next to a guest word wins over any other number ("Sep 24 to 26 for 2 adults" -> 2).
-  const m = /\b(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.exec(text)
+  // Lloyd 2026-09-18: a courtesy particle may sit between the count and the guest word - "2 po kami" is two guests.
+  const m = /\b(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:po|pa|ba|po\s+ba)?\s*(?:adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.exec(text)
     ?? /\b(?:for|para sa|kaming)\s+(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.exec(text) // "book for 2" (live 2026-09-17 09:53)
     ?? /\b(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\b/i.exec(text);
   if (!m) return null;
@@ -129,6 +130,13 @@ const dm = (d: string) => { const x = new Date(d + 'T00:00:00Z'); return `${['Ja
 export const dmRange = (a: string, b: string) => { const A = dm(a), B = dm(b); return A.slice(0, 3) === B.slice(0, 3) ? `${A} to ${B.slice(4)}` : `${A} to ${B}`; };
 export type Window = { start: string; end: string; nights: number; open_ended?: boolean };
 export const windowText = (w: Window) => w.open_ended ? `${dm(w.start)} onwards` : dmRange(w.start, w.end);
+/** Lloyd 2026-09-18: a window that runs to the next booking oversells - a guest asking for 2 nights was offered
+ *  "Oct 9 to 28". The offer is trimmed to the stay they asked for; a shorter window is left as it is. */
+export function trimWindow(w: Window, nights: number): Window {
+  if (nights < 1 || w.nights <= nights) return w;
+  const end = new Date(Date.parse(w.start + 'T00:00:00Z') + nights * 86_400_000).toISOString().slice(0, 10);
+  return { start: w.start, end, nights };
+}
 /** Runs of open nights across a horizon, as check-in -> check-out windows (pure: the caller fetches the calendar). */
 export function openWindows(bookedNights: Set<string>, today: string, horizonEnd: string): Window[] {
   const out: Window[] = [];
@@ -321,7 +329,7 @@ export function start(text: string, now = new Date()): Flow {
   const today = at.slice(0, 10);
   if (d[0] && d[0] >= today) { flow.checkin = d[0]; flow.step = 'checkout'; }
   if (flow.checkin && d[1] && d[1] > flow.checkin) { flow.checkout = d[1]; flow.step = 'pax'; }
-  const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.test(text) || /\b(?:for|para sa|kaming)\s+(\d|one|two|three|four|isa|dalawa|tatlo|apat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.test(text) ? parsePax(text) : null;
+  const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:po|pa|ba|po\s+ba)?\s*(adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.test(text) || /\b(?:for|para sa|kaming)\s+(\d|one|two|three|four|isa|dalawa|tatlo|apat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.test(text) ? parsePax(text) : null;
   if (p && flow.step === 'pax') { flow.pax = p; flow.step = 'offer'; }
   // What did the guest actually ask? index.ts answers availability from the calendar (code) or hands
   // any other question to the model before the flow's own ask (protocol rule 1).

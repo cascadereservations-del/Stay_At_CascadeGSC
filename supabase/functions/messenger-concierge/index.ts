@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow, type Window } from './booking.ts';
+import { answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -588,7 +588,8 @@ async function nearestWindow(db: Db, flow: Flow): Promise<Window | null> {
   const wanted = flow.checkin && flow.checkout ? Math.max(1, Math.round((Date.parse(flow.checkout) - Date.parse(flow.checkin)) / 86_400_000)) : 1;
   const fits = openWindows(booked, today, horizonEnd).filter((w) => w.nights >= wanted);
   if (!fits.length) return null;
-  return fits.sort((a, b) => Math.abs(Date.parse(a.start) - Date.parse(want)) - Math.abs(Date.parse(b.start) - Date.parse(want)))[0];
+  const best = fits.sort((a, b) => Math.abs(Date.parse(a.start) - Date.parse(want)) - Math.abs(Date.parse(b.start) - Date.parse(want)))[0];
+  return trimWindow(best, wanted); // offer the stay they asked for, not the whole block up to the next booking
 }
 // ---- Effects seam and probe (voice close-out 2026-09-17, SPEC-06 sections 1-2) -------------------------------
 // Everything handle() does to the outside world goes through `fx`. liveEffects wraps today's functions one to one

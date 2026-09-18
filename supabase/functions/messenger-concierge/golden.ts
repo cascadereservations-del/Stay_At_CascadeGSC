@@ -30,12 +30,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'first-rate-en', group: 'first', turns: [m('How much per night?', 'en', { must: [LINK, /1,780/, /thank you for reaching out/i] })] },
     { id: 'first-rate-tl', group: 'first', turns: [m('Hm po per night?', 'tl', { must: [LINK, /1,780/] })] },
     { id: 'first-avail-en', group: 'first', turns: [{ say: `Hi, is ${d2} available? We're 2 adults`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i, /1,691/, /set the dates aside/i], mustNot: [LINK, /reservation fee|50%/i] }] },
-    // "2 po kami" is not read as a guest count (the pax gate wants the number glued to the guest word), so the
-    // count is asked first and the rate and the offer land on turn 2. Golden run 2026-09-18.
-    { id: 'first-avail-tl', group: 'first', turns: [
-      { say: `Available po ba ang ${d2}? 2 po kami`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i], mustNot: [LINK, /reservation fee|50%/i] },
-      { say: '2 po', kind: 'flow', lang: 'tl', must: [/1,691/, /I-set aside/i], mustNot: [LINK, /reservation fee|50%/i] },
-    ] },
+    { id: 'first-avail-tl', group: 'first', turns: [{ say: `Available po ba ang ${d2}? 2 po kami`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i, /1,691/, /I-set na po/i], mustNot: [LINK, /reservation fee|50%/i] }] },
     { id: 'first-location-en', group: 'first', turns: [m('location', 'en', { must: [LINK, /Bria Homes/i, /thank you for reaching out/i] })] },
     { id: 'first-howtobook-en', group: 'first', turns: [m('How do I book?', 'en', { must: [LINK, /thank you for reaching out/i] })] },
     { id: 'first-bisaya-gets-taglish', group: 'register', turns: [{ say: `Naa bay bakante ${d2}?`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i], mustNot: [LINK] }] },

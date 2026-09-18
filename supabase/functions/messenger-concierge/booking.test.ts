@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { answer, dmRange, openWindows, parseDates, parseName, parsePax, parsePhone, prompt, rateLine, start, type Flow } from './booking.ts';
+import { answer, availabilityLine, dmRange, openWindows, parseDates, parseName, parsePax, parsePhone, prompt, rateLine, start, trimWindow, type Flow } from './booking.ts';
 
 const now = new Date('2026-09-17T00:00:00Z');
 
@@ -168,4 +168,23 @@ Deno.test('flow: a name is data, not language - a Taglish booking stays Taglish 
   assertEquals(prompt(s.flow, 'Ben', false, now).includes('Ito po ang details ng stay ninyo:'), true);
   // a real English sentence still switches the register back
   assertEquals(answer({ ...f, step: 'contact' }, 'my name is Ben and my number is 09171234567', now).flow.lang, 'en');
+});
+
+// Lloyd's yes, 2026-09-18, to the two findings the golden run surfaced.
+Deno.test('parsePax: a courtesy particle between the count and the guest word still counts', () => {
+  assertEquals(parsePax('2 po kami'), 2);
+  assertEquals(parsePax('dalawa po kami'), 2);
+  assertEquals(parsePax('3 pa kami'), 3);
+  assertEquals(parsePax('2 adults'), 2);                     // unchanged
+  const f = start('Available po ba ang Sep 24 to 26? 2 po kami', now);
+  assertEquals([f.pax, f.step, f.asked], [2, 'offer', 'availability']); // the rate and the offer come at once
+});
+
+Deno.test('trimWindow: the offer is the stay they asked for, not the block up to the next booking', () => {
+  const w = { start: '2026-10-09', end: '2026-10-28', nights: 19 };
+  assertEquals(trimWindow(w, 2), { start: '2026-10-09', end: '2026-10-11', nights: 2 });
+  assertEquals(trimWindow(w, 19), w);                        // exactly long enough: left alone
+  assertEquals(trimWindow({ start: '2026-10-09', end: '2026-10-10', nights: 1 }, 2), { start: '2026-10-09', end: '2026-10-10', nights: 1 });
+  assertEquals(availabilityLine({ ...start('book Oct 7 to 9 for 2', now), lang: 'en' }, new Set(['2026-10-07']), trimWindow(w, 2)),
+    "Oct 7 to 9 is already reserved. The nearest open dates are Oct 9 to 11, and we'd be glad to check any others for you — just share your check-in and check-out.");
 });
