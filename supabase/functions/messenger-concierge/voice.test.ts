@@ -89,9 +89,11 @@ Deno.test('every canned prompt passes the voice lint', () => {
 Deno.test('the question is answered before the ask (live failure of 2026-09-17)', () => {
   const guest = 'Hello is Oct 3 to 4 available. i would like to book for 2 adults';
   const f = start(guest, now);
-  const cold = opener(f, 'Ben') + prompt({ ...f, step: 'phone' }, 'Ben');           // what shipped at 08:53
+  // 'phone' was the contact step's name before SPEC-14 merged the asks into 'contact'. What this test
+  // guards is the SHAPE - an ask with no answer in front of it - not the step's old name.
+  const cold = opener(f, 'Ben') + prompt({ ...f, step: 'contact' }, 'Ben');         // what shipped at 08:53
   assertEquals(lintReply(cold, guest, { firstTurn: true }), ['no_answer']);
-  const warm = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt({ ...f, step: 'phone' }, 'Ben');
+  const warm = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt({ ...f, step: 'contact' }, 'Ben');
   assertEquals(lintReply(warm, guest, { firstTurn: true }), []);
   assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith('Oct 3 to 4 is already reserved'), true);
   assertEquals(warm.startsWith("Hi Ben, thank you for reaching out to Cascade Hideaway. Oct 3 to 4 is available, and we'd be glad to welcome the two of you."), true);
