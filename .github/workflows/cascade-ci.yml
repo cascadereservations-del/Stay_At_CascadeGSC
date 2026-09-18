@@ -30,8 +30,9 @@ jobs:
       # SPEC-06 section 6: the Concierge suites run here too. They were written and kept green by hand
       # while CI covered only _shared and the two heartbeats, so a voice or booking regression could
       # reach a review unflagged. --allow-env is what draft.test.ts needs (it reads CASCADE_GEMINI_MODEL
-      # at import time); type checking stays ON, so a dead Flow step fails the build.
-      - run: deno test --no-lock --node-modules-dir=auto --allow-env supabase/functions/_shared/*.test.ts supabase/functions/job-heartbeat-monitor/index.test.ts supabase/functions/job-heartbeat-liveness/index.test.ts supabase/functions/messenger-concierge/ supabase/functions/telegram-cassy/ supabase/functions/upload-booking-receipt/
+      # at import time); type checking stays ON, so a dead Flow step fails the build. --allow-read is
+      # what dedup.test.ts needs: it reads index.ts to assert the mid guard still sits before any effect.
+      - run: deno test --no-lock --node-modules-dir=auto --allow-env --allow-read supabase/functions/_shared/*.test.ts supabase/functions/job-heartbeat-monitor/index.test.ts supabase/functions/job-heartbeat-liveness/index.test.ts supabase/functions/messenger-concierge/ supabase/functions/telegram-cassy/ supabase/functions/upload-booking-receipt/
 
   browser:
     runs-on: ubuntu-latest

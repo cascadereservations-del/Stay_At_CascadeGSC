@@ -150,7 +150,7 @@ function stayFrom(guestTexts: string[], now: Date): { checkin: string; checkout:
 }
 
 type Turn = { role: 'guest' | 'bot'; text: string; at: string };
-type Thread = { psid: string; guest_name: string | null; human_until: string | null; bot_turns: number; history: Turn[]; last_risk: string | null; booking_flow?: Flow | null };
+type Thread = { psid: string; guest_name: string | null; human_until: string | null; bot_turns: number; history: Turn[]; last_risk: string | null; booking_flow?: Flow | null; last_mid?: string | null };
 // deno-lint-ignore no-explicit-any
 type Db = SupabaseClient<any, 'public', any>;
 
@@ -655,7 +655,16 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
 
   const psid: string = ev.sender.id;
   const { data: row } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
-  const thread: Thread = (row as Thread | null) ?? { psid, guest_name: null, human_until: null, bot_turns: 0, history: [], last_risk: null, booking_flow: null };
+  const thread: Thread = (row as Thread | null) ?? { psid, guest_name: null, human_until: null, bot_turns: 0, history: [], last_risk: null, booking_flow: null, last_mid: null };
+
+  // Meta retries a webhook it considers slow, and this function answers synchronously BEFORE the 200 -
+  // one model call can take 25 s, two with a fallback. Without this the guest is answered twice.
+  // ponytail: last id only; a small recent-ids array if Meta is ever seen replaying out of order.
+  if (msg.mid && msg.mid === thread.last_mid) {
+    console.log('duplicate_mid_ignored', JSON.stringify({ psid, mid: msg.mid }));
+    return;
+  }
+
   if (!thread.guest_name) thread.guest_name = await fx.name(psid);
 
   const text: string = (msg.text ?? '').trim();
@@ -905,6 +914,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     bot_turns: priorTurns + (sentToGuest && !handoff && !flowReply ? 1 : 0),
     history: [...thread.history, ...turns].slice(-HISTORY_KEEP * 2), last_risk: risk, updated_at: now.toISOString(),
     booking_flow: thread.booking_flow ?? null,
+    last_mid: msg.mid ?? thread.last_mid ?? null,
   });
 }
 
