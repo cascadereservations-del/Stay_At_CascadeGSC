@@ -12,8 +12,8 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityAck, availabilityLine, BOOK_RE, detectLang, greeting, isActive, opener, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, tidyReply } from './voice.ts';
+import { answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, type Flow, type Window } from './booking.ts';
+import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, tidyReply } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -236,16 +236,13 @@ async function availabilityBlock(db: Db): Promise<string> {
     for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) bookedNights.add(d);
   }
 
-  // Walk the horizon and collect runs of open nights as check-in -> check-out windows.
-  const windows: string[] = [], booked: string[] = [];
-  let runStart: string | null = null;
-  for (let d = today; d < horizonEnd; d = addDays(d, 1)) {
-    if (bookedNights.has(d)) {
-      booked.push(pretty(d));
-      if (runStart) { const nights = (Date.parse(d) - Date.parse(runStart)) / 86_400_000; windows.push(`${pretty(runStart)} to ${pretty(d)} (${nights} night${nights > 1 ? 's' : ''})`); runStart = null; }
-    } else if (!runStart) runStart = d;
-  }
-  if (runStart) windows.push(`${pretty(runStart)} onwards (open through at least ${pretty(horizonEnd)})`);
+  // Walk the horizon and collect runs of open nights as check-in -> check-out windows. SPEC-14: the walk itself
+  // lives in booking.ts, so the model's block and the code's "nearest open dates" line can never disagree.
+  const booked: string[] = [];
+  for (let d = today; d < horizonEnd; d = addDays(d, 1)) if (bookedNights.has(d)) booked.push(pretty(d));
+  const windows = openWindows(bookedNights, today, horizonEnd).map((w) => w.open_ended
+    ? `${pretty(w.start)} onwards (open through at least ${pretty(w.end)})`
+    : `${pretty(w.start)} to ${pretty(w.end)} (${w.nights} night${w.nights > 1 ? 's' : ''})`);
 
   return [
     `TODAY (Manila): ${today}. Dates below are ${new Date(today).getUTCFullYear()} unless stated.`,
@@ -540,7 +537,7 @@ async function handleOps(db: Db, update: any): Promise<void> {
 const QR_URL = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/assets/images/qr-gcash.png';
 async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }> {
   const q = quoteTotal(flow.checkin!, flow.checkout!); // session 28: the guest chose fee or full; submit-booking accepts either
-  const body = { guest_name: thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
+  const body = { guest_name: flow.name ?? thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
     pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit };
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
@@ -549,7 +546,7 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
   if (!j.ok) { console.error('submit_flow_rejected', JSON.stringify(j).slice(0, 200)); return { flow, reply: `Sorry po, I couldn't send that request (${String(j.error ?? 'error').replace(/_/g, ' ')}). You can also book here: ${SITE_URL}`, image: null }; }
   const f: Flow = { ...flow, step: 'await_receipt', booking_id: j.inquiry_id, ref: j.ref, deposit: Number(j.deposit_amount), total: Number(j.total_amount), hold: j.hold === true,
     hold_expires_at: j.hold_expires_at ?? null, receipt_token: j.receipt_upload_token, receipt_expires_at: j.receipt_upload_expires_at, updated_at: new Date().toISOString() };
-  return { flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL), image: QR_URL };
+  return { flow: f, reply: paymentReply(f, f.name ?? thread.guest_name, SITE_URL), image: QR_URL };
 }
 const receiptThanks = (flow: Flow, first: string) => reg(flow.lang, { en: `Thank you, ${first}. We've received your receipt and we'll confirm the reservation as soon as it's reviewed. You'll hear from us here.`, tl: `Salamat po, ${first}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`, bis: `Salamat, ${first}. Na-receive na namo ang receipt — amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.` });
 async function forwardReceipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }> {
@@ -577,6 +574,21 @@ async function bookedNightsFor(db: Db, flow: Flow): Promise<Set<string> | null> 
   const booked = new Set<string>();
   for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
   return booked;
+}
+/** SPEC-14 (D-184): the open window nearest the guest's requested check-in that is long enough for their stay.
+ *  null when the calendar cannot be read, or nothing inside the horizon fits - the reserved line then stands alone. */
+async function nearestWindow(db: Db, flow: Flow): Promise<Window | null> {
+  const today = dayStr(new Date(Date.now() + 8 * 3_600_000)); // Manila
+  const horizonEnd = addDays(today, HORIZON_DAYS);
+  const { data, error } = await db.from('calendar_events').select('checkin_date, checkout_date').neq('status', 'cancelled').gte('checkout_date', today).lte('checkin_date', horizonEnd).order('checkin_date').limit(200);
+  if (error) { console.error('calendar_read_failed', 'nearestWindow', String(error.message ?? error).slice(0, 200)); return null; }
+  const booked = new Set<string>();
+  for (const r of data ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
+  const want = flow.checkin && flow.checkin >= today ? flow.checkin : today;
+  const wanted = flow.checkin && flow.checkout ? Math.max(1, Math.round((Date.parse(flow.checkout) - Date.parse(flow.checkin)) / 86_400_000)) : 1;
+  const fits = openWindows(booked, today, horizonEnd).filter((w) => w.nights >= wanted);
+  if (!fits.length) return null;
+  return fits.sort((a, b) => Math.abs(Date.parse(a.start) - Date.parse(want)) - Math.abs(Date.parse(b.start) - Date.parse(want)))[0];
 }
 // ---- Effects seam and probe (voice close-out 2026-09-17, SPEC-06 sections 1-2) -------------------------------
 // Everything handle() does to the outside world goes through `fx`. liveEffects wraps today's functions one to one
@@ -683,19 +695,19 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     // answer): dates completed on this turn are checked against the calendar before the next ask.
     if (s.action === 'ask' && flow.checkin && flow.checkout && (flow.checkin !== before.checkin || flow.checkout !== before.checkout)) {
       const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
-      const line = availabilityLine(flow, nights);
+      const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
       if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = line; }
       else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
     else if (s.action === 'submit') { const r = await fx.submit(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
-  } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && BOOK_RE.test(text) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
+  } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && (BOOK_RE.test(text) || availStart(text, now)) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
     flow = start(text, now);
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
     if (flow.asked === 'availability') {
       const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
-      const line = availabilityLine(flow, nights);
+      const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
       if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang) + line; }
       else flowReply = opener(flow, thread.guest_name, line) + prompt(flow, thread.guest_name);
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
@@ -780,7 +792,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
           const f: Flow = { step: 'dates', ...stay, lang: l3, started_at: now.toISOString(), updated_at: now.toISOString() };
           const nights = await bookedNightsFor(db, f);
           if (!nights || nights.size) {
-            const line = availabilityLine(f, nights);
+            const line = availabilityLine(f, nights, nights && nights.size ? await nearestWindow(db, f) : null);
             console.warn('availability_guard', JSON.stringify({ stay, down: !nights, reply: out.reply.slice(0, 160) }));
             const swapped = setAvailability(out.reply, line);
             if (nights) {
@@ -824,6 +836,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // The first substantive reply carries the booking link (VOICE); the model dropped it on
       // "Hello po" (live audit 2026-09-13), so it is guaranteed here.
       // Voice close-out: never a bare link - the both-routes sentence goes in before the warm close.
+      // SPEC-14 (D-184): the model thanked the guest in only 12 of 33 first replies (golden run 9). On first contact
+      // the approved greeting is guaranteed in code, the same line the book flow has used since session 28.
+      if (!followUp) reply = ensureGreeting(reply, thread.guest_name, l3);
       if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }

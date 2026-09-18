@@ -5,7 +5,7 @@ import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './
 import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { BOOK_RE } from './booking.ts';
 import { claimsOpen, earlyFeeFor, fixEarlyFee, setAvailability } from './voice.ts';
-import { addChatRoute, beforeClose, decisionInvite } from './voice.ts';
+import { addChatRoute, beforeClose, decisionInvite, ensureGreeting } from './voice.ts';
 
 // Session 30, live 19:19 and 19:20 Manila: the model kept its older site-only invite, and "let me think about it" got a
 // bare link tacked on after the warm close.
@@ -69,20 +69,20 @@ Deno.test('dropPaxAsk: a repeated guest-count question goes, the site line no lo
   assertEquals(dropPaxAsk('How many guests will be staying?'), 'How many guests will be staying?'); // never empties a reply
   assertEquals(dropPaxAsk('Yes, the home fits up to 3 adults.'), 'Yes, the home fits up to 3 adults.');
 });
-import { answer, availabilityAck, availabilityLine, detectLang, opener, parsePax, paymentReply, prompt, start, type Flow } from './booking.ts';
+import { answer, availabilityAck, availabilityLine, cancelReply, detectLang, nextAsk, opener, parsePax, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { GCASH_QRPH_BASE, crc16, qrphWithAmount } from '../_shared/cascade-core/qrph.ts';
 
 const now = new Date('2026-09-17T01:00:00Z');
 const base: Flow = { step: 'dates', started_at: now.toISOString(), updated_at: now.toISOString(), checkin: '2026-10-03', checkout: '2026-10-04', pax: 2, phone: '09171234567', email: null };
 
 Deno.test('every canned prompt passes the voice lint', () => {
-  for (const step of ['dates', 'checkout', 'pax', 'contact', 'confirm'] as const) {
+  for (const step of ['dates', 'checkout', 'pax', 'offer', 'contact', 'confirm'] as const) {
     assertEquals(lintReply(prompt({ ...base, step }, 'Ben')), [], step);
   }
   assertEquals(lintReply(opener(start('book Oct 3 to 4 for 2', now), 'Ben') + prompt({ ...base, step: 'contact' }, 'Ben'), 'book Oct 3 to 4 for 2', { firstTurn: true }), []);
   const enPay = paymentReply({ ...base, step: 'await_receipt', ref: 'DIR-1', deposit: 890, total: 1780, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', 'https://x', now);
   assertEquals(lintReply(enPay), []);
-  assertEquals(enPay.startsWith('Hi Ben, 🌿\nWe\'ve set aside Oct 3–4 for you for 24 hours, until Sep 18 at 8:00 AM (tomorrow). Your booking reference is DIR-1.'), true);
+  assertEquals(enPay.startsWith("Ben, we've set aside Oct 3 to 4 for you for 24 hours, until Sep 18 at 8:00 AM (tomorrow). Your booking reference is DIR-1."), true);
   for (const t of ['cancel', 'Sep 1', 'zzz']) { const s = answer({ ...base, step: 'contact' }, t, now); if (s.reply) assertEquals(lintReply(s.reply), [], t); }
 });
 
@@ -93,8 +93,8 @@ Deno.test('the question is answered before the ask (live failure of 2026-09-17)'
   assertEquals(lintReply(cold, guest, { firstTurn: true }), ['no_answer']);
   const warm = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt({ ...f, step: 'phone' }, 'Ben');
   assertEquals(lintReply(warm, guest, { firstTurn: true }), []);
-  assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith('Oct 3 to Oct 4 is already reserved'), true);
-  assertEquals(warm.startsWith("Hi Ben, thank you for reaching out to Cascade Hideaway. Oct 3 to Oct 4 is available, and we'd be glad to welcome the two of you."), true);
+  assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith('Oct 3 to 4 is already reserved'), true);
+  assertEquals(warm.startsWith("Hi Ben, thank you for reaching out to Cascade Hideaway. Oct 3 to 4 is available, and we'd be glad to welcome the two of you."), true);
   assertEquals(lintReply('Your mobile number po?', '', { firstTurn: true }), ['form_speak', 'cold_opener']);
   assertEquals(lintReply('Kindly send the receipt at your earliest convenience.'), ['boilerplate']); // English protocol sections 8 and 18
   assertEquals(lintReply('Wonderful, Ben! Send ₱890 now.'), ['command_tone', 'exclaim']); // the persona's two forbidden moves
@@ -118,7 +118,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   const f = start(guest, now);
   assertEquals([f.lang, f.pax, f.asked], ['tl', 2, 'availability']);
   const first = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
-  assertEquals(first.startsWith("Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to Oct 22, and we'd be glad to have the two of you."), true);
+  assertEquals(first.startsWith("Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to 22, and we'd be glad to have the two of you."), true);
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
   let s = answer(f, '09171234567', now); assertEquals(s.flow.lang, 'tl'); // a bare number keeps the register
   assertEquals(answer(f, '09171234567 ben@example.com', now).flow.lang, 'tl'); // an e-mail is not English (live render 11:35)
@@ -126,15 +126,15 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   assertEquals(lintReply(prompt(s.flow, 'Ben')), []);
   s = answer(s.flow, 'Can I change it to 3 guests?', now); assertEquals(s.flow.lang, 'en'); // plain English switches back
   const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
-  assertEquals(tlPay.startsWith('Hi Ben! 🌿\nNa-hold na po namin ang Oct 3–4 for you for 24 hours — until Sep 18 at 10:00 AM (bukas). Ang booking reference ninyo po ay DIR-1.'), true);
-  assertEquals(tlPay.includes('through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here'), true);
+  assertEquals(tlPay.startsWith('Ben, na-hold na po namin ang Oct 3 to 4 for you for 24 hours — until Sep 18 at 10:00 AM (bukas). Ang booking reference ninyo po ay DIR-1.'), true);
+  assertEquals(tlPay.includes('through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Kapag na-send na po ninyo ang receipt dito, ire-review at iko-confirm namin ang reservation ninyo.'), true);
   assertEquals((tlPay.match(/\bpo\b/g) ?? []).length <= 6, true); // section 4: purposeful markers, never every sentence
   assertEquals(lintReply('Rest assured po, lubos kaming nagagalak.'), ['exclaim', 'boilerplate']);
   assertEquals(lintReply(tlPay), []);
-  for (const step of ['dates', 'checkout', 'pax', 'contact', 'confirm'] as const) assertEquals(lintReply(prompt({ ...base, lang: 'tl', step }, 'Ben')), [], step);
+  for (const step of ['dates', 'checkout', 'pax', 'offer', 'contact', 'confirm'] as const) assertEquals(lintReply(prompt({ ...base, lang: 'tl', step }, 'Ben')), [], step);
   assertEquals(lintReply(availabilityLine({ ...base, lang: 'tl' }, new Set(['2026-10-03'])), 'available pa po ba'), []);
   const mid = availabilityAck({ ...base, lang: 'tl' }, availabilityLine({ ...base, lang: 'tl' }, new Set())) + '\n\n' + prompt({ ...base, lang: 'tl', step: 'contact' }, 'Ben');
-  assertEquals(mid.startsWith("Available po ang Oct 3 to Oct 4, and we'd be glad to have the two of you."), true);
+  assertEquals(mid.startsWith("Available po ang Oct 3 to 4, and we'd be glad to have the two of you."), true);
   assertEquals(lintReply(mid, 'Oct 3 to 4 po, available pa po ba?'), []);
 });
 
@@ -150,13 +150,13 @@ Deno.test('Bisaya register: Bislish, no po, passes the lint (Lloyd 12:15, D-169)
   assertEquals(answer(f0, 'may parking po ba?', now).flow.bis_turns, 0);                  // a Tagalog turn resets the count
   const f = { ...f0, lang: 'bis' as const, bis_turns: 2 };
   const first =opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
-  assertEquals(first.startsWith('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Oct 20 to Oct 22, and looking forward mi to have the two of you.'), true);
+  assertEquals(first.startsWith('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Oct 20 to 22, and looking forward mi to have the two of you.'), true);
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
   const pay = paymentReply({ ...base, lang: 'bis', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
-  assertEquals(pay.startsWith('Hi Ben! 🌿\nNa-hold na namo ang Oct 3–4 for you for 24 hours — until Sep 18 at 10:00 AM (ugma). Your booking reference is DIR-1.'), true);
+  assertEquals(pay.startsWith('Ben, na-hold na namo ang Oct 3 to 4 for you for 24 hours — until Sep 18 at 10:00 AM (ugma). Your booking reference is DIR-1.'), true);
   assertEquals(pay.endsWith('Salamat, Ben. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿'), true);
   assertEquals(lintReply(pay), []);
-  const lines = [pay, first, availabilityLine({ ...base, lang: 'bis' }, new Set(['2026-10-03'])), ...(['dates', 'checkout', 'pax', 'contact', 'confirm'] as const).map((step) => prompt({ ...base, lang: 'bis', step }, 'Ben'))];
+  const lines = [pay, first, availabilityLine({ ...base, lang: 'bis' }, new Set(['2026-10-03'])), ...(['dates', 'checkout', 'pax', 'offer', 'contact', 'confirm'] as const).map((step) => prompt({ ...base, lang: 'bis', step }, 'Ben'))];
   for (const l of lines) { assertEquals(/\b(po|opo)\b/i.test(l), false, 'no Tagalog po in Bisaya: ' + l.slice(0, 40)); assertEquals(lintReply(l), [], l.slice(0, 40)); }
   assertEquals(answer(f, '09171234567', now).flow.lang, 'bis'); // a bare number keeps the register
   assertEquals(answer(f, 'Can I change it to 3 guests?', now).flow.lang, 'en');
@@ -231,14 +231,14 @@ Deno.test('a booked range is never called open, and the early check-in fee is co
   const taken = `Hello Ben. Thank you for reaching out to Cascade Hideaway. Oct 7 to 9 is available, and we'd be glad to welcome you.\n\nWe'll have everything prepared for your arrival, so you can settle in without a second thought.`;
   assertEquals(claimsOpen(taken), true);
   const fixed = setAvailability(taken, line);
-  assertEquals(fixed.startsWith('Hello Ben. Thank you for reaching out to Cascade Hideaway. Oct 7 to Oct 9 is already reserved'), true);
+  assertEquals(fixed.startsWith('Hello Ben. Thank you for reaching out to Cascade Hideaway. Oct 7 to 9 is already reserved'), true);
   assertEquals(/is available|are open/.test(fixed), false);
   assertEquals(fixed.endsWith(`We'll have everything prepared for your arrival, so you can settle in without a second thought.`), true);
   const partial = `Hello, Ben. Thank you for reaching out to Cascade Hideaway.\n\nFor Oct 7 to 9, the night of Oct 7 is already reserved. However, Oct 8 and 9 are open, and we'd be glad to welcome you then.`;
   const p = setAvailability(partial, line);
   assertEquals((p.match(/already reserved/g) ?? []).length, 1);
   assertEquals(/are open/.test(p), false);
-  assertEquals(setAvailability(taken, availabilityLine(f, null)).includes(`We're checking Oct 7 to Oct 9 on our calendar and will confirm shortly.`), true);
+  assertEquals(setAvailability(taken, availabilityLine(f, null)).includes(`We're checking Oct 7 to 9 on our calendar and will confirm shortly.`), true);
   assertEquals(claimsOpen('Oct 7 to 9 is not available.'), false);
   assertEquals(claimsOpen('You may see live availability on our site.'), false);
   assertEquals(claimsOpen('Yes po, available po ang Oct 20 to 22.'), true);
@@ -270,4 +270,45 @@ We'd be glad to welcome you.`);
   const r2 = 'Early check-in before noon is PHP 100 per hour, so arriving at 10 AM would be PHP 400 total. The PHP 1,000 deposit is settled at check-in.';
   assertEquals(fixEarlyFee(r2, 'Can we check in at 10am?'), r2.replace('PHP 400', 'PHP 200'));
   assertEquals(fixEarlyFee(r2, 'Is there wifi?'), r2);
+});
+
+// ---- SPEC-14 (D-184) ------------------------------------------------------------------------
+Deno.test('ensureGreeting: first contact always opens with the approved greeting', () => {
+  const thanked = 'Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available.';
+  assertEquals(ensureGreeting(thanked, 'Ben', 'en'), thanked);                                   // already thanked: untouched
+  assertEquals(ensureGreeting('Hi Ben! Yes, Nov 17 to 19 is open.', 'Ben', 'en'), 'Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, Nov 17 to 19 is open.');
+  assertEquals(ensureGreeting('Yes, Nov 17 to 19 is open.', 'Ben', 'en'), 'Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, Nov 17 to 19 is open.');
+  assertEquals(ensureGreeting('Hello po! Available po ang Nov 17.', null, 'tl'), 'Hello po! Salamat sa pag-message sa Cascade Hideaway. Available po ang Nov 17.');
+  assertEquals(ensureGreeting('Maayong buntag! Available ang Nov 17.', 'Ben', 'bis'), 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Nov 17.');
+  assertEquals(ensureGreeting('', 'Ben', 'en'), '');
+});
+
+Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line pass the lint in three registers', () => {
+  const f: Flow = { ...base, checkin: '2026-11-17', checkout: '2026-11-19', step: 'offer' };
+  // Lloyd's approved first reply, verbatim (2026-09-18)
+  const en = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben', false, now);
+  assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be glad to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 \u2014 PHP 3,382 for the stay.\n\nShall we set the dates aside for you?");
+  assertEquals(en.length < 700, true);
+  const taken = availabilityLine(f, new Set(['2026-11-17']), { start: '2026-11-20', end: '2026-11-23', nights: 3 });
+  assertEquals(taken, "Nov 17 to 19 is already reserved. The nearest open dates are Nov 20 to 23, and we'd be glad to check any others for you \u2014 just share your check-in and check-out.");
+  for (const lang of ['en', 'tl', 'bis'] as const) {
+    const first = opener({ ...f, lang }, 'Ben', availabilityLine({ ...f, lang }, new Set())) + prompt({ ...f, lang }, 'Ben', false, now);
+    const card = prompt({ ...f, lang, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
+    const reserved = availabilityLine({ ...f, lang }, new Set(['2026-11-17']), { start: '2026-11-20', end: '2026-11-23', nights: 3 });
+    const asks = [{}, { name: 'Ben Munez' }, { name: 'Ben Munez', phone: '09171234567' }]
+      .map((partial) => nextAsk({ ...f, lang, step: 'contact', phone: undefined, email: undefined, ...partial }));
+    assertEquals(lintReply(first, 'is Nov 17 to 19 available? 2 adults', { firstTurn: true }), [], lang);
+    assertEquals(lintReply(reserved, 'is Nov 17 to 19 available?'), [], lang);
+    for (const l of [card, cancelReply(lang), ...asks]) assertEquals(lintReply(l), [], `${lang}: ${l.slice(0, 40)}`);
+    if (lang === 'bis') for (const l of [first, card, reserved, cancelReply(lang), ...asks]) assertEquals(/\b(po|opo)\b/i.test(l), false, 'no Tagalog po in Bisaya: ' + l.slice(0, 40));
+  }
+  // the card carries the name, the deposit and the choice; the hold message no longer greets a second time
+  const card = prompt({ ...f, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
+  assertEquals(card.includes('\u{1F464} Ben Munez'), true);
+  assertEquals(card.includes('\u{1F510} \u20B11,000 refundable security deposit at check-in, returned after check-out'), true);
+  assertEquals(card.includes('A reservation fee of \u20B11,691 holds the dates, with the balance settled at check-in; or you may settle the full \u20B13,382 now.'), true);
+  const hold = paymentReply({ ...f, step: 'await_receipt', name: 'Ben Munez', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben Munez', 'https://x', now);
+  assertEquals(hold.startsWith("Ben, we've set aside Nov 17 to 19 for you for 24 hours"), true);
+  assertEquals(hold.includes("Once you've sent the receipt here, we'll review and confirm your reservation."), true);
+  assertEquals(lintReply(hold), []);
 });

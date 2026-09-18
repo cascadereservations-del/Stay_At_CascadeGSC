@@ -6,6 +6,8 @@
 // lintReply() is run over every canned prompt in voice.test.ts (fails the build) and over every
 // outgoing reply at runtime (warn-only log `voice_lint`, so live drift is visible without blocking).
 
+import { greeting } from './booking.ts';
+
 export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense' | 'command_tone' | 'exclaim' | 'boilerplate';
 
 const QUESTION_RE = /\?|\b(is it|are there|do you|does it|can we|can i|may i|pwede|meron|may (?:\w+ )?ba|magkano|how (much|far|many|long)|available|avail|bakante)\b/i;
@@ -120,6 +122,18 @@ export const firstInvite = (lang: L3, siteUrl: string) => ({
   tl: `We can arrange everything dito sa chat, o puwede ninyong i-check ang home at live availability sa aming site:`,
   bis: `We can arrange everything diri sa chat, or pwede pud i-check ang home ug live availability sa among site:`,
 })[lang] + `\n\n👉 ${siteUrl}`;
+/** SPEC-14 (D-184): first contact always opens with the approved greeting. The model thanked the guest in only
+ *  12 of 33 first replies (golden run 9), so a first reply that carries no thank-you has its own salutation
+ *  replaced by greeting() - the same line the book flow has used since session 28. */
+const THANKED_RE = /thank you for (reaching out|messaging|checking|asking)|welcome to cascade|salamat sa pag-?message/i;
+export function ensureGreeting(reply: string, name: string | null, lang: L3): string {
+  if (!reply.trim() || THANKED_RE.test(reply)) return reply;
+  const first = name ? name.split(' ')[0] : '';
+  const who = first ? `(?:${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})?` : '';
+  const salute = new RegExp(`^\\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|kumusta|kamusta|maayong \\p{L}+)(?: po)?[ ,]*${who}[,.!]?\\s*`, 'iu');
+  const body = reply.replace(salute, '').trimStart();
+  return greeting(name, lang) + (body || reply.trimStart());
+}
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {
   const paras = reply.trim().split(/\n\s*\n/);
