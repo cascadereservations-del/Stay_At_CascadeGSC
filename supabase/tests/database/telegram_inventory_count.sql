@@ -1,7 +1,7 @@
 -- SPEC-03: the Telegram count RPC. Authorisation is at the Apply tap, so most of this is about who is
 -- refused and about a count that must not half-apply.
 begin;
-select plan(16);
+select plan(18);
 
 select has_function('public','telegram_apply_inventory_count_v1',array['bigint','jsonb','text'],'the count RPC exists');
 select ok(has_function_privilege('service_role','public.telegram_apply_inventory_count_v1(bigint,jsonb,text)','execute'), 'service_role may call it');
@@ -70,8 +70,9 @@ select is((select count(*) from public.inventory_audit_log
             where action='telegram_count' and entity_id in
               ('f3300000-0000-4000-8000-0000000000b1','f3300000-0000-4000-8000-0000000000b2')), 2::bigint,
   'every applied row is audited');
-select is((select before->>'qty_on_hand' from public.inventory_audit_log
-            where action='telegram_count' and entity_id='f3300000-0000-4000-8000-0000000000b1'), '10',
+-- Compared as a number: jsonb keeps the column's numeric scale, so the text is '10.00', not '10'.
+select is((select (before->>'qty_on_hand')::numeric from public.inventory_audit_log
+            where action='telegram_count' and entity_id='f3300000-0000-4000-8000-0000000000b1'), 10::numeric,
   'the audit row records the figure that was replaced');
 
 select * from finish();

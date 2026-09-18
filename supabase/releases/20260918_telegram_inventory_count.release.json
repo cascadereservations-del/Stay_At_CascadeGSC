@@ -75,8 +75,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "One new function; the CHECK is widened, never narrowed, so every existing telegram_pending row stays valid and every existing writer keeps working. Rehearse on Alfred with supabase/tests/database/telegram_inventory_count.sql before apply."
+    "verified": true,
+    "evidence": "Rehearsed on Alfred 2026-09-18 against the cascade-supabase-20260917T100526Z backup set: 1 migration applied, 0 failed; forward verification 6 passed, 0 failed; pgTAP supabase/tests/database/telegram_inventory_count.sql 18/18; 101 public tables before and after. One new function; the CHECK is widened, never narrowed, so every existing telegram_pending row stays valid and every existing writer keeps working."
   },
   "approvals": {
     "production_required": true,
@@ -86,6 +86,6 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour",
-    "the rehearsal's pgTAP run is not 16/16"
+    "the rehearsal's pgTAP run is not 18/18"
   ]
 }
