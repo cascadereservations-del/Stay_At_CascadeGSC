@@ -1,5 +1,6 @@
 // The photo half of a cleaning submission. Split out of index.ts on 2026-09-18 so it can be tested
-// without booting Deno.serve, after a three-week silent failure a unit test would have caught.
+// without booting Deno.serve, after a silent failure a unit test would have caught. It ran two days,
+// 16/17 to 18 Sep; the three weeks people remember is how long the broken commit sat unshipped (D-191).
 
 export interface PhotoEntry {
   name?: string;
