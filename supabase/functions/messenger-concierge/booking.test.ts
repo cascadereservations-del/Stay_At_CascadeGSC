@@ -190,3 +190,19 @@ Deno.test('trimWindow: the offer is the stay they asked for, not the block up to
   assertEquals(availabilityLine({ ...start('book Oct 7 to 9 for 2', now), lang: 'en' }, new Set(['2026-10-07']), trimWindow(w, 2)),
     "Oct 7 to 9 is already reserved. The nearest open dates are Oct 9 to 11, and we'd be glad to check any others for you — just share your check-in and check-out.");
 });
+
+Deno.test('a date correction at the contact step is a correction, not the guest name', () => {
+  // probe-matrix confirm-correction, 2026-09-18: "actually make it ..." was parsed as the NAME
+  // ("Actually Make It To") and the flow kept the OLD dates, so the guest would have paid for the
+  // wrong nights. Dates must win over parseName at this step.
+  const now = new Date('2026-10-01T00:00:00Z');
+  const atContact = answer(start('book Oct 20 to 22 for 2', now), 'yes', now).flow;
+  assertEquals(atContact.step, 'contact');
+  const s = answer(atContact, 'actually make it Oct 25 to 27', now);
+  assertEquals(s.flow.checkin, '2026-10-25');
+  assertEquals(s.flow.checkout, '2026-10-27');
+  assertEquals(s.flow.name ?? null, null, 'the correction must not become the name');
+  // A genuine name at the same step still lands.
+  const s2 = answer(answer(start('book Oct 20 to 22 for 2', now), 'yes', now).flow, 'Ben Munez', now);
+  assertEquals(s2.flow.name, 'Ben Munez');
+});

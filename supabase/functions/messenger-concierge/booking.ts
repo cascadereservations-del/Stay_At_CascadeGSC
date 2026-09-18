@@ -386,6 +386,18 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
     }
     case 'contact': {
       if (text.includes('?')) return { flow: f, reply: null, action: 'passthrough' };
+      // A correction arriving here is a correction, not a name. "actually make it <dates>" was read as
+      // the guest's NAME ("Actually Make It To") and the flow carried on with the OLD dates - a booking
+      // error, not a wording one (probe-matrix confirm-correction, 2026-09-18). Same rule the confirm
+      // step below already applies: at this step dates win over parseName.
+      const dc = parseDates(text, now);
+      if (dc[0] && dc[0] >= today) {
+        f.checkin = dc[0];
+        if (dc[1] && dc[1] > dc[0]) f.checkout = dc[1];
+        else if (f.checkout! <= dc[0]) { f.step = 'checkout'; return ask(); }
+        f.pay_full = lastMinute(f.checkin!, now) ? true : undefined;
+        return ask(nextAsk(f));
+      }
       const ph = parsePhone(text), em = parseEmail(text), nm = parseName(text);
       if (ph) f.phone = ph;
       if (em) f.email = em;
