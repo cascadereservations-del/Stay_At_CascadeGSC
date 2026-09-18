@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260918T143146Z",
+    "verified_at": "2026-09-18T14:31:46Z",
     "production_rule": "One nullable column added to concierge_threads. No row is read or written by the migration, no constraint, no default, no rewrite. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
