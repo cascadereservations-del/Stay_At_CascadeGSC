@@ -97,7 +97,7 @@
       {
         "@type": "Question",
         "name": "What payment methods are accepted?",
-        "acceptedAnswer": { "@type": "Answer", "text": "GCash, UnionBank transfer, or cash on arrival. Payment instructions appear only after dates and guest details are reviewed in the booking flow. All payments are directly to the property \u2014 there is no third-party processor." }
+        "acceptedAnswer": { "@type": "Answer", "text": "GCash or UnionBank transfer. Payment instructions appear only after dates and guest details are reviewed in the booking flow. All payments are directly to the property \u2014 there is no third-party processor." }
       },
       {
         "@type": "Question",
@@ -5125,8 +5125,8 @@
           <span class="why-direct-num" aria-hidden="true">03</span>
           <h3 class="why-direct-item-heading">Pay your way</h3>
           <p class="why-direct-item-body">
-            GCash, bank transfer, or cash on arrival.
-            A 50% reservation fee is reviewed with availability before confirmation; the balance is settled at check-in. No card required.
+            GCash or bank transfer.
+            A 50% reservation fee is reviewed with availability before confirmation; the balance is due at least one day before check-in. No card required.
           </p>
         </article>
 
@@ -5506,7 +5506,6 @@
                 <div class="payment-methods">
                   <span class="payment-chip">GCash</span>
                   <span class="payment-chip">Bank Transfer</span>
-                  <span class="payment-chip">Cash on Arrival</span>
                 </div>
               </span>
             </li>
@@ -5788,7 +5787,7 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">GCash, UnionBank transfer, or cash on arrival. Payment instructions appear only after you review available dates and enter your guest details. All payments go directly to the property &mdash; there is no third-party processor.</p>
+              <p class="faq-answer">GCash or UnionBank transfer. Payment instructions appear only after you review available dates and enter your guest details. All payments go directly to the property &mdash; there is no third-party processor.</p>
             </div>
           </div>
         </details>
@@ -5984,7 +5983,7 @@
             <li class="booking-perk">Book direct at the lowest rate &#x2014; your discount is calculated and shown in real time as you select dates</li>
             <li class="booking-perk">Cleaning fee always included &#x2014; no surprise charge at checkout</li>
             <li class="booking-perk">Stay 5 nights or more for a complimentary mid-stay room refresh</li>
-            <li class="booking-perk">50% reservation fee starts verification &#x2014; balance due at check-in after confirmation</li>
+            <li class="booking-perk">50% reservation fee starts verification &#x2014; balance due at least one day before check-in</li>
           </ul>
 
         </div>
@@ -6229,9 +6228,9 @@
               Back
             </button>
 
-            <!-- Last-minute banner — shown when check-in is within 48 hours -->
+            <!-- Last-minute banner — shown when check-in is less than 5 days away (D-185, 2026-09-18) -->
             <div class="lm-banner" id="lmBanner" role="status" hidden>
-              <strong>Your check-in is within 48 hours.</strong> Full payment is required now to confirm your dates.
+              <strong>Your check-in is less than five days away.</strong> Full payment is required now to confirm your dates.
             </div>
 
             <!-- Hold-before-pay nudge (D-162): filled by applyHold() / applyPayFirst() -->
@@ -6306,13 +6305,13 @@
                   <div class="pay-later-row">
                     <div class="pay-later-left">
                       <span class="pay-later-label">Remaining Balance</span>
-                      <span class="pay-later-tag pay-later-tag--when">Due 24 hrs before or at check-in</span>
+                      <span class="pay-later-tag pay-later-tag--when">Due at least 24 hrs before check-in</span>
                     </div>
                     <span class="pay-later-amount" id="payBdBalanceOnly"></span>
                   </div>
                   <div class="pay-later-together" aria-hidden="true">
                     <span class="pay-later-together-line"></span>
-                    <span class="pay-later-together-label">collected together at check-in</span>
+                    <span class="pay-later-together-label">collected together before check-in</span>
                     <span class="pay-later-together-line"></span>
                   </div>
                   <div class="pay-later-row">
@@ -6334,7 +6333,7 @@
 
               <!-- Reservation instruction — dynamic: hidden for full payment -->
               <p class="pay-deposit-note" id="payDepositNote">
-                Send the <strong>reservation fee</strong> for review &mdash; after confirmation, the balance and &#x20B1;1,000 refundable deposit are collected at check-in.
+                Send the <strong>reservation fee</strong> for review &mdash; after confirmation, the balance and &#x20B1;1,000 refundable deposit are collected at least a day before check-in.
               </p>
 
               <!-- Tab switcher — Bank Transfer first (faster confirmation) -->
@@ -7078,7 +7077,7 @@
         <div class="success-step">
           <span class="success-step-num" aria-hidden="true">3</span>
           <!-- Completion framing: "nothing else to do right now" = task complete, relief -->
-          <p class="success-step-text">Remaining balance and deposit are <strong>collected at check-in</strong> &mdash; nothing else to do right now.</p>
+          <p class="success-step-text">Remaining balance and deposit are <strong>collected at least a day before check-in</strong> &mdash; nothing else to do right now.</p>
         </div>
       </div>
 
@@ -7936,7 +7935,10 @@
         var tier=getTier(n);
         var total=calcTotal(n);
         var msUntilCheckin = new Date(state.checkin + 'T14:00:00').getTime() - Date.now();
-        var isLastMinute   = msUntilCheckin < (48 * 3600 * 1000);
+        /* Last-minute (D-185, 2026-09-18): less than 5 days away - same boundary as the payment step below,
+           submit-booking's holds and the Messenger Concierge, so no two of them ever quote a different amount. */
+        var selToday = new Date(); selToday.setHours(0,0,0,0);
+        var isLastMinute   = Math.round((new Date(state.checkin + 'T00:00:00').getTime() - selToday.getTime()) / 86400000) <= 4;
         var dep = isLastMinute ? total : Math.ceil(total * 0.5);
         var balance = total - dep;
         /* Hold-before-pay (D-160 #1, D-162): only an advance booking (5+ days out, the same line as the
@@ -7947,8 +7949,8 @@
         calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'');
         /* Deposit line — concrete peso amount removes checkout surprise */
         var depNote = isLastMinute
-          ? '\u20B1'+dep.toLocaleString('en-PH')+' full payment (check-in within 48h) \u00B7 reviewed before confirmation'
-          : '\u20B1'+dep.toLocaleString('en-PH')+' reservation fee for review \u00B7 \u20B1'+balance.toLocaleString('en-PH')+' due at check-in after confirmation';
+          ? '\u20B1'+dep.toLocaleString('en-PH')+' full payment (check-in under 5 days away) \u00B7 reviewed before confirmation'
+          : '\u20B1'+dep.toLocaleString('en-PH')+' reservation fee for review \u00B7 \u20B1'+balance.toLocaleString('en-PH')+' due a day before check-in';
         var teaserParts=[];
         if (tier.disc>0) teaserParts.push(tier.disc+'% direct discount applied');
         teaserParts.push('cleaning always included');
@@ -8031,9 +8033,12 @@
 
         var n=nights(state.checkin,state.checkout), total=calcTotal(n);
         track('payment_method_viewed', { payment_method: 'bank_transfer', nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
-        /* Last-minute: check-in within 48 hours requires full upfront payment */
-        var msUntilCheckin = new Date(state.checkin + 'T14:00:00').getTime() - Date.now();
-        var isLastMinute   = msUntilCheckin < (48 * 3600 * 1000);
+        /* Last-minute (D-185, 2026-09-18): check-in less than 5 days away - same day through 4 days out -
+           requires full upfront payment. Same boundary submit-booking uses for holds (daysOut >= 5), and the
+           same one the Messenger Concierge uses, so the two never quote different amounts. Calendar days. */
+        var today = new Date(); today.setHours(0,0,0,0);
+        var daysOut = Math.round((new Date(state.checkin + 'T00:00:00').getTime() - today.getTime()) / 86400000);
+        var isLastMinute   = daysOut <= 4;
         var dep = isLastMinute ? total : Math.ceil(total * 0.5);
         var balanceOnly = total - dep;
         state.dep = dep;
