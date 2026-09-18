@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   const totalAmount   = (clientTotal > 0 && near(clientTotal, expected.total))
     ? clientTotal : expected.total;
   // Accept the frontend deposit if it is EITHER the 50% reservation fee OR the full total
-  // (site rule: check-in within 48h => 100% full payment; otherwise 50%). Else fall back to 50%.
+  // (site rule 2026-09-18: check-in less than 5 days away => 100% full payment; otherwise 50%). Else fall back to 50%.
   const depositAmount = (clientDeposit > 0 && (near(clientDeposit, expected.deposit) || near(clientDeposit, totalAmount)))
     ? clientDeposit : Math.ceil(totalAmount * (depositPct / 100));
 

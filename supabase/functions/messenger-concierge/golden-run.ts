@@ -2,7 +2,7 @@
 //   deno run --allow-net --allow-env --allow-write golden-run.ts [--runs 3] [--only <group|id>] [--out GOLDEN-RUN.md] [--pause 4000]
 // env: CASCADE_PROBE_URL (the function URL), CASCADE_PROBE_SECRET, optional GOLDEN_BOOKED="Oct 3 to 5", GOLDEN_TURNOVER="Oct 5",
 //      GOLDEN_OPEN_FROM="2026-11-02" (first of 15 open nights; without it the open-date cases start at today + 40),
-//      GOLDEN_SOON="Sep 20 to 21" (an OPEN one-night stay inside 48 hours; without it the case uses tomorrow).
+//      GOLDEN_SOON="Sep 20 to 21" (an OPEN one-night stay inside 5 days of check-in; without it the case is skipped).
 // Sends nothing to anyone: the probe stubs every outward effect and deletes its probe: thread. Exit 1 on any failure.
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { goldenCases } from './golden.ts';

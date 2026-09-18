@@ -39,14 +39,16 @@ Deno.test('dmRange: one month reads once, two months read twice', () => {
   assertEquals(dmRange('2026-11-07', '2026-11-09'), 'Nov 7 to 9');
 });
 
-Deno.test('rateLine: the direct rate, the one-night rate, and the 48-hour sentence', () => {
+Deno.test('rateLine: the direct rate, the one-night rate, and the last-minute sentence', () => {
   const f = (a: string, z: string): Flow => ({ step: 'offer', checkin: a, checkout: z, pax: 2, lang: 'en', started_at: now.toISOString(), updated_at: now.toISOString() });
   assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now), 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 — PHP 3,382 for the stay.');
   assertEquals(rateLine(f('2026-11-17', '2026-11-18'), now), 'For 1 night the direct rate is PHP 1,780.');
   assertEquals(rateLine(f('2026-11-17', '2026-11-22'), now), 'Booking directly with us brings your 5 nights to PHP 1,602 per night instead of the standard PHP 1,780 — PHP 8,010 for the stay.');
-  // Inside 48 hours the site asks for the full amount, so the offer says so before the card does.
-  assertEquals(rateLine(f('2026-09-18', '2026-09-20'), now).endsWith('As your check-in is within 48 hours, the full amount secures the stay.'), true);
-  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now).includes('within 48 hours'), false);
+  // Lloyd 2026-09-18: inside 5 days of check-in the site asks for the full amount, so the offer says so first.
+  assertEquals(rateLine(f('2026-09-18', '2026-09-20'), now).endsWith('As your check-in is less than five days away, the full amount secures the stay.'), true);
+  assertEquals(rateLine(f('2026-09-21', '2026-09-23'), now).includes('less than five days away'), true);  // 4 days out
+  assertEquals(rateLine(f('2026-09-22', '2026-09-24'), now).includes('less than five days away'), false); // 5 days out
+  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now).includes('less than five days away'), false);
 });
 
 Deno.test('openWindows: runs of open nights, the last one open-ended', () => {
@@ -96,8 +98,8 @@ Deno.test('flow: the card carries the name, the deposit and the fee-or-full choi
   const card = prompt(f, 'Ben', false, now);
   assertEquals(card.includes('👤 Ben Munez'), true);
   assertEquals(card.includes('📅 Nov 17 to 19 · 2 nights · 2 guests'), true);
-  assertEquals(card.includes('🔐 ₱1,000 refundable security deposit at check-in, returned after check-out'), true);
-  assertEquals(card.includes('A reservation fee of ₱1,691 holds the dates'), true);
+  assertEquals(card.includes('🔐 ₱1,000 refundable security deposit, returned after check-out'), true);
+  assertEquals(card.includes('A reservation fee of ₱1,691 holds the dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in'), true);
   assertEquals(card.includes('Just tell us "fee" or "full", whichever suits you.'), true);
   // "fee" and "full" both send the request through
   assertEquals(answer(f, 'fee', now).action, 'submit');
@@ -105,7 +107,7 @@ Deno.test('flow: the card carries the name, the deposit and the fee-or-full choi
   assertEquals(answer(f, 'full', now).flow.pay_full, true);
 });
 
-Deno.test('flow: inside 48 hours the fee is never offered, and a "fee" reply is answered, not accepted', () => {
+Deno.test('flow: inside 5 days the fee is never offered, and a "fee" reply is answered, not accepted', () => {
   const f = answer(answer(start('book Sep 18 to 20 for 2', now), 'yes', now).flow, 'Ben Munez 09475977727 ben@example.com', now).flow;
   assertEquals(f.pay_full, true);
   const card = prompt(f, 'Ben', false, now);

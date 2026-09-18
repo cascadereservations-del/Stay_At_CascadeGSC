@@ -308,8 +308,8 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   // the card carries the name, the deposit and the choice; the hold message no longer greets a second time
   const card = prompt({ ...f, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
   assertEquals(card.includes('\u{1F464} Ben Munez'), true);
-  assertEquals(card.includes('\u{1F510} \u20B11,000 refundable security deposit at check-in, returned after check-out'), true);
-  assertEquals(card.includes('A reservation fee of \u20B11,691 holds the dates, with the balance settled at check-in; or you may settle the full \u20B13,382 now.'), true);
+  assertEquals(card.includes('\u{1F510} \u20B11,000 refundable security deposit, returned after check-out'), true);
+  assertEquals(card.includes('A reservation fee of \u20B11,691 holds the dates. The balance and the \u20B11,000 refundable deposit are due at least a day before check-in; or you may settle the full \u20B13,382 now.'), true);
   const hold = paymentReply({ ...f, step: 'await_receipt', name: 'Ben Munez', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben Munez', 'https://x', now);
   assertEquals(hold.startsWith("Ben, we've set aside Nov 17 to 19 for you for 24 hours"), true);
   assertEquals(hold.includes("Once you've sent the receipt here, we'll review and confirm your reservation."), true);

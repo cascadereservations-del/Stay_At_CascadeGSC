@@ -159,8 +159,11 @@ export function quoteTotal(checkin: string, checkout: string): { nights: number;
   const total = tier.rate * n;
   return { nights: n, rate: tier.rate, total, deposit: Math.ceil(total / 2) };
 }
-/** Check-in inside 48 h: the site asks the full amount, so the choice is not offered. */
-export const within48h = (checkin: string, now = new Date()) => Date.parse(checkin + 'T14:00:00+08:00') - now.getTime() < 48 * 3_600_000;
+/** Lloyd 2026-09-18: a booking made inside 5 days of check-in - same day through 4 days out - pays in full up
+ *  front, so the fee-or-full choice is not offered. `submit-booking` already uses this boundary for holds
+ *  (`daysOut >= 5`); the old 48-hour rule disagreed with it. Manila calendar days, not hours. */
+export const lastMinute = (checkin: string, now = new Date()) =>
+  Math.round((Date.parse(checkin) - Date.parse(now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }))) / 86_400_000) <= 4;
 const STD_RATE = RATE_TIERS[0].rate; // the one-night rate: the standard the direct discount is measured against
 const php = (v: number) => `PHP ${v.toLocaleString('en-PH')}`;
 /** SPEC-14 (D-184): the direct-booking rate, said before the offer. Every figure comes from quoteTotal / RATE_TIERS. */
@@ -178,11 +181,11 @@ export function rateLine(flow: Flow, now = new Date()): string {
         bis: `For 1 night, ang direct rate kay ${php(q.rate)}.`,
       });
   // The site's own rule (D-166): inside 48 hours the full amount secures the stay, so the choice is never offered.
-  return within48h(flow.checkin!, now)
+  return lastMinute(flow.checkin!, now)
     ? `${body} ${pick(flow.lang, {
-        en: `As your check-in is within 48 hours, the full amount secures the stay.`,
-        tl: `Dahil within 48 hours na po ang check-in, ang full amount ang magse-secure ng stay.`,
-        bis: `Kay within 48 hours na ang check-in, ang full amount ang mo-secure sa stay.` })}`
+        en: `As your check-in is less than five days away, the full amount secures the stay.`,
+        tl: `As your check-in is less than five days away, the full amount secures the stay.`,
+        bis: `As your check-in is less than five days away, the full amount secures the stay.` })}`
     : body;
 }
 /** SPEC-14 (D-184): the card's payment sentence - the fee-or-full choice, or the full-only sentence inside 48 h. */
@@ -190,13 +193,13 @@ export function payChoice(flow: Flow): string {
   const q = quoteTotal(flow.checkin!, flow.checkout!);
   return flow.pay_full === true
     ? pick(flow.lang, {
-        en: `As your check-in is near, the full ${peso(q.total)} secures your stay. You may reply FULL to send your request through, or let us know if anything needs changing.`,
-        tl: `Malapit na po ang check-in, kaya ang full ${peso(q.total)} ang magse-secure ng stay. You may reply FULL to send the request through, or sabihin lang po if may kailangang baguhin.`,
-        bis: `Duol na ang check-in, so ang full ${peso(q.total)} ang mag-secure sa stay. Pwede mo mu-reply og FULL para ma-send ang request, or ingna lang mi if naa may changes.` })
+        en: `As your check-in is near, the full ${peso(q.total)} secures your stay, with the ₱1,000 refundable deposit due before you arrive. You may reply FULL to send your request through, or let us know if anything needs changing.`,
+        tl: `Malapit na po ang check-in, kaya ang full ${peso(q.total)} ang magse-secure ng stay, and the ₱1,000 refundable deposit is due before you arrive. You may reply FULL to send the request through, or sabihin lang po if may kailangang baguhin.`,
+        bis: `Duol na ang check-in, so ang full ${peso(q.total)} ang mag-secure sa stay, and the ₱1,000 refundable deposit is due before you arrive. Pwede mo mu-reply og FULL para ma-send ang request, or ingna lang mi if naa may changes.` })
     : pick(flow.lang, {
-        en: `A reservation fee of ${peso(q.deposit)} holds the dates, with the balance settled at check-in; or you may settle the full ${peso(q.total)} now. Just tell us "fee" or "full", whichever suits you.`,
-        tl: `Ang reservation fee na ${peso(q.deposit)} ang magho-hold ng dates, at ang balance ay babayaran at check-in; o puwede rin pong bayaran ang full ${peso(q.total)} ngayon. Sabihin lang po "fee" o "full", kung alin ang mas okay sa inyo.`,
-        bis: `Ang reservation fee nga ${peso(q.deposit)} ang mo-hold sa dates, ug ang balance bayran sa check-in; o pwede pud bayran ang full ${peso(q.total)} karon. Ingna lang mi og "fee" o "full", kung asa ang mas okay ninyo.` });
+        en: `A reservation fee of ${peso(q.deposit)} holds the dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; or you may settle the full ${peso(q.total)} now. Just tell us "fee" or "full", whichever suits you.`,
+        tl: `Ang reservation fee na ${peso(q.deposit)} ang magho-hold ng dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; o puwede rin pong bayaran ang full ${peso(q.total)} ngayon. Sabihin lang po "fee" o "full", kung alin ang mas okay sa inyo.`,
+        bis: `Ang reservation fee nga ${peso(q.deposit)} ang mo-hold sa dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; o pwede pud bayran ang full ${peso(q.total)} karon. Ingna lang mi og "fee" o "full", kung asa ang mas okay ninyo.` });
 }
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => pick(lang, {
@@ -310,7 +313,7 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
       `📅 ${dmRange(flow.checkin!, flow.checkout!)} · ${q.nights} night${q.nights === 1 ? '' : 's'} · ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
       `📞 ${flow.phone}${flow.email ? ` · ${flow.email}` : ''}`,
       `💰 Total ${peso(q.total)}`,
-      pick(L, { en: `🔐 ₱1,000 refundable security deposit at check-in, returned after check-out`, tl: `🔐 ₱1,000 refundable security deposit at check-in, ibabalik after check-out`, bis: `🔐 ₱1,000 refundable security deposit at check-in, i-uli after check-out` }),
+      pick(L, { en: `🔐 ₱1,000 refundable security deposit, returned after check-out`, tl: `🔐 ₱1,000 refundable security deposit, ibabalik after check-out`, bis: `🔐 ₱1,000 refundable security deposit, i-uli after check-out` }),
       ``,
       payChoice(flow),
     ].join('\n'); }
@@ -389,7 +392,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       if (nm && !f.name) f.name = nm;
       if (!ph && !em && !nm) return retry('those details');
       if (!f.name || !f.phone || !f.email) return ask(nextAsk(f));
-      f.pay_full = within48h(f.checkin!, now) ? true : undefined; f.step = 'confirm'; return ask();
+      f.pay_full = lastMinute(f.checkin!, now) ? true : undefined; f.step = 'confirm'; return ask();
     }
     case 'confirm': {
       // Corrections first, then the payment choice sends it (Lloyd 11:05: "deposit, my email is …" must keep
@@ -400,7 +403,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       if (p && p <= 4) { f.pax = p; changed = true; }
       if (ph) { f.phone = ph; changed = true; }
       if (e) { f.email = e; changed = true; }
-      if (datesChanged) { f.pay_full = within48h(f.checkin!, now) ? true : undefined; return ask(); }
+      if (datesChanged) { f.pay_full = lastMinute(f.checkin!, now) ? true : undefined; return ask(); }
       const wantsFull = FULL_RE.test(text), wantsDeposit = DEPOSIT_RE.test(text) || YES_RE.test(text);
       if (wantsFull) { f.pay_full = true; return { flow: f, reply: null, action: 'submit' }; }
       if (wantsDeposit && f.pay_full === true) return ask(payChoice(f)); // SPEC-14: inside 48 h the full amount secures the stay
@@ -446,8 +449,8 @@ export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, 
     tl: `Para ma-secure ang stay, you may send the ${dep} ${what} through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here at iko-confirm na namin ang reservation.`,
     bis: `Para ma-secure ang stay, pwede na ma-send ang ${dep} ${what} through GCash (0956 011 5744) gamit ang QR below. Naka-set na daan ang exact amount para convenient. Once done, send lang ang screenshot sa receipt diri and we'll take care of the confirmation.` });
   const later = full
-    ? pick(L, { en: `Only the ₱1,000 refundable security deposit remains, which may be settled at check-in.`, tl: `Ang ₱1,000 refundable security deposit na lang po ang natitira, which can be settled at check-in.`, bis: `Ang ₱1,000 refundable security deposit na lang ang nabilin, which can be settled at check-in.` })
-    : pick(L, { en: `The remaining ${bal} balance and ₱1,000 refundable security deposit may be settled at check-in.`, tl: `The remaining ${bal} balance and ₱1,000 refundable security deposit ay puwede pong i-settle sa check-in.`, bis: `Ang remaining ${bal} balance and ₱1,000 refundable security deposit can be settled at check-in.` });
+    ? pick(L, { en: `Only the ₱1,000 refundable security deposit remains, and it is due before you arrive.`, tl: `Ang ₱1,000 refundable security deposit na lang po ang natitira, and it is due before you arrive.`, bis: `Ang ₱1,000 refundable security deposit na lang ang nabilin, and it is due before you arrive.` })
+    : pick(L, { en: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.`, tl: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.`, bis: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.` });
   // Lloyd 2026-09-18 ("both, keep the old sentence too"): the approved review-and-confirm sentence sits with the
   // close, not beside the GCash one - together they ran 355 characters in Taglish against a 320 limit.
   const receipt = pick(L, {
