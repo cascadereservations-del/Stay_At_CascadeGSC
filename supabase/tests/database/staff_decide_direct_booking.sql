@@ -9,6 +9,9 @@ select ok(not has_function_privilege('authenticated','public.decide_direct_booki
 -- Synthetic fixtures: an owner (approve_payment), a cleaner (none) and one pending direct request.
 insert into auth.users(id) values('f2900000-0000-4000-8000-0000000000a1'),('f2900000-0000-4000-8000-0000000000a2');
 insert into public.staff_access_profiles(user_id,role) values('f2900000-0000-4000-8000-0000000000a1','owner'),('f2900000-0000-4000-8000-0000000000a2','cleaner');
+-- The baseline database CI builds has no production rows, so this FK fails there while passing on a
+-- restored backup. Create it if absent; the whole suite is inside begin/rollback, so nothing persists.
+insert into public.properties(id,name,is_active) values('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd','Cascade Hideaway',true) on conflict (id) do nothing;
 insert into public.staff_property_access(user_id,property_id) values('f2900000-0000-4000-8000-0000000000a2','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd');
 insert into public.booking_inquiries (id, property_id, guest_name, guest_phone, checkin_date, checkout_date, source, status, total_amount)
 values ('29292929-2929-4929-8929-292929292929', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Gate Fixture', '000', current_date + 200, current_date + 202, 'direct', 'pending', 3000);

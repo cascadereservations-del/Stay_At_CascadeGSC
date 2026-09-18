@@ -10,7 +10,11 @@ select ok(not has_table_privilege('authenticated','public.inventory_purchase_rev
 select ok(not has_table_privilege('anon','public.inventory_forecasts','select'),'anonymous denied');
 set local role authenticated;
 set local request.jwt.claims='{"sub":"c2000000-0000-4000-8000-000000000001","aal":"aal1"}';
-select throws_ok($$select public.forecast_inventory('c3000000-0000-4000-8000-000000000001',7,14,'wave4-forecast-key-01')$$,'42501',null,'AAL1 denied');
+-- D-094 / B50 / B95 removed the assurance-level step everywhere: forecast_inventory, admin_require,
+-- record_inventory_movement and inventory_human_authorized no longer mention aal at all (function
+-- bodies read live 2026-09-18). So aal1 is no longer refused with 42501 - it passes the staff check
+-- exactly like aal2 and stops at the same reconciliation gate. That equivalence IS the invariant now.
+select throws_ok($$select public.forecast_inventory('c3000000-0000-4000-8000-000000000001',7,14,'wave4-forecast-key-01')$$,'22023','stock reconciliation required','assurance level is irrelevant: aal1 reaches the same gate as aal2');
 set local request.jwt.claims='{"sub":"c2000000-0000-4000-8000-000000000001","aal":"aal2"}';
 select throws_ok($$select public.forecast_inventory('c3000000-0000-4000-8000-000000000002',7,14,'wave4-forecast-key-01')$$,'42501',null,'cross property denied');
 select throws_ok($$select public.forecast_inventory('c3000000-0000-4000-8000-000000000001',7,14,'wave4-forecast-key-01')$$,'22023','stock reconciliation required','opening reconciliation required');

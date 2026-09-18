@@ -7,6 +7,9 @@ select is((select count(*)::int from pg_policies where schemaname='public' and t
 -- Fixtures: an admin with the property, a cleaner with the property, two settings rows of our own.
 insert into auth.users(id) values('f3000000-0000-4000-8000-0000000000a1'),('f3000000-0000-4000-8000-0000000000a2');
 insert into public.staff_access_profiles(user_id,role) values('f3000000-0000-4000-8000-0000000000a1','admin'),('f3000000-0000-4000-8000-0000000000a2','cleaner');
+-- The baseline database CI builds has no production rows, so this FK fails there while passing on a
+-- restored backup. Create it if absent; the whole suite is inside begin/rollback, so nothing persists.
+insert into public.properties(id,name,is_active) values('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd','Cascade Hideaway',true) on conflict (id) do nothing;
 insert into public.staff_property_access(user_id,property_id) values
   ('f3000000-0000-4000-8000-0000000000a1','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'),
   ('f3000000-0000-4000-8000-0000000000a2','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd');
