@@ -50,9 +50,23 @@ grant execute on function public.get_inventory_catalogue_v1(uuid) to authenticat
 -- forward check: query the read model directly (bypassing the RPC's staff
 -- auth gate, which has no session to check under a raw psql connection) and
 -- confirm the new fields exist in shape for a real consumable.
+--
+-- It only asserts where there IS a consumable to assert on. This file was untracked until 2026-09-18
+-- because it had only ever run against production; tracked as a migration, it also runs against CI's
+-- FRESH database, which has no inventory rows, and the unconditional raise took Cascade CI red
+-- (run 35367021851, D-193). Skipping on an empty catalogue keeps the check honest where it matters and
+-- silent where there is nothing to check.
 do $$
-declare v_est_daily numeric; v_est_cov numeric;
+declare v_est_daily numeric; v_est_cov numeric; v_rows int;
 begin
+  select count(*) into v_rows
+  from public.inventory_items
+  where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_consumable and is_active and consumption_per_booking is not null;
+  if v_rows = 0 then
+    raise notice 'no active consumable with consumption_per_booking: forward check skipped (fresh database)';
+    return;
+  end if;
+
   select round(i.consumption_per_booking * t.rate, 4), round(i.qty_on_hand / (i.consumption_per_booking * t.rate), 1)
     into v_est_daily, v_est_cov
   from public.inventory_items i
