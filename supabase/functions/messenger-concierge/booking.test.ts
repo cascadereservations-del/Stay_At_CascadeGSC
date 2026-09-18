@@ -150,3 +150,22 @@ Deno.test('flow: question passes through, correction at confirm, cancel', () => 
   s = answer(s.flow, 'make it 2 guests', now); assertEquals([s.action, s.flow.pax, s.flow.step], ['ask', 2, 'confirm']);
   s = answer(s.flow, 'cancel na lang', now); assertEquals(s.action, 'cancelled');
 });
+
+// Lloyd 2026-09-18, from the Taglish read-back: the name flipped the register to English mid-booking.
+Deno.test('flow: a name is data, not language - a Taglish booking stays Taglish through the details', () => {
+  const f = start('Available po ba ang Sep 24 to 26? 2 po kami', now);
+  assertEquals(f.lang, 'tl');
+  let s = answer(f, '2 po', now);
+  assertEquals([s.flow.lang, s.flow.step], ['tl', 'offer']);
+  assertEquals(prompt(s.flow, 'Ben', false, now).includes('I-set na po ba namin ang dates para sa inyo?'), true);
+  s = answer(s.flow, 'sige po', now);
+  assertEquals([s.flow.lang, s.flow.step], ['tl', 'contact']);
+  s = answer(s.flow, 'ben munez', now);
+  assertEquals([s.flow.lang, s.flow.name], ['tl', 'Ben Munez']);          // was 'en' before the fix
+  assertEquals(s.reply!.includes('At ang mobile number po na matatawagan namin?'), true);
+  s = answer(s.flow, '09171234567 ben@example.com', now);
+  assertEquals([s.flow.lang, s.flow.step], ['tl', 'confirm']);
+  assertEquals(prompt(s.flow, 'Ben', false, now).includes('Ito po ang details ng stay ninyo:'), true);
+  // a real English sentence still switches the register back
+  assertEquals(answer({ ...f, step: 'contact' }, 'my name is Ben and my number is 09171234567', now).flow.lang, 'en');
+});

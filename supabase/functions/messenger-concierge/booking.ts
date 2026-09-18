@@ -282,7 +282,7 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
     });
     case 'offer': return `${rateLine(flow, now)}\n\n${pick(L, {
       en: `Shall we set the dates aside for you?`,
-      tl: `I-set aside na po ba namin ang dates para sa inyo?`,
+      tl: `I-set na po ba namin ang dates para sa inyo?`,
       bis: `Shall we set the dates aside for you?`,
     })}`;
     case 'contact': {
@@ -336,8 +336,12 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
   // (numbers, dates, "skip", "deposit" and the like carry no language and keep the current one).
   { const words = text.replace(/\S+@\S+|https?:\/\/\S+|\+?\d[\d\s-]{5,}\d/g, ' ').replace(/(skip|deposit|full|yes|ok|okay|cancel|stop|sige|opo|oo|po)/gi, ' ').match(/[a-z]{3,}/gi) ?? [];
     const d = detectLang(text);
+    // SPEC-14 (live read 2026-09-18): at the details step a name is data, not language. "ben munez" read as two
+    // English words and flipped a Taglish chat to English for the rest of the booking, card included.
+    const nm = f.step === 'contact' ? parseName(text) : null;
+    const nameOnly = !!nm && words.length <= nm.split(' ').length;
     if (d !== 'en') { const s = settleLang(f.lang, d, f.bis_turns ?? 0); f.lang = s.lang; f.bis_turns = s.bisTurns; }
-    else if (words.length >= 2) { f.lang = 'en'; f.bis_turns = 0; } }
+    else if (words.length >= 2 && !nameOnly) { f.lang = 'en'; f.bis_turns = 0; } }
   const L = f.lang;
   const today = f.updated_at.slice(0, 10);
   if (CANCEL_RE.test(text) && f.step !== 'await_receipt') return { flow: { ...f, step: 'cancelled' }, reply: cancelReply(L), action: 'cancelled' };
