@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "release_id": "telegram_inventory_count_20260918",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "f78194a4a76463117aae3738b4a3e657b0d10e62"
+  },
+  "migrations": [
+    "20260918000000_telegram_inventory_count.sql"
+  ],
+  "migration_sha256": {
+    "20260918000000_telegram_inventory_count.sql": "8721d6cee25c868e4471ffe461f1c966872c91aa7f634f7ec8f1f68e11d3c337"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "One NEW definer function (telegram_apply_inventory_count_v1) granted to service_role only, plus one widened CHECK on telegram_pending.kind (twelve values to thirteen; nothing is narrowed, so every existing row stays valid). No table row is changed by the migration itself. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "count_rpc_exists_for_service_role",
+      "query": "select has_function_privilege('service_role', 'public.telegram_apply_inventory_count_v1(bigint, jsonb, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "count_rpc_denied_to_authenticated",
+      "query": "select not has_function_privilege('authenticated', 'public.telegram_apply_inventory_count_v1(bigint, jsonb, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "count_rpc_denied_to_anon",
+      "query": "select not has_function_privilege('anon', 'public.telegram_apply_inventory_count_v1(bigint, jsonb, text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "count_rpc_is_security_definer_with_empty_search_path",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] from pg_proc p where p.oid = 'public.telegram_apply_inventory_count_v1(bigint, jsonb, text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "pending_kind_accepts_inventory_count",
+      "query": "select pg_get_constraintdef(oid) like '%inventory_count%' from pg_constraint where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    },
+    {
+      "name": "pending_kind_still_accepts_the_twelve_existing",
+      "query": "select bool_and(pg_get_constraintdef(oid) like '%' || k || '%') from pg_constraint, unnest(array['duplicate','large_amount','photo_dup','inventory_sync','advisory_notice','advisory_scan','llm_expense','llm_notice','llm_void_notice','llm_void_txn','llm_void_txns','llm_edit_notice']) k where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops one new function and narrows the kind CHECK back; counts already applied are real stock figures and stay, already audited as telegram_count)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260918_telegram_inventory_count.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "telegram_expense_calls_the_count_rpc",
+      "required_state": "The telegram-expense build carrying /count is deployed only AFTER this release is applied. Deployed earlier, the inventory_count pending row is refused by the old CHECK and /count fails closed before anything is written; the existing /stock and /inventory reads are unaffected either way."
+    },
+    {
+      "name": "apply_tap_needs_a_mapped_telegram_id",
+      "required_state": "Only staff_access_profiles rows with telegram_user_id set can apply a count. One profile is mapped today (Lloyd, admin). Anyone else taps Apply and is refused with unmapped_telegram_user, which is the intended behaviour, not a failure."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "One new function; the CHECK is widened, never narrowed, so every existing telegram_pending row stays valid and every existing writer keeps working. Rehearse on Alfred with supabase/tests/database/telegram_inventory_count.sql before apply."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "the rehearsal's pgTAP run is not 16/16"
+  ]
+}
