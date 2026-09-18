@@ -127,7 +127,10 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   s = answer(s.flow, 'Can I change it to 3 guests?', now); assertEquals(s.flow.lang, 'en'); // plain English switches back
   const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
   assertEquals(tlPay.startsWith('Ben, na-hold na po namin ang Oct 3 to 4 for you for 24 hours — until Sep 18 at 10:00 AM (bukas). Ang booking reference ninyo po ay DIR-1.'), true);
-  assertEquals(tlPay.includes('through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Kapag na-send na po ninyo ang receipt dito, ire-review at iko-confirm namin ang reservation ninyo.'), true);
+  // Lloyd 2026-09-18 ("both, keep the old sentence too"): the GCash paragraph keeps its own closing sentence, and the
+  // approved review-and-confirm sentence opens the warm close - side by side they broke the 320-character rule in Taglish.
+  assertEquals(tlPay.includes('through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here at iko-confirm na namin ang reservation.'), true);
+  assertEquals(tlPay.includes('Kapag na-send na po ninyo ang receipt dito, ire-review at iko-confirm namin ang reservation ninyo. Salamat po, Ben.'), true);
   assertEquals((tlPay.match(/\bpo\b/g) ?? []).length <= 6, true); // section 4: purposeful markers, never every sentence
   assertEquals(lintReply('Rest assured po, lubos kaming nagagalak.'), ['exclaim', 'boilerplate']);
   assertEquals(lintReply(tlPay), []);

@@ -442,12 +442,18 @@ export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, 
         tl: `${n ? `${n}, received` : `Received`} na po namin ang request ninyo for ${dates}. Ang booking reference ninyo po ay ${flow.ref}. Malapit na ang stay, kaya iko-confirm namin as soon as dumating ang payment.`,
         bis: `${n ? `${n}, na-receive` : `Na-receive`} na namo ang request ninyo for ${dates}. Your booking reference is ${flow.ref}. Duol na ang stay, so amo dayon i-confirm once muabot ang payment.` });
   const pay = pick(L, {
-    en: `To secure the stay, you may send the ${dep} ${what} through GCash (0956 011 5744) using the QR below. The exact amount is already set. Once you've sent the receipt here, we'll review and confirm your reservation.`,
-    tl: `Para ma-secure ang stay, you may send the ${dep} ${what} through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Kapag na-send na po ninyo ang receipt dito, ire-review at iko-confirm namin ang reservation ninyo.`,
-    bis: `Para ma-secure ang stay, pwede na ma-send ang ${dep} ${what} through GCash (0956 011 5744) gamit ang QR below. Naka-set na daan ang exact amount para convenient. Kung ma-send na ninyo ang receipt diri, amo i-review ug i-confirm ang inyong reservation.` });
+    en: `To secure the stay, you may send the ${dep} ${what} through GCash (0956 011 5744) using the QR below. The exact amount is already set. Once done, simply send the receipt here and we'll confirm the reservation.`,
+    tl: `Para ma-secure ang stay, you may send the ${dep} ${what} through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here at iko-confirm na namin ang reservation.`,
+    bis: `Para ma-secure ang stay, pwede na ma-send ang ${dep} ${what} through GCash (0956 011 5744) gamit ang QR below. Naka-set na daan ang exact amount para convenient. Once done, send lang ang screenshot sa receipt diri and we'll take care of the confirmation.` });
   const later = full
     ? pick(L, { en: `Only the ₱1,000 refundable security deposit remains, which may be settled at check-in.`, tl: `Ang ₱1,000 refundable security deposit na lang po ang natitira, which can be settled at check-in.`, bis: `Ang ₱1,000 refundable security deposit na lang ang nabilin, which can be settled at check-in.` })
     : pick(L, { en: `The remaining ${bal} balance and ₱1,000 refundable security deposit may be settled at check-in.`, tl: `The remaining ${bal} balance and ₱1,000 refundable security deposit ay puwede pong i-settle sa check-in.`, bis: `Ang remaining ${bal} balance and ₱1,000 refundable security deposit can be settled at check-in.` });
-  const close = pick(L, { en: `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, tl: `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, bis: `Salamat${nm}. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿` });
+  // Lloyd 2026-09-18 ("both, keep the old sentence too"): the approved review-and-confirm sentence sits with the
+  // close, not beside the GCash one - together they ran 355 characters in Taglish against a 320 limit.
+  const receipt = pick(L, {
+    en: `Once you've sent the receipt here, we'll review and confirm your reservation.`,
+    tl: `Kapag na-send na po ninyo ang receipt dito, ire-review at iko-confirm namin ang reservation ninyo.`,
+    bis: `Kung ma-send na ninyo ang receipt diri, amo i-review ug i-confirm ang inyong reservation.` });
+  const close = receipt + ' ' + pick(L, { en: `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, tl: `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, bis: `Salamat${nm}. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿` });
   return [head, '', pay, '', later, '', close].join('\n');
 }
