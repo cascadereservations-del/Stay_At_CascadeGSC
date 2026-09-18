@@ -1,7 +1,8 @@
 // Voice close-out (2026-09-17): runs the golden conversations through the DEPLOYED function's probe and scores them.
 //   deno run --allow-net --allow-env --allow-write golden-run.ts [--runs 3] [--only <group|id>] [--out GOLDEN-RUN.md] [--pause 4000]
 // env: CASCADE_PROBE_URL (the function URL), CASCADE_PROBE_SECRET, optional GOLDEN_BOOKED="Oct 3 to 5", GOLDEN_TURNOVER="Oct 5",
-//      GOLDEN_OPEN_FROM="2026-11-02" (first of 15 open nights; without it the open-date cases start at today + 40).
+//      GOLDEN_OPEN_FROM="2026-11-02" (first of 15 open nights; without it the open-date cases start at today + 40),
+//      GOLDEN_SOON="Sep 20 to 21" (an OPEN one-night stay inside 48 hours; without it the case uses tomorrow).
 // Sends nothing to anyone: the probe stubs every outward effect and deletes its probe: thread. Exit 1 on any failure.
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { goldenCases } from './golden.ts';
@@ -12,7 +13,7 @@ const url = Deno.env.get('CASCADE_PROBE_URL') ?? '', secret = Deno.env.get('CASC
 if (!url || !secret) { console.error('Set CASCADE_PROBE_URL and CASCADE_PROBE_SECRET.'); Deno.exit(2); }
 const runs = Number(arg('--runs', '3')), only = arg('--only'), pause = Number(arg('--pause', '1500')), outPath = arg('--out');
 const NAME = 'Ben';
-const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null, Deno.env.get('GOLDEN_OPEN_FROM') ? new Date(Deno.env.get('GOLDEN_OPEN_FROM') + 'T00:00:00Z') : null).filter((c) => !only || c.group === only || c.id === only);
+const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null, Deno.env.get('GOLDEN_OPEN_FROM') ? new Date(Deno.env.get('GOLDEN_OPEN_FROM') + 'T00:00:00Z') : null, Deno.env.get('GOLDEN_SOON') ?? null).filter((c) => !only || c.group === only || c.id === only);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Row = { id: string; run: number; turn: number; guest: string; reply: string; fails: string[]; step: string | null; ms: number };

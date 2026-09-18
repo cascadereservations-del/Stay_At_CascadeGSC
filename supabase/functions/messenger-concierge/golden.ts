@@ -20,7 +20,7 @@ const m = (say: string, lang: Reg = 'en', extra: Partial<GoldenTurn> = {}): Gold
 
 // Golden run 6: today + 40 had filled up with a real booking, so the open-date cases tested the reserved path. Pass
 // GOLDEN_OPEN_FROM="2026-11-02" (the first day of 15 open nights, from a read-only calendar query) to pin them.
-export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null, openFrom: Date | null = null): GoldenCase[] {
+export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null, openFrom: Date | null = null, soonRange: string | null = null): GoldenCase[] {
   const base = openFrom ?? now, o = openFrom ? 0 : 40;
   const d2 = range(base, o, 2), d3 = range(base, o + 7, 3), d1 = range(base, o + 14, 1);
   const cases: GoldenCase[] = [
@@ -76,11 +76,6 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
       { say: `Hello, is ${d3} available? 2 adults`, kind: 'flow', lang: 'en', must: [/set the dates aside/i] },
       { say: 'not now', kind: 'flow', lang: 'en', must: [/send your dates again/i], mustNot: [LINK] },
     ] },
-    { id: 'flow-offer-48h-en', group: 'flow', turns: [
-      { say: `Hi, is ${range(now, 1, 1)} available? 2 adults`, kind: 'flow', lang: 'en', must: [/within 48 hours/i] },
-      { say: 'yes', kind: 'flow', lang: 'en', must: [/name for the reservation/i] },
-      { say: 'Ben Munez 09171234567 ben@example.com', kind: 'flow', lang: 'en', must: [/full ₱/], mustNot: [/"fee" or "full"/] },
-    ] },
     { id: 'flow-cancel-tl', group: 'flow', turns: [{ say: `Pa-book po ${d1}, 2 po kami`, kind: 'flow', lang: 'tl' }, { say: 'cancel po', kind: 'flow', lang: 'tl', mustNot: [LINK] }] },
 
     // ---- handoffs: warmth and a person, nothing to click
@@ -92,6 +87,14 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { must: [/reserved|booked|taken/i, /nearest open dates/i], mustNot: [new RegExp(`${bookedRange.split(' to ')[0]}[^.\\n]{0,40}\\bis (open|available)\\b`, 'i')] })] });
   // Lloyd 2026-09-17: on a day another guest checks out, the 12 noon check-in is never offered. Needs a real turnover day:
   // pass GOLDEN_TURNOVER="Oct 5" (a checkout_date from a read-only calendar query whose night is still open).
+  // SPEC-14 (D-184): the 48-hour rule needs a stay that is REALLY open inside 48 hours, which only some days have
+  // (2026-09-18: tomorrow night was an airbnb booking and the day after fell 51 h out). Pass GOLDEN_SOON="Sep 20 to 21"
+  // from a read-only calendar query; without it the case is skipped and booking.test.ts carries the rule.
+  if (soonRange) cases.push({ id: 'flow-offer-48h-en', group: 'flow', turns: [
+    { say: `Hi, is ${soonRange} available? 2 adults`, kind: 'flow', lang: 'en', must: [/within 48 hours/i] },
+    { say: 'yes', kind: 'flow', lang: 'en', must: [/name for the reservation/i] },
+    { say: 'Ben Munez 09171234567 ben@example.com', kind: 'flow', lang: 'en', must: [/full ₱/], mustNot: [/"fee" or "full"/] },
+  ] });
   if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12/i] })] });
   return cases;
 }
