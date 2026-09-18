@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260918T120207Z",
+    "verified_at": "2026-09-18T12:02:07Z",
     "production_rule": "One NEW definer function (telegram_apply_inventory_count_v1) granted to service_role only, plus one widened CHECK on telegram_pending.kind (twelve values to thirteen; nothing is narrowed, so every existing row stays valid). No table row is changed by the migration itself. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
