@@ -2,7 +2,7 @@
 // once with a reason, never twice running. It shipped on the checklist on 2026-09-13 and the deployed
 // function silently dropped the fields until 2026-09-18, so these assertions exist to make that
 // impossible to repeat: if the codes or the consecutive check change, this fails.
-import { assertEquals } from 'jsr:@std/assert';
+import { assertEquals } from 'jsr:@std/assert@1';
 import { meterReasons, parseMeterSkip } from './meter-skip.ts';
 
 Deno.test('a skip counts only when declared AND carrying a reason', () => {
