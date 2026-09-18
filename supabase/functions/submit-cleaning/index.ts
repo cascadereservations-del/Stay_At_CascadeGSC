@@ -34,6 +34,7 @@ import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts'
 import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse } from './gas-response.ts';
 import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
+import { meterReasons, parseMeterSkip } from './meter-skip.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
@@ -87,6 +88,8 @@ interface Payload {
   completionRate?:          number;
   meta?:                    { rate?: number; doneItems?: number; totalItems?: number };
   checklistDetails?:        unknown;
+  meterPhotosSkipped?:      boolean;
+  meterPhotoSkipNote?:      string;
   allNotes?:                unknown[];
   urgentItems?:             string;
   photos?:                  Record<string, PhotoEntry[]>;
@@ -519,6 +522,25 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       : 0;
 
     const reasons: string[] = [];
+    // The one-time meter-photo allowance (checklist 2026-09-13, ported from the never-deployed
+    // stay-site v28 on 2026-09-18). The client requires the note; it is re-checked in meter-skip.ts.
+    const { skipped: meterPhotosSkipped, note: meterSkipNote } =
+      parseMeterSkip(payload.meterPhotosSkipped, payload.meterPhotoSkipNote);
+
+    // Was the PREVIOUS turnover also skipped? Service role reads this directly;
+    // can_skip_meter_photos needs an auth.uid() this function does not have.
+    let previousSkipped = false;
+    if (meterPhotosSkipped && propertyId) {
+      const { data: prev } = await supabase
+        .from('cleaning_sessions')
+        .select('meter_photos_skipped')
+        .eq('property_id', propertyId)
+        .in('cleaning_type', ['turnover', 'deep_clean'])
+        .order('cleaned_at', { ascending: false })
+        .limit(1);
+      previousSkipped = prev?.[0]?.meter_photos_skipped === true;
+    }
+
     if (cleaningType === 'emergency') {
       if (totalPhotoCount < 2) reasons.push(`emergency_photos_short_${totalPhotoCount}_of_2`);
       if (!urgentItems.trim() && issueCount === 0) reasons.push('emergency_no_issue_note');
@@ -530,7 +552,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     } else {
       if (precleanCount   < 5) reasons.push(`preclean_short_${precleanCount}_of_5`);
       if (aftercleanCount < 5) reasons.push(`afterclean_short_${aftercleanCount}_of_5`);
-      if (meterCount      < 2) reasons.push(`meter_photos_${meterCount}_of_2`);
+      reasons.push(...meterReasons(meterCount, meterPhotosSkipped, previousSkipped));
       if (isNaN(elecNum))  reasons.push('electric_reading_missing');
       if (isNaN(waterNum)) reasons.push('water_reading_missing');
     }
@@ -561,6 +583,8 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         issue_count:            issueCount,
         is_complete:            isComplete,
         incomplete_reasons:     reasons.length ? reasons : null,
+        meter_photos_skipped:   meterPhotosSkipped,
+        meter_photo_skip_note:  meterPhotosSkipped ? meterSkipNote : null,
       })
       .select('id')
       .single();
