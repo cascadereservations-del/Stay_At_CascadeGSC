@@ -53,6 +53,10 @@ export function allowedPesos(): Set<number> {
     const t = RATE_TIERS.find((x) => n >= x.min && n <= x.max)!;
     const total = n * t.rate, fee = Math.ceil(total / 2);
     for (const v of [total, n * 1780, n * (1780 - t.rate), fee, total - fee]) ok.add(v);
+    // A stay quoted together with an early check-in is ONE figure the guest reads:
+    // a PHP 3,382 stay arriving at 10 AM is PHP 3,582. Both halves are already
+    // allowed on their own, so R9 was flagging the honest sum as invented.
+    for (let h = 1; h <= 6; h++) ok.add(total + 100 * h);
   }
   return ok;
 }

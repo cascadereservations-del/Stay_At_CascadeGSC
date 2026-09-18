@@ -56,7 +56,11 @@ Deno.test('a guest whose name we hold is never asked for it', () => {
 Deno.test('the rate card is the only source of peso figures', () => {
   const ok = allowedPesos();
   for (const v of [1780, 1691, 3382, 5073, 1000, 300, 89 * 3, 890]) assertEquals(ok.has(v), true, String(v));
+  // A stay plus an early check-in is one honest figure (golden run 10: R9 called
+  // PHP 3,582 invented, a PHP 3,382 two-night stay arriving at 10 AM).
+  for (const v of [3582, 1880, 5373]) assertEquals(ok.has(v), true, String(v));
   assertEquals(ok.has(4900), false);
+  assertEquals(ok.has(3382 + 700), false); // early check-in stops at 6 hours before noon
 });
 
 Deno.test('the golden set is complete, unique and does not rot', () => {
