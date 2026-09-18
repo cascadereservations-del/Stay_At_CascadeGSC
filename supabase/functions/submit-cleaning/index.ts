@@ -33,6 +33,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse } from './gas-response.ts';
+import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
@@ -55,14 +56,6 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { ...CORS, 'Content-Type': 'application/json' },
   });
-}
-
-interface PhotoEntry {
-  name?:   string;
-  url?:    string;
-  fileUrl?: string;
-  fileId?: string;
-  data?:   string;
 }
 
 interface ExtraExpense {
@@ -134,31 +127,6 @@ function typeLabelOf(cleaningType: string): string {
        : '\uD83D\uDD04 TURNOVER';
 }
 
-function photoUrl(p: PhotoEntry): string | null {
-  const u = p.fileUrl ?? p.url ?? null;
-  return u && u.startsWith('http') ? u : null;
-}
-
-function countUploaded(photos: Record<string, PhotoEntry[]> | undefined, key: string): number {
-  if (!photos || !Array.isArray(photos[key])) return 0;
-  return photos[key].map(photoUrl).filter((u): u is string => u !== null).length;
-}
-
-async function refreshSignedPhotoUrls(
-  supabase: any,
-  photos: Record<string, PhotoEntry[]>,
-): Promise<void> {
-  const entries = Object.values(photos).flat();
-  await Promise.all(entries.map(async (photo) => {
-    const { data, error } = await supabase.storage
-      .from('cleaning-photos')
-      .createSignedUrl(String(photo.fileId), 3600);
-    if (error || !data?.signedUrl) throw new Error('photo_access_refresh_failed');
-    photo.fileUrl = data.signedUrl;
-    delete photo.url;
-    delete photo.data;
-  }));
-}
 
 // Resolve cleaner fee from the real cleaner_rate_schedule schema.
 // Latest effective_from <= today; general_rate for deep clean, regular_rate otherwise.
