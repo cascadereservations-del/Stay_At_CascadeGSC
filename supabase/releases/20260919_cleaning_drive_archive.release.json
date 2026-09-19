@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260919T024915Z",
+    "verified_at": "2026-09-19T02:49:15Z",
     "production_rule": "Two nullable columns on cleaning_sessions (session_folder_url text, drive_files jsonb) and one CHECK on the new column. No existing column, row, function or policy changes. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
