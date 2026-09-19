@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "release_id": "cleaning_drive_archive_20260919",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "1cdf0869a05957456ad3a510c5af81c1bba65def"
+  },
+  "migrations": [
+    "20260919010000_cleaning_drive_archive.sql"
+  ],
+  "migration_sha256": {
+    "20260919010000_cleaning_drive_archive.sql": "e63091596b4c21d0ff047681c2525b12dfcf4642da804b77b59f5493ac32e43f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Two nullable columns on cleaning_sessions (session_folder_url text, drive_files jsonb) and one CHECK on the new column. No existing column, row, function or policy changes. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "session_folder_url_exists",
+      "query": "select count(*) = 1 from information_schema.columns where table_schema = 'public' and table_name = 'cleaning_sessions' and column_name = 'session_folder_url' and data_type = 'text'",
+      "expect": true
+    },
+    {
+      "name": "drive_files_exists_as_jsonb",
+      "query": "select count(*) = 1 from information_schema.columns where table_schema = 'public' and table_name = 'cleaning_sessions' and column_name = 'drive_files' and data_type = 'jsonb'",
+      "expect": true
+    },
+    {
+      "name": "drive_files_array_check_present",
+      "query": "select count(*) = 1 from pg_constraint where conrelid = 'public.cleaning_sessions'::regclass and conname = 'cleaning_sessions_drive_files_is_array'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (drops the two new columns; Drive and Storage copies are untouched because phase 1 deletes nothing)",
+    "steps": [
+      {
+        "name": "redeploy_previous_submit_cleaning",
+        "action": "deploy submit-cleaning from waves 48706d5 so it stops writing drive_files"
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260919_cleaning_drive_archive.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "submit_cleaning_writes_drive_archive",
+      "required_state": "The SPEC-15 submit-cleaning build is deployed only AFTER this release is applied. Deployed earlier, its update of drive_files is refused and logged as 'drive archive not stored'; the report, e-mail and Telegram are unaffected."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Nullable columns only; no reader or writer before this release names them. pgTAP supabase/tests/database/cleaning_drive_archive.sql 6 assertions (catalogue-only, B103); CI runs it on push (no local Docker)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
