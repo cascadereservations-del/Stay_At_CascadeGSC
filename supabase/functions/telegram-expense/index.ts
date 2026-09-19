@@ -17,12 +17,16 @@
 // v52 (session I): cleanpayinvoice callback — dashboard "Send Invoice" → OPS card → cleaner tap marks fee_paid_at + fee_acked_at.
 //   Stray backslash in deployed v52 caused Deno compilation error; stub v53 was deployed as placeholder.
 // v53 (2026-06-06): Stub replacement — deploys the fixed v52 source. Version strings updated in handleStatus and handlePing.
+// v108 (session 37, SPEC-16 / D-196): typed-marker replies replaced by telegram_pending awaiting_reply rows;
+//   a reply to a bot card that asked nothing is refused and never reaches the expense parser (D-195).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { notifyMessengerBookingConfirmed } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
-import { changesFrom, chunkLines, type CountItem, GROUP_LABEL, inventoryGroup, numberedCountLines, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
+import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
+// session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
+import { CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -141,15 +145,6 @@ function normalizeLineItems(raw: any): LineItem[] {
 }
 function lineTotal(it: LineItem) { return (Number(it.qty)||1)*(Number(it.unit_price)||0); }
 function itemsSubtotal(items: LineItem[]) { return items.reduce((s,it)=>s+lineTotal(it),0); }
-function numberedList(items: LineItem[]) { return items.map((it,i)=>`\`${i+1}.\` ${mdEsc(it.name)} \u2014 \u20b1${peso(it.unit_price)}${it.qty>1?` \u00d7${it.qty}`:''}`).join('\n'); }
-function parseNamePriceQty(tokens: string[]) {
-  let qty=1,qtyExplicit=false; const kept:string[]=[];
-  for (const t of tokens) { const mq=t.match(/^x(\d+)$/i)||t.match(/^(\d+)x$/i); if(mq){qty=Number(mq[1])||1;qtyExplicit=true;continue;} kept.push(t); }
-  let price:number|null=null;
-  if (kept.length) { const last=kept[kept.length-1].replace(/[\u20b1,]/g,''); if(/^\d+(\.\d{1,2})?$/.test(last)){price=Number(last);kept.pop();} }
-  return {name:kept.join(' ').trim(),price,qty,qtyExplicit};
-}
-function extractMarkerTxn(prompt:string,marker:string) { const m=prompt.match(new RegExp('`'+marker+'\\|([^`]+)`')); return m?m[1]:null; }
 function bytesToBase64(bytes:Uint8Array) { let bin=''; const c=0x8000; for(let i=0;i<bytes.length;i+=c) bin+=String.fromCharCode(...bytes.subarray(i,i+c)); return btoa(bin); }
 function clamp01(n:unknown) { const x=Number(n); return isFinite(x)?Math.max(0,Math.min(1,x)):0; }
 function validDate(d:unknown) { const s=String(d??''); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null; const t=new Date(s+'T00:00:00Z').getTime(); if(isNaN(t)||t>Date.now()+2*86_400_000||t<new Date('2020-01-01').getTime()) return null; return s; }
@@ -363,15 +358,11 @@ async function bookManualCleaningFee(db:any,cleaner:string,dateStr:string,amount
   if(sErr||!sess) return {ok:false,error:sErr?.message??'session_insert_failed'};
   return await bookCleaningFee(db,sess.id,amount,loggedBy);
 }
-async function promptManualClean(chatId:any) {
-  await tgSend(chatId,['\u270d\ufe0f *Manual cleaning fee*','Reply: `cleaner | date | amount | notes`','','e.g. `Honey | 05-28 | 500 | deep clean bonus`','_Date: today, yesterday, MM-DD or YYYY-MM-DD. Notes optional._','`MANUALCLEAN|`'].join('\n'),{reply_markup:{force_reply:true,input_field_placeholder:'Honey | 05-28 | 500 | notes'}});
+async function promptManualClean(db:any,chatId:any,fromId:unknown) {
+  await ask(db,chatId,fromId,'manual_clean',{},'\u270d\ufe0f Manual cleaning fee\nType: cleaner, date, amount \u2014 like  Honey, 05-28, 500\nDate can be today or yesterday. Add a note after another comma.');
 }
-async function handleManualCleanReply(db:any,chatId:any,msg:any,text:string) {
-  const parts=text.split('|').map(s=>s.trim());
-  const cleaner=parts[0]??'',dateTok=parts[1]??'',amtTok=(parts[2]??'').replace(/[\u20b1,]/g,''),notes=parts[3]??null;
-  if(!cleaner||!dateTok||!amtTok){await tgReply(chatId,msg.message_id,'\u26a0\ufe0f Format: `cleaner | date | amount | notes`\ne.g. `Honey | 05-28 | 500 | deep clean`');return;}
-  const amount=Number(amtTok);
-  if(!isFinite(amount)||amount<=0){await tgReply(chatId,msg.message_id,'\u26a0\ufe0f Amount must be a number, e.g. `500`.');return;}
+async function handleManualCleanAnswer(db:any,chatId:any,msg:any,m:{cleaner:string;dateTok:string;amount:number;notes:string|null}) {
+  const{cleaner,dateTok,amount,notes}=m;
   const res=await bookManualCleaningFee(db,cleaner,resolveDate(dateTok),amount,notes,whoFrom(msg.from??{}));
   if(!res.ok){await tgReply(chatId,msg.message_id,`\u26a0\ufe0f Could not save: ${errMsg(res.error)}`);return;}
   await tgReply(chatId,msg.message_id,[`\u2705 *Manual cleaning fee recorded*`,`\uD83D\uDC64 ${mdEsc(cleaner)} \u00b7 \uD83D\uDCC5 ${resolveDate(dateTok)} \u00b7 \uD83D\uDCB5 \u20b1${peso(amount)}`,...(notes?[`\uD83D\uDCDD ${mdEsc(notes)}`]:[]),`_Booked to ledger + clean history. Run /notifyclean to send the ack card._`].join('\n'));
@@ -663,10 +654,7 @@ type Category={slug:string;label:string;keywords:string[];sort_order:number};
 function parseAmount(tokens:string[]):{amount:number|null;idx:number}{for(let i=0;i<Math.min(tokens.length,2);i++){const c=tokens[i].replace(/[\u20b1,]/g,'');if(/^\d+(\.\d{1,2})?$/.test(c)){const n=Number(c);if(n>0)return{amount:n,idx:i};}}return{amount:null,idx:-1};}
 function detectAmountAnywhere(text:string){const m=text.match(/₱?\s*(\d[\d,]*(?:\.\d{1,2})?)/);if(!m)return 0;const n=Number(m[1].replace(/,/g,''));return isFinite(n)&&n>0?n:0;}
 function classify(remainder:string,cats:Category[]):{slug:string;label:string;matched:string|null}{const hay=` ${remainder.toLowerCase()} `;for(const c of cats){if(c.slug==='other')continue;for(const kw of c.keywords){const k=kw.toLowerCase();if(new RegExp(`(^|\\W)${k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(\\W|$)`).test(hay))return{slug:c.slug,label:c.label,matched:k};}}return{slug:'other',label:cats.find(c=>c.slug==='other')?.label??'Other',matched:null};}
-function expensePromptText(slug:string,label:string,pre:number){const hint=pre>0?`Detected *₱${peso(pre)}* — confirm or type a different amount.`:'Type the amount, and optionally the vendor or notes.';return[`📂 *Category: ${label}*`,hint,`_e.g. \`1706\` or \`1706 SC Johnson Lazada\`_`,`\`EXPENSE|${slug}|${pre}\``].join('\n');}
-function extractExpenseState(t:string){const m=t.match(/`EXPENSE\|([^|]+)\|(\d+(?:\.\d+)?)`/);return m?{slug:m[1],preAmount:Number(m[2])}:null;}
-function editAmountPromptText(txnId:string){return[`✏️ *Enter the correct total:*`,`_e.g. \`1706\`_`,`\`EDIT_AMOUNT|${txnId}\``].join('\n');}
-function extractEditAmountState(t:string){const m=t.match(/`EDIT_AMOUNT\|([^`]+)`/);return m?m[1]:null;}
+function expensePromptText(label:string,pre:number){return pre>0?`📂 ${mdEsc(label)}\nDetected ₱${peso(pre)} — type a different amount, or the shop name to keep it.`:`📂 ${mdEsc(label)}\nType the amount, and the shop if you like: 1706  or  1706 Lazada`;}
 type InsertOpts={category:string;amount:number;label?:string;payee?:string|null;notes?:string|null;loggedBy?:string|null};
 async function insertExpense(db:any,opts:InsertOpts){const result=await db.from('transactions').insert({property_id:PROPERTY_ID,txn_type:'expense',category:opts.category,status:'confirmed',source:'telegram',gross_amount:opts.amount,payee_name:opts.payee??null,notes:opts.notes??null,logged_by:opts.loggedBy??null}).select('id').single();notifyOps(opts.category,opts.loggedBy??null,false);return result;}
 let _catCache: { ts: number; data: Category[] } | null = null;
@@ -678,7 +666,27 @@ async function getCategories(db:any):Promise<Category[]>{
   return cats;
 }
 async function getCategoryLabel(db:any,slug:string){const cats=await getCategories(db);return cats.find(c=>c.slug===slug)?.label??slug;}
-async function createPending(db:any,chatId:any,kind:string,payload:Record<string,unknown>){const{data}=await db.from('telegram_pending').insert({chat_id:chatId,kind,payload}).select('id').single();return data?.id??'';}
+async function createPending(db:any,chatId:any,kind:string,payload:Record<string,unknown>,ttlMinutes?:number){const row:Record<string,unknown>={chat_id:chatId,kind,payload};if(ttlMinutes)row.expires_at=new Date(Date.now()+ttlMinutes*60_000).toISOString();const{data}=await db.from('telegram_pending').insert(row).select('id').single();return data?.id??'';}
+// SPEC-16: one open question per person per chat. A fresh tap deletes that person's previous question first.
+async function awaiting(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>){
+  await db.from('telegram_pending').delete().eq('chat_id',chatId).eq('kind','awaiting_reply').eq('payload->>from_id',String(fromId));
+  return createPending(db,chatId,'awaiting_reply',{flow,from_id:fromId,...refs},10);
+}
+async function findAwaiting(db:any,chatId:any,fromId:unknown):Promise<{id:string;payload:any}|null>{
+  if(fromId==null)return null;
+  const{data}=await db.from('telegram_pending').select('id,payload').eq('chat_id',chatId).eq('kind','awaiting_reply').eq('payload->>from_id',String(fromId)).gt('expires_at',new Date().toISOString()).order('created_at',{ascending:false}).limit(1).maybeSingle();
+  return data??null;
+}
+const hasAwaiting=async(db:any,chatId:any,fromId:unknown)=>!!(await findAwaiting(db,chatId,fromId));
+const cancelKb=(pid:string)=>({inline_keyboard:[[{text:'❌ Cancel',callback_data:`x:${pid}`}]]});
+/** Ask one person one question: the row first, then the prompt (with Cancel), then the prompt's id on the row. */
+async function ask(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>,text:string,buttons:Array<{text:string;callback_data:string}>=[]){
+  const pid=fromId==null?'':await awaiting(db,chatId,fromId,flow,refs);
+  if(!pid){await tgSend(chatId,'⚠️ Could not open that question, so nothing was saved. Try again in a minute.');return;}
+  const r=await tgSend(chatId,text,{reply_markup:{inline_keyboard:[[...buttons,{text:'❌ Cancel',callback_data:`x:${pid}`}]]}});
+  const mid=r?.result?.message_id;
+  if(mid)await db.from('telegram_pending').update({payload:{flow,from_id:fromId,...refs,prompt_mid:mid}}).eq('id',pid);
+}
 async function consumePending(db:any,pid:string){const{data}=await db.from('telegram_pending').delete().eq('id',pid).select('payload,expires_at').maybeSingle();if(!data)return null;if(new Date(data.expires_at)<new Date())return null;return data.payload;}
 function purgePending(db:any){db.from('telegram_pending').delete().lt('expires_at',new Date().toISOString()).then(()=>{}).catch(()=>{});}
 async function checkRecentDuplicates(db:any,amount:number){const since=new Date(Date.now()-RECENT_DUP_DAYS*86_400_000).toISOString().slice(0,10);const{data}=await db.from('transactions').select('id,gross_amount,category,transaction_date,payee_name,status').eq('property_id',PROPERTY_ID).eq('gross_amount',amount).neq('status','void').gte('transaction_date',since).order('transaction_date',{ascending:false}).limit(5);return data??[];}
@@ -686,15 +694,15 @@ function confirmMsg(amount:number,label:string,payee:string|null,id:string){retu
 async function loadReceiptTxn(db:any,txnId:string):Promise<any|null>{const{data}=await db.from('transactions').select('id,gross_amount,category,payee_name,transaction_date,status,ocr_confidence,ocr_raw').eq('id',txnId).maybeSingle();if(!data||data.status!=='pending_review')return null;return data;}
 async function persistItems(db:any,txnId:string,ocrRaw:any,items:LineItem[]){const raw=(ocrRaw&&typeof ocrRaw==='object')?{...ocrRaw}:{};raw.line_items=items;await db.from('transactions').update({ocr_raw:raw,updated_at:new Date().toISOString()}).eq('id',txnId);}
 async function sendReceiptCard(db:any,chatId:any,txnId:string,note?:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}const catLabel=await getCategoryLabel(db,txn.category);const card=renderReceiptCard(txn,catLabel);await tgSend(chatId,(note?note+'\n\n':'')+card.text,{reply_markup:card.reply_markup});}
-async function promptEditItem(db:any,chatId:any,txnId:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);if(!items.length){await tgSend(chatId,'No items to edit yet. Tap ➕ Add item.');return;}await tgSend(chatId,['✏️ *Edit an item*',numberedList(items),'','Reply: `<#> <name> <price>`','e.g. `2 Mr Muscle Glass 250ml 216`',`\`EDIT_ITEM|${txnId}\``].join('\n'),{reply_markup:{force_reply:true,input_field_placeholder:'e.g. 2 Mr Muscle 216'}});}
-async function promptAddItem(db:any,chatId:any,txnId:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}await tgSend(chatId,['➕ *Add an item*','Reply: `<name> <price>`  (optional `x<qty>`)','e.g. `Joy Dishwashing Liquid 89`  or  `Tissue 45 x2`',`\`ADD_ITEM|${txnId}\``].join('\n'),{reply_markup:{force_reply:true,input_field_placeholder:'e.g. Joy Dishwashing 89'}});}
-async function promptRemoveItem(db:any,chatId:any,txnId:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);if(!items.length){await tgSend(chatId,'No items to remove.');return;}await tgSend(chatId,['🗑️ *Remove an item*',numberedList(items),'','Reply with the item number to remove (e.g. `2`).',`\`REMOVE_ITEM|${txnId}\``].join('\n'),{reply_markup:{force_reply:true,input_field_placeholder:'e.g. 2'}});}
-async function handleEditItemReply(db:any,chatId:any,msg:any,prompt:string,text:string){const txnId=extractMarkerTxn(prompt,'EDIT_ITEM');if(!txnId){await tgReply(chatId,msg.message_id,'⚠️ Session lost. Tap ✏️ Edit item again.');return;}const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgReply(chatId,msg.message_id,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);const tokens=text.trim().split(/\s+/);const idx=parseInt(tokens[0],10);if(!Number.isInteger(idx)||idx<1||idx>items.length){await tgReply(chatId,msg.message_id,`⚠️ Item number must be 1–${items.length}.`);return;}const parsed=parseNamePriceQty(tokens.slice(1));if(!parsed.name&&parsed.price===null&&!parsed.qtyExplicit){await tgReply(chatId,msg.message_id,'⚠️ Nothing to change.');return;}const it=items[idx-1];if(parsed.name)it.name=parsed.name;if(parsed.price!==null)it.unit_price=parsed.price;if(parsed.qtyExplicit)it.qty=parsed.qty;await persistItems(db,txnId,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txnId,`✏️ Item ${idx} updated.`);}
-async function handleAddItemReply(db:any,chatId:any,msg:any,prompt:string,text:string){const txnId=extractMarkerTxn(prompt,'ADD_ITEM');if(!txnId){await tgReply(chatId,msg.message_id,'⚠️ Session lost.');return;}const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgReply(chatId,msg.message_id,'⏰ That receipt is no longer editable.');return;}const parsed=parseNamePriceQty(text.trim().split(/\s+/));if(!parsed.name){await tgReply(chatId,msg.message_id,'⚠️ Need an item name.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);items.push({name:parsed.name,qty:parsed.qty,unit_price:parsed.price??0});await persistItems(db,txnId,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txnId,`➕ Added "${parsed.name}".`);}
-async function handleRemoveItemReply(db:any,chatId:any,msg:any,prompt:string,text:string){const txnId=extractMarkerTxn(prompt,'REMOVE_ITEM');if(!txnId){await tgReply(chatId,msg.message_id,'⚠️ Session lost.');return;}const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgReply(chatId,msg.message_id,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);const idx=parseInt(text.trim(),10);if(!Number.isInteger(idx)||idx<1||idx>items.length){await tgReply(chatId,msg.message_id,`⚠️ Item number must be 1–${items.length}.`);return;}const[removed]=items.splice(idx-1,1);await persistItems(db,txnId,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txnId,`🗑️ Removed "${removed?.name??'item'}"`);}
+// SPEC-16: an item is chosen by tapping it. Only the price (or name and price) is typed; removal is a tap.
+function itemButtons(items:LineItem[],prefix:string,txnId:string){return[...items.map((it,i)=>[{text:`${i+1} · ${it.name.slice(0,28)} · ₱${peso(it.unit_price)}`,callback_data:`${prefix}:${txnId}:${i+1}`}]),[{text:'❌ Cancel',callback_data:'xx'}]];}
+async function promptEditItem(db:any,chatId:any,txnId:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);if(!items.length){await tgSend(chatId,'No items to edit yet. Tap ➕ Add item.');return;}await tgSend(chatId,'✏️ Tap the item to edit.',{reply_markup:{inline_keyboard:itemButtons(items,'item_ed',txnId)}});}
+async function promptRemoveItem(db:any,chatId:any,txnId:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);if(!items.length){await tgSend(chatId,'No items to remove.');return;}await tgSend(chatId,'🗑️ Tap the item to remove.',{reply_markup:{inline_keyboard:itemButtons(items,'item_rm',txnId)}});}
+async function handleItemEditAnswer(db:any,chatId:any,msg:any,txn:any,index:number,parsed:ReturnType<typeof parseNamePriceQty>){const items=normalizeLineItems(txn.ocr_raw?.line_items);const it=items[index-1];if(!it){await tgReply(chatId,msg.message_id,'⚠️ That item is no longer on the receipt. Tap ✏️ Edit item again.');return;}if(parsed.name)it.name=parsed.name;it.unit_price=parsed.price!;if(parsed.qtyExplicit)it.qty=parsed.qty;await persistItems(db,txn.id,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txn.id,`✏️ Item ${index} updated.`);}
+async function handleItemAddAnswer(db:any,chatId:any,txn:any,parsed:ReturnType<typeof parseNamePriceQty>){const items=normalizeLineItems(txn.ocr_raw?.line_items);items.push({name:parsed.name,qty:parsed.qty,unit_price:parsed.price!});await persistItems(db,txn.id,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txn.id,`➕ Added "${mdEsc(parsed.name)}".`);}
 async function maybeOfferInventorySync(db:any,chatId:any,txnId:string){const{data:txn}=await db.from('transactions').select('category,payee_name,transaction_date,ocr_raw').eq('id',txnId).maybeSingle();if(!txn||!STOCKABLE_CATS.has(txn.category))return;const rawItems=Array.isArray(txn.ocr_raw?.line_items)?txn.ocr_raw.line_items:[];if(!rawItems.length)return;const matched:any[]=[],unmatched:string[]=[];for(const it of rawItems){const name=(typeof it==='string'?it:String(it?.name??'')).trim();if(!name)continue;const qty=(typeof it==='object'&&Number(it?.qty)>0)?Number(it.qty):1;const unitPrice=(typeof it==='object'&&Number(it?.unit_price)>0)?Number(it.unit_price):null;const{data:m}=await db.rpc('match_inventory_item',{p_name:name,p_limit:1});const best=Array.isArray(m)&&m.length?m[0]:null;if(best)matched.push({item_id:best.id,item_name:best.name,qty,unit_price:unitPrice});else unmatched.push(name);}if(!matched.length)return;const pid=await createPending(db,chatId,'inventory_sync',{txnId,vendor:txn.payee_name??null,date:txn.transaction_date??null,items:matched});const lines=matched.map((m:any)=>`  • ${mdEsc(m.item_name)}  +${m.qty}`);const tail=unmatched.length?[``,`_Not tracked: ${mdEsc(unmatched.join(', '))}_`]:[];await tgSend(chatId,[`📦 *Update inventory?*`,`${matched.length} item(s) from this receipt match your stock:`,...lines,...tail].join('\n'),{reply_markup:invSyncKeyboard(pid)});}
-/* SPEC-03 (session 33): /count lists a group, takes a typed reply of only the lines that changed,
-   shows a before/after card and applies it on a tap. Anyone in Finance may start and type a count;
+/* SPEC-03 (session 33), SPEC-16 (session 37): /count sends one card of item buttons; a tap asks for that item's
+   new count, the card redraws with the change, and Apply writes it. Anyone in Finance may start and type a count;
    authorisation happens at the Apply tap, in the database, exactly like the booking Confirm. */
 function countScopeKeyboard(counts:Record<string,number>){
   return {inline_keyboard:[[
@@ -725,52 +733,48 @@ async function sendCountList(db:any,chatId:any,scope:'1'|'2'|'3'){
   if(!chosen.length){await tgSend(chatId,'📦 Nothing to count in that group.');return;}
   const ordered=wanted.flatMap(g=>chosen.filter(r=>inventoryGroup(r)===g));
   const items:CountItem[]=ordered.map(r=>({id:r.id,name:r.name,unit:r.unit,qty:Number(r.qty_on_hand),reorder:r.reorder_below===null?null:Number(r.reorder_below)}));
-  const pid=await createPending(db,chatId,'inventory_count',{scope,items});
-  if(!pid){await tgSend(chatId,'⚠️ Could not start a count. Is the count release applied?');return;}
-
   const label=wanted.length===1?GROUP_LABEL[wanted[0]]:'All groups';
-  let n=1;
-  const blocks:string[]=[];
-  for(const g of wanted){
-    const part=ordered.filter(r=>inventoryGroup(r)===g);
-    if(!part.length) continue;
-    const lines=numberedCountLines(items.slice(n-1,n-1+part.length),n);
-    n+=part.length;
-    for(const chunk of chunkLines(lines)) blocks.push(wanted.length>1?`*${GROUP_LABEL[g]}*\n${chunk}`:chunk);
-  }
-  const head=`📦 *COUNT · ${label} · ${items.length} items*`;
-  for(let i=0;i<blocks.length;i++){
-    const last=i===blocks.length-1;
-    const body=[i===0?head:'',blocks[i]].filter(Boolean).join('\n');
-    if(!last){await tgSend(chatId,body);continue;}
-    await tgSend(chatId,[body,'','Reply to this message with ONLY the lines that changed, as  `<#> <new count>`:','`  2 20`','`  7 0`',`\`COUNT|${pid}\``].join('\n'),
-      {reply_markup:{force_reply:true,input_field_placeholder:'e.g. 2 20'}});
-  }
+  // SPEC-16: one card of item buttons, alive for an hour (a count takes longer than the 10-minute default).
+  const pid=await createPending(db,chatId,'inventory_count',{scope,label,items},60);
+  if(!pid){await tgSend(chatId,'⚠️ Could not start a count. Try again in a minute.');return;}
+  const r=await tgSend(chatId,countCardText(label,items.length,0),{reply_markup:countCardKeyboard(pid,items,[])});
+  const mid=r?.result?.message_id;
+  if(mid)await db.from('telegram_pending').update({payload:{scope,label,items,card_mid:mid}}).eq('id',pid);
 }
-async function handleCountReply(db:any,chatId:any,msg:any,prompt:string,text:string){
-  const m=prompt.match(/`COUNT\|([^`]+)`/);const pid=m?m[1]:null;
-  if(!pid){await tgReply(chatId,msg.message_id,'⚠️ Session lost. Run /count again.');return;}
-  // Peeked, not consumed: the pending row must survive until Apply or Cancel.
-  const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',pid).maybeSingle();
-  if(!row||new Date(row.expires_at)<new Date()){await tgReply(chatId,msg.message_id,'⏰ That count expired. Run /count again.');return;}
-  const items=(row.payload?.items??[]) as CountItem[];
+async function findCountCard(db:any,chatId:any,replyMid:unknown):Promise<{id:string;payload:any;expires_at:string}|null>{
+  if(!replyMid)return null;
+  const{data}=await db.from('telegram_pending').select('id,payload,expires_at').eq('chat_id',chatId).eq('kind','inventory_count').eq('payload->>card_mid',String(replyMid)).maybeSingle();
+  return data??null;
+}
+/** One item's new count onto the card: store it, tick the prompt, redraw card A in place. */
+async function applyCountQty(db:any,chatId:any,countPid:string,index:number,counted:number,promptMid?:number):Promise<boolean>{
+  // ponytail: read-modify-write on one row; two people tapping the same card in the same second can lose one figure.
+  const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',countPid).maybeSingle();
+  if(!row||new Date(row.expires_at)<new Date())return false;
+  const items=(row.payload?.items??[]) as CountItem[];const it=items[index-1];if(!it)return false;
+  const changes=setChange(items,(row.payload?.changes??[]) as Change[],index,counted);
+  await db.from('telegram_pending').update({payload:{...row.payload,changes}}).eq('id',countPid);
+  if(promptMid)await tgEdit(chatId,promptMid,it.qty===counted?`✔ ${mdEsc(it.name)}: ${counted} ${it.unit}, no change`:`✔ ${mdEsc(it.name)}: ${it.qty} → ${counted} ${it.unit}`);
+  if(row.payload?.card_mid)await tgEdit(chatId,row.payload.card_mid,countCardText(row.payload.label??'Count',items.length,changes.length),countCardKeyboard(countPid,items,changes));
+  return true;
+}
+/** Power path (SPEC-03, kept): a reply to card A itself, many `<#> <count>` lines at once. Keyed by card_mid, never by text. */
+async function handleCountReply(db:any,chatId:any,msg:any,card:{id:string;payload:any;expires_at:string},text:string){
+  if(new Date(card.expires_at)<new Date()){await tgReply(chatId,msg.message_id,COUNT_EXPIRED);return;}
+  const items=(card.payload?.items??[]) as CountItem[];
   const parsed=parseCountReply(text,items.length);
-  const changes=changesFrom(items,parsed);
   const gripes=[
     parsed.outOfRange.length?`could not use: ${parsed.outOfRange.join(', ')} (the list has ${items.length})`:'',
     parsed.unreadable.length?`could not read: ${parsed.unreadable.join(' · ')}`:'',
   ].filter(Boolean);
-  if(!changes.length){
-    await tgReply(chatId,msg.message_id,['⚠️ Nothing to change.',...gripes,'','Reply again as `<#> <new count>`, e.g. `2 20`.'].join('\n'));return;
+  if(!parsed.changes.length){
+    await tgReply(chatId,msg.message_id,['⚠️ Nothing to change, so nothing was saved.',..._italic(gripes),'','Tap an item on the card, then type its new count.'].join('\n'));return;
   }
-  await db.from('telegram_pending').update({payload:{...row.payload,changes}}).eq('id',pid);
-  const label=row.payload?.scope==='3'?'All groups':(GROUP_LABEL[SCOPE_GROUPS[(row.payload?.scope??'1') as '1'|'2'|'3'][0]]);
-  await tgSend(chatId,[
-    `📦 *REVIEW · ${label} · ${changes.length} change${changes.length>1?'s':''}*`,
-    ...reviewLines(changes),
-    ...(gripes.length?['',..._italic(gripes)]:[]),
-    '','_Nothing is saved yet._',
-  ].join('\n'),{reply_markup:{inline_keyboard:[[{text:'✅ Apply',callback_data:`inv:ok:${pid}`},{text:'❌ Cancel',callback_data:`inv:no:${pid}`}]]}});
+  let changes=(card.payload?.changes??[]) as Change[];
+  for(const{index,counted}of parsed.changes)changes=setChange(items,changes,index,counted);
+  await db.from('telegram_pending').update({payload:{...card.payload,changes}}).eq('id',card.id);
+  await tgEdit(chatId,card.payload.card_mid,countCardText(card.payload.label??'Count',items.length,changes.length),countCardKeyboard(card.id,items,changes));
+  await tgReply(chatId,msg.message_id,[`✔ The card now shows ${changes.length} change${changes.length===1?'':'s'}. Nothing is saved until Apply.`,...(gripes.length?['',..._italic(gripes)]:[])].join('\n'));
 }
 const _italic=(ls:string[])=>ls.map(l=>`_${mdEsc(l)}_`);
 
@@ -1189,7 +1193,54 @@ async function executeRefund(
 
 async function handleCallbackQuery(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
-  await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
+  // SPEC-16: these taps answer for themselves, so a refused tap can explain itself in the toast.
+  if(!/^(inv:item:|inv:qty:|x:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
+
+  if(data==='xx'){await tgEdit(chatId,msgId,CANCELLED);return;}
+  if(data.startsWith('x:')){
+    const pid=data.slice(2);
+    const{data:row}=await db.from('telegram_pending').select('payload').eq('id',pid).eq('kind','awaiting_reply').maybeSingle();
+    if(!row){await tgAnswerCB(cq.id,'That question is already closed.');return;}
+    if(String(row.payload?.from_id)!==String(cq.from?.id)){await tgAnswerCB(cq.id,'That question is for someone else. Nothing changed.');return;}
+    await db.from('telegram_pending').delete().eq('id',pid);
+    await tgAnswerCB(cq.id);await tgEdit(chatId,msgId,CANCELLED);return;
+  }
+  if(data.startsWith('inv:item:')){
+    const[,,pid,ns]=data.split(':');const n=Number(ns);
+    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',pid).maybeSingle();
+    if(!row||new Date(row.expires_at)<new Date()){await tgAnswerCB(cq.id,COUNT_EXPIRED);await tgEdit(chatId,msgId,COUNT_EXPIRED);return;}
+    const items=(row.payload?.items??[]) as CountItem[];const it=items[n-1];
+    if(!it){await tgAnswerCB(cq.id,COUNT_EXPIRED);return;}
+    await tgAnswerCB(cq.id);
+    await ask(db,chatId,cq.from?.id,'count_qty',{count_pid:pid,index:n},countQtyPrompt({...it,name:mdEsc(it.name)}),[{text:'0 — none left',callback_data:`inv:qty:${pid}:${n}`}]);
+    return;
+  }
+  if(data.startsWith('inv:qty:')){
+    const[,,pid,ns]=data.split(':');const n=Number(ns);
+    const aw=await findAwaiting(db,chatId,cq.from?.id);
+    if(!aw||aw.payload?.flow!=='count_qty'||aw.payload?.count_pid!==pid||Number(aw.payload?.index)!==n){await tgAnswerCB(cq.id,'That question is not open for you. Nothing changed.');return;}
+    await db.from('telegram_pending').delete().eq('id',aw.id);
+    const ok=await applyCountQty(db,chatId,pid,n,0,msgId);
+    await tgAnswerCB(cq.id,ok?undefined:COUNT_EXPIRED);
+    if(!ok)await tgEdit(chatId,msgId,COUNT_EXPIRED);
+    return;
+  }
+  if(data.startsWith('item_ed:')){
+    const[,txnId,ns]=data.split(':');const n=Number(ns);
+    const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgEdit(chatId,msgId,'⏰ That receipt is no longer editable.');return;}
+    const it=normalizeLineItems(txn.ocr_raw?.line_items)[n-1];if(!it){await tgEdit(chatId,msgId,'⚠️ That item is no longer on the receipt. Tap ✏️ Edit item again.');return;}
+    await tgEdit(chatId,msgId,`✏️ Editing item ${n}.`);
+    await ask(db,chatId,cq.from?.id,'receipt_item_edit',{txnId,index:n},`✏️ ${mdEsc(it.name)} — ₱${peso(it.unit_price)}\nType the new price, like 216 — or name and price, like Mr Muscle 216.`);
+    return;
+  }
+  if(data.startsWith('item_rm:')){
+    const[,txnId,ns]=data.split(':');const n=Number(ns);
+    const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgEdit(chatId,msgId,'⏰ That receipt is no longer editable.');return;}
+    const items=normalizeLineItems(txn.ocr_raw?.line_items);if(!items[n-1]){await tgEdit(chatId,msgId,'⚠️ That item is no longer on the receipt. Tap 🗑️ Remove item again.');return;}
+    const[removed]=items.splice(n-1,1);await persistItems(db,txnId,txn.ocr_raw,items);
+    await tgEdit(chatId,msgId,`🗑️ Removed "${mdEsc(removed.name)}".`);
+    await sendReceiptCard(db,chatId,txnId);return;
+  }
 
   // Session 28 (Lloyd's ask 2): 📋 Copy sends the card's 📨 text alone as monospace (long-press copies it;
   // Telegram has no copy-on-tap); ✏️ Revise hands the same text plus the card head to Cassy (telegram-cassy
@@ -1222,9 +1273,11 @@ async function handleCallbackQuery(cq:any,db:any){
   }
   if(data.startsWith('inv:ok:')||data.startsWith('inv:no:')){
     const pid=data.slice(7);const who=cq.from?.first_name??'staff';
+    // SPEC-16: the card's open item questions go with it, whoever was asked.
+    await db.from('telegram_pending').delete().eq('chat_id',chatId).eq('kind','awaiting_reply').eq('payload->>count_pid',pid);
     if(data.startsWith('inv:no:')){
       await db.from('telegram_pending').delete().eq('id',pid);
-      await tgEdit(chatId,msgId,`${cq.message?.text??firstLine}\n\n❌ Cancelled by ${who}, stock unchanged.`);return;
+      await tgEdit(chatId,msgId,`${firstLine}\n\n❌ Cancelled by ${who}, stock unchanged.`);return;
     }
     const payload=await consumePending(db,pid);
     if(!payload){await tgEdit(chatId,msgId,`${cq.message?.text??firstLine}\n\n⏰ That count expired. Run /count again.`);return;}
@@ -1246,8 +1299,9 @@ async function handleCallbackQuery(cq:any,db:any){
              item_not_found:'⚠️ An item on that list no longer exists — run /count again.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
     else line=`✅ Applied by ${who} · ${r.updated} item${r.updated===1?'':'s'} updated · dashboard is current`;
     // A refused count must stay tappable, so the card (and its pending row) go back.
-    if(keep&&!data.startsWith('inv:no:')&&payload) await db.from('telegram_pending').insert({id:pid,chat_id:chatId,kind:'inventory_count',payload});
-    await tgEdit(chatId,msgId,`${cq.message?.text??firstLine}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
+    if(keep&&!data.startsWith('inv:no:')&&payload) await db.from('telegram_pending').insert({id:pid,chat_id:chatId,kind:'inventory_count',payload,expires_at:new Date(Date.now()+60*60_000).toISOString()});
+    const result=keep?`${cq.message?.text??firstLine}\n\n${line}`:[`📦 Count · ${payload.label??'Count'}`,...reviewLines(changes),'',line].join('\n');
+    await tgEdit(chatId,msgId,result,keep?cq.message?.reply_markup:undefined);
     return;
   }
   if(data.startsWith('inv:grp:')){
@@ -1358,7 +1412,7 @@ async function handleCallbackQuery(cq:any,db:any){
   }
   if(data.startsWith('pcsel:'))  {await paySessionCard(db,chatId,msgId,data.slice('pcsel:'.length));return;}
   if(data.startsWith('pcpay:'))  {const[,sid,fs]=data.split(':');const fee=Number(fs)||0;const res=await bookCleaningFee(db,sid,fee,whoFrom(cq.from));if(!res.ok){await tgEdit(chatId,msgId,`⚠️ Could not book: ${errMsg(res.error)}`);return;}if(res.already){await tgEdit(chatId,msgId,'ℹ️ That clean was already paid.');return;}await tgEdit(chatId,msgId,`✅ *Paid ${mdEsc(res.cleaner??'cleaner')} ₱${peso(fee)}* for ${res.date}\nBooked to ledger.\n_Run /notifyclean to send the acknowledgement card._`);return;}
-  if(data.startsWith('pcedit:')) {await tgSend(chatId,['✏️ *Enter the amount you paid for this clean:*','_e.g. `500`_',`\`PAYCLEAN_EDIT|${data.slice('pcedit:'.length)}\``].join('\n'),{reply_markup:{force_reply:true,input_field_placeholder:'e.g. 500'}});return;}
+  if(data.startsWith('pcedit:')) {await ask(db,chatId,cq.from?.id,'payclean_amount',{sid:data.slice('pcedit:'.length)},'💵 Type the amount you paid for this clean, like 500.');return;}
   if(data==='pccancel'){await tgEdit(chatId,msgId,'❌ Cancelled.');return;}
   if(data.startsWith('menu:')){
     const rest=data.slice(5);const isF=isFinanceChat(chatId);
@@ -1382,7 +1436,7 @@ async function handleCallbackQuery(cq:any,db:any){
         case 'stock':       await handleStockQuery(db,chatId,isF?'finance':'ops',{filter:'low'});break;
         case 'count':       if(isF)await promptCountScope(db,chatId);else await tgSend(chatId,'Counts are updated from the Finance group.');break; // session 33: SPEC-03
         case 'payclean':    if(isF)await payCleanList(db,chatId);break;
-        case 'manualclean': if(isF)await promptManualClean(chatId);break;
+        case 'manualclean': if(isF)await promptManualClean(db,chatId,cq.from?.id);break;
         case 'notifyclean': if(isF)await notifyCleanAcks(db,chatId);break;
         case 'summary':     if(isF)await runSummary(db,chatId);break;
         case 'notices':     await handleNoticesList(chatId,db);break;
@@ -1395,7 +1449,7 @@ async function handleCallbackQuery(cq:any,db:any){
     if(isF){const{text,kb}=subMenuKb(rest);await tgEdit(chatId,msgId,text,kb);}else{const kb=opsMenuKb();await tgEdit(chatId,msgId,buildMenuHeader('📌 *Cascade OPS*','What do you need?',kb.inline_keyboard),kb);}
     return;
   }
-  if(data.startsWith('cat:'))    {const[,slug,amtStr]=data.split(':');const pre=Number(amtStr)||0;const label=await getCategoryLabel(db,slug);await tgEdit(chatId,msgId,`🧾 *Log an Expense*\n✅ Category: *${label}*`);await tgSend(chatId,expensePromptText(slug,label,pre),{reply_markup:{force_reply:true,input_field_placeholder:pre>0?`${pre} or different amount`:'e.g. 1706 SC Johnson'}});return;}
+  if(data.startsWith('cat:'))    {const[,slug,amtStr]=data.split(':');const pre=Number(amtStr)||0;const label=await getCategoryLabel(db,slug);await tgEdit(chatId,msgId,`🧾 *Log an Expense*\n✅ Category: *${label}*`);await ask(db,chatId,cq.from?.id,'expense',{slug,pre},expensePromptText(label,pre));return;}
   if(data.startsWith('dup_ok:')) {const payload=await consumePending(db,data.slice('dup_ok:'.length));if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}const{data:row,error}=await insertExpense(db,payload);if(error||!row){await tgEdit(chatId,msgId,'⚠️ Could not save.');return;}await tgEdit(chatId,msgId,confirmMsg(payload.amount,payload.label??payload.category,payload.payee,row.id));return;}
   if(data.startsWith('dup_cancel:')){await db.from('telegram_pending').delete().eq('id',data.slice('dup_cancel:'.length));await tgEdit(chatId,msgId,firstLine+'\n❌ _Cancelled._');return;}
   if(data.startsWith('continue_ocr:')){
@@ -1406,10 +1460,10 @@ async function handleCallbackQuery(cq:any,db:any){
     await runOcr(db,chatId,payload.objectPath,new Uint8Array(await blob.arrayBuffer()),blob.type||'image/jpeg',payload.loggedBy,payload.notes,payload.categoryHint??'');return;
   }
   if(data.startsWith('ocr_ok:'))   {const txnId=data.slice('ocr_ok:'.length);await db.from('transactions').update({status:'confirmed',updated_at:new Date().toISOString()}).eq('id',txnId);await tgEdit(chatId,msgId,firstLine+`\n✅ *Confirmed — added to ledger*\n🔖 Ref: ${shortRef(txnId)}`);await maybeOfferInventorySync(db,chatId,txnId);return;}
-  if(data.startsWith('ocr_edit:')) {await tgEdit(chatId,msgId,firstLine+'\n✏️ _Awaiting total…_');await tgSend(chatId,editAmountPromptText(data.slice('ocr_edit:'.length)),{reply_markup:{force_reply:true,input_field_placeholder:'e.g. 1706'}});return;}
+  if(data.startsWith('ocr_edit:')) {await ask(db,chatId,cq.from?.id,'edit_amount',{txnId:data.slice('ocr_edit:'.length)},'💵 Type the correct total, like 1706.');return;}
   if(data.startsWith('ocr_void:')) {await db.from('transactions').update({status:'void',notes:'Discarded via Telegram',updated_at:new Date().toISOString()}).eq('id',data.slice('ocr_void:'.length));await tgEdit(chatId,msgId,firstLine+'\n❌ *Discarded*');return;}
   if(data.startsWith('item_edit:'))   {await promptEditItem(db,chatId,data.slice('item_edit:'.length));return;}
-  if(data.startsWith('item_add:'))    {await promptAddItem(db,chatId,data.slice('item_add:'.length));return;}
+  if(data.startsWith('item_add:'))    {const txnId=data.slice('item_add:'.length);if(!await loadReceiptTxn(db,txnId)){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}await ask(db,chatId,cq.from?.id,'receipt_item_add',{txnId},'➕ Type the item and its price, like Joy Dishwashing 89. Add x2 for quantity.');return;}
   if(data.startsWith('item_remove:')) {await promptRemoveItem(db,chatId,data.slice('item_remove:'.length));return;}
   if(data.startsWith('invsync_ok:')){
     const payload=await consumePending(db,data.slice('invsync_ok:'.length));if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
@@ -1428,44 +1482,73 @@ async function executeNoticeFromLLM(db:any,params:any,chatId:any,from:any){
   await tgSend(chatId,`${icon} *Notice saved* — ${mdEsc(params.title)} on ${params.effective_date}`);
 }
 
-async function handleTextMessage(msg:any,db:any){
-  const chatId=msg.chat?.id;const from=msg.from??{};
-  if(!isBotAddressed(msg))return;
-  const text=stripBotMention(String(msg.text??'').trim());if(!text)return;
-  const loggedBy=whoFrom(from);
-  if(isFinanceChat(chatId)&&msg.reply_to_message?.text){
-    const prompt=msg.reply_to_message.text;
-    if(prompt.includes('`EDIT_ITEM|'))   {await handleEditItemReply(db,chatId,msg,prompt,text);return;}
-    if(prompt.includes('`ADD_ITEM|'))    {await handleAddItemReply(db,chatId,msg,prompt,text);return;}
-    if(prompt.includes('`REMOVE_ITEM|')) {await handleRemoveItemReply(db,chatId,msg,prompt,text);return;}
-    if(prompt.includes('`MANUALCLEAN|')) {await handleManualCleanReply(db,chatId,msg,text);return;}
-    if(prompt.includes('`COUNT|'))       {await handleCountReply(db,chatId,msg,prompt,text);return;}
-    if(prompt.includes('`PAYCLEAN_EDIT|')){
-      const m=prompt.match(/`PAYCLEAN_EDIT\|([^`]+)`/);const sid=m?m[1]:null;
-      if(!sid){await tgReply(chatId,msg.message_id,'⚠️ Session lost. Run /payclean again.');return;}
-      const amount=Number(text.replace(/[\u20b1,]/g,''));
-      if(!isFinite(amount)||amount<=0){await tgReply(chatId,msg.message_id,'⚠️ Invalid amount. Enter a number like `500`.');return;}
-      const res=await bookCleaningFee(db,sid,amount,loggedBy);
+/** SPEC-16: the text is the answer to the question this person was asked. A bad answer keeps the question open. */
+async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any},text:string,loggedBy:string){
+  const p=aw.payload??{};const flow=p.flow as Flow;
+  const bad=()=>tgReply(chatId,msg.message_id,refusal(flow),{reply_markup:cancelKb(aw.id)});
+  const done=()=>db.from('telegram_pending').delete().eq('id',aw.id);
+  const gone=async()=>{await done();await tgReply(chatId,msg.message_id,'⏰ That receipt is no longer editable, so nothing was saved.');};
+  switch(flow){
+    case 'count_qty':{
+      const q=parseQty(text);if(q===null){await bad();return;}
+      await done();
+      if(!await applyCountQty(db,chatId,String(p.count_pid),Number(p.index),q,p.prompt_mid))await tgReply(chatId,msg.message_id,COUNT_EXPIRED);
+      return;
+    }
+    case 'expense':{
+      const a=parseExpenseAnswer(text,Number(p.pre)||0);if(!a){await bad();return;}
+      await done();const label=await getCategoryLabel(db,String(p.slug));
+      await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:a.vendor,loggedBy});return;
+    }
+    case 'edit_amount':{
+      const amount=parseMoney(text);if(amount===null){await bad();return;}
+      if(!await loadReceiptTxn(db,String(p.txnId))){await gone();return;}
+      await done();
+      await db.from('transactions').update({gross_amount:amount,updated_at:new Date().toISOString()}).eq('id',p.txnId);
+      await sendReceiptCard(db,chatId,String(p.txnId),`💵 Total set to ₱${peso(amount)}.`);return;
+    }
+    case 'payclean_amount':{
+      const amount=parseMoney(text);if(amount===null){await bad();return;}
+      await done();
+      const res=await bookCleaningFee(db,String(p.sid),amount,loggedBy);
       if(!res.ok){await tgReply(chatId,msg.message_id,`⚠️ Could not book: ${errMsg(res.error)}`);return;}
       if(res.already){await tgReply(chatId,msg.message_id,'ℹ️ That clean was already paid.');return;}
       await tgReply(chatId,msg.message_id,`✅ Paid *${mdEsc(res.cleaner??'cleaner')}* ₱${peso(amount)} for ${res.date}. Booked to ledger.`);return;
     }
-    if(prompt.includes('`EXPENSE|')){
-      const state=extractExpenseState(prompt);if(!state){await tgReply(chatId,msg.message_id,'⚠️ Session lost. Start again with /log.');return;}
-      const tokens=text.split(/\s+/);const fc=tokens[0].replace(/[\u20b1,]/g,'');
-      let amount:number|null=null;let vendorTokens=tokens;
-      if(/^\d+(\.\d{1,2})?$/.test(fc)){amount=Number(fc);vendorTokens=tokens.slice(1);}else if(state.preAmount>0){amount=state.preAmount;}
-      if(!amount||amount<=0){await tgReply(chatId,msg.message_id,'⚠️ I need a valid amount.');return;}
-      const label=await getCategoryLabel(db,state.slug);const vendor=vendorTokens.join(' ').trim()||null;
-      await validateAndInsert(db,chatId,{category:state.slug,amount,label,payee:vendor,notes:vendor,loggedBy});return;
+    case 'receipt_item_edit':{
+      const parsed=parseNamePriceQty(text.trim().split(/\s+/));if(parsed.price===null){await bad();return;}
+      const txn=await loadReceiptTxn(db,String(p.txnId));if(!txn){await gone();return;}
+      await done();await handleItemEditAnswer(db,chatId,msg,txn,Number(p.index),parsed);return;
     }
-    if(prompt.includes('`EDIT_AMOUNT|')){
-      const txnId=extractEditAmountState(prompt);if(!txnId){await tgReply(chatId,msg.message_id,'⚠️ Could not find transaction.');return;}
-      const amount=Number(text.replace(/[\u20b1,]/g,''));if(!isFinite(amount)||amount<=0){await tgReply(chatId,msg.message_id,'⚠️ Invalid amount.');return;}
-      await db.from('transactions').update({gross_amount:amount,updated_at:new Date().toISOString()}).eq('id',txnId);
-      await sendReceiptCard(db,chatId,txnId,`💵 Total set to ₱${peso(amount)}.`);return;
+    case 'receipt_item_add':{
+      const parsed=parseNamePriceQty(text.trim().split(/\s+/));if(!parsed.name||parsed.price===null){await bad();return;}
+      const txn=await loadReceiptTxn(db,String(p.txnId));if(!txn){await gone();return;}
+      await done();await handleItemAddAnswer(db,chatId,txn,parsed);return;
     }
+    case 'manual_clean':{
+      const m=parseManualClean(text);if(!m){await bad();return;}
+      await done();await handleManualCleanAnswer(db,chatId,msg,m);return;
+    }
+    default: await done(); await tgReply(chatId,msg.message_id,NOT_WAITING);
   }
+}
+
+async function handleTextMessage(msg:any,db:any){
+  const chatId=msg.chat?.id;const from=msg.from??{};
+  const loggedBy=whoFrom(from);
+  // SPEC-16 (D-196): in Finance the answer is routed by WHO typed it, so this runs before the @mention gate
+  // and Reply is optional. Step 3 is the D-195 guard: a reply to a bot card that asked nothing never books.
+  if(isFinanceChat(chatId)){
+    const text=stripBotMention(String(msg.text??'').trim());if(!text)return;
+    const aw=await findAwaiting(db,chatId,from.id);
+    const card=aw?null:await findCountCard(db,chatId,msg.reply_to_message?.message_id);
+    const route=routeText({awaiting:!!aw,replyToCountCard:!!card,replyToBot:!!msg.reply_to_message?.from?.is_bot,text});
+    if(route.kind==='flow'){await handleAnswer(db,chatId,msg,aw!,text,loggedBy);return;}
+    if(route.kind==='count_lines'){await handleCountReply(db,chatId,msg,card!,text);return;}
+    if(route.kind==='refuse'){await tgReply(chatId,msg.message_id,NOT_WAITING);return;}
+  }
+  if(!isBotAddressed(msg))return;
+  const text=stripBotMention(String(msg.text??'').trim());if(!text)return;
   if(text.startsWith('/')){
     const[rawCmd,...args]=text.split(/\s+/);const cmd=rawCmd.toLowerCase().replace(/@.*$/,'');
     if(['/brownout','/holiday','/event','/reminder'].includes(cmd)){await handleOpsNoticeCommand(cmd.slice(1),args,chatId,from,db);return;}
@@ -1480,7 +1563,7 @@ async function handleTextMessage(msg:any,db:any){
     if(cmd==='/ping')        {await handlePing(chatId);return;}
     if(cmd==='/log')         {await tgSend(chatId,'🧾 *Log an Expense*\n\nSelect a category:',{reply_markup:categoryKeyboard(0)});return;}
     if(cmd==='/payclean')    {await payCleanList(db,chatId);return;}
-    if(cmd==='/manualclean') {await promptManualClean(chatId);return;}
+    if(cmd==='/manualclean') {await promptManualClean(db,chatId,from.id);return;}
     if(cmd==='/notifyclean') {await notifyCleanAcks(db,chatId);return;}
     if(cmd==='/summary')     {await runSummary(db,chatId);return;}
     if(cmd==='/datahealth')  {await handleDataHealth(db,chatId);return;}
@@ -1542,8 +1625,10 @@ async function handlePhotoMessage(msg:any,db:any){
     return;
   }
   const chatId=msg.chat?.id;const from=msg.from??{};const loggedBy=whoFrom(from);
-  const guidedState=msg.reply_to_message?.text?extractExpenseState(msg.reply_to_message.text):null;
-  const cat=guidedState?.slug??'';
+  // SPEC-16: a receipt photo sent while this person is being asked for an expense takes that category.
+  const aw=await findAwaiting(db,chatId,from.id);
+  const cat=aw?.payload?.flow==='expense'?String(aw.payload.slug??''):'';
+  if(cat)await db.from('telegram_pending').delete().eq('id',aw!.id);
   try{
     const best=msg.photo[msg.photo.length-1];
     const fileMeta=await tgCall('getFile',{file_id:best.file_id});const filePath=fileMeta?.result?.file_path;
@@ -1733,7 +1818,9 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
         // session 28: /cassy <q> and /draft <guest text> are the same requests as "cassy …" / "cassy reply: …"
         if(m&&typeof m.text==='string'&&/^\s*\/(cassy|draft)(@\w+)?\b/i.test(m.text)) m.text=m.text.replace(/^\s*\/cassy(@\w+)?\s*/i,'cassy ').replace(/^\s*\/draft(@\w+)?\s*/i,'cassy reply: ');
         const named=/^\s*@?cassy\b/i.test(String(m?.text??t))||/^\s*\/deep\b/i.test(t);
-        const free=t&&!m?.from?.is_bot&&!m?.reply_to_message&&!t.trimStart().startsWith('/')&&!/^\s*[₱\d]/.test(stripBotMention(t.trim()))&&isBotAddressed(m);
+        let free=t&&!m?.from?.is_bot&&!m?.reply_to_message&&!t.trimStart().startsWith('/')&&!/^\s*[₱\d]/.test(stripBotMention(t.trim()))&&isBotAddressed(m);
+        // SPEC-16: someone who is being asked a question is answering it (e.g. "Joy Dishwashing 89"), not asking Cassy.
+        if(free&&await hasAwaiting(db,m?.chat?.id,m?.from?.id))free=false;
         if(named||free){
           if(!isAllowedChat(m?.chat?.id))return;
           await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy${named?'':'?any=1'}`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy forward failed:',String(e)));
