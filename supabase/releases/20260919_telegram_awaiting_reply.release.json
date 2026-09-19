@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260919T012726Z",
+    "verified_at": "2026-09-19T01:27:26Z",
     "production_rule": "One widened CHECK on telegram_pending.kind (thirteen values to fourteen; nothing is narrowed, so every existing row stays valid). No function, no table, no row is changed. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
