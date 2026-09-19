@@ -33,6 +33,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse } from './gas-response.ts';
+import { parseDriveArchive } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import { meterReasons, parseMeterSkip } from './meter-skip.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
@@ -722,7 +723,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       // alone can't detect a failure — the JSON body's `result` field must
       // be checked too. Any failure now posts to Finance so it's visible the
       // same day, not discovered weeks later from a missing inbox email.
-      fetch(GAS_URL, {
+      const gasWork = fetch(GAS_URL, {
         method:  'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body:    JSON.stringify(operationalPayload),
@@ -730,7 +731,18 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       }).then(async (res) => {
         const bodyText = await res.text().catch(() => '');
         const { failed, reason } = evaluateGasResponse(res.ok, res.status, bodyText);
-        if (!failed) return;
+        if (!failed) {
+          // SPEC-15 phase 1: keep the Drive ids so the archive is findable without the e-mail.
+          const archive = parseDriveArchive(bodyText);
+          if (!archive) return;
+          const { error: archiveErr } = await supabase.from('cleaning_sessions').update({
+            session_folder_id:  archive.folderId,
+            session_folder_url: archive.folderUrl,
+            drive_files:        archive.files,
+          }).eq('id', sessionId);
+          if (archiveErr) console.warn('drive archive not stored:', archiveErr.message);
+          return;
+        }
         console.warn('GAS forward failed:', reason);
         if (TG_TOKEN && TG_FINANCE_ID) {
           await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
@@ -755,6 +767,9 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
           }).catch(() => {});
         }
       });
+      // Keep the worker alive until Code.gs answers, so the ids above are actually written.
+      const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+      if (edge?.waitUntil) edge.waitUntil(gasWork);
     }
 
     return json({ ok: true, status: 'success', sessionId, is_complete: isComplete, message: 'Report recorded.' });

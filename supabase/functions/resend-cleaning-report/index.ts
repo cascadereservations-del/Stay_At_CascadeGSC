@@ -24,6 +24,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { evaluateGasResponse } from '../submit-cleaning/gas-response.ts';
+import { drivePhotos, type ResendPhoto } from './archive-photos.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-cascade-cron-secret' };
 function json(data: unknown, status = 200): Response {
@@ -67,11 +68,15 @@ Deno.serve(async (req: Request) => {
 
   const { data: meter } = await db.from('meter_readings').select('*').eq('session_id', sessionId).maybeSingle();
 
+  // SPEC-15 phase 1: the Drive archive first; Storage only when no Drive list is stored.
+  const fromDrive = drivePhotos(session.drive_files);
+  const photos: Record<string, ResendPhoto[]> = fromDrive ?? {};
   const prefix = `${session.property_id}/${session.submitted_by_user_id}/${session.submission_id}`;
-  const { data: files, error: listErr } = await db.storage.from('cleaning-photos').list(prefix, { limit: 200 });
+  const { data: files, error: listErr } = fromDrive
+    ? { data: [], error: null }
+    : await db.storage.from('cleaning-photos').list(prefix, { limit: 200 });
   if (listErr) return json({ ok: false, error: `storage list: ${listErr.message}` }, 500);
 
-  const photos: Record<string, { name: string; url: string; fileId: string }[]> = {};
   for (const f of files ?? []) {
     if (!f.name || f.name.endsWith('/')) continue;
     const path = `${prefix}/${f.name}`;
@@ -103,6 +108,8 @@ Deno.serve(async (req: Request) => {
     completionRate: session.completion_pct,
     meta: { rate: session.completion_pct, doneItems: null, totalItems: null },
     photos,
+    // With Drive photos, reuse the original report folder so nothing is filed twice.
+    sessionFolderId: fromDrive ? session.session_folder_id ?? null : null,
     checklistDetails: session.checklist_details ?? [],
     sectionNames: {
       section_preclean: 'Pre-Clean', section_afterclean: 'After-Clean',
@@ -126,6 +133,6 @@ Deno.serve(async (req: Request) => {
     ok: !failed, session_id: sessionId, gas_reason: failed ? reason : undefined,
     gas_stack: failed ? stack : undefined,
     checkout_date: session.checkout_date, guest: session.last_guest_name,
-    photo_sections: Object.keys(photos), photo_count: photoCount,
+    photo_sections: Object.keys(photos), photo_count: photoCount, photo_source: fromDrive ? 'drive' : 'storage',
   }, failed ? 502 : 200);
 });
