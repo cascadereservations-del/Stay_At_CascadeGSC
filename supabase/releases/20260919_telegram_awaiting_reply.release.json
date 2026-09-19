@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "release_id": "telegram_awaiting_reply_20260919",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "0e4e56cbb1adbaa7fc427ffdee1bfa6c7b1be66b"
+  },
+  "migrations": [
+    "20260919000000_telegram_awaiting_reply.sql"
+  ],
+  "migration_sha256": {
+    "20260919000000_telegram_awaiting_reply.sql": "ce81ee55b9a22e0f2bbd3683422a3356beb05157425ab008ef333bc5f7566f36"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "One widened CHECK on telegram_pending.kind (thirteen values to fourteen; nothing is narrowed, so every existing row stays valid). No function, no table, no row is changed. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "pending_kind_accepts_awaiting_reply",
+      "query": "select pg_get_constraintdef(oid) like '%awaiting_reply%' from pg_constraint where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    },
+    {
+      "name": "pending_kind_still_accepts_the_thirteen_existing",
+      "query": "select bool_and(pg_get_constraintdef(oid) like '%' || k || '%') from pg_constraint, unnest(array['duplicate','large_amount','photo_dup','inventory_sync','advisory_notice','advisory_scan','llm_expense','llm_notice','llm_void_notice','llm_void_txn','llm_void_txns','llm_edit_notice','inventory_count']) k where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (narrows the kind CHECK back after deleting any open awaiting_reply question; nothing saved is lost)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260919_telegram_awaiting_reply.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "telegram_expense_writes_awaiting_reply",
+      "required_state": "The SPEC-16 telegram-expense build is deployed only AFTER this release is applied. Deployed earlier, every prompt's awaiting_reply insert is refused by the old CHECK and the prompt fails closed before anything is written; the reply-to-a-bot-card refusal (D-195 guard) works either way."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Widened CHECK only, in the exact shape of 20260918000000_telegram_inventory_count.sql, which was rehearsed on Alfred 2026-09-18. The thirteen existing values were read from production pg_constraint on 2026-09-19. pgTAP supabase/tests/database/telegram_awaiting_reply.sql 5 assertions; CI runs it on push (no local Docker)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour"
+  ]
+}
