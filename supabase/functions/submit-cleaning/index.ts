@@ -33,7 +33,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse, GAS_TIMEOUT_MS } from './gas-response.ts';
-import { parseDriveArchive } from './drive-archive.ts';
+import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import { meterReasons, parseMeterSkip } from './meter-skip.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
@@ -208,8 +208,10 @@ async function dispatchTelegram(
     ] : []),
     `${completion} Completion: ${completionPct}%`,
     ...(hasUrgent ? [``, `\u26A0\uFE0F *Issues flagged:*`, urgentItems] : []),
-    ``,
-    `\uD83D\uDCF8 Full photo set emailed + archived to Drive.`,
+    // D-204 finding 1: this line used to end every report as a constant string, sent before
+    // Code.gs was even called. On 2026-09-19 it told OPS that Honey's photos were archived while
+    // the archive had in fact failed (1c332d83, drive_files null). The archive is now announced
+    // from the gasWork success branch, once the ids are actually back, and nowhere else.
   ];
 
   const sent = await tgPost(token, 'sendMessage', { chat_id: chatId, text: withHeader('cleaning', `${isMidStay ? 'mid-stay' : 'report'} ${cleaningDate}`, lines.join('\n')), parse_mode: 'Markdown' });
@@ -741,6 +743,15 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
             drive_files:        archive.files,
           }).eq('id', sessionId);
           if (archiveErr) console.warn('drive archive not stored:', archiveErr.message);
+          // D-204 finding 1: the ONLY place that tells OPS the photos reached Drive. It runs after
+          // Code.gs answered, so it cannot claim an archive that never happened. No message at all
+          // means Code.gs sent no folder id; the failure branches below alert Finance.
+          if (TG_TOKEN && TG_CHAT_ID) {
+            await tgPost(TG_TOKEN, 'sendMessage', {
+              chat_id: TG_CHAT_ID,
+              text: withHeader('cleaning', `archive ${cleaningDate}`, archiveNotice(archive, unitName, cleaningDate)),
+            });
+          }
           return;
         }
         console.warn('GAS forward failed:', reason);

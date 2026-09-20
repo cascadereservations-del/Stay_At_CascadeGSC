@@ -32,3 +32,15 @@ export function parseDriveArchive(bodyText: string): DriveArchive | null {
   }
   return { folderId, folderUrl, files };
 }
+
+/** The OPS follow-up, sent only once Code.gs has actually answered with the ids (D-204 finding 1).
+ *  `files: null` is an older Code.gs that sends no list, so no count is claimed for it — an empty
+ *  list IS a real zero and says so. */
+export function archiveNotice(archive: DriveArchive, unitName: string, cleaningDate: string): string {
+  const n = archive.files?.length;
+  const what = typeof n === 'number'
+    ? `📸 ${n} photo${n === 1 ? '' : 's'} archived to Drive`
+    : `📸 Photos archived to Drive`;
+  const link = archive.folderUrl ?? `https://drive.google.com/drive/folders/${archive.folderId}`;
+  return `${what} — ${unitName} · ${cleaningDate}\n${link}`;
+}
