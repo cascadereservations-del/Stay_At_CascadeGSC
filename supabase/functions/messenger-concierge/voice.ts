@@ -7,6 +7,7 @@
 // outgoing reply at runtime (warn-only log `voice_lint`, so live drift is visible without blocking).
 
 import { CASSY_INTRO, greeting } from './booking.ts';
+import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 
 export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense' | 'command_tone' | 'exclaim' | 'boilerplate';
 
@@ -248,4 +249,33 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
     if (!answers) v.push('no_answer');
   }
   return v;
+}
+
+// SPEC-13 / D-176: look before you book. A guest deciding on a home they have never seen wants two
+// things the chat cannot give - pictures and other guests' words. The direct site has the first,
+// the Airbnb listing has the second. The invitation to BOOK stays the direct site; Airbnb is offered
+// to READ, which is why the label is "Guest reviews" and never "Book on Airbnb" (facts.ts: no
+// steering). Review NUMBERS are never quoted in chat - they go stale.
+// The Tagalog and Bisaya amenity words are the same loanwords as the English ones, so the noun list
+// carries all three registers. The spec's `may .* ba` / `naa .* ba` catch-alls are deliberately NOT
+// here: they matched "may available ba sa Oct 3", which is a dates question, not an amenity one.
+export const AMENITY_RE = /\b(amenities|amenity|included|inclusions|photos?|pictures?|pics|wifi|wi-fi|internet|aircon|air-?con|\bac\b|kitchen|tv|netflix|washing|laundry|parking)\b|what'?s (it|the place|the unit|the home) like/i;
+export const TRUST_RE = /\b(reviews?|feedback|legit|legitimate|scam|trust|trustworthy|tinuod)\b|\bsafe( po)? ba\b|\bluwas ba\b/i;
+
+/** '' when nothing should be added. `has` says which link the thread has already shown. */
+export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews: boolean }): string {
+  const amenity = AMENITY_RE.test(text), trust = TRUST_RE.test(text);
+  if (!amenity && !trust) return '';
+  const reviewsLine = `⭐ Guest reviews: ${AIRBNB_URL}`;
+  if (amenity && !has.site && !has.reviews) {
+    const sentence = { en: `You're welcome to look through the full amenities and photos on our site, and to read what past guests have shared on our Airbnb listing.`,
+      tl: `You're welcome po to look through the full amenities and photos sa aming site, and to read what past guests have shared sa aming Airbnb listing.`,
+      bis: `You're welcome to look through the full amenities and photos sa among site, and to read what past guests have shared sa among Airbnb listing.` }[lang];
+    return `${sentence}\n\n🏡 Amenities and photos: ${SITE_URL}\n${reviewsLine}`;
+  }
+  if (has.reviews) return '';
+  const sentence = { en: `If you'd like to read what past guests have shared, our reviews are on our Airbnb listing.`,
+    tl: `If you'd like to read what past guests have shared, nasa aming Airbnb listing po ang reviews.`,
+    bis: `If you'd like to read what past guests have shared, naa sa among Airbnb listing ang reviews.` }[lang];
+  return `${sentence}\n\n${reviewsLine}`;
 }

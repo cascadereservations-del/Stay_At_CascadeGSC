@@ -13,10 +13,10 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, tidyReply, withIntro } from './voice.ts';
+import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
-import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
+import { AIRBNB_URL, FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
@@ -866,13 +866,30 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // Repair a dangling "…on our site:" BEFORE the nudge decides (live 2026-09-17 19:12: the nudge saw no link,
       // appended its own line, and only then was the link put back - two invitations).
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po');
-      if (!discountAsk) reply = bookingNudge(reply, lang, datesKnown.length > 0, thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL)));
+      // SPEC-13 / D-176: look before you book. Decided BEFORE the booking nudge, because one message
+      // carries one invitation (protocol rule 4): when this block fires, bookingNudge must not.
+      // Never on a payment, receipt, refund, cancellation, complaint or safety turn, and never
+      // under a handoff or a closer.
+      const siteRecent = thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL));
+      const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
+      // Mid-flow the resumed card already shows the site once (D-172), so only a reviews or trust
+      // question earns anything, and only the reviews line.
+      const look = (handoff || discountAsk || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
+        : flowFollowUp ? (TRUST_RE.test(text) ? lookNudge(text, l3, { site: true, reviews: reviewsShown }) : '')
+        : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
+      if (!discountAsk && !look) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (thread.guest_name) reply = dropNameAsk(reply); // golden run 2: the model asked a guest we already know for their name
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
       if (!flowFollowUp && !discountAsk) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
-      if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2); // golden run: the nudge and the chat route each carried a "po" of their own
+      if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2);
+      // Appended last: linkSolo rewrites any line holding SITE_URL into a solo 👉 line, which would
+      // destroy the labelled 🏡 line. The guaranteed solo site link goes when the block carries its own.
+      if (look) {
+        if (look.includes(SITE_URL)) reply = reply.split(/\n\s*\n/).filter((para) => para.trim() !== `👉 ${SITE_URL}`).join('\n\n');
+        reply = `${reply.trim()}\n\n${look}`;
+      } // golden run: the nudge and the chat route each carried a "po" of their own
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.

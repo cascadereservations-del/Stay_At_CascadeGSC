@@ -6,6 +6,8 @@ import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { BOOK_RE } from './booking.ts';
 import { claimsOpen, earlyFeeFor, fixEarlyFee, setAvailability } from './voice.ts';
 import { addChatRoute, beforeClose, decisionInvite, ensureGreeting, withIntro } from './voice.ts';
+import { AMENITY_RE, lookNudge, TRUST_RE } from './voice.ts';
+import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { BOT_REPLY, CASSY_INTRO, greeting } from './booking.ts';
 
 // Session 30, live 19:19 and 19:20 Manila: the model kept its older site-only invite, and "let me think about it" got a
@@ -355,4 +357,46 @@ Deno.test('SPEC-01: the are-you-a-bot answer is clean in all three registers', (
     assertEquals(lintReply('Ben, ' + BOT_REPLY[l3], 'are you a bot?'), [], l3);
     assertEquals(BOT_REPLY[l3].includes('Cassy'), true, l3);
   }
+});
+
+// SPEC-13 / D-176: look before you book.
+Deno.test('SPEC-13: an amenity question gets both links, a trust question only the reviews', () => {
+  const fresh = { site: false, reviews: false };
+  const both = lookNudge('may wifi po ba?', 'tl', fresh);
+  assertEquals(both.includes(`🏡 Amenities and photos: ${SITE_URL}`), true);
+  assertEquals(both.includes(`⭐ Guest reviews: ${AIRBNB_URL}`), true);
+  const trust = lookNudge('legit ba ni?', 'bis', fresh);
+  assertEquals(trust.includes(SITE_URL), false);                       // reviews only
+  assertEquals(trust.includes(`⭐ Guest reviews: ${AIRBNB_URL}`), true);
+  assertEquals(lookNudge('how do I pay?', 'en', fresh), '');           // a payment turn earns nothing
+  assertEquals(lookNudge('is Oct 3 to 4 available?', 'en', fresh), ''); // a dates question is not an amenity question
+});
+
+Deno.test('SPEC-13: each link is offered at most once in a conversation', () => {
+  assertEquals(lookNudge('what amenities are included?', 'en', { site: true, reviews: false }).includes(SITE_URL), false);
+  assertEquals(lookNudge('what amenities are included?', 'en', { site: true, reviews: false }).includes(AIRBNB_URL), true);
+  assertEquals(lookNudge('what amenities are included?', 'en', { site: true, reviews: true }), '');
+  assertEquals(lookNudge('is there a review page?', 'en', { site: false, reviews: true }), '');
+});
+
+Deno.test('SPEC-13: every one of the six strings passes the protocol lint', () => {
+  const answer = 'Yes, the unit has fast fibre Wi-Fi throughout, and the kitchen is fully equipped.';
+  for (const l3 of ['en', 'tl', 'bis'] as const) {
+    for (const has of [{ site: false, reviews: false }, { site: true, reviews: false }]) {
+      const block = lookNudge('what amenities are included?', l3, has);
+      assertEquals(lintReply(`${answer}\n\n${block}`, 'what amenities are included?'), [], `${l3} ${has.site}`);
+    }
+  }
+});
+
+Deno.test('SPEC-13: the nudge stays occasional, not chatty', () => {
+  // The spec's own gate: it must not fire on more than one probe turn in three.
+  const probes = ['is Oct 3 to 4 available?', 'how do I pay?', 'magkano po for 2 nights?', 'may wifi po ba?',
+    'can I check in early?', 'where exactly is the unit?', 'legit ba ni?', 'do you accept GCash?',
+    'is the balcony safe for a toddler?', 'what time is check-out?', 'can I cancel?', 'salamat po!'];
+  const fired = probes.filter((t) => lookNudge(t, 'en', { site: false, reviews: false }) !== '');
+  assertEquals(fired.length <= Math.floor(probes.length / 3), true, `fired on ${fired.join(' | ')}`);
+  assertEquals(AMENITY_RE.test('may wifi po ba?'), true);
+  assertEquals(TRUST_RE.test('legit ba ni?'), true);
+  assertEquals(AMENITY_RE.test('is Oct 3 to 4 available?'), false);
 });
