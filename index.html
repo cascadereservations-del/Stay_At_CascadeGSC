@@ -7621,7 +7621,6 @@
       var SUPABASE_URL       = 'https://qkgfhsdppslwunarczeq.supabase.co';
       var SUPABASE_ANON      = 'sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj';
       var EDGE_SUBMIT        = SUPABASE_URL + '/functions/v1/submit-booking';
-      var HOLD_LEAD_MS       = 5 * 24 * 3600 * 1000; /* hold-before-pay gate = the 5-day free-cancellation line */
       var HOLD_HOURS         = 24;
       var EDGE_RECEIPT_UPLOAD = SUPABASE_URL + '/functions/v1/upload-booking-receipt';
       function track(eventName, properties) { if (window.CascadeAnalytics) window.CascadeAnalytics.track(eventName, properties); }
@@ -7934,7 +7933,6 @@
         var baseTotal=1780*n;
         var tier=getTier(n);
         var total=calcTotal(n);
-        var msUntilCheckin = new Date(state.checkin + 'T14:00:00').getTime() - Date.now();
         /* Last-minute (D-185, 2026-09-18): less than 5 days away - same boundary as the payment step below,
            submit-booking's holds and the Messenger Concierge, so no two of them ever quote a different amount. */
         var selToday = new Date(); selToday.setHours(0,0,0,0);
@@ -7943,7 +7941,7 @@
         var balance = total - dep;
         /* Hold-before-pay (D-160 #1, D-162): only an advance booking (5+ days out, the same line as the
            free-cancellation rule) holds the dates first; anything closer pays first as before. */
-        if (continueBtn) continueBtn.textContent = (msUntilCheckin >= HOLD_LEAD_MS) ? 'Hold my dates & pay' : 'Review price & payment';
+        if (continueBtn) continueBtn.textContent = (!isLastMinute) ? 'Hold my dates & pay' : 'Review price & payment';
         calSelDates.textContent=fmtDate(state.checkin)+' \u2192 '+fmtDate(state.checkout);
         /* Show discounted total — guest sees exactly what they pay */
         calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'');
@@ -8152,7 +8150,7 @@
         /* Hold-before-pay (D-160 #1): for an advance booking the request is created NOW, so the
            guest pays against a real reference and the dates are held (auto-released after 24 h
            without a receipt). Same-day / last-minute keeps the pay-then-submit flow. */
-        var holdEligible = msUntilCheckin >= HOLD_LEAD_MS;
+        var holdEligible = !isLastMinute;
         if (!holdEligible) { state._hold = null; applyPayFirst(dep, total); showStep2(); return; }
         var holdKey = state.checkin + '|' + state.checkout + '|' + (nm ? nm.value.trim() : '') + '|' + dep;
         if (state._hold && state._hold._key === holdKey) { applyHold(state._hold); showStep2(); return; }
