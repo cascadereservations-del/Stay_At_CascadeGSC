@@ -1,7 +1,7 @@
 // deno test daily-digest/digest.test.ts  (run from supabase/functions)
 import { assertEquals, assert } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { renderReport } from '../_shared/cascade-core/format.ts';
-import { financeReport, opsReport, weatherLine, weeklyFinanceReport, weeklyOpsReport } from './report.ts';
+import { decisionsLine, financeReport, opsReport, weatherLine, weeklyFinanceReport, weeklyOpsReport } from './report.ts';
 import { withHeader } from '../_shared/cascade-core/format.ts';
 
 const base = { today: '2026-09-14', tomorrow: '2026-09-15', arrivals: [], departures: [], tmrArrivals: [], tmrDepartures: [], notices: [], stock: [], weather: null, resRows: [] };
@@ -74,4 +74,41 @@ Deno.test('finance: nothing pending mid-month is null; seven receipts show four 
   assert(first.lines[0].startsWith('Monthly CSV:'));
   assert(first.lines[0].endsWith('(last export covered 2026-08-31).'));
   assertEquals(renderReport(first).includes('— '), false);
+});
+
+// SPEC-10 control 11: the Monday roll-up names who decided what.
+Deno.test('decisions: nobody decided anything means no line at all (D-160, post on movement)', () => {
+  assertEquals(decisionsLine([]), '');
+  assertEquals(decisionsLine(undefined), '');
+  assertEquals(decisionsLine([{ reviewer: 'Lloyd', approved: 0, rejected: 0 }]), '');
+});
+
+Deno.test('decisions: confirmations are attributed by name, declines are counted', () => {
+  assertEquals(
+    decisionsLine([{ reviewer: 'Lloyd', approved: 3, rejected: 1 }, { reviewer: 'Marifel', approved: 1, rejected: 0 }]),
+    '🧑‍⚖️ Bookings decided this week: 4 confirmed (Lloyd 3, Marifel 1) · 1 declined',
+  );
+  // Someone who only declined counts in the total but is not listed as having confirmed anything.
+  assertEquals(
+    decisionsLine([{ reviewer: 'Lloyd', approved: 0, rejected: 2 }]),
+    '🧑‍⚖️ Bookings decided this week: 0 confirmed · 2 declined',
+  );
+});
+
+Deno.test('the decisions line is its own group, so it cannot push the receipt line out of the card', () => {
+  const fin = weeklyFinanceReport({
+    today: '2026-09-21',
+    pending: [{ transaction_date: '2026-09-18', payee_name: 'P', category: 'supplies', gross_amount: 250, source: 'ocr' }],
+    overdueLines: ['Airbnb HMX Ana: checked in 18 Sep, ₱3,000 payout not received (3 days)'],
+    warns: [{ label: 'Duplicate ledger rows', n: 2, status: 'warn' }],
+    consoleUrl: 'u',
+    decisions: [{ reviewer: 'Lloyd', approved: 2, rejected: 0 }],
+  });
+  const rendered = renderReport(fin);
+  assert(rendered.includes('Bookings decided this week: 2 confirmed (Lloyd 2)'), 'the decisions line is rendered');
+  assert(rendered.includes('receipt awaiting review'), 'and the receipt line survives beside it');
+  assert(rendered.includes('payout not received'), 'and so does the overdue line');
+  // Unchanged when the RPC returns nothing — which is also what a failed read looks like.
+  const none = weeklyFinanceReport({ today: '2026-09-21', pending: [], overdueLines: [], warns: [], consoleUrl: 'u', decisions: [] });
+  assertEquals(none.lines.some((l) => l.includes('Bookings decided')), false);
 });

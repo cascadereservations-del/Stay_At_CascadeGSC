@@ -161,12 +161,26 @@ export type WeeklyFinanceInput = {
   overdueLines: string[];
   warns: Array<{ label: string; n: number; status: string }>;
   consoleUrl: string;
+  /** SPEC-10 control 11: one row per reviewer from finance_decisions_week_v1. */
+  decisions?: Array<{ reviewer: string; approved: number; rejected: number }>;
 };
+
+/** SPEC-10 control 11: who decided what this week. Empty when nobody decided anything — D-160,
+ *  the roll-up posts on movement, and "0 confirmed · 0 declined" is not movement. */
+export function decisionsLine(rows: WeeklyFinanceInput['decisions']): string {
+  const d = rows ?? [];
+  const ok = d.reduce((s, r) => s + r.approved, 0), no = d.reduce((s, r) => s + r.rejected, 0);
+  if (ok + no === 0) return '';
+  const who = d.filter((r) => r.approved > 0).map((r) => `${r.reviewer} ${r.approved}`).join(', ');
+  return `🧑‍⚖️ Bookings decided this week: ${ok} confirmed${who ? ` (${who})` : ''} · ${no} declined`;
+}
 export function weeklyFinanceReport(i: WeeklyFinanceInput): Report {
   const total = i.pending.reduce((s, r) => s + Number(r.gross_amount ?? 0), 0);
   const lines: string[] = [];
   const brk = () => { if (lines.length && lines[lines.length - 1] !== '') lines.push(''); };
   if (i.pending.length) lines.push(`🧾 ${plural(i.pending.length, 'receipt')} awaiting review, ₱${peso(total)} in total`);
+  const decided = decisionsLine(i.decisions);
+  if (decided) { brk(); lines.push(decided); }
   if (i.overdueLines.length) brk();
   for (const l of i.overdueLines.slice(0, 2)) lines.push(`⏳ ${l}`);
   if (i.warns.length) brk();

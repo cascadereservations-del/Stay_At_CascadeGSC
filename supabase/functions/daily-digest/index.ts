@@ -230,7 +230,15 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
   ]);
   const overdueLines = overdue(today, airbnb ?? [], direct ?? []).map((o) => o.line);
   const warns = ((hc ?? []) as any[]).map((h) => ({ label: String(h.label), n: Number(h.count ?? 0), status: String(h.status) }));
-  const weekly = weeklyFinanceReport({ today, pending: pendingRows ?? [], overdueLines, warns, consoleUrl: CONSOLE_URL });
+  // SPEC-10 control 11: who confirmed or declined a booking this week. Advisory, like the rest of
+  // the roll-up: if the read fails the week's report still goes out, one line poorer.
+  const since = new Date(new Date(`${today}T00:00:00Z`).getTime() - 7 * 86_400_000).toISOString();
+  const { data: decided, error: decErr } = await db.rpc('finance_decisions_week_v1', { p_property_id: PROPERTY_ID, p_since: since });
+  if (decErr) console.warn('[daily-digest] finance decisions', decErr.message);
+  const weekly = weeklyFinanceReport({
+    today, pending: pendingRows ?? [], overdueLines, warns, consoleUrl: CONSOLE_URL,
+    decisions: (decided ?? []) as Array<{ reviewer: string; approved: number; rejected: number }>,
+  });
   if (firstOfMonth) weekly.lines.unshift(`Monthly CSV: download Airbnb Transaction History and send the .csv to this chat (last export covered ${lastExport ?? 'unknown'}).`);
   return withHeader('weekly', `week of ${friendlyDate(today)}`, renderReport(weekly));
 }
