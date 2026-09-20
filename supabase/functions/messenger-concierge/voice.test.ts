@@ -5,7 +5,8 @@ import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './
 import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { BOOK_RE } from './booking.ts';
 import { claimsOpen, earlyFeeFor, fixEarlyFee, setAvailability } from './voice.ts';
-import { addChatRoute, beforeClose, decisionInvite, ensureGreeting } from './voice.ts';
+import { addChatRoute, beforeClose, decisionInvite, ensureGreeting, withIntro } from './voice.ts';
+import { BOT_REPLY, CASSY_INTRO, greeting } from './booking.ts';
 
 // Session 30, live 19:19 and 19:20 Manila: the model kept its older site-only invite, and "let me think about it" got a
 // bare link tacked on after the warm close.
@@ -316,4 +317,42 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   assertEquals(hold.startsWith("Ben, we've set aside Nov 17 to 19 for you for 24 hours"), true);
   assertEquals(hold.includes("Once you've sent the receipt here, we'll review and confirm your reservation."), true);
   assertEquals(lintReply(hold), []);
+});
+
+// D-173 / SPEC-01: Cassy introduces herself once, in the first message, and never again.
+Deno.test('SPEC-01: the opener carries the Cassy sentence exactly once, in every register', () => {
+  const guest = 'Hello is Oct 3 to 4 available. i would like to book for 2 adults';
+  for (const [l3, lang] of [['en', 'en'], ['tl', 'tl'], ['bis', 'bis']] as const) {
+    const f = { ...start(guest, now), lang };
+    const first = opener(f, 'Ben', availabilityLine(f, new Set()), true) + prompt({ ...f, step: 'contact' }, 'Ben');
+    assertEquals(first.split('Cassy').length - 1, 1, l3);                       // said, and said once
+    assertEquals(first.includes(CASSY_INTRO[l3]), true, l3);                    // the approved sentence, verbatim
+    assertEquals(lintReply(first, guest, { firstTurn: true }), [], l3);         // still passes the protocol
+  }
+});
+
+Deno.test('SPEC-01: nothing is introduced when the guest has already met her', () => {
+  assertEquals(greeting('Ben', 'en').includes('Cassy'), false);                 // default is silence
+  assertEquals(greeting('Ben', 'en', false).includes('Cassy'), false);
+  assertEquals(greeting('Ben', 'en', true).includes(CASSY_INTRO.en), true);
+  const f = start('book Oct 3 to 4 for 2', now);
+  assertEquals(opener(f, 'Ben').includes('Cassy'), false);                      // a resumed card never carries it
+});
+
+Deno.test('SPEC-01: withIntro guarantees the sentence the model may have dropped', () => {
+  const plain = 'Hi Ben, thank you for reaching out to Cascade Hideaway. Oct 3 to 4 is available.';
+  const out = withIntro(plain, 'en');
+  assertEquals(out.startsWith('Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en), true);
+  assertEquals(out.endsWith('Oct 3 to 4 is available.'), true);                 // inserted, nothing lost
+  assertEquals(withIntro(out, 'en'), out);                                      // never twice
+  assertEquals(withIntro('Ben, I am Cassy and yes it is open.', 'en'), 'Ben, I am Cassy and yes it is open.');
+  const noStop = 'Oct 3 to 4 is open';                                          // no sentence end to insert after
+  assertEquals(withIntro(noStop, 'en'), CASSY_INTRO.en.trimEnd() + '\n\n' + noStop);
+});
+
+Deno.test('SPEC-01: the are-you-a-bot answer is clean in all three registers', () => {
+  for (const l3 of ['en', 'tl', 'bis'] as const) {
+    assertEquals(lintReply('Ben, ' + BOT_REPLY[l3], 'are you a bot?'), [], l3);
+    assertEquals(BOT_REPLY[l3].includes('Cassy'), true, l3);
+  }
 });

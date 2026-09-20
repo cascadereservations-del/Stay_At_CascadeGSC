@@ -6,7 +6,7 @@
 // lintReply() is run over every canned prompt in voice.test.ts (fails the build) and over every
 // outgoing reply at runtime (warn-only log `voice_lint`, so live drift is visible without blocking).
 
-import { greeting } from './booking.ts';
+import { CASSY_INTRO, greeting } from './booking.ts';
 
 export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense' | 'command_tone' | 'exclaim' | 'boilerplate';
 
@@ -126,13 +126,23 @@ export const firstInvite = (lang: L3, siteUrl: string) => ({
  *  12 of 33 first replies (golden run 9), so a first reply that carries no thank-you has its own salutation
  *  replaced by greeting() - the same line the book flow has used since session 28. */
 const THANKED_RE = /thank you for (reaching out|messaging|checking|asking)|welcome to cascade|salamat sa pag-?message/i;
-export function ensureGreeting(reply: string, name: string | null, lang: L3): string {
+export function ensureGreeting(reply: string, name: string | null, lang: L3, intro = false): string {
   if (!reply.trim() || THANKED_RE.test(reply)) return reply;
   const first = name ? name.split(' ')[0] : '';
   const who = first ? `(?:${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})?` : '';
   const salute = new RegExp(`^\\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|kumusta|kamusta|maayong \\p{L}+)(?: po)?[ ,]*${who}[,.!]?\\s*`, 'iu');
   const body = reply.replace(salute, '').trimStart();
-  return greeting(name, lang) + (body || reply.trimStart());
+  return greeting(name, lang, intro) + (body || reply.trimStart());
+}
+/** D-173 / SPEC-01: a prompt rule alone fails at least once (D-097), so the introduction is also
+ *  guaranteed in code on the first exchange. It goes after the reply's first sentence, which is
+ *  where the greeting ends; with no sentence end to find it becomes the opening paragraph. A reply
+ *  that already says Cassy is left exactly as it is. */
+export function withIntro(reply: string, lang: L3): string {
+  if (/\bCassy\b/.test(reply)) return reply;
+  const intro = CASSY_INTRO[lang];
+  const m = reply.match(/^([^.!?\n]*[.!?])\s*/);
+  return m ? reply.replace(m[0], `${m[1]} ${intro}`) : `${intro.trimEnd()}\n\n${reply.trimStart()}`;
 }
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {
@@ -233,7 +243,8 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
   // a question back to them is the failure Lloyd saw live ("is Oct 3 to 4 available?" -> "Your mobile number po?").
   if (guestText && QUESTION_RE.test(guestText)) {
     const firstPara = reply.split(/\n\s*\n/)[0] ?? '';
-    const answers = /\b(yes|yes po|oo|opo|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());
+    // D-173: a disclosure answers the bot question; without this every "are you a bot?" turn logged a false no_answer.
+    const answers = /\b(yes|yes po|oo|opo|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|\bi'?m cassy\b|\bako(?: po)? si cassy\b|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());
     if (!answers) v.push('no_answer');
   }
   return v;

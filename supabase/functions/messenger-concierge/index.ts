@@ -12,8 +12,8 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, tidyReply } from './voice.ts';
+import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
+import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, tidyReply, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -106,14 +106,11 @@ function closingReply(name: string | null, lang: string, thanks: boolean, lastBo
   })[l] + `\n\n👉 ${SITE_URL}`;
   return reply;
 }
-// D-173 / SPEC-01: Lloyd's approved wording, three registers ("automated" failed our own lint; there was no Bisaya line).
+// D-173 / SPEC-01: Lloyd's approved wording, three registers ("automated" failed our own lint;
+// there was no Bisaya line). The strings live in booking.ts so voice.test.ts can lint them.
 function botReply(name: string | null, lang: string): string {
   const n = name ? `${name}, ` : '';
-  return ({
-    en: `${n}I'm Cassy, Cascade Hideaway's digital concierge, an AI assistant looked after by our team. I'm glad to help with rates, dates, directions and anything about your stay, and whenever you'd like a person, our host Marifel is one message away.`,
-    tl: `${n}ako po si Cassy, ang digital concierge ng Cascade Hideaway, isang AI assistant na inaalagaan ng aming team. I'm glad to help with rates, dates, directions at anything about your stay, and kapag gusto ninyong makausap ang isang person, si Marifel, ang host namin, ay one message away lang po.`,
-    bis: `${n}ako si Cassy, ang digital concierge sa Cascade Hideaway, usa ka AI assistant nga giatiman sa among team. Glad ko to help with rates, dates, directions ug anything about your stay, ug kung gusto mo makig-istorya og person, si Marifel, among host, one message away ra.`,
-  })[l3Of(lang)];
+  return n + BOT_REPLY[l3Of(lang)];
 }
 // Lloyd 2026-09-13: anchor the saving, not the percentage. When the guest names a stay length,
 // the standard total, the discounted total and the added value are computed here so the
@@ -677,6 +674,11 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
   const gapMin = lastBot ? (now.getTime() - Date.parse(lastBot.at)) / 60_000 : Infinity;
   const followUp = gapMin < 6 * 60;
   const priorTurns = followUp ? thread.bot_turns : 0;
+  // D-173 / SPEC-01: Cassy introduces herself once per thread, never again - not after a 6 h gap,
+  // not on a resumed card. History is the record; it is capped at HISTORY_KEEP*2, so a very long
+  // thread could re-introduce her once, which is harmless.
+  // ponytail: history scan; add concierge_threads.introduced_at only if a repeat is ever seen live.
+  const introduced = thread.history.some((h) => h.role === 'bot' && /\bCassy\b/.test(h.text));
   const g = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now });
   // Lloyd 2026-09-13: a discount ask gets the answer (the direct site applies the best rate
   // automatically; the longer the stay, the higher the discount) AND the host line and card.
@@ -718,10 +720,11 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     if (flow.asked === 'availability') {
       const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
       const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
-      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang) + line; }
-      else flowReply = opener(flow, thread.guest_name, line) + prompt(flow, thread.guest_name);
+      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang, !introduced) + line; }
+      else flowReply = opener(flow, thread.guest_name, line, !introduced) + prompt(flow, thread.guest_name);
+      // D-173: no Cassy sentence on a resumed card - the disclosure belongs to the greeting, never to a flowFollowUp.
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
-    else flowReply = opener(flow, thread.guest_name) + prompt(flow, thread.guest_name); // session 28: welcome first
+    else flowReply = opener(flow, thread.guest_name, '', !introduced) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }
@@ -742,7 +745,8 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     try {
       const stateBlock = followUp
         ? `\n\nCONVERSATION STATE: this is a FOLLOW-UP in a live chat (your last reply was ${Math.round(gapMin)} min ago). Do NOT greet again - no "Hello", "Hi", "Hello po", "Good morning". Address the guest by name early in the first sentence instead ("Ben, yes po...", "Sige po, Sir Ben, ..."), the way a host continues a conversation, then the answer.`
-        : `\n\nCONVERSATION STATE: this is the FIRST exchange (or the guest is back after a long gap). Greet once, warmly, by first name if known.`;
+        : `\n\nCONVERSATION STATE: this is the FIRST exchange (or the guest is back after a long gap). Greet once, warmly, by first name if known.`
+            + (introduced ? '' : ` Introduce yourself once in that greeting with exactly this sentence: \"${CASSY_INTRO[l3Of(turnLang)]}\"`);
       // First exchange gets the full model (voice, warmth, facts); follow-ups run on the lite tier.
       // Follow-ups: compact prompt (no exemplars) on the full model - cheaper than the old full
       // prompt AND better behaved than lite; the language hint rides on the guest's own turn.
@@ -849,6 +853,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // SPEC-14 (D-184): the model thanked the guest in only 12 of 33 first replies (golden run 9). On first contact
       // the approved greeting is guaranteed in code, the same line the book flow has used since session 28.
       if (!followUp) reply = ensureGreeting(reply, thread.guest_name, l3);
+      // D-173 / SPEC-01: the prompt rule above is not enough on its own (D-097), so the sentence is
+      // guaranteed here - first exchange, not yet introduced, and never under a resumed card.
+      if (!followUp && !introduced && !flowFollowUp) reply = withIntro(reply, l3);
       if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }

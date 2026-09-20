@@ -237,11 +237,31 @@ export function isActive(flow: Flow | null | undefined, now = new Date()): flow 
 
 /** The first reply of a flow: a host's welcome that acknowledges what the guest already told us
  * (session 28 - "Your mobile number po?" as an opener read as a form, not a host). */
-export const greeting = (name: string | null, lang: Lang = 'en') => pick(lang, {
+/** D-173 / SPEC-01: the direct answer to "are you a bot?", approved wording, all three registers.
+ *  The first name and its comma are added by the caller. */
+export const BOT_REPLY: Record<Lang, string> = {
+  en: `I'm Cassy, Cascade Hideaway's digital concierge, an AI assistant looked after by our team. I'm glad to help with rates, dates, directions and anything about your stay, and whenever you'd like a person, our host Marifel is one message away.`,
+  tl: `ako po si Cassy, ang digital concierge ng Cascade Hideaway, isang AI assistant na inaalagaan ng aming team. I'm glad to help with rates, dates, directions at anything about your stay, and kapag gusto ninyong makausap ang isang person, si Marifel, ang host namin, ay one message away lang po.`,
+  bis: `ako si Cassy, ang digital concierge sa Cascade Hideaway, usa ka AI assistant nga giatiman sa among team. Glad ko to help with rates, dates, directions ug anything about your stay, ug kung gusto mo makig-istorya og person, si Marifel, among host, one message away ra.`,
+};
+/** D-173 / SPEC-01: said once, in the first message only, directly after the greeting's
+ *  "thank you for reaching out" sentence and before the answer. Approved wording - do not reword.
+ *  No "po" in tl or bis on purpose: the canned first message already carries three (protocol 07
+ *  section 4 asks for one or two) and Bisaya takes none (protocol 09 section 3). */
+export const CASSY_INTRO: Record<Lang, string> = {
+  en: `I'm Cassy, the home's digital concierge, and Marifel and our team are right here with me. `,
+  tl: `Ako si Cassy, ang digital concierge ng Cascade, and nandito rin si Marifel at ang team anytime. `,
+  bis: `Ako si Cassy, ang digital concierge sa Cascade, ug naa ra pud si Marifel ug ang team anytime. `,
+};
+/** `intro` defaults to false, not true as SPEC-01 sketched: every caller that knows whether the
+ *  guest has already met Cassy passes it explicitly, and a call site missed later should fall back
+ *  to saying nothing rather than to repeating the introduction, which is the one thing D-173
+ *  forbids. */
+export const greeting = (name: string | null, lang: Lang = 'en', intro = false) => pick(lang, {
   en: `${name ? `Hi ${name.split(' ')[0]},` : 'Hello,'} thank you for reaching out to Cascade Hideaway. `,
   tl: `${name ? `Hi ${name.split(' ')[0]}!` : 'Hello po!'} Salamat sa pag-message sa Cascade Hideaway. `,
   bis: `${name ? `Hi ${name.split(' ')[0]}!` : 'Hello!'} Salamat sa pag-message sa Cascade Hideaway. `,
-});
+}) + (intro ? CASSY_INTRO[lang ?? 'en'] : '');
 /** "the two of you" / "kayong dalawa" - the party as a host names it. */
 export function party(flow: Flow): string {
   const tl = flow.lang === 'tl';
@@ -252,15 +272,15 @@ export function availabilityAck(flow: Flow, openLine: string): string {
   const who = party(flow);
   return `${openLine}, ${pick(flow.lang, { en: `and we'd be glad to welcome ${who}.`, tl: `and we'd be glad to have ${who}.`, bis: `and looking forward mi to have ${who}.` })}`;
 }
-export function opener(flow: Flow, name: string | null, answer = ''): string {
+export function opener(flow: Flow, name: string | null, answer = '', intro = false): string {
   const who = party(flow);
   const welcome = pick(flow.lang, { en: `we'd be glad to welcome ${who}.`, tl: `we'd be glad to have ${who}.`, bis: `looking forward mi to have ${who}.` });
-  if (answer) return `${greeting(name, flow.lang)}${answer}, and ${welcome}\n\n`;
+  if (answer) return `${greeting(name, flow.lang, intro)}${answer}, and ${welcome}\n\n`;
   const dates = flow.checkin && flow.checkout
     ? pick(flow.lang, { en: `${dm(flow.checkin)} to ${dm(flow.checkout)} is noted, and we'll check those dates for you as we go. `, tl: `Noted po ang ${dm(flow.checkin)} to ${dm(flow.checkout)} — iche-check namin ang dates as we go. `, bis: `Noted ang ${dm(flow.checkin)} to ${dm(flow.checkout)} — amo i-check ang dates as we go. ` })
     : flow.checkin ? pick(flow.lang, { en: `Check-in on ${dm(flow.checkin)} is noted. `, tl: `Noted po, check-in on ${dm(flow.checkin)}. `, bis: `Noted, check-in on ${dm(flow.checkin)}. ` }) : '';
   const w = welcome.charAt(0).toUpperCase() + welcome.slice(1);
-  return `${greeting(name, flow.lang)}${dates}${w}\n\n`;
+  return `${greeting(name, flow.lang, intro)}${dates}${w}\n\n`;
 }
 
 /** The question for the current slot, in the Cassy voice: calm, gracious, precise; guide rather than command. */
