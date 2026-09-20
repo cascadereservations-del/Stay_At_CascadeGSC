@@ -23,7 +23,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
-import { evaluateGasResponse } from '../submit-cleaning/gas-response.ts';
+import { evaluateGasResponse, GAS_TIMEOUT_MS } from '../submit-cleaning/gas-response.ts';
 import { drivePhotos, type ResendPhoto } from './archive-photos.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-cascade-cron-secret' };
@@ -124,7 +124,7 @@ Deno.serve(async (req: Request) => {
 
   const res = await fetch(GAS_URL, {
     method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload), signal: AbortSignal.timeout(25_000),
+    body: JSON.stringify(payload), signal: AbortSignal.timeout(GAS_TIMEOUT_MS), // D-200: the Storage fallback path makes Code.gs do the slow photo work again
   });
   const bodyText = await res.text().catch(() => '');
   const { failed, reason, stack } = evaluateGasResponse(res.ok, res.status, bodyText);
