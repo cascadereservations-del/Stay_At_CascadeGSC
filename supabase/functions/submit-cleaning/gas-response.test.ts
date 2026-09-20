@@ -2,7 +2,7 @@
 // Covers the v28 fix: GAS always answers HTTP 200, even for its own caught
 // internal errors, so `ok` alone can never detect a failed forward.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { evaluateGasResponse } from './gas-response.ts';
+import { evaluateGasResponse, GAS_TIMEOUT_MS } from './gas-response.ts';
 
 Deno.test('a real success body is not a failure', () => {
   const r = evaluateGasResponse(true, 200, JSON.stringify({ result: 'success', status: 'success' }));
@@ -25,4 +25,10 @@ Deno.test('an empty body is a failure', () => {
   const r = evaluateGasResponse(true, 200, '');
   assertEquals(r.failed, true);
   assertEquals(r.reason, 'HTTP 200');
+});
+
+Deno.test('the GAS forward outlives a real turnover', () => {
+  // 27 photos had not finished archiving 81 s in on 2026-09-19; anything at or
+  // below that reintroduces the abort that lost SPEC-15's file ids.
+  assertEquals(GAS_TIMEOUT_MS > 120_000, true);
 });

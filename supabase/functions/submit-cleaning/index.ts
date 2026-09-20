@@ -32,7 +32,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
-import { evaluateGasResponse } from './gas-response.ts';
+import { evaluateGasResponse, GAS_TIMEOUT_MS } from './gas-response.ts';
 import { parseDriveArchive } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import { meterReasons, parseMeterSkip } from './meter-skip.ts';
@@ -727,7 +727,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         method:  'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body:    JSON.stringify(operationalPayload),
-        signal:  AbortSignal.timeout(25_000),
+        signal:  AbortSignal.timeout(GAS_TIMEOUT_MS),
       }).then(async (res) => {
         const bodyText = await res.text().catch(() => '');
         const { failed, reason } = evaluateGasResponse(res.ok, res.status, bodyText);
@@ -761,7 +761,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: TG_FINANCE_ID,
-              text: `⚠️ Cleaning report email (GAS) FAILED — ${unitName} · ${cleaningDate} · ${cleanerName}\nReason: ${String(err)}\nThe Telegram report above still sent; the turnover-report email to cascadereservations@gmail.com likely did not.`,
+              text: `⚠️ Cleaning report email (GAS) - no answer for ${unitName} · ${cleaningDate} · ${cleanerName}\nReason: ${String(err)}\nApps Script kept running after we stopped waiting, so the e-mail and the Drive archive may well have finished. What is certain is that we never heard back, so this report has no Drive photo links saved. Check cascadereservations@gmail.com before re-sending.`,
             }),
             signal: AbortSignal.timeout(10_000),
           }).catch(() => {});
