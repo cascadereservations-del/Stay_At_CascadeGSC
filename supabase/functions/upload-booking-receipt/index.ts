@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
-import { guestFollowUp, verdictOf, type Lang } from './followup.ts';
+import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictOf, type Lang, type PriorUse } from './followup.ts';
 import { hasVisionKey, visionExtractText, parseModelJson } from '../_shared/cascade-core/vision.ts';
 import {
   buildReceiptObjectPath,
@@ -99,7 +99,7 @@ const PAYMENT_PROMPT = `You are reading a Philippine payment proof (GCash, Maya,
 Rules: amount = the amount sent, as a plain number without symbols. reference = the transaction or reference number exactly as printed, else null. channel e.g. "GCash", "Maya", "BPI", "BDO". confidence 0-1 that amount and reference are right. If the image is not a payment proof, set amount null and confidence below 0.2. Never invent a reference you cannot see.`;
 
 type Read = { amount: number | null; reference: string | null; date: string | null; sender_name: string | null; channel: string | null; confidence: number };
-type Evidence = { read: Read | null; comparisonId: string | null; note: string | null };
+type Evidence = { read: Read | null; candidateId: string | null; comparisonId: string | null; note: string | null };
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -126,11 +126,11 @@ async function produceEvidence(db: any, bookingId: string, nonce: string, bytes:
     p_advisory_labels: read?.channel ? [read.channel.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 40)].filter((l) => /^[a-z0-9_]{2,40}$/.test(l)) : [],
     p_failure_code: read ? null : 'unreadable',
   });
-  if (cErr || !candId) { console.error('[upload-booking-receipt] candidate', cErr?.message); return { read, comparisonId: null, note: note ?? 'evidence not recorded' }; }
+  if (cErr || !candId) { console.error('[upload-booking-receipt] candidate', cErr?.message); return { read, candidateId: null, comparisonId: null, note: note ?? 'evidence not recorded' }; }
   const { data: cmpId, error: mErr } = await db.rpc('compare_booking_payment_evidence', { p_booking_id: bookingId, p_candidate_ids: [candId] });
-  if (mErr || !cmpId) { console.error('[upload-booking-receipt] compare', mErr?.message); return { read, comparisonId: null, note: note ?? 'comparison not recorded' }; }
+  if (mErr || !cmpId) { console.error('[upload-booking-receipt] compare', mErr?.message); return { read, candidateId: candId, comparisonId: null, note: note ?? 'comparison not recorded' }; }
   console.log(JSON.stringify({ event: 'payment_evidence_recorded', booking_id: bookingId, candidate_id: candId, comparison_id: cmpId, object: objectPath.length }));
-  return { read, comparisonId: cmpId, note };
+  return { read, candidateId: candId, comparisonId: cmpId, note };
 }
 
 // deno-lint-ignore no-explicit-any
@@ -150,16 +150,36 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
   // Session 29: a sample reply for the guest when the image is not a payment proof or the amount is short, in the
   // register of their Messenger thread (site uploads have no thread: English).
   const v = verdictOf(r, expected);
+  // SPEC-10 control 3: has this exact image, or this reference number, already been used on a
+  // DIFFERENT booking here? record_payment_evidence_candidate only ever looked inside one booking,
+  // so a screenshot resent under new dates was invisible. Advisory: if the read fails the card
+  // still goes out, one warning poorer — it must never cost Finance the receipt itself.
+  let priorUse: PriorUse[] = [];
+  if (ev.candidateId) {
+    const { data: prior, error: pErr } = await db.rpc('prior_receipt_use_v1', { p_candidate_id: ev.candidateId });
+    if (pErr) console.error('[upload-booking-receipt] prior use', pErr.message);
+    else priorUse = (prior ?? []) as PriorUse[];
+  }
   const { data: th } = await db.from('concierge_threads').select('booking_flow').eq('booking_flow->>booking_id', bookingId).maybeSingle() as { data: { booking_flow?: { lang?: Lang } } | null };
   const sample = guestFollowUp(v, th?.booking_flow?.lang ?? 'en', String(b.guest_name ?? ''), expected, r?.amount ?? 0);
   const verdict = r && r.amount !== null
     ? (Math.abs(r.amount - expected) < 0.5 ? `⚖️ Amount matches the ₱${peso(expected)} expected` : `⚖️ ₱${peso(Math.abs(r.amount - expected))} ${r.amount < expected ? 'SHORT' : 'over'} — expected ₱${peso(expected)}`)
     : null;
+  // SPEC-10 control 2: the old Do line said "Confirm only once the payment is real" without saying
+  // how you would know. hostDoLine names the one check a forged screenshot cannot survive — the
+  // money being in the wallet. It returns null for not_proof / unread, where there is no amount to
+  // go looking for, and the two original lines still apply there.
+  const doLine = ev.comparisonId
+    ? (hostDoLine(v, r?.amount ?? null, r?.reference ?? null)
+       ?? (sample ? 'Do: open the image. If no full payment shows, reply to the guest; Confirm only once the payment is real.'
+                  : 'Do: open the image, then tap Confirm if the payment is real — Decline if not.'))
+    : 'Do: review in the dashboard (evidence row was not recorded).';
   const caption = withHeader('finance', `receipt ${ref}`, groups(
+    priorUseLines(priorUse),
     [`📎 Receipt uploaded — ${b.guest_name}`, `📅 ${b.checkin_date} → ${b.checkout_date} · status ${b.status}`],
     [`💳 Expected: ₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)}`, readLine, verdict],
-    [ev.comparisonId ? (sample ? 'Do: open the image. If no full payment shows, reply to the guest; Confirm only once the payment is real.' : 'Do: open the image, then tap Confirm if the payment is real — Decline if not.') : 'Do: review in the dashboard (evidence row was not recorded).',
-     `🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${bookingId}`],
+    v === 'over' && r?.amount != null ? overpaymentLines(r.amount, expected) : [],
+    [doLine, `🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${bookingId}`],
     sample ? doSend('the guest', sample) : [],
   ));
   const { data: signed } = await db.storage.from(BUCKET).createSignedUrl(objectPath, 3600);
@@ -168,10 +188,22 @@ async function notifyFinance(db: any, bookingId: string, objectPath: string, ev:
   const reply_markup = autoKeyboard(caption, ev.comparisonId
     ? [{ text: '✅ Confirm booking', callback_data: `bk_ok:${ev.comparisonId}` }, { text: '❌ Decline', callback_data: `bk_no:${ev.comparisonId}` }]
     : []);
-  const body = url
-    ? { chat_id: chat, [isImage ? 'photo' : 'document']: url, caption: caption.slice(0, 1024), reply_markup }
-    : { chat_id: chat, text: caption, reply_markup };
-  const method = url ? (isImage ? 'sendPhoto' : 'sendDocument') : 'sendMessage';
-  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
-  if (!res.ok) console.error('[upload-booking-receipt] telegram non-ok', res.status, (await res.text().catch(() => '')).slice(0, 200));
+  const send = async (method: string, payload: Record<string, unknown>) => {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) console.error('[upload-booking-receipt] telegram non-ok', res.status, (await res.text().catch(() => '')).slice(0, 200));
+  };
+  const attach = isImage ? 'photo' : 'document';
+  // SPEC-10: Telegram caps a photo CAPTION at 1024 characters. Before the fraud lines the card never
+  // came near it; a card carrying the duplicate group, the overpayment group AND a sample reply is
+  // about 1150, and the old `.slice(0, 1024)` would have cut exactly the tail — the 📨 line that the
+  // Copy / Revise taps read back off the message. When the card is too long the image goes up bare
+  // and the card follows as its own message, which is where the buttons go: the tap handler reads
+  // whichever message it was tapped on, so they must travel with the text, not the picture.
+  if (url && caption.length > CAPTION_MAX) {
+    await send(isImage ? 'sendPhoto' : 'sendDocument', { chat_id: chat, [attach]: url });
+    await send('sendMessage', { chat_id: chat, text: caption, reply_markup });
+    return;
+  }
+  if (url) await send(isImage ? 'sendPhoto' : 'sendDocument', { chat_id: chat, [attach]: url, caption, reply_markup });
+  else await send('sendMessage', { chat_id: chat, text: caption, reply_markup });
 }
