@@ -17,8 +17,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260920T141509Z",
+    "verified_at": "2026-09-20T14:15:09Z",
     "production_rule": "Two new read-only functions (prior_receipt_use_v1, finance_decisions_week_v1) and two new indexes on payment_evidence_candidates, which has 0 rows today so both indexes build instantly. No existing column, row, function, policy or grant is changed. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
