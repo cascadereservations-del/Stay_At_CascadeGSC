@@ -7,17 +7,19 @@
     "commit": "c4a78a6f4de6749eb4496d6f1b76955368854a0c"
   },
   "migrations": [
-    "20260920010000_prior_receipt_use.sql"
+    "20260920010000_prior_receipt_use.sql",
+    "20260920020000_finance_week_decisions.sql"
   ],
   "migration_sha256": {
-    "20260920010000_prior_receipt_use.sql": "ed9928ee32e94e55321adb456089fc8f39ad55c3e27ce2e598af821a0edd53d6"
+    "20260920010000_prior_receipt_use.sql": "ed9928ee32e94e55321adb456089fc8f39ad55c3e27ce2e598af821a0edd53d6",
+    "20260920020000_finance_week_decisions.sql": "8d51e0612bdd391546526b33f3d44888bfe6b01d382bf5a59b9ba05adece96f2"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "",
     "verified_at": "",
-    "production_rule": "One new read-only function (prior_receipt_use_v1) and two new indexes on payment_evidence_candidates, which has 0 rows today so both indexes build instantly. No existing column, row, function, policy or grant is changed. Take the backup, fill restore_point/verified_at, apply within one hour."
+    "production_rule": "Two new read-only functions (prior_receipt_use_v1, finance_decisions_week_v1) and two new indexes on payment_evidence_candidates, which has 0 rows today so both indexes build instantly. No existing column, row, function, policy or grant is changed. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
     {
@@ -39,15 +41,24 @@
       "name": "both_property_scoped_indexes_exist",
       "query": "select count(*) = 2 from pg_indexes where schemaname = 'public' and tablename = 'payment_evidence_candidates' and indexname in ('payment_evidence_property_hash_idx', 'payment_evidence_property_reference_idx')",
       "expect": true
+    },
+    {
+      "name": "decisions_function_is_definer_and_service_role_only",
+      "query": "select p.prosecdef and p.proconfig @> array['search_path='] and not has_function_privilege('anon', 'public.finance_decisions_week_v1(uuid, timestamptz)', 'EXECUTE') and has_function_privilege('service_role', 'public.finance_decisions_week_v1(uuid, timestamptz)', 'EXECUTE') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'finance_decisions_week_v1'",
+      "expect": true
     }
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "always (drops one read-only function and two indexes; no evidence row is read or written by the rollback)",
+    "safe_until": "always (drops two read-only functions and two indexes; no evidence row or review row is read or written by the rollback)",
     "steps": [
       {
         "name": "redeploy_previous_upload_booking_receipt",
         "action": "deploy upload-booking-receipt from waves 95d164e so it stops calling prior_receipt_use_v1"
+      },
+      {
+        "name": "redeploy_previous_daily_digest",
+        "action": "deploy daily-digest from waves 95d164e so it stops calling finance_decisions_week_v1"
       },
       {
         "name": "run_compensating_script",
@@ -59,6 +70,10 @@
     {
       "name": "receipt_card_shows_prior_use",
       "required_state": "The SPEC-10 upload-booking-receipt build is deployed only AFTER this release is applied. Deployed earlier, its prior_receipt_use_v1 call errors, the error is caught and logged as '[upload-booking-receipt] prior use', and the card is still sent without the duplicate group. The new Do line and the overpayment group do not depend on this release at all."
+    },
+    {
+      "name": "weekly_rollup_shows_decisions",
+      "required_state": "The SPEC-10 daily-digest build is deployed only AFTER this release is applied. Deployed earlier, the finance_decisions_week_v1 call errors, the error is caught and logged as '[daily-digest] finance decisions', and the weekly roll-up still goes out without the decisions line."
     }
   ],
   "compatibility": {
@@ -66,7 +81,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "A new function and two new indexes; nothing before this release names either. The join semantics were proven read-only on production 2026-09-20 with a CTE carrying the same five-candidate fixture: probing the resent image returns exactly one row on the other booking labelled 'image', probing the shared reference returns one labelled 'reference', a null reference returns none, and a candidate never reports its own booking or another property's. pgTAP supabase/tests/database/prior_receipt_use.sql, 10 assertions, fixtures created and rolled back inside the test transaction; CI runs it on push (no local Docker)."
+    "evidence": "A new function and two new indexes; nothing before this release names either. The join semantics were proven read-only on production 2026-09-20 with a CTE carrying the same five-candidate fixture: probing the resent image returns exactly one row on the other booking labelled 'image', probing the shared reference returns one labelled 'reference', a null reference returns none, and a candidate never reports its own booking or another property's. pgTAP supabase/tests/database/prior_receipt_use.sql, 10 assertions, fixtures created and rolled back inside the test transaction; CI runs it on push (no local Docker). finance_decisions_week_v1 follows get_checklist_staff_names: a definer read of auth.users.raw_user_meta_data->>'display_name', service_role only, returning the display name and nothing else about the user. It is covered by three decisionsLine tests in daily-digest/digest.test.ts rather than pgTAP, because what can go wrong is the rendering, not the grouping."
   },
   "approvals": {
     "production_required": true,
