@@ -29,7 +29,7 @@
     },
     {
       "name": "function_is_definer_with_empty_search_path",
-      "query": "select p.prosecdef and p.proconfig @> array['search_path='] from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'prior_receipt_use_v1'",
+      "query": "select p.prosecdef and p.proconfig @> array['search_path=\"\"'] from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'prior_receipt_use_v1'",
       "expect": true
     },
     {
@@ -44,7 +44,7 @@
     },
     {
       "name": "decisions_function_is_definer_and_service_role_only",
-      "query": "select p.prosecdef and p.proconfig @> array['search_path='] and not has_function_privilege('anon', 'public.finance_decisions_week_v1(uuid, timestamptz)', 'EXECUTE') and has_function_privilege('service_role', 'public.finance_decisions_week_v1(uuid, timestamptz)', 'EXECUTE') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'finance_decisions_week_v1'",
+      "query": "select p.prosecdef and p.proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.finance_decisions_week_v1(uuid, timestamptz)', 'EXECUTE') and has_function_privilege('service_role', 'public.finance_decisions_week_v1(uuid, timestamptz)', 'EXECUTE') from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'finance_decisions_week_v1'",
       "expect": true
     }
   ],
