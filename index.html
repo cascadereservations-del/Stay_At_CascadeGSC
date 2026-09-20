@@ -6349,10 +6349,11 @@
                 <div class="pay-method-card">
                   <div class="pay-qr-wrap">
                     <div class="pay-qr-box" role="img" aria-label="GCash QR code for Marifel Suzanne Boncales">
+                      <!-- Not loading="lazy": these sit inside #bookingStep2, which is display:none at parse time, so a lazy image never gets a layout box and the fetch is never started - the guest reaches the payment step and sees an empty white square (D-203). -->
                       <img
                         src="assets/images/qr-gcash.png"
                         alt="GCash QR code — scan to send reservation fee"
-                        loading="lazy" width="220" height="220">
+                        width="220" height="220">
                     </div>
                     <p class="pay-qr-caption" id="gcashQrCaption">GCash</p>
                     <p class="pay-qr-samephone">Same phone? Screenshot this and use <strong>Scan from gallery</strong> in GCash.</p>
@@ -6416,7 +6417,7 @@
                       <img
                         src="assets/images/qr-unionbank.png"
                         alt="UnionBank InstaPay QR code"
-                        loading="lazy" width="220" height="220">
+                        width="220" height="220">
                     </div>
                     <p class="pay-qr-caption">UnionBank</p>
                     <p class="pay-qr-samephone">Same phone? Screenshot this and use <strong>Scan QR from gallery</strong> in your bank app.</p>
