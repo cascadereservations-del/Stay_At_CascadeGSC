@@ -41,6 +41,14 @@ select ok(has_function_privilege('authenticated', 'public.run_health_checks_v1(u
 insert into public.properties(id, name, is_active)
 values ('e1000000-0000-4000-8000-000000000001', 'Synthetic Health Property', true) on conflict(id) do nothing;
 
+-- staff_access_profiles.user_id is a foreign key into auth.users, so the three
+-- staff have to exist as users before they can have a role. CI caught this:
+-- without it the file aborts after the sixth assertion having planned 27.
+insert into auth.users(id) values
+  ('e2000000-0000-4000-8000-00000000000a'),
+  ('e2000000-0000-4000-8000-00000000000b'),
+  ('e2000000-0000-4000-8000-00000000000c');
+
 insert into public.staff_access_profiles(user_id, role) values
   ('e2000000-0000-4000-8000-00000000000a', 'admin'),
   ('e2000000-0000-4000-8000-00000000000b', 'inspector'),
