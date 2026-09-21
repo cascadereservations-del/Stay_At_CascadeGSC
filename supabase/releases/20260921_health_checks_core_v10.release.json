@@ -17,8 +17,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260921T043425Z",
-    "verified_at": "2026-09-21T04:34:25Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260921T134424Z",
+    "verified_at": "2026-09-21T13:44:24Z",
     "production_rule": "The first migration REPLACES a live function that the admin dashboard's System health button calls, which is the only reason this needs a backup at all. Its body was not retyped: it was lifted from 20260916150000_admin_overview_handoffs_open.sql lines 111-198, which was first verified byte-identical to the deployed function (md5(prosrc) 527fb1e6054d4858310f2c32d0493f33, 9982 bytes, both sides, 2026-09-21), and two lines were removed and one added by sed. The forward checks assert the resulting body's md5 exactly, which is the only test that can catch a mistyped copy - an equality test between the two wrappers cannot, because both would read the same wrong body and agree. The second migration adds one check to a function nothing calls yet. No table, column, row or policy is altered by either."
   },
   "forward_verification": [
