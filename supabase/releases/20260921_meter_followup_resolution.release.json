@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260921T014127Z",
+    "verified_at": "2026-09-21T01:41:27Z",
     "production_rule": "Two nullable columns on meter_readings (62 rows) and one new function. No existing column, row, function, policy or grant is changed, and no index is built. There are ZERO 'mismatch' rows in production (13 ok, 1 unreadable, 48 unchecked, read 2026-09-21), so applying this blocks nobody. Take the backup, fill restore_point/verified_at, apply within one hour."
   },
   "forward_verification": [
