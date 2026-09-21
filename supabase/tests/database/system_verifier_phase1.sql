@@ -14,7 +14,7 @@
 -- The clock is passed in rather than waited for: p_now is a parameter of both
 -- functions precisely so a 25-hour reminder can be tested in a millisecond.
 begin;
-select plan(30);
+select plan(32);
 
 -- Catalogue -------------------------------------------------------------------
 select has_table('public', 'verifier_findings', 'the findings table exists');
@@ -40,6 +40,14 @@ select throws_ok(
 -- Fixtures --------------------------------------------------------------------
 insert into public.properties(id, name, is_active)
 values ('d1000000-0000-4000-8000-000000000001', 'Synthetic Verifier Property', true) on conflict(id) do nothing;
+
+-- A Concierge on auto, so V11 is quiet for most of this file. Migration
+-- 20260911000000 seeds concierge_mode as "suggest", which is exactly why the
+-- first CI run of this file failed: V11 fired on every assertion that counted
+-- findings. app_settings.value is JSONB, so the value really is the quoted
+-- string - that is what the check had to learn to unwrap.
+insert into public.app_settings(key, value) values ('concierge_mode', '"auto"'::jsonb)
+on conflict (key) do update set value = '"auto"'::jsonb;
 
 -- A healthy Airbnb feed, so V12 is quiet for most of this file. Without this
 -- row every single run below would carry an extra red finding.
@@ -187,6 +195,25 @@ select is(
       public.run_system_verifier_v1('d1000000-0000-4000-8000-000000000001', 'hourly', '2026-10-10T10:00:00Z')->'found') e
     where e->>'check_id' = 'V12'),
   'red', 'a silent Airbnb feed is red');
+
+-- V11, both ways. This pair exists because the check was WRONG the first time:
+-- app_settings.value is jsonb, so a Concierge on auto read as the quoted string
+-- "auto", never equalled 'auto', and would have raised a permanent yellow that
+-- nothing could ever clear. Asserting only that it fires would not have caught
+-- that; asserting that it stays quiet on a healthy setting is the half that did.
+select is(
+  (select count(*) from jsonb_array_elements(
+      public.run_system_verifier_v1('d1000000-0000-4000-8000-000000000001', 'hourly', '2026-10-10T10:00:00Z')->'found') e
+    where e->>'check_id' = 'V11'),
+  0::bigint, 'a Concierge on auto raises nothing, quotes and all');
+
+update public.app_settings set value = '"suggest"'::jsonb, updated_at = '2026-10-10T06:00:00Z'
+ where key = 'concierge_mode';
+select is(
+  (select e->>'title' from jsonb_array_elements(
+      public.run_system_verifier_v1('d1000000-0000-4000-8000-000000000001', 'hourly', '2026-10-10T10:00:00Z')->'found') e
+    where e->>'check_id' = 'V11'),
+  'Concierge is not on auto', 'and four hours off auto does raise it');
 
 select * from finish();
 rollback;

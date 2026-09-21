@@ -212,7 +212,13 @@ begin
 
   -- V11 - the Concierge has been off auto for over two hours. A singleton key:
   -- it is one condition, not one per row.
-  select s.value, s.updated_at into v_mode, v_mode_since
+  -- app_settings.value is JSONB, so s.value::text is "auto" WITH the quotes and
+  -- would never equal 'auto'. Written the obvious way, this check raised a
+  -- permanent yellow against a Concierge that was on auto the whole time; CI
+  -- caught it because migration 20260911000000 seeds the setting as "suggest".
+  -- #>> '{}' unwraps a jsonb scalar to its text, which is the only comparison
+  -- that is right for both.
+  select s.value #>> '{}', s.updated_at into v_mode, v_mode_since
     from public.app_settings s where s.key = 'concierge_mode';
   if v_mode is not null and v_mode <> 'auto' and v_mode_since < p_now - interval '2 hours' then
     v_found := v_found || jsonb_build_array(jsonb_build_object(

@@ -7,19 +7,31 @@
     "commit": "58ed20a"
   },
   "migrations": [
+    "20260921005000_meter_vision_catchup.sql",
     "20260921010000_system_verifier_phase1.sql"
   ],
   "migration_sha256": {
-    "20260921010000_system_verifier_phase1.sql": "8aa22cb6e03424730e25d51014c07af4c9806860ec35e52677e4f3c48c9036c9"
+    "20260921005000_meter_vision_catchup.sql": "178a26561addb2f2f3add05a91251a229ca714b9ef2d193c24f4c6115f8dfbf9",
+    "20260921010000_system_verifier_phase1.sql": "5226d9ed13700d80caa41d20844669d57d8add4f3d5248ffc85479ba818e71b0"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "",
     "verified_at": "",
-    "production_rule": "One new table (verifier_findings, empty on arrival), three new functions, one partial index on that empty table, and two job_heartbeats rows. No existing column, row, function, policy or grant is changed. Nothing calls any of it until the system-verifier Edge Function is deployed in SPEC-11 session 2, so the applied state is inert. Take a FRESH backup - the one used for meter_followup_resolution_20260921 will be older than the contract's one-hour window."
+    "production_rule": "Two migrations. The FIRST is a catch-up and a no-op against production: the meter-photo vision schema has been live since 2026-09-13 but was applied by hand and never recorded as a stay-site migration, so CI's baseline never had it and no pgTAP could touch it. Every statement in it is idempotent, and get_meter_photo_followups was verified byte-identical to the deployed function (md5(prosrc) 68844a6d99f94ab7c410f4d55806ee19, 1233 bytes, both sides, 2026-09-21). The SECOND adds one empty table, three functions, one partial index and two job_heartbeats rows. No existing column, row, function, policy or grant is changed by either. Nothing calls any of it until SPEC-11 session 2. Take a FRESH backup - the one used for meter_followup_resolution_20260921 is outside the one-hour window."
   },
   "forward_verification": [
+    {
+      "name": "the_catchup_left_production_exactly_as_it_was",
+      "query": "select count(*) = 7 from information_schema.columns where table_schema = 'public' and table_name = 'meter_readings' and column_name in ('vision_electric','vision_water','vision_confidence','vision_verdict','vision_checked_at','vision_raw','vision_resolved_at')",
+      "expect": true
+    },
+    {
+      "name": "get_meter_photo_followups_body_is_unchanged",
+      "query": "select md5(p.prosrc) = '68844a6d99f94ab7c410f4d55806ee19' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'get_meter_photo_followups'",
+      "expect": true
+    },
     {
       "name": "findings_table_exists_with_rls",
       "query": "select relrowsecurity from pg_class where oid = 'public.verifier_findings'::regclass",
@@ -56,6 +68,10 @@
     "safe_until": "always while SPEC-11 session 2 is unbuilt, because nothing calls any of this yet. Once the system-verifier function is deployed and scheduled, unschedule its two cron jobs first.",
     "steps": [
       {
+        "name": "do_not_roll_back_the_catchup",
+        "action": "The catch-up migration has nothing to undo: it only declared schema production already had. Rolling it back would drop live columns and a live function. Leave it."
+      },
+      {
         "name": "unschedule_the_cron_jobs_if_they_exist",
         "action": "select cron.unschedule('system-verifier-hourly'); select cron.unschedule('system-verifier-daily'); - only needed once SPEC-11 session 2 has scheduled them"
       },
@@ -76,7 +92,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "One new table, three new functions, one index, two seed rows; nothing before this release names any of them. All eight checks (V1-V6, V11, V12) were run read-only against production on 2026-09-21 and returned clean (V1 0, V2 0, V3 0, V4 0, V5 0, V6 0, V11 auto since 2026-09-11, V12 last good sync 40 minutes old). That pass found a real defect before shipping: calendar_sync_log.status is 'ok', not the design's 'success', so V12 would have raised a red alert on a healthy feed the first time it ran. The V1 self-join, the V3 correlated auto_safe subquery and the V5 aggregation were additionally executed as inline read-only SQL against production to prove the jsonb assembly compiles and returns a well-formed array, and V1 was proven positive against a synthetic overlapping pair supplied through a VALUES CTE: exactly one finding, keyed by both ids in sorted order, both guests named, severity red. pgTAP supabase/tests/database/system_verifier_phase1.sql, 30 assertions, every fixture created and rolled back inside the test transaction; CI runs it on push, there being no local Docker. It is the only cover for apply_verifier_run_v1's state machine (announce once, remind after 24h, resolve when gone, never resolve a check the scope did not run) and for both auto-resolutions, so a red database job on this release must be read as the release failing and not as a flaky test."
+    "evidence": "Two migrations, both additive. The catch-up only declares schema production has had since 2026-09-13; its two forward checks were run against production BEFORE shipping and both already return true, which is what a no-op must look like. The second adds one table, three functions, one index and two seed rows; nothing before this release names any of them. All eight checks (V1-V6, V11, V12) were run read-only against production on 2026-09-21 and returned clean. THREE real defects were caught before any of this went live, each by a different guard. (1) The production read-through: calendar_sync_log.status is 'ok', not the design's 'success', so V12 would have raised a red 'Airbnb feed has gone quiet' on a healthy feed the first time it ran. (2) CI's first run of the pgTAP: app_settings.value is JSONB, so a Concierge on auto reads as the quoted string \"auto\", never equals 'auto', and V11 would have raised a permanent yellow that nothing could clear. Fixed with #>> '{}', and pinned by a pair of assertions - fires on 'suggest', silent on 'auto' - because asserting only that a check fires would not have caught it. (3) The same CI run: meter_followup_resolution.sql died on 'column vision_electric does not exist', which is how the missing migration history was found at all. V1 was additionally proven positive against a synthetic overlapping pair through a VALUES CTE: one finding, keyed by both ids in sorted order, both guests named, red. pgTAP supabase/tests/database/system_verifier_phase1.sql, 32 assertions, every fixture created and rolled back inside the test transaction. It is the only cover for apply_verifier_run_v1's state machine (announce once, remind after 24h, resolve when gone, never resolve a check the scope did not run) and for both auto-resolutions, so a red database job on this release is the release failing, not a flaky test."
   },
   "approvals": {
     "production_required": true,
