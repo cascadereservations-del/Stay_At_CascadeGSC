@@ -17,8 +17,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260921T134424Z",
-    "verified_at": "2026-09-21T13:44:24Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260921T145438Z",
+    "verified_at": "2026-09-21T14:54:38Z",
     "production_rule": "The first migration REPLACES a live function that the admin dashboard's System health button calls, which is the only reason this needs a backup at all. Its body was not retyped: it was lifted from 20260916150000_admin_overview_handoffs_open.sql lines 111-198, which was first verified byte-identical to the deployed function (md5(prosrc) 527fb1e6054d4858310f2c32d0493f33, 9982 bytes, both sides, 2026-09-21), and two lines were removed and one added by sed. The forward checks assert the resulting body's md5 exactly, which is the only test that can catch a mistyped copy - an equality test between the two wrappers cannot, because both would read the same wrong body and agree. The second migration adds one check to a function nothing calls yet. No table, column, row or policy is altered by either."
   },
   "forward_verification": [
@@ -102,7 +102,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-21T14:45Z on a disposable restore of production backup cascade-supabase-20260921T134424Z (migration-rehearsal-on-host.sh, prefix cascade-migration-rehearsal-1cc9b37ee196, 0 leftovers). Baseline restored to 102 public tables and 117 ledger rows; both migrations applied in order, 2 applied 0 failed; ALL ELEVEN forward checks passed against real data, including the_moved_body_is_the_body_that_was_moved; pgTAP health_checks_core_v10.sql 27/27; 102 public tables after, unchanged. This is the evidence compatibility.verified is for: the migrations were executed against a copy of real production, in order, and the post-state was asserted.",
     "evidence": "Two migrations. The FIRST is the move D-208 deliberately kept out of phase 1, and it is the whole reason this release exists separately: lifting a sixty-line body containing every financial check is the highest-risk edit in SPEC-11 and it deserved a diff of its own. It was not retyped. The repo's copy at 20260916150000 lines 111-198 was hashed against the live function first (md5(prosrc) 527fb1e6054d4858310f2c32d0493f33, 9982 bytes, both sides), then sed removed the admin_require line and rewrote the finance line to read p_fin. The declaration of v_fin was left in place so its three later uses did not have to be touched, which is why the whole diff is two lines out and one in. The result hashes to f169d017fa1a9a9d768dd495d7219caf and the first forward check asserts exactly that - the only assertion that can fail on a mistyped copy, because the spec's own equality test would pass on one. The SECOND adds V10, which was run read-only against production on 2026-09-21 before it was written and returned seven findings on the stored health run: one red (payout_rows_linked), six yellow, and ledger_duplicates correctly carrying accepted=true for K16. That same read exposed why V10 carries a staleness guard at all: production's stored health run was from 2026-09-14, seven days old, because nobody had pressed the button since 20260916150000 added a check to it. V10 reads admin_health_check_runs rather than calling run_health_checks_service_v1 - a departure from the spec, so that run_system_verifier_v1 stays stable and dry=1 keeps writing nothing - and V10:stale is what stops that departure from failing silently. pgTAP supabase/tests/database/health_checks_core_v10.sql, 27 assertions, every fixture rolled back in-transaction: the gate still raises 42501, an inspector sees seven checks while the four financial rows exist in the table (so it tests the filter, not their absence), p_fin is proven threaded by comparing the wrapper's output against the core's with false, and K16 is stored acknowledged and never announced."
   },
   "approvals": {
