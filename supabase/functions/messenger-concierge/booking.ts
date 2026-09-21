@@ -456,6 +456,25 @@ function relDay(iso: string, now: Date, lang: Lang | undefined): string {
   if (diff === 1) return pick(lang, { en: 'tomorrow', tl: 'bukas', bis: 'ugma' });
   return new Date(iso).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', weekday: 'long' });
 }
+/** SPEC-10 control 6, the payment promise. Lloyd approved these three sentences on 2026-09-20; the
+ *  only addition is the registered-holder clause (see below). It is sent as its OWN message, straight
+ *  after the QR image, and deliberately not folded into paymentReply: that reply already runs 618 /
+ *  682 / 664 characters (en / tl / bis) against lintReply's 700-character too_long cap, so merging a
+ *  163-to-173-character sentence in breaks too_long in every variant and too_dense in four. Placing it
+ *  beside the QR also puts it exactly where the doubt happens - the guest is looking at the QR when
+ *  they wonder whose account this is.
+ *
+ *  Both names on purpose. The QR's confirm screen shows `Cascades`; the booking site shows
+ *  `Marifel Suzanne Boncales` in four places. Naming only the first, on a page that says the second,
+ *  would manufacture the very doubt this sentence exists to settle. */
+export function paymentPromise(lang: Lang | undefined): string {
+  return pick(lang, {
+    en:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales.`,
+    tl:  `For your peace of mind: payment requests po ay dito lang sa chat o sa aming site, through the GCash QR that we send, and ang account name na makikita ninyo ay Cascades, registered po kay Marifel Suzanne Boncales.`,
+    bis: `For your peace of mind: ang payment request kay diri ra sa chat o sa among site, through the GCash QR nga among ipadala, and ang account name nga inyong makita kay Cascades, registered kay Marifel Suzanne Boncales.`,
+  });
+}
+
 export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, now = new Date()): string {
   const n = name ? name.split(' ')[0] : '';
   const nm = n ? `, ${n}` : '';

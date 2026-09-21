@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
+import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -911,7 +911,14 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     if (mode === 'auto') {
       await fx.send(psid, reply);
-      if (flowImage) await fx.qr(psid, flow, flowImage);
+      if (flowImage) {
+        await fx.qr(psid, flow, flowImage);
+        // SPEC-10 control 6: the payment promise, as its own message under the QR. It rides with the
+        // QR rather than with paymentReply because that reply is already near lintReply's 700-character
+        // cap, and because this is the moment the guest is looking at the QR wondering whose account
+        // it is. Sent only when a QR was sent, so it cannot leak into an ordinary answer.
+        await fx.send(psid, paymentPromise(flow?.lang));
+      }
     }
     else { await fx.send(psid, ACK_SUGGEST); await fx.ops(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
     if (handoff) {

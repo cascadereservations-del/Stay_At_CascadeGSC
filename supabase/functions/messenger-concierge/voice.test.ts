@@ -72,7 +72,7 @@ Deno.test('dropPaxAsk: a repeated guest-count question goes, the site line no lo
   assertEquals(dropPaxAsk('How many guests will be staying?'), 'How many guests will be staying?'); // never empties a reply
   assertEquals(dropPaxAsk('Yes, the home fits up to 3 adults.'), 'Yes, the home fits up to 3 adults.');
 });
-import { answer, availabilityAck, availabilityLine, cancelReply, detectLang, nextAsk, opener, parsePax, paymentReply, prompt, start, type Flow } from './booking.ts';
+import { answer, availabilityAck, availabilityLine, cancelReply, detectLang, nextAsk, opener, parsePax, paymentPromise, paymentReply, prompt, start, type Flow } from './booking.ts';
 import { GCASH_QRPH_BASE, crc16, qrphWithAmount } from '../_shared/cascade-core/qrph.ts';
 
 const now = new Date('2026-09-17T01:00:00Z');
@@ -166,6 +166,20 @@ Deno.test('Bisaya register: Bislish, no po, passes the lint (Lloyd 12:15, D-169)
   assertEquals(lintReply(pay), []);
   const lines = [pay, first, availabilityLine({ ...base, lang: 'bis' }, new Set(['2026-10-03'])), ...(['dates', 'checkout', 'pax', 'offer', 'contact', 'confirm'] as const).map((step) => prompt({ ...base, lang: 'bis', step }, 'Ben'))];
   for (const l of lines) { assertEquals(/\b(po|opo)\b/i.test(l), false, 'no Tagalog po in Bisaya: ' + l.slice(0, 40)); assertEquals(lintReply(l), [], l.slice(0, 40)); }
+  for (const l of ['en', 'tl', 'bis'] as const) {
+    // SPEC-10 control 6: the promise is its own message under the QR, so it carries the register on
+    // its own and must pass the lint on its own.
+    const promise = paymentPromise(l);
+    assertEquals(lintReply(promise), [], 'promise lint ' + l);
+    assertEquals(promise.startsWith('For your peace of mind:'), true, l);
+    assertEquals(promise.includes('Cascades, registered'), true, 'both names, never just the QR one: ' + l);
+    assertEquals(promise.includes('Marifel Suzanne Boncales'), true, l);
+    if (l === 'bis') assertEquals(/\b(po|opo)\b/i.test(promise), false, 'no Tagalog po in Bisaya');
+    // It must stay OUT of paymentReply: merged in, the reply breaks the 700-character too_long cap.
+    const reply = paymentReply({ ...base, lang: l, step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
+    assertEquals(reply.includes('For your peace of mind'), false, 'promise is a separate message: ' + l);
+    assertEquals(lintReply(reply + '\n\n' + promise).includes('too_long'), true, 'merging it would break the lint: ' + l);
+  }
   assertEquals(answer(f, '09171234567', now).flow.lang, 'bis'); // a bare number keeps the register
   assertEquals(answer(f, 'Can I change it to 3 guests?', now).flow.lang, 'en');
 });
