@@ -3013,6 +3013,20 @@
       letter-spacing: 0.02em; margin-top: var(--space-s);
     }
 
+    /* SPEC-10 control 6: the payment promise. Deliberately NOT .pay-gcash-soft-note — that sits at
+       0.45 opacity, and the one line on this page whose whole job is to be read by a worried guest
+       should not be the faintest thing on it. Same inline <style> block, so the external
+       cascade-luxury.css cache key is untouched. */
+    .pay-promise {
+      font-family: var(--ch-font-body); font-size: var(--step--1);
+      font-weight: 400; color: rgb(247 242 232 / 0.78);
+      line-height: 1.6; letter-spacing: 0.01em;
+      margin-top: var(--space-m); padding: 0.9em 1.1em;
+      border-left: 2px solid var(--ch-gold);
+      background: rgb(247 242 232 / 0.04);
+      border-radius: 0 6px 6px 0;
+    }
+
     .pay-gcash-delay-note {
       display: flex; align-items: flex-start; gap: 0.75em;
       padding: 0.85em 1em;
@@ -6466,6 +6480,15 @@
                   </button>
                 </div>
               </div>
+
+              <!-- SPEC-10 control 6: the payment promise. Sits under BOTH payment panes and above the
+                   upload, so it is read whichever rail the guest chose, at the moment they are about
+                   to send money. It names both account names on purpose: the GCash confirm screen
+                   shows "Cascades" while this page prints "Marifel Suzanne Boncales" four times, and
+                   naming only one would create the doubt this line exists to settle. -->
+              <p class="pay-promise" id="payPromise">
+                For your peace of mind: we only ever ask for payment here on our site or in our Messenger chat, through the GCash QR we send, and the account name you will see is <strong>Cascades</strong>, registered to Marifel Suzanne Boncales.
+              </p>
 
               <!-- Receipt upload -->
               <div>
