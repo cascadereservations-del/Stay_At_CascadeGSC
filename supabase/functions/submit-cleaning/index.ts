@@ -1,4 +1,8 @@
-// submit-cleaning v30
+// submit-cleaning v31
+// v31 (session 41, 2026-09-21): the graduated meter-mismatch alert's last step. An unresolved
+//   'mismatch' on an earlier turnover at this property refuses the next turnover or deep clean
+//   with 409 meter_followup_unresolved. The checklist raises and clears it at sign-in, so this
+//   refusal is the backstop, not the user-facing gate. Needs release meter_followup_resolution_20260921.
 // v30 (session 27, 2026-09-17): the SERVER owns the previous meter reading. The form fetches it at
 //   page load, so Honey's second turnover of 16 Sep (submitted 10 min after the first) carried
 //   prev = 0 and a 3914 kWh delta that tripped the anomaly card. Now the latest stored reading for
@@ -35,7 +39,11 @@ import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse, GAS_TIMEOUT_MS } from './gas-response.ts';
 import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
-import { meterReasons, parseMeterSkip } from './meter-skip.ts';
+import {
+  meterReasons, parseMeterSkip,
+  METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
+  type PriorMismatch,
+} from './meter-skip.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
@@ -470,6 +478,33 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const unitName      = String(fd.unitName      ?? 'Cascade Bria');
     const cleaningType  = String(payload.cleaningType ?? fd.cleaningType ?? 'turnover');
     const isMidStay     = cleaningType === 'mid_stay';
+
+    /* The graduated meter-mismatch alert, last step (2026-09-21). An unresolved
+       mismatch on an earlier report blocks the next turnover. The checklist
+       raises it at sign-in and clears it in one tap, so an honest cleaner is
+       stopped BEFORE she cleans and never reaches this refusal; it is here so
+       the gate is a rule and not a client-side suggestion.
+
+       Placed before the first write, and after the duplicate check, so a
+       retried submission that already landed is still answered idempotently
+       rather than refused. 'not_a_meter' deliberately does NOT block: it mirrors
+       to Finance and asks for a re-upload, and widening it is Lloyd's call. */
+    if (METER_BLOCKING_TYPES.has(cleaningType) && propertyId) {
+      const since = new Date(Date.now() - METER_BLOCK_LOOKBACK_DAYS * 86_400_000).toISOString();
+      const { data: blocking } = await supabase
+        .from('meter_readings')
+        .select('recorded_at')
+        .eq('property_id', propertyId)
+        .eq('vision_verdict', 'mismatch')
+        .is('vision_resolved_at', null)
+        .gte('recorded_at', since)
+        .order('recorded_at', { ascending: false })
+        .limit(1);
+      const blockedMessage = meterBlockMessage(cleaningType, blocking as PriorMismatch[] | null);
+      if (blockedMessage) {
+        return json({ ok: false, error: 'meter_followup_unresolved', message: blockedMessage }, 409);
+      }
+    }
     const cleaningDate  = String(payload.cleaningDate ?? fd.cleaningDate ?? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }));
     const startTime     = String(fd.startTime ?? payload.startTime ?? '') || '';
     const checkInDate   = String(fd.checkInDate   ?? payload.checkInDate  ?? '') || null;

@@ -25,6 +25,7 @@
 //   CASCADE_OPENROUTER_BOT_KEY   (falls back to OPENROUTER_API_KEY)
 //   VISION_MODEL       optional per-provider override
 //   TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID   the OPS group, as everywhere else
+//   TELEGRAM_FINANCE_CHAT_ID               mirrored to for money verdicts only
 //
 // POST body, every field optional:
 //   { submission_id?: string,  // check one report
@@ -75,6 +76,14 @@ const ELECTRIC_TOLERANCE = 2;    // kWh
 const WATER_TOLERANCE    = 0.5;  // m³
 // Below this the model is guessing, and a guess must never accuse anyone.
 const MIN_CONFIDENCE     = 0.55;
+
+// Which verdicts Finance is shown. OPS sees every finding, as before. Finance
+// sees only the two that can cost money before a cleaning fee is paid: a photo
+// that disagrees with the typed number, and a photo that is not a meter at all.
+// 'unreadable' deliberately stops at OPS — a dark or angled photo is not a
+// fault and must never reach the people who approve payment as if it were
+// (D-197: unreadable never becomes an accusation).
+const MONEY_VERDICTS = new Set(['mismatch', 'not_a_meter']);
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -307,7 +316,8 @@ Deno.serve(async (req: Request) => {
   if (hb) await hb('started');
 
   const TG_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
-  const TG_CHAT  = Deno.env.get('TELEGRAM_CHAT_ID') ?? '';   // OPS group ONLY
+  const TG_CHAT  = Deno.env.get('TELEGRAM_CHAT_ID') ?? '';   // OPS group
+  const TG_FINANCE = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID') ?? '';
 
   // Which sessions are we checking?
   let targets: any[] = [];
@@ -419,7 +429,7 @@ Deno.serve(async (req: Request) => {
       const head = verdict === 'not_a_meter' ? '🚩 *Meter photo is not a meter*'
                  : verdict === 'mismatch'    ? '🚩 *Meter photo disagrees with the reading*'
                  : '👀 *Meter photo could not be read*';
-      await tgSend(TG_TOKEN, TG_CHAT, [
+      const text = [
         head,
         `🏠 Cascade Hideaway`,
         `${when} · ${t.cleaner_name ?? 'unknown cleaner'}`,
@@ -429,7 +439,16 @@ Deno.serve(async (req: Request) => {
         verdict === 'unreadable'
           ? `_Not necessarily a fault — the photo may just be dark or angled. A re-upload will be asked for at the next sign-in._`
           : `_A re-upload will be asked for at the next sign-in. Worth checking before the cleaning fee is paid._`,
-      ].join('\n'));
+      ].join('\n');
+
+      await tgSend(TG_TOKEN, TG_CHAT, text);
+
+      // The same message, not a summary of it: Finance and OPS must never be
+      // reading two different accounts of one photo. Sent only when the two
+      // chats really are different, so a single-group estate is not told twice.
+      if (MONEY_VERDICTS.has(verdict) && TG_FINANCE && TG_FINANCE !== TG_CHAT) {
+        await tgSend(TG_TOKEN, TG_FINANCE, text);
+      }
     }
   }
 
