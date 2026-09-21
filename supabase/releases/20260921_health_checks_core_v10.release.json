@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "release_id": "health_checks_core_v10_20260921",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "13c27e519669c0ce8a3fd66c5dc67099d0e568ab"
+  },
+  "migrations": [
+    "20260921020000_health_checks_core.sql",
+    "20260921030000_verifier_v10.sql"
+  ],
+  "migration_sha256": {
+    "20260921020000_health_checks_core.sql": "d4515968ce7d079e8ff4689897b1b4796d0d2cd17ec86a20d2c67a8cdd254131",
+    "20260921030000_verifier_v10.sql": "2665a842aa42efb827424ce528b0bb6c1eab772dadac593c09ef9b5ebb1a8515"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "The first migration REPLACES a live function that the admin dashboard's System health button calls, which is the only reason this needs a backup at all. Its body was not retyped: it was lifted from 20260916150000_admin_overview_handoffs_open.sql lines 111-198, which was first verified byte-identical to the deployed function (md5(prosrc) 527fb1e6054d4858310f2c32d0493f33, 9982 bytes, both sides, 2026-09-21), and two lines were removed and one added by sed. The forward checks assert the resulting body's md5 exactly, which is the only test that can catch a mistyped copy - an equality test between the two wrappers cannot, because both would read the same wrong body and agree. The second migration adds one check to a function nothing calls yet. No table, column, row or policy is altered by either."
+  },
+  "forward_verification": [
+    {
+      "name": "the_moved_body_is_the_body_that_was_moved",
+      "query": "select md5(p.prosrc) = 'f169d017fa1a9a9d768dd495d7219caf' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'health_checks_core_v1'",
+      "expect": true
+    },
+    {
+      "name": "the_dashboard_button_is_now_a_wrapper_that_still_gates",
+      "query": "select p.prosrc like '%admin_require(''read_operations'', p_property_id)%' and p.prosrc like '%current_staff_authorized(''read_finance'', p_property_id)%' and p.prosrc like '%health_checks_core_v1(p_property_id, v_fin)%' and length(p.prosrc) < 400 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'run_health_checks_v1'",
+      "expect": true
+    },
+    {
+      "name": "all_three_health_functions_exist_and_are_definer",
+      "query": "select count(*) = 3 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('health_checks_core_v1', 'run_health_checks_v1', 'run_health_checks_service_v1') and p.prosecdef and p.proconfig @> array['search_path=\"\"']",
+      "expect": true
+    },
+    {
+      "name": "the_core_is_reachable_through_a_wrapper_or_not_at_all",
+      "query": "select not has_function_privilege('anon', 'public.health_checks_core_v1(uuid, boolean)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid, boolean)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "the_service_wrapper_is_service_role_only",
+      "query": "select has_function_privilege('service_role', 'public.run_health_checks_service_v1(uuid)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.run_health_checks_service_v1(uuid)', 'EXECUTE') and not has_function_privilege('anon', 'public.run_health_checks_service_v1(uuid)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "the_dashboard_button_kept_its_grant",
+      "query": "select has_function_privilege('authenticated', 'public.run_health_checks_v1(uuid)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "v10_is_in_the_checks_function_with_its_staleness_guard",
+      "query": "select pg_get_functiondef(p.oid) like '%V10:stale%' and pg_get_functiondef(p.oid) like '%admin_health_check_runs%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'run_system_verifier_v1'",
+      "expect": true
+    },
+    {
+      "name": "v10_is_in_the_daily_scope_and_an_accepted_finding_is_born_acknowledged",
+      "query": "select pg_get_functiondef(p.oid) like '%''V6'',''V10'',''V11'',''V12''%' and pg_get_functiondef(p.oid) like '%then ''acknowledged'' else ''open'' end%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'apply_verifier_run_v1'",
+      "expect": true
+    },
+    {
+      "name": "the_daily_scope_still_runs_end_to_end",
+      "query": "select public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'daily') ? 'found'",
+      "expect": true
+    },
+    {
+      "name": "the_hourly_scope_still_says_nothing_about_v10",
+      "query": "select count(*) = 0 from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'hourly')->'found') e where e->>'check_id' = 'V10'",
+      "expect": true
+    },
+    {
+      "name": "applying_this_release_raised_no_findings_by_itself",
+      "query": "select count(*) = 0 from public.verifier_findings",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always while SPEC-11 session 2 is unbuilt, because nothing calls run_health_checks_service_v1 or the daily scope yet. Once the system-verifier Edge Function is deployed and scheduled, unschedule system-verifier-hourly and system-verifier-daily FIRST - the daily job calls run_health_checks_service_v1, which the rollback drops.",
+    "steps": [
+      {
+        "name": "unschedule_the_cron_jobs_if_they_exist",
+        "action": "select cron.unschedule('system-verifier-hourly'); select cron.unschedule('system-verifier-daily'); - only needed once SPEC-11 session 2 has scheduled them"
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260921_health_checks_core_v10.sql with run-sql-on-host.sh. It restores run_health_checks_v1's original sixty-line body byte-for-byte from 20260916150000 lines 109-199 (the restored body hashes to 527fb1e6054d4858310f2c32d0493f33, checked at build time), puts run_system_verifier_v1 and apply_verifier_run_v1 back to their phase-1 text, drops the core and the service wrapper, and deletes only the V10 findings."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "nothing_calls_the_new_paths_until_session_2",
+      "required_state": "run_health_checks_service_v1 has no caller: the system-verifier Edge Function that will call it does not exist yet. V10 only emits on the daily scope, and nothing invokes any scope. The one observable change this release makes is that the dashboard's System health button now reaches its checks through one more function call, and the forward checks assert that body is unchanged to the byte."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Two migrations. The FIRST is the move D-208 deliberately kept out of phase 1, and it is the whole reason this release exists separately: lifting a sixty-line body containing every financial check is the highest-risk edit in SPEC-11 and it deserved a diff of its own. It was not retyped. The repo's copy at 20260916150000 lines 111-198 was hashed against the live function first (md5(prosrc) 527fb1e6054d4858310f2c32d0493f33, 9982 bytes, both sides), then sed removed the admin_require line and rewrote the finance line to read p_fin. The declaration of v_fin was left in place so its three later uses did not have to be touched, which is why the whole diff is two lines out and one in. The result hashes to f169d017fa1a9a9d768dd495d7219caf and the first forward check asserts exactly that - the only assertion that can fail on a mistyped copy, because the spec's own equality test would pass on one. The SECOND adds V10, which was run read-only against production on 2026-09-21 before it was written and returned seven findings on the stored health run: one red (payout_rows_linked), six yellow, and ledger_duplicates correctly carrying accepted=true for K16. That same read exposed why V10 carries a staleness guard at all: production's stored health run was from 2026-09-14, seven days old, because nobody had pressed the button since 20260916150000 added a check to it. V10 reads admin_health_check_runs rather than calling run_health_checks_service_v1 - a departure from the spec, so that run_system_verifier_v1 stays stable and dry=1 keeps writing nothing - and V10:stale is what stops that departure from failing silently. pgTAP supabase/tests/database/health_checks_core_v10.sql, 27 assertions, every fixture rolled back in-transaction: the gate still raises 42501, an inspector sees seven checks while the four financial rows exist in the table (so it tests the filter, not their absence), p_fin is proven threaded by comparing the wrapper's output against the core's with false, and K16 is stored acknowledged and never announced."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the first forward check fails - that is a mistyped body, not a flaky assertion, and the System health button would be reporting something other than what it reported yesterday",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "CI's database job has not yet run health_checks_core_v10.sql green on this commit"
+  ]
+}
