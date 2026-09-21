@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "58ed20a"
+    "commit": "58ed20a1b84e2e6590aa761066e948e0d485d14f"
   },
   "migrations": [
     "20260921005000_meter_vision_catchup.sql",
