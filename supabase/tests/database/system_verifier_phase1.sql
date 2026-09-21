@@ -49,10 +49,17 @@ values ('d1000000-0000-4000-8000-000000000001', 'Synthetic Verifier Property', t
 insert into public.app_settings(key, value) values ('concierge_mode', '"auto"'::jsonb)
 on conflict (key) do update set value = '"auto"'::jsonb;
 
--- A healthy Airbnb feed, so V12 is quiet for most of this file. Without this
--- row every single run below would carry an extra red finding.
+-- A healthy Airbnb feed, so V12 is quiet for most of this file - and it has to
+-- STAY healthy across the whole simulated timeline, not just at the start. One
+-- sync row went stale three hours in, and V12 then appeared as a second finding
+-- halfway through, which is what the first two CI runs of this file were
+-- actually telling me. The real job syncs every fifteen minutes; hourly rows
+-- across the ten days these assertions walk through are the honest fixture.
 insert into public.calendar_sync_log(property_id, source, status, event_count, synced_at)
-values ('d1000000-0000-4000-8000-000000000001', 'airbnb', 'ok', 11, '2026-10-01T09:00:00Z');
+select 'd1000000-0000-4000-8000-000000000001', 'airbnb', 'ok', 11, g
+  from generate_series(timestamptz '2026-10-01T09:00:00Z',
+                       timestamptz '2026-10-10T12:00:00Z',
+                       interval '1 hour') g;
 
 -- Two stays that overlap on 2026-10-21. This is V1.
 insert into public.calendar_events(id, property_id, uid, source, status, guest_name, checkin_date, checkout_date)
