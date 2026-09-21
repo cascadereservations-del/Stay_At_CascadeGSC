@@ -56,6 +56,64 @@ const str = (v: unknown, fallback = '') => {
   return s === '' || s === 'null' || s === 'undefined' ? fallback : s;
 };
 
+
+// The health checks' own labels are written as the PASSING assertion - "Inventory
+// quantities agree with movements" - so reusing one as an alert subject announces
+// the opposite of what is wrong. The first live run said exactly that at 07:45.
+// Each check gets a sentence that states the PROBLEM, with its number in it.
+const peso = (v: unknown) => '\u20b1' + Number(v ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+function healthProblem(check: string, n: number, d: Record<string, any>): string {
+  switch (check) {
+    case 'payout_rows_linked':          return `${plural(n, 'payout e-mail is', 'payout e-mails are')} not linked to a stay.`;
+    case 'completed_stays_paid':        return `${plural(n, 'completed stay has', 'completed stays have')} no payout row.`;
+    case 'payout_totals_agree':         return `Reservation payouts and payout e-mails disagree by ${peso(d?.d?.difference)}.`;
+    case 'checkouts_cleaned':           return `${plural(n, 'checkout in the last 90 days has', 'checkouts in the last 90 days have')} no cleaning logged.`;
+    case 'cleaner_fees_settled':        return `${plural(n, 'cleaning fee is', 'cleaning fees are')} owed and not settled in the ledger.`;
+    case 'meter_readings_reviewed':     return `${plural(n, 'odd meter reading has', 'odd meter readings have')} not been reviewed.`;
+    case 'inventory_ledger_consistent': return `${plural(n, 'inventory item disagrees', 'inventory items disagree')} with its own last stock movement.`;
+    case 'ledger_duplicates':           return `${plural(n, 'set of duplicate ledger rows', 'sets of duplicate ledger rows')}.`;
+    case 'ledger_position':             return `Cash position does not balance: ${peso(d?.d?.net)} unaccounted after expenses and drawings.`;
+    case 'journals_balanced':           return `${plural(n, 'posted journal does', 'posted journals do')} not balance.`;
+    case 'concierge_handoffs_open':     return `${plural(n, 'guest handoff is', 'guest handoffs are')} waiting for a person.`;
+    default:                            return `System health: ${check}, ${n} to look at.`;
+  }
+}
+
+/** The rows behind a health check, named so somebody can act without opening the dashboard. */
+function healthRows(check: string, d: Record<string, any>): string[] {
+  const rows: any[] = Array.isArray(d?.d) ? d.d : [];
+  const take = rows.slice(0, 3);
+  const more = rows.length > 3 ? [`and ${rows.length - 3} more`] : [];
+  switch (check) {
+    case 'inventory_ledger_consistent':
+      return [...take.map((r) => `${str(r.item, 'an item')}: counted ${r.onHand}, last movement said ${r.lastMovement}`), ...more];
+    case 'checkouts_cleaned':
+      return [...take.map((r) => `${str(r.guest, 'a guest')} checked out ${dm(r.checkout)}`), ...more];
+    case 'completed_stays_paid':
+      return [...take.map((r) => `${str(r.guest, 'a guest')}, out ${dm(r.checkout)}, ${peso(r.payout)}`), ...more];
+    case 'cleaner_fees_settled':
+      return [...take.map((r) => `${str(r.guest, 'a clean')} on ${dm(r.cleaned)}, ${peso(r.fee)}`), ...more];
+    case 'payout_rows_linked':
+      return [...take.map((r) => `${dm(r.date)}, ${peso(r.amount)}`), ...more];
+    case 'ledger_duplicates':
+      return [...take.map((r) => `${dm(r.date)}, ${str(r.payee, 'unnamed')}, ${peso(r.amount)} x${r.n}`), ...more];
+    case 'meter_readings_reviewed':
+      return [...take.map((r) => `reading of ${dm(r.recorded)}`), ...more];
+    case 'concierge_handoffs_open':
+      return [...take.map((r) => `${str(r.guest, 'a guest')}`), ...more];
+    case 'journals_balanced':
+      return [...take.map((r) => `journal ${str(r.journalNo)}: ${peso(r.debits)} against ${peso(r.credits)}`), ...more];
+    case 'payout_totals_agree':
+      return [`reservations ${peso(d?.d?.reservationPayouts)}, e-mails ${peso(d?.d?.payoutEmails)}, adjustments ${peso(d?.d?.adjustments)}`];
+    case 'ledger_position':
+      return [`income ${peso(d?.d?.income)}, expenses ${peso(d?.d?.expenses)}, drawings ${peso(d?.d?.drawings)}`];
+    default:
+      return [];
+  }
+}
+
 /** The first line of a card: what happened, in a sentence. */
 function headline(f: Finding, now: Date): string {
   const d = (f.detail ?? {}) as Record<string, any>;
@@ -81,7 +139,7 @@ function headline(f: Finding, now: Date): string {
     case 'V10':
       return f.key === 'V10:stale'
         ? `System health last ran ${ago(d.last_run, now)}, so the numbers below are older than they look.`
-        : `System health: ${f.title.toLowerCase()}, ${str(d.n, '0')} to look at.`;
+        : healthProblem(str(d.check), Number(d.n ?? 0), d);
     default:
       return f.title;
   }
@@ -109,13 +167,16 @@ function facts(f: Finding): string[] {
       return [d.asked ? `They asked: ${str(d.asked)}` : '', d.risk ? `Risk: ${str(d.risk)}` : ''];
     case 'V6':
       return [`id ${str(d.booking).slice(0, 8).toUpperCase()}`];
-    case 'V10':
-      // No `check: payout_rows_linked` line. The headline already says which
-      // check in words, and a key=value line is the thing Lloyd asked not to
-      // see on a card (2026-09-19).
-      return f.key === 'V10:stale' || !d.accepted
-        ? []
-        : ['This pair was gone through on 14 Sep and is fine. It will speak up again only if the count changes.'];
+    case 'V10': {
+      // Not a key=value dump, and not silence either: the first live run said
+      // "1 to look at" and named nothing, so nobody could act without opening
+      // the dashboard. These are the actual rows, at most three.
+      if (f.key === 'V10:stale') return [];
+      const rows = healthRows(str(d.check), d);
+      return d.accepted
+        ? [...rows, 'This pair was gone through on 14 Sep and is fine. It will speak up again only if the count changes.']
+        : rows;
+    }
     default:
       return [];
   }
@@ -149,6 +210,32 @@ const LINK: Record<string, string> = {
   V12: `${DASH_URL}calendar`,
 };
 
+/**
+ * The header subject. A health check's title is its PASSING assertion, so
+ * "ALERT - inventory quantities agree with movements" reads as good news. For
+ * V10 the subject is the check in plain words instead.
+ */
+const HEALTH_SUBJECT: Record<string, string> = {
+  payout_rows_linked: 'payout e-mail not linked to a stay',
+  completed_stays_paid: 'completed stay with no payout',
+  payout_totals_agree: 'payout totals disagree',
+  checkouts_cleaned: 'checkout with no cleaning logged',
+  cleaner_fees_settled: 'cleaning fee not settled',
+  meter_readings_reviewed: 'meter readings to review',
+  inventory_ledger_consistent: 'inventory count disagrees with its movements',
+  ledger_duplicates: 'duplicate ledger rows',
+  ledger_position: 'cash position does not balance',
+  journals_balanced: 'journal does not balance',
+  concierge_handoffs_open: 'guest handoff waiting',
+};
+
+function alertSubject(f: Finding): string {
+  if (f.check_id !== 'V10') return f.title.toLowerCase();
+  if (f.key === 'V10:stale') return 'system health has not run';
+  const check = str((f.detail as any)?.check);
+  return HEALTH_SUBJECT[check] ?? (check ? check.replace(/_/g, ' ') : f.title.toLowerCase());
+}
+
 /** One red finding, one card. */
 export function redCard(f: Finding, now: Date): Card {
   const link = LINK[f.check_id];
@@ -173,7 +260,7 @@ export function redCard(f: Finding, now: Date): Card {
   return {
     to: audienceOf(f.check_id),
     ackKey: f.key,
-    text: withHeader('alert', f.title.toLowerCase(), groups(
+    text: withHeader('alert', alertSubject(f), groups(
       [headline(f, now)],
       facts(f),
       [instruction, link ? link : ''],
@@ -205,7 +292,10 @@ export function yellowCard(
   if (findings.length === 0 && resolved.length === 0) return null;
 
   const out: string[] = [];
-  if (findings.length === 1) out.push(headline(findings[0], now));
+  // A lone yellow card names its rows exactly as a red one does. Without this
+  // it printed a count and nothing else, which is the defect the first live
+  // run showed on the red side.
+  if (findings.length === 1) out.push(headline(findings[0], now), ...facts(findings[0]).filter(Boolean));
   else if (findings.length > 1) out.push(`${findings.length} things are worth a look.`);
   else out.push('Nothing needs you. These closed themselves.');
 

@@ -129,20 +129,68 @@ Deno.test('V6 goes to OPS and the money findings do not follow it there', () => 
   assertStringIncludes(fin[0].text, 'Resolved: A hold');
 });
 
-Deno.test('a V10 finding reads like the dashboard it came from', () => {
+// The first live run, 2026-09-21 23:45Z, said this at Lloyd:
+//   "ALERT · inventory quantities agree with movements"
+// A health check's label is its PASSING assertion, so reusing it as an alert
+// subject announces the opposite of what is wrong. These pin the fix.
+Deno.test('a V10 card states the PROBLEM, never the check\'s pass-phrased label', () => {
   const failed = f({
-    key: 'V10:payout_rows_linked', check_id: 'V10', severity: 'red', title: 'Payout e-mails linked to a stay',
-    detail: { check: 'payout_rows_linked', status: 'fail', n: 1, ran_at: '2026-10-10T01:00:00Z', d: [] },
+    key: 'V10:inventory_ledger_consistent', check_id: 'V10', severity: 'red',
+    title: 'Inventory quantities agree with movements',
+    detail: { check: 'inventory_ledger_consistent', status: 'fail', n: 1, ran_at: '2026-10-10T01:00:00Z',
+              d: [{ item: 'Liquid Hand Soap (Safeguard)', onHand: 1, lastMovement: 0 }] },
   });
   const card = redCard(failed, NOW);
-  assertStringIncludes(card.text, 'System health: payout e-mails linked to a stay, 1 to look at.');
-  assertStringIncludes(card.text, 'Do: open Settings, System health');
+  assert(!card.text.includes('quantities agree with movements'),
+    `the pass-phrased label reached the card and reads as good news:\n${card.text}`);
+  assertStringIncludes(card.text, '1 inventory item disagrees with its own last stock movement.');
+  // and it names the row, so somebody can act without opening the dashboard
+  assertStringIncludes(card.text, 'Liquid Hand Soap (Safeguard): counted 1, last movement said 0');
+});
 
+Deno.test('a V10 card names the rows behind the number', () => {
+  const checkouts = f({
+    key: 'V10:checkouts_cleaned', check_id: 'V10', severity: 'red', title: 'Checkouts (90 days) followed by a cleaning',
+    detail: { check: 'checkouts_cleaned', status: 'fail', n: 2, d: [
+      { code: 'HMYKNFRCFJ', guest: 'Nyke Perez', checkout: '2026-09-20' },
+      { code: 'HM538AA4C4', guest: 'Bianca Dizon', checkout: '2026-08-24' }] },
+  });
+  const text = redCard(checkouts, NOW).text;
+  assertStringIncludes(text, '2 checkouts in the last 90 days have no cleaning logged.');
+  assertStringIncludes(text, 'Nyke Perez checked out 20 Sep');
+  assert(!text.includes('HMYKNFRCFJ'), 'a confirmation code is an id, not something a person needs on a card');
+});
+
+// The first attempt at the fix read the amount off the WRONG level of the
+// detail and printed a confident "disagree by PHP 0.00" - worse than saying
+// nothing, because it claims the books balance when they do not.
+Deno.test('the scalar checks print their real amount, never zero', () => {
+  const totals = f({
+    key: 'V10:payout_totals_agree', check_id: 'V10', severity: 'yellow', title: 'Reservation payouts equal payout e-mails plus adjustments',
+    detail: { check: 'payout_totals_agree', status: 'warn', n: 0,
+              d: { difference: 2590.78, adjustments: 3568.24, payoutEmails: 351199.65, reservationPayouts: 357358.67 } },
+  });
+  const cash = f({
+    key: 'V10:ledger_position', check_id: 'V10', severity: 'yellow', title: 'Cash position',
+    detail: { check: 'ledger_position', status: 'warn', n: 0,
+              d: { net: 7704.52, income: 352979.65, drawings: 93159.60, expenses: 252115.53 } },
+  });
+  const text = yellowCard([totals, cash], [], 'finance', NOW, TODAY)!.text;
+  assertStringIncludes(text, 'disagree by ₱2,590.78');
+  assertStringIncludes(text, '₱7,704.52 unaccounted');
+  assert(!text.includes('₱0.00'), `a zero amount on a card that exists BECAUSE the number is not zero:\n${text}`);
+  assert(!text.includes('0 to look at'), 'these checks count nothing; their signal is the amount');
+});
+
+Deno.test('the accepted K16 finding still explains itself', () => {
   const accepted = f({
     key: 'V10:ledger_duplicates', check_id: 'V10', severity: 'yellow', title: 'Duplicate ledger rows',
-    detail: { check: 'ledger_duplicates', status: 'warn', n: 2, accepted: true, ran_at: '2026-10-10T01:00:00Z', d: [] },
+    detail: { check: 'ledger_duplicates', status: 'warn', n: 2, accepted: true, ran_at: '2026-10-10T01:00:00Z',
+              d: [{ n: 3, date: '2026-06-25', payee: 'Honey', amount: 650 }] },
   });
-  assertStringIncludes(yellowCard([accepted], [], 'finance', NOW, TODAY)!.text, 'System health: duplicate ledger rows, 2 to look at.');
+  const text = yellowCard([accepted], [], 'finance', NOW, TODAY)!.text;
+  assertStringIncludes(text, '2 sets of duplicate ledger rows.');
+  assertStringIncludes(text, 'gone through on 14 Sep');
 });
 
 Deno.test('V10:stale says the numbers are old rather than repeating them as news', () => {
@@ -176,7 +224,9 @@ Deno.test('a V10 card never prints its raw check key at a person', () => {
   const text = redCard(v10, NOW).text;
   assert(!/^check /m.test(text), `a key=value line reached the card:
 ${text}`);
-  assertStringIncludes(text, 'payout e-mails linked to a stay');
+  assert(!text.includes('payout_rows_linked'), `the raw check key reached the card:
+${text}`);
+  assertStringIncludes(text, '1 payout e-mail is not linked to a stay.');
 });
 
 Deno.test('a list of V10 bullets does not repeat System health on every line', () => {
