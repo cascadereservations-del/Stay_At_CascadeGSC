@@ -32,7 +32,11 @@ jobs:
       # reach a review unflagged. --allow-env is what draft.test.ts needs (it reads CASCADE_GEMINI_MODEL
       # at import time); type checking stays ON, so a dead Flow step fails the build. --allow-read is
       # what dedup.test.ts needs: it reads index.ts to assert the mid guard still sits before any effect.
-      - run: deno test --no-lock --node-modules-dir=auto --allow-env --allow-read supabase/functions/_shared/*.test.ts supabase/functions/job-heartbeat-monitor/index.test.ts supabase/functions/job-heartbeat-liveness/index.test.ts supabase/functions/messenger-concierge/ supabase/functions/telegram-cassy/ supabase/functions/upload-booking-receipt/
+      # SPEC-11 session 2 adds system-verifier/ (the cards a person reads at 07:45) and, at the same
+      # time, telegram-expense/ - whose 21 tests had existed and been green for weeks without CI ever
+      # running them, so a regression in the tap handlers could have reached a review unflagged.
+      # Both were run locally before being added here (D-205: never ship an assertion nobody has seen pass).
+      - run: deno test --no-lock --node-modules-dir=auto --allow-env --allow-read supabase/functions/_shared/*.test.ts supabase/functions/job-heartbeat-monitor/index.test.ts supabase/functions/job-heartbeat-liveness/index.test.ts supabase/functions/messenger-concierge/ supabase/functions/telegram-cassy/ supabase/functions/upload-booking-receipt/ supabase/functions/system-verifier/ supabase/functions/telegram-expense/
 
   browser:
     runs-on: ubuntu-latest

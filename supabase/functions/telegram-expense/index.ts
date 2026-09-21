@@ -24,6 +24,7 @@ import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { notifyMessengerBookingConfirmed } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
+import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
 import { CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
@@ -1252,6 +1253,30 @@ async function handleCallbackQuery(cq:any,db:any){
     const head=cardText.split('\n').filter(Boolean).slice(0,4).join('\n');
     const synthetic={update_id:Number(cq.id)||Date.now(),message:{message_id:msgId,date:Math.floor(Date.now()/1000),chat:cq.message?.chat,from:cq.from,text:`cassy revise: ${tpl} ||| ${head}`}};
     await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(synthetic),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy revise forward failed:',String(e)));
+    return;
+  }
+
+  // v105 (SPEC-11 session 2, 2026-09-21): [🙈 Known, stop reminding] on a system-verifier card.
+  // Telegram allows 64 bytes of callback data and a V1 key is two uuids, so the button carries
+  // ackHash(key) and the key is found by hashing the findings that are still live. The table is a
+  // handful of rows; when it is not, this is the line to revisit.
+  // The RPC decides WHO may silence a finding (owner or admin) - this only decides WHICH one.
+  if(data.startsWith('vf:ack:')){
+    const want=data.slice('vf:ack:'.length);const who=cq.from?.first_name??'staff';
+    const{data:rows,error:fErr}=await db.from('verifier_findings').select('key').in('status',['open','acknowledged']);
+    if(fErr){await tgAnswerCB(cq.id,'Could not reach the findings just now.');return;}
+    let key='';for(const r of (rows??[]) as Array<{key:string}>){if(await ackHash(r.key)===want){key=r.key;break;}}
+    // No match means the finding resolved itself between the card being sent and the tap, which is
+    // the good outcome and not an error.
+    if(!key){await tgAnswerCB(cq.id,'That one has already closed.');await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n✅ Closed on its own before you got here.`);return;}
+    const{data:r,error}=await db.rpc('telegram_ack_verifier_finding_v1',{p_telegram_user_id:cq.from?.id,p_key:key});
+    let line:string,keep=false;
+    if(error){keep=true;line=/does not exist|not found|could not find/i.test(error.message)?'⚠️ The acknowledge button is not switched on yet.':`⚠️ ${String(error.message).slice(0,150)}`;}
+    else if(!r?.ok){const k=String(r?.reason??'');keep=['unmapped_telegram_user','not_authorized'].includes(k);
+      line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a staff profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not allowed to silence a system finding.`,not_open:'ℹ️ Already acknowledged, or it has closed by itself.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
+    else line=`🙈 Noted by ${who}. This stops reminding until something about it changes.`;
+    await tgAnswerCB(cq.id);
+    await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
     return;
   }
 
