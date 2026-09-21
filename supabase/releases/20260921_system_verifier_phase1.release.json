@@ -17,8 +17,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260921T021854Z",
+    "verified_at": "2026-09-21T02:18:54Z",
     "production_rule": "Two migrations. The FIRST is a catch-up and a no-op against production: the meter-photo vision schema has been live since 2026-09-13 but was applied by hand and never recorded as a stay-site migration, so CI's baseline never had it and no pgTAP could touch it. Every statement in it is idempotent, and get_meter_photo_followups was verified byte-identical to the deployed function (md5(prosrc) 68844a6d99f94ab7c410f4d55806ee19, 1233 bytes, both sides, 2026-09-21). The SECOND adds one empty table, three functions, one partial index and two job_heartbeats rows. No existing column, row, function, policy or grant is changed by either. Nothing calls any of it until SPEC-11 session 2. Take a FRESH backup - the one used for meter_followup_resolution_20260921 is outside the one-hour window."
   },
   "forward_verification": [
