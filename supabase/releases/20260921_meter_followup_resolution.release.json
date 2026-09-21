@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "release_id": "meter_followup_resolution_20260921",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "16beff75179dd1c7093ad613905883c9f21fb953"
+  },
+  "migrations": [
+    "20260921000000_meter_followup_resolution.sql"
+  ],
+  "migration_sha256": {
+    "20260921000000_meter_followup_resolution.sql": "6e9060c58d2e9fa1ba488b9fe7d71e8810d9e41181fd82bcba62439cedd4f0cb"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "Two nullable columns on meter_readings (62 rows) and one new function. No existing column, row, function, policy or grant is changed, and no index is built. There are ZERO 'mismatch' rows in production (13 ok, 1 unreadable, 48 unchecked, read 2026-09-21), so applying this blocks nobody. Take the backup, fill restore_point/verified_at, apply within one hour."
+  },
+  "forward_verification": [
+    {
+      "name": "function_exists",
+      "query": "select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'resolve_meter_followup_v1'",
+      "expect": true
+    },
+    {
+      "name": "function_is_definer_with_empty_search_path",
+      "query": "select p.prosecdef and p.proconfig @> array['search_path=\"\"'] from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'resolve_meter_followup_v1'",
+      "expect": true
+    },
+    {
+      "name": "staff_may_execute_and_anon_may_not",
+      "query": "select has_function_privilege('authenticated', 'public.resolve_meter_followup_v1(uuid, text)', 'EXECUTE') and not has_function_privilege('anon', 'public.resolve_meter_followup_v1(uuid, text)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "both_resolution_columns_exist",
+      "query": "select count(*) = 2 from information_schema.columns where table_schema = 'public' and table_name = 'meter_readings' and column_name in ('vision_resolved_by', 'vision_resolved_note')",
+      "expect": true
+    },
+    {
+      "name": "no_existing_followup_was_silently_resolved_by_the_apply",
+      "query": "select count(*) = 0 from public.meter_readings where vision_resolved_at is not null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always for the function. The two columns are deliberately never dropped: they hold who answered which follow-up and what they said, which is evidence about real people, and dropping them would also silently re-block a cleaner who had already answered.",
+    "steps": [
+      {
+        "name": "redeploy_previous_submit_cleaning",
+        "action": "deploy submit-cleaning from waves 1e5df70 so it stops refusing turnovers with 409 meter_followup_unresolved"
+      },
+      {
+        "name": "republish_previous_checklist",
+        "action": "publish CH-Cleaners-Checklist main at 2303526 so the follow-up card stops calling resolve_meter_followup_v1"
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260921_meter_followup_resolution.sql with run-sql-on-host.sh"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "meter_mismatch_blocks_the_next_turnover",
+      "required_state": "Order matters in one direction only. The CHECKLIST may be published before or after this release: until the function exists its answer buttons get a 404, the card says the answer did not save, and nothing is lost. submit-cleaning v31 must be deployed AFTER this release, because it refuses a turnover on an unresolved mismatch and, without resolve_meter_followup_v1, nobody could clear that refusal. Today the point is moot either way: production holds zero mismatch rows, so neither the block nor the card has anything to act on until the next daily sweep finds one."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Two nullable columns and one new function; nothing before this release names any of the three. get_meter_photo_followups already filters on vision_resolved_at is null and has done since 2026-09-13, so the only behaviour change to an existing reader is that the column it has always read can finally become non-null. pgTAP supabase/tests/database/meter_followup_resolution.sql, 18 assertions, every fixture created and rolled back inside the test transaction; the last assertion is the release itself (once answered, get_meter_photo_followups stops raising the session). CI runs it on push, there being no local Docker. The refusal text and the block's scope are pinned separately by five deno tests in waves submit-cleaning/meter-skip.test.ts (12 passed, 0 failed)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "no_existing_followup_was_silently_resolved_by_the_apply fails, which would mean something wrote vision_resolved_at outside this release"
+  ]
+}
