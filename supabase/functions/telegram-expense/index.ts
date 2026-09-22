@@ -499,6 +499,26 @@ const TIP_BACK:Record<string,string>={fastentry:'log',ocr:'inventory',void:'comm
 function mainMenuKb() { return {inline_keyboard:[[{text:'💰 Log Expense',callback_data:'menu:log'},{text:'🧹 Cleaning Fees',callback_data:'menu:cleaning'}],[{text:'📊 Reports',callback_data:'menu:commands'},{text:'📌 OPS Notices',callback_data:'menu:notices'}],[{text:'📦 Inventory',callback_data:'menu:inventory'},{text:'🤖 Cassy',callback_data:'menu:cassy'}]]}; }
 function opsMenuKb() { return {inline_keyboard:[[{text:'⚡ Brownout',callback_data:'menu:do:nt:brownout'},{text:'📅 Calendar',callback_data:'menu:do:cal'}],[{text:'🌦 Weather now',callback_data:'menu:do:weather'},{text:'🔄 Turnover',callback_data:'menu:do:schedule'}],[{text:'📦 Stock check',callback_data:'menu:do:stock'},{text:'📋 Full inventory',callback_data:'menu:do:inventory'}],[{text:'🤖 Ask Cassy',callback_data:'menu:tip:cassy'},{text:'✍️ Draft a reply',callback_data:'menu:tip:draft'}],[{text:'📋 View all notices',callback_data:'menu:do:notices'}]]}; }
 
+// Lloyd, 2026-09-22: "instead of the / button it should be like a symbol or something that will
+// show the full buttons". A persistent reply keyboard sits above the message box and Telegram gives
+// it its own toggle symbol beside the input - tapping that shows or hides the whole grid, with no
+// command to remember (the check-the-user-POV rule: buttons, not remembered syntax).
+//
+// A reply-keyboard button sends its LABEL as ordinary text, so each label is translated straight
+// back into a slash command that already exists. That is the whole implementation: no new dispatch,
+// and no second source of truth for what a button does.
+//
+// Only commands that work with NO arguments are on here. /brownout and /draft both need arguments,
+// so they stay behind the Menu button rather than firing an incomplete command from a tap.
+const KB_LABEL_CMD: Record<string,string> = {
+  '📦 Stock check':'/stock', '📋 Full inventory':'/inventory', '📋 Notices':'/notices',
+  '🤖 Ask Cassy':'/cassy', '☰ Menu':'/menu',
+  '💰 Log Expense':'/log', '📊 Summary':'/summary', '📌 Notices':'/notices',
+  '🧾 Status':'/status', '🤖 Cassy':'/cassy',
+};
+const opsReplyKb = () => ({keyboard:[[{text:'📦 Stock check'},{text:'📋 Full inventory'}],[{text:'📋 Notices'},{text:'🤖 Ask Cassy'}],[{text:'☰ Menu'}]],is_persistent:true,resize_keyboard:true});
+const finReplyKb = () => ({keyboard:[[{text:'💰 Log Expense'},{text:'📦 Stock check'}],[{text:'📊 Summary'},{text:'📌 Notices'}],[{text:'🧾 Status'},{text:'☰ Menu'}]],is_persistent:true,resize_keyboard:true});
+
 function buildMenuHeader(title:string, subtitle:string, keyboard:{text:string}[][]): string {
   const longestRow = keyboard.length
     ? Math.max(...keyboard.map(row => row.reduce((sum,btn) => sum + btn.text.length, 0)))
@@ -1576,9 +1596,19 @@ async function handleTextMessage(msg:any,db:any){
     if(route.kind==='count_lines'){await handleCountReply(db,chatId,msg,card!,text);return;}
     if(route.kind==='refuse'){await tgReply(chatId,msg.message_id,NOT_WAITING);return;}
   }
-  if(!isBotAddressed(msg))return;
-  const text=stripBotMention(String(msg.text??'').trim());if(!text)return;
+  // A reply-keyboard tap arrives as the button's LABEL - no slash, no @mention - so it has to be
+  // recognised BEFORE the addressed-the-bot gate, which would otherwise drop it. Tapping a button
+  // the bot itself put on the keyboard IS addressing the bot. (Found live: /keyboard worked because
+  // it starts with a slash, and the buttons it installed then did nothing at all.)
+  const tapped=stripBotMention(String(msg.text??'').trim());if(!tapped)return;
+  const kbCmd=KB_LABEL_CMD[tapped];
+  if(!kbCmd&&!isBotAddressed(msg))return;
+  const text=kbCmd??tapped;
   if(text.startsWith('/')){
+    if(text==='/keyboard'||text==='/buttons'){
+      await tgSend(chatId,'Tap the keyboard symbol beside the message box to show or hide these buttons.',{reply_markup:isFinanceChat(chatId)?finReplyKb():opsReplyKb()});
+      return;
+    }
     const[rawCmd,...args]=text.split(/\s+/);const cmd=rawCmd.toLowerCase().replace(/@.*$/,'');
     if(['/brownout','/holiday','/event','/reminder'].includes(cmd)){await handleOpsNoticeCommand(cmd.slice(1),args,chatId,from,db);return;}
     if(cmd==='/notices'){await handleNoticesList(chatId,db);return;}
@@ -1805,8 +1835,8 @@ async function handlePing(chatId: any) {
 }
 
 // Session 28: every feature has a command, so the ☰ menu button (setChatMenuButton, commands) lists them all.
-const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'cassy',description:'Ask Cassy: /cassy who arrives this week?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'notices',description:'Active brownouts, holidays, events, reminders'},{command:'brownout',description:'Add a brownout: /brownout <date> <time> <hours>'},{command:'deep',description:'Ask Cassy with the deeper model'}];
-const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'log',description:'Log an expense (guided)'},{command:'cassy',description:'Ask Cassy: /cassy what did we spend this month?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'payclean',description:'Mark a cleaning fee paid'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'count',description:'Update stock counts by group'},{command:'notices',description:'Active OPS notices'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'void',description:'Void entry: /void REFCODE'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'deep',description:'Ask Cassy with the deeper model'},{command:'ping',description:'Diagnostic: test the model + env vars'}];
+const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'cassy',description:'Ask Cassy: /cassy who arrives this week?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'notices',description:'Active brownouts, holidays, events, reminders'},{command:'brownout',description:'Add a brownout: /brownout <date> <time> <hours>'},{command:'deep',description:'Ask Cassy with the deeper model'}];
+const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'log',description:'Log an expense (guided)'},{command:'cassy',description:'Ask Cassy: /cassy what did we spend this month?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'payclean',description:'Mark a cleaning fee paid'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'count',description:'Update stock counts by group'},{command:'notices',description:'Active OPS notices'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'void',description:'Void entry: /void REFCODE'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'deep',description:'Ask Cassy with the deeper model'},{command:'ping',description:'Diagnostic: test the model + env vars'}];
 
 Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' }, async(req)=>{
   const url=new URL(req.url);
