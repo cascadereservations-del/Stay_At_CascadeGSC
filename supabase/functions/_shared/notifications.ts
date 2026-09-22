@@ -112,14 +112,26 @@ const TEMPLATES: Record<string, TemplateDefinition> = {
     route: 'finance',
     required: ['job_name', 'reason_code', 'correlation_id', 'last_succeeded_at', 'consecutive_failures'],
     allowed: ['job_name', 'reason_code', 'correlation_id', 'last_succeeded_at', 'consecutive_failures'],
-    render: (fields) => [
-      '⚠️ Cascade System Failure',
-      `Job: ${text(fields, 'job_name')}`,
-      `Reason: ${text(fields, 'reason_code')}`,
-      `Last success: ${text(fields, 'last_succeeded_at')}`,
-      `Consecutive failures: ${integer(fields, 'consecutive_failures')}`,
-      `Correlation: ${text(fields, 'correlation_id')}`,
-    ].join('\n'),
+    // SPEC-20 (D-213): written for a person. The old key=value dump read "Consecutive failures: 0"
+    // on a failure card and put a uuid where the sentence should be.
+    render: (fields) => {
+      const job = text(fields, 'job_name');
+      const reason = text(fields, 'reason_code');
+      const last = text(fields, 'last_succeeded_at');
+      const fails = integer(fields, 'consecutive_failures');
+      const what = reason === 'JOB_NEVER_SUCCEEDED' ? `${job} has never completed a run.`
+        : reason === 'JOB_HEARTBEAT_STALE' ? `${job} has not completed a run since ${last === 'never' ? 'it was set up' : last.replace('T', ' ').slice(0, 16) + ' UTC'}.`
+        : reason === 'JOB_FAILING' ? `${job} has failed ${fails} ${fails === 1 ? 'time' : 'times'} in a row.`
+        : `${job} needs a look (${reason}).`;
+      return [
+        '⚠️ A scheduled job has stopped',
+        what,
+        fails > 0 && reason !== 'JOB_FAILING' ? `It has failed ${fails} ${fails === 1 ? 'time' : 'times'} in a row.` : '',
+        '',
+        'Do: open Settings, Jobs, and check its last error.',
+        `id ${text(fields, 'correlation_id').slice(0, 8)}`,
+      ].filter((l, i, a) => l !== '' || (i > 0 && a[i - 1] !== '')).join('\n');
+    },
   },
   'ops.operational_risk': {
     route: 'ops',

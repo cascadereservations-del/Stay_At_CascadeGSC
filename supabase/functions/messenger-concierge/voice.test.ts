@@ -414,3 +414,12 @@ Deno.test('SPEC-13: the nudge stays occasional, not chatty', () => {
   assertEquals(TRUST_RE.test('legit ba ni?'), true);
   assertEquals(AMENITY_RE.test('is Oct 3 to 4 available?'), false);
 });
+
+Deno.test('SPEC-21: the intro lands on a follow-up-shaped reply too, once, after the first sentence', () => {
+  const followUp = 'Ben, yes po, Oct 3 to 4 is open. We can hold it for you.';
+  const out = withIntro(followUp, 'en');
+  assertEquals(out.startsWith('Ben, yes po, Oct 3 to 4 is open. ' + CASSY_INTRO.en), true);
+  assertEquals(out.endsWith('We can hold it for you.'), true);
+  assertEquals(withIntro(out, 'en'), out);
+  assertEquals(out.includes('thank you for reaching out'), false);
+});

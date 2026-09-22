@@ -859,10 +859,15 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // Voice close-out: never a bare link - the both-routes sentence goes in before the warm close.
       // SPEC-14 (D-184): the model thanked the guest in only 12 of 33 first replies (golden run 9). On first contact
       // the approved greeting is guaranteed in code, the same line the book flow has used since session 28.
-      if (!followUp) reply = ensureGreeting(reply, thread.guest_name, l3);
+      // SPEC-21 (session 43): "thank you for reaching out" is for a guest we have never answered. The
+      // 6-hour gap alone re-greeted a nine-message conversation live on 2026-09-22.
+      const everAnswered = thread.history.some((h) => h.role === 'bot');
+      if (!followUp && !everAnswered) reply = ensureGreeting(reply, thread.guest_name, l3);
       // D-173 / SPEC-01: the prompt rule above is not enough on its own (D-097), so the sentence is
       // guaranteed here - first exchange, not yet introduced, and never under a resumed card.
-      if (!followUp && !introduced && !flowFollowUp) reply = withIntro(reply, l3);
+      // SPEC-21: SPEC-01 says the FIRST reply; that is a thread fact, not a clock fact. Gating it on
+      // !followUp meant an active thread never heard it until a 6-hour gap (the ninth reply, live).
+      if (!introduced && !flowFollowUp) reply = withIntro(reply, l3);
       if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }

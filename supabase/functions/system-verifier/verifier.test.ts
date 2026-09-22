@@ -5,7 +5,7 @@
 // assert the text: what happened first, the facts a person needs next, one Do,
 // ids last, and never five separate interruptions where one list would do.
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { ackHash, ago, buildCards, dm, redCard, yellowCard, type Finding, type Resolved } from './cards.ts';
+import { ackHash, ago, buildCards, byUrgency, dm, promoted, redCard, yellowCard, type Finding, type Resolved } from './cards.ts';
 import { templateOf } from '../_shared/cascade-core/format.ts';
 import { HEALTH_LABELS, HEALTH_KEYS } from '../_shared/cascade-core/health-labels.ts';
 
@@ -291,4 +291,31 @@ Deno.test('a missing money path drops the amount instead of printing a zero', ()
   const t2 = redCard(paid, NOW).text;
   assertStringIncludes(t2, 'Stanley Baldon, out 6 Jan');
   assert(!/₱/.test(t2.split('\n').find((l) => l.includes('Stanley')) ?? ''), t2);
+});
+
+// SPEC-20 (D-213): the first live yellow card buried "Nyke Perez, 2026-09-20, no cleaning logged" as
+// bullet three of five under a payout gap from January.
+Deno.test('a checkout with no cleaning inside 72 hours is red; V10:stale is red; older ones stay yellow', () => {
+  const recent = f({ key: 'V10:checkouts_cleaned', check_id: 'V10', severity: 'yellow', title: 'x',
+    detail: { check: 'checkouts_cleaned', status: 'warn', n: 1, d: [{ guest: 'Nyke Perez', checkout: '2026-10-09' }] } });
+  const old = f({ key: 'V10:checkouts_cleaned', check_id: 'V10', severity: 'yellow', title: 'x',
+    detail: { check: 'checkouts_cleaned', status: 'warn', n: 1, d: [{ guest: 'Bianca Dizon', checkout: '2026-08-24' }] } });
+  assertEquals(promoted(recent, NOW).severity, 'red');
+  assertEquals(promoted(old, NOW).severity, 'yellow');
+  assertEquals(promoted(f({ key: 'V10:stale', check_id: 'V10', severity: 'yellow', title: 'x', detail: { last_run: null } }), NOW).severity, 'red');
+  const cards = buildCards({ new: [recent] }, NOW, TODAY);
+  assertEquals(cards.length, 1);
+  assertStringIncludes(cards[0].text, 'ALERT');
+  assertStringIncludes(cards[0].text, 'Nyke Perez checked out 9 Oct');
+});
+
+Deno.test('yellows sort by urgency before the cap: a date inside 7 days comes first', () => {
+  const payout = f({ key: 'V10:completed_stays_paid', check_id: 'V10', severity: 'yellow', title: 'x',
+    detail: { check: 'completed_stays_paid', status: 'warn', n: 1, d: [{ guest: 'Stanley Baldon', checkout: '2026-01-06', payout: 1309.02 }] } });
+  const fee = f({ key: 'V10:cleaner_fees_settled', check_id: 'V10', severity: 'yellow', title: 'x',
+    detail: { check: 'cleaner_fees_settled', status: 'warn', n: 1, d: [{ guest: 'Honey', cleaned: '2026-10-08', fee: 650 }] } });
+  const meters = f({ key: 'V10:meter_readings_reviewed', check_id: 'V10', severity: 'yellow', title: 'x',
+    detail: { check: 'meter_readings_reviewed', status: 'warn', n: 3, d: [{ recorded: '2026-02-25' }] } });
+  const sorted = [payout, meters, fee].sort(byUrgency(NOW)).map((x) => x.key);
+  assertEquals(sorted, ['V10:cleaner_fees_settled', 'V10:meter_readings_reviewed', 'V10:completed_stays_paid']);
 });

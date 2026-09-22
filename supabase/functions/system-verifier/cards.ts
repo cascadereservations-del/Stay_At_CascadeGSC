@@ -293,10 +293,42 @@ export function yellowCard(
 }
 
 /** Every card a run should send, in the order it should send them. */
+// SPEC-20 (D-213): what makes a finding urgent when the card has to choose.
+const DAY = 86_400_000;
+function newestDate(f: Finding): number {
+  const d = (f.detail ?? {}) as Record<string, any>;
+  const rows: any[] = Array.isArray(d.d) ? d.d : [];
+  let best = 0;
+  for (const r of rows) for (const k of ['checkout', 'cleaned', 'date', 'recorded']) {
+    const t = Date.parse(String(r?.[k] ?? ''));
+    if (Number.isFinite(t) && t > best) best = t;
+  }
+  return best;
+}
+/** A checkout with no cleaning logged inside the last 72 hours is the day's work, not a list item.
+ *  On the first live run it sat as bullet three of five under a payout gap from January. */
+export function promoted(f: Finding, now: Date): Finding {
+  if (f.check_id !== 'V10' || f.severity === 'red') return f;
+  const d = (f.detail ?? {}) as Record<string, any>;
+  if (f.key === 'V10:stale') return { ...f, severity: 'red' };
+  if (d.check === 'checkouts_cleaned' && newestDate(f) >= now.getTime() - 3 * DAY) return { ...f, severity: 'red' };
+  return f;
+}
+/** Yellows sort by urgency before the five-bullet cap: a date inside 7 days first, then by count. */
+export function byUrgency(now: Date) {
+  return (a: Finding, b: Finding) => {
+    const ra = newestDate(a) >= now.getTime() - 7 * DAY ? 1 : 0;
+    const rb = newestDate(b) >= now.getTime() - 7 * DAY ? 1 : 0;
+    if (ra !== rb) return rb - ra;
+    const na = Number((a.detail as any)?.n ?? 0), nb = Number((b.detail as any)?.n ?? 0);
+    return nb - na;
+  };
+}
+
 export function buildCards(applied: Applied, now: Date, today: string): Card[] {
-  const loud = [...(applied.new ?? []), ...(applied.remind ?? [])];
+  const loud = [...(applied.new ?? []), ...(applied.remind ?? [])].map((f) => promoted(f, now));
   const reds = loud.filter((f) => f.severity === 'red');
-  const yellows = loud.filter((f) => f.severity !== 'red');
+  const yellows = loud.filter((f) => f.severity !== 'red').sort(byUrgency(now));
   const resolved = applied.resolved ?? [];
 
   const cards: Card[] = reds.map((f) => redCard(f, now));
