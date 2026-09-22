@@ -6,6 +6,9 @@ begin;
 select plan(22);
 
 insert into public.properties(id, name, is_active) values ('e1000000-0000-4000-8000-000000000044', 'Synthetic Verifier 44', true);
+-- verifier_findings keys carry no property, so on a production restore the real V10 rows would
+-- collide with these fixtures. Cleared inside this transaction; the rollback puts them back.
+delete from public.verifier_findings where check_id = 'V10';
 
 -- Titles are problem phrases ---------------------------------------------------
 select is(public.health_check_problem_v1('checkouts_cleaned'), 'Checkout with no cleaning logged',
@@ -14,8 +17,11 @@ select is(public.health_check_problem_v1('some_new_check'), 'System health check
   'an unknown check gets a neutral line, never its label');
 select ok((select bool_and(
             public.health_check_problem_v1(k) not like 'System health check%'
-            and public.health_check_problem_v1(k) <> l
-            and public.health_check_problem_v1(k) !~* '\m(agree|linked|settled|reviewed|followed)\M')
+            -- ledger_duplicates is the one label that is already the problem (D-211)
+            and (k = 'ledger_duplicates' or public.health_check_problem_v1(k) <> l)
+            -- a passing verb may appear only negated: "not linked", "not settled"
+            and regexp_replace(public.health_check_problem_v1(k), '\mnot (linked|settled|reviewed|followed)\M', '', 'gi')
+                  !~* '\m(agree|linked|settled|reviewed|followed)\M')
            from (values
              ('payout_rows_linked', 'Payout e-mails linked to a stay'),
              ('completed_stays_paid', 'Completed stays with a payout row'),

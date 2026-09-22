@@ -37,7 +37,7 @@
     },
     {
       "name": "no_v10_finding_is_titled_with_its_passing_label",
-      "query": "select count(*) = 0 from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'daily')->'found') e join public.admin_health_check_runs h on h.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and 'V10:' || h.check_key = e->>'key' where e->>'title' = h.label",
+      "query": "select count(*) = 0 from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'daily')->'found') e join public.admin_health_check_runs h on h.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and 'V10:' || h.check_key = e->>'key' where e->>'title' = h.label and e->>'title' <> public.health_check_problem_v1(h.check_key)",
       "expect": true
     },
     {

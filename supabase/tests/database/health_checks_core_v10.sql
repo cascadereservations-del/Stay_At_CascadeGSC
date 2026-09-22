@@ -125,6 +125,9 @@ reset role;
 -- A chosen slate, written directly, so each status is deliberate rather than
 -- whatever the empty baseline happens to produce.
 delete from public.admin_health_check_runs where property_id = 'e1000000-0000-4000-8000-000000000001';
+-- verifier_findings keys carry no property: on a production restore the real V10 rows collide with
+-- these fixtures (found rehearsing 2026-09-23). Cleared in-transaction; the rollback restores them.
+delete from public.verifier_findings where check_id = 'V10';
 insert into public.admin_health_check_runs(property_id, check_key, label, status, count, detail, ran_at)
 values
   ('e1000000-0000-4000-8000-000000000001', 'journals_balanced', 'Posted journals balance', 'pass', 0, '[]'::jsonb, '2026-10-10T09:00:00Z'),
