@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "PENDING"
+    "commit": "a09bf98336e8ad7d0e399355414ada27a36d79c7"
   },
   "migrations": [
     "20260923000000_verifier_triage_and_opening_amounts.sql"
@@ -91,8 +91,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING",
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-22T23:21Z on a disposable restore of production backup cascade-supabase-20260922T231450Z (taken for the rehearsal, post-V10; prefix cascade-migration-rehearsal-694bdfef0dbd, 0 leftovers). 102 public tables and 119 ledger rows before and 102 after; the migration applied, 1 of 1; forward checks 10/10 against real data; pgTAP verifier_triage_and_opening_amounts.sql 22/22; health_checks_core_v10.sql 25/27 - the two failures are its grant assertions on health_checks_core_v1, which a --no-acl restore cannot carry, and the same grants were read true on production at 23:22Z. Before the rehearsal every rule's forward check was read on production against the old code and returned false or null (md5 x2, titles, ran_at, stale, heartbeat default); the phrase function did not exist. An earlier rehearsal on cascade-supabase-20260921T231107Z was void: that set predates the V10 release.",
     "evidence": "system-verifier v3 (deployed 2026-09-22 22:44Z) renders V10 cards from problemSubject(check key), not from title, and its promoted() already makes these two cases red at card time, so the stored severity and title change nothing the card says; they change the reminder cadence (24 h for red) and what the table holds. apply_verifier_run_v1 is untouched. approve_opening_balances_v1 gains one refusal, before any write, for a line the dashboard never sends (setup-page.tsx always sends both keys, '' for the unused side; the one live batch has that shape). pgTAP verifier_triage_and_opening_amounts.sql, 22 assertions, one fires/silent pair per rule; health_checks_core_v10.sql line 154 inverted to isnt(label)."
   },
   "approvals": {
