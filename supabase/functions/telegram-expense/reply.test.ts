@@ -43,7 +43,9 @@ Deno.test('D-195: "2 20" replied to the old count card, with nobody being asked,
   assertEquals(routeOf(D195.message, false), { kind: 'refuse' });
   // The old card is not a live count card, so even its message id matching nothing changes nothing.
   assertEquals(routeOf(D195.message, false, 4000), { kind: 'refuse' });
-  assertEquals(NOT_WAITING, 'That card is not waiting for an answer, so nothing was saved. Tap a button on it, or /menu.');
+  assertEquals(NOT_WAITING, 'That card is not waiting for an answer, so nothing was saved. Tap a button on it, ask Cassy with /cassy <your question>, or /menu.');
+  // SPEC-23: a refusal must say how to reach Cassy; Lloyd hit this live on 2026-09-22 with no way forward.
+  assertEquals(NOT_WAITING.includes('/cassy'), true);
 });
 
 Deno.test('the person being asked is answered, whether or not they used Reply', () => {

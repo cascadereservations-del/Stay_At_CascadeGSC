@@ -1,6 +1,6 @@
 // deno test telegram-cassy/policy.test.ts  (run from supabase/functions)
 import { assertEquals, assert } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, deepRequest, deepAllowed } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed } from './policy.ts';
 
 Deno.test('deep tier: /deep before or after the address escalates and is removed; the cap is exclusive', () => {
   assertEquals(deepRequest('/deep compare August and September occupancy'), { deep: true, text: 'compare August and September occupancy' });
@@ -118,4 +118,14 @@ Deno.test('nightsIn clips a stay to the period and prorates revenue per night', 
   assertEquals(nightsIn(s, '2026-08-01', '2026-09-01'), { nights: 2, revenue: 3200 });
   assertEquals(nightsIn({ ...s, accommodation_total: null }, '2026-08-01', '2026-10-01'), { nights: 4, revenue: null });
   assertEquals(nightsIn(s, '2026-10-01', '2026-11-01').nights, 0);
+});
+
+Deno.test('SPEC-23: a stock list survives only when a stock tool ran, and history keeps the decision alone', () => {
+  const stale = { decision: 'Ashley Abutazil has stayed with us twice.', lines: ['Liquid Hand Soap (Safeguard): 1 pc left, reorder point is 10 pcs.', 'Natural Air: 1 pc left, reorder point is 1 pc.'], action: '' };
+  assertEquals(onlyAskedFor(stale, ['guest_history']).lines, []);
+  assertEquals(onlyAskedFor(stale, ['low_stock']).lines.length, 2);
+  assertEquals(onlyAskedFor({ ...stale, lines: ['Stay 1: 2026-03-04 to 2026-03-05', 'Stay 2: 2026-08-12 to 2026-08-14'] }, ['guest_stays']).lines.length, 2);
+  const memo = memoOf(stale);
+  assertEquals(memo, 'Ashley Abutazil has stayed with us twice.');
+  assert(!memo.includes('•') && !/reorder/.test(memo));
 });

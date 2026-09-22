@@ -25,7 +25,7 @@ export function routeText(i: { awaiting: boolean; replyToCountCard: boolean; rep
   return { kind: 'passthrough' };
 }
 
-export const NOT_WAITING = 'That card is not waiting for an answer, so nothing was saved. Tap a button on it, or /menu.';
+export const NOT_WAITING = 'That card is not waiting for an answer, so nothing was saved. Tap a button on it, ask Cassy with /cassy <your question>, or /menu.';
 export const CANCELLED = '❌ Cancelled. Nothing saved.';
 export const COUNT_EXPIRED = '⏰ That count expired. Run /count again.';
 

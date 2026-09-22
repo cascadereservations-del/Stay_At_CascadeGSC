@@ -65,6 +65,8 @@ export const TOOL_DECLS: ToolDecl[] = [
     parameters: { type: 'object', properties: {} } },
   { name: 'guest_history', description: 'What we know about one guest by name: stays so far, last stay dates, any [URGENT] issue the cleaner logged after their last stay, stay preferences, tags, VIP reason, host note, birthday and open follow-ups. Only fields with data are returned.',
     parameters: { type: 'object', required: ['name'], properties: { name: { type: 'string', description: 'Guest name or its first words' } } } },
+  { name: 'guest_stays', description: 'Every past and upcoming stay of one guest by name, newest first: check-in, check-out, nights, source (airbnb or direct), status and booking code. Use when asked to list, count or date a guest\'s stays.',
+    parameters: { type: 'object', required: ['name'], properties: { name: { type: 'string', description: 'Guest name or its first words' } } } },
 ];
 
 // ── Guest context (Telegram plan §1, session 26). One RPC (guest_context_v1, security definer:
@@ -212,6 +214,24 @@ export async function runTool(db: any, name: string, args: Record<string, unknow
       if (!name) return { error: 'name is required' };
       const g = await guestContext(db, { name });
       return g.found ? { ...g, summary_lines: guestContextLines(g) } : { found: false, name, note: 'no guest with that name on file' };
+    }
+    case 'guest_stays': {
+      const name = String(args.name ?? '').trim();
+      if (!name) return { error: 'name is required' };
+      const g = await guestContext(db, { name });
+      if (!g.found || !g.guest_id) return { found: false, name, note: 'no guest with that name on file' };
+      const [ab, di] = await Promise.all([
+        db.from('airbnb_reservations').select('confirmation_code,checkin_date,checkout_date,status').eq('guest_id', g.guest_id).order('checkin_date', { ascending: false }).limit(10),
+        db.from('booking_inquiries').select('id,checkin_date,checkout_date,status').eq('guest_id', g.guest_id).order('checkin_date', { ascending: false }).limit(10),
+      ]);
+      if (ab.error) throw new Error(`airbnb_reservations: ${ab.error.message}`);
+      if (di.error) throw new Error(`booking_inquiries: ${di.error.message}`);
+      const nightsOf = (a: string, b: string) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000));
+      const stays = [
+        ...((ab.data ?? []) as any[]).map((r) => ({ source: 'airbnb', code: r.confirmation_code, checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status })),
+        ...((di.data ?? []) as any[]).map((r) => ({ source: 'direct', code: String(r.id).slice(0, 8).toUpperCase(), checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status })),
+      ].sort((a, b) => (a.checkin < b.checkin ? 1 : -1)).slice(0, 10);
+      return { found: true, name: g.name, total_stays: g.total_stays ?? stays.length, stays };
     }
     default: return { error: `unknown tool ${name}` };
   }

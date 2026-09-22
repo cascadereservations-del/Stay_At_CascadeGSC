@@ -68,3 +68,17 @@ export function stripMoney(v: unknown): unknown {
   }
   return v;
 }
+
+/** SPEC-23 (D-215): a stock list may only appear when a stock tool ran this turn. Found live 2026-09-22:
+ *  "list Ashley's stays" answered with five low-stock bullets copied from the previous reply in history. */
+const STOCK_LINE = /\b(stock|reorder|reorder point|refill|pcs?\b|bottles?|left\b|low\b)/i;
+export function onlyAskedFor(r: { decision: string; lines: string[]; action: string }, toolCalls: string[]) {
+  if (toolCalls.some((t) => t === 'low_stock' || t === 'inventory_report')) return r;
+  return { ...r, lines: r.lines.filter((l) => !STOCK_LINE.test(l)) };
+}
+
+/** What a turn leaves in history: the decision only. Rendered bullets replayed as history read to the model
+ *  as its own last answer, and a rigid JSON contract then reuses them for an unrelated question. */
+export function memoOf(r: { decision: string; lines: string[]; action: string }): string {
+  return (r.decision || r.lines[0] || '').trim();
+}

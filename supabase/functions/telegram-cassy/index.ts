@@ -12,7 +12,7 @@ import { withObservability } from '../_shared/observability.ts';
 import { chatTools, geminiBreaker, type ChatTurn } from '../_shared/cascade-core/providers.ts';
 import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaToday, type Card } from '../_shared/cascade-core/tools.ts';
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, deepRequest, deepAllowed, type Surface } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
 import { draftRequest, draftGuestReply, transcribeChat, reviseHostMessage } from './draft.ts';
@@ -100,9 +100,10 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
     });
     const report = parseReport(res.text);
     if (!report.decision && !report.lines.length) console.warn('report_unparsed', JSON.stringify({ tier, raw: res.text.slice(0, 400) }));
-    const text = renderReport(honestAboutCard(report, cardSent), res.model);
+    const shaped = onlyAskedFor(honestAboutCard(report, cardSent), res.toolCalls ?? []);
+    const text = renderReport(shaped, res.model);
     await tgSend(chatId, text, msg.message_id);
-    await remember(db, chatId, question, text).catch((e) => console.warn('history_failed', String(e).slice(0, 200)));
+    await remember(db, chatId, question, memoOf(shaped)).catch((e) => console.warn('history_failed', String(e).slice(0, 200)));
     console.log('cassy_turn', JSON.stringify({ chat: chatId, from: msg.from?.id, surface, tier, tools: res.toolCalls, provider: res.provider, model: res.model, ms: Date.now() - t0 }));
   } catch (e) {
     console.error('cassy_failed', String(e).slice(0, 300));

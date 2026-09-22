@@ -491,7 +491,7 @@ const MENU_TIPS:Record<string,string>={
   fastentry:['💡 *Fast entry*','Type `<amount> <category>` — amount must be first.','','e.g. `250 supplies Puregold`','e.g. `1500 electricity`','','_Category is auto-detected from keywords._'].join('\n'),
   ocr:['📸 *Receipt photo (OCR)*','Send any photo directly to this chat.','The bot reads it automatically, then you review each item before confirming.'].join('\n'),
   void:['❌ *Void an entry*','Type `/void REFCODE` to discard a transaction.','','e.g. `/void 28DCABC7`','','_Ref code is shown when the expense is logged._'].join('\n'),
-  cassy:['🤖 *Ask Cassy*','Start a message with her name, or use `/cassy`.','','e.g. `Cassy, who arrives this week?`','e.g. `/cassy what is low in stock?`','e.g. `/deep …` for the deeper model','','_She reads bookings, guests, stock and the ledger. She never writes without a tap._'].join('\n'),
+  cassy:['🤖 *Ask Cassy*','Type `/cassy` and your question. A message that *starts* with `Cassy` works too.','Anything else in this chat she never sees.','','e.g. `/cassy when did Ashley Abutazil stay with us?`','e.g. `Cassy, who arrives this week?`','e.g. `/deep …` for the deeper model','','_She reads bookings, guests, stock and the ledger. She never writes without a tap._'].join('\n'),
   draft:['✍️ *Draft a guest reply*','`/draft <what the guest wrote>` or `cassy reply: …`','Or send a chat screenshot captioned `cassy draft`.','','_You get a reply to copy, in our voice, with a risk flag. Nothing is sent._'].join('\n'),
 };
 const TIP_BACK:Record<string,string>={fastentry:'log',ocr:'inventory',void:'commands',cassy:'cassy',draft:'cassy'};
