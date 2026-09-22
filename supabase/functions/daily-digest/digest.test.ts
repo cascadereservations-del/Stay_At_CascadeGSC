@@ -112,3 +112,15 @@ Deno.test('the decisions line is its own group, so it cannot push the receipt li
   const none = weeklyFinanceReport({ today: '2026-09-21', pending: [], overdueLines: [], warns: [], consoleUrl: 'u', decisions: [] });
   assertEquals(none.lines.some((l) => l.includes('Bookings decided')), false);
 });
+
+Deno.test('SPEC-18: a failing health check is printed as its problem, never as its pass-phrased label', () => {
+  const fin = weeklyFinanceReport({ today: '2026-09-21', pending: [], overdueLines: [], consoleUrl: 'u', decisions: [], warns: [
+    { check: 'inventory_ledger_consistent', label: 'Inventory quantities agree with movements', n: 1, status: 'fail', d: { d: [{ item: 'Soap', onHand: 1, lastMovement: 0 }] } },
+    { check: 'payout_totals_agree', label: 'Reservation payouts equal payout e-mails plus adjustments', n: 0, status: 'warn', d: { d: { difference: 2590.78 } } },
+  ] });
+  const text = fin.lines.join('\n');
+  assert(text.includes('🔴 1 inventory item disagrees with its own last stock movement.'), text);
+  assert(text.includes('disagree by ₱2,590.78'), text);
+  assert(!/agree with movements|payouts equal/.test(text), text);
+  assert(!/₱0\.00/.test(text), text);
+});

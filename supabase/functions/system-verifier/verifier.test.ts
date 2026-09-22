@@ -7,6 +7,7 @@
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { ackHash, ago, buildCards, dm, redCard, yellowCard, type Finding, type Resolved } from './cards.ts';
 import { templateOf } from '../_shared/cascade-core/format.ts';
+import { HEALTH_LABELS, HEALTH_KEYS } from '../_shared/cascade-core/health-labels.ts';
 
 const NOW = new Date('2026-10-10T02:00:00Z');
 const TODAY = '10 Oct';
@@ -243,4 +244,51 @@ Deno.test('no card shouts', () => {
     assert(!/[a-z]!/i.test(c.text), `an exclamation crept into a card: ${c.text}`);
     assert(!/\b(URGENT|ASAP|IMMEDIATELY)\b/.test(c.text), 'cards state what happened; they do not shout');
   }
+});
+
+// SPEC-18 (D-211): the assertion that would have caught the first live card. Property, not wording:
+// for EVERY health check, a failing card never quotes any three-word run of its own passing label,
+// never shows the raw key, and always carries the number that caused it. A twelfth check added to
+// the SQL without a phrase here fails the count.
+const SCALAR: Record<string, number> = { payout_totals_agree: 2590.78, ledger_position: 7704.52 };
+Deno.test('no failing check ever quotes its own pass-phrased label, and every card carries its number', () => {
+  assertEquals(HEALTH_KEYS.length, 11, 'health_checks_core_v10.sql defines eleven checks');
+  for (const [check, label] of Object.entries(HEALTH_LABELS)) {
+    const scalar = SCALAR[check] !== undefined;
+    const detail = scalar
+      ? { check, status: 'fail', n: 0, d: { difference: SCALAR[check], net: SCALAR[check] } }
+      : { check, status: 'fail', n: 3, d: [] };
+    const card = redCard(f({ key: `V10:${check}`, check_id: 'V10', severity: 'red', title: label, detail }), NOW);
+    const words = label.toLowerCase().split(/\s+/);
+    for (let i = 0; i + 2 < words.length; i++) {
+      const run = words.slice(i, i + 3).join(' ');
+      // A run of the label may survive only on a line that states a problem ("3 odd meter readings
+      // have NOT been reviewed"). The 2026-09-21 card - "inventory quantities agree with movements,
+      // 1 to look at" - has no such word on that line and fails here.
+      for (const line of card.text.toLowerCase().split('\n')) {
+        if (!line.includes(run)) continue;
+        assert(/\b(not|no|never|disagree\w*|unaccounted|waiting|duplicate)\b/.test(line),
+          `${check}: the pass-phrased label reached the card as good news ("${run}"):\n${card.text}`);
+      }
+    }
+    assert(!card.text.includes(check), `${check}: raw check key on the card:\n${card.text}`);
+    const expected = scalar ? SCALAR[check].toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '3 ';
+    assertStringIncludes(card.text, expected);
+    assert(!/₱0\.00/.test(card.text), `${check}: a zero on a card that exists because the value is not zero:\n${card.text}`);
+  }
+});
+
+// SPEC-19 (D-211): a money key that is missing renders no amount at all, never ₱0.00.
+Deno.test('a missing money path drops the amount instead of printing a zero', () => {
+  const gap = f({ key: 'V10:payout_totals_agree', check_id: 'V10', severity: 'red', title: 'x',
+    detail: { check: 'payout_totals_agree', status: 'fail', n: 0, d: { reservationPayouts: 1, payoutEmails: 2 } } });
+  const text = redCard(gap, NOW).text;
+  assert(!/₱0\.00/.test(text), text);
+  assertStringIncludes(text, 'Reservation payouts and payout e-mails disagree.');
+  assert(!text.includes('adjustments'), text);
+  const paid = f({ key: 'V10:completed_stays_paid', check_id: 'V10', severity: 'red', title: 'x',
+    detail: { check: 'completed_stays_paid', status: 'fail', n: 1, d: [{ guest: 'Stanley Baldon', checkout: '2026-01-06' }] } });
+  const t2 = redCard(paid, NOW).text;
+  assertStringIncludes(t2, 'Stanley Baldon, out 6 Jan');
+  assert(!/₱/.test(t2.split('\n').find((l) => l.includes('Stanley')) ?? ''), t2);
 });

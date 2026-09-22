@@ -12,7 +12,8 @@
 // Cards are written for a person reading a phone between two other things
 // (Lloyd, 2026-09-19): what happened, who has to act, plain sentences, ids last.
 
-import { withHeader, groups, doSend, DASH_URL } from '../_shared/cascade-core/format.ts';
+import { withHeader, groups, doSend, DASH_URL, pesoOrNull } from '../_shared/cascade-core/format.ts';
+import { problemSentence, problemSubject } from '../_shared/cascade-core/health-labels.ts';
 
 export type Severity = 'red' | 'yellow';
 export type Finding = {
@@ -57,29 +58,11 @@ const str = (v: unknown, fallback = '') => {
 };
 
 
-// The health checks' own labels are written as the PASSING assertion - "Inventory
-// quantities agree with movements" - so reusing one as an alert subject announces
-// the opposite of what is wrong. The first live run said exactly that at 07:45.
-// Each check gets a sentence that states the PROBLEM, with its number in it.
-const peso = (v: unknown) => '\u20b1' + Number(v ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-function healthProblem(check: string, n: number, d: Record<string, any>): string {
-  switch (check) {
-    case 'payout_rows_linked':          return `${plural(n, 'payout e-mail is', 'payout e-mails are')} not linked to a stay.`;
-    case 'completed_stays_paid':        return `${plural(n, 'completed stay has', 'completed stays have')} no payout row.`;
-    case 'payout_totals_agree':         return `Reservation payouts and payout e-mails disagree by ${peso(d?.d?.difference)}.`;
-    case 'checkouts_cleaned':           return `${plural(n, 'checkout in the last 90 days has', 'checkouts in the last 90 days have')} no cleaning logged.`;
-    case 'cleaner_fees_settled':        return `${plural(n, 'cleaning fee is', 'cleaning fees are')} owed and not settled in the ledger.`;
-    case 'meter_readings_reviewed':     return `${plural(n, 'odd meter reading has', 'odd meter readings have')} not been reviewed.`;
-    case 'inventory_ledger_consistent': return `${plural(n, 'inventory item disagrees', 'inventory items disagree')} with its own last stock movement.`;
-    case 'ledger_duplicates':           return `${plural(n, 'set of duplicate ledger rows', 'sets of duplicate ledger rows')}.`;
-    case 'ledger_position':             return `Cash position does not balance: ${peso(d?.d?.net)} unaccounted after expenses and drawings.`;
-    case 'journals_balanced':           return `${plural(n, 'posted journal does', 'posted journals do')} not balance.`;
-    case 'concierge_handoffs_open':     return `${plural(n, 'guest handoff is', 'guest handoffs are')} waiting for a person.`;
-    default:                            return `System health: ${check}, ${n} to look at.`;
-  }
-}
+// The problem sentences live in _shared/cascade-core/health-labels.ts (SPEC-18) so the digest and
+// the card cannot drift apart again. Money here is null-safe (SPEC-19): a row whose amount cannot be
+// read names the row without an amount, and never prints a zero that claims the books balance.
+const peso = (v: unknown) => pesoOrNull(v);
+const parts = (...xs: Array<string | null | undefined>) => xs.filter((x): x is string => !!x).join(', ');
 
 /** The rows behind a health check, named so somebody can act without opening the dashboard. */
 function healthRows(check: string, d: Record<string, any>): string[] {
@@ -92,23 +75,23 @@ function healthRows(check: string, d: Record<string, any>): string[] {
     case 'checkouts_cleaned':
       return [...take.map((r) => `${str(r.guest, 'a guest')} checked out ${dm(r.checkout)}`), ...more];
     case 'completed_stays_paid':
-      return [...take.map((r) => `${str(r.guest, 'a guest')}, out ${dm(r.checkout)}, ${peso(r.payout)}`), ...more];
+      return [...take.map((r) => parts(`${str(r.guest, 'a guest')}, out ${dm(r.checkout)}`, peso(r.payout))), ...more];
     case 'cleaner_fees_settled':
-      return [...take.map((r) => `${str(r.guest, 'a clean')} on ${dm(r.cleaned)}, ${peso(r.fee)}`), ...more];
+      return [...take.map((r) => parts(`${str(r.guest, 'a clean')} on ${dm(r.cleaned)}`, peso(r.fee))), ...more];
     case 'payout_rows_linked':
-      return [...take.map((r) => `${dm(r.date)}, ${peso(r.amount)}`), ...more];
+      return [...take.map((r) => parts(dm(r.date), peso(r.amount))), ...more];
     case 'ledger_duplicates':
-      return [...take.map((r) => `${dm(r.date)}, ${str(r.payee, 'unnamed')}, ${peso(r.amount)} x${r.n}`), ...more];
+      return [...take.map((r) => parts(dm(r.date), str(r.payee, 'unnamed'), peso(r.amount) && `${peso(r.amount)} x${r.n}`)), ...more];
     case 'meter_readings_reviewed':
       return [...take.map((r) => `reading of ${dm(r.recorded)}`), ...more];
     case 'concierge_handoffs_open':
       return [...take.map((r) => `${str(r.guest, 'a guest')}`), ...more];
     case 'journals_balanced':
-      return [...take.map((r) => `journal ${str(r.journalNo)}: ${peso(r.debits)} against ${peso(r.credits)}`), ...more];
+      return [...take.map((r) => peso(r.debits) && peso(r.credits) ? `journal ${str(r.journalNo)}: ${peso(r.debits)} against ${peso(r.credits)}` : `journal ${str(r.journalNo)}`), ...more];
     case 'payout_totals_agree':
-      return [`reservations ${peso(d?.d?.reservationPayouts)}, e-mails ${peso(d?.d?.payoutEmails)}, adjustments ${peso(d?.d?.adjustments)}`];
+      return [parts(peso(d?.d?.reservationPayouts) && `reservations ${peso(d?.d?.reservationPayouts)}`, peso(d?.d?.payoutEmails) && `e-mails ${peso(d?.d?.payoutEmails)}`, peso(d?.d?.adjustments) && `adjustments ${peso(d?.d?.adjustments)}`)];
     case 'ledger_position':
-      return [`income ${peso(d?.d?.income)}, expenses ${peso(d?.d?.expenses)}, drawings ${peso(d?.d?.drawings)}`];
+      return [parts(peso(d?.d?.income) && `income ${peso(d?.d?.income)}`, peso(d?.d?.expenses) && `expenses ${peso(d?.d?.expenses)}`, peso(d?.d?.drawings) && `drawings ${peso(d?.d?.drawings)}`)];
     default:
       return [];
   }
@@ -139,7 +122,7 @@ function headline(f: Finding, now: Date): string {
     case 'V10':
       return f.key === 'V10:stale'
         ? `System health last ran ${ago(d.last_run, now)}, so the numbers below are older than they look.`
-        : healthProblem(str(d.check), Number(d.n ?? 0), d);
+        : problemSentence(str(d.check), Number(d.n ?? 0), d);
     default:
       return f.title;
   }
@@ -215,25 +198,12 @@ const LINK: Record<string, string> = {
  * "ALERT - inventory quantities agree with movements" reads as good news. For
  * V10 the subject is the check in plain words instead.
  */
-const HEALTH_SUBJECT: Record<string, string> = {
-  payout_rows_linked: 'payout e-mail not linked to a stay',
-  completed_stays_paid: 'completed stay with no payout',
-  payout_totals_agree: 'payout totals disagree',
-  checkouts_cleaned: 'checkout with no cleaning logged',
-  cleaner_fees_settled: 'cleaning fee not settled',
-  meter_readings_reviewed: 'meter readings to review',
-  inventory_ledger_consistent: 'inventory count disagrees with its movements',
-  ledger_duplicates: 'duplicate ledger rows',
-  ledger_position: 'cash position does not balance',
-  journals_balanced: 'journal does not balance',
-  concierge_handoffs_open: 'guest handoff waiting',
-};
-
 function alertSubject(f: Finding): string {
   if (f.check_id !== 'V10') return f.title.toLowerCase();
   if (f.key === 'V10:stale') return 'system health has not run';
   const check = str((f.detail as any)?.check);
-  return HEALTH_SUBJECT[check] ?? (check ? check.replace(/_/g, ' ') : f.title.toLowerCase());
+  // Never f.title here: for V10 it is the stored PASSING label (verifier_v10.sql:249).
+  return problemSubject(check || 'unknown');
 }
 
 /** One red finding, one card. */

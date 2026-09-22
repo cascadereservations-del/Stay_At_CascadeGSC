@@ -226,10 +226,10 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').is('payout_email_message_id', null).lte('checkin_date', today),
     db.from('booking_inquiries').select('id,guest_name,checkin_date,deposit_amount,submitted_at,receipt_image_path,status')
       .eq('property_id', PROPERTY_ID).eq('status', 'pending').is('receipt_image_path', null).gte('checkin_date', today),
-    db.from('admin_health_check_runs').select('label,status,count').eq('property_id', PROPERTY_ID).in('status', ['warn', 'fail']).order('check_key'),
+    db.from('admin_health_check_runs').select('check_key,label,status,count,detail').eq('property_id', PROPERTY_ID).in('status', ['warn', 'fail']).order('check_key'),
   ]);
   const overdueLines = overdue(today, airbnb ?? [], direct ?? []).map((o) => o.line);
-  const warns = ((hc ?? []) as any[]).map((h) => ({ label: String(h.label), n: Number(h.count ?? 0), status: String(h.status) }));
+  const warns = ((hc ?? []) as any[]).map((h) => ({ check: String(h.check_key ?? ''), label: String(h.label), n: Number(h.count ?? 0), status: String(h.status), d: { d: h.detail } }));
   // SPEC-10 control 11: who confirmed or declined a booking this week. Advisory, like the rest of
   // the roll-up: if the read fails the week's report still goes out, one line poorer.
   const since = new Date(new Date(`${today}T00:00:00Z`).getTime() - 7 * 86_400_000).toISOString();

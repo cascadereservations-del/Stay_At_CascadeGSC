@@ -102,3 +102,16 @@ export function autoKeyboard(text: string, ...more: Btn[][]): { inline_keyboard:
   for (const r of more) if (r.length) rows.push(r);
   return rows.length ? { inline_keyboard: rows } : undefined;
 }
+
+// SPEC-19 (D-211): a money or count value read off a nested path is null when the path is wrong,
+// never 0. On 2026-09-21 a card printed "disagree by ₱0.00" - a claim that the books balance -
+// because the amount was read one level too high. A renderer that gets null drops the sentence.
+export function moneyOrNull(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+export function pesoOrNull(v: unknown): string | null {
+  const n = moneyOrNull(v);
+  return n === null ? null : '\u20b1' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

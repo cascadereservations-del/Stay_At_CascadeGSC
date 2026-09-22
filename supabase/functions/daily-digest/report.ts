@@ -1,6 +1,7 @@
 // daily-digest report (phase 4, D-106 #4). Data in, Report out. Pure: no I/O, so digest.test.ts runs it.
 // Shape is owned by cascade-core/format.ts: one decision, at most five lines, one action. Plain text.
 import type { HeaderKind, Report } from '../_shared/cascade-core/format.ts';
+import { problemSentence } from '../_shared/cascade-core/health-labels.ts';
 
 export type CalRow = { guest_name?: string | null; raw_summary?: string | null; checkin_time?: string | null; checkout_time?: string | null; nights?: number | null };
 export type ResRow = { guest_name: string | null; checkin_date: string | null; checkout_date: string | null };
@@ -159,7 +160,8 @@ export type WeeklyFinanceInput = {
   today: string;
   pending: Pending[];
   overdueLines: string[];
-  warns: Array<{ label: string; n: number; status: string }>;
+  /** SPEC-18: `check` picks the problem sentence; `label` is the stored PASSING assertion and is never printed. */
+  warns: Array<{ check?: string; label: string; n: number; status: string; d?: Record<string, any> }>;
   consoleUrl: string;
   /** SPEC-10 control 11: one row per reviewer from finance_decisions_week_v1. */
   decisions?: Array<{ reviewer: string; approved: number; rejected: number }>;
@@ -184,7 +186,7 @@ export function weeklyFinanceReport(i: WeeklyFinanceInput): Report {
   if (i.overdueLines.length) brk();
   for (const l of i.overdueLines.slice(0, 2)) lines.push(`⏳ ${l}`);
   if (i.warns.length) brk();
-  for (const w of i.warns.slice(0, 2)) lines.push(`${w.status === 'fail' ? '🔴' : '🟡'} Health: ${w.label} (${w.n})`);
+  for (const w of i.warns.slice(0, 2)) lines.push(`${w.status === 'fail' ? '🔴' : '🟡'} ${problemSentence(w.check ?? '', w.n, w.d)}`);
   const decision = `Finance week of ${friendlyDate(i.today)}: ${plural(i.pending.length, 'receipt')} pending, ${plural(i.overdueLines.length, 'overdue payout')}, ${plural(i.warns.length, 'health warning')}.`;
   const action = i.overdueLines.length ? 'Chase the overdue payout first.'
     : i.pending.length ? `Confirm the receipts in the admin console: ${i.consoleUrl}`
