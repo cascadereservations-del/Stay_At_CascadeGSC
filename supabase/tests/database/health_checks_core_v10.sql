@@ -150,12 +150,12 @@ select is(
     where e->>'key' = 'V10:payout_rows_linked'),
   'red', 'a failing check is red');
 
-select is(
+select isnt(
   (select e->>'title' from jsonb_array_elements(
       public.run_system_verifier_v1('e1000000-0000-4000-8000-000000000001', 'daily', '2026-10-10T10:00:00Z')->'found') e
     where e->>'key' = 'V10:checkouts_cleaned'),
   'Checkouts (90 days) followed by a cleaning',
-  'a finding carries the check''s own label, so the card reads like the dashboard');
+  'a finding never carries the passing label as its title (D-211; this line pinned the label until 2026-09-23)');
 
 -- K16: ledger_duplicates n=2 is explained, not broken (D-124).
 select is(
