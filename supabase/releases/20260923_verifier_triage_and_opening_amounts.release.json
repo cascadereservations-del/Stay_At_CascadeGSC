@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260922T234913Z",
+    "verified_at": "2026-09-22T23:49:13Z",
     "production_rule": "Two live functions are replaced and one column default is added. Neither body was retyped: a script cut each from its applied migration, asserted the cut hashes to the live md5(prosrc) read on 2026-09-22 (run_system_verifier_v1 178b72de3f830cc7a2ab7acd0d7711bb, approve_opening_balances_v1 c63e53a873439c1b7a5a95f7c060f88f), then applied exact one-hit replacements. The forward checks assert the resulting bodies' md5, which is the only assertion that catches a mistyped copy. No table, row or policy is altered. The backup is taken as the LAST act before the apply (D-210): it aged out four times in session 42."
   },
   "forward_verification": [
