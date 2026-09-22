@@ -27,7 +27,7 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-async function tgSend(token: string, chatId: string, text: string): Promise<void> {
+async function tgSend(token: string, chatId: string, text: string): Promise<boolean> {
   const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -38,6 +38,7 @@ async function tgSend(token: string, chatId: string, text: string): Promise<void
     const t = await resp.text().catch(() => '');
     console.warn(`tgSend failed ${resp.status}:`, t);
   }
+  return resp.ok;
 }
 
 function fmtDate(dateStr: string): string {
@@ -133,7 +134,8 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
         `_Please confirm the cleaning was done or log the session in the checklist app._`,
       ].join('\n');
 
-      await tgSend(TG_TOKEN, TG_CHAT_ID, withHeader('alert', `missed cleaning ${days}d`, text));
+      // SPEC-17 (D-212): an alert Telegram refused is a failed run, so job-heartbeat-monitor says so.
+      if (!(await tgSend(TG_TOKEN, TG_CHAT_ID, withHeader('alert', `missed cleaning ${days}d`, text)))) throw new Error('TELEGRAM_SEND_FAILED');
     }
 
     await hb('succeeded');

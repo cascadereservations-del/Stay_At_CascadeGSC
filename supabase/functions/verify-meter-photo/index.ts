@@ -102,13 +102,14 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
-async function tgSend(token: string, chatId: string, text: string): Promise<void> {
+async function tgSend(token: string, chatId: string, text: string): Promise<boolean> {
   const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST', headers: JSON_HEADERS,
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
     signal: AbortSignal.timeout(15_000),
   }).catch(() => null);
   if (resp && !resp.ok) console.warn(`tgSend failed ${resp.status}`);
+  return !!resp?.ok;
 }
 
 // Retry on 429/503 with linear backoff — same shape ocr-receipt has been
@@ -347,6 +348,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!targets.length) { if (hb) await hb('succeeded'); return json({ ok: true, checked: 0, note: 'nothing pending' }); }
+  let notifyFailures = 0;
 
   const results: any[] = [];
 
@@ -441,7 +443,8 @@ Deno.serve(async (req: Request) => {
           : `_A re-upload will be asked for at the next sign-in. Worth checking before the cleaning fee is paid._`,
       ].join('\n');
 
-      await tgSend(TG_TOKEN, TG_CHAT, text);
+      // SPEC-17 (D-212): a verdict nobody was told about is counted as a failed run, not a quiet one.
+      if (!(await tgSend(TG_TOKEN, TG_CHAT, text))) notifyFailures += 1;
 
       // The same message, not a summary of it: Finance and OPS must never be
       // reading two different accounts of one photo. Sent only when the two
@@ -453,6 +456,6 @@ Deno.serve(async (req: Request) => {
   }
 
   console.log(`[verify-meter-photo] provider=${PROVIDER} checked=${results.length}`);
-  if (hb) await hb('succeeded');
+  if (hb) await (notifyFailures > 0 ? hb('failed', `TELEGRAM_SEND_FAILED:${notifyFailures}`) : hb('succeeded'));
   return json({ ok: true, provider: PROVIDER, checked: results.length, results });
 });

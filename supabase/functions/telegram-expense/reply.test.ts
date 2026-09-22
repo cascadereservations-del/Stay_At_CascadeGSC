@@ -1,6 +1,7 @@
 // deno test --no-check --allow-env telegram-expense/reply.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import type { Change, CountItem } from './count.ts';
+import { BTN, doSend } from '../_shared/cascade-core/format.ts';
 import {
   countCardKeyboard, countCardText, NOT_WAITING, parseAmount, parseExpenseAnswer, parseManualClean, parseQty, refusal,
   routeText, setChange,
@@ -127,4 +128,10 @@ Deno.test('a 73-item All-groups card keeps every callback_data within 64 bytes',
   assertEquals(all.length, 75); // 73 items, Apply, Cancel
   assertEquals(all.every((b) => enc.encode(b.callback_data).length <= 64), true);
   assertEquals(all.every((b) => b.text.length <= 64), true);
+});
+
+Deno.test('SPEC-22: no button label promises a copy, because Telegram cannot copy on tap', () => {
+  for (const group of Object.values(BTN)) for (const b of group) assertEquals(/copy/i.test(b.text), false, b.text);
+  assertEquals(/\bCopy\b/.test(doSend('Ana', 'hi').join(' ')), false);
+  assertEquals(doSend('Ana', 'hi')[0].includes('Show as text'), true);
 });

@@ -164,7 +164,7 @@ async function hmacOk(secret: string, body: string, header: string | null): Prom
 
 // humanAgent: a host's own reply from a handoff card. Sent with the HUMAN_AGENT tag (Meta feature
 // added 2026-09-13) so it still delivers up to 7 days after the guest's last message, not 24 h.
-async function fbSend(psid: string, text: string, humanAgent = false): Promise<void> {
+async function fbSend(psid: string, text: string, humanAgent = false): Promise<boolean> {
   const token = env('META_PAGE_TOKEN');
   const post = (payload: unknown) => fetch(`${GRAPH}/${PAGE_ID}/messages?access_token=${token}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10_000),
@@ -173,6 +173,7 @@ async function fbSend(psid: string, text: string, humanAgent = false): Promise<v
   const envelope = humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : { messaging_type: 'RESPONSE' };
   const r = await post({ recipient: { id: psid }, ...envelope, message: { text } });
   if (r && !r.ok) console.error('fb_send_failed', r.status, (await r.text()).slice(0, 200));
+  return !!r?.ok;
 }
 
 async function fbName(psid: string): Promise<string | null> {
@@ -499,7 +500,13 @@ async function sendHostReply(db: Db, short: string, text: string, from: any, cbI
   if (!h) { if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: 'Already handled.' }); return; }
   const name = whoIs(from);
   const final = `${text.trim()}\n\n— ${name}, Cascade Hideaway`;
-  await fbSend(h.psid, final, true);
+  // SPEC-17 (D-212): the handoff stays open and the card says so when Messenger did not accept the reply.
+  // Before this the card showed a tick and the row closed while the guest had received nothing.
+  if (!(await fbSend(h.psid, final, true))) {
+    if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: 'Messenger refused the send. Nothing was sent.' });
+    if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: `\u26a0\ufe0f Messenger refused the reply to ${h.guest_name ?? h.psid}, so nothing was sent and this is still open. Tap again in a minute.\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}` });
+    return;
+  }
   const now = new Date().toISOString();
   await db.from('concierge_handoffs').update({ status: 'sent', sent_text: final, resolved_by: name, resolved_at: now }).eq('id', h.id);
   const { data: t } = await db.from('concierge_threads').select('history').eq('psid', h.psid).maybeSingle();
@@ -602,7 +609,7 @@ type Effects = {
   name(psid: string): Promise<string | null>;
 };
 const liveEffects: Effects = {
-  send: (psid, text) => fbSend(psid, text),
+  send: async (psid, text) => { await fbSend(psid, text); },
   // session 28: the QR carries the chosen amount (QR Ph tag 54); the static site QR is the fallback
   qr: async (psid, flow, fallbackUrl) => {
     let sent = false;

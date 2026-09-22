@@ -17,6 +17,7 @@ const FINANCE_CHAT = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID') ?? '';
 const PROPERTY_ID  = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const JSON_H       = { 'Content-Type': 'application/json' };
 
+let sendFailures = 0;
 async function tgSend(chatId: string, text: string): Promise<void> {
   if (!TG_TOKEN || !chatId) { console.warn('tgSend: missing token or chatId'); return; }
   const res = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
@@ -25,13 +26,17 @@ async function tgSend(chatId: string, text: string): Promise<void> {
     signal: AbortSignal.timeout(15_000),
   }).catch(err => { console.error('tgSend fetch error:', String(err)); return null; });
   if (res && !res.ok) console.error('tgSend non-ok:', res.status, await res.text().catch(() => '').then(t => t.slice(0, 200)));
+  // SPEC-17 (D-212): the caller decides whether a failed send is a failed run.
+  if (!res?.ok) sendFailures += 1;
 }
 
 Deno.serve(withObservability({ functionName: 'finance-watch', route: 'finance' }, async (req: Request) => {
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
   if (!FINANCE_CHAT) return new Response(JSON.stringify({ ok: false, error: 'FINANCE_CHAT not configured' }), { status: 500, headers: JSON_H });
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
-  const hb = heartbeat(db, 'finance-watch-daily');
+  const hb0 = heartbeat(db, 'finance-watch-daily');
+  sendFailures = 0;
+  const hb = (phase: 'started' | 'succeeded' | 'failed', code?: string) => phase === 'succeeded' && sendFailures > 0 ? hb0('failed', `TELEGRAM_SEND_FAILED:${sendFailures}`) : hb0(phase, code);
   await hb('started');
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   try {

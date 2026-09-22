@@ -113,7 +113,9 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
       resolved: (applied?.resolved ?? []).length,
     };
     console.log(JSON.stringify({ event: 'system_verifier', scope, dry: false, health_refreshed: healthRefreshed, ...counts, cards: cards.length, sent }));
-    await hb('succeeded');
+    // SPEC-17 (D-212): the findings are already marked announced by apply_verifier_run_v1; a card
+    // Telegram refused would otherwise vanish until its reminder. Say so where the monitor looks.
+    await (sent < cards.length ? hb('failed', `TELEGRAM_SEND_FAILED:${cards.length - sent}`) : hb('succeeded'));
     return json({ ok: true, scope, dry: false, health_refreshed: healthRefreshed, ...counts, cards: cards.length, sent });
   } catch (err) {
     console.error('system-verifier error:', String(err));

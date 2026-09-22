@@ -124,7 +124,7 @@ export function opsReport(i: OpsInput): OpsReport | null {
     : a && d ? `Coordinate the cleaning window between ${dep} and ${arr}.`
     : a ? `Have the unit ready before ${arr} arrives.`
     : d ? `Inspect the unit after ${dep} checks out.`
-    : midStay.length ? `send ${midStay[0].guest} this (Copy, or Revise with Cassy):\n📨 Hi ${midStay[0].guest}, quick check from Cascade Hideaway - is everything okay with the unit? If you need fresh towels, drinking water or anything else, just say the word. 🌿`
+    : midStay.length ? `send ${midStay[0].guest} this (Show as text to long-press it, or Revise with Cassy):\n📨 Hi ${midStay[0].guest}, quick check from Cascade Hideaway - is everything okay with the unit? If you need fresh towels, drinking water or anything else, just say the word. 🌿`
     : i.tmrArrivals.length ? `Prepare the unit for ${names(i.tmrArrivals, i.resRows, i.tomorrow, 'arrival')} tomorrow.`
     : todayNotices.length ? `Note ${todayNotices[0].title}.`
     : '';

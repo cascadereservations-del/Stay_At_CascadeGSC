@@ -28,6 +28,7 @@ const AVG_STAY_DAYS = 2;
 const CONSOLE_URL   = 'https://cascadereservations-del.github.io/cascade-admin-dashboard/';
 
 // ── Telegram (plain text: the report is rendered by code, nothing needs escaping) ──
+let sendFailures = 0;
 async function tgSend(chatId: string, text: string, reply_markup?: unknown): Promise<void> {
   if (!TG_TOKEN || !chatId) { console.warn('tgSend: missing token or chatId'); return; }
   const res = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
@@ -36,6 +37,8 @@ async function tgSend(chatId: string, text: string, reply_markup?: unknown): Pro
     signal: AbortSignal.timeout(15_000),
   }).catch(err => { console.error('tgSend fetch error:', String(err)); return null; });
   if (res && !res.ok) console.error('tgSend non-ok:', res.status, await res.text().catch(() => '').then(t => t.slice(0, 200)));
+  // SPEC-17 (D-212): the caller decides whether a failed send is a failed run.
+  if (!res?.ok) sendFailures += 1;
 }
 
 // ── Date helpers ──────────────────────────────────────────────
@@ -249,7 +252,9 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
   let mode = 'ops';
   try { const b = await req.json(); mode = String(b?.mode ?? 'ops').toLowerCase(); } catch { /* default ops */ }
   const db    = createClient(SUPABASE_URL, SERVICE_ROLE);
-  const hb    = heartbeat(db, mode === 'finance' ? 'weekly-finance-monday-0700' : 'daily-digest-ops-0700');
+  const hb0   = heartbeat(db, mode === 'finance' ? 'weekly-finance-monday-0700' : 'daily-digest-ops-0700');
+  sendFailures = 0;
+  const hb = (phase: 'started' | 'succeeded' | 'failed', code?: string) => phase === 'succeeded' && sendFailures > 0 ? hb0('failed', `TELEGRAM_SEND_FAILED:${sendFailures}`) : hb0(phase, code);
   await hb('started');
   const today = getManilaDateStr();
   const tmr   = addDays(today, 1);

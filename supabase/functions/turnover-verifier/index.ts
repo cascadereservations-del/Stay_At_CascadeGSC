@@ -45,7 +45,9 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-async function tgPost(token: string, method: string, body: Record<string, unknown>): Promise<void> {
+// SPEC-17 (D-212): returns whether Telegram accepted the message. A stamp written after a failed
+// send used to silence the alert forever (the 24 h gate never re-fires).
+async function tgPost(token: string, method: string, body: Record<string, unknown>): Promise<boolean> {
   const resp = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -56,6 +58,8 @@ async function tgPost(token: string, method: string, body: Record<string, unknow
     const t = await resp.text().catch(() => '');
     console.warn(`tgPost ${method} ${resp.status}:`, t);
   }
+  return resp.ok;
+  return resp.ok;
 }
 
 const ISSUE_LABELS: Record<string, string> = {
@@ -201,14 +205,15 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
         }
         lines.push(``, `_Resolve before next guest check-in. OPS will be alerted tomorrow if unresolved._`);
 
-        await tgPost(TG_TOKEN, 'sendMessage', {
+        const sent24 = await tgPost(TG_TOKEN, 'sendMessage', {
           chat_id:    TG_FINANCE_ID,
           text:       withHeader('attention', `turnover check ${d1}`, lines.join('\n')),
           parse_mode: 'Markdown',
         });
+        if (!sent24) sendFailures += 1;
 
-        // Stamp alert_24h_sent_at
-        if (propertyId) {
+        // Stamp alert_24h_sent_at only when Finance actually received it (SPEC-17)
+        if (propertyId && sent24) {
           await supabase
             .from('turnover_verification')
             .update({ alert_24h_sent_at: new Date().toISOString() })
@@ -278,13 +283,14 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
           `_Please verify the unit is ready for the next guest._`,
         ];
 
-        await tgPost(TG_TOKEN, 'sendMessage', {
+        const sent36 = await tgPost(TG_TOKEN, 'sendMessage', {
           chat_id:    TG_OPS_ID,
           text:       withHeader('alert', `turnover unresolved ${tvRow.checkout_date}`, lines.join('\n')),
           parse_mode: 'Markdown',
         });
+        if (!sent36) sendFailures += 1;
 
-        await supabase
+        if (sent36) await supabase
           .from('turnover_verification')
           .update({ alert_36h_sent_at: new Date().toISOString() })
           .eq('id', tvRow.id);
@@ -303,6 +309,6 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
     await recordHeartbeat('failed', 'TURNOVER_VERIFY_FAILED');
     return json({ ok: false, error: 'turnover_verify_failed', results }, 500);
   }
-  await recordHeartbeat('succeeded');
+  if (sendFailures > 0) await recordHeartbeat('failed', 'TELEGRAM_SEND_FAILED'); else await recordHeartbeat('succeeded');
   return json({ ok: true, results });
 }));

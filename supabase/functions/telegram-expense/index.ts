@@ -81,6 +81,12 @@ async function tgCall(method: string, body: unknown): Promise<any> {
     { method:'POST', headers:JSON_H, body:JSON.stringify(body), signal:AbortSignal.timeout(15_000) }).catch(()=>null);
   return r ? r.json().catch(()=>null) : null;
 }
+// SPEC-17 (D-212): a write whose error is never read prints a success line over nothing. Every
+// tap that changes a row goes through dbWrite and says NOTHING_CHANGED when the row did not move.
+async function dbWrite(q:PromiseLike<{error:any}>):Promise<string|null>{const{error}=await q;return error?String(error?.message??error).slice(0,120):null;}
+// SPEC-22 (D-214): a Finance-only button tapped in OPS says so instead of doing nothing.
+const FINANCE_ONLY='That one runs from the Finance group.';
+const NOTHING_CHANGED=(verb:string,why:string)=>`\u26a0\ufe0f Could not ${verb}, so nothing was changed. ${why}`;
 function splitForTelegram(text: string, max = 4000): string[] {
   if (text.length <= max) return [text];
   const out: string[] = []; let buf = '';
@@ -188,7 +194,8 @@ function largestPhotoId(msg:any):string|null{const p=Array.isArray(msg.photo)?ms
 async function fetchPhotoBytes(msg:any):Promise<{bytes:Uint8Array;mime:string}|null>{const id=largestPhotoId(msg);return id?fetchPhotoBytesByFileId(id):null;}
 async function handleStockQuery(db:any,chatId:any,surface:'ops'|'finance',params:any){
   const filter=String(params?.filter??'low');const item=params?.item?String(params.item).trim().toLowerCase():null;const isFin=surface==='finance';
-  const{data}=await db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit,is_consumable,consumption_per_booking,unit_cost,sort_order').eq('property_id',PROPERTY_ID).eq('is_active',true).order('sort_order');
+  const{data,error:invErr}=await db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit,is_consumable,consumption_per_booking,unit_cost,sort_order').eq('property_id',PROPERTY_ID).eq('is_active',true).order('sort_order');
+  if(invErr){await tgSend(chatId,'\u26a0\ufe0f Could not read the inventory right now, so there is nothing to show. Try again in a minute.');return;}
   let allRows=(data??[]) as any[];
   if(item) allRows=allRows.filter(r=>String(r.name??'').toLowerCase().includes(item));
 
@@ -325,7 +332,8 @@ async function runAdvisoryOcr(db:any,chatId:any,bytes:Uint8Array,mime:string,fro
 }
 
 async function payCleanList(db:any,chatId:any) {
-  const {data}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at').eq('property_id',PROPERTY_ID).is('fee_paid_at',null).order('cleaned_at',{ascending:false}).limit(10);
+  const {data,error:feeErr}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at').eq('property_id',PROPERTY_ID).is('fee_paid_at',null).order('cleaned_at',{ascending:false}).limit(10);
+  if(feeErr){await tgSend(chatId,'\u26a0\ufe0f Could not read the cleaning fees right now, so this is not a list of what is settled. Try again in a minute.');return;}
   const sessions=(data??[]) as any[];
   if (!sessions.length){await tgSend(chatId,'\u2705 No unpaid cleans. All settled.');return;}
   const rows:any[][]=[];
@@ -370,7 +378,8 @@ async function handleManualCleanAnswer(db:any,chatId:any,msg:any,m:{cleaner:stri
 }
 async function notifyCleanAcks(db:any,chatId:any) {
   if(!OPS_CHAT){await tgSend(chatId,'\u26a0\ufe0f OPS group not configured.');return;}
-  const {data}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at,fee_amount').eq('property_id',PROPERTY_ID).not('fee_paid_at','is',null).is('fee_acked_at',null).order('cleaned_at',{ascending:true});
+  const {data,error:ackErr}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at,fee_amount').eq('property_id',PROPERTY_ID).not('fee_paid_at','is',null).is('fee_acked_at',null).order('cleaned_at',{ascending:true});
+  if(ackErr){await tgSend(chatId,'\u26a0\ufe0f Could not read the paid fees right now, so nothing was sent to OPS. Try again in a minute.');return;}
   const sessions=(data??[]) as any[];
   if(!sessions.length){await tgSend(chatId,'\u2705 Nothing awaiting acknowledgement.');return;}
   const byCleaner=new Map<string,any[]>();
@@ -1212,7 +1221,18 @@ async function executeRefund(
 // CALLBACK QUERY HANDLER
 // ═══════════════════════════════════════════════════════════════════════════
 
+// SPEC-17 (D-212): a throw inside a tap handler used to be eaten by work()'s catch, so the spinner
+// cleared and the card sat unchanged - the exact shape of the 2026-09-22 dead button. Now it is written
+// on the card, with the reason, and the buttons stay so the tap can be retried.
 async function handleCallbackQuery(cq:any,db:any){
+  try{await handleCallbackQueryInner(cq,db);}
+  catch(e){
+    const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const head=String(cq.message?.text??'').split('\n')[0];
+    console.error('callback error:',String(e));
+    if(chatId&&msgId)await tgEdit(chatId,msgId,head+'\n\u26a0\ufe0f That tap failed, so nothing was changed: '+String((e as any)?.message??e).slice(0,160)+'\nTap it again in a minute.',cq.message?.reply_markup);
+  }
+}
+async function handleCallbackQueryInner(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
   // SPEC-16: these taps answer for themselves, so a refused tap can explain itself in the toast.
   if(!/^(inv:item:|inv:qty:|x:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
@@ -1263,8 +1283,9 @@ async function handleCallbackQuery(cq:any,db:any){
     await sendReceiptCard(db,chatId,txnId);return;
   }
 
-  // Session 28 (Lloyd's ask 2): 📋 Copy sends the card's 📨 text alone as monospace (long-press copies it;
-  // Telegram has no copy-on-tap); ✏️ Revise hands the same text plus the card head to Cassy (telegram-cassy
+  // Session 28 (Lloyd's ask 2), relabelled 📄 Show as text in session 43 (D-214): it sends the card's 📨
+  // text alone as monospace so a phone can long-press it. It never copied anything, and the old label
+  // "Copy" made Lloyd paste his previous clipboard. Telegram has no copy-on-tap; ✏️ Revise hands the same text plus the card head to Cassy (telegram-cassy
   // "revise:"). Stateless: the tapped message carries the text.
   if(data==='tpl:copy'||data==='tpl:revise'){
     const cardText=String(cq.message?.text??cq.message?.caption??'');const tpl=templateOf(cardText);
@@ -1272,7 +1293,9 @@ async function handleCallbackQuery(cq:any,db:any){
     if(data==='tpl:copy'){await tgSend(chatId,'```\n'+tpl.replace(/```/g,"'''")+'\n```');return;}
     const head=cardText.split('\n').filter(Boolean).slice(0,4).join('\n');
     const synthetic={update_id:Number(cq.id)||Date.now(),message:{message_id:msgId,date:Math.floor(Date.now()/1000),chat:cq.message?.chat,from:cq.from,text:`cassy revise: ${tpl} ||| ${head}`}};
-    await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(synthetic),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy revise forward failed:',String(e)));
+    const fwd=await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(synthetic),signal:AbortSignal.timeout(20_000)}).catch(e=>{console.error('cassy revise forward failed:',String(e));return null;});
+    // SPEC-22: a Revise tap that never reached Cassy used to look like a slow Cassy.
+    if(!fwd||!fwd.ok)await tgSend(chatId,'\u26a0\ufe0f Cassy could not be reached, so nothing was revised. Tap Revise again in a minute.');
     return;
   }
 
@@ -1370,7 +1393,8 @@ async function handleCallbackQuery(cq:any,db:any){
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired — re-send the photo._');return;}
     await tgEdit(chatId,msgId,'📸 _Scanning…_');
     const ph=payload.file_id?await fetchPhotoBytesByFileId(String(payload.file_id)):null;
-    if(!ph){await tgSend(chatId,'⚠️ Could not fetch the image. Re-send it.');return;}
+    // SPEC-22: never leave the card on "Scanning…"; put the head back and say what did not happen.
+    if(!ph){await tgEdit(chatId,msgId,firstLine+'\n⚠️ _Could not fetch the image, so nothing was scanned. Re-send the photo._');return;}
     await runAdvisoryOcr(db,chatId,ph.bytes,ph.mime,payload.from??{});return;
   }
   if(data.startsWith('adv_ignore:')){await db.from('telegram_pending').delete().eq('id',data.slice('adv_ignore:'.length));await tgEdit(chatId,msgId,'👍 _Ignored — not scanned._');return;}
@@ -1400,7 +1424,8 @@ async function handleCallbackQuery(cq:any,db:any){
   if(data.startsWith('llm_void_confirm:')){
     const payload=await consumePending(db,data.slice('llm_void_confirm:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
-    await db.from('ops_notices').update({is_active:false,updated_at:new Date().toISOString()}).eq('id',payload.noticeId);
+    const err=await dbWrite(db.from('ops_notices').update({is_active:false,updated_at:new Date().toISOString()}).eq('id',payload.noticeId));
+    if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('remove the notice',err));return;}
     await tgEdit(chatId,msgId,firstLine+'\n🗑️ *Notice removed.*');
     return;
   }
@@ -1413,7 +1438,8 @@ async function handleCallbackQuery(cq:any,db:any){
     if(c.effective_date) ch.effective_date=c.effective_date;
     if(c.effective_time) ch.effective_time=c.effective_time;
     if(c.duration_hours!==undefined) ch.duration_hours=c.duration_hours;
-    await db.from('ops_notices').update(ch).eq('id',payload.noticeId);
+    const err=await dbWrite(db.from('ops_notices').update(ch).eq('id',payload.noticeId));
+    if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('update the notice',err));return;}
     await tgEdit(chatId,msgId,firstLine+'\n✅ *Notice updated.*');
     return;
   }
@@ -1430,21 +1456,24 @@ async function handleCallbackQuery(cq:any,db:any){
   if(data.startsWith('lvt_confirm:')){
     const payload=await consumePending(db,data.slice('lvt_confirm:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
-    await db.from('transactions').update({status:'void',notes:'Voided via Telegram NL',updated_at:new Date().toISOString()}).eq('id',payload.txnId);
+    const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Voided via Telegram NL',updated_at:new Date().toISOString()}).eq('id',payload.txnId));
+    if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('void that entry',err));return;}
     await tgEdit(chatId,msgId,firstLine+`\n✅ Ref \`${payload.refCode}\` voided.`);return;
   }
   if(data.startsWith('lvts_confirm:')){
     const payload=await consumePending(db,data.slice('lvts_confirm:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
     const ids=Array.isArray(payload.txnIds)?payload.txnIds:[];
-    await db.from('transactions').update({status:'void',notes:'Voided via Telegram NL',updated_at:new Date().toISOString()}).in('id',ids);
+    const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Voided via Telegram NL',updated_at:new Date().toISOString()}).in('id',ids));
+    if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('void those entries',err));return;}
     await tgEdit(chatId,msgId,firstLine+`\n✅ ${ids.length} transaction${ids.length!==1?'s':''} voided.`);return;
   }
   if(data.startsWith('cleanerack:')){
     const cleaner=decodeURIComponent(data.slice('cleanerack:'.length));
     const ackerName=whoFrom(cq.from).split(' ').slice(0,2).join(' ')||'Team';
     const mt=new Date().toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit'});
-    await db.from('cleaning_sessions').update({fee_acked_at:new Date().toISOString()}).eq('property_id',PROPERTY_ID).eq('cleaner_name',cleaner).not('fee_paid_at','is',null).is('fee_acked_at',null);
+    const err=await dbWrite(db.from('cleaning_sessions').update({fee_acked_at:new Date().toISOString()}).eq('property_id',PROPERTY_ID).eq('cleaner_name',cleaner).not('fee_paid_at','is',null).is('fee_acked_at',null));
+    if(err){await tgEdit(chatId,msgId,`${cq.message?.text??'🧹 Cleaning Fees Settled'}\n\n`+NOTHING_CHANGED('record the acknowledgement',err));return;}
     await tgEdit(chatId,msgId,`${cq.message?.text??'🧹 Cleaning Fees Settled'}\n\n✅ Acknowledged by ${ackerName} at ${mt}`);return;
   }
   // ── v52: Dashboard "Send Invoice" → cleaner acknowledgement ──
@@ -1484,10 +1513,10 @@ async function handleCallbackQuery(cq:any,db:any){
         case 'inventory':   await handleStockQuery(db,chatId,isF?'finance':'ops',{filter:'all'});break; // session 28: [/inventory] button
         case 'stock':       await handleStockQuery(db,chatId,isF?'finance':'ops',{filter:'low'});break;
         case 'count':       if(isF)await promptCountScope(db,chatId);else await tgSend(chatId,'Counts are updated from the Finance group.');break; // session 33: SPEC-03
-        case 'payclean':    if(isF)await payCleanList(db,chatId);break;
-        case 'manualclean': if(isF)await promptManualClean(db,chatId,cq.from?.id);break;
-        case 'notifyclean': if(isF)await notifyCleanAcks(db,chatId);break;
-        case 'summary':     if(isF)await runSummary(db,chatId);break;
+        case 'payclean':    if(isF)await payCleanList(db,chatId);else await tgSend(chatId,FINANCE_ONLY);break;
+        case 'manualclean': if(isF)await promptManualClean(db,chatId,cq.from?.id);else await tgSend(chatId,FINANCE_ONLY);break;
+        case 'notifyclean': if(isF)await notifyCleanAcks(db,chatId);else await tgSend(chatId,FINANCE_ONLY);break;
+        case 'summary':     if(isF)await runSummary(db,chatId);else await tgSend(chatId,FINANCE_ONLY);break;
         case 'notices':     await handleNoticesList(chatId,db);break;
         case 'cal':         await handleCalendarNotices(chatId,db);break;
         case 'weather':     await sendWeather(chatId);break;
@@ -1508,9 +1537,9 @@ async function handleCallbackQuery(cq:any,db:any){
     if(dlErr||!blob){await tgSend(chatId,'⚠️ Could not retrieve image. Please re-send.');return;}
     await runOcr(db,chatId,payload.objectPath,new Uint8Array(await blob.arrayBuffer()),blob.type||'image/jpeg',payload.loggedBy,payload.notes,payload.categoryHint??'');return;
   }
-  if(data.startsWith('ocr_ok:'))   {const txnId=data.slice('ocr_ok:'.length);await db.from('transactions').update({status:'confirmed',updated_at:new Date().toISOString()}).eq('id',txnId);await tgEdit(chatId,msgId,firstLine+`\n✅ *Confirmed — added to ledger*\n🔖 Ref: ${shortRef(txnId)}`);await maybeOfferInventorySync(db,chatId,txnId);return;}
+  if(data.startsWith('ocr_ok:'))   {const txnId=data.slice('ocr_ok:'.length);const err=await dbWrite(db.from('transactions').update({status:'confirmed',updated_at:new Date().toISOString()}).eq('id',txnId));if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('confirm the receipt',err));return;}await tgEdit(chatId,msgId,firstLine+`\n✅ *Confirmed — added to ledger*\n🔖 Ref: ${shortRef(txnId)}`);await maybeOfferInventorySync(db,chatId,txnId);return;}
   if(data.startsWith('ocr_edit:')) {await ask(db,chatId,cq.from?.id,'edit_amount',{txnId:data.slice('ocr_edit:'.length)},'💵 Type the correct total, like 1706.');return;}
-  if(data.startsWith('ocr_void:')) {await db.from('transactions').update({status:'void',notes:'Discarded via Telegram',updated_at:new Date().toISOString()}).eq('id',data.slice('ocr_void:'.length));await tgEdit(chatId,msgId,firstLine+'\n❌ *Discarded*');return;}
+  if(data.startsWith('ocr_void:')) {const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Discarded via Telegram',updated_at:new Date().toISOString()}).eq('id',data.slice('ocr_void:'.length)));if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('discard the receipt',err));return;}await tgEdit(chatId,msgId,firstLine+'\n❌ *Discarded*');return;}
   if(data.startsWith('item_edit:'))   {await promptEditItem(db,chatId,data.slice('item_edit:'.length));return;}
   if(data.startsWith('item_add:'))    {const txnId=data.slice('item_add:'.length);if(!await loadReceiptTxn(db,txnId)){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}await ask(db,chatId,cq.from?.id,'receipt_item_add',{txnId},'➕ Type the item and its price, like Joy Dishwashing 89. Add x2 for quantity.');return;}
   if(data.startsWith('item_remove:')) {await promptRemoveItem(db,chatId,data.slice('item_remove:'.length));return;}
@@ -1635,7 +1664,8 @@ async function handleTextMessage(msg:any,db:any){
       const{data:rows}=await db.from('transactions').select('id,gross_amount,category,status').eq('property_id',PROPERTY_ID).gte('id',lo).lte('id',hi).limit(1);
       const txn=rows?.[0];if(!txn){await tgSend(chatId,`⚠️ No transaction with ref \`${refCode}\`.`);return;}
       if(txn.status==='void'){await tgSend(chatId,`ℹ️ \`${refCode}\` is already void.`);return;}
-      await db.from('transactions').update({status:'void',notes:'Voided via /void',updated_at:new Date().toISOString()}).eq('id',txn.id);
+      const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Voided via /void',updated_at:new Date().toISOString()}).eq('id',txn.id));
+      if(err){await tgSend(chatId,NOTHING_CHANGED(`void \`${refCode}\``,err));return;}
       await tgSend(chatId,`✅ Ref \`${refCode}\` (₱${peso(txn.gross_amount)} · ${txn.category}) voided.`);return;
     }
     await showMenu(chatId);return;

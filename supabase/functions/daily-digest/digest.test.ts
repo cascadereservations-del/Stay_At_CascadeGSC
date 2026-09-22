@@ -45,7 +45,7 @@ Deno.test('ops: an item at zero fires ATTENTION on a quiet day; a second-morning
   const mid = opsReport({ ...base, midStay: [{ guest: 'Ben', night: 2, nights: 5 }] })!;
   assertEquals(mid.kind, 'daily');
   assertEquals(mid.lines, ['🛎 Mid-stay: Ben, night 2 of 5 — towels and water topped up? everything okay?']);
-  assert(mid.action.startsWith('send Ben this (Copy, or Revise with Cassy):\n📨 Hi Ben,'));
+  assert(mid.action.startsWith('send Ben this (Show as text to long-press it, or Revise with Cassy):\n📨 Hi Ben,'));
   assert(withHeader(mid.kind, 'Mon 14 Sep', renderReport(mid)).startsWith('🟢 DAILY · Mon 14 Sep\n\n'));
 });
 

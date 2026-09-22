@@ -80,7 +80,7 @@ export const DASH_URL = 'https://cascadereservations-del.github.io/cascade-admin
 export const TEMPLATE_MARK = '📨 ';
 /** Do lines for messaging someone: the instruction, then the text itself on the 📨 line. */
 export function doSend(to: string, text: string): string[] {
-  return [`Do: send ${to} this (Copy, or Revise with Cassy):`, `${TEMPLATE_MARK}${text}`];
+  return [`Do: send ${to} this (Show as text to long-press it, or Revise with Cassy):`, `${TEMPLATE_MARK}${text}`];
 }
 /** The 📨 text of a card (up to the next blank line), or '' when the card has none. */
 export function templateOf(cardText: string): string {
@@ -90,7 +90,8 @@ export function templateOf(cardText: string): string {
 }
 export type Btn = { text: string; callback_data?: string; url?: string };
 export const BTN: Record<'template' | 'inventory' | 'expense', Btn[]> = {
-  template:  [{ text: '📋 Copy', callback_data: 'tpl:copy' }, { text: '✏️ Revise', callback_data: 'tpl:revise' }],
+  // SPEC-22 (D-214): was '📋 Copy'. It never copied; it shows the text as monospace to long-press.
+  template:  [{ text: '📄 Show as text', callback_data: 'tpl:copy' }, { text: '✏️ Revise', callback_data: 'tpl:revise' }],
   inventory: [{ text: '📦 Inventory', url: `${DASH_URL}inventory` }, { text: '/inventory', callback_data: 'menu:do:inventory' }],
   expense:   [{ text: '💰 Log expense', callback_data: 'menu:do:log' }, { text: '🧾 Records', url: `${DASH_URL}inventory/purchases` }],
 };
