@@ -1263,12 +1263,16 @@ async function handleCallbackQuery(cq:any,db:any){
   // The RPC decides WHO may silence a finding (owner or admin) - this only decides WHICH one.
   if(data.startsWith('vf:ack:')){
     const want=data.slice('vf:ack:'.length);const who=cq.from?.first_name??'staff';
+    // v106: this lookup used to fail SILENTLY - it returned without touching the card, so a broken
+    // tap looked exactly like a tap that did nothing. Lloyd tapped on 2026-09-21 and saw no change at
+    // all, which is how the silence was found. Every path below now writes on the card.
     const{data:rows,error:fErr}=await db.from('verifier_findings').select('key').in('status',['open','acknowledged']);
-    if(fErr){await tgAnswerCB(cq.id,'Could not reach the findings just now.');return;}
+    if(fErr){await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n⚠️ Could not read the findings: ${String(fErr.message??fErr).slice(0,140)}`,cq.message?.reply_markup);return;}
     let key='';for(const r of (rows??[]) as Array<{key:string}>){if(await ackHash(r.key)===want){key=r.key;break;}}
     // No match means the finding resolved itself between the card being sent and the tap, which is
-    // the good outcome and not an error.
-    if(!key){await tgAnswerCB(cq.id,'That one has already closed.');await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n✅ Closed on its own before you got here.`);return;}
+    // the good outcome. The count is on the line because "no match" and "no rows" are different
+    // faults and the card is the only place anybody will look.
+    if(!key){await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n✅ Closed on its own before you got here. (${(rows??[]).length} live findings checked)`);return;}
     const{data:r,error}=await db.rpc('telegram_ack_verifier_finding_v1',{p_telegram_user_id:cq.from?.id,p_key:key});
     let line:string,keep=false;
     if(error){keep=true;line=/does not exist|not found|could not find/i.test(error.message)?'⚠️ The acknowledge button is not switched on yet.':`⚠️ ${String(error.message).slice(0,150)}`;}
