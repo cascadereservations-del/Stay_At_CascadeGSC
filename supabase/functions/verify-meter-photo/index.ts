@@ -20,9 +20,9 @@
 // holds a Gemini key and an OpenRouter key, so the provider is an env var and
 // switching is config, not a rewrite. Same contract either way.
 //
-//   VISION_PROVIDER    gemini (default) | openrouter
-//   CASCADE_GEMINI_BOT_KEY       (the only Gemini key; no fallback, D-204.3)
-//   CASCADE_OPENROUTER_BOT_KEY   (falls back to OPENROUTER_API_KEY)
+//   VISION_PROVIDER    gemini (default: Gemini first, OpenRouter if it refuses) | openrouter
+//   CASCADE_GEMINI_BOT_KEY       (the only Gemini key, D-204.3)
+//   CASCADE_OPENROUTER_BOT_KEY   (the only OpenRouter key; also the fallback reader)
 //   VISION_MODEL       optional per-provider override
 //   TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID   the OPS group, as everywhere else
 //   TELEGRAM_FINANCE_CHAT_ID               mirrored to for money verdicts only
@@ -54,8 +54,7 @@ const PROVIDER       = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase
 // the bare GEMINI_BOT_KEY belongs to another project: CASCADE_GEMINI_BOT_KEY
 // only, no fallback (D-204.3).
 const GEMINI_KEY     = Deno.env.get('CASCADE_GEMINI_BOT_KEY') ?? '';
-const OPENROUTER_KEY = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')
-                    ?? Deno.env.get('OPENROUTER_API_KEY') ?? '';
+const OPENROUTER_KEY = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY') ?? '';
 
 // gemini-2.5-flash was copied from ocr-receipt and is now refused for new
 // callers: "no longer available to new users, please update to
@@ -151,6 +150,7 @@ type VisionResult = {
   reading: number | null;
   confidence: number;
   note: string;
+  via?: 'gemini' | 'openrouter';  // which provider actually read it (session 46 fallback)
 };
 
 const EMPTY: VisionResult = { is_meter: false, meter_type: 'unknown', reading: null, confidence: 0, note: 'no answer' };
@@ -211,13 +211,20 @@ async function readWithOpenRouter(b64: string, mime: string, which: Which): Prom
   return parseModelJson(raw?.choices?.[0]?.message?.content ?? '');
 }
 
+// Gemini first; OpenRouter (CASCADE_OPENROUTER_BOT_KEY) when Gemini has no key or refuses - the order vision.ts and
+// providers.ts use (Lloyd, session 46). VISION_PROVIDER=openrouter skips Gemini.
 async function readMeter(b64: string, mime: string, which: Which): Promise<VisionResult> {
-  if (PROVIDER === 'openrouter') {
-    if (!OPENROUTER_KEY) throw new Error('OPENROUTER_API_KEY not set');
-    return await readWithOpenRouter(b64, mime, which);
+  if (PROVIDER === 'openrouter' || !GEMINI_KEY) {
+    if (!OPENROUTER_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY and CASCADE_OPENROUTER_BOT_KEY not set');
+    return { ...(await readWithOpenRouter(b64, mime, which)), via: 'openrouter' };
   }
-  if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
-  return await readWithGemini(b64, mime, which);
+  try {
+    return { ...(await readWithGemini(b64, mime, which)), via: 'gemini' };
+  } catch (e) {
+    if (!OPENROUTER_KEY) throw e;
+    console.warn('vision_fallback_openrouter', String(e).slice(0, 200));
+    return { ...(await readWithOpenRouter(b64, mime, which)), via: 'openrouter' };
+  }
 }
 
 /* A water meter face is number wheels plus fraction dials, and a reader can
@@ -413,8 +420,8 @@ Deno.serve(async (req: Request) => {
       vision_verdict: verdict,
       vision_checked_at: new Date().toISOString(),
       vision_raw: {
-        provider: PROVIDER,
-        model: PROVIDER === 'openrouter' ? OPENROUTER_MODEL : GEMINI_MODEL,
+        provider: e?.via ?? w?.via ?? PROVIDER,
+        model: (e?.via ?? w?.via ?? PROVIDER) === 'openrouter' ? OPENROUTER_MODEL : GEMINI_MODEL,
         electric: e, water: w, paths,
       },
     }).eq('session_id', t.session_id);

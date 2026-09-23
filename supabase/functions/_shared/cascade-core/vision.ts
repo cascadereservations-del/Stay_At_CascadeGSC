@@ -1,19 +1,19 @@
 // cascade-core vision (session 27, booking PRD task 2 — the OCR merge). One image-to-JSON call
 // shared by ocr-receipt, telegram-expense and upload-booking-receipt. Same env contract as before
-// (D-090): VISION_PROVIDER picks gemini or openrouter; VISION_MODEL overrides the model for either;
-// keys CASCADE_GEMINI_BOT_KEY / CASCADE_OPENROUTER_BOT_KEY (OPENROUTER_API_KEY kept as a fallback
-// because ocr-receipt read it). Returns the raw model text; callers parse — their JSON shapes differ.
+// (D-090): Gemini first, OpenRouter when Gemini refuses (VISION_PROVIDER=openrouter skips Gemini); VISION_MODEL
+// overrides the model for either; keys CASCADE_GEMINI_BOT_KEY / CASCADE_OPENROUTER_BOT_KEY only - the two model keys
+// this project uses (01-FACTS). Returns the raw model text; callers parse — their JSON shapes differ.
 const env = (k: string) => Deno.env.get(k) ?? '';
 export const VISION_PROVIDER = (env('VISION_PROVIDER') || 'gemini').toLowerCase();
 // D-204.3: CASCADE_GEMINI_BOT_KEY only. The bare GEMINI_BOT_KEY / GEMINI_API_KEY no longer authenticate and the bare
 // GEMINI_BOT_KEY belongs to another project (providers.ts), so a fallback could only drain it or fail late.
 const GEMINI_KEY = env('CASCADE_GEMINI_BOT_KEY');
-const OPENROUTER_KEY = env('CASCADE_OPENROUTER_BOT_KEY') || env('OPENROUTER_API_KEY');
+const OPENROUTER_KEY = env('CASCADE_OPENROUTER_BOT_KEY');
 const GEMINI_MODEL = env('VISION_MODEL') || 'gemini-3.6-flash';
 const OPENROUTER_MODEL = env('VISION_MODEL') || 'google/gemini-3.6-flash';
 const JSON_H = { 'Content-Type': 'application/json' };
 
-export const hasVisionKey = () => (VISION_PROVIDER === 'openrouter' ? !!OPENROUTER_KEY : !!GEMINI_KEY);
+export const hasVisionKey = () => !!GEMINI_KEY || !!OPENROUTER_KEY;
 
 export function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';
@@ -31,21 +31,35 @@ export async function visionFetch(url: string, init: RequestInit, tries = 3): Pr
   return fetch(url, init);
 }
 
-/** Send one image + prompt to the configured vision provider; returns the model's text (expected JSON). */
+/** Send one image + prompt; returns the model's text (expected JSON). Gemini first; OpenRouter (CASCADE_OPENROUTER_BOT_KEY)
+ *  when Gemini has no key or refuses - the same order providers.ts uses for text (Lloyd, session 46). VISION_PROVIDER=openrouter
+ *  skips Gemini. */
 export async function visionExtractText(prompt: string, image: Uint8Array | string, mime: string): Promise<string> {
   const b64 = typeof image === 'string' ? image : bytesToBase64(image);
-  if (VISION_PROVIDER === 'openrouter') {
-    if (!OPENROUTER_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
-    const res = await visionFetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST', headers: { ...JSON_H, Authorization: `Bearer ${OPENROUTER_KEY}` },
-      body: JSON.stringify({ model: OPENROUTER_MODEL, temperature: 0, response_format: { type: 'json_object' },
-        messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
-      signal: AbortSignal.timeout(55_000),
-    });
-    const raw = await res.json();
-    if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
-    return raw?.choices?.[0]?.message?.content ?? '';
+  if (VISION_PROVIDER === 'openrouter' || !GEMINI_KEY) return await viaOpenRouter(prompt, b64, mime);
+  try {
+    return await viaGemini(prompt, b64, mime);
+  } catch (e) {
+    if (!OPENROUTER_KEY) throw e;
+    console.warn('vision_fallback_openrouter', String(e).slice(0, 200));
+    return await viaOpenRouter(prompt, b64, mime);
   }
+}
+
+async function viaOpenRouter(prompt: string, b64: string, mime: string): Promise<string> {
+  if (!OPENROUTER_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
+  const res = await visionFetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST', headers: { ...JSON_H, Authorization: `Bearer ${OPENROUTER_KEY}` },
+    body: JSON.stringify({ model: OPENROUTER_MODEL, temperature: 0, response_format: { type: 'json_object' },
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
+    signal: AbortSignal.timeout(55_000),
+  });
+  const raw = await res.json();
+  if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
+  return raw?.choices?.[0]?.message?.content ?? '';
+}
+
+async function viaGemini(prompt: string, b64: string, mime: string): Promise<string> {
   if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
   const res = await visionFetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`, {
     method: 'POST', headers: JSON_H,
