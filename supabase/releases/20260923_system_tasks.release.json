@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "PENDING"
+    "commit": "abb15a687ca1de58e04524e850946a4f5bfd1846"
   },
   "migrations": [
     "20260923020000_system_tasks.sql"
@@ -61,8 +61,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING",
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-23T01:5xZ on a disposable restore of cascade-supabase-20260923T012703Z (0 leftovers): migration applied 1/1, forward 4/4, pgTAP system_tasks.sql 11/11, 102 tables before and after. The migration touches no object the base could be missing.",
     "evidence": "Two new service_role-only definer functions writing follow_up_tasks, which service_role cannot touch directly since the operational RLS lockdown. pgTAP system_tasks.sql: idempotency, refusal of a malformed kind, close only when no longer reported and only inside the window, never close a person's own task."
   },
   "approvals": {
