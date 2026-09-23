@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "release_id": "inventory_check_controlled_items_only_20260923",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "f62457857701fba9e56edc6d4fb77e19e96a7447"
+  },
+  "migrations": [
+    "20260923030000_inventory_check_controlled_items_only.sql"
+  ],
+  "migration_sha256": {
+    "20260923030000_inventory_check_controlled_items_only.sql": "f0fce5129588c98ffbfc89d595a3b020cb99fced949c9d236070c459d33495da"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260923T035258Z",
+    "verified_at": "2026-09-23T03:56:39Z",
+    "production_rule": "One live function is replaced: health_checks_core_v1. The body was not retyped: a script cut it from 20260923010000_money_checks_from_accounting_start.sql, asserted the cut hashes to the live md5(prosrc) f54b5cb4dde2ccc2d223ae5ace8d16f3 (read 2026-09-23), then applied two exact one-hit replacements in inventory_ledger_consistent. The first forward check asserts the resulting md5. No table, row or grant changes. Backup is the last act before the apply (D-210, D-217.6)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_core_body_is_the_reviewed_body",
+      "query": "select md5(p.prosrc) = '7564fc5c867a11ecc73df9ace925a018' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'health_checks_core_v1'",
+      "expect": true
+    },
+    {
+      "name": "the_inventory_check_judges_controlled_items_only",
+      "query": "select p.prosrc like '%i.movement_controlled_at is not null and i.last_after is not null%' and p.prosrc like '%where i.qty_on_hand < 0 or%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'health_checks_core_v1'",
+      "expect": true
+    },
+    {
+      "name": "the_core_is_still_reachable_only_through_a_wrapper",
+      "query": "select not has_function_privilege('anon', 'public.health_checks_core_v1(uuid, boolean)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid, boolean)', 'EXECUTE') and has_function_privilege('authenticated', 'public.run_health_checks_v1(uuid)', 'EXECUTE') and has_function_privilege('service_role', 'public.run_health_checks_service_v1(uuid)', 'EXECUTE')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "restore_the_core",
+        "action": "re-apply the health_checks_core_v1 definition from supabase/migrations/20260923010000_money_checks_from_accounting_start.sql (md5 f54b5cb4dde2ccc2d223ae5ace8d16f3) with run-sql-on-host.sh, wrapped in begin/commit. Nothing else changed."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "next_health_run_resolves_the_soap_finding",
+      "required_state": "The next daily verifier run refreshes the health checks: inventory_ledger_consistent turns pass on production data (read 2026-09-23: 0 of 73 active items movement-controlled, no negative stock), so V10:inventory_ledger_consistent resolves by itself."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-23T03:5xZ on a disposable restore of cascade-supabase-20260923T015850Z (after release money_checks_from_accounting_start_20260923, which this builds on; 0 leftovers). 102 tables, 121 ledger rows; migration applied 1/1; forward 3/3; pgTAP inventory_check_controlled_items_only.sql 4/4, money_checks_from_accounting_start.sql 7/7, verifier_triage_and_opening_amounts.sql 22/22, health_checks_core_v10.sql 26/27 - the one miss is its grant assertion, which a --no-acl restore cannot carry (same as the previous release). Negative control: the same suite against the old body (f54b5cb4) fails test 1, have fail want pass - the production case.",
+    "evidence": "Same function signature, return shape and keys. Only the inventory check's predicate narrows: the movement comparison applies where movement_controlled_at is not null; negative stock is still judged for every item. pgTAP inventory_check_controlled_items_only.sql: silent for the uncontrolled production case, fires and names a controlled item that disagrees, silent when it agrees."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the first forward check fails - a mistyped body",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the suites green on this commit"
+  ]
+}
