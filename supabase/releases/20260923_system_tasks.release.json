@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "release_id": "system_tasks_20260923",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20260923020000_system_tasks.sql"
+  ],
+  "migration_sha256": {
+    "20260923020000_system_tasks.sql": "16d75ad4d850536e10769b5ada11493b575a118ddebb642fb8ed2901848c4e78"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "Adds two new functions and nothing else: no table, column, row, policy or existing function changes. The backup is still the last act before the apply (D-210, D-217.6)."
+  },
+  "forward_verification": [
+    {
+      "name": "both_task_functions_exist_and_are_definer",
+      "query": "select count(*) = 2 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('system_task_open_v1', 'system_task_close_missing_v1') and p.prosecdef and p.proconfig @> array['search_path=\"\"']",
+      "expect": true
+    },
+    {
+      "name": "only_service_role_may_call_them",
+      "query": "select has_function_privilege('service_role', 'public.system_task_open_v1(uuid, text, text, text, text, text)', 'EXECUTE') and has_function_privilege('service_role', 'public.system_task_close_missing_v1(text, text[], text, text)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.system_task_open_v1(uuid, text, text, text, text, text)', 'EXECUTE') and not has_function_privilege('anon', 'public.system_task_open_v1(uuid, text, text, text, text, text)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.system_task_close_missing_v1(text, text[], text, text)', 'EXECUTE') and not has_function_privilege('anon', 'public.system_task_close_missing_v1(text, text[], text, text)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "a_job_task_closes_only_its_own_system_rows",
+      "query": "select p.prosrc like '%idempotency_key like ''system:%''%' and p.prosrc like '%source_ref >= p_since%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'system_task_close_missing_v1'",
+      "expect": true
+    },
+    {
+      "name": "applying_this_release_created_no_task",
+      "query": "select count(*) = 0 from public.follow_up_tasks where idempotency_key like 'system:%'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "until turnover-verifier and missed-cleaning-alert are redeployed from waves cbf2dd4 - they call these functions. Roll the functions back first (redeploy from ce4a8f3), then drop the two functions.",
+    "steps": [
+      {
+        "name": "drop_the_two_functions",
+        "action": "run-sql-on-host.sh a file containing: begin; drop function if exists public.system_task_open_v1(uuid, text, text, text, text, text); drop function if exists public.system_task_close_missing_v1(text, text[], text, text); commit;"
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "nothing_calls_them_until_the_functions_deploy",
+      "required_state": "turnover-verifier and missed-cleaning-alert from waves cbf2dd4 are the only callers; deploy them AFTER this release, never before, or their runs fail with 'function does not exist'."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING",
+    "evidence": "Two new service_role-only definer functions writing follow_up_tasks, which service_role cannot touch directly since the operational RLS lockdown. pgTAP system_tasks.sql: idempotency, refusal of a malformed kind, close only when no longer reported and only inside the window, never close a person's own task."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run system_tasks.sql green on this commit"
+  ]
+}
