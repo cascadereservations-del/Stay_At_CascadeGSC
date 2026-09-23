@@ -42,6 +42,7 @@ import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from
 import {
   meterReasons, parseMeterSkip,
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
+  meterBackwardsMessage, METER_WRONG_NUMBER_FLAGS,
   type PriorMismatch,
 } from './meter-skip.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
@@ -525,8 +526,11 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const asPrev = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
     let prevElec = asPrev(payload.previousElectricReading), prevWater = asPrev(payload.previousWaterReading);
     if (propertyId) {
+      // D-219: a reading flagged as wrong numbers (misread, re_entry, duplicate) is never the previous one.
       const { data: last } = await supabase.from('meter_readings').select('electric_curr, water_curr, recorded_at')
-        .eq('property_id', propertyId).order('recorded_at', { ascending: false }).limit(1).maybeSingle();
+        .eq('property_id', propertyId)
+        .or(`meter_flag.is.null,meter_flag.not.in.(${METER_WRONG_NUMBER_FLAGS.join(',')})`)
+        .order('recorded_at', { ascending: false }).limit(1).maybeSingle();
       if (last) {
         if (asPrev(last.electric_curr) !== null) prevElec = asPrev(last.electric_curr);
         if (asPrev(last.water_curr) !== null) prevWater = asPrev(last.water_curr);
@@ -539,6 +543,15 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const deltaM3  = (!isNaN(waterNum) && prevWater !== null) ? Number((waterNum - prevWater).toFixed(3)) : null;
     const kwhPerNight = (deltaKwh !== null && nights > 0) ? Number((deltaKwh / nights).toFixed(2)) : null;
     const m3PerNight  = (deltaM3  !== null && nights > 0) ? Number((deltaM3  / nights).toFixed(3)) : null;
+
+    /* D-219 (Lloyd 2026-09-23): a meter does not run backwards, so a reading below the last one is refused,
+       before anything is written. The checklist refuses it first; this makes it a rule, not a suggestion. */
+    const backwards = meterBackwardsMessage(
+      isNaN(elecNum) ? null : elecNum, prevElec, isNaN(waterNum) ? null : waterNum, prevWater);
+    if (backwards) {
+      console.log(JSON.stringify({ event: 'meter_backwards_refused', typed: [elecNum, waterNum], prev: [prevElec, prevWater] }));
+      return json({ ok: false, error: 'meter_backwards', message: backwards }, 409);
+    }
     const urgentItems = String(payload.urgentItems ?? '');
 
     const ph = (payload.photos ?? {}) as Record<string, PhotoEntry[]>;

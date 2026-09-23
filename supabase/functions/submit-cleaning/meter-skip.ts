@@ -76,3 +76,27 @@ export function meterBlockMessage(
     `Open the checklist again: there is a notice at the top about it. Say what you did about the photo, and this report will go straight through.`,
   ].join(' ');
 }
+
+/** Flags that mean a stored reading's NUMBERS are wrong, so it must never be the "previous reading" a new
+ *  one is compared with (D-219). first_reading and under_review are real numbers and still count. */
+export const METER_WRONG_NUMBER_FLAGS = ['misread', 're_entry', 'duplicate'];
+
+/** A meter does not run backwards (D-219, Lloyd 2026-09-23: block, not nudge). The refusal, or null.
+ *  A missing number or a missing previous reading never blocks: there is nothing to compare. */
+export function meterBackwardsMessage(
+  elec: number | null, prevElec: number | null,
+  water: number | null, prevWater: number | null,
+): string | null {
+  const back: string[] = [];
+  if (elec !== null && Number.isFinite(elec) && prevElec !== null && elec < prevElec) {
+    back.push(`electric ${elec} kWh is lower than the last reading (${prevElec})`);
+  }
+  if (water !== null && Number.isFinite(water) && prevWater !== null && water < prevWater) {
+    back.push(`water ${water} m³ is lower than the last reading (${prevWater})`);
+  }
+  if (back.length === 0) return null;
+  return [
+    `The ${back.join(', and the ')}. A meter does not run backwards, so this report was not sent.`,
+    `Read the meter again and type the number exactly as it shows. If the meter really shows this number, take a photo of it and message Lloyd - the last reading on file is the one that is wrong.`,
+  ].join(' ');
+}

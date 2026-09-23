@@ -23,11 +23,13 @@ Deno.serve(withObservability({ functionName: 'last-readings', route: 'ops' }, as
       { auth: { persistSession: false } }
     );
 
-    // Fetch the single most-recent meter_readings row
+    // The single most-recent meter_readings row whose numbers are not flagged wrong (D-219). The list must
+    // match submit-cleaning's METER_WRONG_NUMBER_FLAGS, or the page and the server disagree about "previous".
     const { data, error } = await supabase
       .from('meter_readings')
       .select('electric_curr, water_curr, recorded_at')
       .eq('property_id', propertyId)
+      .or('meter_flag.is.null,meter_flag.not.in.(misread,re_entry,duplicate)')
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();

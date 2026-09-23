@@ -6,6 +6,7 @@ import { assertEquals } from 'jsr:@std/assert@1';
 import {
   meterReasons, parseMeterSkip,
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
+  meterBackwardsMessage, METER_WRONG_NUMBER_FLAGS,
 } from './meter-skip.ts';
 
 Deno.test('a skip counts only when declared AND carrying a reason', () => {
@@ -94,4 +95,28 @@ Deno.test('a mismatch with no timestamp still refuses, and still reads as a sent
 
 Deno.test('the lookback matches the sign-in card, or the two can disagree', () => {
   assertEquals(METER_BLOCK_LOOKBACK_DAYS, 14, 'get_meter_photo_followups p_lookback default');
+});
+
+// D-219 (Lloyd 2026-09-23): a backwards reading is refused, not nudged. The 2026-07-01 row re-typed the
+// 2026-06-21 numbers (3003 -> 2931 kWh, 57.547 -> 56.598 m3) and nothing stopped it.
+Deno.test('a reading below the last one is refused, naming the meter and the last number', () => {
+  const m = meterBackwardsMessage(2931, 3003, 56.598, 57.547);
+  assertEquals(typeof m, 'string');
+  assertEquals(m!.includes('electric 2931 kWh is lower than the last reading (3003)'), true);
+  assertEquals(m!.includes('water 56.598 m³ is lower than the last reading (57.547)'), true);
+  assertEquals(m!.includes('message Lloyd'), true);
+  assertEquals(meterBackwardsMessage(39.675, null, 39.675, 39.782)!.startsWith('The water 39.675'), true);
+});
+
+Deno.test('a forward, equal, missing or first reading is never refused', () => {
+  assertEquals(meterBackwardsMessage(3163, 2931, 59.474, 56.598), null);
+  assertEquals(meterBackwardsMessage(3003, 3003, 57.547, 57.547), null);   // same number is a nudge, not a block
+  assertEquals(meterBackwardsMessage(null, 3003, null, 57.547), null);
+  assertEquals(meterBackwardsMessage(NaN, 3003, NaN, 57.547), null);
+  assertEquals(meterBackwardsMessage(1636, null, 36.871, null), null);
+});
+
+Deno.test('only flags that mean wrong numbers are skipped as the previous reading', () => {
+  assertEquals([...METER_WRONG_NUMBER_FLAGS].sort(), ['duplicate', 'misread', 're_entry']);
+  assertEquals(METER_WRONG_NUMBER_FLAGS.includes('first_reading'), false);
 });
