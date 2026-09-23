@@ -109,6 +109,9 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
     if (error) console.warn('[turnover-verifier] heartbeat write failed:', error.message);
   };
   await recordHeartbeat('started');
+  // SPEC-17 counts failed sends into this, but it was never declared: from the 2026-09-22 deploy every run
+  // threw a ReferenceError at the end, after its cards had gone out, and never recorded success (found 2026-09-23).
+  let sendFailures = 0;
 
   const TG_TOKEN      = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const TG_FINANCE_ID = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
