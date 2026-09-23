@@ -1,0 +1,23 @@
+name: Functions type-check
+
+# cascade-ci.yml runs on main and PRs only, and functions deploy from this branch, so an edge function
+# nobody wrote tests for was never type-checked: turnover-verifier shipped an undeclared sendFailures
+# (2026-09-22) and crashed live. This checks every function's entry point on every push that touches one.
+on:
+  push:
+    paths: ['supabase/functions/**', '.github/workflows/functions-typecheck.yml']
+  pull_request:
+    paths: ['supabase/functions/**']
+
+permissions:
+  contents: read
+
+jobs:
+  deno-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check --no-lock --node-modules-dir=auto supabase/functions/*/index.ts
