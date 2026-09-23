@@ -9,18 +9,21 @@ insert into public.properties(id, name, is_active) values ('e1000000-0000-4000-8
 insert into public.acct_settings(property_id, accounting_start) values ('e1000000-0000-4000-8000-000000000045', '2026-09-01');
 
 create function pg_temp.chk(k text) returns jsonb language sql as $$
-  select e from jsonb_array_elements(public.health_checks_core_v1('e1000000-0000-4000-8000-000000000045', true)) e
+  select e from jsonb_array_elements(public.health_checks_core_v1('e1000000-0000-4000-8000-000000000045', true)->'checks') e
    where e->>'check_key' = k
 $$;
 
+-- host_payout stays null on purpose: trg_reservation_reconcile creates a payout income row for any completed
+-- stay with a host_payout, which would hide exactly the missing payout these checks look for.
+
 -- completed_stays_paid -------------------------------------------------------------
-insert into public.airbnb_reservations(property_id, confirmation_code, guest_name, checkin_date, checkout_date, status, payout_amount, host_payout)
-values ('e1000000-0000-4000-8000-000000000045', 'HMSYNTH45OLD', 'Historical Guest', '2026-01-05', '2026-01-06', 'completed', 1309.02, 1309.02);
+insert into public.airbnb_reservations(property_id, confirmation_code, guest_name, checkin_date, checkout_date, status, payout_amount)
+values ('e1000000-0000-4000-8000-000000000045', 'HMSYNTH45OLD', 'Historical Guest', '2026-01-05', '2026-01-06', 'completed', 1309.02);
 select is(pg_temp.chk('completed_stays_paid')->>'status', 'pass',
   'a stay before the accounting start with no payout e-mail is historical and stays silent');
 
-insert into public.airbnb_reservations(property_id, confirmation_code, guest_name, checkin_date, checkout_date, status, payout_amount, host_payout)
-values ('e1000000-0000-4000-8000-000000000045', 'HMSYNTH45NEW', 'Current Guest', '2026-09-05', '2026-09-06', 'completed', 1500.00, 1500.00);
+insert into public.airbnb_reservations(property_id, confirmation_code, guest_name, checkin_date, checkout_date, status, payout_amount)
+values ('e1000000-0000-4000-8000-000000000045', 'HMSYNTH45NEW', 'Current Guest', '2026-09-05', '2026-09-06', 'completed', 1500.00);
 select is(pg_temp.chk('completed_stays_paid')->>'status', 'warn',
   'a stay after the accounting start with no payout e-mail is found');
 select is((pg_temp.chk('completed_stays_paid')->>'count')::int, 1,
