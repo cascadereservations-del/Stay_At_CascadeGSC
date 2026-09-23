@@ -5,7 +5,9 @@
 // because ocr-receipt read it). Returns the raw model text; callers parse — their JSON shapes differ.
 const env = (k: string) => Deno.env.get(k) ?? '';
 export const VISION_PROVIDER = (env('VISION_PROVIDER') || 'gemini').toLowerCase();
-const GEMINI_KEY = env('CASCADE_GEMINI_BOT_KEY') || env('GEMINI_BOT_KEY') || env('GEMINI_API_KEY');
+// D-204.3: CASCADE_GEMINI_BOT_KEY only. The bare GEMINI_BOT_KEY / GEMINI_API_KEY no longer authenticate and the bare
+// GEMINI_BOT_KEY belongs to another project (providers.ts), so a fallback could only drain it or fail late.
+const GEMINI_KEY = env('CASCADE_GEMINI_BOT_KEY');
 const OPENROUTER_KEY = env('CASCADE_OPENROUTER_BOT_KEY') || env('OPENROUTER_API_KEY');
 const GEMINI_MODEL = env('VISION_MODEL') || 'gemini-3.6-flash';
 const OPENROUTER_MODEL = env('VISION_MODEL') || 'google/gemini-3.6-flash';

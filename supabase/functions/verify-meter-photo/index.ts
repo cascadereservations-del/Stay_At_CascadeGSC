@@ -21,7 +21,7 @@
 // switching is config, not a rewrite. Same contract either way.
 //
 //   VISION_PROVIDER    gemini (default) | openrouter
-//   CASCADE_GEMINI_BOT_KEY       (falls back to GEMINI_BOT_KEY, GEMINI_API_KEY)
+//   CASCADE_GEMINI_BOT_KEY       (the only Gemini key; no fallback, D-204.3)
 //   CASCADE_OPENROUTER_BOT_KEY   (falls back to OPENROUTER_API_KEY)
 //   VISION_MODEL       optional per-provider override
 //   TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID   the OPS group, as everywhere else
@@ -50,13 +50,10 @@ const BUCKET      = 'cleaning-photos';
 
 const PROVIDER       = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase();
 // The keys were rotated on 2026-09-12 into the CASCADE_-prefixed names. The
-// older GEMINI_BOT_KEY and GEMINI_API_KEY secrets still exist but no longer
-// authenticate — the first real sweep failed with "API key not valid" against
-// them. Newest name first, old ones kept as a fallback so a rollback of the
-// rotation does not break this function.
-const GEMINI_KEY     = Deno.env.get('CASCADE_GEMINI_BOT_KEY')
-                    ?? Deno.env.get('GEMINI_BOT_KEY')
-                    ?? Deno.env.get('GEMINI_API_KEY') ?? '';
+// older GEMINI_BOT_KEY and GEMINI_API_KEY secrets no longer authenticate, and
+// the bare GEMINI_BOT_KEY belongs to another project: CASCADE_GEMINI_BOT_KEY
+// only, no fallback (D-204.3).
+const GEMINI_KEY     = Deno.env.get('CASCADE_GEMINI_BOT_KEY') ?? '';
 const OPENROUTER_KEY = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')
                     ?? Deno.env.get('OPENROUTER_API_KEY') ?? '';
 
@@ -219,7 +216,7 @@ async function readMeter(b64: string, mime: string, which: Which): Promise<Visio
     if (!OPENROUTER_KEY) throw new Error('OPENROUTER_API_KEY not set');
     return await readWithOpenRouter(b64, mime, which);
   }
-  if (!GEMINI_KEY) throw new Error('GEMINI_BOT_KEY not set');
+  if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
   return await readWithGemini(b64, mime, which);
 }
 
