@@ -58,3 +58,9 @@ Deno.test('tools: OpenRouter first too', async () => {
   try { assertEquals((await chatTools(tq)).provider, 'openrouter'); } finally { globalThis.fetch = realFetch; }
   assertEquals(hits, ['openrouter']);
 });
+
+Deno.test('text: a reply cut by max_tokens is never returned (live 2026-09-24: "...dito sa Gen")', async () => {
+  geminiBreaker.until = Date.now() + 3600_000; // Gemini unavailable, so the truncation must surface as an error
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{"reply":"Ben, yes po, legit dito sa Gen' } }], usage: { completion_tokens: 696 } }), { status: 200 }))) as typeof fetch;
+  try { await assertRejects(() => chatJson(q), Error, 'openrouter_truncated'); } finally { globalThis.fetch = realFetch; geminiBreaker.until = 0; }
+});

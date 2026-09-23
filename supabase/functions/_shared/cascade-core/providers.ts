@@ -1,11 +1,12 @@
 // cascade-core providers (D-070 phase 2, lifted unchanged from messenger-concierge on 2026-09-12).
 // D-222 (Lloyd 2026-09-24): OpenRouter first, Gemini only when OpenRouter fails and Gemini's breaker is
 // closed. Both return the raw model text; callers parse. Env: CASCADE_OPENROUTER_BOT_KEY,
-// CASCADE_OPENROUTER_MODEL (default google/gemini-3.6-flash - the model the voice was tuned on),
+// CASCADE_OPENROUTER_MODEL (default google/gemini-2.5-flash - it served every reply from ~09-13 to 09-24; 3.6-flash
+// spends max_tokens on hidden reasoning and cut a live reply mid-word at 696/700 on 2026-09-24),
 // CASCADE_GEMINI_BOT_KEY (the only Gemini key), CASCADE_GEMINI_MODEL (default gemini-3.6-flash).
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GEMINI_MODEL = env('CASCADE_GEMINI_MODEL') || 'gemini-3.6-flash';
-const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-3.6-flash';
+const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-2.5-flash';
 // Cost tier (2026-09-13): short follow-ups and option drafts do not need the full model. The lite
 // tier goes straight to OpenRouter's flash-lite (a known, listed slug, ~1/3 the price), skipping
 // the Gemini round trip entirely.
@@ -59,6 +60,9 @@ async function openrouter(q: ChatJsonRequest): Promise<string> {
   if (!r.ok) throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
   const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'openrouter', model: j?.model, title: q.title, tier: q.tier ?? 'full', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
+  // A reply cut by max_tokens reads as a sentence that stops mid-word (live 2026-09-24): make it visible, and let the
+  // caller fall back rather than send half a sentence.
+  if (j?.choices?.[0]?.finish_reason === 'length') { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens })); throw new Error('openrouter_truncated'); }
   return j?.choices?.[0]?.message?.content ?? '';
 }
 
