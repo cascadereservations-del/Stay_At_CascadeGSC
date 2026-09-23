@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "PENDING"
+    "commit": "d6b05793b4a04862a968747ed7766f85be4a381d"
   },
   "migrations": [
     "20260923010000_money_checks_from_accounting_start.sql"
@@ -61,8 +61,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING",
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-23T01:2xZ on a disposable restore of cascade-supabase-20260923T011328Z (taken for the rehearsal, after release verifier_triage_and_opening_amounts_20260923; 0 leftovers). 102 tables, 120 ledger rows before; migration applied 1/1; forward 4/4; pgTAP money_checks_from_accounting_start.sql 7/7, verifier_triage_and_opening_amounts.sql 22/22, health_checks_core_v10.sql 26/27 - the one miss is its grant assertion, which a --no-acl restore cannot carry and which CI ran green. Two suite bugs found by rehearsing and fixed: the core returns {ranAt, checks}, and trg_reservation_reconcile creates a payout row for any completed stay with host_payout, so fixtures leave it null.",
     "evidence": "Same function signature, same return shape, same keys. ledger_position's detail gains opening and since; net now carries the position (opening + income - expenses - drawings since the start), which is what the digest and the verifier card print. pgTAP money_checks_from_accounting_start.sql: a fires/silent pair per re-scoped check."
   },
   "approvals": {
