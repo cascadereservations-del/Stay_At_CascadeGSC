@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { manilaWeekday, sweepShouldNotify, sweepSignature } from './sweep-notify.ts';
 
 // Poll-and-ack endpoint for CH-S01 Host Alert Router. The cascade-n8n stack is
 // loopback-only, so Supabase cannot push to it; n8n pulls instead.
@@ -26,6 +27,7 @@ const MAX_CLAIM = 10;
 const STALE_DISPATCH_MS = 15 * 60 * 1000;
 const WORKFLOW_ID = 'CH-S01';
 const SWEEP_WORKFLOW_ID = 'CH-W04';
+const SWEEP_NOTIFIED_KEY = 'ch_w04_last_notified';
 const SWEEP_LIMIT = 50;
 
 function fixedLengthEqual(left: string, right: string): boolean {
@@ -177,12 +179,28 @@ Deno.serve(async (request) => {
     const counts = Object.fromEntries(Object.entries(anomalies).map(([key, rows]) => [key, (rows as unknown[]).length]));
     const total = Object.values(counts).reduce((sum, n) => sum + (n as number), 0);
     await pulse(db, 'ch-w04-outbox-reconciliation');
+
+    // D-218: report a set of problem rows when it is new or changed, and on Mondays; otherwise stay quiet.
+    // Only a hash of the ids is kept, because app_settings is readable by anon.
+    const ids = Object.values(anomalies).flatMap((rows) => (rows as Array<{ id: string }>).map((r) => r.id));
+    const signature = total === 0 ? '' : await sweepSignature(ids);
+    const { data: lastRow } = await db.from('app_settings').select('value').eq('key', SWEEP_NOTIFIED_KEY).maybeSingle();
+    const lastSignature = ((lastRow?.value ?? null) as { signature?: string } | null)?.signature ?? null;
+    const notify = sweepShouldNotify(total, signature, lastSignature, manilaWeekday());
+    if (notify || (total === 0 && lastSignature)) {
+      await db.from('app_settings').upsert(
+        { key: SWEEP_NOTIFIED_KEY, value: { signature, count: total, at: new Date().toISOString() }, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      );
+    }
+
     return json({
       ok: true,
       workflow_id: SWEEP_WORKFLOW_ID,
       checked_at: new Date().toISOString(),
       window_minutes: windowMinutes,
       healthy: total === 0,
+      notify,
       truncated: Object.values(counts).some((n) => (n as number) >= SWEEP_LIMIT),
       counts,
       anomalies,

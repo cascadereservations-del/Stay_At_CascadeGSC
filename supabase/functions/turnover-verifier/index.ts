@@ -2,14 +2,14 @@
 // Runs daily via pg_cron at 00:00 UTC (08:00 Manila).
 // Pass 1 — yesterday's checkout: calls verify_turnover, creates/updates
 //   turnover_verification row, fires Finance alert if issues found.
-// Pass 2 — every still-open row from two-or-more days ago: fires OPS
-//   escalation on first miss (T+48h), then re-fires once per day (this
-//   function's own daily cadence rate-limits it) for as long as it stays
-//   unresolved AND a confirmed guest is arriving today or tomorrow. A repeat
-//   is stamped by reusing alert_36h_sent_at as "last escalation sent at".
+// Pass 2 — every still-open row from two-or-more days ago (D-218, 2026-09-23):
+//   a cleaning report now on file resolves it (reports filed late used to
+//   escalate forever); otherwise the OPS escalation fires ONCE (T+48h,
+//   stamped in alert_36h_sent_at), and from the next day the turnover is one
+//   Follow-ups task, closed automatically when the report appears.
 // No notification fired when all checks pass.
 // Routing: Finance = new issues (T+24h). OPS = unresolved escalation (T+48h,
-//   repeating while unresolved and an arrival is imminent).
+//   once). After that: a Follow-ups task, never another message.
 //
 // v2 (2026-09-16): two fixes from Lloyd.
 //   (a) Repeat escalation: previously a one-shot alert_36h_sent_at gate meant
@@ -26,8 +26,9 @@
 //   code can hit the same bug.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { escalationStep } from './escalation.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { turnoverWindow, addDays, manilaDate } from './manila-dates.ts';
+import { turnoverWindow, addDays } from './manila-dates.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 // v3 (session 26, 2026-09-16, Telegram plan §5): Finance T+24h card is 🟡 ATTENTION, OPS escalation 🔴 ALERT.
@@ -125,7 +126,7 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
 
   // Manila calendar dates, computed without round-tripping a locale string
   // through Date — see manila-dates.ts for the v9 bug this replaces.
-  const { today, yesterday, twoDaysAgo } = turnoverWindow();
+  const { yesterday, twoDaysAgo } = turnoverWindow();
 
   // ?dry=1 runs the read-only checks and reports what WOULD happen: no
   // Telegram message, no row written, no alert stamp. It exists so this
@@ -253,42 +254,60 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
         .lte('checkout_date', twoDaysAgo)
         .order('checkout_date', { ascending: true });
 
-      const tomorrow = addDays(today, 1);
-      const { data: soonArrival } = await supabase
-        .from('calendar_events')
-        .select('checkin_date')
-        .eq('property_id', propertyId).eq('status', 'confirmed')
-        .gte('checkin_date', today).lte('checkin_date', tomorrow)
-        .order('checkin_date', { ascending: true }).limit(1).maybeSingle();
-
+      // D-218: said once, then a Follow-ups task; a report filed late resolves it and closes the task.
       const escalated: string[] = [];
+      const tasked: string[] = [];
+      const resolved: string[] = [];
+      const stillOpen: string[] = [];
       for (const tvRow of openRows ?? []) {
-        const firstEscalation = !tvRow.alert_36h_sent_at;
-        const alreadyEscalatedToday = tvRow.alert_36h_sent_at
-          ? manilaDate(new Date(tvRow.alert_36h_sent_at)) === today
-          : false;
-        const repeatDue = !firstEscalation && Boolean(soonArrival) && !alreadyEscalatedToday;
-        if (!firstEscalation && !repeatDue) continue;
+        const d = tvRow.checkout_date as string;
+        const { data: report } = await supabase.from('cleaning_sessions').select('id')
+          .eq('property_id', propertyId)
+          .or(`checkout_date.eq.${d},and(cleaned_at.gte.${d}T00:00:00+08:00,cleaned_at.lt.${addDays(d, 4)}T00:00:00+08:00)`)
+          .limit(1).maybeSingle();
+        const step = escalationStep(Boolean(report), Boolean(tvRow.alert_36h_sent_at));
 
-        if (dryRun) { escalated.push(tvRow.checkout_date); continue; }
+        if (step === 'resolve') {
+          if (!dryRun) await supabase.from('turnover_verification')
+            .update({ resolved_at: new Date().toISOString() }).eq('id', tvRow.id);
+          resolved.push(d);
+          continue;
+        }
+        stillOpen.push(tvRow.id);
+
+        if (step === 'task') {
+          if (!dryRun) {
+            const { error: taskErr } = await supabase.rpc('system_task_open_v1', {
+              p_property_id: propertyId,
+              p_source_kind: 'turnover_verification',
+              p_source_ref:  tvRow.id,
+              p_title:       `Turnover of ${d}: no cleaning report on file`,
+              p_detail:      `Escalated to OPS once. Still open: ${(tvRow.issues ?? []).map(issueLabel).join(' ')} ` +
+                             `This task closes itself when a cleaning report for this checkout is filed.`,
+              p_priority:    'high',
+            });
+            if (taskErr) throw new Error('system_task_open_v1: ' + taskErr.message);
+          }
+          tasked.push(d);
+          continue;
+        }
+
+        if (dryRun) { escalated.push(d); continue; }
 
         const issueText = fmtIssues(tvRow.issues ?? []);
-        const openLine = firstEscalation
-          ? `\u26A0\uFE0F Finance was notified 24h ago. Issues still open:`
-          : `\u26A0\uFE0F Still open \u2014 a guest arrives ${soonArrival!.checkin_date === today ? 'today' : 'tomorrow'} and the unit isn\u2019t confirmed ready:`;
         const lines = [
           `\uD83D\uDEA8 *Turnover Unresolved \u2014 ESCALATION*`,
-          `\uD83D\uDCCD Cascade Bria  \u00b7  Checkout: ${tvRow.checkout_date}`,
+          `\uD83D\uDCCD Cascade Bria  \u00b7  Checkout: ${d}`,
           ``,
-          openLine,
+          `\u26A0\uFE0F Finance was notified 24h ago. Issues still open:`,
           issueText,
           ``,
-          `_Please verify the unit is ready for the next guest._`,
+          `_Please verify the unit is ready for the next guest. This is the only message about it: from tomorrow it is a task in Follow-ups._`,
         ];
 
         const sent36 = await tgPost(TG_TOKEN, 'sendMessage', {
           chat_id:    TG_OPS_ID,
-          text:       withHeader('alert', `turnover unresolved ${tvRow.checkout_date}`, lines.join('\n')),
+          text:       withHeader('alert', `turnover unresolved ${d}`, lines.join('\n')),
           parse_mode: 'Markdown',
         });
         if (!sent36) sendFailures += 1;
@@ -298,8 +317,19 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
           .update({ alert_36h_sent_at: new Date().toISOString() })
           .eq('id', tvRow.id);
 
-        escalated.push(tvRow.checkout_date);
+        escalated.push(d);
       }
+      if (!dryRun) {
+        const { error: closeErr } = await supabase.rpc('system_task_close_missing_v1', {
+          p_source_kind: 'turnover_verification',
+          p_still_open:  stillOpen,
+          p_since:       null,
+          p_note:        'Closed automatically: a cleaning report for this checkout is now on file.',
+        });
+        if (closeErr) throw new Error('system_task_close_missing_v1: ' + closeErr.message);
+      }
+      results.tasked = tasked;
+      results.resolved_late_report = resolved;
       results[dryRun ? 'would_escalate' : 'escalation_sent'] = escalated;
       if (!escalated.length) results.no_escalation_needed = true;
     }

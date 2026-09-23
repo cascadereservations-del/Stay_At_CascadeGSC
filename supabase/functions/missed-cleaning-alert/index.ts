@@ -10,6 +10,7 @@
 // verify_jwt: false — internal cron-triggered function, no user auth needed.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { manilaDateDaysAgo, missedCleaningStep } from './cadence.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
@@ -99,6 +100,15 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
 
     console.log(`[missed-cleaning] ${rows.length} checkout(s) still without a report`);
 
+    // D-218: a task whose checkout is still inside the lookback and no longer reported had its report filed.
+    const { error: closeErr } = await supabase.rpc('system_task_close_missing_v1', {
+      p_source_kind: 'missed_cleaning',
+      p_still_open:  rows.map((r) => r.checkout_date),
+      p_since:       manilaDateDaysAgo(13),
+      p_note:        'Closed automatically: the cleaning report for this checkout is now on file.',
+    });
+    if (closeErr) throw new Error('system_task_close_missing_v1: ' + closeErr.message);
+
     if (rows.length === 0) {
       await hb('succeeded');
       return json({ ok: true, missed: 0 });
@@ -111,13 +121,26 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
       const checkout = fmtDate(r.checkout_date);
       const days     = Number(r.days_overdue ?? 0);
 
-      // The same gap is reported every morning until it is filled, so the
-      // wording has to move -- an unchanging line stops being read.
-      const urgency = days <= 1
+      // D-218: day 1 alerts, day 3 reminds once, from day 4 it is one Follow-ups task - never a daily message.
+      const step = missedCleaningStep(days);
+      if (step === 'silent') continue;
+      if (step === 'task') {
+        const { error: taskErr } = await supabase.rpc('system_task_open_v1', {
+          p_property_id: propertyId,
+          p_source_kind: 'missed_cleaning',
+          p_source_ref:  r.checkout_date,
+          p_title:       `Cleaning report missing: ${guest}, checkout ${checkout}`,
+          p_detail:      `No cleaning report was filed for this checkout (check-in ${checkin}). OPS was told on day 1 and day 3. ` +
+                         `File it in the checklist with the stay picker, and this task closes itself.`,
+          p_priority:    'normal',
+        });
+        if (taskErr) throw new Error('system_task_open_v1: ' + taskErr.message);
+        continue;
+      }
+
+      const urgency = step === 'alert'
         ? '\u26A0\uFE0F *Missed Cleaning Alert*'
-        : days <= 3
-          ? `\u26A0\uFE0F *Cleaning report still missing \u2014 ${days} days*`
-          : `\uD83D\uDD34 *Cleaning report ${days} days overdue*`;
+        : `\u26A0\uFE0F *Cleaning report still missing \u2014 ${days} days*`;
 
       const text = [
         urgency,
@@ -131,7 +154,9 @@ Deno.serve(withObservability({ functionName: 'missed-cleaning-alert', route: 'op
         `\uD83D\uDCE5 Check-in:  ${checkin}`,
         `\uD83D\uDCE4 Check-out: ${checkout}`,
         ``,
-        `_Please confirm the cleaning was done or log the session in the checklist app._`,
+        step === 'alert'
+          ? `_Please confirm the cleaning was done or log the session in the checklist app._`
+          : `_Last reminder. From tomorrow this is a task in Follow-ups, and it closes itself when the report is filed._`,
       ].join('\n');
 
       // SPEC-17 (D-212): an alert Telegram refused is a failed run, so job-heartbeat-monitor says so.
