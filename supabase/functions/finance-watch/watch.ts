@@ -52,3 +52,14 @@ export function watchReport(today: string, airbnb: AirbnbRow[], direct: DirectRo
     : `Message ${first.guest} for the ₱${peso(first.amount)} reservation fee, or cancel ${first.code} if the dates should be released.`;
   return { decision, lines: items.map((i) => i.line), action };
 }
+
+/** D-222 (Lloyd 2026-09-24): OpenRouter is the primary model route, so its balance is watched rather than its errors.
+ *  `key` is OpenRouter's GET /api/v1/key (usage and limit in USD). Warns at 80% of the key's limit, or when the key is
+ *  refused; a passing outage (5xx) or a key with no limit stays quiet. Written for a person: what happened, who acts. */
+export function budgetNotice(key: { status: number; usage: number; limit: number | null }): string | null {
+  if (key.status === 401 || key.status === 403) return 'The OpenRouter key was refused, so guest replies and receipt reads are running on the Gemini backup, if it has credit. Check the key at openrouter.ai/settings/keys.';
+  if (key.status !== 200 || !key.limit || key.limit <= 0) return null;
+  const pct = Math.round((key.usage / key.limit) * 100);
+  if (pct < 80) return null;
+  return `OpenRouter spending is at ${pct}% of its USD ${key.limit.toFixed(2)} limit (USD ${key.usage.toFixed(2)} used). Guest replies stop at the limit, apart from the Gemini backup. Lloyd: top up or raise the limit at openrouter.ai/settings/keys.`;
+}

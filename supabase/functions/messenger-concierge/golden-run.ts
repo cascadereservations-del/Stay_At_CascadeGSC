@@ -1,5 +1,5 @@
 // Voice close-out (2026-09-17): runs the golden conversations through the DEPLOYED function's probe and scores them.
-//   deno run --allow-net --allow-env --allow-write golden-run.ts [--runs 3] [--only <group|id>] [--out GOLDEN-RUN.md] [--pause 4000]
+//   deno run --allow-net --allow-env --allow-write golden-run.ts [--runs 1|3] [--only <group|id>] [--out GOLDEN-RUN.md] [--pause 4000]
 // env: CASCADE_PROBE_URL (the function URL), CASCADE_PROBE_SECRET, optional GOLDEN_BOOKED="Oct 3 to 5", GOLDEN_TURNOVER="Oct 5",
 //      GOLDEN_OPEN_FROM="2026-11-02" (first of 15 open nights; without it the open-date cases start at today + 40),
 //      GOLDEN_SOON="Sep 20 to 21" (an OPEN one-night stay inside 5 days of check-in; without it the case is skipped).
@@ -11,7 +11,7 @@ import { failures, heldFrom, RUBRIC, scoreReply } from './golden-score.ts';
 const arg = (k: string, d = '') => { const i = Deno.args.indexOf(k); return i >= 0 ? Deno.args[i + 1] ?? d : d; };
 const url = Deno.env.get('CASCADE_PROBE_URL') ?? '', secret = Deno.env.get('CASCADE_PROBE_SECRET') ?? '';
 if (!url || !secret) { console.error('Set CASCADE_PROBE_URL and CASCADE_PROBE_SECRET.'); Deno.exit(2); }
-const runs = Number(arg('--runs', '3')), only = arg('--only'), pause = Number(arg('--pause', '1500')), outPath = arg('--out');
+const runs = Number(arg('--runs', '1')) /* D-222: one pass by default (~USD 6); pass --runs 3 only before a voice release (~USD 19) */, only = arg('--only'), pause = Number(arg('--pause', '1500')), outPath = arg('--out');
 const NAME = 'Ben';
 const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null, Deno.env.get('GOLDEN_OPEN_FROM') ? new Date(Deno.env.get('GOLDEN_OPEN_FROM') + 'T00:00:00Z') : null, Deno.env.get('GOLDEN_SOON') ?? null).filter((c) => !only || c.group === only || c.id === only);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

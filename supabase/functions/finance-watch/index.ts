@@ -5,7 +5,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { renderReport, withHeader } from '../_shared/cascade-core/format.ts';
-import { overdue, watchReport, due } from './watch.ts';
+import { budgetNotice, overdue, watchReport, due } from './watch.ts';
 // v2 (session 26, 2026-09-16, Telegram plan §4/§5): 🟡 ATTENTION header; posts on day 2, day 5,
 // then weekly per overdue item (due() in watch.ts) instead of every morning. The Monday Finance
 // roll-up (daily-digest) still lists everything overdue, so nothing is ever silent for a week.
@@ -53,6 +53,16 @@ Deno.serve(withObservability({ functionName: 'finance-watch', route: 'finance' }
     const send = !!report && (force || items.some((i) => due(i.days)));
     console.log(JSON.stringify({ event: 'finance_watch', date: today, overdue: items.length, codes: items.map((i) => i.code), send }));
     if (report && send) await tgSend(FINANCE_CHAT, withHeader('attention', `${items.length} payment${items.length === 1 ? '' : 's'} overdue`, renderReport(report)));
+    // D-222: OpenRouter is the primary model route - read its balance once a day and warn Finance at 80% of the limit.
+    const orKey = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY');
+    if (orKey) {
+      const kr = await fetch('https://openrouter.ai/api/v1/key', { headers: { Authorization: `Bearer ${orKey}` }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
+      const kj = kr?.ok ? await kr.json().catch(() => null) : null;
+      const usage = Number(kj?.data?.usage ?? 0), limit = typeof kj?.data?.limit === 'number' ? kj.data.limit : null;
+      console.log(JSON.stringify({ event: 'openrouter_budget', status: kr?.status ?? 0, usage, limit }));
+      const note = budgetNotice({ status: kr?.status ?? 0, usage, limit });
+      if (note) await tgSend(FINANCE_CHAT, withHeader('attention', 'model budget', note));
+    }
     await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, date: today, overdue: items.length, sent: send }), { status: 200, headers: JSON_H });
   } catch (err) {
