@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSoloLink, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -899,7 +899,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // Appended last: linkSolo rewrites any line holding SITE_URL into a solo 👉 line, which would
       // destroy the labelled 🏡 line. The guaranteed solo site link goes when the block carries its own.
       if (look) {
-        if (look.includes(SITE_URL)) reply = reply.split(/\n\s*\n/).filter((para) => para.trim() !== `👉 ${SITE_URL}`).join('\n\n');
+        if (look.includes(SITE_URL)) reply = dropSoloLink(reply, SITE_URL);
         reply = `${reply.trim()}\n\n${look}`;
       } // golden run: the nudge and the chat route each carried a "po" of their own
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered

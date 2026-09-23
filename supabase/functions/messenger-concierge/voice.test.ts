@@ -423,3 +423,24 @@ Deno.test('SPEC-21: the intro lands on a follow-up-shaped reply too, once, after
   assertEquals(withIntro(out, 'en'), out);
   assertEquals(out.includes('thank you for reaching out'), false);
 });
+
+Deno.test('session 46: a check-in alone is acknowledged once, not by both the opener and the checkout ask (live 2026-09-23 19:58)', () => {
+  const notes = { en: 'Check-in on Oct 17 is noted', tl: 'Noted po, check-in on Oct 17', bis: 'Noted, check-in on Oct 17' };
+  for (const lang of ['en', 'tl', 'bis'] as const) {
+    const f: Flow = { ...base, lang, checkin: '2026-10-17', checkout: undefined, pax: undefined, step: 'checkout' };
+    for (const reply of [opener(f, 'Ben', '', true) + prompt(f, 'Ben'), opener(f, 'Ben').trim() + '\n\n' + prompt(f, 'Ben')]) {
+      assertEquals(reply.split(notes[lang]).length - 1, 1, `${lang}: ${reply}`);
+    }
+  }
+});
+
+import { dropSoloLink } from './voice.ts';
+Deno.test('session 46: when the look block carries the site, the solo link goes and its lead-in does not dangle (live 2026-09-23 19:57)', () => {
+  const lead = `If you have dates in mind, you may share them here and we'll check the calendar for you, or you may see the home, live availability, and our direct rates on our site:`;
+  const reply = `Yes, the unit has both fiber Wi-Fi and air-conditioning.\n\n${lead}\n\n👉 ${SITE_URL}\n\nWe'd be glad to welcome you.`;
+  const out = dropSoloLink(reply, SITE_URL);
+  assertEquals(out.includes(SITE_URL), false);
+  assertEquals(/:\s*$/m.test(out), false, out);
+  assertEquals(out.includes(lead.replace(/:$/, '.')), true, out);
+  assertEquals(dropSoloLink('No link here.', SITE_URL), 'No link here.');
+});

@@ -279,3 +279,18 @@ export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews:
     bis: `If you'd like to read what past guests have shared, naa sa among Airbnb listing ang reviews.` }[lang];
   return `${sentence}\n\n${reviewsLine}`;
 }
+
+/** The look block carries its own labelled site link, so the solo 👉 link goes; the sentence that introduced it keeps
+ *  its words but ends in a full stop instead of a colon pointing at nothing (live 2026-09-23: "...on our site:"). */
+export function dropSoloLink(reply: string, url: string): string {
+  const paras = reply.split(/\n\s*\n/);
+  const out: string[] = [];
+  for (const p of paras) {
+    if (p.trim() === `👉 ${url}`) {
+      if (out.length) out[out.length - 1] = out[out.length - 1].replace(/\s*:\s*$/, '.');
+      continue;
+    }
+    out.push(p);
+  }
+  return out.join('\n\n');
+}

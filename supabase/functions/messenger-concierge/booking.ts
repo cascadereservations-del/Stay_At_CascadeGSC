@@ -278,7 +278,9 @@ export function opener(flow: Flow, name: string | null, answer = '', intro = fal
   if (answer) return `${greeting(name, flow.lang, intro)}${answer}, and ${welcome}\n\n`;
   const dates = flow.checkin && flow.checkout
     ? pick(flow.lang, { en: `${dm(flow.checkin)} to ${dm(flow.checkout)} is noted, and we'll check those dates for you as we go. `, tl: `Noted po ang ${dm(flow.checkin)} to ${dm(flow.checkout)} — iche-check namin ang dates as we go. `, bis: `Noted ang ${dm(flow.checkin)} to ${dm(flow.checkout)} — amo i-check ang dates as we go. ` })
-    : flow.checkin ? pick(flow.lang, { en: `Check-in on ${dm(flow.checkin)} is noted. `, tl: `Noted po, check-in on ${dm(flow.checkin)}. `, bis: `Noted, check-in on ${dm(flow.checkin)}. ` }) : '';
+    // A check-in alone is acknowledged by the checkout ask that always follows (prompt 'checkout'); saying it here too
+    // printed it twice in one message (live 2026-09-23, all three registers).
+    : '';
   const w = welcome.charAt(0).toUpperCase() + welcome.slice(1);
   return `${greeting(name, flow.lang, intro)}${dates}${w}\n\n`;
 }
