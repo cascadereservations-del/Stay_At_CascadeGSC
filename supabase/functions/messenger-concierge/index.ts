@@ -10,7 +10,8 @@
 // Deploy with verify_jwt=false: Meta cannot send a Supabase JWT.
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { gate, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
+import { gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
+import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, answerOnly, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSoloLink, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
@@ -53,7 +54,7 @@ const HANDOFF: Record<RiskCode, string> = {
 // Sticker, photo or reaction with no text: a prospect, so answer with the link rather than a handoff line.
 const ATTACHMENT_REPLY = "Thank you for your message. If you have dates in mind, share them here and we'll check the calendar for you, or you may see the home, live availability and our direct rates on our site:\n\n👉 " + SITE_URL;
 // Early/late check-in-out before dates are known (see needsDatesFirst in policy.ts).
-const LOCAL_RE = /(po|pwede|kailan|maaga|naa|moy|kami|namin|ba|ninyo|nyo)/i;
+const LOCAL_RE = /\b(po|pwede|kailan|maaga|naa|moy|kami|namin|ba|ninyo|nyo)\b/i;
 // Voice close-out (protocol 10): no greeting on a follow-up, two "po" at most, both routes, never a bare link.
 function datesFirstReply(name: string | null, text: string, followUp: boolean): string {
   const local = LOCAL_RE.test(text);
@@ -658,7 +659,11 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
   }
 
   const psid: string = ev.sender.id;
-  const { data: row } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
+  // D-222: one retry, then stop. A failed read used to fall through as a brand-new thread, and the upsert at the end
+  // would have overwritten the guest's history with this one turn. The caller alerts the host with the link.
+  let { data: row, error: rowErr } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
+  if (rowErr) ({ data: row, error: rowErr } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle());
+  if (rowErr) throw new Error('thread_read_failed: ' + String(rowErr.message ?? rowErr).slice(0, 120));
   const thread: Thread = (row as Thread | null) ?? { psid, guest_name: null, human_until: null, bot_turns: 0, history: [], last_risk: null, booking_flow: null, last_mid: null };
 
   // Meta retries a webhook it considers slow, and this function answers synchronously BEFORE the 200 -
@@ -724,10 +729,13 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     flow = start(text, now);
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
-    if (flow.asked === 'availability') {
+    // D-222: the calendar is read whenever both dates are known, not only on an "available" word - "book Oct 10 to 12
+    // for 2" on a taken night used to be quoted and fail only at submit.
+    if (needsCalendarCheck(flow)) {
       const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
       const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
       if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang, !introduced) + line; }
+      else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
       else flowReply = opener(flow, thread.guest_name, line, !introduced) + prompt(flow, thread.guest_name);
       // D-173: no Cassy sentence on a resumed card - the disclosure belongs to the greeting, never to a flowFollowUp.
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
@@ -1023,9 +1031,12 @@ Deno.serve(async (req) => {
 
   const db: Db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
   dbForLandmarks = db;
-  const { data: settings } = await db.from('app_settings').select('key, value').in('key', ['concierge_mode', 'gemini_cooldown_until']);
-  const setting = (settings ?? []).find((s: any) => s.key === 'concierge_mode');
-  const mode = typeof setting?.value === 'string' ? setting.value : 'off';
+  // D-222: one retry, and a failed read is 'suggest' (holding line + host draft), never a silent 'off' (live 2026-09-13).
+  const readSettings = () => db.from('app_settings').select('key, value').in('key', ['concierge_mode', 'gemini_cooldown_until']);
+  let { data: settings, error: settingsErr } = await readSettings();
+  if (settingsErr || !settings?.length) ({ data: settings, error: settingsErr } = await readSettings());
+  if (settingsErr || !settings?.length) console.error('settings_read_failed', String(settingsErr?.message ?? 'no rows').slice(0, 120));
+  const mode = modeFrom(settingsErr ? null : settings);
   // Gemini circuit breaker state lives in app_settings so it survives cold isolates (D-103).
   const cooldown = (settings ?? []).find((s: any) => s.key === 'gemini_cooldown_until');
   geminiBreaker.until = typeof cooldown?.value === 'string' ? (Date.parse(cooldown.value) || 0) : 0;
@@ -1035,7 +1046,12 @@ Deno.serve(async (req) => {
   try { payload = JSON.parse(body); } catch { return new Response('ok', { status: 200 }); }
 
   for (const ev of payload.entry?.flatMap((e) => e.messaging ?? []) ?? []) {
-    try { await handle(db, ev, mode); } catch (e) { console.error('concierge_event_failed', String(e).slice(0, 200)); }
+    try { await handle(db, ev, mode); } catch (e) {
+      console.error('concierge_event_failed', String(e).slice(0, 200));
+      // D-222: a failed turn must reach a person - before this, an exception ended in silence for the guest.
+      const who = ev?.sender?.id ? `https://www.facebook.com/messages/t/${ev.sender.id}` : '(no sender)';
+      await liveEffects.ops(withHeader('guest', 'failed', `⚠️ A Messenger message could not be handled automatically. Please read it and reply by hand.\n\n${who}`)).catch(() => {});
+    }
   }
   return new Response('EVENT_RECEIVED', { status: 200 });
 });

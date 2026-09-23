@@ -31,3 +31,13 @@ Deno.test('the mid is remembered, or the guard can never fire twice', () => {
 Deno.test('the duplicate is logged, so a double reply can be traced afterwards', () => {
   assertEquals(src.includes("console.log('duplicate_mid_ignored'"), true);
 });
+
+Deno.test('D-222 P0: a failed thread read stops the turn instead of overwriting the history with a blank one', () => {
+  const handle = src.slice(src.indexOf('async function handle('));
+  assertEquals(/if \(rowErr\) throw new Error\('thread_read_failed/.test(handle), true);
+});
+
+Deno.test('D-222 P0: any failed event reaches the host, so no guest message ends in silence', () => {
+  assertEquals(src.includes("console.error('concierge_event_failed'"), true);
+  assertEquals(/concierge_event_failed[\s\S]{0,400}liveEffects\.ops\(/.test(src), true);
+});

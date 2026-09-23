@@ -14,11 +14,14 @@ const RULES: Array<[RiskCode, RegExp]> = [
   ['payment',          /\b(paid|nagbayad|bayad na|receipt|screenshot|proof of|reference (no|number)|(send|sent|transfer)\w* .{0,25}(deposit|payment|gcash|money)|(deposit|payment) .{0,25}(sent|paid|made))/i],
   // The cancellation policy is routine; changing an actual booking is not.
   ['cancellation',     /\b(cancel\w*\s+(my|our|the|ang|yung)\s*(booking|reservation|stay|dates|reserba)|cancel po kasi|reschedul|move (my|the) (dates|booking)|change (my|the) dates)/i],
-  ['complaint',        /\b(complain|disappoint|terrible|dirty|broken|not working|no water|no wifi|no internet|brownout|noisy|scam|report you|review you)/i],
+  // D-222: "scam" left this rule - "legit po ba? hindi scam?" is a prospect's trust question (TRUST_RE answers it with
+  // reviews), and routing it here sent a work order and told the prospect "service partners have been notified".
+  ['complaint',        /\b(complain|disappoint|terrible|dirty|broken|not working|no water|no wifi|no internet|brownout|noisy|report you|review you)/i],
   // Lloyd 2026-09-13: a general "discount?" / "cheaper?" is answered from the rate tiers (the site
   // applies the best rate automatically; longer stays, higher discount). Only haggling and a
   // named price (next rule) go to the host.
-  ['policy_exception', /\b(haggle|tawad|pets?|dogs?|cats?|party|event|extra guest|more than \d+|overnight visitor)/i],
+  // D-222: "more than N" counts people only ("more than 2 km from SM" is a distance question).
+  ['policy_exception', /\b(haggle|tawad|pets?|dogs?|cats?|party|event|extra guest|more than \d+ ?(guests?|pax|people|persons?|adults?|kids?|children|tao|tawo)|overnight visitor)/i],
   // A guest proposing their own price ("can you do 1500", "pwede po ba 1,500 per night", "student rate")
   // is a negotiation: the host decides (D-067). A proposal verb near a 3-5 digit amount, or a budget plea.
   ['policy_exception', /\b(can you (do|make it|give)|could you do|possible( po)?( ba)?|pwede( po)?( ba)?|kaya( po)?( ba)?|make it|how about)\b[^.?!]{0,30}?\b\d{1,2},?\d{3}\b|\b(student|senior|budget) (rate|price|discount)|\brate na lang\b|\bmagkano na lang\b/i],
@@ -31,6 +34,14 @@ export function classify(text: string): RiskCode {
 }
 
 export interface Gate { reply: boolean; handoff: boolean; risk: RiskCode }
+
+/** D-222: the concierge mode from the app_settings rows. A failed or empty read is 'suggest' - the guest gets the
+ *  holding line and the host the draft - never 'off': on 2026-09-13 13:15Z a 504 on this read silenced a reply with no
+ *  card and no log line. An explicit 'off' row is still honoured. */
+export function modeFrom(rows: { key: string; value: unknown }[] | null): string {
+  const v = (rows ?? []).find((r) => r.key === 'concierge_mode')?.value;
+  return typeof v === 'string' && v ? v : 'suggest';
+}
 
 // mode: 'off' = silent; 'suggest' = draft goes to ops only; 'auto' = reply to guest.
 export function gate(text: string, opts: { mode: string; humanUntil: string | null; botTurns: number; now?: Date }): Gate {

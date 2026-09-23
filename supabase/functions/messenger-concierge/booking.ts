@@ -102,6 +102,14 @@ export function parsePax(text: string): number | null {
   const n = /^\d+$/.test(m[1]) ? +m[1] : words[m[1].toLowerCase()];
   return n >= 1 ? n : null;
 }
+/** D-222: the stated capacity (facts: up to 3 adults, or 3 adults + 1 child, or 2 adults + 2 children) - more than 4
+ *  people, or 4+ adults said outright. One rule for flow start, the guest step and the offer. */
+export function overCapacity(text: string, p: number): boolean {
+  const a = /\b(\d{1,2}|four|five|six|apat|lima|anim|upat)\s*(?:po\s*)?adults?\b/i.exec(text);
+  const words: Record<string, number> = { four: 4, five: 5, six: 6, apat: 4, lima: 5, anim: 6, upat: 4 };
+  const adults = a ? (/^\d+$/.test(a[1]) ? +a[1] : words[a[1].toLowerCase()]) : 0;
+  return p > 4 || adults >= 4;
+}
 export function parsePhone(text: string): string | null {
   const digits = text.replace(/[^\d+]/g, '');
   const m = /(?:\+?63|0)(9\d{9})/.exec(digits);
@@ -345,6 +353,12 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
 
 export type Step = { flow: Flow; reply: string | null; action: 'ask' | 'submit' | 'cancelled' | 'passthrough' };
 
+/** D-222: a new flow reads the calendar when the guest asked about availability OR gave both dates. Before, "book Oct
+ *  10 to 12 for 2" was quoted, took name, phone and e-mail, and failed only at submit ("reserved just moments ago"). */
+export function needsCalendarCheck(flow: Flow): boolean {
+  return flow.asked === 'availability' || Boolean(flow.checkin && flow.checkout);
+}
+
 /** Start a flow from the first message; prefills dates and guests when they are in the text. */
 export function start(text: string, now = new Date()): Flow {
   const at = now.toISOString();
@@ -355,7 +369,7 @@ export function start(text: string, now = new Date()): Flow {
   if (d[0] && d[0] >= today) { flow.checkin = d[0]; flow.step = 'checkout'; }
   if (flow.checkin && d[1] && d[1] > flow.checkin) { flow.checkout = d[1]; flow.step = 'pax'; }
   const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:po|pa|ba|po\s+ba)?\s*(adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.test(text) || /\b(?:for|para sa|kaming)\s+(\d|one|two|three|four|isa|dalawa|tatlo|apat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.test(text) ? parsePax(text) : null;
-  if (p && flow.step === 'pax') { flow.pax = p; flow.step = 'offer'; }
+  if (p && flow.step === 'pax' && !overCapacity(text, p)) { flow.pax = p; flow.step = 'offer'; } // D-222: over capacity stays at the guest ask, which states the limit
   // What did the guest actually ask? index.ts answers availability from the calendar (code) or hands
   // any other question to the model before the flow's own ask (protocol rule 1).
   flow.asked = AVAIL_RE.test(text) && flow.checkin ? 'availability' : ASK_RE.test(text) && !/\b(can|could|pwede|possible)\b[^?]*\b(book|reserve)\b/i.test(text) ? 'question' : null;
@@ -367,7 +381,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
   const f: Flow = { ...flow, updated_at: now.toISOString() };
   // Mirror the guest: a Tagalog/Bisaya turn switches the register to Taglish; a plain-English turn switches it back
   // (numbers, dates, "skip", "deposit" and the like carry no language and keep the current one).
-  { const words = text.replace(/\S+@\S+|https?:\/\/\S+|\+?\d[\d\s-]{5,}\d/g, ' ').replace(/(skip|deposit|full|yes|ok|okay|cancel|stop|sige|opo|oo|po)/gi, ' ').match(/[a-z]{3,}/gi) ?? [];
+  { const words = text.replace(/\S+@\S+|https?:\/\/\S+|\+?\d[\d\s-]{5,}\d/g, ' ').replace(/\b(skip|deposit|full|yes|ok|okay|cancel|stop|sige|opo|oo|po)\b/gi, ' ').match(/[a-z]{3,}/gi) ?? [];
     const d = detectLang(text);
     // SPEC-14 (live read 2026-09-18): at the details step a name is data, not language. "ben munez" read as two
     // English words and flipped a Taglish chat to English for the rest of the booking, card included.
@@ -398,7 +412,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
     case 'pax': {
       const p = parsePax(text);
       if (!p) return retry('the number of guests');
-      if (p > 4) return ask(pick(L, { en: `As much as we'd love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 children. For a party of ${p}, a larger place would give you more room to rest. If your group fits, just let us know the count again.`, tl: `Comfortable po ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maganda po ang mas malaking place para mas may space kayo. If kasya po ang group ninyo, sabihin lang po ulit kung ilan kayo.`, bis: `Comfortable ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maayo ang mas dako nga place para mas naa moy space. If kasya ang group ninyo, ingna lang mi pila mo.` }));
+      if (overCapacity(text, p)) return ask(pick(L, { en: `As much as we'd love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 children. For a party of ${p}, a larger place would give you more room to rest. If your group fits, just let us know the count again.`, tl: `Comfortable po ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maganda po ang mas malaking place para mas may space kayo. If kasya po ang group ninyo, sabihin lang po ulit kung ilan kayo.`, bis: `Comfortable ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maayo ang mas dako nga place para mas naa moy space. If kasya ang group ninyo, ingna lang mi pila mo.` }));
       f.pax = p; f.step = 'offer'; return ask();
     }
     case 'offer': {
@@ -434,7 +448,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       const d = parseDates(text, now), p = /\b(guest|pax|person|people|tao|tawo|adult|kami|kabuok|mi\b)/i.test(text) ? parsePax(text) : null, ph = parsePhone(text), e = parseEmail(text);
       let changed = false, datesChanged = false;
       if (d[0] && d[0] >= today) { f.checkin = d[0]; changed = datesChanged = true; if (d[1] && d[1] > d[0]) f.checkout = d[1]; else if (f.checkout! <= d[0]) { f.step = 'checkout'; return ask(); } }
-      if (p && p <= 4) { f.pax = p; changed = true; }
+      if (p && !overCapacity(text, p)) { f.pax = p; changed = true; }
       if (ph) { f.phone = ph; changed = true; }
       if (e) { f.email = e; changed = true; }
       if (datesChanged) { f.pay_full = lastMinute(f.checkin!, now) ? true : undefined; return ask(); }

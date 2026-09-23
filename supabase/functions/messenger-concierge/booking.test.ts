@@ -206,3 +206,29 @@ Deno.test('a date correction at the contact step is a correction, not the guest 
   const s2 = answer(answer(start('book Oct 20 to 22 for 2', now), 'yes', now).flow, 'Ben Munez', now);
   assertEquals(s2.flow.name, 'Ben Munez');
 });
+
+import { overCapacity } from './booking.ts';
+Deno.test('D-222 P0: one capacity rule (facts: up to 3 adults, 3+1 child, 2+2) at flow start and at the guest step', () => {
+  const n = new Date('2026-09-24T01:00:00Z');
+  const six = start('Is Oct 10 to 12 available for 6 adults?', n);
+  assertEquals(six.pax, undefined, 'a party of 6 is not pre-filled into an offer');
+  assertEquals(six.step, 'pax');
+  const four = start('book Oct 10 to 12 for 4 adults', n);
+  assertEquals(four.pax, undefined, '4 adults said outright is over the stated capacity');
+  const two = start('book Oct 10 to 12 for 2', n);
+  assertEquals([two.pax, two.step], [2, 'offer'], 'a party that fits still goes straight to the offer');
+  assertEquals(overCapacity('2 adults and 2 kids', 4), false);
+  assertEquals(overCapacity('4 adults', 4), true);
+  assertEquals(overCapacity('we are 5', 5), true);
+  const step = answer({ ...two, step: 'pax', pax: undefined }, '4 adults po kami', n);
+  assertEquals(step.flow.pax, undefined, 'the guest step refuses 4 adults too');
+});
+
+import { needsCalendarCheck } from './booking.ts';
+Deno.test('D-222 P0: both dates known at flow start means the calendar is read, "available" word or not', () => {
+  const n = new Date('2026-09-24T01:00:00Z');
+  assertEquals(needsCalendarCheck(start('book Oct 10 to 12 for 2', n)), true);       // was unchecked until submit
+  assertEquals(needsCalendarCheck(start('is Oct 10 to 12 available?', n)), true);
+  assertEquals(needsCalendarCheck(start('book Oct 10 po', n)), false);               // one date: nothing to check yet
+  assertEquals(needsCalendarCheck(start('i want to book', n)), false);
+});

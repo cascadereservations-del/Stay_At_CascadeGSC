@@ -69,3 +69,21 @@ Deno.test('site invitation and closer are dropped when already sent, kept on fre
   assertEquals(trimRepeatedInvite(reply, ['earlier reply with ' + url], 'How much for 2 nights?', url), reply);
   assertEquals(trimRepeatedInvite(reply, ['no link here', 'none here either'], 'Is there an iron?', url), reply);
 });
+
+Deno.test('D-222 P0: a trust question is not a complaint, and "more than N" counts people only', () => {
+  assertEquals(classify('legit po ba kayo? hindi scam?'), 'routine');           // was 'complaint': a prospect got a work order
+  assertEquals(classify('is this a scam or legit?'), 'routine');
+  assertEquals(classify('Is it more than 2 km from SM?'), 'routine');           // was 'policy_exception'
+  assertEquals(classify('Can we be more than 4 people?'), 'policy_exception');
+  assertEquals(classify('more than 5 guests po kami'), 'policy_exception');
+  assertEquals(classify('The aircon is not working'), 'complaint');             // real complaints unchanged
+  assertEquals(classify('I will report you'), 'complaint');
+});
+
+import { modeFrom } from './policy.ts';
+Deno.test('D-222 P0: a failed settings read never silences the bot (live 2026-09-13 13:15Z: a 504 turned a reply into nothing)', () => {
+  assertEquals(modeFrom([{ key: 'concierge_mode', value: 'auto' }]), 'auto');
+  assertEquals(modeFrom([{ key: 'concierge_mode', value: 'off' }]), 'off');      // Lloyd's own "off" is still honoured
+  assertEquals(modeFrom(null), 'suggest');                                        // read failed: guest gets the holding line, host the draft
+  assertEquals(modeFrom([]), 'suggest');                                          // row missing reads as a failure too
+});
