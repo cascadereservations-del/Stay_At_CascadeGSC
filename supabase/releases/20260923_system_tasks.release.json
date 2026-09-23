@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260923T015850Z",
+    "verified_at": "2026-09-23T01:58:50Z",
     "production_rule": "Adds two new functions and nothing else: no table, column, row, policy or existing function changes. The backup is still the last act before the apply (D-210, D-217.6)."
   },
   "forward_verification": [
