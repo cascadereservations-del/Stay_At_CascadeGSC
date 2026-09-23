@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "money_checks_from_accounting_start_20260923",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20260923010000_money_checks_from_accounting_start.sql"
+  ],
+  "migration_sha256": {
+    "20260923010000_money_checks_from_accounting_start.sql": "ae101304a159f9b112d87fc1c2cee7c5e1684826a623e455f610dddb753264c7"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "One live function is replaced: health_checks_core_v1, which both the dashboard's System health button and the nightly verifier call. The body was not retyped: a script cut it from 20260921020000_health_checks_core.sql, asserted the cut hashes to the live md5(prosrc) f169d017fa1a9a9d768dd495d7219caf (read 2026-09-23), then applied five exact one-hit replacements. The first forward check asserts the resulting md5. No table, row or grant changes. Backup is the last act before the apply (D-210, D-217.6)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_core_body_is_the_reviewed_body",
+      "query": "select md5(p.prosrc) = 'f54b5cb4dde2ccc2d223ae5ace8d16f3' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'health_checks_core_v1'",
+      "expect": true
+    },
+    {
+      "name": "the_three_money_checks_read_the_accounting_start",
+      "query": "select p.prosrc like '%acct_settings s where s.property_id = p_property_id%' and p.prosrc like '%x.checkout_date >= v_start%' and p.prosrc like '%r.checkout_date >= v_start%' and p.prosrc like '%transaction_date >= v_start%' and p.prosrc like '%p.opening + p.net < 0%' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'health_checks_core_v1'",
+      "expect": true
+    },
+    {
+      "name": "the_core_is_still_reachable_only_through_a_wrapper",
+      "query": "select not has_function_privilege('anon', 'public.health_checks_core_v1(uuid, boolean)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid, boolean)', 'EXECUTE') and has_function_privilege('authenticated', 'public.run_health_checks_v1(uuid)', 'EXECUTE') and has_function_privilege('service_role', 'public.run_health_checks_service_v1(uuid)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "the_accounting_start_the_checks_read_is_on_record",
+      "query": "select accounting_start = '2026-09-01' from public.acct_settings where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "restore_the_core",
+        "action": "re-apply the health_checks_core_v1 definition from supabase/migrations/20260921020000_health_checks_core.sql (lines of the create or replace function, md5 f169d017fa1a9a9d768dd495d7219caf) with run-sql-on-host.sh, wrapped in begin/commit. Nothing else changed."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "next_health_run_rewrites_three_findings",
+      "required_state": "The next daily verifier run refreshes the health checks: completed_stays_paid, payout_totals_agree and ledger_position turn pass on production data (read 2026-09-23: 0 unpaid stays since 2026-09-01, 26,259.85 = 26,259.85, position 7,704.52 >= 0), so their V10 findings resolve by themselves."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING",
+    "evidence": "Same function signature, same return shape, same keys. ledger_position's detail gains opening and since; net now carries the position (opening + income - expenses - drawings since the start), which is what the digest and the verifier card print. pgTAP money_checks_from_accounting_start.sql: a fires/silent pair per re-scoped check."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the first forward check fails - a mistyped body",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the suites green on this commit"
+  ]
+}
