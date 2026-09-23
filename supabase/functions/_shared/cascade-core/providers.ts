@@ -1,10 +1,11 @@
 // cascade-core providers (D-070 phase 2, lifted unchanged from messenger-concierge on 2026-09-12).
-// One call: Gemini first, OpenRouter only when Gemini fails and a key is set. Both return the raw
-// model text; callers parse. Env: CASCADE_GEMINI_BOT_KEY (the only Gemini key; no fallback),
-// CASCADE_GEMINI_MODEL (default gemini-3.6-flash), CASCADE_OPENROUTER_BOT_KEY.
+// D-222 (Lloyd 2026-09-24): OpenRouter first, Gemini only when OpenRouter fails and Gemini's breaker is
+// closed. Both return the raw model text; callers parse. Env: CASCADE_OPENROUTER_BOT_KEY,
+// CASCADE_OPENROUTER_MODEL (default google/gemini-3.6-flash - the model the voice was tuned on),
+// CASCADE_GEMINI_BOT_KEY (the only Gemini key), CASCADE_GEMINI_MODEL (default gemini-3.6-flash).
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GEMINI_MODEL = env('CASCADE_GEMINI_MODEL') || 'gemini-3.6-flash';
-const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-2.5-flash';
+const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-3.6-flash';
 // Cost tier (2026-09-13): short follow-ups and option drafts do not need the full model. The lite
 // tier goes straight to OpenRouter's flash-lite (a known, listed slug, ~1/3 the price), skipping
 // the Gemini round trip entirely.
@@ -62,28 +63,30 @@ async function openrouter(q: ChatJsonRequest): Promise<string> {
 }
 
 /** JSON-mode chat with provider fallback. Returns the raw text; throws when both providers fail. */
-// Circuit breaker (2026-09-13): Gemini answered 429 "credits depleted" on every call all day, so
-// each reply paid a wasted round trip before OpenRouter. After a 429 Gemini is skipped for 15 min.
-// In-memory alone did not hold (each request can land on a cold isolate - live v55), so the caller
-// seeds `until` from app_settings and persists it through `trip`.
+// Circuit breaker (2026-09-13, widened D-222): a Gemini call that fails for want of credit or quota is
+// skipped until it can succeed - 402 (prepay empty) and 401/403 (key refused) for 6 h, 429 for 15 min.
+// Before D-222 only 429 tripped it, so an empty prepay (402, from ~2026-09-21) cost every call a doomed
+// round trip. In-memory alone did not hold (each request can land on a cold isolate - live v55), so the
+// caller seeds `until` from app_settings and persists it through `trip`.
 export const geminiBreaker: { until: number; trip?: (until: number) => Promise<void> } = { until: 0 };
+const geminiOpen = () => Boolean(geminiKey()) && Date.now() >= geminiBreaker.until;
+async function tripOn(e: unknown): Promise<void> {
+  const m = /gemini_(\d{3})/.exec(String(e));
+  const ms = !m ? 0 : ['402', '401', '403'].includes(m[1]) ? 6 * 3600_000 : m[1] === '429' ? 15 * 60_000 : 0;
+  if (!ms) return;
+  geminiBreaker.until = Date.now() + ms;
+  console.error('gemini_breaker_open', JSON.stringify({ status: m![1], until: new Date(geminiBreaker.until).toISOString() }));
+  await geminiBreaker.trip?.(geminiBreaker.until).catch((err) => console.error('gemini_breaker_persist_failed', String(err).slice(0, 200)));
+}
 export async function chatJson(q: ChatJsonRequest): Promise<string> {
   const hasOr = Boolean(env('CASCADE_OPENROUTER_BOT_KEY'));
-  if (q.tier === 'lite' && hasOr) {
-    try { return await openrouter(q); } catch (e) { console.error('openrouter_lite_failed_trying_gemini', String(e).slice(0, 300)); }
-  }
-  if (hasOr && Date.now() < geminiBreaker.until) return await openrouter(q);
-  try {
-    return await gemini(q);
-  } catch (e) {
-    if (!hasOr) throw e;
-    if (/gemini_429/.test(String(e))) {
-      geminiBreaker.until = Date.now() + 15 * 60_000;
-      await geminiBreaker.trip?.(geminiBreaker.until).catch((err) => console.error('gemini_breaker_persist_failed', String(err).slice(0, 200)));
+  if (hasOr) {
+    try { return await openrouter(q); } catch (e) {
+      if (!geminiOpen()) throw e;
+      console.error('openrouter_failed_trying_gemini', String(e).slice(0, 300));
     }
-    console.error('gemini_failed_trying_openrouter', String(e).slice(0, 300));
-    return await openrouter(q);
   }
+  try { return await gemini(q); } catch (e) { await tripOn(e); throw e; }
 }
 
 // ── Tool-calling chat (Cassy, 2026-09-13, D-104) ────────────────────────────────────────────────
@@ -177,20 +180,15 @@ async function openrouterTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
   }
 }
 
-/** Tool-calling chat with the same Gemini-then-OpenRouter fallback and breaker as chatJson. */
+/** Tool-calling chat with the same OpenRouter-then-Gemini order and breaker as chatJson (D-222). */
 export async function chatTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
   const hasOr = Boolean(env('CASCADE_OPENROUTER_BOT_KEY'));
   if (q.tier === 'deep' && hasOr) return await openrouterTools(q);
-  if (hasOr && Date.now() < geminiBreaker.until) return await openrouterTools(q);
-  try {
-    return await geminiTools(q);
-  } catch (e) {
-    if (!hasOr) throw e;
-    if (/gemini_429/.test(String(e))) {
-      geminiBreaker.until = Date.now() + 15 * 60_000;
-      await geminiBreaker.trip?.(geminiBreaker.until).catch((err) => console.error('gemini_breaker_persist_failed', String(err).slice(0, 200)));
+  if (hasOr) {
+    try { return await openrouterTools(q); } catch (e) {
+      if (!geminiOpen()) throw e;
+      console.error('openrouter_tools_failed_trying_gemini', String(e).slice(0, 300));
     }
-    console.error('gemini_tools_failed_trying_openrouter', String(e).slice(0, 300));
-    return await openrouterTools(q);
   }
+  try { return await geminiTools(q); } catch (e) { await tripOn(e); throw e; }
 }

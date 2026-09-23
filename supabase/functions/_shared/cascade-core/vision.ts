@@ -1,10 +1,10 @@
 // cascade-core vision (session 27, booking PRD task 2 — the OCR merge). One image-to-JSON call
 // shared by ocr-receipt, telegram-expense and upload-booking-receipt. Same env contract as before
-// (D-090): Gemini first, OpenRouter when Gemini refuses (VISION_PROVIDER=openrouter skips Gemini); VISION_MODEL
+// (D-090, D-222): VISION_PROVIDER first (default openrouter), the other provider when it refuses; VISION_MODEL
 // overrides the model for either; keys CASCADE_GEMINI_BOT_KEY / CASCADE_OPENROUTER_BOT_KEY only - the two model keys
 // this project uses (01-FACTS). Returns the raw model text; callers parse — their JSON shapes differ.
 const env = (k: string) => Deno.env.get(k) ?? '';
-export const VISION_PROVIDER = (env('VISION_PROVIDER') || 'gemini').toLowerCase();
+export const VISION_PROVIDER = (env('VISION_PROVIDER') || 'openrouter').toLowerCase(); // D-222: OpenRouter primary
 // D-204.3: CASCADE_GEMINI_BOT_KEY only. The bare GEMINI_BOT_KEY / GEMINI_API_KEY no longer authenticate and the bare
 // GEMINI_BOT_KEY belongs to another project (providers.ts), so a fallback could only drain it or fail late.
 const GEMINI_KEY = env('CASCADE_GEMINI_BOT_KEY');
@@ -31,18 +31,21 @@ export async function visionFetch(url: string, init: RequestInit, tries = 3): Pr
   return fetch(url, init);
 }
 
-/** Send one image + prompt; returns the model's text (expected JSON). Gemini first; OpenRouter (CASCADE_OPENROUTER_BOT_KEY)
- *  when Gemini has no key or refuses - the same order providers.ts uses for text (Lloyd, session 46). VISION_PROVIDER=openrouter
- *  skips Gemini. */
+/** Send one image + prompt; returns the model's text (expected JSON). VISION_PROVIDER (default openrouter, D-222) is
+ *  tried first; the other provider is the fallback when the first has no key or refuses - the order providers.ts uses
+ *  for text. */
 export async function visionExtractText(prompt: string, image: Uint8Array | string, mime: string): Promise<string> {
   const b64 = typeof image === 'string' ? image : bytesToBase64(image);
-  if (VISION_PROVIDER === 'openrouter' || !GEMINI_KEY) return await viaOpenRouter(prompt, b64, mime);
+  const orFirst = VISION_PROVIDER === 'openrouter';
+  const [first, second] = orFirst ? [viaOpenRouter, viaGemini] : [viaGemini, viaOpenRouter];
+  const [firstKey, secondKey] = orFirst ? [OPENROUTER_KEY, GEMINI_KEY] : [GEMINI_KEY, OPENROUTER_KEY];
+  if (!firstKey) return await second(prompt, b64, mime);
   try {
-    return await viaGemini(prompt, b64, mime);
+    return await first(prompt, b64, mime);
   } catch (e) {
-    if (!OPENROUTER_KEY) throw e;
-    console.warn('vision_fallback_openrouter', String(e).slice(0, 200));
-    return await viaOpenRouter(prompt, b64, mime);
+    if (!secondKey) throw e;
+    console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) }));
+    return await second(prompt, b64, mime);
   }
 }
 

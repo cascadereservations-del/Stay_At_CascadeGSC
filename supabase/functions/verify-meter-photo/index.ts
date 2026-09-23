@@ -20,7 +20,7 @@
 // holds a Gemini key and an OpenRouter key, so the provider is an env var and
 // switching is config, not a rewrite. Same contract either way.
 //
-//   VISION_PROVIDER    gemini (default: Gemini first, OpenRouter if it refuses) | openrouter
+//   VISION_PROVIDER    openrouter (default, D-222: OpenRouter first, Gemini if it refuses) | gemini
 //   CASCADE_GEMINI_BOT_KEY       (the only Gemini key, D-204.3)
 //   CASCADE_OPENROUTER_BOT_KEY   (the only OpenRouter key; also the fallback reader)
 //   VISION_MODEL       optional per-provider override
@@ -48,7 +48,7 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const BUCKET      = 'cleaning-photos';
 
-const PROVIDER       = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase();
+const PROVIDER       = (Deno.env.get('VISION_PROVIDER') ?? 'openrouter').toLowerCase(); // D-222: OpenRouter primary
 // The keys were rotated on 2026-09-12 into the CASCADE_-prefixed names. The
 // older GEMINI_BOT_KEY and GEMINI_API_KEY secrets no longer authenticate, and
 // the bare GEMINI_BOT_KEY belongs to another project: CASCADE_GEMINI_BOT_KEY
@@ -211,19 +211,22 @@ async function readWithOpenRouter(b64: string, mime: string, which: Which): Prom
   return parseModelJson(raw?.choices?.[0]?.message?.content ?? '');
 }
 
-// Gemini first; OpenRouter (CASCADE_OPENROUTER_BOT_KEY) when Gemini has no key or refuses - the order vision.ts and
-// providers.ts use (Lloyd, session 46). VISION_PROVIDER=openrouter skips Gemini.
+// VISION_PROVIDER first (default openrouter, D-222), the other provider when it has no key or refuses - the order
+// vision.ts and providers.ts use.
 async function readMeter(b64: string, mime: string, which: Which): Promise<VisionResult> {
-  if (PROVIDER === 'openrouter' || !GEMINI_KEY) {
-    if (!OPENROUTER_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY and CASCADE_OPENROUTER_BOT_KEY not set');
-    return { ...(await readWithOpenRouter(b64, mime, which)), via: 'openrouter' };
-  }
+  const or = async () => ({ ...(await readWithOpenRouter(b64, mime, which)), via: 'openrouter' as const });
+  const gm = async () => ({ ...(await readWithGemini(b64, mime, which)), via: 'gemini' as const });
+  const orFirst = PROVIDER === 'openrouter';
+  const [first, second] = orFirst ? [or, gm] : [gm, or];
+  const [firstKey, secondKey] = orFirst ? [OPENROUTER_KEY, GEMINI_KEY] : [GEMINI_KEY, OPENROUTER_KEY];
+  if (!firstKey && !secondKey) throw new Error('CASCADE_OPENROUTER_BOT_KEY and CASCADE_GEMINI_BOT_KEY not set');
+  if (!firstKey) return await second();
   try {
-    return { ...(await readWithGemini(b64, mime, which)), via: 'gemini' };
+    return await first();
   } catch (e) {
-    if (!OPENROUTER_KEY) throw e;
-    console.warn('vision_fallback_openrouter', String(e).slice(0, 200));
-    return { ...(await readWithOpenRouter(b64, mime, which)), via: 'openrouter' };
+    if (!secondKey) throw e;
+    console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) }));
+    return await second();
   }
 }
 
