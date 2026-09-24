@@ -23,7 +23,8 @@ on conflict(user_id) do update set role = excluded.role, telegram_user_id = excl
 
 insert into public.verifier_findings(key, check_id, severity, title, detail, status, first_seen, last_seen)
 values ('VX:synthetic-ack-1', 'V10', 'yellow', 'Synthetic finding', '{"n": 2}', 'open', '2026-10-10T00:00:00Z', '2026-10-10T00:00:00Z'),
-       ('VX:synthetic-ack-2', 'V10', 'yellow', 'Synthetic finding two', '{"n": 1}', 'open', '2026-10-10T00:00:00Z', '2026-10-10T00:00:00Z');
+       -- check_id outside every scope array, so the apply calls below never close it as gone
+       ('VX:synthetic-ack-2', 'VX', 'yellow', 'Synthetic finding two', '{"n": 1}', 'open', '2026-10-10T00:00:00Z', '2026-10-10T00:00:00Z');
 
 -- A finance user is refused.
 set local role authenticated;
