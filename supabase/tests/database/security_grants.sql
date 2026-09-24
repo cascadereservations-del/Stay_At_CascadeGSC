@@ -37,8 +37,9 @@ select ok((select bool_and(p.proconfig is not null) from pg_proc p where p.prona
             and p.proname in ('apply_inventory_purchase', 'match_inventory_item', 'try_uuid')),
   'all three have a pinned search_path');
 select is(public.try_uuid('not-a-uuid'), null, 'try_uuid still answers null for junk');
-insert into public.inventory_items(id, name, is_active, is_consumable, qty_on_hand)
-values ('e9000000-0000-4000-8000-000000000001', 'Synthetic Liquid Hand Soap', true, true, 3);
+insert into public.properties(id, name, is_active) values ('e1000000-0000-4000-8000-000000000026', 'Synthetic Security 26', true);
+insert into public.inventory_items(id, property_id, name, category, is_active, is_consumable, qty_on_hand)
+values ('e9000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000026', 'Synthetic Liquid Hand Soap', 'cleaning', true, true, 3);
 select ok(exists (select 1 from public.match_inventory_item('Synthetic Liquid Hand Soap', 3, 0.3, false) m where m.id = 'e9000000-0000-4000-8000-000000000001'),
   'match_inventory_item still finds similarity() through the pinned search_path');
 select ok(not has_table_privilege('anon', 'public.app_secrets', 'select')
