@@ -16,6 +16,8 @@
 // on 2026-09-21 was seven days earlier. V10:stale is the check that catches
 // that, and this call is what stops it from ever needing to.
 //
+// V13 (D-227, session 49) is the one check raised here rather than in SQL: it needs a GET to OpenRouter.
+//
 // ponytail: no queue and no per-finding state here. verifier_findings already
 // decides what is new, what is due a reminder and what has gone; this function
 // only has to say it.
@@ -25,6 +27,7 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { ackHash, buildCards, type Applied, type Card, type Finding } from './cards.ts';
+import { budgetFinding, readKey } from './budget.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -85,6 +88,15 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
     const { data: run, error: runErr } = await db.rpc('run_system_verifier_v1', { p_property_id: PROPERTY_ID, p_scope: scope });
     if (runErr) throw new Error('run_system_verifier_v1: ' + runErr.message);
     const found = (run?.found ?? []) as Finding[];
+
+    // V13 model budget, every run in both scopes. The log line is the live proof of the field names.
+    const orKey = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY');
+    if (orKey) {
+      const k = await readKey(orKey);
+      console.log(JSON.stringify({ event: 'openrouter_budget', scope, ...k }));
+      const v13 = budgetFinding(k);
+      if (v13) found.push(v13);
+    }
 
     if (dry) {
       console.log(JSON.stringify({ event: 'system_verifier', scope, dry: true, found: found.length }));

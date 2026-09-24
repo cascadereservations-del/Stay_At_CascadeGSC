@@ -7,6 +7,7 @@
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { ackHash, ago, buildCards, byUrgency, dm, promoted, redCard, yellowCard, type Finding, type Resolved } from './cards.ts';
 import { templateOf } from '../_shared/cascade-core/format.ts';
+import { budgetFinding } from './budget.ts';
 import { HEALTH_LABELS, HEALTH_KEYS } from '../_shared/cascade-core/health-labels.ts';
 
 const NOW = new Date('2026-10-10T02:00:00Z');
@@ -293,20 +294,49 @@ Deno.test('a missing money path drops the amount instead of printing a zero', ()
   assert(!/₱/.test(t2.split('\n').find((l) => l.includes('Stanley')) ?? ''), t2);
 });
 
-// SPEC-20 (D-213): the first live yellow card buried "Nyke Perez, 2026-09-20, no cleaning logged" as
-// bullet three of five under a payout gap from January.
-Deno.test('a checkout with no cleaning inside 72 hours is red; V10:stale is red; older ones stay yellow', () => {
+// SPEC-29 (D-232, inverting D-213): a missing report is missed-cleaning-alert's job in OPS. Here it
+// stays yellow, and the urgency sort still puts the guest's name first.
+Deno.test('a checkout with no cleaning stays yellow even inside 72 hours; V10:stale is red', () => {
   const recent = f({ key: 'V10:checkouts_cleaned', check_id: 'V10', severity: 'yellow', title: 'x',
     detail: { check: 'checkouts_cleaned', status: 'warn', n: 1, d: [{ guest: 'Nyke Perez', checkout: '2026-10-09' }] } });
-  const old = f({ key: 'V10:checkouts_cleaned', check_id: 'V10', severity: 'yellow', title: 'x',
-    detail: { check: 'checkouts_cleaned', status: 'warn', n: 1, d: [{ guest: 'Bianca Dizon', checkout: '2026-08-24' }] } });
-  assertEquals(promoted(recent, NOW).severity, 'red');
-  assertEquals(promoted(old, NOW).severity, 'yellow');
+  assertEquals(promoted(recent, NOW).severity, 'yellow');
   assertEquals(promoted(f({ key: 'V10:stale', check_id: 'V10', severity: 'yellow', title: 'x', detail: { last_run: null } }), NOW).severity, 'red');
   const cards = buildCards({ new: [recent] }, NOW, TODAY);
   assertEquals(cards.length, 1);
-  assertStringIncludes(cards[0].text, 'ALERT');
+  assertStringIncludes(cards[0].text, 'ATTENTION');
   assertStringIncludes(cards[0].text, 'Nyke Perez checked out 9 Oct');
+});
+
+// SPEC-24 (D-235): an open V7 is one the verifier could NOT correct, so it names both sides.
+Deno.test('V7 names the guest, the code, both date pairs and one Do, in Finance', () => {
+  const v7 = f({ key: 'V7:HM8F54BR45', check_id: 'V7', severity: 'yellow', title: 'Calendar and reservation disagree on dates',
+    detail: { code: 'HM8F54BR45', guest: 'Joseph Ewing', email_from: '2026-09-25', email_to: '2026-09-26',
+      calendar_from: '2026-09-25', calendar_to: '2026-09-27', auto_safe: false } });
+  const [card] = buildCards({ new: [v7] }, NOW, TODAY);
+  assertEquals(card.to, 'finance');
+  assertStringIncludes(card.text, 'Joseph Ewing, HM8F54BR45. The booking e-mail says 25 Sep to 26 Sep. The Airbnb calendar says 25 Sep to 27 Sep.');
+  assertStringIncludes(card.text, 'airbnb.com/hosting/reservations/details/HM8F54BR45');
+  assertEquals(card.text.match(/^Do: /gm)?.length, 1, card.text);
+  assert(!/\w+=\S/.test(card.text), 'no key=value dump');
+});
+
+Deno.test('a V7 corrected by the verifier is only a Resolved line', () => {
+  const [card] = buildCards({ resolved: [{ key: 'V7:HM8F54BR45', title: 'Reservation dates corrected from the Airbnb calendar', auto: true }] }, NOW, TODAY);
+  assertStringIncludes(card.text, 'Resolved: Reservation dates corrected from the Airbnb calendar (closed itself)');
+});
+
+Deno.test('V7b and V13 read as sentences with one Do', () => {
+  const v7b = f({ key: 'V7b:uid@airbnb.com', check_id: 'V7b', severity: 'yellow', title: 'Airbnb stay with no booking e-mail',
+    detail: { uid: 'uid@airbnb.com', code: 'HMABCDEFGH', from: '2026-09-27', to: '2026-09-28', since: '2026-09-22T05:00:00Z' } });
+  const t = buildCards({ new: [v7b] }, NOW, TODAY)[0].text;
+  assertStringIncludes(t, 'An Airbnb stay 27 Sep to 28 Sep has no booking e-mail after 24 hours.');
+  assertStringIncludes(t, 'Code HMABCDEFGH, first seen 22 Sep.');
+  assertStringIncludes(t, 'Do: check the cascadereservations inbox for the confirmation, or the reservation on Airbnb.');
+  const v13 = f({ key: 'V13', check_id: 'V13', severity: 'red', title: 'Model budget nearly used up', detail: { left_pct: 15, limit: 1 } });
+  const c13 = redCard(v13, NOW);
+  assertEquals(c13.to, 'finance');
+  assertStringIncludes(c13.text, "Only 15% of today's USD 1.00 model budget is left.");
+  assertEquals(c13.text.match(/^Do: /gm)?.length, 1, c13.text);
 });
 
 Deno.test('yellows sort by urgency before the cap: a date inside 7 days comes first', () => {
@@ -318,4 +348,14 @@ Deno.test('yellows sort by urgency before the cap: a date inside 7 days comes fi
     detail: { check: 'meter_readings_reviewed', status: 'warn', n: 3, d: [{ recorded: '2026-02-25' }] } });
   const sorted = [payout, meters, fee].sort(byUrgency(NOW)).map((x) => x.key);
   assertEquals(sorted, ['V10:cleaner_fees_settled', 'V10:meter_readings_reviewed', 'V10:completed_stays_paid']);
+});
+
+Deno.test('D-227: V13 reads limit_remaining, red under 20% or when refused, in 5% steps', () => {
+  assertEquals(budgetFinding({ status: 200, limit: 1, remaining: 0.5 }), null);
+  assertEquals(budgetFinding({ status: 200, limit: 1, remaining: 0.2 }), null, 'exactly 20% left is fine');
+  assertEquals(budgetFinding({ status: 200, limit: 1, remaining: 0.17 })?.detail, { left_pct: 15, limit: 1 });
+  assertEquals(budgetFinding({ status: 200, limit: 1, remaining: 0.16 })?.detail, { left_pct: 15, limit: 1 }, 'same step, same detail: an ack holds');
+  assertEquals(budgetFinding({ status: 200, limit: null, remaining: null }), null, 'no limit, nothing to measure');
+  assertEquals(budgetFinding({ status: 503, limit: null, remaining: null }), null, 'an outage is not a budget alarm');
+  assertEquals(budgetFinding({ status: 401, limit: null, remaining: null })?.title, 'Model key refused');
 });

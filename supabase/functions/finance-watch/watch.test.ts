@@ -34,13 +34,3 @@ Deno.test('overdue rows are listed oldest first, the oldest owns the action, and
   assertEquals(renderReport(r).includes('— '), false);
 });
 
-import { budgetNotice } from './watch.ts';
-Deno.test('D-222: the OpenRouter budget warns at 80% of the key limit, in plain words, and stays quiet otherwise', () => {
-  assertEquals(budgetNotice({ status: 200, usage: 3, limit: 10 }), null);
-  assertEquals(budgetNotice({ status: 200, usage: 9, limit: null }), null);          // no limit set: nothing to measure
-  const warn = budgetNotice({ status: 200, usage: 8.3, limit: 10 })!;
-  assertEquals(warn.startsWith('OpenRouter spending is at 83%'), true, warn);
-  assertEquals(/Guest replies stop/.test(warn), true);                                 // says what happens and who acts
-  assertEquals(budgetNotice({ status: 401, usage: 0, limit: null })!.startsWith('The OpenRouter key was refused'), true);
-  assertEquals(budgetNotice({ status: 503, usage: 0, limit: null }), null);           // a passing outage is not a budget alarm
-});

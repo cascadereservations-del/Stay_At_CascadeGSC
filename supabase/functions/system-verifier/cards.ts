@@ -29,8 +29,10 @@ export type Applied = { new?: Finding[]; remind?: Finding[]; resolved?: Resolved
 /** A card, and the finding key its [Known] button should acknowledge. */
 export type Card = { to: 'finance' | 'ops'; text: string; ackKey?: string };
 
-// V6 (a guest arriving without ID) and V7 are the day's work, not the money.
-const OPS_CHECKS = new Set(['V6', 'V7']);
+// V6 (a guest arriving without ID) is the day's work, not the money. V7/V7b go to Finance, where the
+// Airbnb new-booking card already lands (SPEC-24).
+const OPS_CHECKS = new Set(['V6']);
+const airbnbUrl = (code: unknown) => (str(code) ? `https://www.airbnb.com/hosting/reservations/details/${str(code)}` : '');
 const audienceOf = (checkId: string): 'finance' | 'ops' => (OPS_CHECKS.has(checkId) ? 'ops' : 'finance');
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -113,6 +115,14 @@ function headline(f: Finding, now: Date): string {
       return `${str(d.guest, 'A guest')} asked something ${ago(d.since, now)} and nobody has answered.`;
     case 'V6':
       return `${str(d.guest, 'A guest')} arrives ${dm(d.arrives)} and has no ID on file.`;
+    case 'V7':
+      return 'The Airbnb calendar and the booking e-mail disagree on dates, and this one could not be corrected automatically.';
+    case 'V7b':
+      return `An Airbnb stay ${dm(d.from)} to ${dm(d.to)} has no booking e-mail after 24 hours.`;
+    case 'V13':
+      return d.refused
+        ? 'The OpenRouter key was refused, so guest replies and receipt reads are failing.'
+        : `Only ${Number(d.left_pct ?? 0)}% of today's USD ${Number(d.limit ?? 0).toFixed(2)} model budget is left. At zero, guests get the host handoff line instead of an answer until it resets at 08:00 Manila.`;
     case 'V11':
       return `The Concierge has been on ${str(d.mode, 'manual')} since ${ago(d.since, now)}, so guest messages are waiting for a person.`;
     case 'V12':
@@ -150,6 +160,13 @@ function facts(f: Finding): string[] {
       return [d.asked ? `They asked: ${str(d.asked)}` : '', d.risk ? `Risk: ${str(d.risk)}` : ''];
     case 'V6':
       return [`id ${str(d.booking).slice(0, 8).toUpperCase()}`];
+    case 'V7':
+      return [
+        `${str(d.guest, 'Unnamed guest')}, ${str(d.code)}. The booking e-mail says ${dm(d.email_from)} to ${dm(d.email_to)}. The Airbnb calendar says ${dm(d.calendar_from)} to ${dm(d.calendar_to)}.`,
+        airbnbUrl(d.code),
+      ];
+    case 'V7b':
+      return [`Code ${str(d.code, 'unknown')}, first seen ${dm(d.since)}.`, airbnbUrl(d.code)];
     case 'V10': {
       // Not a key=value dump, and not silence either: the first live run said
       // "1 to look at" and named nothing, so nobody could act without opening
@@ -174,6 +191,11 @@ function action(f: Finding): string {
     case 'V4': return 'open Messenger and finish the booking with them, or close the conversation.';
     case 'V5': return 'answer the guest, then dismiss the handoff.';
     case 'V6': return 'ask for the ID before they arrive.';
+    case 'V7': return 'check the reservation on Airbnb and correct whichever side is wrong; the card clears on the next hourly run once they agree.';
+    case 'V7b': return 'check the cascadereservations inbox for the confirmation, or the reservation on Airbnb.';
+    case 'V13': return (f.detail as any)?.refused
+      ? 'check the key at openrouter.ai/settings/keys.'
+      : 'raise the key limit at openrouter.ai/settings/keys if today needs more; it resets by itself at 08:00 Manila.';
     case 'V11': return 'put the Concierge back on auto in Settings, or leave it and keep answering by hand.';
     case 'V12': return 'check the Airbnb feed and the sync job before taking another booking.';
     case 'V10': return f.key === 'V10:stale' ? 'open Settings, System health, and run it.' : 'open Settings, System health, and work through this check.';
@@ -305,13 +327,11 @@ function newestDate(f: Finding): number {
   }
   return best;
 }
-/** A checkout with no cleaning logged inside the last 72 hours is the day's work, not a list item.
- *  On the first live run it sat as bullet three of five under a payout gap from January. */
-export function promoted(f: Finding, now: Date): Finding {
+/** V10:stale is red: every V10 check has gone silent. A missing cleaning report is NOT promoted any more
+ *  (D-232): missed-cleaning-alert owns it in OPS, and the urgency sort below keeps it first in the list. */
+export function promoted(f: Finding, _now: Date): Finding {
   if (f.check_id !== 'V10' || f.severity === 'red') return f;
-  const d = (f.detail ?? {}) as Record<string, any>;
   if (f.key === 'V10:stale') return { ...f, severity: 'red' };
-  if (d.check === 'checkouts_cleaned' && newestDate(f) >= now.getTime() - 3 * DAY) return { ...f, severity: 'red' };
   return f;
 }
 /** Yellows sort by urgency before the five-bullet cap: a date inside 7 days first, then by count. */

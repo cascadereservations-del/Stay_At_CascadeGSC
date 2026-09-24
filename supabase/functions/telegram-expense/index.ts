@@ -1327,6 +1327,24 @@ async function handleCallbackQueryInner(cq:any,db:any){
     return;
   }
 
+  // D-236 (session 49): "What is this blocked date?" from calendar-sync. The button carries ackHash(uid)
+  // like vf:ack; the RPC decides WHO may answer (owner or admin) and stores it once in recon_status.
+  if(data.startsWith('cb:block:')){
+    const[,,want,answer]=data.split(':');const who=cq.from?.first_name??'staff';
+    const{data:rows,error:bErr}=await db.from('calendar_events').select('uid').eq('source','airbnb').eq('status','blocked');
+    if(bErr)throw new Error('Could not read the calendar: '+bErr.message);
+    let uid='';for(const r of (rows??[]) as Array<{uid:string}>){if(await ackHash(r.uid)===want){uid=r.uid;break;}}
+    if(!uid){await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n✅ That block has already left the Airbnb calendar. Nothing to answer.`);return;}
+    const{data:r,error}=await db.rpc('telegram_answer_calendar_block_v1',{p_telegram_user_id:cq.from?.id,p_uid:uid,p_answer:answer});
+    if(error)throw new Error(error.message);
+    let line:string,keep=false;
+    if(!r?.ok){const k=String(r?.reason??'');keep=['unmapped_telegram_user','not_authorized'].includes(k);
+      line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a staff profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not allowed to answer for the calendar.`,not_pending:'ℹ️ Already answered.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
+    else line=`Recorded: ${({maint:'maintenance or owner use',direct:'a direct booking is coming',unblock:'to be unblocked on Airbnb'} as Record<string,string>)[answer]??answer}, by ${who}.`;
+    await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
+    return;
+  }
+
   // v104 (session 27, booking PRD C2 / D-160 #3): Finance taps on the receipt card. The definer RPC maps
   // cq.from.id to staff_access_profiles.telegram_user_id, records the named review and decides the booking;
   // an unmapped or unauthorized tapper is refused and the buttons stay for someone who is.

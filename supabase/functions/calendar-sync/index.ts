@@ -2,8 +2,16 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { classifyMissingAirbnbRows } from './horizon.ts';
+import { confirmationCodeFrom, parseIcal, type ICalEvent } from './ical.ts';
+import { BLOCK_ANSWERS, blockCardText, blocksOverdue, blocksToAsk, type CalRow } from './blocks.ts';
+import { ackHash } from '../_shared/ack-hash.ts';
 
-// calendar-sync v14 - Cascade Hideaway
+// calendar-sync v15 - Cascade Hideaway
+//
+// v15 (2026-09-25, SPEC-24, D-225/D-235/D-236): the feed is unfolded before parsing (ical.ts), so every
+//   Airbnb row keeps its confirmation code; each row is linked to airbnb_reservations by that code
+//   (recon_status 'matched') and takes its guest name from the link. An Airbnb block with no booking
+//   behind it gets ONE Finance question (blocks.ts); the answer is a telegram-expense tap.
 //
 // SOURCE-CONTROL NOTE (2026-08-25): this function was deployed (v10, function
 // version 21) but had no source in this repository. It was recovered from the
@@ -67,6 +75,18 @@ async function tgSend(token: string, chatId: string, text: string): Promise<void
     body:    JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
     signal:  AbortSignal.timeout(15_000),
   }).catch(() => {});
+}
+
+/** A question card with buttons, plain text (a quoted Airbnb note must not break Markdown). */
+async function tgAsk(token: string, chatId: string, text: string, keyboard: Array<Array<{ text: string; callback_data: string }>>): Promise<boolean> {
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, reply_markup: { inline_keyboard: keyboard } }),
+    signal:  AbortSignal.timeout(15_000),
+  }).catch((e) => { console.warn('calendar-sync v15: tgAsk', String(e)); return null; });
+  if (r && !r.ok) console.warn('calendar-sync v15: tgAsk non-ok', r.status, (await r.text().catch(() => '')).slice(0, 200));
+  return !!r?.ok;
 }
 
 function nightsBetween(checkin: string, checkout: string): number {
@@ -181,6 +201,7 @@ Deno.serve(async (req: Request) => {
     const today = new Date().toISOString().slice(0, 10);
     let reaped = 0;
     let horizonSkipped = 0;
+    let horizonGuard: string | null = null;
     try {
       const { data: upcoming } = await supabase
         .from('calendar_events').select('id,uid,status,checkin_date')
@@ -189,6 +210,7 @@ Deno.serve(async (req: Request) => {
         .gte('checkout_date', today);
       const classification = classifyMissingAirbnbRows(events, upcoming ?? []);
       horizonSkipped = classification.horizonSkipped;
+      horizonGuard = classification.horizonGuard;
       for (const row of classification.rowsToReap) {
         const { error: reapUpdateErr } = await supabase.from('calendar_events')
           .update({ status: 'cancelled', synced_at: new Date().toISOString() })
@@ -202,7 +224,38 @@ Deno.serve(async (req: Request) => {
       console.warn('calendar-sync v14: reap step failed (non-fatal):', String(reapErr));
     }
 
-    // -- v8: Backfill guest_name from airbnb_reservations -----------
+    // -- v15: Link each Airbnb row to its reservation by confirmation code ----
+    // The code is exact where the old date match was a guess, and it is what V7 (dates disagree) and
+    // V7b (no booking e-mail) judge. A code with no reservation yet is left pending: the e-mail usually
+    // lands within hours, and V7b speaks only after 24.
+    let linked = 0;
+    try {
+      const codeByUid = new Map<string, string>();
+      for (const ev of events) { const c = confirmationCodeFrom(ev.description); if (c) codeByUid.set(ev.uid, c); }
+      if (codeByUid.size > 0) {
+        const [{ data: resRows, error: resErr }, { data: calRows, error: calErr }] = await Promise.all([
+          supabase.from('airbnb_reservations').select('id,confirmation_code,guest_name').in('confirmation_code', [...new Set(codeByUid.values())]),
+          supabase.from('calendar_events').select('id,uid,guest_name,linked_reservation_id').eq('property_id', propertyId).in('uid', [...codeByUid.keys()]),
+        ]);
+        if (resErr || calErr) throw new Error((resErr ?? calErr)!.message);
+        const resByCode = new Map((resRows ?? []).map((r) => [r.confirmation_code as string, r]));
+        for (const ce of calRows ?? []) {
+          const res = resByCode.get(codeByUid.get(ce.uid)!);
+          if (!res) continue;
+          const patch: Record<string, unknown> = {};
+          if (ce.linked_reservation_id !== res.id) Object.assign(patch, { linked_reservation_id: res.id, recon_status: 'matched' });
+          if (!ce.guest_name && res.guest_name) patch.guest_name = res.guest_name;
+          if (Object.keys(patch).length === 0) continue;
+          const { error: linkErr } = await supabase.from('calendar_events').update(patch).eq('id', ce.id);
+          if (linkErr) { console.warn('calendar-sync v15: link failed for', ce.uid, linkErr.message); continue; }
+          if (patch.linked_reservation_id) linked++;
+        }
+      }
+    } catch (linkStepErr) {
+      console.warn('calendar-sync v15: link step failed (non-fatal):', String(linkStepErr));
+    }
+
+    // -- v8: Backfill guest_name from airbnb_reservations (fallback for unlinked rows) ---
     let guestNamesBackfilled = 0;
     try {
       const { data: nullNameEvs } = await supabase
@@ -273,6 +326,43 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // -- v15: a block with no booking behind it is asked about once (D-236) ----
+    let blocksAsked = 0;
+    try {
+      const { data: live, error: liveErr } = await supabase
+        .from('calendar_events')
+        .select('uid,source,status,checkin_date,checkout_date,recon_status,recon_alerted_at,raw_description')
+        .eq('property_id', propertyId).neq('status', 'cancelled').gt('checkout_date', today);
+      if (liveErr) throw new Error(liveErr.message);
+      const rows = (live ?? []) as CalRow[];
+      if (tgToken && tgFinanceId) {
+        for (const b of blocksToAsk(rows, today, horizonGuard)) {
+          const h = await ackHash(b.uid);
+          const keyboard = BLOCK_ANSWERS.map((a) => [{ text: a.label, callback_data: `cb:block:${h}:${a.code}` }]);
+          if (!(await tgAsk(tgToken, tgFinanceId, blockCardText(b), keyboard))) continue; // not stamped: asked again next run
+          await supabase.from('calendar_events').update({ recon_alerted_at: new Date().toISOString() }).eq('property_id', propertyId).eq('uid', b.uid);
+          blocksAsked++;
+        }
+      }
+      // Unanswered for a week: one Follow-ups task each (D-218). An answer, or the block leaving the
+      // calendar, closes it on the next run.
+      const overdue = blocksOverdue(rows, today, new Date());
+      for (const b of overdue) {
+        await supabase.rpc('system_task_open_v1', {
+          p_property_id: propertyId, p_source_kind: 'calendar_block', p_source_ref: b.uid,
+          p_title: `Say what the Airbnb block ${b.checkin_date} to ${b.checkout_date} is`,
+          p_detail: 'It is blocked on Airbnb and Cascade has no booking for it. Answer the card in Finance: maintenance or owner use, a direct booking, or unblock it.',
+          p_priority: 'normal',
+        });
+      }
+      await supabase.rpc('system_task_close_missing_v1', {
+        p_source_kind: 'calendar_block', p_still_open: overdue.map((b) => b.uid), p_since: null,
+        p_note: 'Closed automatically: the block was answered, booked or removed.',
+      });
+    } catch (blockErr) {
+      console.warn('calendar-sync v15: block question step failed (non-fatal):', String(blockErr));
+    }
+
     await hb('succeeded');
     return new Response(
       JSON.stringify({
@@ -280,6 +370,7 @@ Deno.serve(async (req: Request) => {
         new_confirmed: newlyConfirmed.length,
         cancelled_reaped: reaped,
         guest_names_backfilled: guestNamesBackfilled,
+        linked, blocks_asked: blocksAsked,
       }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } },
     );
@@ -295,37 +386,3 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: false, error: msg }), { status: 500, headers: { ...CORS, 'Content-Type': 'application/json' } });
   }
 });
-
-interface ICalEvent { uid: string; checkin: string; checkout: string; summary?: string; description?: string; status: 'confirmed' | 'blocked'; }
-
-function parseIcal(text: string): ICalEvent[] {
-  const events: ICalEvent[] = [];
-  const blocks = text.split('BEGIN:VEVENT');
-  for (let i = 1; i < blocks.length; i++) {
-    const block = blocks[i].split('END:VEVENT')[0];
-    const uid = extractProp(block, 'UID');
-    const dtstart = extractProp(block, 'DTSTART');
-    const dtend = extractProp(block, 'DTEND');
-    const summary = extractProp(block, 'SUMMARY');
-    const description = extractProp(block, 'DESCRIPTION');
-    if (!uid || !dtstart || !dtend) continue;
-    const checkin = normalizeDate(dtstart);
-    const checkout = normalizeDate(dtend);
-    if (!checkin || !checkout) continue;
-    const lsum = (summary ?? '').toLowerCase();
-    const status: 'confirmed' | 'blocked' = lsum.includes('not available') || lsum.includes('blocked') || lsum === '' ? 'blocked' : 'confirmed';
-    events.push({ uid, checkin, checkout, summary, description, status });
-  }
-  return events;
-}
-
-function extractProp(block: string, key: string): string | undefined {
-  const re = new RegExp(`^${key}(?:;[^:]+)?:(.+)$`, 'm');
-  const m = block.match(re); return m ? m[1].trim() : undefined;
-}
-
-function normalizeDate(val: string): string | null {
-  const clean = val.replace(/T.+$/, '').replace(/-/g, '');
-  if (clean.length !== 8) return null;
-  return `${clean.slice(0,4)}-${clean.slice(4,6)}-${clean.slice(6,8)}`;
-}

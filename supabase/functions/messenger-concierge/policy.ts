@@ -86,3 +86,13 @@ export function trimRepeatedInvite(reply: string, priorBotTexts: string[], quest
   if (paras.length > 1 && last.length < 90 && CLOSER_RE.test(last.trim())) paras.pop();
   return paras.join('\n\n').trim();
 }
+
+/** D-227: the host's handoff card names a spent model budget - the one draft failure the host can fix in a
+ *  minute. OpenRouter answers 402 (no credit) or 429 (limit reached); anything else gets no note.
+ *  ponytail: if the Gemini fallback is open it throws last and hides the OpenRouter cause; that is the
+ *  first failure only, since an empty Gemini prepay trips its breaker for six hours. */
+export function draftFailureNote(err: unknown): string {
+  return /openrouter_(402|429)\b/.test(String(err))
+    ? 'The model budget for today is used up; raise the key limit at openrouter.ai/settings/keys.'
+    : '';
+}

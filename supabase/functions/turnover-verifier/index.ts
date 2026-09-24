@@ -26,7 +26,7 @@
 //   code can hit the same bug.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
-import { escalationStep } from './escalation.ts';
+import { escalationStep, onlyMissingReport } from './escalation.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { turnoverWindow, addDays } from './manila-dates.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
@@ -188,6 +188,17 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
 
       if (dryRun) {
         results.yesterday_would_alert = true;
+      } else if (!existingRow?.alert_24h_sent_at && onlyMissingReport(result1.issues)) {
+        // SPEC-29 (D-232): missed-cleaning-alert announces a missing report in OPS; Finance hears only
+        // about a turnover with another problem. Stamped anyway, so pass 2 reads the row as handled.
+        if (propertyId) {
+          await supabase
+            .from('turnover_verification')
+            .update({ alert_24h_sent_at: new Date().toISOString() })
+            .eq('property_id', propertyId)
+            .eq('checkout_date', d1);
+        }
+        results.yesterday_missing_only = true;
       } else if (!existingRow?.alert_24h_sent_at) {
         // no_session_found is dropped from the bullet list below: the
         // no-session branch of sessionLine already says it, in plain
@@ -277,8 +288,7 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
 
         if (step === 'task') {
           // 2026-09-24: a missing report alone is missed-cleaning-alert's task (same checkout); a second task was noise.
-          const onlyMissing = (tvRow.issues ?? []).every((i: string) => i === 'no_session_found');
-          if (!dryRun && !onlyMissing) {
+          if (!dryRun && !onlyMissingReport(tvRow.issues)) {
             const { error: taskErr } = await supabase.rpc('system_task_open_v1', {
               p_property_id: propertyId,
               p_source_kind: 'turnover_verification',
@@ -291,6 +301,14 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
             if (taskErr) throw new Error('system_task_open_v1: ' + taskErr.message);
           }
           tasked.push(d);
+          continue;
+        }
+
+        // SPEC-29 (D-232): no OPS escalation for a missing report alone; missed-cleaning-alert sends day 1 and
+        // day 3. Stamped so tomorrow's step is 'task', which is skipped for the same reason.
+        if (onlyMissingReport(tvRow.issues)) {
+          if (!dryRun) await supabase.from('turnover_verification')
+            .update({ alert_36h_sent_at: new Date().toISOString() }).eq('id', tvRow.id);
           continue;
         }
 

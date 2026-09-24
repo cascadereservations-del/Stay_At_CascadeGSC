@@ -10,7 +10,7 @@
 // Deploy with verify_jwt=false: Meta cannot send a Supabase JWT.
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
+import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
@@ -450,7 +450,7 @@ async function pendingBlock(db: Db, psid: string): Promise<string> {
   return `\n\nPENDING WITH THE HOST (already passed along; the host will answer these personally):\n${lines.join('\n')}\nKeep answering everything else normally. If the guest asks about a pending item again, say warmly that the host is reviewing it and will reply personally - do not answer it yourself and do not promise an outcome.`;
 }
 
-async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string): Promise<void> {
+async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note = ''): Promise<void> {
   const chat = env('TELEGRAM_CHAT_ID'); if (!chat) return;
   // A repeat of the SAME ask within 24 h nudges nobody twice. It used to be one open card per
   // guest per risk with no age limit: two stale policy cards from the day before silently
@@ -477,6 +477,7 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
     `Guest: ${thread.guest_name ?? thread.psid}`,
     `> ${text.slice(0, 400)}`,
     ...(woLine ? [woLine] : []),
+    ...(note ? [`⚠️ ${note}`] : []), // D-227: why the bot stepped aside, when it is something the host can fix
     '',
     ...options.map((o, i) => `Option ${i + 1}:\n${o}\n`),
     `Tap an option to send it to the guest, or reply to this message to write your own. #CH-${short}`,
@@ -605,7 +606,7 @@ type Effects = {
   send(psid: string, text: string): Promise<void>;
   qr(psid: string, flow: Flow | null, fallbackUrl: string): Promise<void>;
   ops(text: string): Promise<void>;
-  handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string): Promise<void>;
+  handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string): Promise<void>;
   submit(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }>;
   receipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }>;
   name(psid: string): Promise<string | null>;
@@ -699,6 +700,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
   let risk: RiskCode = text ? g.risk : 'uncertain';
   let handoff = g.handoff || !text;   // the bot steps aside: handoff line to the guest, 24 h hold
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
+  let draftNote = '';                 // D-227: a spent model budget, named on the host's card
   let reply = '';
 
   // Book flow: runs before every other branch. A receipt image on a thread that is waiting for one
@@ -918,7 +920,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       if (out.uncertain) { flagOnly = true; risk = 'uncertain'; }
     } catch (e) {
       console.error('draft_failed', String(e).slice(0, 400));
-      handoff = true; risk = 'uncertain'; reply = HANDOFF.uncertain;
+      handoff = true; risk = 'uncertain'; reply = HANDOFF.uncertain; draftNote = draftFailureNote(e);
     }
   }
 
@@ -952,7 +954,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // only when a human actually replies from the inbox (echo) - or on a safety report.
       if (risk === 'safety') thread.human_until = new Date(now.getTime() + HUMAN_HOLD_MS).toISOString();
       if (mode === 'auto') {
-        if (text) await fx.handoff(db, thread, text, risk, link);
+        if (text) await fx.handoff(db, thread, text, risk, link, draftNote);
         else await fx.ops(withHeader('guest', `handoff · ${risk}`, `🛎 Concierge handoff (${risk})\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`));
       }
     } else if (flagOnly && mode === 'auto') {

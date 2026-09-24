@@ -9,3 +9,11 @@ export function escalationStep(reportNowOnFile: boolean, alreadyEscalated: boole
   if (reportNowOnFile) return 'resolve';
   return alreadyEscalated ? 'task' : 'escalate';
 }
+
+/** D-232 (SPEC-29): a turnover whose ONLY issue is the missing report belongs to missed-cleaning-alert (OPS on
+ *  day 1 and day 3, then a task). This function then sends no Finance T+24h card, no OPS escalation and no
+ *  task; it still stamps the row so both passes read it as handled. No issues at all is not "missing only". */
+export function onlyMissingReport(issues: readonly string[] | null | undefined): boolean {
+  const xs = issues ?? [];
+  return xs.length > 0 && xs.every((i) => i === 'no_session_found');
+}

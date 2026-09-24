@@ -87,3 +87,11 @@ Deno.test('D-222 P0: a failed settings read never silences the bot (live 2026-09
   assertEquals(modeFrom(null), 'suggest');                                        // read failed: guest gets the holding line, host the draft
   assertEquals(modeFrom([]), 'suggest');                                          // row missing reads as a failure too
 });
+
+import { draftFailureNote } from './policy.ts';
+Deno.test('D-227: the handoff card names a spent model budget, and nothing else', () => {
+  assertEquals(draftFailureNote(new Error('openrouter_402: {"error":"Insufficient credits"}')).startsWith('The model budget for today is used up'), true);
+  assertEquals(draftFailureNote(new Error('openrouter_429: key limit exceeded')).includes('openrouter.ai/settings/keys'), true);
+  assertEquals(draftFailureNote(new Error('openrouter_500: upstream')), '');
+  assertEquals(draftFailureNote(new Error('reply truncated at length')), '');
+});
