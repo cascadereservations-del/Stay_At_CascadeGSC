@@ -143,8 +143,14 @@ export function ensureGreeting(reply: string, name: string | null, lang: L3, int
 export function withIntro(reply: string, lang: L3): string {
   if (/\bCassy\b/.test(reply)) return reply;
   const intro = CASSY_INTRO[lang];
-  const m = reply.match(/^([^.!?\n]*[.!?])\s*/);
-  return m ? reply.replace(m[0], `${m[1]} ${intro}`) : `${intro.trimEnd()}\n\n${reply.trimStart()}`;
+  const m = reply.match(/^([^.!?\n]*[.!?])(\s*)/);
+  if (!m) return `${intro.trimEnd()}\n\n${reply.trimStart()}`;
+  const rest = reply.slice(m[0].length);
+  if (!rest) return `${m[1]} ${intro.trimEnd()}`;
+  // Keep a paragraph break that was there (it used to be swallowed); a one-paragraph reply gets one after the intro
+  // (golden run 2026-09-24: "one block of text").
+  const sep = /\n/.test(m[2]) ? m[2] : /\n\s*\n/.test(reply) ? ' ' : '\n\n';
+  return `${m[1]} ${intro.trimEnd()}${sep}${rest}`;
 }
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {

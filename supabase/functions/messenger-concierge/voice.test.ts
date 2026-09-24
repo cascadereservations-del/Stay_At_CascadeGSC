@@ -360,7 +360,7 @@ Deno.test('SPEC-01: nothing is introduced when the guest has already met her', (
 Deno.test('SPEC-01: withIntro guarantees the sentence the model may have dropped', () => {
   const plain = 'Hi Ben, thank you for reaching out to Cascade Hideaway. Oct 3 to 4 is available.';
   const out = withIntro(plain, 'en');
-  assertEquals(out.startsWith('Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en), true);
+  assertEquals(out.startsWith('Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en.trimEnd() + '\n\n'), true); // one paragraph -> the answer gets its own (2026-09-24)
   assertEquals(out.endsWith('Oct 3 to 4 is available.'), true);                 // inserted, nothing lost
   assertEquals(withIntro(out, 'en'), out);                                      // never twice
   assertEquals(withIntro('Ben, I am Cassy and yes it is open.', 'en'), 'Ben, I am Cassy and yes it is open.');
@@ -420,7 +420,7 @@ Deno.test('SPEC-13: the nudge stays occasional, not chatty', () => {
 Deno.test('SPEC-21: the intro lands on a follow-up-shaped reply too, once, after the first sentence', () => {
   const followUp = 'Ben, yes po, Oct 3 to 4 is open. We can hold it for you.';
   const out = withIntro(followUp, 'en');
-  assertEquals(out.startsWith('Ben, yes po, Oct 3 to 4 is open. ' + CASSY_INTRO.en), true);
+  assertEquals(out.startsWith('Ben, yes po, Oct 3 to 4 is open. ' + CASSY_INTRO.en.trimEnd() + '\n\n'), true);
   assertEquals(out.endsWith('We can hold it for you.'), true);
   assertEquals(withIntro(out, 'en'), out);
   assertEquals(out.includes('thank you for reaching out'), false);
@@ -464,4 +464,12 @@ Deno.test('dropSiteInvite keeps the chat half when it is the only chat route, an
   assertEquals(dropSiteInvite('Yes, there is parking. We can arrange everything right here in the chat, or you may see the home on our site.'), 'Yes, there is parking. We can arrange everything right here in the chat.');
   assertEquals(dropSiteInvite('See everything on our site.'), 'See everything on our site.');
   assertEquals(dropSiteInvite('Parking is free.'), 'Parking is free.');
+});
+
+Deno.test('golden run 2026-09-24: a one-paragraph first reply gets its answer on its own paragraph after the intro', () => {
+  const one = 'Hi Ben, thank you for reaching out to Cascade Hideaway. Sep 28 to Oct 2 is already reserved. The nearest open dates are Oct 3 to 7.';
+  const out = withIntro(one, 'en');
+  assertEquals(out, 'Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en.trimEnd() + '\n\nSep 28 to Oct 2 is already reserved. The nearest open dates are Oct 3 to 7.');
+  const two = 'Hi Ben, thank you for reaching out.\n\nYes, we have Wi-Fi.';
+  assertEquals(withIntro(two, 'en'), 'Hi Ben, thank you for reaching out. ' + CASSY_INTRO.en.trimEnd() + '\n\nYes, we have Wi-Fi.'); // the break is kept, not swallowed
 });

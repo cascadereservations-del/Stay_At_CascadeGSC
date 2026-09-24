@@ -908,7 +908,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // destroy the labelled 🏡 line. The guaranteed solo site link goes when the block carries its own.
       if (look) {
         if (look.includes(SITE_URL)) reply = dropSiteInvite(dropSoloLink(reply, SITE_URL)); // golden run 2026-09-24: one site invitation, the block's
-        reply = appendLook(reply, look);
+        reply = addChatRoute(appendLook(reply, look), SITE_URL, l3); // the invitation keeps both routes when the reply had none (golden fu-ok-salamat-tl)
         if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2); // the block's own "po" was the third (golden run 2026-09-24, R6)
       } // golden run: the nudge and the chat route each carried a "po" of their own
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
