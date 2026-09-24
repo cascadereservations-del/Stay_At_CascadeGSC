@@ -4,7 +4,7 @@
 import { FACTS, VOICE, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
 import { detectLang } from '../messenger-concierge/booking.ts';
-import { thinPo } from '../messenger-concierge/voice.ts';
+import { lintReply, thinPo } from '../messenger-concierge/voice.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts';
 import { visionExtractText, parseModelJson, hasVisionKey } from '../_shared/cascade-core/vision.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
@@ -47,6 +47,7 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   const q = `${datesHint}${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
   const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: 500, timeoutMs: 30_000 });
   const reply = String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n');
+  const lint = lintReply(reply, guestText); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_draft', lint })); // measured, as the concierge is (2026-09-24)
   const lines = [`✍️ Draft reply${risk !== 'routine' ? ` · ${risk.replace('_', ' ')}` : ''}${guestName ? ` · ${guestName}` : ''}`, '', reply, ''];
   if (FLAG[risk]) lines.push(`⚠️ This reads as ${FLAG[risk]}.`);
   if (datesAsked && /\b(available|avail|open|free|vacant|bakante)\b/i.test(reply) && !/\b(check|confirm)\b/i.test(reply)) lines.push('⚠️ The draft claims availability — check the calendar before sending.');
@@ -67,5 +68,6 @@ export async function reviseHostMessage(_db: any, template: string, context: str
   const q = `${context ? `Card context:\n${context.slice(0, 800)}\n\n` : ''}Message to revise:\n\"\"\"${template.slice(0, 1500)}\"\"\"`;
   const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy revise', temperature: 0.5, maxTokens: 400, timeoutMs: 30_000 });
   const reply = thinPo(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'), lang === 'bis' ? 0 : lang === 'tl' ? 2 : 1);
+  const lint = lintReply(reply); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_revise', lint }));
   return ['✍️ Revised draft', '', reply, '', 'Do: copy and send from the Page or the app. Nothing was sent.', `📨 ${reply}`].join('\n');
 }

@@ -436,6 +436,7 @@ async function suggestOptions(thread: Thread, text: string, availability: string
   try {
     const out = await draft(thread, ask, availability, 'lite', true); // compact: 9.6k -> ~5.8k input tokens (llm_usage, 2026-09-13)
     const parts = out.reply.split(/\n\s*---\s*\n/).map((s) => s.trim()).filter(Boolean);
+    for (const o of parts.slice(0, 2)) { const lint = lintReply(o, text); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'host_option', psid: thread.psid, lint })); } // 2026-09-24
     return parts.slice(0, 2);
   } catch (e) { console.error('suggest_options_failed', String(e).slice(0, 200)); return []; }
 }
