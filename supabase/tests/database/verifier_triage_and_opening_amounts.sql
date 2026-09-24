@@ -55,9 +55,9 @@ select is((select e->'detail'->>'label' from run44 where e->>'key' = 'V10:checko
 select ok(not exists (select 1 from run44 where e->'detail' ? 'ran_at'),
   'detail carries no timestamp that moves on every refresh');
 
--- checkouts_cleaned: red inside 72 hours, yellow outside ------------------------
-select is((select e->>'severity' from run44 where e->>'key' = 'V10:checkouts_cleaned'), 'red',
-  'a checkout two days ago with no cleaning is red');
+-- checkouts_cleaned: yellow inside and outside 72 hours since release verifier_v7_20260925 (D-232) --
+select is((select e->>'severity' from run44 where e->>'key' = 'V10:checkouts_cleaned'), 'yellow',
+  'a checkout two days ago with no cleaning is yellow: missed-cleaning-alert owns it (D-232)');
 update public.admin_health_check_runs
    set detail = '[{"code": "HMSYNTH0001", "guest": "Synthetic Guest", "checkout": "2026-09-30"}]'::jsonb
  where property_id = 'e1000000-0000-4000-8000-000000000044' and check_key = 'checkouts_cleaned';
