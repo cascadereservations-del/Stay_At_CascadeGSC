@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "verifier_ack_dashboard_20260925",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "9cb4492475a0d6da14eebb1cb7d0f074dc9da8c7"
+  },
+  "migrations": [
+    "20260925020000_verifier_ack_dashboard.sql"
+  ],
+  "migration_sha256": {
+    "20260925020000_verifier_ack_dashboard.sql": "f2aac1520de3ace9ebfaf2d28695c0f6e99ab85d6219e760a072cb16671234a9"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260924T145053Z",
+    "verified_at": "2026-09-24T14:50:53Z",
+    "production_rule": "Two nullable columns are added to verifier_findings, one function is added (ack_verifier_finding_v1, owner/admin) and one is replaced (telegram_ack_verifier_finding_v1, body cut from its applied migration after asserting the live md5 df569803..., one exact replacement of its update). apply_verifier_run_v1 is untouched (md5 5c02101b..., B126). No row is written by the release. The backup is taken as the LAST act before the apply (D-210)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_two_audit_columns_exist",
+      "query": "select count(*) = 2 from information_schema.columns where table_schema = 'public' and table_name = 'verifier_findings' and column_name in ('acknowledged_at', 'acknowledged_by')",
+      "expect": true
+    },
+    {
+      "name": "the_dashboard_ack_body_is_the_reviewed_body",
+      "query": "select md5(p.prosrc) = 'ab4a1f471bd403334600db15da0fb6c6' from pg_proc p where p.oid = 'public.ack_verifier_finding_v1(text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "the_telegram_ack_body_is_the_reviewed_body",
+      "query": "select md5(p.prosrc) = '1a25ab60f9f354eed719d77b8fef5736' from pg_proc p where p.oid = 'public.telegram_ack_verifier_finding_v1(bigint, text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "apply_verifier_run_v1_is_untouched",
+      "query": "select md5(p.prosrc) = '5c02101b0c2bd109389ce659702b2270' from pg_proc p where p.oid = 'public.apply_verifier_run_v1(text, jsonb, timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "grants_and_definer",
+      "query": "select has_function_privilege('authenticated', 'public.ack_verifier_finding_v1(text)', 'EXECUTE') and not has_function_privilege('anon', 'public.ack_verifier_finding_v1(text)', 'EXECUTE') and (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.ack_verifier_finding_v1(text)'::regprocedure) and has_function_privilege('service_role', 'public.telegram_ack_verifier_finding_v1(bigint, text)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.telegram_ack_verifier_finding_v1(bigint, text)', 'EXECUTE') and not has_function_privilege('anon', 'public.telegram_ack_verifier_finding_v1(bigint, text)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "the_stranger_telegram_tap_still_answers",
+      "query": "select public.telegram_ack_verifier_finding_v1(1, 'no-such-key')->>'reason' = 'unmapped_telegram_user'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. The rollback keeps the two columns, so the published dashboard keeps reading.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260925_verifier_ack_dashboard.sql with run-sql-on-host.sh. It drops ack_verifier_finding_v1, restores telegram_ack_verifier_finding_v1 (asserts md5 df569803...) and keeps the two columns."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "dashboard_publish_after_apply",
+      "required_state": "admin-dashboard 473366c (next/) reads acknowledged_at/acknowledged_by, so it is pushed after this apply; before it, its findings section would show the column error and nothing else."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-24 ~14:48Z on a disposable restore of production backup cascade-supabase-20260924T144427Z (taken after verifier_v7 was applied; prefix cascade-migration-rehearsal-a5620f7cc745, 0 leftovers). 102 public tables and 124 ledger rows before, 102 after; migration 1 of 1; forward checks 6/6; pgTAP verifier_ack_dashboard.sql 16/16, verifier_v7_dates_mismatch.sql 31/31, verifier_triage_and_opening_amounts.sql 22/22, system_verifier_phase1.sql 30/32 - the two failures are its service_role-only grant assertions on run_system_verifier_v1 and apply_verifier_run_v1, which a --no-acl restore cannot carry and which read true on production at 14:49Z. The first rehearsal (da1bcaa6b3ac) failed 2 of the new suite: its Telegram fixture carried check_id V10 and the suite's own daily apply closed it as gone; fixture moved outside the scope arrays.",
+    "evidence": "system-verifier and telegram-expense call telegram_ack_verifier_finding_v1 with the same arguments and read the same keys (ok, reason, key, by). pgTAP verifier_ack_dashboard.sql (16 assertions)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "an md5 check fails - that is a mistyped body, not a flaky assertion",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suites green on this commit"
+  ]
+}
