@@ -300,6 +300,8 @@ Deno.test('ensureGreeting: first contact always opens with the approved greeting
   assertEquals(ensureGreeting(thanked, 'Ben', 'en'), thanked);                                   // already thanked: untouched
   assertEquals(ensureGreeting('Hi Ben! Yes, Nov 17 to 19 is open.', 'Ben', 'en'), 'Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, Nov 17 to 19 is open.');
   assertEquals(ensureGreeting('Yes, Nov 17 to 19 is open.', 'Ben', 'en'), 'Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, Nov 17 to 19 is open.');
+  assertEquals(ensureGreeting("Hi there! I'm Cassy.", 'Ben', 'en'), "Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy."); // golden run 2026-09-24: no stray "there!"
+  assertEquals(ensureGreeting("Hello there, I'm Cassy.", null, 'en'), "Hello, thank you for reaching out to Cascade Hideaway. I'm Cassy.");
   assertEquals(ensureGreeting('Hello po! Available po ang Nov 17.', null, 'tl'), 'Hello po! Salamat sa pag-message sa Cascade Hideaway. Available po ang Nov 17.');
   assertEquals(ensureGreeting('Maayong buntag! Available ang Nov 17.', 'Ben', 'bis'), 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Nov 17.');
   assertEquals(ensureGreeting('', 'Ben', 'en'), '');

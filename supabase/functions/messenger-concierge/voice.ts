@@ -130,7 +130,8 @@ const THANKED_RE = /thank you for (reaching out|messaging|checking|asking)|welco
 export function ensureGreeting(reply: string, name: string | null, lang: L3, intro = false): string {
   if (!reply.trim() || THANKED_RE.test(reply)) return reply;
   const first = name ? name.split(' ')[0] : '';
-  const who = first ? `(?:${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})?` : '';
+  // "there" too: "Hi there! I'm Cassy" left a stray "there!" after the greeting (golden run 2026-09-24).
+  const who = `(?:${first ? first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '|' : ''}there)?`;
   const salute = new RegExp(`^\\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|kumusta|kamusta|maayong \\p{L}+)(?: po)?[ ,]*${who}[,.!]?\\s*`, 'iu');
   const body = reply.replace(salute, '').trimStart();
   return greeting(name, lang, intro) + (body || reply.trimStart());
