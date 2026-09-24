@@ -430,8 +430,8 @@ begin
   end loop;
 
   -- Auto-resolution 3 (D-235): the Airbnb calendar is the primary record. A confirmed reservation
-  -- whose dates disagree with its confirmed calendar row takes the calendar's dates and nights.
-  -- Money is never touched: the payout e-mail reconciles it, and payout_totals_agree judges it.
+  -- whose dates disagree with its confirmed calendar row takes the calendar's dates (nights is generated
+  -- from them). Money is never touched: the payout e-mail reconciles it, and payout_totals_agree judges it.
   for r in
     select f.key, (f.detail->>'reservation')::uuid as res_id,
            (f.detail->>'calendar_from')::date as cal_from, (f.detail->>'calendar_to')::date as cal_to,
@@ -442,7 +442,7 @@ begin
        and (f.detail->>'auto_safe')::boolean is true
   loop
     update public.airbnb_reservations
-       set checkin_date = r.cal_from, checkout_date = r.cal_to, nights = r.cal_to - r.cal_from
+       set checkin_date = r.cal_from, checkout_date = r.cal_to
      where id = r.res_id and status = 'confirmed';
     if found then
       update public.verifier_findings

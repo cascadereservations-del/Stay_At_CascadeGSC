@@ -10,12 +10,12 @@ insert into public.properties(id, name, is_active) values ('e1000000-0000-4000-8
 delete from public.verifier_findings where check_id in ('V7', 'V7b', 'V13');
 
 -- Reservations (the e-mail side) and calendar rows (the Airbnb side). "Now" is 10 Oct 10:00 Manila.
-insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_name, checkin_date, checkout_date, nights, payout_amount)
+insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_name, checkin_date, checkout_date, payout_amount)
 values
-  ('e7000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH701', 'confirmed', 'Synthetic One',   '2026-10-12', '2026-10-13', 1, 1929),
-  ('e7000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH702', 'completed', 'Synthetic Two',   '2026-10-08', '2026-10-09', 1, null),
-  ('e7000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH703', 'cancelled', 'Synthetic Three', '2026-10-20', '2026-10-21', 1, null),
-  ('e7000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH706', 'confirmed', 'Synthetic Six',   '2026-10-15', '2026-10-16', 1, null);
+  ('e7000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH701', 'confirmed', 'Synthetic One',   '2026-10-12', '2026-10-13', 1929),
+  ('e7000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH702', 'completed', 'Synthetic Two',   '2026-10-08', '2026-10-09', null),
+  ('e7000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH703', 'cancelled', 'Synthetic Three', '2026-10-20', '2026-10-21', null),
+  ('e7000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH706', 'confirmed', 'Synthetic Six',   '2026-10-15', '2026-10-16', null);
 
 insert into public.calendar_events(id, property_id, uid, source, status, checkin_date, checkout_date, linked_reservation_id, raw_description, created_at)
 values
@@ -87,7 +87,7 @@ select set_config('cascade.v7_apply1',
 
 select is((select checkin_date::text || ' ' || checkout_date::text || ' ' || nights::text
              from public.airbnb_reservations where id = 'e7000000-0000-4000-8000-000000000001'),
-  '2026-10-12 2026-10-14 2', 'the reservation takes the calendar''s dates and nights');
+  '2026-10-12 2026-10-14 2', 'the reservation takes the calendar''s dates, and its generated nights follow');
 select is((select payout_amount from public.airbnb_reservations where id = 'e7000000-0000-4000-8000-000000000001'), 1929::numeric,
   'money is never rewritten from the calendar');
 select is((select status || ' ' || resolved_by from public.verifier_findings where key = 'V7:HMSYNTH701'), 'resolved auto',
@@ -106,8 +106,8 @@ select is((select checkout_date from public.airbnb_reservations where id = 'e700
 -- V7b task opens once, and closes when the link appears ------------------------------------
 select is((select count(*) from public.follow_up_tasks where idempotency_key = 'system:airbnb_unmatched:synth-v7-4@airbnb.com' and status = 'open'), 1::bigint,
   'V7b opens one Follow-ups task');
-insert into public.airbnb_reservations(id, property_id, confirmation_code, status, checkin_date, checkout_date, nights)
-values ('e7000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH704', 'confirmed', '2026-10-25', '2026-10-26', 1);
+insert into public.airbnb_reservations(id, property_id, confirmation_code, status, checkin_date, checkout_date)
+values ('e7000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000049', 'HMSYNTH704', 'confirmed', '2026-10-25', '2026-10-26');
 update public.calendar_events set linked_reservation_id = 'e7000000-0000-4000-8000-000000000004', recon_status = 'matched'
  where id = 'e8000000-0000-4000-8000-000000000004';
 select public.apply_verifier_run_v1('hourly',
