@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "release_id": "security_grants_20260925",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "d3273b4ea2c6465c54440e85eab801dc56d1e010"
+  },
+  "migrations": [
+    "20260925030000_security_grants.sql"
+  ],
+  "migration_sha256": {
+    "20260925030000_security_grants.sql": "cf4d33f60fe042c760056203002d2fc244246259d32dbbe33f56f5a27fe9655b"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260924T151801Z",
+    "verified_at": "2026-09-24T15:18:01Z",
+    "production_rule": "Grants and three function settings only: EXECUTE revoked from anon (and PUBLIC where it held one) on ten functions, from authenticated on the two meter-vision reads; search_path pinned on apply_inventory_purchase, match_inventory_item (public) and try_uuid (''); ALL revoked from anon and authenticated on four RLS-locked tables. Explicit grants to service_role (and authenticated for the checklist and helper functions) restate what production already holds. No body, table, row or policy changes. The backup is taken as the LAST act before the apply (D-210)."
+  },
+  "forward_verification": [
+    {
+      "name": "anon_is_off_the_seven_definer_functions",
+      "query": "select not has_function_privilege('anon','public.get_cleanable_bookings(date, uuid, integer, integer)','EXECUTE') and not has_function_privilege('anon','public.get_meter_photo_followups(uuid, integer)','EXECUTE') and not has_function_privilege('anon','public.can_skip_meter_photos(uuid)','EXECUTE') and not has_function_privilege('anon','public.get_meter_photo_objects(text, timestamptz, integer)','EXECUTE') and not has_function_privilege('anon','public.get_meter_sessions_pending_vision(uuid, integer, integer)','EXECUTE') and not has_function_privilege('anon','public.get_welcome_info(date, uuid)','EXECUTE') and not has_function_privilege('anon','public.get_usage_medians()','EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "signed_in_staff_keep_the_checklist_functions",
+      "query": "select has_function_privilege('authenticated','public.get_cleanable_bookings(date, uuid, integer, integer)','EXECUTE') and has_function_privilege('authenticated','public.get_meter_photo_followups(uuid, integer)','EXECUTE') and has_function_privilege('authenticated','public.can_skip_meter_photos(uuid)','EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "meter_vision_reads_are_service_role_only",
+      "query": "select not has_function_privilege('authenticated','public.get_meter_photo_objects(text, timestamptz, integer)','EXECUTE') and not has_function_privilege('authenticated','public.get_meter_sessions_pending_vision(uuid, integer, integer)','EXECUTE') and has_function_privilege('service_role','public.get_meter_photo_objects(text, timestamptz, integer)','EXECUTE') and has_function_privilege('service_role','public.get_meter_sessions_pending_vision(uuid, integer, integer)','EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "telegram_expense_helpers_off_anon_on_service_role",
+      "query": "select not has_function_privilege('anon','public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid)','EXECUTE') and not has_function_privilege('anon','public.match_inventory_item(text, integer, real, boolean)','EXECUTE') and not has_function_privilege('anon','public.try_uuid(text)','EXECUTE') and has_function_privilege('service_role','public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid)','EXECUTE') and has_function_privilege('service_role','public.match_inventory_item(text, integer, real, boolean)','EXECUTE') and has_function_privilege('service_role','public.try_uuid(text)','EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "search_path_pinned_on_three",
+      "query": "select count(*) = 3 from pg_proc where pronamespace = 'public'::regnamespace and ((proname in ('apply_inventory_purchase','match_inventory_item') and proconfig = array['search_path=public']) or (proname = 'try_uuid' and proconfig = array['search_path=\"\"']))",
+      "expect": true
+    },
+    {
+      "name": "the_pinned_functions_still_work",
+      "query": "select public.try_uuid('not-a-uuid') is null and (select count(*) > 0 from public.match_inventory_item('Liquid Hand Soap', 3, 0.3, false))",
+      "expect": true
+    },
+    {
+      "name": "deliberate_anon_functions_untouched",
+      "query": "select has_function_privilege('anon','public.verify_booking(date, text, uuid)','EXECUTE') and has_function_privilege('anon','public.verify_admin_pin(text, text)','EXECUTE') and has_function_privilege('anon','public.get_checklist_staff_names()','EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "dead_table_grants_gone",
+      "query": "select not has_table_privilege('anon','public.app_secrets','SELECT') and not has_table_privilege('authenticated','public.app_secrets','SELECT') and not has_table_privilege('anon','public.admin_auth_attempts','INSERT') and not has_table_privilege('authenticated','public.telegram_pending','UPDATE') and not has_table_privilege('anon','public.telegram_processed_updates','DELETE') and has_table_privilege('service_role','public.telegram_pending','SELECT')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260925_security_grants.sql with run-sql-on-host.sh: re-grants exactly what was read on 2026-09-24 and resets the three search_path settings."
+      }
+    ]
+  },
+  "feature_flags": [],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-24 ~15:15Z on a disposable restore of production backup cascade-supabase-20260924T145053Z (prefix cascade-migration-rehearsal-2302de426130, 0 leftovers). 102 tables and 124 ledger rows before, 102 after; migration 1 of 1; forward checks 8/8; pgTAP security_grants.sql 12/12 (match_inventory_item found 3 rows for 'Liquid Hand Soap' through the pinned search_path, on real data); meter_followup_resolution.sql 17/18 - its 'anon may not' on resolve_meter_followup_v1 (not touched here) is the --no-acl artifact and reads true on production at 15:16Z. The FIRST rehearsal (cf720956a2bc) failed 4 grant checks: the restore starts from default privileges, where a bare revoke from PUBLIC also stripped service_role; the migration now revokes PUBLIC/anon and grants the keeping roles explicitly, so it reaches the same end state from either start.",
+    "evidence": "Every caller was grepped across the repos: the checklist calls the three checklist functions with the signed-in cleaner's JWT (authenticated keeps EXECUTE); verify-meter-photo and telegram-expense run as service_role (keeps EXECUTE); get_welcome_info and get_usage_medians have no live caller (get_usage_medians appears only in .research/CH_Inventory, an undeployed copy). The forward checks, not the rehearsal, prove the grants: backups are --no-acl, so a restore starts from default privileges. pgTAP security_grants.sql (12)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suites on this commit"
+  ]
+}
