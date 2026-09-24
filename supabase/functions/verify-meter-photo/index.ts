@@ -185,13 +185,14 @@ async function readWithGemini(b64: string, mime: string, which: Which): Promise<
   // Keep the body. v1 threw `gemini_400` and discarded the reason, which made
   // the first real failure in production undiagnosable from the stored row.
   if (!res.ok) throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 400)}`);
+  const u = raw?.usageMetadata; if (u) console.log('llm_usage', JSON.stringify({ provider: 'gemini', model: GEMINI_MODEL, title: 'Cascade Meter', tier: 'vision', input: u.promptTokenCount, output: u.candidatesTokenCount })); // 2026-09-24: image cost was invisible
   return parseModelJson(raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '');
 }
 
 async function readWithOpenRouter(b64: string, mime: string, which: Which): Promise<VisionResult> {
   const res = await fetchRetry('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { ...JSON_HEADERS, Authorization: `Bearer ${OPENROUTER_KEY}` },
+    headers: { ...JSON_HEADERS, Authorization: `Bearer ${OPENROUTER_KEY}`, 'X-Title': 'Cascade Meter' },
     body: JSON.stringify({
       model: OPENROUTER_MODEL,
       temperature: 0,
@@ -208,6 +209,7 @@ async function readWithOpenRouter(b64: string, mime: string, which: Which): Prom
   });
   const raw = await res.json();
   if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 400)}`);
+  const u = raw?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'openrouter', model: raw?.model ?? OPENROUTER_MODEL, title: 'Cascade Meter', tier: 'vision', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
   return parseModelJson(raw?.choices?.[0]?.message?.content ?? '');
 }
 

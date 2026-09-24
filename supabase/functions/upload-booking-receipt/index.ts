@@ -111,7 +111,7 @@ async function produceEvidence(db: any, bookingId: string, nonce: string, bytes:
   const readable = /^image\/(jpeg|png|webp)$/i.test(mime) && hasVisionKey();
   if (readable) {
     try {
-      const j = parseModelJson<Partial<Read>>(await visionExtractText(PAYMENT_PROMPT, bytes, mime), {});
+      const j = parseModelJson<Partial<Read>>(await visionExtractText(PAYMENT_PROMPT, bytes, mime, 'Cascade Guest Receipt'), {});
       const amt = Number(j.amount);
       const ref = String(j.reference ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       read = { amount: Number.isFinite(amt) && amt > 0 ? amt : null, reference: ref.length >= 4 && ref.length <= 64 ? ref : null,

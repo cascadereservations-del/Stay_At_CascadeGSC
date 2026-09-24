@@ -20,7 +20,7 @@ const TRANSCRIBE_PROMPT = `This is a screenshot of a chat between a guest and Ca
 
 export async function transcribeChat(bytes: Uint8Array, mime: string): Promise<{ guest_name: string | null; guest_messages: string; our_last_message: string | null }> {
   if (!hasVisionKey()) throw new Error('no vision key');
-  return parseModelJson(await visionExtractText(TRANSCRIBE_PROMPT, bytes, mime), { guest_name: null, guest_messages: '', our_last_message: null });
+  return parseModelJson(await visionExtractText(TRANSCRIBE_PROMPT, bytes, mime, 'Cascade Guest Reader'), { guest_name: null, guest_messages: '', our_last_message: null });
 }
 
 const FLAG: Partial<Record<RiskCode, string>> = {

@@ -312,7 +312,7 @@ function buildAdvisoryPrompt(today:string):string{
   return `You are reading a Philippine electric-cooperative power-interruption advisory image (SOCOTECO II or NGCP) for General Santos City. Today is ${today}.\nReturn ONLY a JSON object, no markdown:\n{"is_advisory":boolean,"source":"SOCOTECO"|"NGCP"|null,"purpose":string,"occurrences":[{"date":"YYYY-MM-DD","start_time":"HH:MM:00"|null,"end_time":"HH:MM:00"|null,"duration_hours":number|null}],"affected":{"feeders":string[],"substations":string[],"areas":string[]},"confidence":number}\nRules:\n- is_advisory=false if the image is not a power-interruption advisory; set confidence below 0.3.\n- Ignore any schedule marked RESCHEDULED, struck-through, or cancelled. Return only the ACTIVE schedule.\n- Each distinct time window is its OWN occurrence (a morning AND an evening window on the same day = two occurrences).\n- feeders e.g. ["7-2"] or a range string ["14-1 to 14-4"]. substations e.g. ["Leon Llido"]. areas = barangay/subdivision names if listed instead of feeders.\n- Convert "8am" / "12:00NN" / "6:00 PM" to 24h HH:MM:00. duration_hours from the stated duration or end minus start.\n- purpose: short phrase, e.g. "metering equipment replacement at NGCP Gensan".`;
 }
 async function geminiExtractAdvisory(bytes:Uint8Array,mime:string):Promise<any>{
-  const txt=await visionExtractText(buildAdvisoryPrompt(toManilaDate()),bytes,mime);
+  const txt=await visionExtractText(buildAdvisoryPrompt(toManilaDate()),bytes,mime,'Cascade Ops Reader');
   return JSON.parse(txt.replace(/^```json\s*|\s*```$/g,'').trim());
 }
 function advisoryOccLines(occ:any[]):string[]{
@@ -659,7 +659,7 @@ function buildGeminiPrompt(categoryHint:string) {
 }
 function parseGeminiResponse(text:string,cat:string) { try{return JSON.parse(String(text).replace(/^```json\s*|\s*```$/g,'').trim());}catch{return{amount:null,currency:'PHP',date:null,vendor:null,category_hint:cat||'other',line_items:[],confidence:0};} }
 async function geminiExtract(bytes:Uint8Array,mime:string,cat='') {
-  const txt=await visionExtractText(buildGeminiPrompt(cat),bytes,mime);
+  const txt=await visionExtractText(buildGeminiPrompt(cat),bytes,mime,'Cascade Finance OCR');
   return parseGeminiResponse(txt,cat);
 }
 function categoryKeyboard(pre:number){const cats=[['🛒 Supplies','supplies'],['⚡ Utilities','utilities'],['🧹 Cleaning','cleaning'],['🔧 Maintenance','maintenance'],['🔨 Repairs','repairs'],['💼 Platform Fees','platform_fees'],['📌 Other','other']];const rows:any[][]=[];for(let i=0;i<cats.length;i+=2)rows.push(cats.slice(i,i+2).map(([l,s])=>({text:l,callback_data:`cat:${s}:${pre}`})));return{inline_keyboard:rows};}

@@ -94,7 +94,7 @@ function parseExtraction(textOut: string): any {
 }
 
 async function extractReceipt(b64: string, mime: string): Promise<{ parsed: any; raw: string }> {
-  const raw = await visionExtractText(EXTRACTION_PROMPT, b64, mime);
+  const raw = await visionExtractText(EXTRACTION_PROMPT, b64, mime, 'Cascade Finance OCR');
   return { parsed: parseExtraction(raw), raw };
 }
 

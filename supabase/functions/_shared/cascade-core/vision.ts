@@ -34,35 +34,37 @@ export async function visionFetch(url: string, init: RequestInit, tries = 3): Pr
 /** Send one image + prompt; returns the model's text (expected JSON). VISION_PROVIDER (default openrouter, D-222) is
  *  tried first; the other provider is the fallback when the first has no key or refuses - the order providers.ts uses
  *  for text. */
-export async function visionExtractText(prompt: string, image: Uint8Array | string, mime: string): Promise<string> {
+// 2026-09-24 (BRIEF-ai-quality-framework): image reads sent no X-Title and logged no llm_usage, so their cost was invisible.
+export async function visionExtractText(prompt: string, image: Uint8Array | string, mime: string, title = 'Cascade Reader'): Promise<string> {
   const b64 = typeof image === 'string' ? image : bytesToBase64(image);
   const orFirst = VISION_PROVIDER === 'openrouter';
   const [first, second] = orFirst ? [viaOpenRouter, viaGemini] : [viaGemini, viaOpenRouter];
   const [firstKey, secondKey] = orFirst ? [OPENROUTER_KEY, GEMINI_KEY] : [GEMINI_KEY, OPENROUTER_KEY];
-  if (!firstKey) return await second(prompt, b64, mime);
+  if (!firstKey) return await second(prompt, b64, mime, title);
   try {
-    return await first(prompt, b64, mime);
+    return await first(prompt, b64, mime, title);
   } catch (e) {
     if (!secondKey) throw e;
     console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) }));
-    return await second(prompt, b64, mime);
+    return await second(prompt, b64, mime, title);
   }
 }
 
-async function viaOpenRouter(prompt: string, b64: string, mime: string): Promise<string> {
+async function viaOpenRouter(prompt: string, b64: string, mime: string, title = 'Cascade Reader'): Promise<string> {
   if (!OPENROUTER_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
   const res = await visionFetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST', headers: { ...JSON_H, Authorization: `Bearer ${OPENROUTER_KEY}` },
+    method: 'POST', headers: { ...JSON_H, Authorization: `Bearer ${OPENROUTER_KEY}`, 'X-Title': title },
     body: JSON.stringify({ model: OPENROUTER_MODEL, temperature: 0, response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
     signal: AbortSignal.timeout(55_000),
   });
   const raw = await res.json();
   if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
+  const u = raw?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'openrouter', model: raw?.model ?? OPENROUTER_MODEL, title, tier: 'vision', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
   return raw?.choices?.[0]?.message?.content ?? '';
 }
 
-async function viaGemini(prompt: string, b64: string, mime: string): Promise<string> {
+async function viaGemini(prompt: string, b64: string, mime: string, title = 'Cascade Reader'): Promise<string> {
   if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
   const res = await visionFetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`, {
     method: 'POST', headers: JSON_H,
@@ -71,6 +73,7 @@ async function viaGemini(prompt: string, b64: string, mime: string): Promise<str
   });
   const raw = await res.json();
   if (!res.ok) throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
+  const u = raw?.usageMetadata; if (u) console.log('llm_usage', JSON.stringify({ provider: 'gemini', model: GEMINI_MODEL, title, tier: 'vision', input: u.promptTokenCount, output: u.candidatesTokenCount }));
   // deno-lint-ignore no-explicit-any
   return raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '';
 }
