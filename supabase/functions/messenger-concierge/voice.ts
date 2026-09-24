@@ -281,6 +281,40 @@ export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews:
   return `${sentence}\n\n${reviewsLine}`;
 }
 
+/** Golden run 2026-09-24 (5 of 9 failures): the look block offers the site, and the reply kept its own site invitation
+ *  ("...or you may see the home and live availability on our site.") - two invitations, over 700 characters. With the
+ *  block present the reply's site sentences go; a sentence that also carries the chat route keeps that half
+ *  ("We can arrange everything right here in the chat."). Link lines are left to dropSoloLink. Never returns ''. */
+const SITE_SENTENCE_RE = /\b(on|sa) (our|aming|among) (direct )?(site|website)\b|\bsite namin\b/i;
+export function dropSiteInvite(reply: string): string {
+  const out = reply.split(/\n\s*\n/).map((p) => {
+    if (/^(👉|https?:\/\/|🏡|⭐)/.test(p.trim())) return p;
+    return p.split('\n').map((line) => sentencesOf(line).map((s) => {
+      if (!SITE_SENTENCE_RE.test(s)) return s;
+      const chat = s.match(/^(.*?\b(?:chat|here|dito|diri)\b),?\s+(?:or|o)\s+[^.!?]*[.!?:]?\s*$/i);
+      if (!chat || SITE_SENTENCE_RE.test(chat[1]) || CHAT_MENTION_RE.test(p.replace(s, ''))) return ''; // the chat route is already said
+      return `${chat[1]}. `;
+    }).join('').trim()).filter(Boolean).join('\n');
+  }).map((p) => p.trim()).filter(Boolean).join('\n\n');
+  return out || reply;
+}
+
+/** The look block joins the chat-route paragraph as ONE invitation (both routes, protocol rule 4): its sentence ends in
+ *  ":" with the labelled 🏡 / ⭐ lines directly under it, and a short warm close stays last (golden run 2026-09-24:
+ *  the block as its own paragraphs made two invitations and five paragraphs). */
+export function appendLook(reply: string, look: string): string {
+  const [sentence, ...rest] = look.split(/\n\s*\n/);
+  const block = `${sentence.trim().replace(/[.\s]*$/, ':')}\n${rest.join('\n').trim()}`;
+  const paras = reply.trim().split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const last = paras[paras.length - 1] ?? '';
+  const close = paras.length > 1 && last.length < 120 && !/👉|https?:\/\//.test(last) && !CHAT_MENTION_RE.test(last) ? paras.pop()! : '';
+  const i = paras.length - 1;
+  if (i >= 0 && CHAT_MENTION_RE.test(paras[i]) && !paras[i].includes('://')) paras[i] = `${paras[i]} ${block}`;
+  else paras.push(block);
+  if (close) paras.push(close);
+  return paras.join('\n\n');
+}
+
 /** The look block carries its own labelled site link, so the solo 👉 link goes; the sentence that introduced it keeps
  *  its words but ends in a full stop instead of a colon pointing at nothing (live 2026-09-23: "...on our site:"). */
 export function dropSoloLink(reply: string, url: string): string {

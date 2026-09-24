@@ -113,7 +113,7 @@ export function scoreReply(c: Ctx): Score {
     else if (invites.length > 1) s.R4 = `${invites.length} invitation paragraphs`;
     else if (dangling) s.R4 = 'a sentence ends in ":" with nothing under it';
     else if (bare) s.R4 = 'a bare link with no sentence above it';
-    else if (linked && !/:\s*\n\s*(👉|https?:\/\/)/.test(linked)) s.R4 = 'the link is not directly under its sentence';
+    else if (linked && !/:\s*\n\s*(👉|https?:\/\/|🏡|⭐)/.test(linked)) s.R4 = 'the link is not directly under its sentence'; // SPEC-13's labelled lines count as under it
     else if (linked && !CHAT_RE.test(r)) s.R4 = 'the site is offered without the chat route';
   }
   // R5 never re-asks a held slot

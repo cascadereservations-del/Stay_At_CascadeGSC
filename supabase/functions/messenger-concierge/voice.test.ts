@@ -446,3 +446,22 @@ Deno.test('session 46: when the look block carries the site, the solo link goes 
   assertEquals(out.includes(lead.replace(/:$/, '.')), true, out);
   assertEquals(dropSoloLink('No link here.', SITE_URL), 'No link here.');
 });
+
+// ---- golden run 2026-09-24: the look block made a second invitation (5 of 9 failures) ----------------------------------
+import { appendLook, dropSiteInvite } from './voice.ts';
+import { scoreReply } from './golden-score.ts';
+Deno.test('golden run 2026-09-24: with the look block, the reply keeps one invitation, the chat route and the close', () => {
+  const pre = `Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, we do have Wi-Fi.\n\nThe home has fiber Wi-Fi, steady enough for video calls.\n\nIf you have dates in mind, share them here and we'll check the calendar for you. We can also arrange the booking right here in the chat, or you may see the home and live availability on our site:\n\n👉 ${SITE_URL}\n\nWe'd be glad to welcome you.`;
+  const out = appendLook(dropSiteInvite(dropSoloLink(pre, SITE_URL)), lookNudge('Hi, do you have wifi?', 'en', { site: false, reviews: false }));
+  assertEquals(out.split(SITE_URL).length - 1, 1, out);                      // the site once, on the labelled line
+  assertEquals(out.includes('share them here'), true, out);                    // the chat route stays
+  assertEquals(out.endsWith("We'd be glad to welcome you."), true, out);      // the close stays last
+  assertEquals(/:\n🏡 Amenities and photos: /.test(out), true, out);          // the lines sit directly under their sentence
+  const s = scoreReply({ guest: 'Hi, do you have wifi?', reply: out, prevReply: null, kind: 'model', lang: 'en', firstTurn: true, siteUrl: SITE_URL, name: 'Ben' });
+  assertEquals(s.R4, null, out); assertEquals(s.R10, null, out);
+});
+Deno.test('dropSiteInvite keeps the chat half when it is the only chat route, and never empties a reply', () => {
+  assertEquals(dropSiteInvite('Yes, there is parking. We can arrange everything right here in the chat, or you may see the home on our site.'), 'Yes, there is parking. We can arrange everything right here in the chat.');
+  assertEquals(dropSiteInvite('See everything on our site.'), 'See everything on our site.');
+  assertEquals(dropSiteInvite('Parking is free.'), 'Parking is free.');
+});
