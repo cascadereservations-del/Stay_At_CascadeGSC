@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260924T151801Z",
-    "verified_at": "2026-09-24T15:18:01Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260924T231441Z",
+    "verified_at": "2026-09-24T23:14:41Z",
     "production_rule": "Grants and three function settings only: EXECUTE revoked from anon (and PUBLIC where it held one) on ten functions, from authenticated on the two meter-vision reads; search_path pinned on apply_inventory_purchase, match_inventory_item (public) and try_uuid (''); ALL revoked from anon and authenticated on four RLS-locked tables. Explicit grants to service_role (and authenticated for the checklist and helper functions) restate what production already holds. No body, table, row or policy changes. The backup is taken as the LAST act before the apply (D-210)."
   },
   "forward_verification": [
@@ -71,7 +71,12 @@
       }
     ]
   },
-  "feature_flags": [],
+  "feature_flags": [
+    {
+      "name": "no_function_redeploy_needed",
+      "required_state": "Grants and search_path only. telegram-expense and verify-meter-photo run as service_role, which the release grants explicitly; the checklist calls the three checklist functions signed in, which keeps EXECUTE. No Edge Function or page changes."
+    }
+  ],
   "compatibility": {
     "mode": "additive",
     "old_reader": true,
