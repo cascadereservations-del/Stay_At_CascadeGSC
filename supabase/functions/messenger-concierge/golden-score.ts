@@ -99,7 +99,8 @@ export function scoreReply(c: Ctx): Score {
   }
   // R2 nothing banned (the midflow composite carries the approved card: its own lines were linted at build time)
   const banned = c.kind === 'midflow' ? [] : lint.filter((v) => R2_RULES.includes(v));
-  const extra = BANNED_EXTRA_RE.exec(r)?.[0];
+  // 2026-09-24: "...Cascade Hideaway. there! I'm Cassy" passed every rule - a greeting leftover after a sentence end.
+  const extra = BANNED_EXTRA_RE.exec(r)?.[0] ?? /[.!?]\s+there[!,.]/.exec(r)?.[0];
   if (banned.length || extra) s.R2 = [...banned, ...(extra ? [`"${extra}"`] : [])].join(', ');
   // R3 warmth present
   if (voiced && isCold(r)) s.R3 = 'substantive reply with no marker of care';

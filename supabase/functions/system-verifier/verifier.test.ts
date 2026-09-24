@@ -101,7 +101,7 @@ Deno.test('resolved findings are a footer, never a card of their own', () => {
   ];
   const cards = buildCards({ new: [], remind: [], resolved }, NOW, TODAY);
   assertEquals(cards.length, 1);
-  assertStringIncludes(cards[0].text, 'Nothing needs you. These closed themselves.');
+  assertStringIncludes(cards[0].text, 'These closed themselves; nothing to do for them.');
   assertStringIncludes(cards[0].text, 'Resolved: Calendar hold with no live booking behind it (closed itself); Guest handoff open over 12 hours');
 });
 

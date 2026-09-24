@@ -11,9 +11,9 @@ import { failures, heldFrom, RUBRIC, scoreReply } from './golden-score.ts';
 const arg = (k: string, d = '') => { const i = Deno.args.indexOf(k); return i >= 0 ? Deno.args[i + 1] ?? d : d; };
 const url = Deno.env.get('CASCADE_PROBE_URL') ?? '', secret = Deno.env.get('CASCADE_PROBE_SECRET') ?? '';
 if (!url || !secret) { console.error('Set CASCADE_PROBE_URL and CASCADE_PROBE_SECRET.'); Deno.exit(2); }
-const runs = Number(arg('--runs', '1')) /* D-222: one pass by default (~USD 6); pass --runs 3 only before a voice release (~USD 19) */, only = arg('--only'), pause = Number(arg('--pause', '1500')), outPath = arg('--out');
+const runs = Number(arg('--runs', '1')) /* one pass by default: 43 calls, USD 0.10 on 2.5-flash (measured 2026-09-24); --runs 3 before a voice release */, only = arg('--only'), pause = Number(arg('--pause', '1500')), outPath = arg('--out');
 const NAME = 'Ben';
-const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null, Deno.env.get('GOLDEN_OPEN_FROM') ? new Date(Deno.env.get('GOLDEN_OPEN_FROM') + 'T00:00:00Z') : null, Deno.env.get('GOLDEN_SOON') ?? null).filter((c) => !only || c.group === only || c.id === only);
+const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null, Deno.env.get('GOLDEN_OPEN_FROM') ? new Date(Deno.env.get('GOLDEN_OPEN_FROM') + 'T00:00:00Z') : null, Deno.env.get('GOLDEN_SOON') ?? null).filter((c) => !only || only.split(',').some((o) => c.group === o.trim() || c.id === o.trim())); // --only a,b,c (2026-09-24)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Row = { id: string; run: number; turn: number; guest: string; reply: string; fails: string[]; step: string | null; ms: number };

@@ -22,6 +22,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
+import { chatJson } from '../_shared/cascade-core/providers.ts'; // /ping tests the real route (2026-09-24)
 import { notifyMessengerBookingConfirmed } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
@@ -47,7 +48,6 @@ const GEN_SAN_LAT     = 6.1164;
 const GEN_SAN_LNG     = 125.1716;
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const RECEIPTS_BUCKET = 'expense-receipts';
-const DISPATCH_MODEL  = 'gemini-2.5-flash';
 const JSON_H          = { 'Content-Type': 'application/json' };
 
 const LARGE_AMOUNT_THRESHOLD = 10_000;
@@ -1834,34 +1834,23 @@ async function handleDataHealth(db:any, chatId:any): Promise<void> {
 }
 
 async function handlePing(chatId: any) {
+  // 2026-09-24: /ping tested a direct Gemini call (a refused path since D-222); it now tests the route every text call
+  // really takes - OpenRouter first, Gemini only as the guarded fallback (providers.ts).
   const lines = [
-    '🩺 *Bot Diagnostic — v56*', '',
-    `GEMINI\\_BOT\\_KEY: ${GEMINI_KEY ? '✅ set' : '❌ missing (LLM disabled)'}`,
+    '🩺 *Bot Diagnostic*', '',
+    `OPENROUTER\\_KEY: ${Deno.env.get('CASCADE_OPENROUTER_BOT_KEY') ? '✅ set' : '❌ missing'}`,
+    `GEMINI\\_KEY (fallback): ${GEMINI_KEY ? '✅ set' : '⚠️ not set'}`,
     `BOT\\_USERNAME: ${BOT_USERNAME ? `✅ ${BOT_USERNAME}` : '⚠️ not set (mention-strip disabled)'}`,
     `WEATHER\\_KEY: ${WEATHER_KEY ? '✅ set' : '❌ missing (weather disabled)'}`,
     `FINANCE\\_CHAT: ${FINANCE_CHAT ? '✅ set' : '❌ missing'}`,
     `OPS\\_CHAT: ${OPS_CHAT ? '✅ set' : '❌ missing'}`,
-    '',
+    '', '_Testing the model route…_',
   ];
-  if (!GEMINI_KEY) { await tgSend(chatId, lines.join('\n') + '\n❌ Cannot test Gemini — key missing.'); return; }
-  lines.push('_Testing Gemini dispatch model…_');
   await tgSend(chatId, lines.join('\n'));
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${DISPATCH_MODEL}:generateContent?key=${GEMINI_KEY}`,
-      { method:'POST', headers:JSON_H,
-        body:JSON.stringify({contents:[{parts:[{text:'Reply with exactly: {"status":"ok"}'}]}],generationConfig:{temperature:0,response_mime_type:'application/json'}}),
-        signal:AbortSignal.timeout(15_000) }
-    );
-    if (res.ok) {
-      const d = await res.json();
-      const txt = (d?.candidates?.[0]?.content?.parts?.map((p:any)=>p.text).join('')??'').slice(0,120);
-      await tgSend(chatId, `✅ Gemini *${DISPATCH_MODEL}* responded:\n\`${txt}\``);
-    } else {
-      const body = await res.text().catch(()=>'');
-      await tgSend(chatId, `❌ Gemini HTTP *${res.status}*:\n${errMsg(body.slice(0,300))}`);
-    }
-  } catch(e) { await tgSend(chatId, `❌ Gemini error: ${errMsg(e)}`); }
+    const txt = await chatJson({ system: 'You are a health check.', history: [], question: 'Reply with exactly: {"status":"ok"}', title: 'Cascade Ping', tier: 'lite', temperature: 0, maxTokens: 20, timeoutMs: 15_000 });
+    await tgSend(chatId, `✅ Model route responded:\n\`${String(txt).slice(0, 120)}\``);
+  } catch (e) { await tgSend(chatId, `❌ Model route error: ${errMsg(e)}`); }
 }
 
 // Session 28: every feature has a command, so the ☰ menu button (setChatMenuButton, commands) lists them all.

@@ -267,7 +267,7 @@ export function yellowCard(
   // run showed on the red side.
   if (findings.length === 1) out.push(headline(findings[0], now), ...facts(findings[0]).filter(Boolean));
   else if (findings.length > 1) out.push(`${findings.length} things are worth a look.`);
-  else out.push('Nothing needs you. These closed themselves.');
+  else out.push('These closed themselves; nothing to do for them.'); // 2026-09-24: never "Nothing needs you" beside a red card of the same run
 
   const bullets = findings.length > 5
     ? [...findings.slice(0, 4).map((f) => `• ${yellowBullet(f, now)}`), `• and ${findings.length - 4} more in the dashboard`]

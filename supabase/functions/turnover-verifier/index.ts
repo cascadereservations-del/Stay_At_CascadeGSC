@@ -276,7 +276,9 @@ Deno.serve(withObservability({ functionName: 'turnover-verifier', route: 'ops' }
         stillOpen.push(tvRow.id);
 
         if (step === 'task') {
-          if (!dryRun) {
+          // 2026-09-24: a missing report alone is missed-cleaning-alert's task (same checkout); a second task was noise.
+          const onlyMissing = (tvRow.issues ?? []).every((i: string) => i === 'no_session_found');
+          if (!dryRun && !onlyMissing) {
             const { error: taskErr } = await supabase.rpc('system_task_open_v1', {
               p_property_id: propertyId,
               p_source_kind: 'turnover_verification',
