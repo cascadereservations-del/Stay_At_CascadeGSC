@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "release_id": "verifier_v7_20260925",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "5dd0bf336c444769bb04ddff840bc3c3cf91bca1"
+  },
+  "migrations": [
+    "20260925010000_verifier_v7_dates_mismatch.sql"
+  ],
+  "migration_sha256": {
+    "20260925010000_verifier_v7_dates_mismatch.sql": "f16060d24679226484450bb4153d8785633334b0b56baeca6152e650c8939f2a"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260924T132231Z",
+    "verified_at": "2026-09-24T13:22:31Z",
+    "production_rule": "Two live functions are replaced and one is added. Neither body was retyped: a script cut each from its applied migration, asserted the cut hashes to the live md5(prosrc) read on 2026-09-24 (run_system_verifier_v1 12b080bfff25b908f20bf4ae3813af9e, apply_verifier_run_v1 acc043e2048f9d88e0109ce8d7200f36), then applied exact one-hit replacements. The forward checks assert the resulting bodies' md5. No table, column or policy is altered. Rows change only through the new auto-resolution 3 (a confirmed reservation's dates from its confirmed calendar row; nights is generated, never money) and the answer RPC (recon_status). The backup is taken as the LAST act before the apply (D-210)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_checks_body_is_the_reviewed_body",
+      "query": "select md5(p.prosrc) = 'c3fd896a0938b784da3fbe2237eb8b28' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'run_system_verifier_v1'",
+      "expect": true
+    },
+    {
+      "name": "the_alerting_body_is_the_reviewed_body",
+      "query": "select md5(p.prosrc) = '5c02101b0c2bd109389ce659702b2270' from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'apply_verifier_run_v1'",
+      "expect": true
+    },
+    {
+      "name": "grants_are_service_role_only",
+      "query": "select has_function_privilege('service_role', 'public.run_system_verifier_v1(uuid, text, timestamptz)', 'EXECUTE') and not has_function_privilege('anon', 'public.run_system_verifier_v1(uuid, text, timestamptz)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.run_system_verifier_v1(uuid, text, timestamptz)', 'EXECUTE') and has_function_privilege('service_role', 'public.apply_verifier_run_v1(text, jsonb, timestamptz)', 'EXECUTE') and not has_function_privilege('anon', 'public.apply_verifier_run_v1(text, jsonb, timestamptz)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.apply_verifier_run_v1(text, jsonb, timestamptz)', 'EXECUTE') and has_function_privilege('service_role', 'public.telegram_answer_calendar_block_v1(bigint, text, text)', 'EXECUTE') and not has_function_privilege('anon', 'public.telegram_answer_calendar_block_v1(bigint, text, text)', 'EXECUTE') and not has_function_privilege('authenticated', 'public.telegram_answer_calendar_block_v1(bigint, text, text)', 'EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "a_stranger_cannot_answer_a_block",
+      "query": "select public.telegram_answer_calendar_block_v1(1, 'no-such-uid', 'maint')->>'reason' = 'unmapped_telegram_user'",
+      "expect": true
+    },
+    {
+      "name": "sql_never_raises_v13",
+      "query": "select count(*) = 0 from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'hourly')->'found') e where e->>'check_id' = 'V13'",
+      "expect": true
+    },
+    {
+      "name": "a_missing_cleaning_report_is_yellow",
+      "query": "select coalesce(bool_and(e->>'severity' = 'yellow'), true) from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'daily')->'found') e join public.admin_health_check_runs h on h.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and h.check_key = 'checkouts_cleaned' where e->>'key' = 'V10:checkouts_cleaned' and h.status = 'warn'",
+      "expect": true
+    },
+    {
+      "name": "every_v7_finding_is_yellow_with_both_date_pairs",
+      "query": "select coalesce(bool_and(e->>'severity' = 'yellow' and e->'detail' ?& array['email_from','email_to','calendar_from','calendar_to','auto_safe','reservation']), true) from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'hourly')->'found') e where e->>'check_id' = 'V7'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. Nothing depends on telegram_answer_calendar_block_v1 except telegram-expense's cb:block tap, which then writes the RPC error on the card.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260925_verifier_v7.sql with run-sql-on-host.sh. It restores both functions to their pre-release bodies (asserts md5 12b080bf... and acc043e2...), drops telegram_answer_calendar_block_v1 and closes open V7/V7b/V13 findings, which the old scope arrays would never resolve. Corrected reservation dates stay: they are the Airbnb calendar's dates."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "v7_fires_only_after_calendar_sync_v15",
+      "required_state": "No calendar row carries linked_reservation_id before calendar-sync v15 (waves 7d223a0) is deployed, so V7 and V7b are silent until the first sync after that deploy. The SQL goes first so apply_verifier_run_v1 knows V7/V7b/V13 before anything raises them."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-24T13:19Z on a disposable restore of production backup cascade-supabase-20260924T131354Z (taken for the rehearsal, newer than B120's release; prefix cascade-migration-rehearsal-cce8bdc996c9, 0 leftovers). 102 public tables and 123 ledger rows before, 102 after; the migration applied, 1 of 1; forward checks 7/7 against real data; pgTAP verifier_v7_dates_mismatch.sql 31/31, verifier_triage_and_opening_amounts.sql 22/22, system_verifier_phase1.sql 32/32, health_checks_core_v10.sql 25/27 - the two failures are its grant assertions on health_checks_core_v1 and run_health_checks_service_v1, which a --no-acl restore cannot carry; both read true on production at 13:20Z. The FIRST rehearsal (prefix f33891783374, same backup) failed the new suite: airbnb_reservations.nights is a generated column, so auto-resolution 3 would have raised in production on its first V7; fixed in 5dd0bf3 (dates only) and re-rehearsed.",
+    "evidence": "The system-verifier live before waves 7d223a0 renders an unknown check with its stored title and 'open the dashboard', so the SQL applied before the deploy cannot produce a broken card; nothing raises V7/V7b/V13 before that deploy anyway. pgTAP verifier_v7_dates_mismatch.sql (31 assertions) and verifier_triage_and_opening_amounts.sql (its 72-hour red assertion inverted for D-232)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "either md5 check fails - that is a mistyped body, not a flaky assertion",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suites green on this commit"
+  ]
+}
