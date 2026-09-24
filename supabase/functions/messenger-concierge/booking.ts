@@ -73,7 +73,7 @@ export function parseDates(text: string, now = new Date()): string[] {
     if (m[5]) { const m2 = m[4] ? MONTHS[m[4]] : m1; const d2 = +m[5]; const y2 = m[6] ? +m[6] : (m2 < m1 ? y1 + 1 : y1); push(y2, m2, d2); }
   }
   if (out.length) return out;
-  for (const m of t.matchAll(/\b(\d{1,2})(?:\s*(?:-|–|to|hanggang)\s*(\d{1,2}))?\s+(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\b/g)) {
+  for (const m of t.matchAll(/\b(\d{1,2})(?:\s*(?:-|–|to|hanggang)\s*(\d{1,2}))?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\b/g)) {
     const mo = MONTHS[m[3]], d1 = +m[1], y = yearFor(mo, d1, now);
     push(y, mo, d1); if (m[2]) push(y, mo, +m[2]);
   }
@@ -82,7 +82,55 @@ export function parseDates(text: string, now = new Date()): string[] {
   for (const m of t.matchAll(/\b(\d{1,2})[\/.](\d{1,2})(?:[\/.](20\d\d))?\b/g)) {
     const mo = +m[1], d = +m[2]; if (mo < 1 || mo > 12) continue; push(m[3] ? +m[3] : yearFor(mo, d, now), mo, d);
   }
+  if (out.length) return out;
+  // Session 49: "Available today?", "available tonight?", "bukas po?" (live wordings). Manila's date, since the guest
+  // means their own today; "tonight then tomorrow" gives a one-night pair.
+  const manila = new Date(now.getTime() + 8 * 3_600_000);
+  const rel = (n: number) => { const x = new Date(manila.getTime() + n * 86_400_000); push(x.getUTCFullYear(), x.getUTCMonth() + 1, x.getUTCDate()); };
+  const rels = [...t.matchAll(/\b(today|tonight|ngayon(?:g gabi)?|karon(?:g gabii)?|tomorrow|tmrw|bukas|ugma)\b/g)]
+    .map((m) => (/^(tomorrow|tmrw|bukas|ugma)$/.test(m[1]) ? 1 : 0));
+  for (const n of [...new Set(rels)].sort()) rel(n);
   return out;
+}
+
+// Live 2026-09-24 14:13-14:15Z (Suzanne): "Can i book Oct. 30" was kept from the flow by the "can i" guard, the bot
+// offered to arrange it "right here in the chat", the guest said "Yes please", and nothing started - the model promised
+// payment details that no code sends. The bot's own chat-route offer (voice.ts CHAT_ROUTE, decisionInvite, facts.ts).
+// A whole-message yes, by words rather than one regex, so "Yes pls", "okay sige", "go na po" and "dito na lang po"
+// all count (live wordings in concierge_threads, 2026-09-24). Not OFFER_YES_RE: that is a prefix match for the
+// flow's own offer step, and after a chat offer "ok po salamat" or "ok let me think about it" must never start a
+// booking. Every word must be a yes-word or filler, and at least one must be a real yes; a bare "ok" or "g" is not.
+const YES_STRONG = new Set(['yes', 'yess', 'yup', 'yep', 'yeah', 'sure', 'course', 'sige', 'sge', 'opo', 'oo', 'go', 'proceed', 'book', 'arrange', 'reserve', 'here', 'dito', 'diri', 'chat', 'please']);
+const YES_FILLER = new Set(['ok', 'okay', 'okie', 'k', 'na', 'po', 'pls', 'plz', 'pls.', 'of', 'let', 'lets', 's', 'do', 'it', 'ahead', 'lang', 'nalang', 'nlng', 'man', 'sir', 'maam', 'ma', 'am', 'the', 'in', 'sa', 'kay', 'ta', 'mi', 'us', 'that', 'this', 'one', 'now', 'naman', 'nga', 'thank', 'you']);
+export function isChatYes(text: string): boolean {
+  const words = text.toLowerCase().replace(/[^a-z' ]+/g, ' ').replace(/'/g, '').split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 8) return false;
+  if (words.some((w) => /^(no|not|dont|wag|huwag|ayaw|dili|think|isip|later|muna|wait|salamat|thanks|how|magkano|pila|much)$/.test(w))) return false;
+  return words.every((w) => YES_STRONG.has(w) || YES_FILLER.has(w)) && words.some((w) => YES_STRONG.has(w) && w !== 'please' && w !== 'chat');
+}
+const PAY_ASK_RE = /\b(payment (link|details?|options?|methods?|instructions?)|pay(ment)? (via|thru|through|using)|how (do|can|will|should) (i|we) pay|where (do|can|should) (i|we) (pay|send)|gcash (number|no|details?|account|qr)|(send|give)( me| us)?( the)? (qr|account|bank|gcash|payment)|qr ?code|account (details?|number|name)|bank details?|paano (po )?(mag ?bayad|magbayad|mag-bayad)|saan (po )?(mag ?bayad|magbabayad)|asa (mi )?(mo ?bayad|magbayad))\b/i;
+const CHAT_OFFER_RE = /\b(arrange\b[^.\n]{0,60}\b(in (the|this) chat|here in (the )?chat|sa chat)|(right )?here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i;
+
+/**
+ * Should this message start the in-chat booking flow, and from which guest text? Null means no.
+ * 1. A booking word or availability question starts it, unless it asks HOW to book; a hedge ("can I", "pwede ba",
+ *    "possible") keeps it out only when the message carries no date - "can I book Oct 30" is a request.
+ * 2. A plain yes to the bot's own "we can arrange it here in the chat" starts it from the guest's latest dated message.
+ */
+export function bookingStart(text: string, priorGuestTexts: string[], lastBotText: string, now = new Date()): string | null {
+  const how = /\b(how (do|can) (i|we)|paano)\b/i.test(text);
+  const hedged = /\b(can i|pwede( po)? ba|possible)\b/i.test(text);
+  // The dated-hedge exception needs a booking WORD: "available po ba Oct 5? pwede po ba check in 12 noon?" is two
+  // questions for the model, and starting the flow there would drop the second one (golden first-noon-checkin).
+  if (BOOK_RE.test(text) && !how && (!hedged || parseDates(text, now).length > 0)) return text;
+  if (availStart(text, now) && !how && !hedged) return text;
+  const dated = [text, ...[...priorGuestTexts].reverse()].find((t) => parseDates(t, now).length > 0) ?? null;
+  if (isChatYes(text) && CHAT_OFFER_RE.test(lastBotText)) return dated ?? text;
+  // 3. Asking HOW TO PAY once the guest has given dates, with no flow running (live 14:22Z "Payment link"): the model
+  //    invented a total, an account and "we'll send the details in a moment". Payment options and the QR exist only in
+  //    the flow, so start it. With no dates yet, "what payment methods?" is a question for the model.
+  if (PAY_ASK_RE.test(text) && dated) return dated;
+  return null;
 }
 
 /** SPEC-14 (D-184): an availability question that carries a future check-in starts the flow, book word or not. */

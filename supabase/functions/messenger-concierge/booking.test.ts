@@ -232,3 +232,23 @@ Deno.test('D-222 P0: both dates known at flow start means the calendar is read, 
   assertEquals(needsCalendarCheck(start('book Oct 10 po', n)), false);               // one date: nothing to check yet
   assertEquals(needsCalendarCheck(start('i want to book', n)), false);
 });
+
+import { bookingStart } from './booking.ts';
+// Live 2026-09-24 14:13-14:15Z (Suzanne): the flow never started, and the model promised payment details nobody sent.
+Deno.test('session 49: a dated "can I book" starts the flow; a yes to our chat offer starts it from the dated message', () => {
+  const now = new Date('2026-09-24T14:15:00Z');
+  assertEquals(bookingStart('Can i book Oct. 30', [], '', now), 'Can i book Oct. 30');
+  const offer = "Suzanne, October 30 is available, and we'd be glad to welcome you then.\n\nWe can arrange the booking for you right here in the chat, or you may secure your reservation on our site, where direct bookings carry our best rates:";
+  assertEquals(bookingStart('Yes please', ['With parking?', 'Can i book Oct. 30'], offer, now), 'Can i book Oct. 30');
+  assertEquals(bookingStart('Sige po', ['Oct 30 po available?'], 'We can arrange everything dito sa chat, o puwede ninyong i-check ang home sa aming site:', now), 'Oct 30 po available?');
+  assertEquals(bookingStart('Yes please', [], offer, now), 'Yes please', 'no dates yet: the flow starts and asks for them');
+  assertEquals(start(bookingStart('Yes please', ['Can i book Oct. 30'], offer, now)!, now).checkin, '2026-10-30');
+});
+
+Deno.test('session 49: what must stay out of the flow still stays out', () => {
+  const now = new Date('2026-09-24T14:15:00Z');
+  assertEquals(bookingStart('how can i book?', [], '', now), null, 'how-to questions go to the model');
+  assertEquals(bookingStart('Can I book?', [], '', now), null, 'a hedge with no date goes to the model');
+  assertEquals(bookingStart('can i bring my dog?', [], '', now), null);
+  assertEquals(bookingStart('Yes please', ['Oct 30?'], 'Yes, free parking is available right in front of the unit.', now), null, 'a yes to anything else is not a booking');
+});

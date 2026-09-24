@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, availStart, BOOK_RE, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
+import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, answerOnly, appendLook, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -708,6 +708,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
   // through to the model with the flow kept where it is.
   let flow: Flow | null = isActive(thread.booking_flow, now) ? thread.booking_flow! : null;
   let flowReply: string | null = null, flowImage: string | null = null, flowFollowUp: string | null = null;
+  let startText: string | null = null;
   let calendarDown = false; // session 30: the calendar read failed on this turn - the reply does not claim availability and a host is told
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
   if (g.reply && flow?.step === 'await_receipt' && attachment) {
@@ -728,8 +729,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
     else if (s.action === 'submit') { const r = await fx.submit(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
-  } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && (BOOK_RE.test(text) || availStart(text, now)) && !/\b(how (do|can) (i|we)|paano|can i|pwede( po)? ba|possible)\b/i.test(text)) {
-    flow = start(text, now);
+  } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && (startText = bookingStart(text,
+      thread.history.filter((h) => h.role === 'guest').map((h) => h.text), thread.history.filter((h) => h.role === 'bot').slice(-1)[0]?.text ?? '', now))) {
+    flow = start(startText, now); // session 49: a dated "can I book" and a yes to our own chat offer both start here (bookingStart)
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
     // D-222: the calendar is read whenever both dates are known, not only on an "available" word - "book Oct 10 to 12
