@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "supersede_pending_hold_20260925",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "771824f13c7b1834210a7b5669458fdd4135bf02"
+  },
+  "migrations": [
+    "20260925040000_supersede_pending_hold.sql"
+  ],
+  "migration_sha256": {
+    "20260925040000_supersede_pending_hold.sql": "0e05909bb081e629296976975555495103a73e914e373ecb7f53a723e2e72fb2"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260925T000935Z",
+    "verified_at": "2026-09-25T00:09:35Z",
+    "production_rule": "One new service_role-only function; nothing existing is altered and the release writes no row. The forward checks call it only with identities that match nothing, so they change nothing. The backup is taken as the LAST act before the apply (D-210)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_body_is_the_reviewed_body",
+      "query": "select md5(p.prosrc) = '369ab88bb5f758eb3c7b59971b9876eb' from pg_proc p where p.oid = 'public.supersede_pending_direct_requests_v1(uuid, text, text, date, date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "service_role_only",
+      "query": "select has_function_privilege('service_role','public.supersede_pending_direct_requests_v1(uuid, text, text, date, date)','EXECUTE') and not has_function_privilege('anon','public.supersede_pending_direct_requests_v1(uuid, text, text, date, date)','EXECUTE') and not has_function_privilege('authenticated','public.supersede_pending_direct_requests_v1(uuid, text, text, date, date)','EXECUTE') and (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.supersede_pending_direct_requests_v1(uuid, text, text, date, date)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "an_unknown_guest_releases_nothing",
+      "query": "select public.supersede_pending_direct_requests_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'nobody@example.invalid', '00000000000', current_date + 400, current_date + 401)->>'reason' = 'none'",
+      "expect": true
+    },
+    {
+      "name": "no_phone_is_not_applicable",
+      "query": "select public.supersede_pending_direct_requests_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'x@example.invalid', '', current_date + 400, current_date + 401)->>'reason' = 'not_applicable'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260925_supersede_pending_hold.sql with run-sql-on-host.sh (drops the function; submit-booking logs the RPC error as non-fatal)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_before_submit_booking",
+      "required_state": "Apply this release BEFORE deploying submit-booking from waves ec259a5; the deployed function calls supersede_pending_direct_requests_v1 and only logs a warning if it is missing, so either order is safe, but SQL first means the first submit already gets the fix."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-25 ~00:0xZ on a disposable restore of production backup cascade-supabase-20260924T231441Z (prefix cascade-migration-rehearsal-c705182884bb, 0 leftovers). 102 tables and 125 ledger rows before, 102 after; migration 1 of 1; forward checks 4/4; pgTAP supersede_pending_hold.sql 13/13 - including the real void -> fn_direct_booking_cascade -> guard hold-release path on an income row. booking_lifecycle.sql was also tried and cannot run on a --no-acl restore (permission denied for booking_rate_policy_versions, then aborted); it says nothing about this release.",
+    "evidence": "Mirrors expire_booking_holds_v1 (md5 cbebe8d09797ac0738808c3a27027bfb, read 2026-09-24): void -> fn_direct_booking_cascade cancels the request and calendar row; guard_direct_booking_lifecycle_transition releases the hold on the move to cancelled; the booking.cancelled outbox row has no consumer (D-234). pgTAP supersede_pending_hold.sql (13)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the md5 check fails",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
