@@ -3,7 +3,7 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { availabilityLine, detectLang, exampleDates, greetBlock, guestLang, opener, otherQuestions, prompt, start } from './booking.ts';
 import { lintReply, offRegister } from './voice.ts';
-import { VOICE } from '../_shared/cascade-core/facts.ts';
+import { rollExampleDates, VOICE } from '../_shared/cascade-core/facts.ts';
 
 const now = new Date('2026-09-25T00:00:00Z');
 
@@ -54,4 +54,11 @@ Deno.test('SPEC-28 s4: one detector - "pwede ba" is Taglish everywhere; the exam
   const ask = prompt({ step: 'dates', started_at: '', updated_at: '', lang: 'en' }, null, false, now);
   assertEquals(ask.includes('"Oct 2 to 4"'), true);
   assertEquals(ask.includes('Sep 24'), false);
+});
+
+Deno.test('D-241.5: the prompt examples roll forward in whole weeks and keep the live quotes', () => {
+  const ex = 'Oct 26-28 (taken; Nov 1-6 open). Available Oct 30? stay through Nov 1. Oct 27 to 29. live: "is Oct 3 to 4 available?"';
+  assertEquals(rollExampleDates(ex, new Date('2026-09-25T00:00:00Z')), ex); // Oct 26 is still 31 days out
+  const later = rollExampleDates(ex, new Date('2026-10-20T00:00:00Z'));  // 24 days past the trigger -> 4 weeks
+  assertEquals(later, 'Nov 23-25 (taken; Nov 29-Dec 4 open). Available Nov 27? stay through Nov 29. Nov 24 to 26. live: "is Oct 3 to 4 available?"');
 });
