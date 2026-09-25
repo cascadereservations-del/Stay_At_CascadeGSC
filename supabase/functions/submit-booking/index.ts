@@ -133,6 +133,15 @@ Deno.serve(async (req) => {
   const depositAmount = (clientDeposit > 0 && (near(clientDeposit, expected.deposit) || near(clientDeposit, totalAmount)))
     ? clientDeposit : Math.ceil(totalAmount * (depositPct / 100));
 
+  // SPEC-30 (D-233, D-239): a guest who changed dates releases their OWN earlier unpaid request first (same phone
+  // and e-mail, no receipt, last 24 h) - and only when the new dates are then free, so moving onto somebody else's
+  // dates changes nothing and the 409 below answers as before. A failure here only means today's behaviour.
+  const { data: sup, error: supErr } = await db.rpc('supersede_pending_direct_requests_v1', {
+    p_property_id: PROPERTY_ID, p_email: guestEmail, p_phone: guestPhone, p_checkin: checkinStr, p_checkout: checkoutStr,
+  });
+  if (supErr) console.warn('[submit-booking] supersede_pending_direct_requests_v1 failed (non-fatal):', supErr.message);
+  else if ((sup?.superseded ?? []).length) console.log(JSON.stringify({ event: 'hold_superseded', ids: sup.superseded }));
+
   const { data: avail, error: availErr } = await db
     .rpc('check_availability', { p_checkin: checkinStr, p_checkout: checkoutStr, p_property_id: PROPERTY_ID });
   if (availErr) return json({ error: 'availability_check_failed' }, 500);
