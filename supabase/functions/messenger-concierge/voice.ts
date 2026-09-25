@@ -346,12 +346,16 @@ export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews:
  *  ("We can arrange everything right here in the chat."). Link lines are left to dropSoloLink. Never returns ''. */
 const SITE_SENTENCE_RE = /\b(on|sa) (our|aming|among) (direct )?(site|website)\b|\bsite namin\b/i;
 export function dropSiteInvite(reply: string): string {
-  const out = reply.split(/\n\s*\n/).map((p) => {
+  const all = reply.split(/\n\s*\n/);
+  const out = all.map((p, i) => {
     if (/^(👉|https?:\/\/|🏡|⭐)/.test(p.trim())) return p;
+    // Golden run 2026-09-25 (R4): the kept chat half stood as its own paragraph while the model's last paragraph already
+    // said "share them here" - two invitations. The chat route said anywhere else in the reply is enough.
+    const elsewhere = CHAT_MENTION_RE.test(all.filter((_, j) => j !== i).join('\n\n'));
     return p.split('\n').map((line) => sentencesOf(line).map((s) => {
       if (!SITE_SENTENCE_RE.test(s)) return s;
       const chat = s.match(/^(.*?\b(?:chat|here|dito|diri)\b),?\s+(?:or|o)\s+[^.!?]*[.!?:]?\s*$/i);
-      if (!chat || SITE_SENTENCE_RE.test(chat[1]) || CHAT_MENTION_RE.test(p.replace(s, ''))) return ''; // the chat route is already said
+      if (!chat || SITE_SENTENCE_RE.test(chat[1]) || CHAT_MENTION_RE.test(p.replace(s, '')) || elsewhere) return ''; // the chat route is already said
       return `${chat[1]}. `;
     }).join('').trim()).filter(Boolean).join('\n');
   }).map((p) => p.trim()).filter(Boolean).join('\n\n');

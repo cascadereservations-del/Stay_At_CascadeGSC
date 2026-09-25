@@ -522,3 +522,13 @@ Deno.test('the answer after a replaced salutation starts with a capital', () => 
   const out = ensureGreeting('Hi Ben, yes po, available ang Oct 2.', 'Ben', 'tl');
   assertEquals(out.includes('Cascade Hideaway. Yes po, available ang Oct 2.'), true);
 });
+
+// Golden run 2026-09-25 (R4, fu-amenity-en x3): a short reply put the first-contact invitation in the middle, and its kept
+// chat half stood alone beside the model's own "share them here" paragraph - two invitations.
+Deno.test('the chat half of a dropped site invitation goes when another paragraph already offers the chat', () => {
+  const r = "Yes, Ben, the home has fiber Wi-Fi.\n\nWe can arrange everything right here in the chat, or you may see the home and live availability on our site.\n\nIf you have dates in mind, share them here and we'll check the calendar for you right away.";
+  const out = dropSiteInvite(r);
+  assertEquals(out, "Yes, Ben, the home has fiber Wi-Fi.\n\nIf you have dates in mind, share them here and we'll check the calendar for you right away.");
+  // Alone, the chat half is kept (the only chat route in the reply).
+  assertEquals(dropSiteInvite("Yes, we have Wi-Fi.\n\nWe can arrange everything right here in the chat, or you may see the home on our site."), "Yes, we have Wi-Fi.\n\nWe can arrange everything right here in the chat.");
+});
