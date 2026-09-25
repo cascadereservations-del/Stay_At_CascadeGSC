@@ -1,6 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>
+/* Cascade error monitor (D-240, 2026-09-25). Reports this page's own crashes, unhandled promise failures and
+   failed server replies to the client-error function, which tells a person in Telegram. It must never break
+   the page: every path is wrapped, at most 20 reports per page load, each distinct error once. */
+(function () {
+  var APP = 'booking_site';
+  var EP = 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/client-error';
+  var seen = {}, sent = 0;
+  function send(kind, message, detail) {
+    try {
+      var key = kind + '|' + message;
+      if (seen[key] || sent >= 20) return;
+      seen[key] = 1; sent++;
+      var d = detail || {};
+      d.path = location.pathname + (location.hash || '').split('?')[0];
+      d.ua = navigator.userAgent;
+      var body = JSON.stringify({ app: APP, kind: kind, message: String(message || '').slice(0, 300), detail: d });
+      var f = window.__cascadeFetch || window.fetch;
+      f(EP, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true }).catch(function () {});
+    } catch (e) {}
+  }
+  window.addEventListener('error', function (e) {
+    try {
+      if (!e || !e.message) return;
+      send('error', e.message, { src: String(e.filename || '').split('/').pop(), line: e.lineno, col: e.colno,
+        stack: e.error && e.error.stack ? String(e.error.stack).slice(0, 800) : '' });
+    } catch (x) {}
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    try {
+      var r = e && e.reason;
+      send('rejection', r && r.message ? r.message : String(r), { stack: r && r.stack ? String(r.stack).slice(0, 800) : '' });
+    } catch (x) {}
+  });
+  if (window.fetch && !window.__cascadeFetch) {
+    var original = window.fetch;
+    window.__cascadeFetch = original;
+    window.fetch = function (input, init) {
+      var url = '';
+      try { url = typeof input === 'string' ? input : (input && input.url) || ''; } catch (x) {}
+      return original.apply(this, arguments).then(function (res) {
+        try {
+          if (res.status >= 400 && /\/(functions\/v1|rest\/v1\/rpc)\//.test(url) && url.indexOf('/client-error') < 0) {
+            var fn = url.split('?')[0].split('/').pop();
+            res.clone().json().then(function (j) {
+              var code = j && (j.error || j.code) ? String(j.error || j.code) : '';
+              send('http', fn + ' ' + res.status + (code ? ' ' + code : ''), { fn: fn, status: res.status, code: code });
+            }).catch(function () { send('http', fn + ' ' + res.status, { fn: fn, status: res.status }); });
+          }
+        } catch (x) {}
+        return res;
+      });
+    };
+  }
+})();
+</script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#1C1006">
