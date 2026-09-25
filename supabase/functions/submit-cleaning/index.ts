@@ -509,9 +509,22 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const cleaningDate  = String(payload.cleaningDate ?? fd.cleaningDate ?? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }));
     const startTime     = String(fd.startTime ?? payload.startTime ?? '') || '';
     const checkInDate   = String(fd.checkInDate   ?? payload.checkInDate  ?? '') || null;
-    const checkOutDate  = String(fd.checkOutDate  ?? payload.checkOutDate ?? '') || null;
+    let   checkOutDate  = String(fd.checkOutDate  ?? payload.checkOutDate ?? '') || null;
     const lastGuestName = String(fd.lastGuestName ?? payload.lastGuestName ?? '\u2014');
-    const nights        = Number(fd.numberOfNights ?? payload.numberOfNights ?? 0);
+    let   nights        = Number(fd.numberOfNights ?? payload.numberOfNights ?? 0);
+    // Live 2026-09-25: Nyke Perez's report arrived with check-out = check-in (19 -> 19 Sep), so nothing matched it to
+    // the 20 Sep checkout and OPS got three missed-cleaning alerts for a clean that was done. A report that is not a
+    // mid-stay and whose check-out is not after its check-in takes the calendar stay that starts on that check-in.
+    if (checkInDate && checkOutDate && checkOutDate <= checkInDate && cleaningType !== 'mid_stay' && propertyId) {
+      const { data: stay } = await supabase.from('calendar_events').select('checkout_date, nights')
+        .eq('property_id', propertyId).eq('checkin_date', checkInDate).neq('status', 'cancelled')
+        .gt('checkout_date', checkInDate).order('checkout_date').limit(1).maybeSingle();
+      if (stay?.checkout_date) {
+        console.log(JSON.stringify({ event: 'stay_dates_repaired', checkin: checkInDate, from: checkOutDate, to: stay.checkout_date }));
+        checkOutDate = String(stay.checkout_date);
+        nights = Number(stay.nights) || nights;
+      }
+    }
     const completionPct = Number(payload.completionRate ?? payload.meta?.rate ?? 0);
     const notes         = Array.isArray(payload.allNotes)
       ? payload.allNotes.map((n: unknown) => {
