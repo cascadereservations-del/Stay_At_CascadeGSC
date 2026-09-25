@@ -319,9 +319,11 @@ export const BOT_REPLY: Record<Lang, string> = {
  *  No "po" in tl or bis on purpose: the canned first message already carries three (protocol 07
  *  section 4 asks for one or two) and Bisaya takes none (protocol 09 section 3). */
 export const CASSY_INTRO: Record<Lang, string> = {
-  en: `I'm Cassy, the home's digital concierge, and Marifel and our team are right here with me. `,
-  tl: `Ako si Cassy, ang digital concierge ng Cascade, and nandito rin si Marifel at ang team anytime. `,
-  bis: `Ako si Cassy, ang digital concierge sa Cascade, ug naa ra pud si Marifel ug ang team anytime. `,
+  // D-244 (Lloyd 2026-09-25, "shorten cassy introduction, minimal yet invokes trust"): name, the disclosure (digital),
+  // and a named human with the team - nothing else. Was 91/96/96 characters.
+  en: `I'm Cassy, the home's digital concierge, here with Marifel and our team. `,
+  tl: `Ako si Cassy, ang digital concierge ng Cascade, kasama si Marifel at ang team. `,
+  bis: `Ako si Cassy, ang digital concierge sa Cascade, kauban si Marifel ug ang team. `,
 };
 /** `intro` defaults to false, not true as SPEC-01 sketched: every caller that knows whether the
  *  guest has already met Cassy passes it explicitly, and a call site missed later should fall back
