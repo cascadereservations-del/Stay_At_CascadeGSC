@@ -274,6 +274,14 @@ const OPEN_CLAIM_RE = new RegExp(String.raw`(?:${MD}|\b(?:those|these|your|the) 
 const BOOKED_CLAIM_RE = new RegExp(String.raw`${MD}[^.!?\n]*\b(?:reserved|booked|taken)\b|\b(?:reserved|booked|taken)\b[^.!?\n]*${MD}`, 'i');
 const NOT_OPEN_RE = /\b(not|isn't|aren't|no longer|hindi|dili)\s+(yet\s+)?(available|open|bakante)\b/gi;
 const sentencesOf = (line: string): string[] => line.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [line];
+/** SPEC-32 s1b (D-247, F15): in the chat, payment is GCash; UnionBank / InstaPay only when the guest asked for a bank or
+ *  another way to pay. The 26 Sep live reply volunteered it after "how do I pay?". Never returns ''. */
+const BANK_RE = /(unionbank|bank transfer|instapay|pesonet)/i;
+export function dropBankUnlessAsked(reply: string, guestText: string): string {
+  if (!BANK_RE.test(reply) || /(bank|transfer|instapay|pesonet|maya|other (way|option|method)s?|iba pa|lain pa)/i.test(guestText)) return reply;
+  const out = reply.split('\n').map((l) => sentencesOf(l).filter((s) => !BANK_RE.test(s)).join('').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return out || reply;
+}
 const openClaim = (s: string) => OPEN_CLAIM_RE.test(s.replace(NOT_OPEN_RE, ''));
 const availSentence = (s: string) => openClaim(s) || BOOKED_CLAIM_RE.test(s);
 /** The reply tells the guest a date is open or available. */

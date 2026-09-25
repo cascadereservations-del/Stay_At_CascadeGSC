@@ -616,3 +616,15 @@ Deno.test('draft JSON: fences, raw newlines and single-quoted keys still yield t
 Deno.test('"relax" counts as care', () => {
   assertEquals(isCold('Yes po, may fiber Wi-Fi ang unit, steady enough for video calls and streaming, para makapag-relax kayo nang husto habang nandito kayo sa amin.'), false);
 });
+
+import { dropBankUnlessAsked } from './voice.ts';
+Deno.test('SPEC-32 s1b (D-247, F15): UnionBank only when the guest asked for a bank or another way', () => {
+  const live = "Ben, you may pay through GCash with the QR we send in this chat - the exact amount is already set. You may also pay by UnionBank transfer if that's more convenient for you.\n\nWe look forward to welcoming you.";
+  const cut = dropBankUnlessAsked(live, 'how do I pay?');
+  assertEquals(/UnionBank/.test(cut), false);
+  assertEquals(cut.startsWith('Ben, you may pay through GCash'), true);
+  assertEquals(cut.endsWith('We look forward to welcoming you.'), true);
+  assertEquals(dropBankUnlessAsked(live, 'GCash or bank transfer?'), live);
+  assertEquals(dropBankUnlessAsked(live, 'can I pay with Maya or other options?'), live);
+  assertEquals(dropBankUnlessAsked('UnionBank transfer works too.', 'how do I pay?'), 'UnionBank transfer works too.'); // never empty
+});

@@ -95,3 +95,22 @@ Deno.test('D-227: the handoff card names a spent model budget, and nothing else'
   assertEquals(draftFailureNote(new Error('openrouter_500: upstream')), '');
   assertEquals(draftFailureNote(new Error('reply truncated at length')), '');
 });
+
+Deno.test('SPEC-32 s2 (F2): Taglish and Bisaya payment claims are payment; send words need the money nearby', () => {
+  for (const t of ['nabayaran ko na po kahapon', 'binayaran ko na po', 'bayad ko na po', 'nasend ko na po yung bayad', 'na-send ko na po ang payment',
+    'sinend ko na po ang gcash', 'na-transfer ko na po ang deposit', 'nag-gcash na po ako', 'nakapagbayad na po kami', 'gibayad na nako', 'nabayran na namo', 'napadala ko na po ang pera'])
+    assertEquals([t, classify(t)], [t, 'payment']);
+  assertEquals(classify('na-send ko na po ang email ko'), 'routine'); // the details step must keep flowing
+  assertEquals(classify('nasend ko na po yung dates'), 'routine');
+});
+
+Deno.test('SPEC-32 s2 (F14): a refund policy question escalates only with a booking; asking for money back always does', () => {
+  assertEquals(classify('If I cancel 3 days before check-in, is the fee refunded?'), 'routine');
+  assertEquals(classify('If I cancel 3 days before check-in, is the fee refunded?', { hasBooking: true }), 'refund');
+  assertEquals(classify('what is your refund policy?'), 'routine');
+  assertEquals(classify('refund my deposit'), 'refund');
+  assertEquals(classify('refund my deposit', { hasBooking: false }), 'refund');
+  assertEquals(classify('is my payment refunded if we cancel?'), 'refund'); // names a booking of its own
+  assertEquals(classify('Is the deposit refundable?', { hasBooking: true }), 'routine');
+  assertEquals(gate('is the fee refunded?', { mode: 'auto', humanUntil: null, botTurns: 0, hasBooking: true }).risk, 'refund');
+});

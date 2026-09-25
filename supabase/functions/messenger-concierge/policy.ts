@@ -9,9 +9,14 @@ const RULES: Array<[RiskCode, RegExp]> = [
   // "pin" needs a closing boundary: Bisaya "pinakaduol" (nearest) was gated as an access request (live 2026-09-13).
   ['access',           /\b(door code|access code|pin\b|passcode|keypad|locked out|can'?t (get in|open)|door won'?t|smart ?lock)/i],
   // "Is the deposit refundable?" is a routine policy question; asking for money back is not.
-  ['refund',           /\b(refund(?!able)|money back|chargeback|ibalik|balik ang pera)/i],
+  // SPEC-32 s2 (F14): "refunded", "refund policy" and "refunds rule" are a prospect's policy question - they escalate only
+  // on a thread that holds a booking or names one (REFUND_BOOKED below). A bare "refund" ("I want a refund") always does.
+  ['refund',           /\b(refund(?!able|ed\b|s? (policy|rule))|money back|chargeback|ibalik|balik ang pera)/i],
   // How to pay is routine (the booking page lists the options); reporting a payment is not.
-  ['payment',          /\b(paid|nagbayad|bayad na|receipt|screenshot|proof of|reference (no|number)|(send|sent|transfer)\w* .{0,25}(deposit|payment|gcash|money)|(deposit|payment) .{0,25}(sent|paid|made))/i],
+  // SPEC-32 s2 (F2): Taglish and Bisaya claims ("nasend ko na po yung bayad" went to the model, which confirmed a booking
+  // no one had checked). A send / transfer / padala verb needs the money within 25 characters: "na-send ko na po ang
+  // email ko" at the details step must not become a payment card and break the booking flow.
+  ['payment',          /\b(paid|nagbayad|bayad na|receipt|screenshot|proof of|reference (no|number)|(send|sent|transfer)\w* .{0,25}(deposit|payment|gcash|money)|(deposit|payment) .{0,25}(sent|paid|made)|nabayaran|binayaran|bayad (ko|namin) na|nag-?gcash|nakapag-?bayad|gi-?bayad|nabayran|(na-?send|nasend|sinend|na-?transfer|napadala)\w* .{0,25}(bayad|payment|gcash|deposit|fee|pera|money|receipt))/i],
   // The cancellation policy is routine; changing an actual booking is not.
   ['cancellation',     /\b(cancel\w*\s+(my|our|the|ang|yung)\s*(booking|reservation|stay|dates|reserba)|cancel po kasi|reschedul|move (my|the) (dates|booking)|change (my|the) dates)/i],
   // D-222: "scam" left this rule - "legit po ba? hindi scam?" is a prospect's trust question (TRUST_RE answers it with
@@ -28,8 +33,16 @@ const RULES: Array<[RiskCode, RegExp]> = [
   ['uncertain',        /\b(system prompt|ignore (previous|your) instructions|api key|database|owner'?s? (phone|address)|other guests?|who else is staying)/i],
 ];
 
-export function classify(text: string): RiskCode {
-  for (const [code, re] of RULES) if (re.test(text)) return code;
+const REFUND_BOOKED = /\b(refund\w*)/i;
+/** A turn names a booking of its own ("my booking", "yung bayad"), whatever the thread holds. */
+export const NAMES_BOOKING = /\b(my|our|aming|among|yung) (booking|reservation|stay|deposit|payment|bayad)\b/i;
+/** `hasBooking`: the thread holds a booking (booking_flow.ref), or the caller is the host drafting for a known guest. */
+export function classify(text: string, opts: { hasBooking?: boolean } = {}): RiskCode {
+  const booked = !!opts.hasBooking || NAMES_BOOKING.test(text);
+  for (const [code, re] of RULES) {
+    if (re.test(text)) return code;
+    if (code === 'refund' && booked && REFUND_BOOKED.test(text) && !/\brefundable\b/i.test(text)) return 'refund';
+  }
   return 'routine';
 }
 
@@ -44,9 +57,9 @@ export function modeFrom(rows: { key: string; value: unknown }[] | null): string
 }
 
 // mode: 'off' = silent; 'suggest' = draft goes to ops only; 'auto' = reply to guest.
-export function gate(text: string, opts: { mode: string; humanUntil: string | null; botTurns: number; now?: Date }): Gate {
+export function gate(text: string, opts: { mode: string; humanUntil: string | null; botTurns: number; now?: Date; hasBooking?: boolean }): Gate {
   const now = opts.now ?? new Date();
-  const risk = classify(text);
+  const risk = classify(text, { hasBooking: opts.hasBooking });
   if (opts.mode === 'off') return { reply: false, handoff: false, risk };
   if (opts.humanUntil && new Date(opts.humanUntil) > now) return { reply: false, handoff: false, risk };
   if (risk !== 'routine') return { reply: true, handoff: true, risk };

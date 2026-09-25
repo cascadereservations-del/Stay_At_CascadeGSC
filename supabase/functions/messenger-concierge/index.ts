@@ -14,7 +14,7 @@ import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, 
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, AMENITY_RE, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -696,7 +696,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // thread could re-introduce her once, which is harmless.
   // ponytail: history scan; add concierge_threads.introduced_at only if a repeat is ever seen live.
   const introduced = thread.history.some((h) => h.role === 'bot' && /\bCassy\b/.test(h.text));
-  const g = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now });
+  const g = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now, hasBooking: !!thread.booking_flow?.ref }); // SPEC-32 s2
   // Lloyd 2026-09-13: a discount ask gets the answer (the direct site applies the best rate
   // automatically; the longer the stay, the higher the discount) AND the host line and card.
   const discountAsk = /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text);
@@ -849,6 +849,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // this runs on the answer before the flow's card is added).
       const feeFixed = fixEarlyFee(out.reply, text);
       if (feeFixed !== out.reply) { console.warn('early_fee_guard', out.reply.slice(0, 160)); out.reply = feeFixed; }
+      // SPEC-32 s1b (D-247, F15): UnionBank only when the guest asked for a bank or another way to pay.
+      const bankless = dropBankUnlessAsked(out.reply, text);
+      if (bankless !== out.reply) { console.warn('bank_unasked_dropped', out.reply.slice(0, 160)); out.reply = bankless; }
       // Lloyd 2026-09-17: a day another guest checks out never gets the 12 noon check-in (golden run 2026-09-25 offered it).
       if (offersEarlyCheckin(out.reply)) {
         const stay = stayFrom(guestTexts, now);

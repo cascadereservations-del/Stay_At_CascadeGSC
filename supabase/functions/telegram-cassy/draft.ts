@@ -36,7 +36,7 @@ const FLAG: Partial<Record<RiskCode, string>> = {
 
 // deno-lint-ignore no-explicit-any
 export async function draftGuestReply(db: any, guestText: string, guestName: string | null): Promise<string> {
-  const risk = classify(guestText);
+  const risk = classify(guestText, { hasBooking: true }); // SPEC-32 s2: the host drafts for a known guest
   // deno-lint-ignore no-explicit-any
   const ctx = guestName ? guestContextLines(await guestContext(db, { name: guestName }).catch(() => ({} as any))) : [];
   const system = `${VOICE}\n\nFACTS:\n${typeof FACTS === 'string' ? FACTS : JSON.stringify(FACTS)}\n\nYou are drafting for the HOST to copy and send from the Facebook Page; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. Do not invent availability or prices beyond FACTS; if dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;

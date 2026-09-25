@@ -87,7 +87,7 @@ Deno.test('SPEC-31 s3: a photo after the hold lapsed is a receipt for the host t
   assertEquals([h.detail.risk, h.detail.note.includes('DIR-1'), /lapsed/.test(h.detail.note)], ['payment', true, true]);
   assertEquals([r.saved.booking_flow.step, !!r.saved.booking_flow.photo_at, r.saved.booking_flow.updated_at], ['await_receipt', true, lapsed.updated_at]);
   // ...and a "paid na" after it hears that the photo is with us
-  const again = await turn(r.saved.booking_flow, { text: "paid na po kahapon" });
+  const again = await turn(r.saved.booking_flow, { text: "nabayaran ko na po kahapon" });
   assertEquals(/^(Opo|Yes), Ben, (nasa amin|your receipt)/.test(again.reply), true);
 });
 
