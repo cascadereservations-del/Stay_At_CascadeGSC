@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, otherQuestions, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
+import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -450,14 +450,15 @@ async function pendingBlock(db: Db, psid: string): Promise<string> {
   return `\n\nPENDING WITH THE HOST (already passed along; the host will answer these personally):\n${lines.join('\n')}\nKeep answering everything else normally. If the guest asks about a pending item again, say warmly that the host is reviewing it and will reply personally - do not answer it yourself and do not promise an outcome.`;
 }
 
-async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note = ''): Promise<void> {
+async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note = '', anyWording = false): Promise<void> {
   const chat = env('TELEGRAM_CHAT_ID'); if (!chat) return;
   // A repeat of the SAME ask within 24 h nudges nobody twice. It used to be one open card per
   // guest per risk with no age limit: two stale policy cards from the day before silently
   // swallowed a dog request and a price proposal (live audit 2026-09-13) - the host never saw them.
+  // SPEC-31 s2: after the QR every payment claim is the same ask, whatever its wording - one card per 24 h.
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   const { data: dup } = await db.from('concierge_handoffs').select('guest_text').eq('psid', thread.psid).eq('risk', risk).eq('status', 'open').gte('created_at', new Date(Date.now() - HUMAN_HOLD_MS).toISOString()).limit(10);
-  if ((dup ?? []).some((d: any) => norm(String(d.guest_text)) === norm(text))) return;
+  if ((dup ?? []).some((d: any) => anyWording || norm(String(d.guest_text)) === norm(text))) return;
   const options = await suggestOptions(thread, text, await availabilityBlock(db));
   const { data: row } = await db.from('concierge_handoffs').insert({ psid: thread.psid, guest_name: thread.guest_name, guest_text: text, risk, options }).select('id').single();
   const id: string = row?.id ?? ''; if (!id) return;
@@ -606,7 +607,7 @@ type Effects = {
   send(psid: string, text: string): Promise<void>;
   qr(psid: string, flow: Flow | null, fallbackUrl: string): Promise<void>;
   ops(text: string): Promise<void>;
-  handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string): Promise<void>;
+  handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string, anyWording?: boolean): Promise<void>;
   submit(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }>;
   receipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }>;
   name(psid: string): Promise<string | null>;
@@ -623,25 +624,27 @@ const liveEffects: Effects = {
   ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName,
 };
 type ProbeCall = { fx: string; text?: string; detail?: unknown };
-function probeEffects(calls: ProbeCall[], guestName: string | null): Effects {
+export function probeEffects(calls: ProbeCall[], guestName: string | null, now = new Date()): Effects {
   return {
     send: (_psid, text) => { calls.push({ fx: 'send', text }); return Promise.resolve(); },
     qr: (_psid, flow) => { calls.push({ fx: 'qr', detail: { amount: flow?.deposit ?? null } }); return Promise.resolve(); },
     ops: (text) => { calls.push({ fx: 'ops', text: text.slice(0, 300) }); return Promise.resolve(); },
-    handoff: (_db, _thread, text, risk) => { calls.push({ fx: 'handoff', text: text.slice(0, 200), detail: { risk } }); return Promise.resolve(); },
+    handoff: (_db, _thread, text, risk, _link, note) => { calls.push({ fx: 'handoff', text: text.slice(0, 200), detail: { risk, note: note ?? '' } }); return Promise.resolve(); },
     submit: (flow, thread) => {
-      const q = quoteTotal(flow.checkin!, flow.checkout!), deposit = flow.pay_full ? q.total : q.deposit, at = new Date();
+      const q = quoteTotal(flow.checkin!, flow.checkout!), deposit = flow.pay_full ? q.total : q.deposit, at = now;
       calls.push({ fx: 'submit', detail: { checkin: flow.checkin, checkout: flow.checkout, pax: flow.pax, total: q.total, deposit } });
+      // SPEC-31 s6: mirrors submit-booking - a hold only for the fee 5+ days out; the Messenger upload window is 24 h either way (D-255).
+      const hold = !flow.pay_full && !lastMinute(flow.checkin!, at);
       const until = new Date(at.getTime() + 24 * 3_600_000).toISOString();
-      const f: Flow = { ...flow, step: 'await_receipt', booking_id: 'probe', ref: 'DIR-PROBE', deposit, total: q.total, hold: true, hold_expires_at: until, receipt_token: 'probe', receipt_expires_at: until, updated_at: at.toISOString() };
-      return Promise.resolve({ flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL), image: QR_URL });
+      const f: Flow = { ...flow, step: 'await_receipt', booking_id: 'probe', ref: 'DIR-PROBE', deposit, total: q.total, hold, hold_expires_at: hold ? until : null, receipt_token: 'probe', receipt_expires_at: until, updated_at: at.toISOString() };
+      return Promise.resolve({ flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL, at), image: QR_URL });
     },
     receipt: (flow, _url, name) => { calls.push({ fx: 'receipt' }); return Promise.resolve({ sent: true, reply: receiptThanks(flow, name ? name.split(' ')[0] : 'po') }); },
     name: () => Promise.resolve(guestName),
   };
 }
 
-async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects = liveEffects, now = new Date()): Promise<void> {
+export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects = liveEffects, now = new Date()): Promise<void> {
   const msg = ev.message; if (!msg) return;
 
   // Staff replied from the Page inbox: hold the bot on this thread.
@@ -711,9 +714,30 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
   let startText: string | null = null;
   let calendarDown = false; // session 30: the calendar read failed on this turn - the reply does not claim availability and a host is told
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
-  if (g.reply && flow?.step === 'await_receipt' && attachment) {
-    const r = await fx.receipt(flow, String(attachment.payload.url), thread.guest_name);
-    flowReply = r.reply; if (r.sent) flow = { ...flow, step: 'receipt_sent', updated_at: now.toISOString() };
+  // SPEC-31 (REVIEW F1-F3): after the QR, code owns the cancel, the "paid na" claim and the stray photo. `booked` is the
+  // thread's booking whatever its step, readable 8 days (lastRef); a card's risk and note are applied after flowReply.
+  const booked = lastRef(thread.booking_flow, now);
+  let card: { risk: RiskCode; note: string; anyWording: boolean } | null = null;
+  const uploadOpen = flow?.step === 'await_receipt' && !(flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < now.getTime());
+  const guestSaid = thread.history.filter((h) => h.role === 'guest').slice(-6).map((h) => h.text).join(' ');
+  if (g.reply && uploadOpen && attachment) {
+    const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name);
+    flowReply = r.reply; if (r.sent) flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() };
+  } else if (g.reply && attachment && (booked || /\b(gcash|bayad|paid|receipt|deposit|payment|sent)\b/i.test(`${guestSaid} ${text}`))) {
+    // s3: a photo with no live upload (hold lapsed, second photo, never booked) is a receipt for the host to match.
+    flowReply = strayReceiptReply(booked?.name ?? thread.guest_name, replyLang(text || guestSaid.slice(-200), booked?.lang));
+    card = { risk: 'payment', note: booked ? holdNote(booked, now) : 'No booking on this thread; the guest mentioned payment.', anyWording: true };
+    if (booked) { const seen: Flow = { ...booked, photo_at: now.toISOString() }; thread.booking_flow = seen; if (flow) flow = seen; } // updated_at untouched: a lapsed flow stays lapsed
+  } else if (g.reply && text && flow && ['await_receipt', 'receipt_sent'].includes(flow.step) && CANCEL_RE.test(text) && ['routine', 'cancellation'].includes(g.risk)) {
+    // s1: never "we'll cancel it" from the model - the host releases the hold (telegram-expense bk_no) from this card.
+    const change = (parseDates(text, now)[0] ?? '') >= dayStr(new Date(now.getTime() + 8 * 3_600_000));
+    flowReply = holdCancelReply(flow, flow.name ?? thread.guest_name, replyLang(text, flow.lang), change);
+    card = { risk: 'cancellation', note: holdNote(flow, now, change ? 'change requested' : ''), anyWording: false };
+    flow = { ...flow, step: 'cancel_requested', updated_at: now.toISOString() };
+  } else if (g.reply && text && booked && ['await_receipt', 'receipt_sent', 'cancel_requested'].includes(booked.step) && g.risk === 'payment') {
+    // s2: "paid na po?" is answered from what we hold, and the host gets one payment card per 24 h.
+    flowReply = paidClaimReply(booked, booked.name ?? thread.guest_name, replyLang(text, booked.lang));
+    card = { risk: 'payment', note: holdNote(booked, now), anyWording: true };
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
     const before = flow;
     const s = answer(flow, text, now); flow = s.flow;
@@ -750,6 +774,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }
+  if (card) { handoff = true; risk = card.risk; draftNote = card.note; } // SPEC-31: the code line goes to the guest AND the host gets the card
   if (calendarDown) flagOnly = true; // OPS gets the glance card: the guest was told we will confirm the dates
 
   // Lloyd 2026-09-17 14:40: Bislish only when the guest keeps writing Bisaya (this turn and their previous one); a lone
@@ -979,8 +1004,8 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // only when a human actually replies from the inbox (echo) - or on a safety report.
       if (risk === 'safety') thread.human_until = new Date(now.getTime() + HUMAN_HOLD_MS).toISOString();
       if (mode === 'auto') {
-        if (text) await fx.handoff(db, thread, text, risk, link, draftNote);
-        else await fx.ops(withHeader('guest', `handoff · ${risk}`, `🛎 Concierge handoff (${risk})\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`));
+        if (text || card) await fx.handoff(db, thread, text || '[photo: likely a payment receipt]', risk, link, draftNote, card?.anyWording);
+        else await fx.ops(withHeader('guest', 'handoff · attachment', `🛎 Concierge handoff (attachment)\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`)); // SPEC-31 s3: a photo, not an uncertainty
       }
     } else if (flagOnly && mode === 'auto') {
       await fx.ops(withHeader('guest', 'glance', `👀 ${calendarDown ? 'The calendar could not be read: the guest was told we will confirm the dates. Please check and reply.' : 'Concierge answered but wants a host to glance'}\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`));
@@ -1018,7 +1043,7 @@ async function runProbe(body: string): Promise<Response> {
       const message: Record<string, unknown> = { mid: `probe-${i}`, text: turn.text ?? undefined };
       if (turn.image) message.attachments = [{ type: 'image', payload: { url: 'https://example.invalid/receipt.jpg' } }];
       const calls: ProbeCall[] = [], t0 = Date.now();
-      await handle(db, { sender: { id: psid }, recipient: { id: PAGE_ID }, message }, 'auto', probeEffects(calls, p.name ?? null), now);
+      await handle(db, { sender: { id: psid }, recipient: { id: PAGE_ID }, message }, 'auto', probeEffects(calls, p.name ?? null, now), now);
       const { data: row } = await db.from('concierge_threads').select('booking_flow, last_risk, guest_name').eq('psid', psid).maybeSingle();
       const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
       out.push({ guest: turn.text ?? '[image]', reply, step: row?.booking_flow?.step ?? null, flow_lang: row?.booking_flow?.lang ?? null, risk: row?.last_risk ?? null,

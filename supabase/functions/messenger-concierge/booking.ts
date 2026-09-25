@@ -7,7 +7,8 @@ import { RATE_TIERS } from '../_shared/cascade-core/facts.ts';
 export type Lang = 'en' | 'tl' | 'bis';
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 export type Flow = {
-  step: 'dates' | 'checkout' | 'pax' | 'offer' | 'contact' | 'confirm' | 'await_receipt' | 'receipt_sent' | 'confirmed' | 'cancelled';
+  /** SPEC-31 s1: 'cancel_requested' = the guest asked to cancel or change while the hold was open; the host decides. */
+  step: 'dates' | 'checkout' | 'pax' | 'offer' | 'contact' | 'confirm' | 'await_receipt' | 'receipt_sent' | 'confirmed' | 'cancelled' | 'cancel_requested';
   checkin?: string; checkout?: string; pax?: number; phone?: string; email?: string | null;
   /** SPEC-14 (D-184): the name for the reservation, asked in the details step; it wins over the Facebook profile name. */
   name?: string;
@@ -20,10 +21,12 @@ export type Flow = {
   bis_turns?: number; // consecutive Bisaya guest turns (settleLang)
   booking_id?: string; ref?: string; deposit?: number; total?: number; hold?: boolean; hold_expires_at?: string | null;
   receipt_token?: string; receipt_expires_at?: string; started_at: string; updated_at: string;
+  /** SPEC-31 s3: a photo reached us outside the upload (lapsed hold, second photo); the host matches it by hand. */
+  photo_at?: string;
 };
 
 export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i-?book|mag-?reserve|hold (the|my|our) dates|arrange (it|the booking)|(do|settle) it here|here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i; // session 30: invitations now offer the chat route, so its natural answers start the flow
-const CANCEL_RE = /\b(cancel|stop|wag na|huwag|never ?mind|nevermind|not now|forget it)\b/i;
+export const CANCEL_RE = /\b(cancel|stop|wag na|huwag|never ?mind|nevermind|not now|forget it|change of plans|di na tuloy|hindi na tuloy|dili na|wag na lang)\b/i;
 const YES_RE = /^\s*(yes|yes po|oo|oo po|sige|sige po|go|confirm|confirmed|ok|okay|okay po|ok po|proceed|tama|correct|yup|yep|y)\s*[.!]*\s*$/i;
 const SKIP_RE = /^\s*(skip|wala|none|no email|no)\s*[.!]*\s*$/i;
 const FULL_RE = /\b(full|buo|buong|lahat|whole|everything|total|bayaran (ko )?lahat|in full)\b/i;
@@ -302,7 +305,69 @@ export function availabilityLine(flow: Flow, bookedNights: Set<string> | null, n
 }
 
 export function isActive(flow: Flow | null | undefined, now = new Date()): flow is Flow {
-  return !!flow && !['confirmed', 'cancelled'].includes(flow.step) && now.getTime() - Date.parse(flow.updated_at) < FLOW_TTL_MS;
+  return !!flow && !['confirmed', 'cancelled', 'cancel_requested'].includes(flow.step) && now.getTime() - Date.parse(flow.updated_at) < FLOW_TTL_MS;
+}
+/** SPEC-31 s3: the booking this thread made, whatever its step, while it is under 8 days old - isActive drops it after
+ *  24 h, and a receipt photo or a "paid na" after the hold lapsed still belongs to it. A new flow overwrites it. */
+export function lastRef(flow: Flow | null | undefined, now = new Date()): Flow | null {
+  return flow?.ref && now.getTime() - Date.parse(flow.updated_at) < 8 * 86_400_000 ? flow : null;
+}
+/** SPEC-31: the register of a code line after the QR - the guest's own words when they carry a language, else the flow's.
+ *  Bislish only when the flow already settled on it (D-172). */
+export function replyLang(text: string, fallback: Lang | undefined): Lang {
+  const d = detectLang(text);
+  if (d === 'bis') return fallback === 'bis' ? 'bis' : 'tl';
+  if (d === 'tl') return 'tl';
+  return (text.match(/[a-z]{3,}/gi) ?? []).length >= 3 ? 'en' : fallback ?? 'en';
+}
+const manilaAt = (iso: string) => new Date(iso).toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+/** SPEC-31: the host card's note - which booking, and whether its hold still stands. */
+export function holdNote(flow: Flow, now = new Date(), extra = ''): string {
+  const hold = !flow.hold_expires_at ? 'no hold (full payment)'
+    : Date.parse(flow.hold_expires_at) < now.getTime() ? `hold lapsed ${manilaAt(flow.hold_expires_at)}` : `hold until ${manilaAt(flow.hold_expires_at)}`;
+  return [`Ref ${flow.ref}`, extra, hold].filter(Boolean).join(' · ');
+}
+const firstName = (name: string | null | undefined) => (name ?? '').trim().split(/\s+/)[0] ?? '';
+/** SPEC-31 s1 (REVIEW F1): "cancel po" while the hold is open. Code says it and a host card does it - nothing is
+ *  released from the chat. A date in the same message is a change, not a cancel. */
+export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, change: boolean): string {
+  const n = firstName(name), c = n ? `, ${n}` : '';
+  const dates = dmRange(flow.checkin!, flow.checkout!);
+  // After a receipt, "nothing is charged" would be false: the 5-day rule decides, and the host says so.
+  if (!change && flow.step === 'receipt_sent') return pick(lang, {
+    en: `Understood${c}. We've let our host know and they'll release the hold on ${dates} for you; they'll go over your payment with you here.`,
+    tl: `Noted po${c}. Sinabihan na namin ang host at ire-release nila ang hold sa ${dates}; pag-uusapan nila dito ang payment ninyo.`,
+    bis: `Noted${c}. Gi-ingnan na namo ang host ug i-release nila ang hold sa ${dates}; istoryahan nila diri ang inyong payment.` });
+  return change
+    ? pick(lang, {
+        en: `Noted${c} - we can look at that. We've passed the change to our host, and they'll confirm the new dates and the hold here.`,
+        tl: `Noted po${c} - we can look at that. Naipasa na namin sa host ang change; iko-confirm nila dito ang bagong dates at ang hold.`,
+        bis: `Noted${c} - we can look at that. Gipasa na namo sa host ang change; i-confirm nila diri ang bag-ong dates ug ang hold.` })
+    : pick(lang, {
+        en: `Understood${c}. We've let our host know and they'll release the hold on ${dates} for you; nothing is charged. If your plans change again, your dates are one message away.`,
+        tl: `Noted po${c}. Sinabihan na namin ang host at ire-release nila ang hold sa ${dates}; walang bayad. Kung magbago ulit ang plano ninyo, one message away lang po ang dates.`,
+        bis: `Noted${c}. Gi-ingnan na namo ang host ug i-release nila ang hold sa ${dates}; walay bayad. Kung mausab balik ang plano, one message away ra ang dates.` });
+}
+/** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
+export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): string {
+  const n = firstName(name), c = n ? `, ${n}` : '';
+  return flow.step === 'receipt_sent' || flow.photo_at
+    ? pick(lang, {
+        en: `Yes${c}, your receipt is with us and our host is reviewing it now. You'll hear the confirmation here.`,
+        tl: `Opo${c}, nasa amin na po ang receipt ninyo at nire-review na ng host. Dito po ninyo matatanggap ang confirmation.`,
+        bis: `Oo${c}, naa na sa amo ang receipt ug gi-review na sa host. Diri ra ninyo madawat ang confirmation.` })
+    : pick(lang, {
+        en: `Thank you${c}. We don't have the receipt yet on our side - a screenshot of the GCash confirmation sent here is all we need, and our host will match it to ${flow.ref}.`,
+        tl: `Salamat po${c}. Wala pa po sa amin ang receipt - screenshot lang po ng GCash confirmation dito at ima-match ito ng host sa ${flow.ref}.`,
+        bis: `Salamat${c}. Wala pa sa amo ang receipt - screenshot ra sa GCash confirmation diri ug i-match sa host sa ${flow.ref}.` });
+}
+/** SPEC-31 s3 (REVIEW F3): a photo with no live upload - never promises the dates are still free. */
+export function strayReceiptReply(name: string | null, lang: Lang): string {
+  const n = firstName(name), c = n ? `, ${n}` : '';
+  return pick(lang, {
+    en: `Thank you${c}. We have your photo. Our host will match it to your booking and confirm here; if the hold had lapsed, they'll check the dates are still open and set them up again.`,
+    tl: `Salamat po${c}. Nasa amin na ang photo. Ima-match ito ng host sa booking ninyo at iko-confirm dito; kung nag-lapse na ang hold, iche-check nila kung open pa ang dates at ise-set up ulit.`,
+    bis: `Salamat${c}. Naa na sa amo ang photo. I-match ni sa host sa inyong booking ug i-confirm diri; kung na-lapse na ang hold, i-check nila kung open pa ang dates ug i-set up balik.` });
 }
 
 /** The first reply of a flow: a host's welcome that acknowledges what the guest already told us
@@ -587,6 +652,11 @@ export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, 
         en: `${n ? `${n}, we've` : `We've`} set aside ${dates} for you for 24 hours, until ${until} (${rel}). Your booking reference is ${flow.ref}.`,
         tl: `${n ? `${n}, na-hold` : `Na-hold`} na po namin ang ${dates} for you for 24 hours — until ${until} (${rel}). Ang booking reference ninyo po ay ${flow.ref}.`,
         bis: `${n ? `${n}, na-hold` : `Na-hold`} na namo ang ${dates} for you for 24 hours — until ${until} (${rel}). Your booking reference is ${flow.ref}.` })
+    // SPEC-31 s6 (F16): a full payment far ahead opens no hold; "as your stay is near" was false 40 days out.
+    : !lastMinute(flow.checkin!, now) ? pick(L, {
+        en: `${n ? `${n}, we've` : `We've`} received your request for ${dates}, and it is yours as soon as your payment arrives. Your booking reference is ${flow.ref}.`,
+        tl: `${n ? `${n}, received` : `Received`} na po namin ang request ninyo for ${dates}, at sa inyo na ito once dumating ang payment. Ang booking reference ninyo po ay ${flow.ref}.`,
+        bis: `${n ? `${n}, na-receive` : `Na-receive`} na namo ang request ninyo for ${dates}, ug inyo na ni once muabot ang payment. Your booking reference is ${flow.ref}.` })
     : pick(L, {
         en: `${n ? `${n}, we've` : `We've`} received your request for ${dates}. Your booking reference is ${flow.ref}. As your stay is near, we'll confirm as soon as your payment arrives.`,
         tl: `${n ? `${n}, received` : `Received`} na po namin ang request ninyo for ${dates}. Ang booking reference ninyo po ay ${flow.ref}. Malapit na ang stay, kaya iko-confirm namin as soon as dumating ang payment.`,

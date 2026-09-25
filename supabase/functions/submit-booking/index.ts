@@ -195,7 +195,8 @@ Deno.serve(async (req) => {
     else holdExpiresAt = (hold as { expires_at?: string } | null)?.expires_at ?? null;
   }
   // v16 (session 27): a Messenger guest pays inside the chat, so a pay-first request gets 2 h, not 15 min.
-  const receiptUploadExpiresAt = Date.now() + (isHold ? HOLD_HOURS * 60 : body.channel === 'messenger' ? 120 : 15) * 60 * 1000;
+  // D-255 (2026-09-26): 24 h, the same window a hold gets - a guest paying in full 40 days out got 2 h and had to start over.
+  const receiptUploadExpiresAt = Date.now() + (isHold ? HOLD_HOURS * 60 : body.channel === 'messenger' ? 24 * 60 : 15) * 60 * 1000;
   const receiptUploadToken = receiptUploadSecret
     ? await issueReceiptUploadToken({ bookingId: inquiry.id, nonce: crypto.randomUUID(), expiresAt: receiptUploadExpiresAt }, receiptUploadSecret)
     : null;
