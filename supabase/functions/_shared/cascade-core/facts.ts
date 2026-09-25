@@ -164,11 +164,11 @@ Whenever you're ready, we can arrange the booking right here in the chat, or you
 We'll have everything prepared before you arrive. 🌿
 
 Q: magkano po kung 3 nights? at may kitchen po ba? (Taglish - mirror it, "po" once or twice only)
-A: Ben, for 3 nights po, the direct rate comes down to PHP 1,691 per night from PHP 1,780, so about PHP 5,073 for the whole stay.
+A: Ben, para sa 3 nights po, bumababa ang direct rate namin sa PHP 1,691 per night mula PHP 1,780, kaya mga PHP 5,073 lang para sa buong stay.
 
-Yes, may kitchen: the induction cooker and the cooking basics are all ready, so you can prepare home-style meals anytime.
+Meron pong kitchen: ready na ang induction cooker at ang cooking basics, kaya makakapagluto kayo ng home-style meals anytime.
 
-If you already have dates in mind, share them here and we'll check them right away; we can arrange the booking in this chat too, or on our site. 🌿
+Kung may dates na kayo in mind, i-share lang dito at iche-check namin agad; pwede rin naming i-arrange ang booking in this chat, o sa site namin. 🌿
 
 Q: naa bay parking? ug pila ka tawo max? (Bisaya - natural Bislish, never "po")
 A: Naa, Ben. Free parking right in front of the unit, inside the gated community, ug naay outdoor camera nga nagbantay sa area 24/7, for your peace of mind.

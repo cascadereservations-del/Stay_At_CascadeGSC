@@ -344,7 +344,7 @@ Deno.test('SPEC-01: the opener carries the Cassy sentence exactly once, in every
     const f = { ...start(guest, now), lang };
     const first = opener(f, 'Ben', availabilityLine(f, new Set()), true) + prompt({ ...f, step: 'contact' }, 'Ben');
     assertEquals(first.split('Cassy').length - 1, 1, l3);                       // said, and said once
-    assertEquals(first.includes(CASSY_INTRO[l3]), true, l3);                    // the approved sentence, verbatim
+    assertEquals(first.includes(CASSY_INTRO[l3].trimEnd()), true, l3);          // the approved sentence, verbatim (SPEC-28: its trailing space became the paragraph break)
     assertEquals(lintReply(first, guest, { firstTurn: true }), [], l3);         // still passes the protocol
   }
 });

@@ -6,7 +6,7 @@
 // lintReply() is run over every canned prompt in voice.test.ts (fails the build) and over every
 // outgoing reply at runtime (warn-only log `voice_lint`, so live drift is visible without blocking).
 
-import { CASSY_INTRO, greeting } from './booking.ts';
+import { AMENITY_RE, CASSY_INTRO, greeting } from './booking.ts';
 import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 
 export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense' | 'command_tone' | 'exclaim' | 'boilerplate';
@@ -77,12 +77,14 @@ const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? fo
 /** True when the reply is not in the register code settled for this turn (golden run 2026-09-17: an English question got
  *  the Taglish reference reply pasted whole; "Hm po per night?" got plain English). Narrow on purpose: two Tagalog markers
  *  in an English reply, any Tagalog-only word in a Bislish one, no Filipino word at all in a substantive Taglish one. */
-const TL_MARK_RE = /\b(po|lang|dito|kayo|ninyo|namin|aming|puwede|pwede|salamat|kami|ang|sa|ng|mga)\b/gi;
+// SPEC-28: a substantive Taglish reply needs TWO marks. English with one "po" passed as Taglish (live 2026-09-24,
+// "magkano po kung 3 nights?"), so nothing measured it; the function words added here are what real Taglish carries.
+const TL_MARK_RE = /\b(po|lang|dito|kayo|ninyo|namin|aming|puwede|pwede|salamat|kami|ang|sa|ng|mga|para|kaya|ba)\b/gi;
 export function offRegister(reply: string, lang: 'en' | 'tl' | 'bis'): boolean {
   const n = (reply.match(TL_MARK_RE) ?? []).length;
   if (lang === 'en') return n >= 3;
   if (lang === 'bis') return /\b(po|opo|kayo|namin|niyo|kasya|hindi|ngayon|dito|aming)\b/i.test(reply);
-  return reply.length > 120 && n === 0;
+  return reply.length > 120 && n < 2;
 }
 
 /** True when a model reply is long enough to carry care and carries none. Complaint and safety turns are handed off
@@ -266,7 +268,7 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
 // The Tagalog and Bisaya amenity words are the same loanwords as the English ones, so the noun list
 // carries all three registers. The spec's `may .* ba` / `naa .* ba` catch-alls are deliberately NOT
 // here: they matched "may available ba sa Oct 3", which is a dates question, not an amenity one.
-export const AMENITY_RE = /\b(amenities|amenity|included|inclusions|photos?|pictures?|pics|wifi|wi-fi|internet|aircon|air-?con|\bac\b|kitchen|tv|netflix|washing|laundry|parking)\b|what'?s (it|the place|the unit|the home) like/i;
+export { AMENITY_RE }; // defined in booking.ts since SPEC-28 (start() uses it; this file imports booking.ts)
 export const TRUST_RE = /\b(reviews?|feedback|legit|legitimate|scam|trust|trustworthy|tinuod)\b|\bsafe( po)? ba\b|\bluwas ba\b/i;
 
 /** '' when nothing should be added. `has` says which link the thread has already shown. */

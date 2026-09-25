@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, detectLang, greeting, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
+import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, answerOnly, appendLook, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -117,7 +117,7 @@ function botReply(name: string | null, lang: string): string {
 // the standard total, the discounted total and the added value are computed here so the
 // numbers are never invented ("5 nights: PHP 8,900 becomes about PHP 8,010, with drinking water").
 const peso = (n: number) => 'PHP ' + n.toLocaleString('en-US');
-function stayAnchor(text: string): string {
+function stayAnchor(text: string, lang = 'english'): string {
   const m = /\b(\d{1,2})\s*(?:nights?|gabi|days?|araw)\b/i.exec(text);
   if (!m) return '';
   const n = Number(m[1]);
@@ -127,7 +127,12 @@ function stayAnchor(text: string): string {
   // Order and wording follow pricing research: anchor on the standard rate, adjust to the precise
   // direct rate (precise figures read as calculated and lower), then the per-stay total, then the
   // saving in pesos (rule of 100: absolute over percent when the base is large), then one value-add.
-  return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(1780)}", (2) "about ${peso(n * tier.rate)} for the stay instead of ${peso(n * 1780)}", (3) "so you keep about ${peso(n * (1780 - tier.rate))}"${extras ? `, (4) "${extras.slice(2)}"` : ''}. Do not state the percentage; do not use the word "discount" more than once; then the link, then ask which dates they are looking at.] `;
+  // SPEC-28 section 1: the quoted wording was English whatever the guest wrote, so a Taglish rate question got an English
+  // answer with one "po". A Taglish turn gets the same three facts, same order, in everyday Taglish.
+  const q = lang === 'taglish'
+    ? [`para sa ${n} nights po, bumababa ang direct rate namin sa ${peso(tier.rate)} per night mula sa standard ${peso(1780)}`, `mga ${peso(n * tier.rate)} para sa buong stay imbes na ${peso(n * 1780)}`, `kaya makakatipid kayo ng mga ${peso(n * (1780 - tier.rate))}`, n >= 7 ? 'kasama na rin ang complimentary mid-stay cleaning with fresh linens and towels' : n >= 5 ? 'kasama na rin ang drinking water for the stay' : '']
+    : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(1780)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * 1780)}`, `so you keep about ${peso(n * (1780 - tier.rate))}`, extras.slice(2)];
+  return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "${q[0]}", (2) "${q[1]}", (3) "${q[2]}"${q[3] ? `, (4) "${q[3]}"` : ''}. Do not state the percentage; do not use the word "discount" more than once; then the link, then ask which dates they are looking at.] `;
 }
 // Dates the guest has already given, so a later early/late check-in question is answered against
 // the calendar instead of "once your dates are set" (live audit 2026-09-13, Oct 10-12 given two turns earlier).
@@ -298,19 +303,8 @@ const VOICE_COMPACT = voiceCompact();
 const systemPrompt = (thread: Thread, availability: string, landmarks = '', compact = false) =>
   `${compact ? VOICE_COMPACT : VOICE}\n\nGUEST FIRST NAME: ${thread.guest_name ?? 'unknown'}\n\nFACTS\n${FACTS}\n\nLANDMARKS\n${landmarks}\n\nAVAILABILITY\n${availability}`;
 
-// Language of the guest's message, decided in code so the instruction can ride on the user turn
-// itself, where small models honour it. Taglish/Tagalog and Bisaya markers; everything else English.
-// Lloyd 2026-09-13: "how far from SM po" is an English sentence with a courtesy particle, not
-// Taglish - it gets English back (one "po" welcome). Taglish needs a Tagalog content word.
-function guestLang(text: string): 'taglish' | 'bisaya' | 'english_po' | 'english' {
-  const t = ` ${text.toLowerCase()} `;
-  if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini|usbon|usba|mi|kabuok|tawo|ug|og|dili|among|ugma|gahapon|muabot|moabot)\b/.test(t)) return 'bisaya';
-  if (/\b(ang|ng|mga|kayo|ninyo|magkano|pwede|puwede|salamat|meron|kailan|saan|paano|bukas|ngayon|opo|hindi|kasi|namin|natin|sige|okay lang|ayos|kami|ako|niyo|nyo)\b/.test(t)) return 'taglish';
-  const particles = (t.match(/\b(po|ba|lang|naman|opo)\b/g) ?? []).length;
-  if (particles >= 2 || /\bhm po\b|\bhm\b[^.?!]{0,20}\b(night|gabi|rate)\b/.test(t)) return 'taglish';      // "may parking po ba?"; "hm po per night?" is Filipino text-speak (golden run 2026-09-17: it got plain English)
-  if (particles === 1) return 'english_po';  // "how far from SM po"
-  return 'english';
-}
+// Language of the guest's message, decided in code so the instruction can ride on the user turn itself, where small
+// models honour it: guestLang() in booking.ts, the one detector (SPEC-28 section 4).
 const LANG_HINT = {
   taglish: '[Reply in natural conversational Taglish with "po" - everyday Tagalog mixed with English the way a GenSan host texts, not formal Tagalog.] ',
   bisaya: '[Tubaga sa natural nga Bislish. Reply in natural Bislish (Cebuano with English hospitality terms). Never use Tagalog "po" / "opo" or Tagalog words such as "kasya".] ',
@@ -739,11 +733,13 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
     if (needsCalendarCheck(flow)) {
       const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
       const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
-      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greeting(thread.guest_name, flow.lang, !introduced) + line; }
-      else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
+      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greetBlock(thread.guest_name, flow.lang, !introduced) + line; } // SPEC-28 section 3
+      // SPEC-28 section 2: "is Oct 26 to 28 open? is there wifi?" - the model answers the wifi, then the dates line and the
+      // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
+      else if (flow.asked === 'question' || flow.question) flowFollowUp = opener(flow, thread.guest_name, flow.question ? line : '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
       else flowReply = opener(flow, thread.guest_name, line, !introduced) + prompt(flow, thread.guest_name);
       // D-173: no Cassy sentence on a resumed card - the disclosure belongs to the greeting, never to a flowFollowUp.
-    } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name).trim() + '\n\n' + prompt(flow, thread.guest_name);
+    } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name, '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
     else flowReply = opener(flow, thread.guest_name, '', !introduced) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
@@ -779,7 +775,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       const datesHint = datesKnown.length ? `[Guest's dates already given: ${datesKnown.join('; ')} - answer for these days, do not ask for dates.] ` : '';
       // Capacity rides on the guest turn too: "pwede 5 adults?" got "we can accommodate 5 adults" (live 2026-09-13).
       const capHint = /\b([4-9]|1\d)\s*(adults?|pax|persons?|people|guests?|tao|matanda)\b/i.test(text) ? '[Capacity is a hard limit: 3 adults, or 3 adults + 1 child, or 2 adults + 2 children. This group does not fit - say so warmly and suggest a larger place; never say we can accommodate them.] ' : '';
-      const anchor = stayAnchor(guestTexts.slice(-3).join(' '));
+      const anchor = stayAnchor(guestTexts.slice(-3).join(' '), lang);
       const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, 5% from 2 nights up to 25% from 28 nights, the longer the stay the higher the discount - then the link. Do not quote any other number and do not promise a special price.] ${anchor}` : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.

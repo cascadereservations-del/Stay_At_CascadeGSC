@@ -33,12 +33,14 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'first-avail-tl', group: 'first', turns: [{ say: `Available po ba ang ${d2}? 2 po kami`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i, /1,691/, /I-set na po/i], mustNot: [LINK, /reservation fee|50%/i] }] },
     { id: 'first-location-en', group: 'first', turns: [m('location', 'en', { must: [LINK, /Bria Homes/i, /thank you for reaching out/i] })] },
     { id: 'first-howtobook-en', group: 'first', turns: [m('How do I book?', 'en', { must: [LINK, /thank you for reaching out/i] })] },
+    // SPEC-28 section 2: dates AND a question in the first message - both answered, one greeting (R7)
+    { id: 'first-avail-and-amenity-en', group: 'first', turns: [{ say: `Hi, is ${range(base, o + 2, 2)} open? Is there wifi?`, kind: 'midflow', lang: 'en', must: [/wi-?fi/i, /(open|available|free)/i] }] },
     { id: 'first-bisaya-gets-taglish', group: 'register', turns: [{ say: `Naa bay bakante ${d2}?`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i], mustNot: [LINK] }] },
 
     // ---- follow-ups: warm, no greeting, no re-ask, at most one invitation
     { id: 'fu-amenity-en', group: 'followup', turns: [m('Hi, do you have wifi?'), m('Is there a kitchen too?', 'en', { must: [/induction|kitchen/i] })] },
     { id: 'fu-amenity-with-dates-en', group: 'followup', turns: [{ say: `Hi! Is ${d2} open? 2 guests`, kind: 'flow', lang: 'en' }, { say: 'and is there wifi?', kind: 'midflow', lang: 'en', must: [/wi-?fi/i] }] },
-    { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'en'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/] })] },
+    { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'en'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/, /\b(para|kaya|mga|ang)\b/] })] },
     { id: 'fu-parking-en', group: 'followup', turns: [{ say: `Hello, is ${d3} available?`, kind: 'flow', lang: 'en' }, { say: 'Is there parking?', kind: 'midflow', lang: 'en', must: [/parking|park/i, /gated|camera|CCTV/i] }] },
     { id: 'fu-early-no-dates-en', group: 'followup', turns: [m('Hi there'), { say: 'Can we check in early, around 9am?', kind: 'code', lang: 'en', mustNot: [/complimentary|confirmed|free of charge/i] }] },
     { id: 'fu-early-with-dates-en', group: 'followup', turns: [{ say: `Hi, is ${d2} available for 2?`, kind: 'flow', lang: 'en' }, { say: 'Can we check in at 10am on the first day?', kind: 'midflow', lang: 'en' }] },
@@ -84,7 +86,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'handoff-refund-en', group: 'handoff', turns: [{ say: 'We need to cancel our booking next week, can we get a refund?', kind: 'handoff', lang: 'en', noInvite: true }] },
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
-  if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { must: [/reserved|booked|taken/i, /nearest open dates/i], mustNot: [new RegExp(`${bookedRange.split(' to ')[0]}[^.\\n]{0,40}\\bis (open|available)\\b`, 'i')] })] });
+  if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { kind: 'code', // SPEC-28: code writes this reply
+      must: [/reserved|booked|taken/i, /nearest open dates/i], mustNot: [new RegExp(`${bookedRange.split(' to ')[0]}[^.\\n]{0,40}\\bis (open|available)\\b`, 'i')] })] });
   // Lloyd 2026-09-17: on a day another guest checks out, the 12 noon check-in is never offered. Needs a real turnover day:
   // pass GOLDEN_TURNOVER="Oct 5" (a checkout_date from a read-only calendar query whose night is still open).
   // SPEC-14 (D-184) + the 2026-09-18 policy: the full-payment rule needs a stay that is REALLY open inside 5 days

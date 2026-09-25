@@ -13,6 +13,8 @@ export type Flow = {
   name?: string;
   /** session 28: the guest's choice - reservation fee (50 %) or the full amount; forced full inside 48 h */
   pay_full?: boolean; asked?: 'availability' | 'question' | null;
+  /** SPEC-28 section 2: the first message also asked something besides availability ("is Oct 26 to 28 open? is there wifi?") */
+  question?: boolean;
   /** session 28: the guest's register, re-read on every turn - 'tl' = Taglish with "po" (Tagalog or Bisaya guests) */
   lang?: Lang;
   bis_turns?: number; // consecutive Bisaya guest turns (settleLang)
@@ -31,7 +33,9 @@ const AVAIL_RE = /\b(available|avail|vacant|bakante|open|free|may (?:vacancy|slo
 const OFFER_YES_RE = /^\W*(yes|yes please|yes po|sure|of course|ok(ay)?( po)?|sige( po)?|oo( po)?|opo|go|please do|proceed|set (it|them) aside)\b/i;
 const OFFER_NO_RE = /^\W*(no|not (yet|now)|hindi( po)?|dili|wala( pa)?|later|maybe later)\b/i;
 const ASK_RE = /\?|\b(magkano|how much|pwede|can (i|we)|is (it|there)|are there|meron)\b/i;
-/** Same markers as index.ts guestLang(): Tagalog or Bisaya words, or two particles, mean Taglish; a lone courtesy "po" stays English. */
+const QUESTION_WORD_RE = /\b(magkano|how|what|where|when|which|why|do you|does|can|could|pwede|puwede|is (it|there)|are there|meron|ano|saan|paano|asa|unsa)\b/i;
+/** Moved here from voice.ts (which imports this file) so start() can use it without an import cycle. */
+export const AMENITY_RE = /\b(amenities|amenity|included|inclusions|photos?|pictures?|pics|wifi|wi-fi|internet|aircon|air-?con|\bac\b|kitchen|tv|netflix|washing|laundry|parking)\b|what'?s (it|the place|the unit|the home) like/i;
 /** Lloyd 2026-09-17 14:40: English and Taglish come first; Bislish only once the guest KEEPS replying in Bisaya.
  *  A first Bisaya turn is answered in Taglish; the second consecutive one switches the register to Bislish. */
 export function settleLang(prev: Lang | undefined, detected: Lang, bisTurns: number): { lang: Lang; bisTurns: number } {
@@ -39,12 +43,19 @@ export function settleLang(prev: Lang | undefined, detected: Lang, bisTurns: num
   const n = bisTurns + 1;
   return { lang: n >= 2 || prev === 'bis' ? 'bis' : 'tl', bisTurns: n };
 }
-export function detectLang(text: string): Lang {
+/** The ONE language detector (SPEC-28 section 4). index.ts used its own copy, which disagreed with this file's: "pwede ba"
+ *  was Bisaya here and Taglish there. Lloyd 2026-09-13: "how far from SM po" is an English sentence with a courtesy
+ *  particle, not Taglish - it gets English back (one "po" welcome). Taglish needs a Tagalog content word. */
+export function guestLang(text: string): 'taglish' | 'bisaya' | 'english_po' | 'english' {
   const t = ` ${text.toLowerCase()} `;
-  if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini|namo|nako|unya|gani|diri|didto|wala'y|walay|palihog|tagpila|pwede ba|pila ka|usbon|usba|mi|kabuok|tawo|ug|og|dili|among|ugma|gahapon|muabot|moabot)\b/.test(t)) return 'bis';
-  if (/\b(ang|ng|mga|kayo|ninyo|magkano|pwede|puwede|salamat|meron|kailan|saan|paano|bukas|ngayon|opo|hindi|kasi|namin|natin|sige|okay lang|ayos|kami|ako|niyo|nyo|gusto|bakante|kaming|muna)\b/.test(t)) return 'tl';
-  return (t.match(/\b(po|ba|lang|naman|opo)\b/g) ?? []).length >= 2 ? 'tl' : 'en';
+  if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini|namo|nako|unya|gani|diri|didto|wala'y|walay|palihog|tagpila|pila ka|usbon|usba|mi|kabuok|tawo|ug|og|dili|among|ugma|gahapon|muabot|moabot)\b/.test(t)) return 'bisaya';
+  if (/\b(ang|ng|mga|kayo|ninyo|magkano|pwede|puwede|salamat|meron|kailan|saan|paano|bukas|ngayon|opo|hindi|kasi|namin|natin|sige|okay lang|ayos|kami|ako|niyo|nyo|gusto|bakante|kaming|muna)\b/.test(t)) return 'taglish';
+  const particles = (t.match(/\b(po|ba|lang|naman|opo)\b/g) ?? []).length;
+  if (particles >= 2 || /\bhm po\b|\bhm\b[^.?!]{0,20}\b(night|gabi|rate)\b/.test(t)) return 'taglish';      // "may parking po ba?"; "hm po per night?" is Filipino text-speak (golden run 2026-09-17: it got plain English)
+  if (particles === 1) return 'english_po';  // "how far from SM po"
+  return 'english';
 }
+export const detectLang = (text: string): Lang => ({ taglish: 'tl', bisaya: 'bis', english_po: 'en', english: 'en' } as const)[guestLang(text)];
 const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
 const FLOW_TTL_MS = 24 * 3_600_000;
 
@@ -184,6 +195,9 @@ export function parseEmail(text: string): string | null {
 const dm = (d: string) => { const x = new Date(d + 'T00:00:00Z'); return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][x.getUTCMonth()]} ${x.getUTCDate()}`; };
 /** SPEC-14 (D-184): "Nov 17 to 19" inside one month, "Nov 30 to Dec 2" across two. */
 export const dmRange = (a: string, b: string) => { const A = dm(a), B = dm(b); return A.slice(0, 3) === B.slice(0, 3) ? `${A} to ${B.slice(4)}` : `${A} to ${B}`; };
+/** SPEC-28 section 4: the example stay in the dates ask was a hard-coded "Sep 24 to 26", in the past by session 50.
+ *  Now 7 to 9 days from today, formatted like every other range. */
+export const exampleDates = (now = new Date()) => dmRange(new Date(now.getTime() + 7 * 86_400_000).toISOString().slice(0, 10), new Date(now.getTime() + 9 * 86_400_000).toISOString().slice(0, 10));
 export type Window = { start: string; end: string; nights: number; open_ended?: boolean };
 export const windowText = (w: Window) => w.open_ended ? `${dm(w.start)} onwards` : dmRange(w.start, w.end);
 /** Lloyd 2026-09-18: a window that runs to the next booking oversells - a guest asking for 2 nights was offered
@@ -318,6 +332,10 @@ export const greeting = (name: string | null, lang: Lang = 'en', intro = false) 
   tl: `${name ? `Hi ${name.split(' ')[0]}!` : 'Hello po!'} Salamat sa pag-message sa Cascade Hideaway. `,
   bis: `${name ? `Hi ${name.split(' ')[0]}!` : 'Hello!'} Salamat sa pag-message sa Cascade Hideaway. `,
 }) + (intro ? CASSY_INTRO[lang ?? 'en'] : '');
+/** SPEC-28 section 3: with the Cassy sentence the greeting is long, so the answer goes on its own paragraph (golden
+ *  first-avail-taken-en read as one block). Without it the greeting and the answer stay one paragraph: that is Lloyd's
+ *  approved first reply (2026-09-18) and the lint wants the answer in the first paragraph. */
+export const greetBlock = (name: string | null, lang: Lang = 'en', intro = false) => intro ? greeting(name, lang, true).trimEnd() + '\n\n' : greeting(name, lang, false);
 /** "the two of you" / "kayong dalawa" - the party as a host names it. */
 export function party(flow: Flow): string {
   const tl = flow.lang === 'tl';
@@ -328,17 +346,19 @@ export function availabilityAck(flow: Flow, openLine: string): string {
   const who = party(flow);
   return `${openLine}, ${pick(flow.lang, { en: `and we'd be glad to welcome ${who}.`, tl: `and we'd be glad to have ${who}.`, bis: `and looking forward mi to have ${who}.` })}`;
 }
-export function opener(flow: Flow, name: string | null, answer = '', intro = false): string {
+/** `greet` false: the model's own reply already carries the greeting, and the flow's part follows it (SPEC-28 section 2:
+ *  "Hi Ben, thank you for reaching out" came twice in one message when a first message asked a question too). */
+export function opener(flow: Flow, name: string | null, answer = '', intro = false, greet = true): string {
   const who = party(flow);
   const welcome = pick(flow.lang, { en: `we'd be glad to welcome ${who}.`, tl: `we'd be glad to have ${who}.`, bis: `looking forward mi to have ${who}.` });
-  if (answer) return `${greeting(name, flow.lang, intro)}${answer}, and ${welcome}\n\n`;
+  if (answer) return `${greet ? greetBlock(name, flow.lang, intro) : ''}${answer}, and ${welcome}\n\n`;
   const dates = flow.checkin && flow.checkout
     ? pick(flow.lang, { en: `${dm(flow.checkin)} to ${dm(flow.checkout)} is noted, and we'll check those dates for you as we go. `, tl: `Noted po ang ${dm(flow.checkin)} to ${dm(flow.checkout)} — iche-check namin ang dates as we go. `, bis: `Noted ang ${dm(flow.checkin)} to ${dm(flow.checkout)} — amo i-check ang dates as we go. ` })
     // A check-in alone is acknowledged by the checkout ask that always follows (prompt 'checkout'); saying it here too
     // printed it twice in one message (live 2026-09-23, all three registers).
     : '';
   const w = welcome.charAt(0).toUpperCase() + welcome.slice(1);
-  return `${greeting(name, flow.lang, intro)}${dates}${w}\n\n`;
+  return `${greet ? greeting(name, flow.lang, intro) : ''}${dates}${w}\n\n`;
 }
 
 /** The question for the current slot, in the Cassy voice: calm, gracious, precise; guide rather than command. */
@@ -354,11 +374,11 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
   const n = name ? `${name.split(' ')[0]}, ` : '';
   const L = flow.lang;
   switch (flow.step) {
-    case 'dates': return pick(L, {
-      en: `${n ? `${n}which` : 'Which'} dates would you like to stay with us? Your check-in and check-out will do (for example, "Sep 24 to 26").`,
-      tl: `${n}kailan po ninyo gustong mag-stay? Check-in and check-out lang po (halimbawa, "Sep 24 to 26").`,
-      bis: `${n}kanus-a mo gusto mag-stay? Check-in and check-out lang (pananglitan, "Sep 24 to 26").`,
-    });
+    case 'dates': { const ex = exampleDates(now); return pick(L, {
+      en: `${n ? `${n}which` : 'Which'} dates would you like to stay with us? Your check-in and check-out will do (for example, "${ex}").`,
+      tl: `${n}kailan po ninyo gustong mag-stay? Check-in and check-out lang po (halimbawa, "${ex}").`,
+      bis: `${n}kanus-a mo gusto mag-stay? Check-in and check-out lang (pananglitan, "${ex}").`,
+    }); }
     case 'checkout': return pick(L, {
       en: `Thank you. Check-in on ${dm(flow.checkin!)} is noted. Until which date would you like to stay?`,
       tl: `Noted po, check-in on ${dm(flow.checkin!)}. Hanggang kailan po ang stay ninyo?`,
@@ -421,6 +441,10 @@ export function start(text: string, now = new Date()): Flow {
   // What did the guest actually ask? index.ts answers availability from the calendar (code) or hands
   // any other question to the model before the flow's own ask (protocol rule 1).
   flow.asked = AVAIL_RE.test(text) && flow.checkin ? 'availability' : ASK_RE.test(text) && !/\b(can|could|pwede|possible)\b[^?]*\b(book|reserve)\b/i.test(text) ? 'question' : null;
+  // SPEC-28 section 2: a sentence other than the availability one that asks something ("is Oct 26 to 28 open? is there
+  // wifi?"). Judged per sentence, because the availability question's own "?" would otherwise count.
+  // A bare "?" does not count ("Oct 26 open? Oct 27?").
+  if (flow.asked === 'availability') flow.question = (text.match(/[^?.!\n]+[?.!]?/g) ?? []).some((s) => !AVAIL_RE.test(s) && (QUESTION_WORD_RE.test(s) || AMENITY_RE.test(s)));
   return flow;
 }
 
