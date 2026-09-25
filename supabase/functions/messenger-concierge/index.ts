@@ -14,7 +14,7 @@ import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, 
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, otherQuestions, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, AMENITY_RE, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { addChatRoute, AMENITY_RE, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -381,7 +381,7 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
 const plainText = (s: string) => s.replace(/^[ \t]*[*•-][ \t]+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
 
 function draftFrom(raw: string, who: string): Draft {
-  const parsed = JSON.parse(raw) as { reply?: string; uncertain?: boolean; guest_name?: unknown };
+  const parsed = parseDraftJson(raw);
   const reply = (parsed.reply ?? '').trim().slice(0, 1800); // Messenger allows 2000; two handoff options need room
   if (!reply) throw new Error(`${who}_empty`);
   // Change 2 (D-097): the name the guest states in the conversation, when Graph gives us none.
@@ -396,12 +396,18 @@ function draftFrom(raw: string, who: string): Draft {
 const PLACE_RE = /\b(far|near|distance|km|minutes?|mall|airport|hospital|clinic|pharmacy|resort|pool|beach|cafe|coffee|restaurant|food|eat|kain|dining|market|atm|bank|gas|store|church|school|transpo|grab|taxi|tricycle|drive|route|direction|location|asa|saan|malapit|layo|duol|lugar|place|around|nearby|recommend)\b/i;
 async function draft(thread: Thread, question: string, availability: string, tier: 'full' | 'lite' = 'full', compact = false): Promise<Draft> {
   const landmarks = PLACE_RE.test(question) ? await landmarksBlock(dbForLandmarks!).catch(() => '') : 'Not loaded for this turn; for a place or distance not in FACTS say the host will confirm.';
-  const raw = await chatJson({
+  const ask = () => chatJson({
     system: systemPrompt(thread, availability, landmarks, compact),
     history: thread.history.slice(-HISTORY_KEEP).map((h) => ({ role: h.role === 'bot' ? 'assistant' as const : 'user' as const, text: h.text })),
     question, title: 'Cascade Concierge', tier,
   });
-  return draftFrom(raw, 'model');
+  const raw = await ask();
+  try { return draftFrom(raw, 'model'); } catch (e) {
+    // Live 2026-09-25: unreadable JSON handed three guests to the host in a minute. One fresh call before giving up.
+    if (!(e instanceof SyntaxError)) throw e;
+    console.warn('draft_json_retry', String(e).slice(0, 120), raw.slice(0, 160));
+    return draftFrom(await ask(), 'model');
+  }
 }
 
 // ---- Host handoff with one-tap replies (2026-09-12) --------------------------------------

@@ -73,7 +73,7 @@ export function tidyReply(reply: string, siteUrl: string, english: boolean): str
 // and nothing checked that care was present, so a reply could pass every lint and still be cold. This is the positive
 // check: a substantive reply shows care somewhere - anticipation, reassurance, an offer of help or a warm close
 // (protocol 08 sections 6, 12, 22; 07 and 09 equivalents).
-const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala)\b|🌿|💚|😊|🙏|✨/i;
+const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|relax|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala)\b|🌿|💚|😊|🙏|✨/i;
 /** True when the reply is not in the register code settled for this turn (golden run 2026-09-17: an English question got
  *  the Taglish reference reply pasted whole; "Hm po per night?" got plain English). Narrow on purpose: two Tagalog markers
  *  in an English reply, any Tagalog-only word in a Bislish one, no Filipino word at all in a substantive Taglish one. */
@@ -221,6 +221,22 @@ export function capName(reply: string, name: string | null, max = 2): string {
     out = out.slice(0, last.index) + out.slice(last.index + last[0].length);
   }
   return out;
+}
+/** Live 2026-09-25 14:47Z: three drafts in a minute came back as malformed JSON ("Expected property name", "Unterminated
+ *  string") and each guest got the host-handoff line instead of an answer. Fences are stripped, then the "reply" field is
+ *  read on its own (raw newlines allowed). Throws SyntaxError only when no reply can be found. */
+export function parseDraftJson(raw: string): { reply?: string; uncertain?: boolean; guest_name?: unknown } {
+  const t = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+  try { return JSON.parse(t); } catch { /* read the reply field on its own below */ }
+  const m = t.match(/["']reply["']\s*:\s*"((?:[^"\\]|\\.)*)"/s);
+  if (m) {
+    try {
+      const reply = JSON.parse(`"${m[1].replace(/\r?\n/g, '\\n').replace(/\t/g, '\\t')}"`) as string;
+      const name = t.match(/["']guest_name["']\s*:\s*"([^"\\\n]{1,40})"/)?.[1];
+      return { reply, uncertain: /["']uncertain["']\s*:\s*true/.test(t), guest_name: name ?? null };
+    } catch { /* fall through */ }
+  }
+  throw new SyntaxError('draft_json_unreadable');
 }
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {

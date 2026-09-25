@@ -596,3 +596,23 @@ Deno.test('five paragraphs: the shortest adjacent text pair that fits is joined,
   assertEquals(out.includes('site:\n\n👉 https://tinyurl.com/Stay-at-Cascade'), true);
   assertEquals(fitFourParagraphs(out), out);
 });
+
+// Live 2026-09-25 14:47Z: malformed draft JSON handed guests to the host (draft_failed x3).
+import { parseDraftJson } from './voice.ts';
+Deno.test('draft JSON: fences, raw newlines and single-quoted keys still yield the reply', () => {
+  assertEquals(parseDraftJson('{"reply":"Hi","uncertain":false}').reply, 'Hi');
+  assertEquals(parseDraftJson('```json\n{"reply":"Hi po"}\n```').reply, 'Hi po');
+  const rawNl = '{"reply": "Line one.\n\nLine two with a \\"quote\\".", "uncertain": true, "guest_name": "Ben"}';
+  const a = parseDraftJson(rawNl);
+  assertEquals(a.reply, 'Line one.\n\nLine two with a "quote".');
+  assertEquals(a.uncertain, true);
+  assertEquals(a.guest_name, 'Ben');
+  assertEquals(parseDraftJson("{'reply': \"Yes po, available.\"}").reply, 'Yes po, available.');
+  let threw = false; try { parseDraftJson('not json at all'); } catch (e) { threw = e instanceof SyntaxError; }
+  assertEquals(threw, true);
+});
+
+// Golden 2026-09-25 reg-bot-bis: "para makapag-relax kayo nang husto" is care.
+Deno.test('"relax" counts as care', () => {
+  assertEquals(isCold('Yes po, may fiber Wi-Fi ang unit, steady enough for video calls and streaming, para makapag-relax kayo nang husto habang nandito kayo sa amin.'), false);
+});
