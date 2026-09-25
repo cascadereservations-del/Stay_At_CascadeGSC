@@ -8,9 +8,7 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "triggerAtHour": 8,
-              "triggerAtMinute": 0
+              "triggerAtHour": 8
             }
           ]
         }
@@ -65,8 +63,8 @@
           },
           "conditions": [
             {
-              "id": "should-notify",
-              "leftValue": "={{ $json.notify === true }}",
+              "id": "is-healthy",
+              "leftValue": "={{ $json.notify }}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
