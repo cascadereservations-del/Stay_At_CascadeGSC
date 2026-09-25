@@ -182,6 +182,17 @@ export function breakAfterIntro(reply: string): string {
   const head = ss.slice(0, i + 1).join('').trim(), tail = ss.slice(i + 1).join('').trim();
   return [head, tail, ...rest].join('\n\n');
 }
+/** Golden run 2026-09-25 (first-rate-tl, R10 "5 paragraphs"): greeting, answer, dates ask, invitation and close each
+ *  stood alone. Protocol rule 4 caps a reply at four paragraphs (a 👉 link line belongs to the paragraph above it), so
+ *  the greeting paragraph joins the next one when the two fit in 320 characters. */
+export function fitFourParagraphs(reply: string): string {
+  const paras = reply.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const text = paras.filter((p) => !/^(👉|https?:\/\/)/.test(p));
+  if (text.length <= 4 || /^(👉|https?:\/\/)/.test(paras[1] ?? '👉')) return reply;
+  const joined = `${paras[0]} ${paras[1]}`;
+  if (joined.length > 320) return reply;
+  return [joined, ...paras.slice(2)].join('\n\n');
+}
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {
   const paras = reply.trim().split(/\n\s*\n/);

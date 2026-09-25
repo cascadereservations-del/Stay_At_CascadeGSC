@@ -555,3 +555,15 @@ Deno.test('a bare "sa site" invitation is dropped when the look block carries th
   const r = 'Kung may dates na kayo in mind, i-share lang dito at iche-check namin agad. Puwede rin ninyong i-check ang live availability at ang aming direct rates sa site.';
   assertEquals(dropSiteInvite(r), 'Kung may dates na kayo in mind, i-share lang dito at iche-check namin agad.');
 });
+
+// Golden run 2026-09-25, first-rate-tl (R10 "5 paragraphs").
+import { fitFourParagraphs } from './voice.ts';
+Deno.test('five text paragraphs: the greeting joins the next one; a link line never counts', () => {
+  const live = 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Ako si Cassy, ang digital concierge ng Cascade, kasama si Marifel at ang team.\n\nOur direct rate po starts at PHP 1,780 per night, and the nightly rate goes lower the longer you stay with us.\n\nIf you have dates in mind, share lang dito, pati ilan kayo, and we\'ll check the calendar and the best rate for you right away.\n\nWe can arrange the booking dito sa chat, o puwede rin ninyong i-check ang live availability sa aming site:\n\n👉 https://tinyurl.com/Stay-at-Cascade\n\nSalamat. Looking forward kami sa stay ninyo. 🌿';
+  const out = fitFourParagraphs(live);
+  const text = out.split('\n\n').filter((p) => !p.startsWith('👉'));
+  assertEquals(text.length, 4);
+  assertEquals(text[0].endsWith('longer you stay with us.'), true);
+  assertEquals(text.every((p) => p.length <= 320), true);
+  assertEquals(fitFourParagraphs(out), out);
+});
