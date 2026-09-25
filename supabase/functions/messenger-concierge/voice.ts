@@ -189,12 +189,21 @@ export function breakAfterIntro(reply: string): string {
  *  stood alone. Protocol rule 4 caps a reply at four paragraphs (a 👉 link line belongs to the paragraph above it), so
  *  the greeting paragraph joins the next one when the two fit in 320 characters. */
 export function fitFourParagraphs(reply: string): string {
-  const paras = reply.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  const text = paras.filter((p) => !/^(👉|https?:\/\/)/.test(p));
-  if (text.length <= 4 || /^(👉|https?:\/\/)/.test(paras[1] ?? '👉')) return reply;
-  const joined = `${paras[0]} ${paras[1]}`;
-  if (joined.length > 320) return reply;
-  return [joined, ...paras.slice(2)].join('\n\n');
+  const isLink = (p: string) => /^(👉|https?:\/\/)/.test(p);
+  let paras = reply.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  // Golden 2026-09-25 (turnover-day tl): greeting + answer was 385 characters, so the shortest adjacent text pair that
+  // fits in 320 is joined instead - never across a link line, so a link stays directly under its sentence.
+  while (paras.filter((p) => !isLink(p)).length > 4) {
+    let best = -1;
+    for (let i = 0; i + 1 < paras.length; i++) {
+      if (isLink(paras[i]) || isLink(paras[i + 1])) continue;
+      const len = paras[i].length + 1 + paras[i + 1].length;
+      if (len <= 320 && (best < 0 || len < paras[best].length + 1 + paras[best + 1].length)) best = i;
+    }
+    if (best < 0) break;
+    paras = [...paras.slice(0, best), `${paras[best]} ${paras[best + 1]}`, ...paras.slice(best + 2)];
+  }
+  return paras.join('\n\n');
 }
 /** Golden run 2026-09-25 (reg-bot-bis, R7): "Hi Ben!", "Yes, Ben,", "Salamat, Ben." - the name at most twice. Extra
  *  vocatives go from the end ("Salamat, Ben." -> "Salamat."); the greeting's use is never touched. */
