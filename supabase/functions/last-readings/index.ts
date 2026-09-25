@@ -23,14 +23,16 @@ Deno.serve(withObservability({ functionName: 'last-readings', route: 'ops' }, as
       { auth: { persistSession: false } }
     );
 
-    // Fetch the single most-recent meter_readings row
+    // The single most-recent meter_readings row whose numbers are not flagged wrong (D-219). The list must
+    // match submit-cleaning's METER_WRONG_NUMBER_FLAGS, or the page and the server disagree about "previous".
+    // Sprint 0 (D-160): a mid-stay reading is never the next turnover's baseline. Session 45 wrote D-219 into
+    // a copy that lacked this line and deployed it; restored 2026-09-25 (session 51).
     const { data, error } = await supabase
       .from('meter_readings')
-      // Sprint 0 (2026-09-16): a mid-stay reading must not become the next turnover's
-      // baseline (submit-cleaning's own anomaly check already excludes mid-stay).
       .select('electric_curr, water_curr, recorded_at, cleaning_sessions!inner(cleaning_type)')
       .eq('property_id', propertyId)
       .neq('cleaning_sessions.cleaning_type', 'mid_stay')
+      .or('meter_flag.is.null,meter_flag.not.in.(misread,re_entry,duplicate)')
       .order('recorded_at', { ascending: false })
       .limit(1)
       .maybeSingle();
