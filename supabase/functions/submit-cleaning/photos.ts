@@ -51,3 +51,16 @@ export function countUploaded(photos: Record<string, PhotoEntry[]> | undefined, 
   if (!photos || !Array.isArray(photos[key])) return 0;
   return photos[key].map(photoUrl).filter((u): u is string => u !== null).length;
 }
+
+/* Live 2026-09-25 00:07-00:13Z: a cleaner's report was refused three times with invalid_photo_scope. The checklist
+ * starts a new submissionId when the page reloads (the Messenger in-app browser reloads it) but keeps the photos
+ * already attached, so her photos sat under four submission folders of her own. The check exists so nobody can
+ * attach another person's photos; that is "this property, this cleaner", not "this submission". A photo under
+ * another user or property is still refused. */
+export function photoOutsideScope(photos: Record<string, PhotoEntry[]>, propertyId: string, userId: string): boolean {
+  const prefix = `${propertyId}/${userId}/`;
+  return Object.values(photos).flat().some((p) => {
+    const id = String(p?.fileId ?? '');
+    return !id.startsWith(prefix) || id.includes('..') || id.slice(prefix.length).split('/').length < 2;
+  });
+}

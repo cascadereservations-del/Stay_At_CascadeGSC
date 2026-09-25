@@ -60,3 +60,14 @@ Deno.test('a signing failure is loud, because a silent one is what caused this b
     'photo_access_refresh_failed',
   );
 });
+
+import { photoOutsideScope } from './photos.ts';
+Deno.test('2026-09-25: photos from the same cleaner under an earlier submission of hers are accepted; anyone else is refused', () => {
+  const P = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', U = '50ccca5a-3e59-4299-9680-837fd8d88ac4';
+  const mine = (sub: string) => ({ fileId: `${P}/${U}/${sub}/section_preclean/1.jpg` });
+  assertEquals(photoOutsideScope({ a: [mine('7e10316e'), mine('afabd561')] }, P, U), false);
+  assertEquals(photoOutsideScope({ a: [mine('afabd561'), { fileId: `${P}/another-user/afabd561/x.jpg` }] }, P, U), true);
+  assertEquals(photoOutsideScope({ a: [{ fileId: `other-property/${U}/afabd561/x.jpg` }] }, P, U), true);
+  assertEquals(photoOutsideScope({ a: [{ fileId: `${P}/${U}/../other/x.jpg` }] }, P, U), true);
+  assertEquals(photoOutsideScope({ a: [{ fileId: '' }] }, P, U), true);
+});

@@ -38,7 +38,7 @@ import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts'
 import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse, GAS_TIMEOUT_MS } from './gas-response.ts';
 import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
-import { countUploaded, type PhotoEntry, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
+import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import {
   meterReasons, parseMeterSkip,
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
@@ -555,11 +555,8 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const urgentItems = String(payload.urgentItems ?? '');
 
     const ph = (payload.photos ?? {}) as Record<string, PhotoEntry[]>;
-    const expectedPhotoPrefix = `${propertyId}/${identity.userId}/${payload.submissionId}/`;
-    const invalidPhoto = Object.values(ph).flat().some((photo) =>
-      !photo.fileId || !String(photo.fileId).startsWith(expectedPhotoPrefix)
-    );
-    if (invalidPhoto) return json({ ok: false, error: 'invalid_photo_scope' }, 400);
+    // 2026-09-25: scoped to this property and this cleaner, not this submission id (photos.ts photoOutsideScope).
+    if (photoOutsideScope(ph, propertyId, identity.userId)) return json({ ok: false, error: 'invalid_photo_scope' }, 400);
     await refreshSignedPhotoUrls(supabase, ph);
     const precleanCount   = countUploaded(ph, 'section_preclean');
     const aftercleanCount = countUploaded(ph, 'section_afterclean');
