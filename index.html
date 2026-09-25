@@ -8234,7 +8234,6 @@
         var holdKey = state.checkin + '|' + state.checkout + '|' + (nm ? nm.value.trim() : '') + '|' + dep;
         if (state._hold && state._hold._key === holdKey) { applyHold(state._hold); showStep2(); return; }
         continueBtn.disabled = true; continueBtn.textContent = 'Holding your dates\u2026';
-        track('hold_requested', { nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
         var holdPayload = buildPayload(total, dep); holdPayload.hold = true;
         submitBooking(holdPayload, function(data){
           data._key = holdKey;
