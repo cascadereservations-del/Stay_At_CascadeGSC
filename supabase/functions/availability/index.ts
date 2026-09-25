@@ -54,4 +54,3 @@ Deno.serve(async (req) => {
     headers: { ...CORS, 'Cache-Control': 'no-store' },
   });
 });
-

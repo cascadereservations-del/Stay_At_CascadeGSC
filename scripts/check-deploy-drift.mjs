@@ -30,9 +30,10 @@ import { tmpdir } from 'node:os';
 
 const PROJECT_REF = 'qkgfhsdppslwunarczeq';
 const WAVES = join(import.meta.dirname, '..');
-// B78 / FACTS: last-readings deploys from stay-site, and a copy also sits in waves — comparing against the
-// waves copy reports a difference that is not real.
-const REPO_FOR = { 'last-readings': join(WAVES, '..', 'stay-site') };
+// Every function deploys from waves. last-readings did deploy from stay-site until session 45 (D-219) deployed
+// it from waves; stay-site keeps a byte-identical mirror for its observability test. Map a slug here only if it
+// really deploys from another repo.
+const REPO_FOR = {};
 // B41 + the 2026-09-18 baseline: every function verifies no JWT except these three.
 const JWT_EXPECTED = new Set(['ocr-receipt', 'submit-cleaning', 'verify-meter-photo']);
 
