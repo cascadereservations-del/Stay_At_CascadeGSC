@@ -93,8 +93,11 @@ export function isCold(reply: string): boolean {
   // The canned site invite and its tagline ("…enjoy our best rates…") are not the model's warmth: judge the rest.
   // Golden run 2026-09-25 (R3): appendLook joins the link lines to the paragraph that held the warmth ("feel free", 🌿),
   // and dropping whole paragraphs with a link dropped the warmth too. Only link lines and site sentences go now.
+  // Golden run 2026-09-25 (first-greeting-tl): code's own greeting and Cassy sentence are not the model's warmth either;
+  // counted, they pushed a one-line model reply over the length bar.
   const own = reply.split('\n').filter((l) => !/👉|https?:\/\//.test(l))
-    .map((l) => sentencesOf(l).filter((s) => !/best rates|on our (direct )?site|sa site namin|sa (aming|among) site/i.test(s)).join('')).join('\n');
+    .map((l) => sentencesOf(l).filter((s) => !/best rates|on our (direct )?site|sa site namin|sa (aming|among) site/i.test(s)
+      && !THANKED_RE.test(s) && !/\bCassy\b/.test(s)).join('')).join('\n');
   return own.trim().length > 140 && !CARE_RE.test(own);
 }
 /** "Happy to help" is on the boilerplate list (R2); the approved first replies say "glad to help" (golden run 2026-09-25). */
@@ -141,7 +144,8 @@ export function ensureGreeting(reply: string, name: string | null, lang: L3, int
   const who = `(?:${first ? first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '|' : ''}there)?`;
   const salute = new RegExp(`^\\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|kumusta|kamusta|maayong \\p{L}+)(?: po)?[ ,]*${who}[,.!]?\\s*`, 'iu');
   // Golden run 2026-09-25: "Hi Ben, yes po, available..." lost its salutation and read "...Cascade Hideaway. yes po".
-  const rest = reply.replace(salute, '').trimStart();
+  // Golden run 2026-09-25: "Good evening to you too, Ben." lost its salutation and left "To you too." behind.
+  const rest = reply.replace(salute, '').replace(/^(?:and\s+)?(?:a\s+)?(?:good (?:morning|afternoon|evening|day)\s+)?to you(?: too| as well)?(?:\s+po)?,?(?:\s+\p{Lu}[\p{L}'-]*)?[.!,]?\s*/iu, '').trimStart();
   const body = rest.replace(/^\p{Ll}/u, (c) => c.toUpperCase());
   return greeting(name, lang, intro) + (body || reply.trimStart());
 }
@@ -152,7 +156,10 @@ export function ensureGreeting(reply: string, name: string | null, lang: L3, int
 export function withIntro(reply: string, lang: L3): string {
   if (/\bCassy\b/.test(reply)) return reply;
   const intro = CASSY_INTRO[lang];
-  const m = reply.match(/^([^.!?\n]*[.!?])(\s*)/);
+  // Golden run 2026-09-25 (fu-ok-salamat-tl): the Taglish greeting's first sentence is only "Hi Ben!", so the intro went
+  // in before "Salamat sa pag-message...". D-173 puts it after the thank-you sentence, so that sentence joins the first.
+  const m = reply.match(/^([^.!?\n]{0,30}[.!?]\s*[^.!?\n]*(?:salamat sa pag-?message|thank you for reaching out)[^.!?\n]*[.!?])(\s*)/i)
+    ?? reply.match(/^([^.!?\n]*[.!?])(\s*)/);
   if (!m) return `${intro.trimEnd()}\n\n${reply.trimStart()}`;
   const rest = reply.slice(m[0].length);
   if (!rest) return `${m[1]} ${intro.trimEnd()}`;
@@ -344,7 +351,8 @@ export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews:
  *  ("...or you may see the home and live availability on our site.") - two invitations, over 700 characters. With the
  *  block present the reply's site sentences go; a sentence that also carries the chat route keeps that half
  *  ("We can arrange everything right here in the chat."). Link lines are left to dropSoloLink. Never returns ''. */
-const SITE_SENTENCE_RE = /\b(on|sa) (our|aming|among) (direct )?(site|website)\b|\bsite namin\b/i;
+// Golden run 2026-09-25 (reg-bot-bis, 719 characters): "...ang aming direct rates sa site." - bare "sa site" too.
+const SITE_SENTENCE_RE = /\b(on|sa) (our|aming|among) (direct )?(site|website)\b|\bsite namin\b|\bsa (direct )?site\b/i;
 export function dropSiteInvite(reply: string): string {
   const all = reply.split(/\n\s*\n/);
   const out = all.map((p, i) => {

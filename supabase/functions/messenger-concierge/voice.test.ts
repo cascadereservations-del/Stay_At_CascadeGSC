@@ -532,3 +532,26 @@ Deno.test('the chat half of a dropped site invitation goes when another paragrap
   // Alone, the chat half is kept (the only chat route in the reply).
   assertEquals(dropSiteInvite("Yes, we have Wi-Fi.\n\nWe can arrange everything right here in the chat, or you may see the home on our site."), "Yes, we have Wi-Fi.\n\nWe can arrange everything right here in the chat.");
 });
+
+// Golden run 2026-09-25, first-greeting-tl: "To you too." left after the salutation swap, and R3 counted code's own
+// greeting and Cassy sentence as the model's (cold) words.
+Deno.test('greeting echo goes with the salutation; code lines do not make a reply cold', () => {
+  const out = ensureGreeting('Good evening to you too, Ben. How may we assist you tonight, po?', 'Ben', 'en');
+  assertEquals(out.includes('To you too'), false);
+  assertEquals(out.endsWith('Cascade Hideaway. How may we assist you tonight, po?'), true);
+  const live = "Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, here with Marifel and our team. How may we assist you tonight, po?\n\nWe can arrange everything right here in the chat, or you may see the home and live availability on our site:\n\n👉 https://tinyurl.com/Stay-at-Cascade";
+  assertEquals(isCold(live), false);
+});
+
+// Golden run 2026-09-25, fu-ok-salamat-tl: the intro sat between "Hi Ben!" and the thank-you sentence.
+Deno.test('the intro follows the thank-you sentence even when a short salutation comes first', () => {
+  const out = withIntro('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Yes po, may libreng parking.', 'tl');
+  assertEquals(out.startsWith('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. ' + CASSY_INTRO.tl.trimEnd()), true);
+  assertEquals(withIntro('Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, we have Wi-Fi.', 'en').startsWith('Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en.trimEnd()), true);
+});
+
+// Golden run 2026-09-25, reg-bot-bis (R10, 719 characters): a bare "sa site" invitation survived beside the look block.
+Deno.test('a bare "sa site" invitation is dropped when the look block carries the site', () => {
+  const r = 'Kung may dates na kayo in mind, i-share lang dito at iche-check namin agad. Puwede rin ninyong i-check ang live availability at ang aming direct rates sa site.';
+  assertEquals(dropSiteInvite(r), 'Kung may dates na kayo in mind, i-share lang dito at iche-check namin agad.');
+});
