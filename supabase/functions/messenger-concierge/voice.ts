@@ -97,7 +97,10 @@ export function isCold(reply: string): boolean {
   // counted, they pushed a one-line model reply over the length bar.
   const own = reply.split('\n').filter((l) => !/👉|https?:\/\//.test(l))
     .map((l) => sentencesOf(l).filter((s) => !/best rates|on our (direct )?site|sa site namin|sa (aming|among) site/i.test(s)
-      && !THANKED_RE.test(s) && !/\bCassy\b/.test(s)).join('')).join('\n');
+      && !THANKED_RE.test(s) && !/\bCassy\b/.test(s)).join('')).join('\n')
+    // Golden run 2026-09-25 (reg-bot-bis): "...for you. 🌿 Nasa aming site ang photos..." - the care mark shared a sentence
+    // with the site, so it went with it. A care emoji anywhere in the reply counts.
+    + (reply.match(/🌿|💚|😊|🙏|✨/gu) ?? []).join('');
   return own.trim().length > 140 && !CARE_RE.test(own);
 }
 /** "Happy to help" is on the boilerplate list (R2); the approved first replies say "glad to help" (golden run 2026-09-25). */

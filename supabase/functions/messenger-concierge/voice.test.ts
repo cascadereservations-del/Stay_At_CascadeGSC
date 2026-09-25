@@ -567,3 +567,9 @@ Deno.test('five text paragraphs: the greeting joins the next one; a link line ne
   assertEquals(text.every((p) => p.length <= 320), true);
   assertEquals(fitFourParagraphs(out), out);
 });
+
+// Golden run 2026-09-25, reg-bot-bis: the 🌿 shared a sentence with the site and was dropped with it (R3).
+Deno.test('a care emoji in a site sentence still counts as care', () => {
+  const live = "Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Ako si Cassy, ang digital concierge ng Cascade, kasama si Marifel at ang team. Yes, Ben, may fiber Wi-Fi po kami, steady enough for video calls and streaming.\n\nKung may dates na po kayo in mind, i-share lang dito para ma-check namin ang availability for you. 🌿 Nasa aming site ang photos at full amenities, at nasa Airbnb listing namin ang reviews ng past guests:\n🏡 Amenities and photos: https://tinyurl.com/Stay-at-Cascade\n⭐ Guest reviews: https://airbnb.com/h/cascadesgsc";
+  assertEquals(isCold(live), false);
+});
