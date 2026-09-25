@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "release_id": "client_errors_20260925",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "827f6189043cd083f9fd8bdde2aad03b3be4a45e"
+  },
+  "migrations": [
+    "20260925050000_client_errors.sql"
+  ],
+  "migration_sha256": {
+    "20260925050000_client_errors.sql": "f878ff479113660a13058a7230f7bf92a4f87ffef6dfddf64c3f93372250b07b"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260925T004251Z",
+    "verified_at": "2026-09-25T00:42:51Z",
+    "production_rule": "One new table (RLS on, staff read policy, service_role writes) and one new service_role function. Nothing existing is altered and the release writes no row. The backup is taken as the LAST act before the apply (D-210)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_table_exists_with_rls",
+      "query": "select exists (select 1 from pg_class where oid = 'public.client_errors'::regclass and relrowsecurity)",
+      "expect": true
+    },
+    {
+      "name": "the_body_is_the_reviewed_body",
+      "query": "select md5(prosrc) = 'a342e73072f9b02c73da3ec03a82925b' from pg_proc where oid = 'public.record_client_error_v1(text, text, text, text, jsonb, boolean)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "service_role_only_writes",
+      "query": "select has_function_privilege('service_role','public.record_client_error_v1(text, text, text, text, jsonb, boolean)','EXECUTE') and not has_function_privilege('anon','public.record_client_error_v1(text, text, text, text, jsonb, boolean)','EXECUTE') and not has_function_privilege('authenticated','public.record_client_error_v1(text, text, text, text, jsonb, boolean)','EXECUTE') and not has_table_privilege('anon','public.client_errors','SELECT') and not has_table_privilege('authenticated','public.client_errors','INSERT') and has_table_privilege('service_role','public.client_errors','INSERT')",
+      "expect": true
+    },
+    {
+      "name": "staff_read_policy_exists",
+      "query": "select exists (select 1 from pg_policy where polrelid = 'public.client_errors'::regclass and polname = 'client_errors_staff_read')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260925_client_errors.sql with run-sql-on-host.sh (drops the function and the table; the pages ignore the function's failure)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_before_function_and_pages",
+      "required_state": "Apply before deploying client-error (waves f3a7bb6) and pushing the pages (checklist ac7c232, stay-site 827f618); the pages swallow any reply, so a wrong order only loses reports, never breaks a page."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-25 ~00:45Z on a disposable restore of production backup cascade-supabase-20260925T002543Z (prefix cascade-migration-rehearsal-9ff89af9de61, 0 leftovers). 102 tables and 126 ledger rows before; migration 1 of 1; forward checks 4/4; pgTAP client_errors.sql 9/9.",
+    "evidence": "New objects only. pgTAP client_errors.sql (9). Pages checked: checklist npm test 87/87; booking site loaded locally with the monitor installed and 0 console errors."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
