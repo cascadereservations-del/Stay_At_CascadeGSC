@@ -573,3 +573,15 @@ Deno.test('a care emoji in a site sentence still counts as care', () => {
   const live = "Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Ako si Cassy, ang digital concierge ng Cascade, kasama si Marifel at ang team. Yes, Ben, may fiber Wi-Fi po kami, steady enough for video calls and streaming.\n\nKung may dates na po kayo in mind, i-share lang dito para ma-check namin ang availability for you. 🌿 Nasa aming site ang photos at full amenities, at nasa Airbnb listing namin ang reviews ng past guests:\n🏡 Amenities and photos: https://tinyurl.com/Stay-at-Cascade\n⭐ Guest reviews: https://airbnb.com/h/cascadesgsc";
   assertEquals(isCold(live), false);
 });
+
+// Golden run 2026-09-25, reg-bot-bis (R7): the name three times.
+import { capName } from './voice.ts';
+Deno.test('the name at most twice; extra vocatives go from the end', () => {
+  const r = 'Hi Ben! Salamat sa pag-message. Yes, Ben, may fiber Wi-Fi po kami.\n\nSalamat, Ben. Looking forward kami sa stay ninyo. 🌿';
+  const out = capName(r, 'Ben');
+  assertEquals((out.match(/\bBen\b/g) ?? []).length, 2);
+  assertEquals(out.includes('Salamat. Looking forward'), true);
+  assertEquals(out.startsWith('Hi Ben!'), true);
+  assertEquals(capName('Hi Ben, yes. Thanks, Ben.', 'Ben'), 'Hi Ben, yes. Thanks, Ben.');
+  assertEquals(capName(r, null), r);
+});

@@ -196,6 +196,23 @@ export function fitFourParagraphs(reply: string): string {
   if (joined.length > 320) return reply;
   return [joined, ...paras.slice(2)].join('\n\n');
 }
+/** Golden run 2026-09-25 (reg-bot-bis, R7): "Hi Ben!", "Yes, Ben,", "Salamat, Ben." - the name at most twice. Extra
+ *  vocatives go from the end ("Salamat, Ben." -> "Salamat."); the greeting's use is never touched. */
+export function capName(reply: string, name: string | null, max = 2): string {
+  const first = name?.split(' ')[0];
+  if (!first) return reply;
+  const esc = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let out = reply;
+  const count = () => (out.match(new RegExp(`\\b${esc}\\b`, 'g')) ?? []).length;
+  const voc = new RegExp(`,\\s*(?:(?:sir|ma'?am)\\s+)?${esc}(?=\\s*[,.!?])`, 'gi');
+  while (count() > max) {
+    const all = [...out.matchAll(voc)];
+    const last = all[all.length - 1];
+    if (!last || last.index === undefined) break;
+    out = out.slice(0, last.index) + out.slice(last.index + last[0].length);
+  }
+  return out;
+}
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {
   const paras = reply.trim().split(/\n\s*\n/);

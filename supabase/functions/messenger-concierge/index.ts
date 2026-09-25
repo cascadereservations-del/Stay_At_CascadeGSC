@@ -14,7 +14,7 @@ import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, 
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, otherQuestions, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, AMENITY_RE, answerOnly, appendLook, beforeClose, breakAfterIntro, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { addChatRoute, AMENITY_RE, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -932,6 +932,7 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
         if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2); // the block's own "po" was the third (golden run 2026-09-24, R6)
       } // golden run: the nudge and the chat route each carried a "po" of their own
       if (!flowFollowUp) reply = fitFourParagraphs(reply); // golden 2026-09-25: five paragraphs on a first Taglish rate reply
+      reply = capName(reply, thread.guest_name); // golden 2026-09-25 reg-bot-bis: the name three times
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.
