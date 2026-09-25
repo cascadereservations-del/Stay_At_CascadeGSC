@@ -428,6 +428,13 @@ export function needsCalendarCheck(flow: Flow): boolean {
 }
 
 /** Start a flow from the first message; prefills dates and guests when they are in the text. */
+/** SPEC-28 section 2: the sentences of a first message that ask something other than availability ("is there wifi?"),
+ *  joined; '' when there are none. A bare "?" does not count ("Oct 26 open? Oct 27?"). index.ts hands only these to
+ *  the model, because the calendar has already answered the dates (golden 2026-09-25: told not to, the model still
+ *  said "yes, those dates are open" above the calendar's own line). */
+export function otherQuestions(text: string): string {
+  return (text.match(/[^?.!\n]+[?.!]?/g) ?? []).filter((s) => !AVAIL_RE.test(s) && (QUESTION_WORD_RE.test(s) || AMENITY_RE.test(s))).map((s) => s.trim()).join(' ');
+}
 export function start(text: string, now = new Date()): Flow {
   const at = now.toISOString();
   const first = settleLang(undefined, detectLang(text), 0);
@@ -443,8 +450,7 @@ export function start(text: string, now = new Date()): Flow {
   flow.asked = AVAIL_RE.test(text) && flow.checkin ? 'availability' : ASK_RE.test(text) && !/\b(can|could|pwede|possible)\b[^?]*\b(book|reserve)\b/i.test(text) ? 'question' : null;
   // SPEC-28 section 2: a sentence other than the availability one that asks something ("is Oct 26 to 28 open? is there
   // wifi?"). Judged per sentence, because the availability question's own "?" would otherwise count.
-  // A bare "?" does not count ("Oct 26 open? Oct 27?").
-  if (flow.asked === 'availability') flow.question = (text.match(/[^?.!\n]+[?.!]?/g) ?? []).some((s) => !AVAIL_RE.test(s) && (QUESTION_WORD_RE.test(s) || AMENITY_RE.test(s)));
+  if (flow.asked === 'availability') flow.question = otherQuestions(text) !== '';
   return flow;
 }
 

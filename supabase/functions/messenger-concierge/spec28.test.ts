@@ -1,7 +1,7 @@
 // SPEC-28 (D-231): the Taglish rate answer is measured, a first message with dates AND a question gets both answered,
 // the taken reply with the Cassy sentence has paragraphs, one language detector, example dates never in the past.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { availabilityLine, detectLang, exampleDates, greetBlock, guestLang, opener, prompt, start } from './booking.ts';
+import { availabilityLine, detectLang, exampleDates, greetBlock, guestLang, opener, otherQuestions, prompt, start } from './booking.ts';
 import { lintReply, offRegister } from './voice.ts';
 import { VOICE } from '../_shared/cascade-core/facts.ts';
 
@@ -24,6 +24,8 @@ Deno.test('SPEC-28 s2: a first message with dates and another question records b
   assertEquals(start('is Oct 26 to 28 open?', now).question, false);
   assertEquals(start('is Oct 26 to 28 open? Oct 27?', now).question, false); // a bare "?" is not a second question
   assertEquals(start('Available po ba ang Oct 26 to 28? May parking po ba?', now).question, true);
+  // The model is handed only the other question: the calendar line answers the dates (golden 2026-09-25).
+  assertEquals(otherQuestions('Hi, is Oct 26 to 28 open? Is there wifi?'), 'Is there wifi?');
   // The flow's part that follows the model's answer carries no greeting of its own (the double greeting).
   const f = both;
   const follow = opener(f, 'Ben', availabilityLine(f, new Set()), false, false);
