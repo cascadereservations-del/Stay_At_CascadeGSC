@@ -140,7 +140,9 @@ export function ensureGreeting(reply: string, name: string | null, lang: L3, int
   // "there" too: "Hi there! I'm Cassy" left a stray "there!" after the greeting (golden run 2026-09-24).
   const who = `(?:${first ? first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '|' : ''}there)?`;
   const salute = new RegExp(`^\\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|kumusta|kamusta|maayong \\p{L}+)(?: po)?[ ,]*${who}[,.!]?\\s*`, 'iu');
-  const body = reply.replace(salute, '').trimStart();
+  // Golden run 2026-09-25: "Hi Ben, yes po, available..." lost its salutation and read "...Cascade Hideaway. yes po".
+  const rest = reply.replace(salute, '').trimStart();
+  const body = rest.replace(/^\p{Ll}/u, (c) => c.toUpperCase());
   return greeting(name, lang, intro) + (body || reply.trimStart());
 }
 /** D-173 / SPEC-01: a prompt rule alone fails at least once (D-097), so the introduction is also

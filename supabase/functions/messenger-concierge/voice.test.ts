@@ -516,3 +516,9 @@ Deno.test('warmth beside the look block still counts; "happy to help" becomes "g
   assertEquals(gladNotHappy("We'd be happy to help you plan your stay."), "We'd be glad to help you plan your stay.");
   assertEquals(gladNotHappy('We are happy to host you.'), 'We are happy to host you.');
 });
+
+// Golden run 2026-09-25: the model's "Hi Ben," was replaced by the approved greeting and the answer began in lower case.
+Deno.test('the answer after a replaced salutation starts with a capital', () => {
+  const out = ensureGreeting('Hi Ben, yes po, available ang Oct 2.', 'Ben', 'tl');
+  assertEquals(out.includes('Cascade Hideaway. Yes po, available ang Oct 2.'), true);
+});
