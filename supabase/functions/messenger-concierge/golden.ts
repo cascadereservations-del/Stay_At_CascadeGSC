@@ -34,7 +34,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'first-location-en', group: 'first', turns: [m('location', 'en', { must: [LINK, /Bria Homes/i, /thank you for reaching out/i] })] },
     { id: 'first-howtobook-en', group: 'first', turns: [m('How do I book?', 'en', { must: [LINK, /thank you for reaching out/i] })] },
     // SPEC-28 section 2: dates AND a question in the first message - both answered, one greeting (R7)
-    { id: 'first-avail-and-amenity-en', group: 'first', turns: [{ say: `Hi, is ${range(base, o + 2, 2)} open? Is there wifi?`, kind: 'midflow', lang: 'en', must: [/wi-?fi/i, /(open|available|free)/i] }] },
+    { id: 'first-avail-and-amenity-en', group: 'first', turns: [{ say: `Hi, is ${range(base, o + 2, 2)} open? Is there wifi?`, kind: 'midflow', lang: 'en', must: [/wi-?fi/i, /(open|available|free)/i], mustNot: [new RegExp(`${range(base, o + 2, 2)}[\\s\\S]*${range(base, o + 2, 2)}`)] }] }, // the dates once (golden 2026-09-25 said them twice)
     { id: 'first-bisaya-gets-taglish', group: 'register', turns: [{ say: `Naa bay bakante ${d2}?`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i], mustNot: [LINK] }] },
 
     // ---- follow-ups: warm, no greeting, no re-ask, at most one invitation

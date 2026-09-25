@@ -779,7 +779,9 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, 5% from 2 nights up to 25% from 28 nights, the longer the stay the higher the discount - then the link. Do not quote any other number and do not promise a special price.] ${anchor}` : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
-      const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
+      const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] '
+        // SPEC-28 golden 2026-09-25: the model also said "Oct 11 to 13 is open" and the calendar line said it again.
+        + (flow?.question ? '[Their dates were checked on the calendar and that line follows your answer: do not mention the dates or whether they are open.] ' : '') : '';
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
       const knownPax = thread.booking_flow?.pax;
       const paxHint = knownPax && !flowFollowUp ? `[Already known from this chat: ${knownPax} guest${knownPax === 1 ? '' : 's'}. Do not ask how many guests again; ask something only if it is truly needed.] ` : '';
