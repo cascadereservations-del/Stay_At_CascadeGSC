@@ -132,10 +132,9 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   s = answer(s.flow, 'Can I change it to 3 guests?', now); assertEquals(s.flow.lang, 'en'); // plain English switches back
   const tlPay = paymentReply({ ...base, lang: 'tl', step: 'await_receipt', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T02:00:00Z' }, 'Ben', 'https://x', now);
   assertEquals(tlPay.startsWith('Ben, na-hold na po namin ang Oct 3 to 4 for you for 24 hours — until Sep 18 at 10:00 AM (bukas). Ang booking reference ninyo po ay DIR-1.'), true);
-  // Lloyd 2026-09-18 ("both, keep the old sentence too"): the GCash paragraph keeps its own closing sentence, and the
-  // approved review-and-confirm sentence opens the warm close - side by side they broke the 320-character rule in Taglish.
-  assertEquals(tlPay.includes('through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here at iko-confirm na namin ang reservation.'), true);
-  assertEquals(tlPay.includes('Kapag na-send na po ninyo ang receipt dito, ire-review at iko-confirm namin ang reservation ninyo. Salamat po, Ben.'), true);
+  // SPEC-31 s5 (F10): one receipt sentence; the review-and-confirm sentence of 2026-09-18 is gone and the later line is Taglish.
+  assertEquals(tlPay.includes('through GCash (0956 011 5744) gamit ang QR below - naka-set na ang exact amount. Once done, screenshot lang ng receipt dito ang kailangan namin.'), true);
+  assertEquals(tlPay.includes('Ang natitirang ₱1,691 balance at ang ₱1,000 refundable security deposit ay due at least a day before check-in.'), true);
   assertEquals((tlPay.match(/\bpo\b/g) ?? []).length <= 6, true); // section 4: purposeful markers, never every sentence
   assertEquals(lintReply('Rest assured po, lubos kaming nagagalak.'), ['exclaim', 'boilerplate']);
   assertEquals(lintReply(tlPay), []);
@@ -333,7 +332,7 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   assertEquals(card.includes('A reservation fee of \u20B11,691 holds the dates. The balance and the \u20B11,000 refundable deposit are due at least a day before check-in; or you may settle the full \u20B13,382 now.'), true);
   const hold = paymentReply({ ...f, step: 'await_receipt', name: 'Ben Munez', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben Munez', 'https://x', now);
   assertEquals(hold.startsWith("Ben, we've set aside Nov 17 to 19 for you for 24 hours"), true);
-  assertEquals(hold.includes("Once you've sent the receipt here, we'll review and confirm your reservation."), true);
+  assertEquals(hold.includes('Once done, a screenshot of the receipt here is all we need.'), true); // SPEC-31 s5
   assertEquals(lintReply(hold), []);
 });
 
@@ -627,4 +626,30 @@ Deno.test('SPEC-32 s1b (D-247, F15): UnionBank only when the guest asked for a b
   assertEquals(dropBankUnlessAsked(live, 'GCash or bank transfer?'), live);
   assertEquals(dropBankUnlessAsked(live, 'can I pay with Maya or other options?'), live);
   assertEquals(dropBankUnlessAsked('UnionBank transfer works too.', 'how do I pay?'), 'UnionBank transfer works too.'); // never empty
+});
+
+import { payHoldReply } from './voice.ts';
+Deno.test('SPEC-31 s5 (F10): the payment message fits - 560 characters, four paragraphs, one receipt, lint clean', () => {
+  const at = new Date('2026-09-17T00:00:00Z');
+  for (const l of ['en', 'tl', 'bis'] as const) {
+    const f = { step: 'await_receipt', checkin: '2026-10-20', checkout: '2026-10-26', pax: 2, lang: l, ref: 'DIR-20261020-AB12', deposit: 4848, total: 9695,
+      hold: true, hold_expires_at: '2026-09-18T02:00:00Z', started_at: at.toISOString(), updated_at: at.toISOString() } as const;
+    const r = paymentReply({ ...f }, 'Benjamin', 'https://x', at);
+    assertEquals(r.length <= 560, true, `${l}: ${r.length} characters`);
+    assertEquals(r.split(/\n\s*\n/).length <= 4, true, l);
+    assertEquals((r.match(/receipt/gi) ?? []).length, 1, l);
+    assertEquals(lintReply(r), [], l);
+  }
+});
+
+Deno.test('SPEC-31 s4 (F4, F7): mid-hold, a model reply loses the invitation, the link and a "confirmed" claim', () => {
+  const url = 'https://tinyurl.com/Stay-at-Cascade';
+  const status = "Thank you, Ben. We don't have the receipt yet on our side - a screenshot of the GCash confirmation sent here is all we need, and our host will match it to DIR-1.";
+  const stub = `Ben, yes - Maya can scan the same QR, and the amount is already set. Your booking is now confirmed for Oct 20 to 22.\n\nWhenever you feel ready, we can arrange the booking right here in the chat, or you may secure your dates on our site:\n\n👉 ${url}`;
+  const out = payHoldReply(stub, status, url);
+  assertEquals(out.includes('Maya can scan the same QR'), true);
+  assertEquals(/confirmed for|arrange the booking|secure your dates/.test(out), false);
+  assertEquals(out.includes(url), false);
+  assertEquals(out.includes('a screenshot of the GCash confirmation'), true);
+  assertEquals(payHoldReply(`👉 ${url}`, status, url), status); // never empty
 });

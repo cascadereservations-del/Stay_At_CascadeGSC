@@ -274,6 +274,18 @@ const OPEN_CLAIM_RE = new RegExp(String.raw`(?:${MD}|\b(?:those|these|your|the) 
 const BOOKED_CLAIM_RE = new RegExp(String.raw`${MD}[^.!?\n]*\b(?:reserved|booked|taken)\b|\b(?:reserved|booked|taken)\b[^.!?\n]*${MD}`, 'i');
 const NOT_OPEN_RE = /\b(not|isn't|aren't|no longer|hindi|dili)\s+(yet\s+)?(available|open|bakante)\b/gi;
 const sentencesOf = (line: string): string[] => line.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [line];
+/** SPEC-31 s4 (F4, F7): a question while the hold is open. The booking is already arranged, so no invitation, no link,
+ *  and never "your booking is confirmed" or a promised reminder - that sentence becomes the code's own status line. */
+const PAY_CLAIM_RE = /(is|ay) (now )?confirmed|na-confirm na|we'?ll (send|email) .{0,30}(reminder|receipt)/i;
+const PAY_INVITE_RE = /(arrange (the|your) booking|arrange everything|secure (your|the) dates|on our site|sa (aming|among) site|preferred dates|share (your|ang|lang)[^.?!]{0,20}dates|whenever you('re| are| feel) ready|direct bookings (carry|enjoy))/i;
+export function payHoldReply(reply: string, statusLine: string, siteUrl: string): string {
+  let placed = false;
+  const out = reply.split('\n').map((l) => {
+    if (l.includes(siteUrl) || /^\s*👉/.test(l)) return '';
+    return sentencesOf(l).map((s) => PAY_CLAIM_RE.test(s) ? (placed ? '' : ((placed = true), `${statusLine} `)) : PAY_INVITE_RE.test(s) ? '' : s).join('').trim();
+  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return out || statusLine;
+}
 /** SPEC-32 s1b (D-247, F15): in the chat, payment is GCash; UnionBank / InstaPay only when the guest asked for a bank or
  *  another way to pay. The 26 Sep live reply volunteered it after "how do I pay?". Never returns ''. */
 const BANK_RE = /(unionbank|bank transfer|instapay|pesonet)/i;

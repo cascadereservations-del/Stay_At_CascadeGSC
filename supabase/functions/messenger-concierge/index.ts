@@ -13,11 +13,11 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
+import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
-import { AIRBNB_URL, FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
+import { AIRBNB_URL, FACTS, MAYA_FACT, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
@@ -712,6 +712,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let flow: Flow | null = isActive(thread.booking_flow, now) ? thread.booking_flow! : null;
   let flowReply: string | null = null, flowImage: string | null = null, flowFollowUp: string | null = null;
   let startText: string | null = null;
+  const payHold = !!flow && ['await_receipt', 'receipt_sent'].includes(flow.step); // SPEC-31 s4: the QR is out; the model answers questions only
   let calendarDown = false; // session 30: the calendar read failed on this turn - the reply does not claim availability and a host is told
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
   // SPEC-31 (REVIEW F1-F3): after the QR, code owns the cancel, the "paid na" claim and the stray photo. `booked` is the
@@ -811,6 +812,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
       const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
+      // SPEC-31 s4 (F4, F7): the hold is open and the QR is out - the booking is arranged; the model answers the question only.
+      const payHint = payHold ? `[The guest holds ${dmRange(flow!.checkin!, flow!.checkout!)} under ${flow!.ref} and is paying the ${peso(flow!.deposit ?? 0)} ${(flow!.deposit ?? 0) >= (flow!.total ?? 0) ? 'full amount' : 'reservation fee'} by GCash QR. Answer only what they asked in two or three warm sentences. Payment facts you may state: GCash QR with the amount set; ${MAYA_FACT} A UnionBank transfer only if they ask for a bank (the host sends the account by hand). Never say the booking is confirmed, never promise a reminder or an e-mail, never invite them to the site or to arrange the booking - it is already arranged.] ` : '';
       // SPEC-28: with dates AND another question, the calendar line answers the dates, so the model sees only the other question.
       const asked = flow?.question && flowFollowUp ? otherQuestions(text) || text : text;
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
@@ -820,7 +823,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // the introduction and two labelled links - about 350 characters - so the model's own words get the other half.
       const firstLook = !thread.history.some((h) => h.role === 'bot') && !flowFollowUp && (AMENITY_RE.test(text) || TRUST_RE.test(text));
       const lookHint = firstLook ? '[Code adds the greeting, your introduction and the links to the site and reviews. Keep your own words under 300 characters: the answer with one detail that helps, then one short sentence inviting their dates. No links, no greeting, no introduction.] ' : '';
-      let out = await draft(thread, nameHint + discHint + capHint + datesHint + paxHint + flowHint + lookHint + LANG_HINT[lang] + asked, context, 'full', followUp);
+      let out = await draft(thread, nameHint + discHint + capHint + datesHint + paxHint + flowHint + payHint + lookHint + LANG_HINT[lang] + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
@@ -930,13 +933,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // !followUp meant an active thread never heard it until a 6-hour gap (the ninth reply, live).
       if (!introduced && !flowFollowUp) reply = breakAfterIntro(withIntro(reply, l3));
       reply = gladNotHappy(reply);
-      if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
+      if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp && !payHold) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }
       if (discountAsk) { reply += `\n\n${HANDOFF.policy_exception}`; handoff = true; risk = 'policy_exception'; }
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
-      if (followUp && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply = beforeClose(reply, decisionInvite(l3, SITE_URL)); // session 30: never a bare link after the close
+      if (followUp && !payHold && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply = beforeClose(reply, decisionInvite(l3, SITE_URL)); // session 30: never a bare link after the close
       // Repair a dangling "…on our site:" BEFORE the nudge decides (live 2026-09-17 19:12: the nudge saw no link,
       // appended its own line, and only then was the link put back - two invitations).
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po');
@@ -948,15 +951,16 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       // Mid-flow the resumed card already shows the site once (D-172), so only a reviews or trust
       // question earns anything, and only the reviews line.
-      const look = (handoff || discountAsk || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
+      const look = (handoff || discountAsk || payHold || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
         : flowFollowUp ? (TRUST_RE.test(text) ? lookNudge(text, l3, { site: true, reviews: reviewsShown }) : '')
         : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
-      if (!discountAsk && !look) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
+      if (!discountAsk && !look && !payHold) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (thread.guest_name) reply = dropNameAsk(reply); // golden run 2: the model asked a guest we already know for their name
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
-      if (!flowFollowUp && !discountAsk) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
+      if (!flowFollowUp && !discountAsk && !payHold) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
+      if (payHold) { const held = payHoldReply(reply, paidClaimReply(flow!, flow!.name ?? thread.guest_name, l3), SITE_URL); if (held !== reply) console.warn('pay_hold_guard', reply.slice(0, 160)); reply = held; }
       if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2);
       // Appended last: linkSolo rewrites any line holding SITE_URL into a solo 👉 line, which would
       // destroy the labelled 🏡 line. The guaranteed solo site link goes when the block carries its own.

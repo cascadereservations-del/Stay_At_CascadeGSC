@@ -27,6 +27,8 @@ export const GUIDE_URL = 'https://tinyurl.com/WelcomeToCascade';
 // (airbnb.com/rooms/1523827999359515793). Re-read it there and update both fields together.
 export const AIRBNB_RATING = { stars: '4.98', reviews: 50, checked: '2026-09-25' } as const;
 
+/** D-252 (proven on Lloyd's phone 2026-09-17, D-170): the amount-set GCash QR is a QR Ph code. */
+export const MAYA_FACT = 'Maya or a bank app can scan the same QR - it is a QR Ph code - and the amount is already set.';
 export const FACTS = `
 PROPERTY
 - Cascade Hideaway: private studio unit inside Bria Homes, Conel Road, Barangay San Isidro, General Santos City - a quiet, gated residential subdivision with security at the gate. That is the most precise location a prospect gets: the block, lot, house details and map pin are shared only once the reservation is confirmed, for guests' privacy and security.

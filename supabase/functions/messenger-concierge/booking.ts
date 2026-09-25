@@ -661,19 +661,16 @@ export function paymentReply(flow: Flow, name: string | null, _siteUrl: string, 
         en: `${n ? `${n}, we've` : `We've`} received your request for ${dates}. Your booking reference is ${flow.ref}. As your stay is near, we'll confirm as soon as your payment arrives.`,
         tl: `${n ? `${n}, received` : `Received`} na po namin ang request ninyo for ${dates}. Ang booking reference ninyo po ay ${flow.ref}. Malapit na ang stay, kaya iko-confirm namin as soon as dumating ang payment.`,
         bis: `${n ? `${n}, na-receive` : `Na-receive`} na namo ang request ninyo for ${dates}. Your booking reference is ${flow.ref}. Duol na ang stay, so amo dayon i-confirm once muabot ang payment.` });
+  // SPEC-31 s5 (F10): one receipt sentence, and the whole message inside 560 characters (voice.test.ts pins it).
   const pay = pick(L, {
-    en: `To secure the stay, you may send the ${dep} ${what} through GCash (0956 011 5744) using the QR below. The exact amount is already set. Once done, simply send the receipt here and we'll confirm the reservation.`,
-    tl: `Para ma-secure ang stay, you may send the ${dep} ${what} through GCash (0956 011 5744) using the QR below. Naka-set na po ang exact amount for convenience. Once done, send lang po the receipt screenshot here at iko-confirm na namin ang reservation.`,
-    bis: `Para ma-secure ang stay, pwede na ma-send ang ${dep} ${what} through GCash (0956 011 5744) gamit ang QR below. Naka-set na daan ang exact amount para convenient. Once done, send lang ang screenshot sa receipt diri and we'll take care of the confirmation.` });
+    en: `To secure the stay, you may send the ${dep} ${what} through GCash (0956 011 5744) with the QR below - the exact amount is already set. Once done, a screenshot of the receipt here is all we need.`,
+    tl: `Para ma-secure ang stay, you may send the ${dep} ${what} through GCash (0956 011 5744) gamit ang QR below - naka-set na ang exact amount. Once done, screenshot lang ng receipt dito ang kailangan namin.`,
+    bis: `Para ma-secure ang stay, pwede na ma-send ang ${dep} ${what} through GCash (0956 011 5744) gamit ang QR below - naka-set na daan ang exact amount. Once done, screenshot ra sa receipt diri ang among kinahanglan.` });
   const later = full
     ? pick(L, { en: `Only the ₱1,000 refundable security deposit remains, and it is due before you arrive.`, tl: `Ang ₱1,000 refundable security deposit na lang po ang natitira, and it is due before you arrive.`, bis: `Ang ₱1,000 refundable security deposit na lang ang nabilin, and it is due before you arrive.` })
-    : pick(L, { en: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.`, tl: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.`, bis: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.` });
-  // Lloyd 2026-09-18 ("both, keep the old sentence too"): the approved review-and-confirm sentence sits with the
-  // close, not beside the GCash one - together they ran 355 characters in Taglish against a 320 limit.
-  const receipt = pick(L, {
-    en: `Once you've sent the receipt here, we'll review and confirm your reservation.`,
-    tl: `Kapag na-send na po ninyo ang receipt dito, ire-review at iko-confirm namin ang reservation ninyo.`,
-    bis: `Kung ma-send na ninyo ang receipt diri, amo i-review ug i-confirm ang inyong reservation.` });
-  const close = receipt + ' ' + pick(L, { en: `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, tl: `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, bis: `Salamat${nm}. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿` });
+    : pick(L, { en: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.`, tl: `Ang natitirang ${bal} balance at ang ₱1,000 refundable security deposit ay due at least a day before check-in.`, bis: `The remaining ${bal} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.` });
+  // SPEC-31 s5: the review-and-confirm sentence (Lloyd 2026-09-18) is gone - the pay sentence already asks for the
+  // receipt, and "receipt" twice pushed the message to 618-682 characters (REVIEW F10).
+  const close = pick(L, { en: `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, tl: `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, bis: `Salamat${nm}. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿` });
   return [head, '', pay, '', later, '', close].join('\n');
 }
