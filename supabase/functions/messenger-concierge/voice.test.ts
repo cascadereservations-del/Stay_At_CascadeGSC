@@ -473,3 +473,46 @@ Deno.test('golden run 2026-09-24: a one-paragraph first reply gets its answer on
   const two = 'Hi Ben, thank you for reaching out.\n\nYes, we have Wi-Fi.';
   assertEquals(withIntro(two, 'en'), 'Hi Ben, thank you for reaching out. ' + CASSY_INTRO.en.trimEnd() + '\n\nYes, we have Wi-Fi.'); // the break is kept, not swallowed
 });
+
+// Golden run 2026-09-25: Oct 2 is a real check-out day, and the reply offered 12 noon at no extra cost (Lloyd 2026-09-17: never).
+import { offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine } from './voice.ts';
+Deno.test('turnover day: a noon or free early check-in offer is replaced by the 2 PM line', () => {
+  const live = 'Salamat sa pag-message sa Cascade Hideaway. yes po, available ang Oct 2. You\'re welcome to check in from 12:00 noon that day at no extra cost.\n\nMay I confirm lang po ilan kayo?';
+  assertEquals(offersEarlyCheckin(live), true);
+  const line = turnoverCheckinLine('Oct 2', 'tl');
+  const fixed = setTurnoverCheckin(live, line);
+  assertEquals(fixed.includes('12:00 noon'), false);
+  assertEquals(fixed.includes(line), true);
+  assertEquals(fixed.includes('available ang Oct 2'), true);
+  assertEquals(fixed.endsWith('May I confirm lang po ilan kayo?'), true);
+  assertEquals(setTurnoverCheckin(fixed, line), fixed);
+  // Left alone: the 2 PM answer, a check-out time, and a paid early check-in quoted with its fee.
+  assertEquals(offersEarlyCheckin('Check-in is from 2:00 PM on Oct 2.'), false);
+  assertEquals(offersEarlyCheckin('Check-out is at 12 noon, and we will have everything ready.'), false);
+  assertEquals(offersEarlyCheckin('Complimentary early check-in from 12 noon works on Oct 9, as no guest checks out that day.'), true);
+});
+
+// Golden run 2026-09-25 (R10): intro written by the model and run on into a long answer; one paragraph over 320 characters.
+import { breakAfterIntro } from './voice.ts';
+Deno.test('a first paragraph over 320 characters breaks after the Cassy sentence', () => {
+  const live = "Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, and Marifel and our team are right here with me. We're located inside Bria Homes along Conel Road, Barangay San Isidro, General Santos City. It's a quiet, gated residential community, about 10 to 15 minutes from SM, KCC, and Veranza, so you can settle in calmly after your day.\n\nFor our guests' privacy, the exact house details are shared once a booking is confirmed.";
+  const out = breakAfterIntro(live);
+  const paras = out.split('\n\n');
+  assertEquals(paras.length, 3);
+  assertEquals(paras[0].endsWith('right here with me.'), true);
+  assertEquals(paras[1].startsWith("We're located inside Bria Homes"), true);
+  assertEquals(paras.every((p) => p.length <= 320), true);
+  assertEquals(breakAfterIntro(out), out);
+  assertEquals(breakAfterIntro('Short first paragraph. I am Cassy.\n\nRest.'), 'Short first paragraph. I am Cassy.\n\nRest.');
+});
+
+// Golden run 2026-09-25, fu-reviews-tl: R3 read a warm reply as cold because the warmth shared a paragraph with the links;
+// R2 flagged "happy to help" (boilerplate) where the approved replies say "glad to help".
+import { gladNotHappy } from './voice.ts';
+Deno.test('warmth beside the look block still counts; "happy to help" becomes "glad to help"', () => {
+  const live = "Yes, Ben, legit po kami. We are a verified Airbnb Guest Favorite, so you can be confident in your stay with us.\n\nOur guests often share how much they appreciate the quiet comfort and the thoughtful touches we provide.\n\nIf you have any dates in mind, please feel free to share them here, and we'll gladly check our calendar for you. 🌿 If you'd like to read what past guests have shared, nasa aming Airbnb listing po ang reviews:\n⭐ Guest reviews: https://airbnb.com/h/cascadesgsc";
+  assertEquals(isCold(live), false);
+  assertEquals(isCold('The unit has fiber Wi-Fi at 200 Mbps and a smart TV with Netflix, and the kitchen has a fridge, an induction cooker, a rice cooker and basic cookware and utensils.\n\n👉 https://tinyurl.com/Stay-at-Cascade'), true);
+  assertEquals(gladNotHappy("We'd be happy to help you plan your stay."), "We'd be glad to help you plan your stay.");
+  assertEquals(gladNotHappy('We are happy to host you.'), 'We are happy to host you.');
+});

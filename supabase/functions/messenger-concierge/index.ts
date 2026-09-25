@@ -14,7 +14,7 @@ import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, 
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, greeting, greetBlock, guestLang, otherQuestions, isActive, opener, openWindows, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, start, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, answerOnly, appendLook, beforeClose, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fixEarlyFee, isCold, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { addChatRoute, AMENITY_RE, answerOnly, appendLook, beforeClose, breakAfterIntro, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fixEarlyFee, gladNotHappy, isCold, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, FACTS, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
@@ -255,7 +255,7 @@ async function availabilityBlock(db: Db): Promise<string> {
     `BOOKED NIGHTS: ${booked.join(', ') || 'none'}`,
     `If a requested range includes a booked night, say exactly which nights are taken and which are open, then offer the open part or the nearest window. For dates beyond ${pretty(horizonEnd)}, say the host will confirm.`,
     // Turnover safeguard (live test 2026-09-12: a free 1 PM check-out was promised with no dates known).
-    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - early check-in is NOT possible on these days (12 noon at the earliest, and only once the unit is ready).`,
+    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - on these days check-in stays at 2:00 PM: never offer 12 noon or any early check-in, free or paid; say we will let them know right away if the home is ready earlier.`,
     `ANOTHER GUEST CHECKS IN ON: ${[...checkins].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - late check-out is NOT possible on these days; check-out stays at 12 noon.`,
     `Offer early check-in or late check-out ONLY when the guest's dates are known and the day in question is on neither list. Otherwise say you will gladly arrange it once their dates are set and the calendar allows.`,
   ].join('\n');
@@ -785,7 +785,11 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
       const knownPax = thread.booking_flow?.pax;
       const paxHint = knownPax && !flowFollowUp ? `[Already known from this chat: ${knownPax} guest${knownPax === 1 ? '' : 's'}. Do not ask how many guests again; ask something only if it is truly needed.] ` : '';
-      let out = await draft(thread, nameHint + discHint + capHint + datesHint + paxHint + flowHint + LANG_HINT[lang] + asked, context, 'full', followUp);
+      // Golden run 2026-09-25 (R10, 733 and 775 characters): on a first amenity or trust question, code adds the greeting,
+      // the introduction and two labelled links - about 350 characters - so the model's own words get the other half.
+      const firstLook = !thread.history.some((h) => h.role === 'bot') && !flowFollowUp && (AMENITY_RE.test(text) || TRUST_RE.test(text));
+      const lookHint = firstLook ? '[Code adds the greeting, your introduction and the links to the site and reviews. Keep your own words under 300 characters: the answer with one detail that helps, then one short sentence inviting their dates. No links, no greeting, no introduction.] ' : '';
+      let out = await draft(thread, nameHint + discHint + capHint + datesHint + paxHint + flowHint + lookHint + LANG_HINT[lang] + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
@@ -814,6 +818,18 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // this runs on the answer before the flow's card is added).
       const feeFixed = fixEarlyFee(out.reply, text);
       if (feeFixed !== out.reply) { console.warn('early_fee_guard', out.reply.slice(0, 160)); out.reply = feeFixed; }
+      // Lloyd 2026-09-17: a day another guest checks out never gets the 12 noon check-in (golden run 2026-09-25 offered it).
+      if (offersEarlyCheckin(out.reply)) {
+        const stay = stayFrom(guestTexts, now);
+        if (stay) {
+          const { data: co, error: coErr } = await db.from('calendar_events').select('checkout_date').neq('status', 'cancelled').eq('checkout_date', stay.checkin).limit(1);
+          if (coErr) console.error('calendar_read_failed', 'turnover_guard', String(coErr.message ?? coErr).slice(0, 200));
+          if (co?.length) {
+            console.warn('turnover_noon_guard', JSON.stringify({ day: stay.checkin, reply: out.reply.slice(0, 160) }));
+            out.reply = setTurnoverCheckin(out.reply, turnoverCheckinLine(pretty(stay.checkin), l3));
+          }
+        }
+      }
       // K18 (D-182): outside the book flow, a draft that calls the guest's dates open is checked against the calendar in
       // code, before the post-processing below. A booked night gets ONE rewrite around the flow's approved line (golden
       // run 6: a bare sentence swap left a rate quote and "secure your dates" beside "already reserved"); an unreadable
@@ -878,7 +894,8 @@ async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects
       // guaranteed here - first exchange, not yet introduced, and never under a resumed card.
       // SPEC-21: SPEC-01 says the FIRST reply; that is a thread fact, not a clock fact. Gating it on
       // !followUp meant an active thread never heard it until a 6-hour gap (the ninth reply, live).
-      if (!introduced && !flowFollowUp) reply = withIntro(reply, l3);
+      if (!introduced && !flowFollowUp) reply = breakAfterIntro(withIntro(reply, l3));
+      reply = gladNotHappy(reply);
       if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }

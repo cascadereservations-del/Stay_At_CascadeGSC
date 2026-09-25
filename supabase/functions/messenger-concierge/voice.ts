@@ -91,9 +91,14 @@ export function offRegister(reply: string, lang: 'en' | 'tl' | 'bis'): boolean {
  *  before this runs, so it is only used on routine answers. */
 export function isCold(reply: string): boolean {
   // The canned site invite and its tagline ("…enjoy our best rates…") are not the model's warmth: judge the rest.
-  const own = reply.split(/\n\s*\n/).filter((p) => !/👉|https?:\/\/|best rates|on our site|sa site namin|sa among site/i.test(p)).join('\n\n');
+  // Golden run 2026-09-25 (R3): appendLook joins the link lines to the paragraph that held the warmth ("feel free", 🌿),
+  // and dropping whole paragraphs with a link dropped the warmth too. Only link lines and site sentences go now.
+  const own = reply.split('\n').filter((l) => !/👉|https?:\/\//.test(l))
+    .map((l) => sentencesOf(l).filter((s) => !/best rates|on our (direct )?site|sa site namin|sa (aming|among) site/i.test(s)).join('')).join('\n');
   return own.trim().length > 140 && !CARE_RE.test(own);
 }
+/** "Happy to help" is on the boilerplate list (R2); the approved first replies say "glad to help" (golden run 2026-09-25). */
+export const gladNotHappy = (reply: string) => reply.replace(/\b(be|am|are|we'?re|we'?d be|i'?d be) happy to help\b/gi, (m) => m.replace(/happy/i, (h) => (h[0] === 'H' ? 'Glad' : 'glad')));
 
 // Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site. The model copied
 // its own older site-only wording from the history despite the rule and the examples (live 19:19), so code guarantees it.
@@ -151,8 +156,22 @@ export function withIntro(reply: string, lang: L3): string {
   if (!rest) return `${m[1]} ${intro.trimEnd()}`;
   // Keep a paragraph break that was there (it used to be swallowed); a one-paragraph reply gets one after the intro
   // (golden run 2026-09-24: "one block of text").
-  const sep = /\n/.test(m[2]) ? m[2] : /\n\s*\n/.test(reply) ? ' ' : '\n\n';
+  // Golden run 2026-09-25 (R10): the intro joined to a long first answer made one paragraph over 320 characters, so the
+  // answer starts its own paragraph whenever that would happen.
+  const firstRest = rest.split(/\n\s*\n/)[0] ?? '';
+  const sep = /\n/.test(m[2]) ? m[2] : !/\n\s*\n/.test(reply) || `${m[1]} ${intro} ${firstRest}`.length > 320 ? '\n\n' : ' ';
   return `${m[1]} ${intro.trimEnd()}${sep}${rest}`;
+}
+/** Golden run 2026-09-25 (R10): the model wrote the intro itself and ran the answer on in the same paragraph (over 320
+ *  characters). A first paragraph that long breaks after the sentence that names Cassy. */
+export function breakAfterIntro(reply: string): string {
+  const [first, ...rest] = reply.split(/\n\s*\n/);
+  if (!first || first.length <= 320) return reply;
+  const ss = sentencesOf(first);
+  const i = ss.findIndex((s) => /\bCassy\b/.test(s));
+  if (i < 0 || i === ss.length - 1) return reply;
+  const head = ss.slice(0, i + 1).join('').trim(), tail = ss.slice(i + 1).join('').trim();
+  return [head, tail, ...rest].join('\n\n');
 }
 /** Insert a block before a short warm close (so the close stays last), else append it. */
 export function beforeClose(reply: string, block: string): string {
@@ -233,6 +252,34 @@ export function fixEarlyFee(reply: string, guest: string): string {
     }));
 }
 
+// Lloyd 2026-09-17: on a day another guest checks out, check-in stays at 2 PM and the 12 noon check-in is never offered.
+// Golden run 2026-09-25 (Oct 2, a real Airbnb check-out): "You're welcome to check in from 12:00 noon that day at no extra
+// cost." The prompt said "12 noon at the earliest" there, so code owns the fact now, as K18 does for the fee.
+const NOON_OFFER_RE = /\b(12(:00)?\s*(noon|nn|pm)|noon|tanghali|complimentary|no extra (cost|charge)|free (early )?check[- ]?in|walang (dagdag|bayad))\b/i;
+const CHECKIN_WORD_RE = /\b(check[- ]?in|arriv\w*|dating|abot)\b/i;
+const noonOffer = (s: string) => CHECKIN_WORD_RE.test(s) && NOON_OFFER_RE.test(s) && !/\b2(:00)?\s*p\.?m\b/i.test(s) && !/\bcheck[- ]?out\b/i.test(s);
+/** The reply offers a check-in at or before 12 noon, or a free early one. */
+export function offersEarlyCheckin(reply: string): boolean {
+  return reply.split('\n').some((l) => sentencesOf(l).some(noonOffer));
+}
+/** The code's sentence for a check-in on a turnover day. `day` is already formatted ("Oct 2"). */
+export function turnoverCheckinLine(day: string, l3: 'en' | 'tl' | 'bis'): string {
+  return l3 === 'tl' ? `Sa ${day} po, ang check-in ay from 2:00 PM, dahil ihahanda pa namin ang home after ng naunang guest; sasabihan namin kayo agad kung maaga itong maging ready.`
+    : l3 === 'bis' ? `Sa ${day}, ang check-in kay from 2:00 PM, kay amo pang i-prepare ang home human sa nauna nga guest; amo dayon kamo ingnan kung ready na og sayo.`
+    : `Check-in on ${day} is from 2:00 PM, as we'll be preparing the home after the guest before you; we'll let you know right away if it's ready earlier.`;
+}
+/** Every sentence offering an early check-in gives way to the code's line: the first is replaced, the rest dropped. */
+export function setTurnoverCheckin(reply: string, line: string): string {
+  if (reply.includes(line)) return reply;
+  let placed = false;
+  const out = reply.split('\n').map((l) => {
+    const ss = sentencesOf(l);
+    if (!ss.some(noonOffer)) return l;
+    return ss.map((s) => (!noonOffer(s) ? s : placed ? '' : ((placed = true), `${line} `))).join('').trim();
+  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return out || reply;
+}
+
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
   const v: Violation[] = [];
@@ -277,9 +324,11 @@ export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews:
   if (!amenity && !trust) return '';
   const reviewsLine = `⭐ Guest reviews: ${AIRBNB_URL}`;
   if (amenity && !has.site && !has.reviews) {
-    const sentence = { en: `You're welcome to look through the full amenities and photos on our site, and to read what past guests have shared on our Airbnb listing.`,
-      tl: `You're welcome po to look through the full amenities and photos sa aming site, and to read what past guests have shared sa aming Airbnb listing.`,
-      bis: `You're welcome to look through the full amenities and photos sa among site, and to read what past guests have shared sa among Airbnb listing.` }[lang];
+    // Golden run 2026-09-25 (R10, 733 and 775 characters): code's own lines are most of a first amenity reply, so this
+    // sentence was cut from 138 characters to under 100.
+    const sentence = { en: `Photos and the full amenities are on our site, and past guests' reviews are on our Airbnb listing.`,
+      tl: `Nasa aming site po ang photos at full amenities, at nasa Airbnb listing namin ang reviews ng past guests.`,
+      bis: `Naa sa among site ang photos ug full amenities, ug naa sa among Airbnb listing ang reviews sa past guests.` }[lang];
     return `${sentence}\n\n🏡 Amenities and photos: ${SITE_URL}\n${reviewsLine}`;
   }
   if (has.reviews) return '';
