@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260925T000935Z",
-    "verified_at": "2026-09-25T00:09:35Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260925T002543Z",
+    "verified_at": "2026-09-25T00:25:43Z",
     "production_rule": "One new service_role-only function; nothing existing is altered and the release writes no row. The forward checks call it only with identities that match nothing, so they change nothing. The backup is taken as the LAST act before the apply (D-210)."
   },
   "forward_verification": [
