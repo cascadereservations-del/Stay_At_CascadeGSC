@@ -2,7 +2,7 @@
 // reply. Pure, no I/O, unit-tested (golden-score.test.ts). A check returns null when it passes, else a short reason.
 // The checks are deliberately narrow: a scorer that cries wolf sends us back to tuning by ear.
 import { RATE_TIERS } from '../_shared/cascade-core/facts.ts';
-import { earlyFeeFor, fixEarlyFee, isCold, lintReply, offRegister, type Violation } from './voice.ts';
+import { earlyFeeFor, fixEarlyFee, isCold, lintReply, type Violation } from './voice.ts';
 
 export type Reg = 'en' | 'tl' | 'bis';
 /** model = a free answer written by the model; code = a code-owned line in index.ts (closer, bot, dates-first, sticker);
@@ -125,7 +125,9 @@ export function scoreReply(c: Ctx): Score {
   // R6 register
   const po = (r.match(/\bpo\b/gi) ?? []).length;
   if (c.lang === 'bis') { const t = TAGALOG_ONLY_RE.exec(r)?.[0]; if (t) s.R6 = `Tagalog "${t}" in a Bislish reply`; }
-  else if (c.lang === 'tl') { if (po > 2 && c.kind !== 'flow') s.R6 = `${po} "po"`; else if (voiced && offRegister(r, 'tl')) s.R6 = 'Taglish reply with fewer than two Taglish words (SPEC-28)'; }
+  // D-245 (Lloyd 2026-09-25, "accept either"): a Taglish guest answered in clean English passes; Taglish stays the aim and
+  // index.ts keeps its one off_register rewrite. Too many "po" still fails.
+  else if (c.lang === 'tl') { if (po > 2 && c.kind !== 'flow') s.R6 = `${po} "po"`; }
   else if (voiced || c.kind === 'handoff') {
     if (po > (c.guestUsedPo ? 1 : 0)) s.R6 = `${po} "po" in an English reply`;
     else { const u = UNCONTRACTED_RE.exec(r)?.[0]; if (u && voiced) s.R6 = `uncontracted "${u}"`; }

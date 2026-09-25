@@ -40,7 +40,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     // ---- follow-ups: warm, no greeting, no re-ask, at most one invitation
     { id: 'fu-amenity-en', group: 'followup', turns: [m('Hi, do you have wifi?'), m('Is there a kitchen too?', 'en', { must: [/induction|kitchen/i] })] },
     { id: 'fu-amenity-with-dates-en', group: 'followup', turns: [{ say: `Hi! Is ${d2} open? 2 guests`, kind: 'flow', lang: 'en' }, { say: 'and is there wifi?', kind: 'midflow', lang: 'en', must: [/wi-?fi/i] }] },
-    { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'en'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/, /\b(para|kaya|mga|ang)\b/] })] },
+    { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'en'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/] })] }, // D-245: English or Taglish both pass
     { id: 'fu-parking-en', group: 'followup', turns: [{ say: `Hello, is ${d3} available?`, kind: 'flow', lang: 'en' }, { say: 'Is there parking?', kind: 'midflow', lang: 'en', must: [/parking|park/i, /gated|camera|CCTV/i] }] },
     { id: 'fu-early-no-dates-en', group: 'followup', turns: [m('Hi there'), { say: 'Can we check in early, around 9am?', kind: 'code', lang: 'en', mustNot: [/complimentary|confirmed|free of charge/i] }] },
     { id: 'fu-early-with-dates-en', group: 'followup', turns: [{ say: `Hi, is ${d2} available for 2?`, kind: 'flow', lang: 'en' }, { say: 'Can we check in at 10am on the first day?', kind: 'midflow', lang: 'en' }] },
