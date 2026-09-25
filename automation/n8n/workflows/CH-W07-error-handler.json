@@ -32,7 +32,7 @@
     {
       "parameters": {
         "chatId": "-1003819352746",
-        "text": "={{ ['Cascade n8n workflow FAILED', 'Workflow: ' + ($json.workflow.name || $json.workflow.id), 'Execution: ' + ($json.execution.id || 'n/a') + ' (' + ($json.execution.mode || 'unknown') + ')', 'Last node: ' + ($json.execution.lastNodeExecuted || 'n/a'), 'Error: ' + (($json.execution.error && $json.execution.error.message) || 'no message'), 'URL: ' + ($json.execution.url || 'n/a')].join('\\n') }}",
+        "text": "={{ ['Cascade n8n workflow FAILED', 'Workflow: ' + ($json.workflow.name || $json.workflow.id), 'Execution: ' + ($json.execution.id || 'n/a') + ' (' + ($json.execution.mode || 'unknown') + ')', 'Last node: ' + ($json.execution.lastNodeExecuted || 'n/a'), 'Error: ' + (($json.execution.error && $json.execution.error.message) || 'no message'), 'URL: ' + ($json.execution.url || 'n/a'), $json.dedupe_note || ''].join('\\n') }}",
         "additionalFields": {
           "appendAttribution": false,
           "disable_notification": false
