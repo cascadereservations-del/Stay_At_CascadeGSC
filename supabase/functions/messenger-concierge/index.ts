@@ -721,7 +721,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // SPEC-34 (D-262): while a promotion is live, "any promo?" has a factual answer - the promotion - so it is answered
   // with the normal close, not sent to the host as a price request (golden 2026-09-26: the host line pushed every
   // promo answer past 700 characters and dropped the chat route). A discount ask still goes to the host.
-  const promoAsk = /\b(promos?|promotions?|sale)\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
+  // Not bare "sale": "May sale po ba sa SM?" is about the mall (second review 2026-09-26).
+  const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
   const discountAsk = !promoAsk && /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text);
   let risk: RiskCode = text ? g.risk : 'uncertain';
   let handoff = g.handoff || !text;   // the bot steps aside: handoff line to the guest, 24 h hold

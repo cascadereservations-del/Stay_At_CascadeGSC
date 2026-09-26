@@ -37,6 +37,7 @@ Deno.test('dropNameAsk removes a compound name ask that ends in a full stop (gol
   assert(r.includes('If you have dates in mind, share lang dito, pati ilan kayo'), r);
   assertEquals(dropNameAsk('May we know your name?\n\nThanks.'), 'Thanks.');
   assertEquals(dropNameAsk('Our rate is PHP 1,780.'), 'Our rate is PHP 1,780.');
+  assertEquals(dropNameAsk('Welcome.\n\nMay we know your name, and 2 nights would suit you nicely.'), 'Welcome.\n\n2 nights would suit you nicely.');
 });
 
 Deno.test('a plain stay is quoted exactly as before', () => {
