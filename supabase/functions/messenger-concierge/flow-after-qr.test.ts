@@ -157,7 +157,9 @@ Deno.test('D-258: the pay-how lines pass the golden voice rules (R3 care, R6 con
   const { payHowReply, paymentPromise } = await import('./booking.ts');
   const a = payHowReply(null, 'Ben', 'en');
   const t = payHowReply(flow({ step: 'offer', lang: 'tl' }), 'Ben', 'tl');
-  for (const x of [a, t]) { assertEquals(isCold(x), false); assertEquals(/\bthere is\b/.test(x), false); }
+  // golden-score UNCONTRACTED_RE, over the line AND the account-name line that rides under the QR (both are one scored reply)
+  const UNCONTRACTED = /(?<!\b(?:for|to|of|with|from) )\b(we|you|they) (will|are|would)\b|\b(it|that|there) is\b|\bdo not\b|\bdoes not\b|\bcannot\b/i;
+  for (const x of [a, t]) { assertEquals(isCold(x), false); assertEquals(UNCONTRACTED.test(x + '\n\n' + paymentPromise('en')), false); }
   assertEquals(((t + '\n\n' + paymentPromise('tl')).match(/\bpo\b/g) ?? []).length <= 2, true);
 });
 

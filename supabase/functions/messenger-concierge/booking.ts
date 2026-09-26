@@ -644,10 +644,10 @@ function relDay(iso: string, now: Date, lang: Lang | undefined): string {
  *  would manufacture the very doubt this sentence exists to settle. */
 export function paymentPromise(lang: Lang | undefined): string {
   return pick(lang, {
-    en:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales.`,
+    en:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you'll see is Cascades, registered to Marifel Suzanne Boncales.`,
     // D-258: English in every register, no "po" here: it rides under a line that already carries one (golden R6 caps it at 2).
-    tl:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales.`,
-    bis: `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales.`,
+    tl:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you'll see is Cascades, registered to Marifel Suzanne Boncales.`,
+    bis: `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you'll see is Cascades, registered to Marifel Suzanne Boncales.`,
   });
 }
 
