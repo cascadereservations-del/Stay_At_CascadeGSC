@@ -38,8 +38,6 @@ export function fbSendImage(psid: string, url: string): Promise<boolean> {
   return post({ recipient: { id: psid }, messaging_type: 'RESPONSE', message: { attachment: { type: 'image', payload: { url, is_reusable: true } } } });
 }
 
-const dm = (d: string) => { const x = new Date(String(d).slice(0, 10) + 'T00:00:00Z'); return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][x.getUTCMonth()]} ${x.getUTCDate()}`; };
-
 /** The Messenger thread a direct booking came from (SPEC-33 s2), or null when it came from the site. */
 // deno-lint-ignore no-explicit-any
 export async function threadForBooking(db: any, bookingId: string): Promise<{ psid: string; guest_name: string | null; booking_flow: any; history: any[] } | null> {
@@ -63,20 +61,4 @@ export async function notifyMessengerBookingDeclined(db: any, bookingId: string)
   if (ok) await db.from('concierge_threads').update({ booking_flow: { ...f, step: 'receipt_declined', updated_at: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq('psid', t.psid);
   return ok;
 }
-
-/** Tell the guest on Messenger that their direct booking is confirmed; no-op when the booking did not come through a Messenger thread.
- *  Session 54: unused since the confirm tap calls guest-messages (SPEC-05 message 1); kept one release, then delete. */
-// deno-lint-ignore no-explicit-any
-export async function notifyMessengerBookingConfirmed(db: any, bookingId: string): Promise<boolean> {
-  const t = await threadForBooking(db, bookingId);
-  if (!t) return false;
-  const { data: b } = await db.from('booking_inquiries').select('checkin_date, checkout_date, id').eq('id', bookingId).maybeSingle();
-  const ref = bookingId.slice(0, 8).toUpperCase();
-  const first = t.guest_name ? String(t.guest_name).split(' ')[0] : 'there';
-  const text = b
-    ? `Confirmed po, ${first}! 🎉 Your stay ${dm(b.checkin_date)} → ${dm(b.checkout_date)} at Cascade Hideaway is booked (ref ${ref}). We'll send the address and check-in details here closer to your date. Salamat, and see you soon!`
-    : `Confirmed po, ${first}! 🎉 Your booking (ref ${ref}) at Cascade Hideaway is set. We'll send the check-in details here closer to your date.`;
-  const ok = await fbSendText(t.psid, text, true);
-  if (ok) await db.from('concierge_threads').update({ booking_flow: { ...(t.booking_flow ?? {}), step: 'confirmed', updated_at: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq('psid', t.psid);
-  return ok;
-}
+// Session 56: notifyMessengerBookingConfirmed deleted (unused since session 54; guest-messages sends message 1).
