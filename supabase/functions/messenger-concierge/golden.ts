@@ -148,7 +148,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
   if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { kind: 'code', // SPEC-28: code writes this reply
-      must: [/reserved|booked|taken/i, /nearest open dates/i], mustNot: [new RegExp(`${bookedRange.split(' to ')[0]}[^.\\n]{0,40}\\bis (open|available)\\b`, 'i')] })] });
+      must: [/reserved|booked|taken/i, /nearest open (dates|night)/i], mustNot: [new RegExp(`${bookedRange.split(' to ')[0]}[^.\\n]{0,40}\\bis (open|available)\\b`, 'i')] })] });
   // Lloyd 2026-09-17: on a day another guest checks out, the 12 noon check-in is never offered. Needs a real turnover day:
   // pass GOLDEN_TURNOVER="Oct 5" (a checkout_date from a read-only calendar query whose night is still open).
   // SPEC-14 (D-184) + the 2026-09-18 policy: the full-payment rule needs a stay that is REALLY open inside 5 days

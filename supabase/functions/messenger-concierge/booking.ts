@@ -24,6 +24,8 @@ export type Flow = {
   receipt_token?: string; receipt_expires_at?: string; started_at: string; updated_at: string;
   /** SPEC-31 s3: a photo reached us outside the upload (lapsed hold, second photo); the host matches it by hand. */
   photo_at?: string;
+  /** Live 2026-09-26 (Suzanne): the nearest open window we offered after a reserved line; a plain yes takes it. */
+  alt?: Window;
 };
 
 export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i-?book|mag-?reserve|hold (the|my|our) dates|arrange (it|the booking)|(do|settle) it here|here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i; // session 30: invitations now offer the chat route, so its natural answers start the flow
@@ -153,6 +155,14 @@ export function availStart(text: string, now = new Date()): boolean {
   if (!AVAIL_RE.test(text)) return false;
   const d = parseDates(text, now);
   return !!d[0] && d[0] >= now.toISOString().slice(0, 10);
+}
+/** "2 nights", "one night", "isang gabi", "duha ka gabii" -> the count; null when the message names no nights. */
+export function nightsIn(text: string): number | null {
+  const w: Record<string, number> = { one: 1, a: 1, isa: 1, isang: 1, usa: 1, two: 2, dalawa: 2, dalawang: 2, duha: 2, three: 3, tatlo: 3, tatlong: 3, tulo: 3, four: 4, apat: 4, upat: 4, five: 5, lima: 5, limang: 5 };
+  const m = /\b(\d{1,2}|one|a|isa|isang|usa|two|dalawa|dalawang|duha|three|tatlo|tatlong|tulo|four|apat|upat|five|lima|limang)\s*(?:ka\s*)?(?:po\s*)?(?:nights?|gabi|gabii)\b/i.exec(text);
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? +m[1] : w[m[1].toLowerCase()];
+  return n >= 1 && n <= 60 ? n : null;
 }
 export function parsePax(text: string): number | null {
   const words: Record<string, number> = { one: 1, isa: 1, two: 2, dalawa: 2, duha: 2, three: 3, tatlo: 3, tulo: 3, four: 4, apat: 4, upat: 4 };
@@ -298,10 +308,21 @@ export const cancelReply = (lang: Lang | undefined) => pick(lang, {
   tl: `No problem po, take your time. Wala pong na-send, so nothing is committed. Whenever you're ready, i-send lang po ulit ang dates ninyo and we'll pick up right where we left off. 🌿`,
   bis: `Walay problema, take your time. Walay na-send, so nothing is committed. Whenever you're ready, i-send lang balik ang inyong dates and we'll pick up right where we left off. 🌿`,
 });
-/** A code answer to "is it available?" from the calendar rows that overlap the stay (pure: index.ts fetches). */
-export function availabilityLine(flow: Flow, bookedNights: Set<string> | null, nearest?: Window | null): string {
+const manilaToday = (now: Date) => new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+export const addDay = (d: string, n = 1) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
+/** Live 2026-09-26 (Suzanne, "Available today?" was answered "Sep 26 to 27 is already reserved"): one night is named the way
+ *  a host says it - "tonight (Sep 26)", "the night of Oct 5" - in English; Taglish and Bislish keep the range. */
+function stayLabel(checkin: string, checkout: string, lang: Lang | undefined, now: Date): string {
+  if ((lang && lang !== 'en') || nights(checkin, checkout) !== 1) return dmRange(checkin, checkout); // "Oct 3 to 4" is how Filipino guests write one night
+  return checkin === manilaToday(now) ? `tonight (${dm(checkin)})` : `the night of ${dm(checkin)}`;
+}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** A code answer to "is it available?" from the calendar rows that overlap the stay (pure: index.ts fetches).
+ *  `offer` (flow paths only, where index.ts keeps the window as flow.alt): the nearest window is offered as a yes/no
+ *  question, so a guest whose night is taken is one "yes" from the next step (Lloyd 2026-09-26: conversion, same warmth). */
+export function availabilityLine(flow: Flow, bookedNights: Set<string> | null, nearest?: Window | null, now = new Date(), offer = false): string {
   if (!flow.checkin || !flow.checkout) return '';
-  const dates = dmRange(flow.checkin, flow.checkout);
+  const dates = stayLabel(flow.checkin, flow.checkout, flow.lang, now);
   // null = the calendar could not be read: never claim the dates are open (session 30).
   if (!bookedNights) return pick(flow.lang, {
     en: `We're checking ${dates} on our calendar and will confirm shortly`,
@@ -309,17 +330,29 @@ export function availabilityLine(flow: Flow, bookedNights: Set<string> | null, n
     bis: `Amo i-check ang ${dates} sa calendar and we'll confirm shortly`,
   });
   for (let d = flow.checkin; d < flow.checkout; d = new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)) {
-    if (bookedNights.has(d)) return nearest ? pick(flow.lang, {
-      en: `${dates} is already reserved. The nearest open dates are ${windowText(nearest)}, and we'd be glad to check any others for you — just share your check-in and check-out.`,
-      tl: `Reserved na po ang ${dates}. Ang nearest open dates ay ${windowText(nearest)}, at gladly naming iche-check ang iba pang dates para sa inyo — share lang po ang check-in at check-out.`,
-      bis: `Reserved na ang ${dates}. Ang nearest open dates kay ${windowText(nearest)}, ug amo dayon i-check ang uban dates para ninyo — share lang ang check-in ug check-out.`,
-    }) : pick(flow.lang, {
-      en: `${dates} is already reserved, as the home welcomes one party at a time. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`,
-      tl: `Reserved na po ang ${dates} — one party lang ang tinatanggap namin per stay. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`,
-      bis: `Reserved na ang ${dates} — one party ra ang ma-accommodate namo per stay. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.`,
-    });
+    if (bookedNights.has(d)) {
+      if (!nearest) return pick(flow.lang, {
+        en: `I'm sorry, ${dates} is already reserved, as the home welcomes one party at a time. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`,
+        tl: `Pasensya na po, reserved na ang ${dates} — one party lang ang tinatanggap namin per stay. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`,
+        bis: `Pasensya, reserved na ang ${dates} — one party ra ang ma-accommodate namo per stay. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.`,
+      });
+      const one = nearest.nights === 1 && !nearest.open_ended;
+      const w = one ? dm(nearest.start) : windowText(nearest);
+      const ask = offer && !nearest.open_ended;
+      return pick(flow.lang, {
+        en: `I'm sorry, ${dates} is already reserved. ${one ? `The nearest open night is ${w}` : `The nearest open dates are ${w}`}, and we'd be glad to welcome you then.${ask
+          ? `\n\nWould ${one ? 'that night' : 'those dates'} suit you? If other dates work better, just share them and we'll gladly check.`
+          : ` If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.`}`,
+        tl: `Pasensya na po, reserved na ang ${dates}. Ang nearest open ${one ? 'night' : 'dates'} ay ${w}, and we'd be glad to have you then.${ask
+          ? `\n\nOkay ba sa inyo ang ${one ? 'night' : 'dates'} na iyon? If may ibang dates kayong gusto, share lang po and iche-check namin agad.`
+          : ` If may ibang dates kayong gusto, share lang po ang check-in at check-out and iche-check namin agad.`}`,
+        bis: `Pasensya, reserved na ang ${dates}. Ang nearest open ${one ? 'night' : 'dates'} kay ${w}, ug looking forward mi to have you then.${ask
+          ? `\n\nOkay ba ninyo ang ${one ? 'night' : 'dates'} nga to? If naa moy lain nga dates, share lang ug amo dayon i-check.`
+          : ` If naa moy lain nga dates, share lang ang check-in ug check-out ug amo dayon i-check.`}`,
+      });
+    }
   }
-  return pick(flow.lang, { en: `${dates} is available`, tl: `Available po ang ${dates}`, bis: `Available ang ${dates}` });
+  return pick(flow.lang, { en: `${cap(dates)} is available`, tl: `Available po ang ${dates}`, bis: `Available ang ${dates}` });
 }
 
 export function isActive(flow: Flow | null | undefined, now = new Date()): flow is Flow {
@@ -477,10 +510,12 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
       tl: `${n}kailan po ninyo gustong mag-stay? Check-in and check-out lang po (halimbawa, "${ex}").`,
       bis: `${n}kanus-a mo gusto mag-stay? Check-in and check-out lang (pananglitan, "${ex}").`,
     }); }
+    // Live 2026-09-26 (Suzanne): "thank you for reaching out ... Thank you. Check-in on Sep 26 is noted." thanked her twice
+    // and read as a form. A host asks for nights; "2 nights", "tomorrow" or a date all answer it (answer() 'checkout').
     case 'checkout': return pick(L, {
-      en: `Thank you. Check-in on ${dm(flow.checkin!)} is noted. Until which date would you like to stay?`,
-      tl: `Noted po, check-in on ${dm(flow.checkin!)}. Hanggang kailan po ang stay ninyo?`,
-      bis: `Noted, check-in on ${dm(flow.checkin!)}. Hangtod kanus-a ang stay ninyo?`,
+      en: `How many nights would you like to stay with us from ${flow.checkin === manilaToday(now) ? 'tonight' : dm(flow.checkin!)}? A check-out date works just as well.`,
+      tl: `Ilang nights po ang stay ninyo from ${dm(flow.checkin!)}? Puwede rin ang check-out date.`,
+      bis: `Pila ka nights ang stay ninyo from ${dm(flow.checkin!)}? Pwede pud ang check-out date.`,
     });
     case 'pax': return pick(L, {
       en: `And how many guests will be staying? The home comfortably accommodates up to 3 adults, or 2 adults with 2 children.`,
@@ -574,6 +609,11 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
   switch (f.step) {
     case 'dates': {
       const d = parseDates(text, now);
+      // The nearest window was offered as a question: a whole-message yes takes it, a no closes gently (isChatYes, not
+      // OFFER_YES_RE - "ok let me think" must not book). index.ts re-reads the calendar because the dates changed.
+      if (!d[0] && f.alt && isChatYes(text)) { f.checkin = f.alt.start; f.checkout = f.alt.end; f.alt = undefined; f.step = f.pax ? 'offer' : 'pax'; return ask(); }
+      if (!d[0] && f.alt && OFFER_NO_RE.test(text)) return { flow: { ...f, step: 'cancelled', alt: undefined }, reply: cancelReply(L), action: 'cancelled' };
+      f.alt = undefined;
       if (!d[0]) return retry('the dates');
       if (d[0] < today) return ask(pick(L, { en: `That date has already passed. Which upcoming dates would suit you?`, tl: `Lumipas na po ang date na iyon. Aling upcoming dates po ang gusto ninyo?`, bis: `Lapas na ang date nga na. Unsang upcoming dates ang gusto ninyo?` }));
       f.checkin = d[0]; f.step = 'checkout';
@@ -582,8 +622,16 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
     }
     case 'checkout': {
       const d = parseDates(text, now);
+      const n = d[0] ? null : nightsIn(text);
+      if (n) { f.checkout = addDay(f.checkin!, n); f.step = f.pax ? 'offer' : 'pax'; return ask(); }
       if (!d[0]) return retry('the check-out date');
-      if (d[0] <= f.checkin!) return ask(pick(L, { en: `Check-out would need to fall after ${dm(f.checkin!)}. Until which date would you like to stay?`, tl: `Kailangan po after ${dm(f.checkin!)} ang check-out. Hanggang kailan po ang stay ninyo?`, bis: `Kinahanglan after ${dm(f.checkin!)} ang check-out. Hangtod kanus-a ang stay ninyo?` }));
+      // Live 2026-09-26 (Suzanne): "So is it available today?" at this step got "Check-out would need to fall after Sep 26".
+      // The check-in date again, asked about or "only", is one night; index.ts then answers it from the calendar.
+      if (d[0] === f.checkin && (AVAIL_RE.test(text) || /\b(only|just|lang|ra)\b/i.test(text))) { f.checkout = addDay(f.checkin!); f.step = f.pax ? 'offer' : 'pax'; return ask(); }
+      if (d[0] <= f.checkin!) return ask(pick(L, {
+        en: `Of course. With check-in on ${dm(f.checkin!)}, the earliest check-out is ${dm(addDay(f.checkin!))}. How many nights would you like to stay with us?`,
+        tl: `Sige po. With check-in on ${dm(f.checkin!)}, ang earliest check-out ay ${dm(addDay(f.checkin!))}. Ilang nights ang stay ninyo?`,
+        bis: `Sige. With check-in on ${dm(f.checkin!)}, ang earliest check-out kay ${dm(addDay(f.checkin!))}. Pila ka nights ang stay ninyo?` }));
       f.checkout = d[0]; f.step = f.pax ? 'offer' : 'pax'; return ask();
     }
     case 'pax': {

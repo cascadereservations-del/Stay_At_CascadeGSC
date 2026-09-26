@@ -588,6 +588,8 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
   return { sent: false, reply: `I couldn't attach that receipt po (${String(j?.error ?? 'error').replace(/_/g, ' ')}). Could you send it again?` };
 }
 
+/** availabilityLine's taken-dates line in any register ("I'm sorry, ... already reserved", "Pasensya na po, reserved na"). */
+const RESERVED_RE = /already reserved|reserved na/i;
 /** Booked nights overlapping the flow's stay (calendar_events, cancelled excluded). */
 /** Booked nights that overlap the stay, or null when the calendar could not be read (session 30: a failed read
  *  used to return an empty set, and the guest was told the dates were available). */
@@ -777,8 +779,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // answer): dates completed on this turn are checked against the calendar before the next ask.
     if (s.action === 'ask' && flow.checkin && flow.checkout && (flow.checkin !== before.checkin || flow.checkout !== before.checkout)) {
       const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
-      const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
-      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = line; }
+      const alt = nights && nights.size ? await nearestWindow(db, flow) : null;
+      const line = availabilityLine(flow, nights, alt, now, true);
+      if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = line; }
       else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
@@ -791,9 +794,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // D-222: the calendar is read whenever both dates are known, not only on an "available" word - "book Oct 10 to 12
     // for 2" on a taken night used to be quoted and fail only at submit.
     if (needsCalendarCheck(flow)) {
-      const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
-      const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
-      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = (greetNow ? greetBlock(thread.guest_name, flow.lang, !introduced) : '') + line; } // SPEC-28 section 3
+      // Live 2026-09-26 13:01Z (Suzanne, "Available today?"): a single date asked about is that night, answered now. With
+      // no check-out the calendar was queried with an undefined bound and the guest got only "until which date?".
+      const probe: Flow = flow.checkout ? flow : { ...flow, checkout: addDays(flow.checkin!, 1) };
+      const nights = await bookedNightsFor(db, probe); calendarDown = !nights;
+      const alt = nights && nights.size ? await nearestWindow(db, probe) : null;
+      const line = availabilityLine(probe, nights, alt, now, true);
+      if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = (greetNow ? greetBlock(thread.guest_name, flow.lang, !introduced) : '') + line; } // SPEC-28 section 3
       // SPEC-28 section 2: "is Oct 26 to 28 open? is there wifi?" - the model answers the wifi, then the dates line and the
       // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
       else if (flow.asked === 'question' || flow.question) flowFollowUp = opener(flow, thread.guest_name, flow.question ? line : '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);

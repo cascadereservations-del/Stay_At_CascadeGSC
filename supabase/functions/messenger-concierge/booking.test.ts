@@ -188,7 +188,7 @@ Deno.test('trimWindow: the offer is the stay they asked for, not the block up to
   assertEquals(trimWindow(w, 19), w);                        // exactly long enough: left alone
   assertEquals(trimWindow({ start: '2026-10-09', end: '2026-10-10', nights: 1 }, 2), { start: '2026-10-09', end: '2026-10-10', nights: 1 });
   assertEquals(availabilityLine({ ...start('book Oct 7 to 9 for 2', now), lang: 'en' }, new Set(['2026-10-07']), trimWindow(w, 2)),
-    "Oct 7 to 9 is already reserved. The nearest open dates are Oct 9 to 11, and we'd be glad to check any others for you — just share your check-in and check-out.");
+    "I'm sorry, Oct 7 to 9 is already reserved. The nearest open dates are Oct 9 to 11, and we'd be glad to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.");
 });
 
 Deno.test('a date correction at the contact step is a correction, not the guest name', () => {

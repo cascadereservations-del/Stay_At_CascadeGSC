@@ -98,8 +98,8 @@ Deno.test('the question is answered before the ask (live failure of 2026-09-17)'
   assertEquals(lintReply(cold, guest, { firstTurn: true }), ['no_answer']);
   const warm = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt({ ...f, step: 'contact' }, 'Ben');
   assertEquals(lintReply(warm, guest, { firstTurn: true }), []);
-  assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith('Oct 3 to 4 is already reserved'), true);
-  assertEquals(warm.startsWith("Hi Ben, thank you for reaching out to Cascade Hideaway. Oct 3 to 4 is available, and we'd be glad to welcome the two of you."), true);
+  assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith("I'm sorry, the night of Oct 3 is already reserved"), true);
+  assertEquals(warm.startsWith("Hi Ben, thank you for reaching out to Cascade Hideaway. The night of Oct 3 is available, and we'd be glad to welcome the two of you."), true);
   assertEquals(lintReply('Your mobile number po?', '', { firstTurn: true }), ['form_speak', 'cold_opener']);
   assertEquals(lintReply('Kindly send the receipt at your earliest convenience.'), ['boilerplate']); // English protocol sections 8 and 18
   assertEquals(lintReply('Wonderful, Ben! Send ₱890 now.'), ['command_tone', 'exclaim']); // the persona's two forbidden moves
@@ -252,7 +252,7 @@ Deno.test('a booked range is never called open, and the early check-in fee is co
   const taken = `Hello Ben. Thank you for reaching out to Cascade Hideaway. Oct 7 to 9 is available, and we'd be glad to welcome you.\n\nWe'll have everything prepared for your arrival, so you can settle in without a second thought.`;
   assertEquals(claimsOpen(taken), true);
   const fixed = setAvailability(taken, line);
-  assertEquals(fixed.startsWith('Hello Ben. Thank you for reaching out to Cascade Hideaway. Oct 7 to 9 is already reserved'), true);
+  assertEquals(fixed.startsWith("Hello Ben. Thank you for reaching out to Cascade Hideaway. I'm sorry, Oct 7 to 9 is already reserved"), true);
   assertEquals(/is available|are open/.test(fixed), false);
   assertEquals(fixed.endsWith(`We'll have everything prepared for your arrival, so you can settle in without a second thought.`), true);
   const partial = `Hello, Ben. Thank you for reaching out to Cascade Hideaway.\n\nFor Oct 7 to 9, the night of Oct 7 is already reserved. However, Oct 8 and 9 are open, and we'd be glad to welcome you then.`;
@@ -313,7 +313,7 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be glad to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 \u2014 PHP 3,382 for the stay.\n\nShall we set the dates aside for you?");
   assertEquals(en.length < 700, true);
   const taken = availabilityLine(f, new Set(['2026-11-17']), { start: '2026-11-20', end: '2026-11-23', nights: 3 });
-  assertEquals(taken, "Nov 17 to 19 is already reserved. The nearest open dates are Nov 20 to 23, and we'd be glad to check any others for you \u2014 just share your check-in and check-out.");
+  assertEquals(taken, "I'm sorry, Nov 17 to 19 is already reserved. The nearest open dates are Nov 20 to 23, and we'd be glad to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.");
   for (const lang of ['en', 'tl', 'bis'] as const) {
     const first = opener({ ...f, lang }, 'Ben', availabilityLine({ ...f, lang }, new Set())) + prompt({ ...f, lang }, 'Ben', false, now);
     const card = prompt({ ...f, lang, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
@@ -426,7 +426,7 @@ Deno.test('SPEC-21: the intro lands on a follow-up-shaped reply too, once, after
 });
 
 Deno.test('session 46: a check-in alone is acknowledged once, not by both the opener and the checkout ask (live 2026-09-23 19:58)', () => {
-  const notes = { en: 'Check-in on Oct 17 is noted', tl: 'Noted po, check-in on Oct 17', bis: 'Noted, check-in on Oct 17' };
+  const notes = { en: 'from Oct 17', tl: 'from Oct 17', bis: 'from Oct 17' }; // Suzanne 2026-09-26: the ask names the check-in once
   for (const lang of ['en', 'tl', 'bis'] as const) {
     const f: Flow = { ...base, lang, checkin: '2026-10-17', checkout: undefined, pax: undefined, step: 'checkout' };
     for (const reply of [opener(f, 'Ben', '', true) + prompt(f, 'Ben'), opener(f, 'Ben').trim() + '\n\n' + prompt(f, 'Ben')]) {
