@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "release_id": "rate_card_upcoming_20260926",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "cb38a4a87948a26d0fc99df43717cf19ea9a0dea"
+  },
+  "migrations": [
+    "20260926030000_rate_card_upcoming.sql"
+  ],
+  "migration_sha256": {
+    "20260926030000_rate_card_upcoming.sql": "af5a445d7302d4c8fb5e33df8db1544c3a4c7b693f26f0f4d7751e35839f87dc"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "Replaces two functions in place (get_rate_card_v1 adds an upcoming list; open_booking_hold_v1 stamps the version in force on the check-in date). Same signatures and grants; no data changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_card_lists_upcoming",
+      "query": "select jsonb_typeof(public.get_rate_card_v1() -> 'upcoming') = 'array' and (public.get_rate_card_v1() ->> 'base')::numeric = 1780",
+      "expect": true
+    },
+    {
+      "name": "the_promotion_is_still_on_the_card",
+      "query": "select exists (select 1 from jsonb_array_elements(public.get_rate_card_v1() -> 'promotions') p where p ->> 'name' = 'Anniversary Promotion' and (p ->> 'nightly_rate')::numeric = 1543)",
+      "expect": true
+    },
+    {
+      "name": "the_body_is_the_reviewed_body",
+      "query": "select md5(prosrc) = 'fc03264c76741f0abcb107400f7e7e39' from pg_proc where oid = 'public.get_rate_card_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "anon_still_reads_the_card",
+      "query": "select has_function_privilege('anon','public.get_rate_card_v1(uuid)','EXECUTE')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260926_rate_card_upcoming.sql with run-sql-on-host.sh (the two functions as release rate_card_20260926 left them). pricing.ts treats a missing upcoming list as none, so no function redeploy is needed. Before it, end any card version scheduled after today, or it will not be quoted until its day."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions_then_admin",
+      "required_state": "Apply, then deploy submit-booking, rate-card, messenger-concierge, telegram-cassy from waves 8e58fab or later (quote() reads upcoming), then publish the admin build with Starts on (63c6537). Until the admin is published nobody can schedule a card."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "",
+    "evidence": "Same signatures and grants; get_rate_card_v1 gains one key. pgTAP rate_card_upcoming.sql (8) and rate_card.sql (23, hold expectation now the check-in date version). Functions: 388/388, pricing.test.ts pins the scheduled card."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
