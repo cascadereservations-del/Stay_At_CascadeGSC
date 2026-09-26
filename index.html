@@ -5507,7 +5507,7 @@
             <div class="rate-card">
               <p class="rate-card-label">Nightly Rate</p>
               <p class="rate-card-price">
-                <span class="currency" aria-hidden="true">&#x20B1;</span>1,780
+                <span class="currency" aria-hidden="true">&#x20B1;</span><span data-card-base>1,780</span>
               </p>
               <p class="rate-card-sub">all&#x2011;in &middot; cleaning always included</p>
             </div>
@@ -5965,6 +5965,7 @@
                   <span class="tier-cell-head" role="columnheader">Per Night</span>
                   <span class="tier-cell-head" role="columnheader">You Save</span>
                 </div>
+                <div id="tierTableRows"><!-- SPEC-34: repainted from the rate card; these rows are today's card -->
                 <div class="tier-row" role="row">
                   <span class="tier-cell" role="cell">1 night</span>
                   <span class="tier-cell tier-cell-disc" role="cell">&#x2014;</span>
@@ -6001,6 +6002,7 @@
                   <span class="tier-cell tier-cell-rate" role="cell">&#x20B1;1,335</span>
                   <span class="tier-cell tier-cell-save tier-cell-save--active" role="cell">&#x20B1;445/night</span>
                 </div>
+                </div><!-- /#tierTableRows -->
               </div>
             </div>
           </div>
@@ -6101,6 +6103,8 @@
                 </button>
               </div>
 
+              <!-- SPEC-34 (D-262): shown while a promotion is running or ahead, filled from the rate card -->
+              <div class="lm-banner promo-banner" id="promoBanner" role="status" hidden></div>
               <div id="calMonths" aria-label="Calendar days"></div>
               <!-- No-availability notice: shown when all remaining days in view month are blocked -->
               <div class="cal-month-notice" id="calMonthNotice" hidden role="status" aria-live="polite" aria-atomic="true">
@@ -7323,7 +7327,7 @@
         if (!checkin || !checkout) {
           if (deskCheckinVal)  deskCheckinVal.textContent  = 'Add date';
           if (deskCheckoutVal) deskCheckoutVal.textContent = 'Add date';
-          if (deskAmount) deskAmount.textContent = '\u20B11,780';
+          if (deskAmount) deskAmount.textContent = '\u20B1' + Number((window._cascadeCard || {}).base || 1780).toLocaleString('en-PH');
           if (deskPer)    deskPer.textContent    = '/night';
           return;
         }
@@ -7469,19 +7473,14 @@
       function nts(ci, co) {
         return Math.round((new Date(co) - new Date(ci)) / 86400000);
       }
-      /* Rate lookup mirrors TIERS in booking JS */
-      var RATES = [[1,1,1780],[2,4,1691],[5,6,1602],[7,13,1513],[14,27,1424],[28,999,1335]];
-      function getRate(n) {
-        var r = RATES.find(function(t){ return n>=t[0]&&n<=t[1]; });
-        return r ? r[2] : 1780;
-      }
-
       var changeDatesBtnEl = document.getElementById('calChangeBtn');
       new MutationObserver(function() {
         var s = window._bkState;
         if (s && s.checkin && s.checkout) {
           var n      = nts(s.checkin, s.checkout);
-          var total  = getRate(n) * n;
+          /* SPEC-34: the booking script's total (the server's quote for these dates) */
+          var tt     = window._cascadeTotals && window._cascadeTotals();
+          var total  = tt ? tt.total : 0;
           if (datesEl) datesEl.textContent = fmt(s.checkin) + ' – ' + fmt(s.checkout);
           if (metaEl)  metaEl.textContent  = n + (n === 1 ? ' night' : ' nights') +
                                              ' · ₱' + total.toLocaleString('en-PH');
@@ -7707,23 +7706,104 @@
       function leadTimeBucket(checkin) { var days = Math.max(0, Math.floor((new Date(checkin + 'T00:00:00').getTime() - Date.now()) / 86400000)); return days <= 2 ? '0-2' : days <= 7 ? '3-7' : days <= 30 ? '8-30' : '31+'; }
 
       /* ─── Config ─────────────────────────────────────────────────── */
-      var BASE_RATE  = 1780;
       var MIN_NIGHTS = 1;
 
-      /* Direct-booking discount tiers */
-      /* Authoritative discount tiers (v2 brief) */
-      var TIERS = [
-        { min:  1, max:  1, rate: 1780, disc:  0, label: 'Standard rate · 1 night' },
-        { min:  2, max:  4, rate: 1691, disc:  5, label: '5% off · Direct booking' },
-        { min:  5, max:  6, rate: 1602, disc: 10, label: '10% off · Extended stay' },
-        { min:  7, max: 13, rate: 1513, disc: 15, label: '15% off · Weekly rate' },
-        { min: 14, max: 27, rate: 1424, disc: 20, label: '20% off · Fortnightly rate' },
-        { min: 28, max: 999,rate: 1335, disc: 25, label: '25% off · Monthly rate' },
-      ];
+      /* SPEC-34 (D-259, D-262): ONE rate card, stored in the database and read through the public rate-card
+         function. The site never prices a stay itself: every quote for the chosen dates comes from rate-card
+         (the same quote() submit-booking stores). CARD below is only today's card, shown while the live one
+         loads or if it cannot be read; a request cannot be sent until the live quote for its dates arrives. */
+      var EDGE_RATE_CARD = SUPABASE_URL + '/functions/v1/rate-card';
+      var CARD = { base: 1780, deposit_pct: 50,
+        tiers: [{min_nights:2,pct:5},{min_nights:5,pct:10},{min_nights:7,pct:15},{min_nights:14,pct:20},{min_nights:28,pct:25}],
+        promotions: [{ name: 'Anniversary Promotion', first_night: '2026-10-11', last_night: '2026-10-17', nightly_rate: 1543 }] };
+      var TIER_NAMES = ['Direct booking', 'Extended stay', 'Weekly rate', 'Fortnightly rate', 'Monthly rate'];
+      var BASE_RATE = CARD.base, TIERS = [];
+      /* Called once at Init (below) with today's card, then with the live card from rate-card. */
+      function applyCard(c) {
+        if (!c || !(Number(c.base) > 0) || !Array.isArray(c.tiers) || !Array.isArray(c.promotions)) return;
+        CARD = c; BASE_RATE = Number(c.base);
+        var ts = c.tiers.slice().sort(function(a, b){ return a.min_nights - b.min_nights; });
+        TIERS = [{ min: 1, max: ts.length ? ts[0].min_nights - 1 : 999, rate: BASE_RATE, disc: 0, label: 'Standard rate · 1 night' }];
+        ts.forEach(function(t, i){
+          TIERS.push({ min: t.min_nights, max: i + 1 < ts.length ? ts[i + 1].min_nights - 1 : 999, rate: Math.round(BASE_RATE * (1 - t.pct / 100)),
+            disc: t.pct, label: t.pct + '% off · ' + (TIER_NAMES[i] || 'Longer stay') });
+        });
+        window._cascadeCard = CARD;
+        paintCard();
+      }
       function getTier(n) {
         return TIERS.find(function(t){ return n >= t.min && n <= t.max; }) || TIERS[0];
       }
-      function calcTotal(n) { return getTier(n).rate * n; }
+      var QUOTE = null, quoteBusy = null, quoteFailed = null;
+      function quoteKey() { return state.checkin && state.checkout ? state.checkin + '|' + state.checkout : ''; }
+      function curQuote() { return QUOTE && QUOTE.key === quoteKey() ? QUOTE.q : null; }
+      /* The server's figures for the chosen dates; until they arrive, today's card by stay length (display only). */
+      function calcTotal(n) { var q = curQuote(); return q && q.n === n ? q.total : getTier(n).rate * n; }
+      function calcDeposit(n) { var q = curQuote(); return q && q.n === n ? q.deposit : Math.ceil(calcTotal(n) * CARD.deposit_pct / 100); }
+      function ensureQuote() {
+        var key = quoteKey();
+        if (!key || curQuote() || quoteBusy === key) return;
+        quoteBusy = key; quoteFailed = null;
+        fetch(EDGE_RATE_CARD + '?checkin=' + encodeURIComponent(state.checkin) + '&checkout=' + encodeURIComponent(state.checkout))
+          .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('rate-card ' + r.status)); })
+          .then(function(j){
+            if (quoteBusy === key) quoteBusy = null;
+            if (j.card) applyCard(j.card);
+            if (!j.quote || key !== quoteKey()) return;
+            QUOTE = { key: key, q: j.quote };
+            render();
+          })
+          .catch(function(){ if (quoteBusy === key) quoteBusy = null; quoteFailed = key; });
+      }
+      function fmtPeso(v) { return '₱' + Number(v).toLocaleString('en-PH'); }
+      function fmtMd(iso) { var p = iso.split('-'); return MONTHS_SHORT[+p[1] - 1] + ' ' + (+p[2]); }
+      /* "2 nights at the Anniversary Promotion rate of ₱1,543 · 1 night at ₱1,691" (D-262: both parts shown). */
+      function promoLine(q) {
+        if (!q || !q.promo_nights) return '';
+        var rest = q.n - q.promo_nights;
+        return q.promo_nights + ' night' + (q.promo_nights === 1 ? '' : 's') + ' at the ' + q.promo_name + ' rate of ' + fmtPeso(q.promo_rate) +
+          (rest > 0 ? ' · ' + rest + ' night' + (rest === 1 ? '' : 's') + ' at ' + fmtPeso(q.tier_rate) : '');
+      }
+      function livePromos() {
+        var t = new Date(); var iso = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+        return (CARD.promotions || []).filter(function(p){ return p.last_night >= iso; });
+      }
+      /* Everything on the page that shows the card: the From price, the tier table, the promotion banner. */
+      function paintCard() {
+        document.querySelectorAll('[data-card-base]').forEach(function(el){ el.textContent = BASE_RATE.toLocaleString('en-PH'); });
+        var table = document.getElementById('tierTableRows');
+        if (table) {
+          var html = '';
+          TIERS.forEach(function(t){
+            var span = t.max >= 999 ? t.min + '+ nights' : t.min === t.max ? t.min + ' night' + (t.min === 1 ? '' : 's') : t.min + '–' + t.max + ' nights';
+            var save = BASE_RATE - t.rate;
+            if (t.min === 7) span += ' ★'; /* the weekly row stays the highlighted one */
+            html += '<div class="tier-row' + (t.min === 7 ? ' tier-row--highlight' : '') + '" role="row"><span class="tier-cell" role="cell">' + span + '</span>' +
+              '<span class="tier-cell tier-cell-disc" role="cell">' + (t.disc ? t.disc + '%' : '—') + '</span>' +
+              '<span class="tier-cell tier-cell-rate" role="cell">' + fmtPeso(t.rate) + '</span>' +
+              '<span class="tier-cell tier-cell-save tier-cell-save--' + (save > 0 ? 'active' : 'zero') + '" role="cell">' + (save > 0 ? fmtPeso(save) + '/night' : '—') + '</span></div>';
+          });
+          table.innerHTML = html;
+        }
+        var banner = document.getElementById('promoBanner');
+        if (banner) {
+          var ps = livePromos();
+          banner.textContent = '';
+          ps.forEach(function(p){
+            var s = document.createElement('strong'); s.textContent = p.name + ': ';
+            banner.appendChild(s);
+            banner.appendChild(document.createTextNode(fmtPeso(p.nightly_rate) + ' per night for the nights of ' + fmtMd(p.first_night) + ' to ' + fmtMd(p.last_night) +
+              ' (check-out by ' + fmtMd(new Date(Date.parse(p.last_night + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10)) + '), instead of our standard ' + fmtPeso(BASE_RATE) + '. Nights outside it keep our length-of-stay rates. '));
+          });
+          banner.hidden = ps.length === 0;
+        }
+      }
+      /* For the pay-mode toggle and the sticky date bar (separate scripts on this page). */
+      window._cascadeTotals = function () {
+        var s = state; if (!s || !s.checkin || !s.checkout) return null;
+        var n = nights(s.checkin, s.checkout);
+        return { n: n, total: calcTotal(n), dep: calcDeposit(n), quoted: !!curQuote() };
+      };
       var MS_DAY     = 86400000;
       var MAX_FILE   = 5 * 1024 * 1024;
 
@@ -7972,6 +8052,7 @@
         }
         /* Update all sticky UI elements with current date/price state */
         updateStickyElements();
+        ensureQuote(); /* SPEC-34: the server's quote for these dates (render() runs again when it lands) */
       }
 
       /* ── updateStickyElements — keeps mobile bar + desktop sidebar in sync
@@ -7997,7 +8078,7 @@
           }
         }
         /* Default / reset state */
-        if (mobileAmount)  mobileAmount.textContent  = '\u20B11,780';
+        if (mobileAmount)  mobileAmount.textContent  = fmtPeso(BASE_RATE);
         if (mobileLabel)   mobileLabel.textContent   = ' / night';
         if (mobileEyebrow) mobileEyebrow.textContent = 'From';
         if (mobileBtn)     mobileBtn.textContent     = 'Book Direct';
@@ -8009,27 +8090,29 @@
       function updateSelection() {
         if (!state.checkin||!state.checkout){ calSelection.hidden=true; return; }
         var n=nights(state.checkin,state.checkout);
-        var baseTotal=1780*n;
+        var baseTotal=BASE_RATE*n;
         var tier=getTier(n);
         var total=calcTotal(n);
+        var q=curQuote();
         /* Last-minute (D-185, 2026-09-18): less than 5 days away - same boundary as the payment step below,
            submit-booking's holds and the Messenger Concierge, so no two of them ever quote a different amount. */
         var selToday = new Date(); selToday.setHours(0,0,0,0);
         var isLastMinute   = Math.round((new Date(state.checkin + 'T00:00:00').getTime() - selToday.getTime()) / 86400000) <= 4;
-        var dep = isLastMinute ? total : Math.ceil(total * 0.5);
+        var dep = isLastMinute ? total : calcDeposit(n);
         var balance = total - dep;
         /* Hold-before-pay (D-160 #1, D-162): only an advance booking (5+ days out, the same line as the
            free-cancellation rule) holds the dates first; anything closer pays first as before. */
         if (continueBtn) continueBtn.textContent = (!isLastMinute) ? 'Hold my dates & pay' : 'Review price & payment';
         calSelDates.textContent=fmtDate(state.checkin)+' \u2192 '+fmtDate(state.checkout);
         /* Show discounted total — guest sees exactly what they pay */
-        calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'');
+        calSelPrice.textContent='\u20B1'+total.toLocaleString('en-PH')+' \u00B7 '+n+' night'+(n!==1?'s':'')+(q&&q.promo_nights?' \u00B7 '+promoLine(q):'');
         /* Deposit line — concrete peso amount removes checkout surprise */
         var depNote = isLastMinute
           ? '\u20B1'+dep.toLocaleString('en-PH')+' full payment (check-in under 5 days away) \u00B7 reviewed before confirmation'
           : '\u20B1'+dep.toLocaleString('en-PH')+' reservation fee for review \u00B7 \u20B1'+balance.toLocaleString('en-PH')+' due a day before check-in';
         var teaserParts=[];
-        if (tier.disc>0) teaserParts.push(tier.disc+'% direct discount applied');
+        if (q&&q.promo_nights) teaserParts.push(q.promo_name+' applied'+(q.promo_nights<n&&tier.disc>0?' · '+tier.disc+'% off the other night'+(n-q.promo_nights===1?'':'s'):''));
+        else if (tier.disc>0) teaserParts.push(tier.disc+'% direct discount applied');
         teaserParts.push('cleaning always included');
         teaserParts.push(depNote);
         calSelNote.textContent=teaserParts.join(' \u00B7 ');
@@ -8092,6 +8175,7 @@
       /* ─── Step navigation ─────────────────────────────────────────── */
       continueBtn.addEventListener('click', function(){
         if (!state.checkin||!state.checkout){
+          dateError.textContent='Please select your check-in and check-out dates above.'; /* the banner is reused by the hold and price errors */
           dateError.hidden=false;
           dateError.scrollIntoView({behavior:'smooth',block:'nearest'});
           return;
@@ -8107,6 +8191,16 @@
           syncPhoneWrapperState(document.getElementById('phone') && document.getElementById('phone').classList.contains('is-invalid'));
           return;
         }
+        /* SPEC-34: never send a request priced by this page - only the server's quote for these dates. */
+        if (!curQuote()) {
+          dateError.textContent = quoteFailed === quoteKey()
+            ? 'We could not confirm the price for these dates just now. Please try again in a moment, or message us on Messenger.'
+            : 'Confirming the price for your dates… please tap again in a moment.';
+          dateError.hidden = false;
+          quoteFailed = null; ensureQuote();
+          return;
+        }
+        dateError.hidden = true;
 
         var n=nights(state.checkin,state.checkout), total=calcTotal(n);
         track('payment_method_viewed', { payment_method: 'bank_transfer', nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
@@ -8115,8 +8209,8 @@
            same one the Messenger Concierge uses, so the two never quote different amounts. Calendar days. */
         var today = new Date(); today.setHours(0,0,0,0);
         var daysOut = Math.round((new Date(state.checkin + 'T00:00:00').getTime() - today.getTime()) / 86400000);
-        var isLastMinute   = daysOut <= 4;
-        var dep = isLastMinute ? total : Math.ceil(total * 0.5);
+        var isLastMinute   = daysOut <= 4 || curQuote().last_minute;
+        var dep = isLastMinute ? total : calcDeposit(n);
         var balanceOnly = total - dep;
         state.dep = dep;
 
@@ -8125,13 +8219,14 @@
         if (lmBanner) lmBanner.hidden = !isLastMinute;
 
         var tier        = getTier(n);
-        var baseTotal   = 1780 * n;
+        var baseTotal   = BASE_RATE * n;
         var savingsTotal= baseTotal - total;
 
         /* Zone A header */
         paySummaryDates.textContent = fmtDate(state.checkin) + ' \u2192 ' + fmtDate(state.checkout) + ' \u00B7 ' + n + ' night' + (n!==1?'s':'');
         var rNote = document.getElementById('paySummaryRateNote');
-        if (rNote) rNote.textContent = '\u20B1' + tier.rate + '/night' + (tier.disc > 0 ? ' \u00B7 ' + tier.disc + '% off' : '') + ' \u00B7 all-in';
+        if (rNote) rNote.textContent = curQuote().promo_nights ? promoLine(curQuote()) + ' \u00B7 all-in'
+          : '\u20B1' + tier.rate + '/night' + (tier.disc > 0 ? ' \u00B7 ' + tier.disc + '% off' : '') + ' \u00B7 all-in';
 
         /* Zone A cost rows */
         var bdTotalLabel  = document.getElementById('payBdTotalLabel');
@@ -8141,7 +8236,7 @@
         var bdSaving      = document.getElementById('payBdSaving');
         var bdSavingLabel = document.getElementById('payBdSavingLabel');
 
-        if (bdTotalLabel) bdTotalLabel.textContent = n + ' night' + (n!==1?'s':'') + ' \u00D7 \u20B11,780';
+        if (bdTotalLabel) bdTotalLabel.textContent = n + ' night' + (n!==1?'s':'') + ' \u00D7 ' + fmtPeso(BASE_RATE);
         if (bdBaseTotal) bdBaseTotal.textContent = '\u20B1' + baseTotal.toLocaleString('en-PH');
         if (bdTotal) bdTotal.textContent = '\u20B1' + total.toLocaleString('en-PH');
 
@@ -8171,7 +8266,7 @@
         /* T10: Suppress base row when no discount applies (disc === 0) */
         var baseRow = document.getElementById('payBaseRow');
         if (baseRow) {
-          baseRow.hidden = (tier.disc === 0);
+          baseRow.hidden = (savingsTotal <= 0); /* SPEC-34: a 1-night promo stay saves too */
         }
 
         /* Zone B: Send Now — full payment vs reservation fee */
@@ -8203,7 +8298,7 @@
           if (bdFee) bdFee.textContent = dep.toLocaleString('en-PH');
           if (gcashHint) gcashHint.textContent = '\u20B1' + dep.toLocaleString('en-PH');
           if (payActionTitle) payActionTitle.textContent = 'Reservation Fee';
-          if (payActionSub)   payActionSub.textContent   = '50% of total \u00B7 reviewed before confirmation';
+          if (payActionSub)   payActionSub.textContent   = CARD.deposit_pct + '% of total \u00B7 reviewed before confirmation';
           if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your dates.';
           if (payActionEyebrow) payActionEyebrow.textContent = 'Send now to secure your dates';
           if (payZoneLater)   payZoneLater.hidden = false;
@@ -8260,7 +8355,7 @@
         if (bookingSubmit) bookingSubmit.textContent = 'I\u2019ve sent the payment';
         var nudge = document.getElementById('holdNudge');
         if (nudge && data.hold !== false) { /* 2026-09-24: a failed hold RPC returns hold:false - never claim a hold that does not exist */
-          var n = nights(state.checkin, state.checkout), total = calcTotal(n), dep = state.dep || Math.ceil(total * 0.5);
+          var n = nights(state.checkin, state.checkout), total = calcTotal(n), dep = state.dep || calcDeposit(n);
           var until = data.hold_expires_at ? new Date(data.hold_expires_at) : new Date(Date.now() + HOLD_HOURS * 3600 * 1000);
           var untilStr = until.toLocaleString('en-PH', { weekday: 'long', hour: 'numeric', minute: '2-digit' });
           nudge.textContent = '';
@@ -8311,6 +8406,8 @@
                           ? document.getElementById('message').value.trim() || undefined : undefined,
           total_amount:   total,
           deposit_amount: dep,
+          /* SPEC-34: the server stores its own total and deposit; the page only says fee or full. */
+          pay_full:       dep >= total, /* a hold is always the fee; Pay in Full on a hold is sent with the receipt (X-Pay-Full) */
           contact_type:   contactTypeVal,
         };
       }
@@ -8575,6 +8672,8 @@
           xhr.setRequestHeader('Authorization', 'Bearer ' + uploadToken);
           xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
           xhr.setRequestHeader('X-Receipt-Filename', file.name);
+          /* SPEC-34 (D-262): a held request was sent with the fee before "Pay in Full" could be picked; the receipt says which. */
+          if (window._payMode === 'full') xhr.setRequestHeader('X-Pay-Full', 'true');
           xhr.onload  = function() {
             if (xhr.status >= 200 && xhr.status < 300) {
               resolve();
@@ -8623,7 +8722,7 @@
           }
           var n = nights(state.checkin, state.checkout), total = calcTotal(n);
           track('reservation_submit', { nights_bucket: nightsBucket(n), lead_time_bucket: leadTimeBucket(state.checkin) });
-          var dep = state.dep || Math.ceil(total * 0.5);
+          var dep = state.dep || calcDeposit(n);
           var guestFile      = state._receiptFile || null;
 
           setLoading(true);
@@ -8893,6 +8992,9 @@
       }
 
       /* ─── Init ────────────────────────────────────────────────────── */
+      applyCard(CARD);
+      fetch(EDGE_RATE_CARD).then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){ if (j && j.card) { applyCard(j.card); render(); } }).catch(function(){ /* today's card stays */ });
       render();
       fetchBlockedDates();
 
@@ -8922,11 +9024,11 @@
         /* Directly update displayed fee amount from current booking state */
         var s = window._bkState;
         if (!s || !s.checkin || !s.checkout) return;
-        var RATES = [[1,1,1780],[2,4,1691],[5,6,1602],[7,13,1513],[14,27,1424],[28,999,1335]];
-        var n     = Math.round((new Date(s.checkout)-new Date(s.checkin))/86400000);
-        var tier  = RATES.find(function(t){ return n>=t[0]&&n<=t[1]; }) || RATES[0];
-        var total = tier[2] * n;
-        var dep   = Math.ceil(total * 0.50);
+        /* SPEC-34: the booking script's figures (the server's quote for these dates), not a copy of the card. */
+        var tt    = window._cascadeTotals && window._cascadeTotals();
+        if (!tt) return;
+        var total = tt.total;
+        var dep   = tt.dep;
         var amountDue = (mode === 'full') ? total : dep;
         window._payAmount = amountDue; /* 2026-09-24: Copy Amount and the GCash link used the 50% fee in full mode */
         var bdFee = document.getElementById('payBdFee');
@@ -8948,7 +9050,7 @@
           if (payDepositNote) payDepositNote.hidden = true;
         } else {
           if (payActionTitle)   payActionTitle.textContent   = 'Reservation Fee';
-          if (payActionSub)     payActionSub.textContent     = '50% of total \u00B7 reviewed before confirmation';
+          if (payActionSub)     payActionSub.textContent     = ((window._cascadeCard || {}).deposit_pct || 50) + '% of total \u00B7 reviewed before confirmation';
           if (payActionConfirm) payActionConfirm.textContent = 'We verify your payment and availability before confirming your dates.';
           if (payActionEyebrow) payActionEyebrow.textContent = 'Send now to secure your dates';
           if (payZoneLater)   payZoneLater.hidden   = false;
@@ -9762,7 +9864,7 @@
   ============================================================ -->
   <aside class="desk-sidebar is-hidden" id="deskSidebar" aria-label="Quick booking" aria-hidden="true">
     <div class="desk-sidebar-rate">
-      <span class="desk-sidebar-amount" id="deskSidebarAmount">&#x20B1;1,780</span>
+      <span class="desk-sidebar-amount" id="deskSidebarAmount">&#x20B1;<span data-card-base>1,780</span></span>
       <span class="desk-sidebar-per" id="deskSidebarPer">/night</span>
     </div>
     <div class="desk-sidebar-savings">&#10003;&nbsp;No service fees &middot; Book direct &middot; Save up to 25%</div>
@@ -9788,7 +9890,7 @@
   ============================================================ -->
   <!-- Persistent bottom booking CTA — mobile only, hidden once #booking is in view -->
   <div class="sticky-book-cta" id="stickyBookCta" aria-hidden="true">
-    <span class="sticky-book-cta-rate">From &#8369;1,780/night</span>
+    <span class="sticky-book-cta-rate">From &#8369;<span data-card-base>1,780</span>/night</span>
     <a class="sticky-book-cta-btn" href="#heroBookBar" id="stickyBookCtaBtn">Check dates</a>
   </div>
 
