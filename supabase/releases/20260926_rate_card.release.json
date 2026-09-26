@@ -71,7 +71,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "rehearsal": "Rehearsed 2026-09-26 ~08:25Z on a disposable restore of production backup cascade-supabase-20260926T081144Z (prefix cascade-migration-rehearsal-c716b6ad78c6, 0 leftovers). 104 public tables and 129 ledger rows before; migration 1 of 1; forward checks 5/5; pgTAP rate_card.sql 23/23; 105 tables after. The first run failed 17 pgTAP lines on a --no-acl grant (authenticated reading booking_rate_policy_versions); production grants authenticated SELECT on it (read 2026-09-26), and the suite now reads the table as the test owner.",
+    "rehearsal": "Rehearsed 2026-09-26 ~08:17Z on a disposable restore of production backup cascade-supabase-20260926T081144Z (prefix cascade-migration-rehearsal-c716b6ad78c6, 0 leftovers). 104 public tables and 129 ledger rows before; migration 1 of 1; forward checks 5/5; pgTAP rate_card.sql 23/23; 105 tables after. The first run failed 17 pgTAP lines on a --no-acl grant (authenticated reading booking_rate_policy_versions); production grants authenticated SELECT on it (read 2026-09-26), and the suite now reads the table as the test owner.",
     "evidence": "New objects only, plus open_booking_hold_v1 filling a column that already existed (nullable, FK). pgTAP rate_card.sql (23). Functions: pricing.test.ts 5/5 (the SPEC-34 2.2 pins and the submit-booking authority rule)."
   },
   "approvals": {
