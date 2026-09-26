@@ -23,7 +23,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts'; // /ping tests the real route (2026-09-24)
-import { notifyMessengerBookingConfirmed } from '../_shared/cascade-core/messenger.ts';
+import { notifyMessengerBookingDeclined } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
@@ -1288,7 +1288,8 @@ async function handleCallbackQueryInner(cq:any,db:any){
   // "Copy" made Lloyd paste his previous clipboard. Telegram has no copy-on-tap; ✏️ Revise hands the same text plus the card head to Cassy (telegram-cassy
   // "revise:"). Stateless: the tapped message carries the text.
   if(data==='tpl:copy'||data==='tpl:revise'){
-    const cardText=String(cq.message?.text??cq.message?.caption??'');const tpl=templateOf(cardText);
+    // Session 54: a guest-messages card ends with "📨 ⤵" and the whole multi-paragraph message below it.
+    const cardText=String(cq.message?.text??cq.message?.caption??'');const below=cardText.indexOf('📨 ⤵\n');const tpl=below>=0?cardText.slice(below+'📨 ⤵\n'.length).trim():templateOf(cardText);
     if(!tpl){await tgSend(chatId,'⚠️ No message text on that card.');return;}
     if(data==='tpl:copy'){await tgSend(chatId,'```\n'+tpl.replace(/```/g,"'''")+'\n```');return;}
     const head=cardText.split('\n').filter(Boolean).slice(0,4).join('\n');
@@ -1357,7 +1358,11 @@ async function handleCallbackQueryInner(cq:any,db:any){
       line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a Finance profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not authorized to approve payments.`,already_reviewed:`ℹ️ Already reviewed (${r?.outcome}).`,conflict:'⚠️ Those dates are no longer available — NOT confirmed.',invalid_state:'ℹ️ This request is no longer pending.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
     else line=action==='confirm'?`✅ Confirmed by ${who} — booking confirmed, calendar updated, guest e-mailed.`:`❌ Declined by ${who} — request cancelled, ledger row voided.`;
     await tgEditCaption(chatId,msgId,`${cq.message?.caption??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
-    if(r?.ok&&action==='confirm')await notifyMessengerBookingConfirmed(db,String(r.booking_id??'')).catch((e:unknown)=>console.error('messenger confirm:',String(e)));
+    // Session 54 (SPEC-05 message 1, REVIEW F6): guest-messages sends the confirmation on the guest's channel and posts its card;
+    // `tapped` lets it use HUMAN_AGENT on Messenger for this one message. SPEC-33 s2: a decline reaches a Messenger guest.
+    if(r?.ok&&action==='confirm')await fetch(`${SUPABASE_URL}/functions/v1/guest-messages`,{method:'POST',headers:{'Content-Type':'application/json','x-cascade-cron-secret':Deno.env.get('CASCADE_CRON_SHARED_SECRET')??''},body:JSON.stringify({booking_id:String(r.booking_id??''),tapped:true}),signal:AbortSignal.timeout(45_000)})
+      .then(async(x)=>{if(!x.ok)console.error('guest-messages confirm:',x.status,(await x.text().catch(()=>'')).slice(0,200));}).catch((e:unknown)=>console.error('guest-messages confirm:',String(e)));
+    if(r?.ok&&action==='decline')await notifyMessengerBookingDeclined(db,String(r.booking_id??'')).catch((e:unknown)=>console.error('messenger decline:',String(e)));
     if(r?.ok&&action==='confirm'&&OPS_CHAT)await tgSend(OPS_CHAT,`🏠 CONFIRMED · Direct ${String(r.booking_id??'').slice(0,8).toUpperCase()}\n\nDirect booking confirmed by ${who}. Calendar is updated; turnover follows the usual schedule.`);
     return;
   }

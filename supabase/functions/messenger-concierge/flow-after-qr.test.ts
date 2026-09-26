@@ -78,6 +78,20 @@ Deno.test('SPEC-31 s2: a paid claim with no image yet asks for the screenshot an
   assertEquals(lintReply(r.reply, 'I sent the GCash payment already, please confirm'), []);
 });
 
+Deno.test('SPEC-33 s2: after a decline a "paid na" gets the await_receipt line, not "your receipt is with us"; the decline lines are clean', async () => {
+  const r = await turn(flow({ step: 'receipt_declined', photo_at: ago(2) }), { text: 'I sent the GCash payment already, please confirm' });
+  assertEquals(/screenshot/.test(r.reply) && r.reply.includes('DIR-1'), true);
+  assertEquals(/is with us/.test(r.reply), false);
+  assertEquals(r.calls.filter((c) => c.fx === 'handoff').map((c) => c.detail.risk), ['payment']);
+  assertEquals(r.saved?.booking_flow?.step, 'receipt_declined'); // the slot flow never restarts on a declined booking
+  const { declineLine } = await import('../_shared/cascade-core/messenger.ts');
+  for (const l of ['en', 'tl', 'bis']) {
+    const t = declineLine('Ben Munez', 'DIR-1', l);
+    assertEquals(t.startsWith('Ben, ') && t.includes('DIR-1'), true);
+    assertEquals(lintReply(t), []);
+  }
+});
+
 Deno.test('SPEC-31 s3: a photo after the hold lapsed is a receipt for the host to match, not the sales link', async () => {
   const lapsed = flow({ updated_at: ago(25), hold_expires_at: ago(1), receipt_expires_at: ago(1) });
   const r = await turn(lapsed, image);

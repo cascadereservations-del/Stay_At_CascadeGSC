@@ -746,7 +746,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     flowReply = holdCancelReply(flow, flow.name ?? thread.guest_name, replyLang(text, flow.lang), change);
     card = { risk: 'cancellation', note: holdNote(flow, now, change ? 'change requested' : ''), anyWording: false };
     flow = { ...flow, step: 'cancel_requested', updated_at: now.toISOString() };
-  } else if (g.reply && text && booked && ['await_receipt', 'receipt_sent', 'cancel_requested'].includes(booked.step) && g.risk === 'payment') {
+  } else if (g.reply && text && booked && ['await_receipt', 'receipt_sent', 'cancel_requested', 'receipt_declined'].includes(booked.step) && g.risk === 'payment') {
     // s2: "paid na po?" is answered from what we hold, and the host gets one payment card per 24 h.
     flowReply = paidClaimReply(booked, booked.name ?? thread.guest_name, replyLang(text, booked.lang));
     card = { risk: 'payment', note: holdNote(booked, now), anyWording: true };

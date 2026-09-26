@@ -7,8 +7,9 @@ import { RATE_TIERS } from '../_shared/cascade-core/facts.ts';
 export type Lang = 'en' | 'tl' | 'bis';
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 export type Flow = {
-  /** SPEC-31 s1: 'cancel_requested' = the guest asked to cancel or change while the hold was open; the host decides. */
-  step: 'dates' | 'checkout' | 'pax' | 'offer' | 'contact' | 'confirm' | 'await_receipt' | 'receipt_sent' | 'confirmed' | 'cancelled' | 'cancel_requested';
+  /** SPEC-31 s1: 'cancel_requested' = the guest asked to cancel or change while the hold was open; the host decides.
+   *  SPEC-33 s2: 'receipt_declined' = the host tapped Decline on the receipt; the host follows up by hand. */
+  step: 'dates' | 'checkout' | 'pax' | 'offer' | 'contact' | 'confirm' | 'await_receipt' | 'receipt_sent' | 'confirmed' | 'cancelled' | 'cancel_requested' | 'receipt_declined';
   checkin?: string; checkout?: string; pax?: number; phone?: string; email?: string | null;
   /** SPEC-14 (D-184): the name for the reservation, asked in the details step; it wins over the Facebook profile name. */
   name?: string;
@@ -305,7 +306,7 @@ export function availabilityLine(flow: Flow, bookedNights: Set<string> | null, n
 }
 
 export function isActive(flow: Flow | null | undefined, now = new Date()): flow is Flow {
-  return !!flow && !['confirmed', 'cancelled', 'cancel_requested'].includes(flow.step) && now.getTime() - Date.parse(flow.updated_at) < FLOW_TTL_MS;
+  return !!flow && !['confirmed', 'cancelled', 'cancel_requested', 'receipt_declined'].includes(flow.step) && now.getTime() - Date.parse(flow.updated_at) < FLOW_TTL_MS;
 }
 /** SPEC-31 s3: the booking this thread made, whatever its step, while it is under 8 days old - isActive drops it after
  *  24 h, and a receipt photo or a "paid na" after the hold lapsed still belongs to it. A new flow overwrites it. */
@@ -351,7 +352,8 @@ export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, cha
 /** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
 export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): string {
   const n = firstName(name), c = n ? `, ${n}` : '';
-  return flow.step === 'receipt_sent' || flow.photo_at
+  // SPEC-33 s2: after a decline the receipt is no longer "with us" - the await_receipt line asks for the screenshot again.
+  return flow.step !== 'receipt_declined' && (flow.step === 'receipt_sent' || flow.photo_at)
     ? pick(lang, {
         en: `Yes${c}, your receipt is with us and our host is reviewing it now. You'll hear the confirmation here.`,
         tl: `Opo${c}, nasa amin na po ang receipt ninyo at nire-review na ng host. Dito po ninyo matatanggap ang confirmation.`,
