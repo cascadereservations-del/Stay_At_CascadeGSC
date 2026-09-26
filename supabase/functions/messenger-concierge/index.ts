@@ -13,7 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
+import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -707,6 +707,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // thread could re-introduce her once, which is harmless.
   // ponytail: history scan; add concierge_threads.introduced_at only if a repeat is ever seen live.
   const introduced = thread.history.some((h) => h.role === 'bot' && /\bCassy\b/.test(h.text));
+  // D-258 (live 2026-09-26 02:14Z): a second booking on a thread the bot answered minutes ago opened with "Hi Ben, thank you
+  // for reaching out". A new flow greets only when the bot has not spoken for 12 h.
+  const greetNow = !thread.history.some((h) => h.role === 'bot' && now.getTime() - Date.parse(h.at) < 12 * 3_600_000);
   const g = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now, hasBooking: !!thread.booking_flow?.ref }); // SPEC-32 s2
   // Lloyd 2026-09-13: a discount ask gets the answer (the direct site applies the best rate
   // automatically; the longer the stay, the higher the discount) AND the host line and card.
@@ -750,6 +753,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // s2: "paid na po?" is answered from what we hold, and the host gets one payment card per 24 h.
     flowReply = paidClaimReply(booked, booked.name ?? thread.guest_name, replyLang(text, booked.lang));
     card = { risk: 'payment', note: holdNote(booked, now), anyWording: true };
+  } else if (g.reply && text && PAY_HOW_RE.test(text) && ['routine', 'payment'].includes(g.risk) && !(flow && ['await_receipt', 'receipt_sent'].includes(flow.step))
+      && !(booked && ['await_receipt', 'receipt_sent', 'cancel_requested', 'receipt_declined', 'confirmed'].includes(booked.step))) {
+    // D-258: "how do I pay?" before the QR is out - the GCash QR and one line, code-owned (the model promised a QR later).
+    flowReply = payHowReply(flow, flow?.name ?? thread.guest_name, replyLang(text, flow?.lang), now);
+    flowImage = QR_URL;
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
     const before = flow;
     const s = answer(flow, text, now); flow = s.flow;
@@ -775,14 +783,14 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     if (needsCalendarCheck(flow)) {
       const nights = await bookedNightsFor(db, flow); calendarDown = !nights;
       const line = availabilityLine(flow, nights, nights && nights.size ? await nearestWindow(db, flow) : null);
-      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = greetBlock(thread.guest_name, flow.lang, !introduced) + line; } // SPEC-28 section 3
+      if (/already reserved|Reserved na/.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined }; flowReply = (greetNow ? greetBlock(thread.guest_name, flow.lang, !introduced) : '') + line; } // SPEC-28 section 3
       // SPEC-28 section 2: "is Oct 26 to 28 open? is there wifi?" - the model answers the wifi, then the dates line and the
       // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
       else if (flow.asked === 'question' || flow.question) flowFollowUp = opener(flow, thread.guest_name, flow.question ? line : '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
-      else flowReply = opener(flow, thread.guest_name, line, !introduced) + prompt(flow, thread.guest_name);
+      else flowReply = opener(flow, thread.guest_name, line, !introduced, greetNow) + prompt(flow, thread.guest_name);
       // D-173: no Cassy sentence on a resumed card - the disclosure belongs to the greeting, never to a flowFollowUp.
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name, '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
-    else flowReply = opener(flow, thread.guest_name, '', !introduced) + prompt(flow, thread.guest_name); // session 28: welcome first
+    else flowReply = opener(flow, thread.guest_name, '', !introduced, greetNow) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }

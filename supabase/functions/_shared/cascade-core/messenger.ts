@@ -47,13 +47,12 @@ export async function threadForBooking(db: any, bookingId: string): Promise<{ ps
   return t?.psid ? t : null;
 }
 
-/** SPEC-33 s2: a declined receipt reaches the guest (en; tl for a Tagalog or Bisaya flow) and the flow waits at
+/** SPEC-33 s2: a declined receipt reaches the guest (English; one "po" for a Taglish flow, D-258) and the flow waits at
  *  `receipt_declined`, where a "paid na po?" gets the await_receipt line. HUMAN_AGENT: a person just tapped Decline. */
 export function declineLine(name: string | null, ref: string, lang: string | undefined): string {
   const n = String(name ?? '').trim().split(/\s+/)[0], c = n ? `${n}, ` : '';
-  return lang === 'tl' || lang === 'bis'
-    ? `${c}na-review po ng host ang payment para sa ${ref} pero hindi po ito tugma sa amount. Wala pa pong confirmed; ime-message kayo ng host dito para ayusin ito.`
-    : `${c}our host reviewed the payment for ${ref} and could not match it to the amount. Nothing is confirmed yet; they'll message you here to sort it out.`;
+  // D-258: English in every register; Taglish keeps one courtesy "po".
+  return `${c}our host reviewed the payment for ${ref} and could not match it to the amount. Nothing is confirmed yet${lang === 'tl' ? ' po' : ''}; they'll message you here to sort it out.`;
 }
 // deno-lint-ignore no-explicit-any
 export async function notifyMessengerBookingDeclined(db: any, bookingId: string): Promise<boolean> {

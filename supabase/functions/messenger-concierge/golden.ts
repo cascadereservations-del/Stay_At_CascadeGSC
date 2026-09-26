@@ -45,6 +45,12 @@ export function paymentCases(d2: string, d3: string): GoldenCase[] {
     // anything at all, and keeps the brochure. So this case says it paid first (SPEC-32 s7's 'Hi' + photo contradicted s3).
     ['pay-receipt-no-booking-en', [{ say: 'Hi', kind: 'model', lang: 'en' }, { say: 'I sent the GCash payment for my stay', kind: 'handoff', lang: 'en', noInvite: true },
       img('code', 'en', { must: [/match it to your booking/], mustNot: [LINK], effects: [/"handoff"[^}]*payment/] })]],
+    // D-258 (Lloyd 2026-09-26): "when they ask to pay, give them gcash qr" - the QR goes with one line, the name once,
+    // no promise of a later QR; in Taglish, English with one "po".
+    ['pay-how-first-en', [{ say: 'Hi', kind: 'model', lang: 'en' }, { say: 'How do I pay?', kind: 'code', lang: 'en',
+      must: [/QR below/, /check-in and check-out dates/], mustNot: [LINK, /will send you a QR/i], effects: [/"fx":"qr"/] }]],
+    ['pay-how-offer-tl', [f(`Available po ba ang ${d3}? 2 kami`, 'tl'), { say: 'paano po magbayad?', kind: 'code', lang: 'tl',
+      must: [/QR below/, /\bpo\b/], mustNot: [LINK, /will send you a QR/i], effects: [/"fx":"qr"/] }]],
   ];
   return cases.map(([id, turns]) => ({ id, group: 'payment', turns }));
 }

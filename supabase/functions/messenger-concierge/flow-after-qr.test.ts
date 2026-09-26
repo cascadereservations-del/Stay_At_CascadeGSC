@@ -63,9 +63,9 @@ Deno.test('SPEC-31 s1: after the receipt the cancel line never says nothing is c
   assertEquals(/go over your payment/.test(r.reply), true);
 });
 
-Deno.test('SPEC-31 s2: "paid na po?" after the receipt - Opo, the receipt, one payment card, lint clean', async () => {
+Deno.test('SPEC-31 s2: "paid na po?" after the receipt - Yes po (D-258: English), the receipt, one payment card, lint clean', async () => {
   const r = await turn(flow({ step: 'receipt_sent', lang: 'tl' }), { text: 'Paid na po, received niyo na po ba?' });
-  assertEquals(/^Opo, Ben/.test(r.reply), true);
+  assertEquals(/^Yes po, Ben/.test(r.reply), true);
   assertEquals(/receipt/.test(r.reply), true);
   assertEquals(/personally verify/.test(r.reply), false);
   assertEquals(lintReply(r.reply, 'Paid na po, received niyo na po ba?'), []);
@@ -102,7 +102,7 @@ Deno.test('SPEC-31 s3: a photo after the hold lapsed is a receipt for the host t
   assertEquals([r.saved.booking_flow.step, !!r.saved.booking_flow.photo_at, r.saved.booking_flow.updated_at], ['await_receipt', true, lapsed.updated_at]);
   // ...and a "paid na" after it hears that the photo is with us
   const again = await turn(r.saved.booking_flow, { text: "nabayaran ko na po kahapon" });
-  assertEquals(/^(Opo|Yes), Ben, (nasa amin|your receipt)/.test(again.reply), true);
+  assertEquals(/^Yes( po)?, Ben, your receipt/.test(again.reply), true);
 });
 
 Deno.test('SPEC-31 s3: a photo with no booking but payment talk gets the stray line; any other photo keeps the brochure', async () => {
@@ -132,4 +132,28 @@ Deno.test('SPEC-31 s6: the probe submit mirrors submit-booking - no hold for ful
   const fee = (await fx.submit({ ...base, pay_full: false }, { guest_name: 'Ben' } as any, 'p')).flow;
   assertEquals([full.hold, full.hold_expires_at, Date.parse(full.receipt_expires_at!) - now.getTime()], [false, null, 24 * 3_600_000]);
   assertEquals([fee.hold, !!fee.hold_expires_at], [true, true]);
+});
+
+Deno.test('D-258: "How do I pay?" before any dates gets the GCash QR and one line, the name once, no promise of a later QR', async () => {
+  const r = await turn(flow({ step: 'dates', checkin: undefined, checkout: undefined, booking_id: undefined, ref: undefined, deposit: undefined, total: undefined, hold: undefined, hold_expires_at: undefined, receipt_token: undefined, receipt_expires_at: undefined }), { text: 'How do I pay?' });
+  assertEquals(r.calls.filter((c) => c.fx === 'qr').length, 1);
+  assertEquals((r.reply.match(/\bBen\b/g) ?? []).length, 1);
+  assertEquals(/QR below/.test(r.reply) && /check-in and check-out dates/.test(r.reply), true);
+  assertEquals(/will send you a QR/i.test(r.reply), false);
+  assertEquals(/Cascades, registered to Marifel/.test(r.reply), true); // the promise line rides under the QR
+  assertEquals(lintReply(r.reply.split('\n\n')[0], 'How do I pay?'), []);
+});
+
+Deno.test('D-258: "paano magbayad?" with dates held gets the QR, English with one po, and only the next ask of the flow', async () => {
+  const r = await turn(flow({ step: 'offer', lang: 'tl', booking_id: undefined, ref: undefined, deposit: undefined, total: undefined, hold: undefined, hold_expires_at: undefined, receipt_token: undefined, receipt_expires_at: undefined }), { text: 'paano po magbayad?' });
+  assertEquals(r.calls.filter((c) => c.fx === 'qr').length, 1);
+  assertEquals(/^Ben, you may pay po by GCash/.test(r.reply), true);
+  assertEquals(/I-set na po ba namin ang dates/.test(r.reply), true);
+  assertEquals((r.reply.match(/\bBen\b/g) ?? []).length, 1);
+});
+
+Deno.test('D-258: a new booking on a thread the bot answered minutes ago does not greet again', async () => {
+  const r = await turn(null, { text: 'Can I book Dec 1 to 3 for 2 guests?' }, ['paid na po?']);
+  assertEquals(/thank you for reaching out/i.test(r.reply), false);
+  assertEquals(/^Hi\b/.test(r.reply), false);
 });
