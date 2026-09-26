@@ -79,6 +79,16 @@ export type GuestContext = {
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dm = (d?: string | null) => { if (!d) return ''; const x = new Date(d.slice(0, 10) + 'T00:00:00Z'); return `${x.getUTCDate()} ${MON[x.getUTCMonth()]}`; };
 
+/** Live 2026-09-26 08:38 (Cassy): "Next availability is Mon 29 Sep" while a stay ran Mon 28 Sep to Fri 2 Oct - the model
+ *  counted nights itself. The first night in [from, to) that no stay covers (check-in night through the night before
+ *  check-out), computed here; null when every night in the window is taken. */
+export function firstOpenNight(rows: Array<{ checkin: string; checkout: string; status?: string | null }>, from: string, to: string): string | null {
+  const live = rows.filter((r) => !/cancel/i.test(String(r.status ?? '')));
+  for (let d = from; d < to; d = new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10))
+    if (!live.some((r) => r.checkin <= d && d < r.checkout)) return d;
+  return null;
+}
+
 export async function guestContext(db: any, by: { guestId?: string | null; name?: string | null }): Promise<GuestContext> {
   const { data, error } = await db.rpc('guest_context_v1', { p_property_id: PROPERTY_ID, p_guest_id: by.guestId ?? null, p_name: by.name ?? null });
   if (error) { console.warn('guest_context_v1 failed (non-fatal):', error.message); return { found: false }; }
@@ -159,7 +169,7 @@ export async function runTool(db: any, name: string, args: Record<string, unknow
       const from = isYmd(args.from) ? args.from : today;
       const to = isYmd(args.to) ? args.to : addDays(from, 7);
       const rows = await stays(db, from, to);
-      return { from, to, today, stays: rows.slice(0, 20).map((s) => ({ code: s.code, guest: s.guest_name, checkin: s.checkin, checkout: s.checkout, nights: s.nights, status: s.status, source: s.stay_kind, accommodation_total: s.accommodation_total })) };
+      return { from, to, today, first_open_night: firstOpenNight(rows, from, to), stays: rows.slice(0, 20).map((s) => ({ code: s.code, guest: s.guest_name, checkin: s.checkin, checkout: s.checkout, nights: s.nights, status: s.status, source: s.stay_kind, accommodation_total: s.accommodation_total })) };
     }
     case 'period_metrics': {
       const from = isYmd(args.from) ? args.from : today.slice(0, 8) + '01';
