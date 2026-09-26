@@ -27,7 +27,14 @@ export type ChatJsonRequest = {
   maxTokens?: number;      // default 700
   timeoutMs?: number;      // default 25_000
   tier?: 'full' | 'lite';  // default full; lite = cheap model for follow-ups and option drafts
+  plain?: boolean;         // SPEC-32 s5: no JSON mode - the last try after two unreadable JSON replies
 };
+// SPEC-32 s4 (D-254): probe and golden runs spend CASCADE_OPENROUTER_PROBE_KEY, never the guests' key. Set by runProbe for
+// its own request and reset in finally.
+// ponytail: module-level; a guest turn landing on the same warm worker mid-probe would bill the probe key - harmless.
+let keyOverride: string | null = null;
+export function setProviderKey(key: string | null): void { keyOverride = key || null; }
+const orKey = () => keyOverride ?? env('CASCADE_OPENROUTER_BOT_KEY');
 
 async function gemini(q: ChatJsonRequest): Promise<string> {
   const contents = [
@@ -36,7 +43,7 @@ async function gemini(q: ChatJsonRequest): Promise<string> {
   ];
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey()}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ system_instruction: { parts: [{ text: q.system }] }, contents, generationConfig: { temperature: q.temperature ?? 0.4, maxOutputTokens: q.maxTokens ?? 700, responseMimeType: 'application/json' } }),
+    body: JSON.stringify({ system_instruction: { parts: [{ text: q.system }] }, contents, generationConfig: { temperature: q.temperature ?? 0.4, maxOutputTokens: q.maxTokens ?? 700, ...(q.plain ? {} : { responseMimeType: 'application/json' }) } }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
   });
   if (!r.ok) throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`);
@@ -53,8 +60,8 @@ async function openrouter(q: ChatJsonRequest): Promise<string> {
   ];
   const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env('CASCADE_OPENROUTER_BOT_KEY')}`, 'X-Title': q.title ?? 'Cascade' },
-    body: JSON.stringify({ model: q.tier === 'lite' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, response_format: { type: 'json_object' } }),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey()}`, 'X-Title': q.title ?? 'Cascade' },
+    body: JSON.stringify({ model: q.tier === 'lite' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, ...(q.plain ? {} : { response_format: { type: 'json_object' } }) }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
   });
   if (!r.ok) throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`);
@@ -83,7 +90,7 @@ async function tripOn(e: unknown): Promise<void> {
   await geminiBreaker.trip?.(geminiBreaker.until).catch((err) => console.error('gemini_breaker_persist_failed', String(err).slice(0, 200)));
 }
 export async function chatJson(q: ChatJsonRequest): Promise<string> {
-  const hasOr = Boolean(env('CASCADE_OPENROUTER_BOT_KEY'));
+  const hasOr = Boolean(orKey());
   if (hasOr) {
     try { return await openrouter(q); } catch (e) {
       if (!geminiOpen()) throw e;

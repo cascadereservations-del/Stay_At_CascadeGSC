@@ -73,7 +73,7 @@ export function tidyReply(reply: string, siteUrl: string, english: boolean): str
 // and nothing checked that care was present, so a reply could pass every lint and still be cold. This is the positive
 // check: a substantive reply shows care somewhere - anticipation, reassurance, an offer of help or a warm close
 // (protocol 08 sections 6, 12, 22; 07 and 09 equivalents).
-const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|relax|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala)\b|🌿|💚|😊|🙏|✨/i;
+const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|relax|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala|gladly|makakatipid|makatipid|ihahanda|iche-check|i-share lang|i-send lang|share lang|handa na|asikasuhin|aasikasuhin|amo dayon|i-check namo|excited)\b|🌿|💚|😊|🙏|✨/i; // SPEC-32 s4 (F11)
 /** True when the reply is not in the register code settled for this turn (golden run 2026-09-17: an English question got
  *  the Taglish reference reply pasted whole; "Hm po per night?" got plain English). Narrow on purpose: two Tagalog markers
  *  in an English reply, any Tagalog-only word in a Bislish one, no Filipino word at all in a substantive Taglish one. */
@@ -157,13 +157,20 @@ export function ensureGreeting(reply: string, name: string | null, lang: L3, int
  *  where the greeting ends; with no sentence end to find it becomes the opening paragraph. A reply
  *  that already says Cassy is left exactly as it is. */
 export function withIntro(reply: string, lang: L3): string {
-  if (/\bCassy\b/.test(reply)) return reply;
+  // SPEC-32 s3 (F14, probe D-T1): the model wrote the intro itself as its LAST paragraph, after the link. A Cassy sentence
+  // that sits below a link is taken out and placed the usual way; anywhere else it stands.
+  const ps = reply.split(/\n\s*\n/), link = ps.findIndex((p) => /👉|:\/\//.test(p)), at = ps.findIndex((p) => /\bCassy\b/.test(p));
+  if (at >= 0 && (link < 0 || at < link)) return reply;
+  if (at >= 0) reply = ps.map((p, i) => (i === at ? (p.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [p]).filter((s) => !/\bCassy\b/.test(s)).join('').trim() : p)).filter((p) => p.trim()).join('\n\n');
   const intro = CASSY_INTRO[lang];
   // Golden run 2026-09-25 (fu-ok-salamat-tl): the Taglish greeting's first sentence is only "Hi Ben!", so the intro went
   // in before "Salamat sa pag-message...". D-173 puts it after the thank-you sentence, so that sentence joins the first.
   const m = reply.match(/^([^.!?\n]{0,30}[.!?]\s*[^.!?\n]*(?:salamat sa pag-?message|thank you for reaching out)[^.!?\n]*[.!?])(\s*)/i)
     ?? reply.match(/^([^.!?\n]*[.!?])(\s*)/);
-  if (!m) return `${intro.trimEnd()}\n\n${reply.trimStart()}`;
+  if (!m) { // no sentence end in the first line: the intro is the second paragraph, never after a link paragraph
+    const [p0, ...more] = reply.trimStart().split(/\n\s*\n/);
+    return /👉|:\/\//.test(p0) || !more.length ? `${intro.trimEnd()}\n\n${reply.trimStart()}` : [p0, intro.trimEnd(), ...more].join('\n\n');
+  }
   const rest = reply.slice(m[0].length);
   if (!rest) return `${m[1]} ${intro.trimEnd()}`;
   // Keep a paragraph break that was there (it used to be swallowed); a one-paragraph reply gets one after the intro

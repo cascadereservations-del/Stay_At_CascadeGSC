@@ -18,7 +18,7 @@ import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, FACTS, MAYA_FACT, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
-import { chatJson, geminiBreaker } from '../_shared/cascade-core/providers.ts';
+import { chatJson, geminiBreaker, setProviderKey } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
 import { withHeader } from '../_shared/cascade-core/format.ts';
@@ -123,14 +123,14 @@ function stayAnchor(text: string, lang = 'english'): string {
   const n = Number(m[1]);
   const tier = RATE_TIERS.find((t) => n >= t.min && n <= t.max);
   if (!tier || n < 2) return '';
-  const extras = n >= 7 ? ', plus a complimentary mid-stay cleaning with fresh linens and towels' : n >= 5 ? ', plus drinking water for the stay' : '';
+  const extras = n >= 5 ? ', plus drinking water for the stay and a complimentary mid-stay refresh with fresh linens and towels' : ''; // D-249: the refresh starts at 5 nights, as the site says
   // Order and wording follow pricing research: anchor on the standard rate, adjust to the precise
   // direct rate (precise figures read as calculated and lower), then the per-stay total, then the
   // saving in pesos (rule of 100: absolute over percent when the base is large), then one value-add.
   // SPEC-28 section 1: the quoted wording was English whatever the guest wrote, so a Taglish rate question got an English
   // answer with one "po". A Taglish turn gets the same three facts, same order, in everyday Taglish.
   const q = lang === 'taglish'
-    ? [`para sa ${n} nights po, bumababa ang direct rate namin sa ${peso(tier.rate)} per night mula sa standard ${peso(1780)}`, `mga ${peso(n * tier.rate)} para sa buong stay imbes na ${peso(n * 1780)}`, `kaya makakatipid kayo ng mga ${peso(n * (1780 - tier.rate))}`, n >= 7 ? 'kasama na rin ang complimentary mid-stay cleaning with fresh linens and towels' : n >= 5 ? 'kasama na rin ang drinking water for the stay' : '']
+    ? [`para sa ${n} nights po, bumababa ang direct rate namin sa ${peso(tier.rate)} per night mula sa standard ${peso(1780)}`, `mga ${peso(n * tier.rate)} para sa buong stay imbes na ${peso(n * 1780)}`, `kaya makakatipid kayo ng mga ${peso(n * (1780 - tier.rate))}`, n >= 5 ? 'kasama na rin ang drinking water for the stay at complimentary mid-stay refresh with fresh linens and towels' : '']
     : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(1780)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * 1780)}`, `so you keep about ${peso(n * (1780 - tier.rate))}`, extras.slice(2)];
   return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "${q[0]}", (2) "${q[1]}", (3) "${q[2]}"${q[3] ? `, (4) "${q[3]}"` : ''}. Do not state the percentage; do not use the word "discount" more than once; then the link, then ask which dates they are looking at.] `;
 }
@@ -396,17 +396,28 @@ function draftFrom(raw: string, who: string): Draft {
 const PLACE_RE = /\b(far|near|distance|km|minutes?|mall|airport|hospital|clinic|pharmacy|resort|pool|beach|cafe|coffee|restaurant|food|eat|kain|dining|market|atm|bank|gas|store|church|school|transpo|grab|taxi|tricycle|drive|route|direction|location|asa|saan|malapit|layo|duol|lugar|place|around|nearby|recommend)\b/i;
 async function draft(thread: Thread, question: string, availability: string, tier: 'full' | 'lite' = 'full', compact = false): Promise<Draft> {
   const landmarks = PLACE_RE.test(question) ? await landmarksBlock(dbForLandmarks!).catch(() => '') : 'Not loaded for this turn; for a place or distance not in FACTS say the host will confirm.';
-  const ask = () => chatJson({
+  const ask = (plain = false) => chatJson({
     system: systemPrompt(thread, availability, landmarks, compact),
     history: thread.history.slice(-HISTORY_KEEP).map((h) => ({ role: h.role === 'bot' ? 'assistant' as const : 'user' as const, text: h.text })),
-    question, title: 'Cascade Concierge', tier,
+    question: plain ? `[Reply as plain text only, no JSON, no code fences.] ${question}` : question, title: 'Cascade Concierge', tier, plain,
   });
+  return await draftOrPlain(ask, (raw) => draftFrom(raw, 'model'));
+}
+/** Live 2026-09-25: unreadable JSON handed three guests to the host in a minute - one fresh call before giving up.
+ *  SPEC-32 s5 (F12): after the second, one plain-text call wrapped as the reply; a parse failure alone never hands off. */
+export async function draftOrPlain(ask: (plain?: boolean) => Promise<string>, parse: (raw: string) => Draft): Promise<Draft> {
   const raw = await ask();
-  try { return draftFrom(raw, 'model'); } catch (e) {
-    // Live 2026-09-25: unreadable JSON handed three guests to the host in a minute. One fresh call before giving up.
+  try { return parse(raw); } catch (e) {
     if (!(e instanceof SyntaxError)) throw e;
     console.warn('draft_json_retry', String(e).slice(0, 120), raw.slice(0, 160));
-    return draftFrom(await ask(), 'model');
+    const again = await ask();
+    try { return parse(again); } catch (e2) {
+      if (!(e2 instanceof SyntaxError)) throw e2;
+      const text = (await ask(true)).replace(/^```\w*\s*|\s*```$/g, '').trim();
+      if (!text) throw e2;
+      console.warn('draft_plain_fallback', text.slice(0, 160));
+      return { reply: text.slice(0, 1800), uncertain: false };
+    }
   }
 }
 
@@ -1042,6 +1053,7 @@ async function runProbe(body: string): Promise<Response> {
   dbForLandmarks = db;
   let now = p.now && Date.parse(p.now) ? new Date(p.now) : new Date();
   const out: unknown[] = [];
+  setProviderKey(env('CASCADE_OPENROUTER_PROBE_KEY') || null); // D-254: probes never spend the guests' budget
   try {
     await db.from('concierge_threads').delete().eq('psid', psid); // a fresh thread, always
     for (const [i, t] of p.turns.entries()) {
@@ -1060,6 +1072,7 @@ async function runProbe(body: string): Promise<Response> {
   } catch (e) {
     return json({ ok: false, error: String(e).slice(0, 300), turns: out }, 500);
   } finally {
+    setProviderKey(null);
     await db.from('concierge_threads').delete().eq('psid', psid);
   }
 }
