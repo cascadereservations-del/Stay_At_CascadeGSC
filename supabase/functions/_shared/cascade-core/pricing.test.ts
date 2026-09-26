@@ -28,6 +28,15 @@ Deno.test('Anniversary pins: Oct 16-19 = 4,777; Oct 11-18 = 10,801; Oct 9-12 = 4
   assertEquals(quote(SEED_CARD, '2026-10-18', '2026-10-19', NOW).total, 1780, 'checkout day of the promo is a normal night');
 });
 
+Deno.test('a card scheduled for later prices the stays that check in on or after its start (review finding 1)', () => {
+  const card = { ...SEED_CARD, promotions: [], upcoming: [{ effective_from: '2026-12-01', base: 2000, deposit_pct: 40, tiers: [{ min_nights: 3, pct: 10 }] }] };
+  assertEquals(quote(card, '2026-11-27', '2026-11-30', NOW).total, 5073, 'before the start: today\'s card');
+  const d = quote(card, '2026-12-05', '2026-12-08', NOW);
+  assertEquals([d.total, d.deposit, d.standard_total, d.tier_rate], [5400, 2160, 6000, 1800], 'from the start: the new card, its fee %');
+  assertEquals(quote(card, '2026-11-30', '2026-12-02', NOW).total, 2 * 1691, 'a stay straddling the start is priced by its check-in date');
+  assertEquals(quote({ ...card, upcoming: undefined }, '2026-12-05', '2026-12-08', NOW).total, 5073, 'a card without upcoming behaves as before');
+});
+
 Deno.test('last minute is 4 Manila days or fewer', () => {
   assertEquals(quote(SEED_CARD, '2026-09-30', '2026-10-01', NOW).last_minute, true);
   assertEquals(quote(SEED_CARD, '2026-10-01', '2026-10-02', NOW).last_minute, false);

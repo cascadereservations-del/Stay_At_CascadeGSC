@@ -5,12 +5,16 @@
 // tier chosen by the STAY length. Deposit (the reservation fee) = ceil(total * deposit_pct / 100); full = total.
 
 export type Promotion = { name: string; first_night: string; last_night: string; nightly_rate: number };
+export type CardVersion = { effective_from: string; base: number; deposit_pct: number; tiers: { min_nights: number; pct: number }[]; version_id?: string | null };
 export type RateCard = {
   base: number;
   deposit_pct: number;
   tiers: { min_nights: number; pct: number }[];
   promotions: Promotion[];
   version_id?: string | null;
+  /** Versions published to start after today (release rate_card_upcoming_20260926). A stay is priced by the version in
+   *  force on its CHECK-IN date; absent = none scheduled. */
+  upcoming?: CardVersion[];
 };
 export type QuoteNight = { date: string; rate: number; source: 'promo' | 'tier'; promo?: string };
 export type Quote = {
@@ -49,7 +53,15 @@ export function tierPct(card: RateCard, n: number): number {
 export const tierRate = (card: RateCard, n: number) => Math.round(card.base * (1 - tierPct(card, n) / 100));
 export const promoOn = (card: RateCard, date: string) => card.promotions.find((p) => p.first_night <= date && date <= p.last_night) ?? null;
 
-export function quote(card: RateCard, checkin: string, checkout: string, now = new Date()): Quote {
+/** The card that prices a stay checking in on `checkin`: the latest upcoming version started by then, else today's.
+ *  ponytail: a stay that straddles a version change is priced wholly by its check-in date's version. */
+export function cardOn(card: RateCard, checkin: string): RateCard {
+  const v = (card.upcoming ?? []).filter((u) => u.effective_from <= checkin).sort((a, b) => (a.effective_from < b.effective_from ? 1 : -1))[0];
+  return v ? { ...card, base: v.base, deposit_pct: v.deposit_pct, tiers: v.tiers, version_id: v.version_id ?? null } : card;
+}
+
+export function quote(cardToday: RateCard, checkin: string, checkout: string, now = new Date()): Quote {
+  const card = cardOn(cardToday, checkin);
   const n = Math.max(1, span(checkin, checkout));
   const pct = tierPct(card, n), rate = tierRate(card, n);
   const nights: QuoteNight[] = [];
@@ -92,6 +104,9 @@ export function normalizeCard(c: RateCard): RateCard {
     base: Number(c.base), deposit_pct: Number(c.deposit_pct), version_id: c.version_id ?? null,
     tiers: c.tiers.map((t) => ({ min_nights: Number(t.min_nights), pct: Number(t.pct) })),
     promotions: c.promotions.map((p) => ({ name: String(p.name), first_night: String(p.first_night), last_night: String(p.last_night), nightly_rate: Number(p.nightly_rate) })),
+    upcoming: (Array.isArray(c.upcoming) ? c.upcoming : []).filter((u) => Number(u.base) > 0 && Array.isArray(u.tiers)).map((u) => ({
+      effective_from: String(u.effective_from), base: Number(u.base), deposit_pct: Number(u.deposit_pct) > 0 ? Number(u.deposit_pct) : 50,
+      tiers: u.tiers.map((t) => ({ min_nights: Number(t.min_nights), pct: Number(t.pct) })), version_id: u.version_id ?? null })),
   };
 }
 

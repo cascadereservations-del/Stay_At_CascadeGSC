@@ -1,7 +1,7 @@
 // Messenger book intent (booking PRD §A, session 27). Pure functions, no I/O: a code-driven
 // slot-filling flow that index.ts runs BEFORE the model. The model never books; it only answers
 // questions. State is one jsonb on concierge_threads.booking_flow.
-import { currentCard, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
+import { cardOn, currentCard, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
 
 /** Register: en = Native English protocol, tl = Native Filipino (Taglish, purposeful po), bis = Native Bisaya (Bislish, no po). */
 export type Lang = 'en' | 'tl' | 'bis';
@@ -259,7 +259,7 @@ function promoRateLine(lang: Lang | undefined, x: ReturnType<typeof quoteTotal>,
 }
 /** SPEC-14 (D-184): the direct-booking rate, said before the offer. Every figure comes from quoteTotal (the rate card). */
 export function rateLine(flow: Flow, now = new Date(), card: RateCard = currentCard()): string {
-  const q = quoteTotal(flow.checkin!, flow.checkout!, card), STD_RATE = card.base;
+  const q = quoteTotal(flow.checkin!, flow.checkout!, card), STD_RATE = cardOn(card, flow.checkin!).base; // the standard on the check-in date
   const body = q.q.promo_nights > 0 ? promoRateLine(flow.lang, q, STD_RATE) : q.nights >= 2
     ? pick(flow.lang, {
         en: `Booking directly with us brings your ${q.nights} nights to ${php(q.rate)} per night instead of the standard ${php(STD_RATE)} — ${php(q.total)} for the stay.`,
