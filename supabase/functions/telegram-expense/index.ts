@@ -28,7 +28,7 @@ import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; //
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
-import { CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
+import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -1913,6 +1913,13 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
         const m=update?.message; const t=String(m?.text??m?.caption??''); // v107: a photo captioned "cassy …" is a draft request (Telegram plan §3)
         // session 28: /cassy <q> and /draft <guest text> are the same requests as "cassy …" / "cassy reply: …"
         if(m&&typeof m.text==='string'&&/^\s*\/(cassy|draft)(@\w+)?\b/i.test(m.text)) m.text=m.text.replace(/^\s*\/cassy(@\w+)?\s*/i,'cassy ').replace(/^\s*\/draft(@\w+)?\s*/i,'cassy reply: ');
+        // 2026-09-26: the 🤖 Ask Cassy button asks for the question; the reply to that prompt goes to Cassy.
+        if(m&&typeof m.text==='string'&&(CASSY_LABELS.includes(stripBotMention(m.text.trim()))||/^\s*cassy\s*$/i.test(m.text))){
+          if(!isAllowedChat(m.chat?.id))return;
+          await tgReply(m.chat.id,m.message_id,ASK_CASSY_PROMPT,{reply_markup:{force_reply:true,selective:true,input_field_placeholder:'Your question for Cassy'}});
+          return;
+        }
+        {const asked=m&&typeof m.text==='string'?cassyAsk(m.text,String(m.reply_to_message?.text??''),!!m.reply_to_message?.from?.is_bot):null;if(asked)m.text=asked;}
         const named=/^\s*@?cassy\b/i.test(String(m?.text??t))||/^\s*\/deep\b/i.test(t);
         let free=t&&!m?.from?.is_bot&&!m?.reply_to_message&&!t.trimStart().startsWith('/')&&!/^\s*[₱\d]/.test(stripBotMention(t.trim()))&&isBotAddressed(m);
         // SPEC-16: someone who is being asked a question is answering it (e.g. "Joy Dishwashing 89"), not asking Cassy.

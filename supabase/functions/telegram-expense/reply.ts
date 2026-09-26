@@ -25,6 +25,15 @@ export function routeText(i: { awaiting: boolean; replyToCountCard: boolean; rep
   return { kind: 'passthrough' };
 }
 
+/** Live 2026-09-26 08:07 Manila (Lloyd): the 🤖 Ask Cassy button did nothing - the label became /cassy only after the
+ *  Cassy forward had passed it by - and the question typed next was dropped, because plain text in the group is not
+ *  addressed to the bot. The button now asks for the question, and a reply to that prompt is a question for Cassy. */
+export const ASK_CASSY_PROMPT = '🤖 Ask Cassy: reply to this message with your question.';
+export const CASSY_LABELS = ['🤖 Ask Cassy', '🤖 Cassy'];
+export function cassyAsk(text: string, replyToText: string, replyToBot: boolean): string | null {
+  return replyToBot && replyToText.startsWith('🤖 Ask Cassy:') && text.trim() ? `cassy ${text.trim()}` : null;
+}
+
 export const NOT_WAITING = 'That card is not waiting for an answer, so nothing was saved. Tap a button on it, ask Cassy with /cassy <your question>, or /menu.';
 export const CANCELLED = '❌ Cancelled. Nothing saved.';
 export const COUNT_EXPIRED = '⏰ That count expired. Run /count again.';

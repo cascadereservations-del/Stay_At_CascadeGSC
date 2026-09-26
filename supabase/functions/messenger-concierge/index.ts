@@ -1045,7 +1045,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
  *  body: { psid: "probe:<uuid>", name?: string, now?: iso, turns: Array<string | { text?: string, image?: true, advance_minutes?: number }> } */
 async function runProbe(body: string): Promise<Response> {
   const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
-  let p: { psid?: string; name?: string; now?: string; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }> };
+  let p: { psid?: string; name?: string; now?: string; golden?: boolean; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }> };
   try { p = JSON.parse(body); } catch { return json({ ok: false, error: 'bad_json' }, 400); }
   const psid = String(p.psid ?? '');
   if (!/^probe:[A-Za-z0-9-]{8,64}$/.test(psid) || !Array.isArray(p.turns) || !p.turns.length || p.turns.length > 12) return json({ ok: false, error: 'probe_psid_and_1_to_12_turns_required' }, 400);
@@ -1053,7 +1053,8 @@ async function runProbe(body: string): Promise<Response> {
   dbForLandmarks = db;
   let now = p.now && Date.parse(p.now) ? new Date(p.now) : new Date();
   const out: unknown[] = [];
-  setProviderKey(env('CASCADE_OPENROUTER_PROBE_KEY') || null); // D-254: probes never spend the guests' budget
+  // D-254: probes never spend the guests' budget; golden runs have a key of their own (Lloyd 2026-09-26).
+  setProviderKey((p.golden ? env('CASCADE_OPENROUTER_GOLDEN_RUN_KEY') : '') || env('CASCADE_OPENROUTER_PROBE_KEY') || null);
   try {
     await db.from('concierge_threads').delete().eq('psid', psid); // a fresh thread, always
     for (const [i, t] of p.turns.entries()) {

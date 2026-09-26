@@ -23,7 +23,7 @@ console.log(`${cases.length} conversations x ${runs} runs. One line per conversa
 for (const c of cases) {
   for (let run = 1; run <= runs; run++) {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cascade-probe': secret },
-      body: JSON.stringify({ psid: `probe:${crypto.randomUUID()}`, name: NAME, turns: c.turns.map((t) => (t.image ? { text: t.say, image: true } : t.say)) }) });
+      body: JSON.stringify({ psid: `probe:${crypto.randomUUID()}`, name: NAME, golden: true, turns: c.turns.map((t) => (t.image ? { text: t.say, image: true } : t.say)) }) });
     const j = await res.json().catch(() => null);
     if (!res.ok || !j?.ok) { rows.push({ id: c.id, run, turn: 0, guest: '-', reply: '', fails: [`probe failed: HTTP ${res.status} ${JSON.stringify(j).slice(0, 200)}`], step: null, ms: 0 }); continue; }
     compactChars = j.voice_compact_chars;

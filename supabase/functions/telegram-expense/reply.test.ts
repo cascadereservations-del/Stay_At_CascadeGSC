@@ -135,3 +135,13 @@ Deno.test('SPEC-22: no button label promises a copy, because Telegram cannot cop
   assertEquals(/\bCopy\b/.test(doSend('Ana', 'hi').join(' ')), false);
   assertEquals(doSend('Ana', 'hi')[0].includes('Show as text'), true);
 });
+
+import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk } from './reply.ts';
+Deno.test('Ask Cassy button: the prompt asks, and a reply to it is a question for Cassy (live 2026-09-26)', () => {
+  assertEquals(CASSY_LABELS.includes('🤖 Ask Cassy'), true);
+  const q = 'Create a polite message answering the guest if the unit is available today';
+  assertEquals(cassyAsk(q, ASK_CASSY_PROMPT, true), `cassy ${q}`);
+  assertEquals(cassyAsk(q, ASK_CASSY_PROMPT, false), null);             // a person quoting the prompt is not the bot's prompt
+  assertEquals(cassyAsk(q, 'How many did you count?', true), null);      // other bot prompts keep their own flows
+  assertEquals(cassyAsk('  ', ASK_CASSY_PROMPT, true), null);
+});
