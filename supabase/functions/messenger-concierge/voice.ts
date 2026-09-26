@@ -266,8 +266,12 @@ export function dropPaxAsk(reply: string): string {
 
 /** The chat already holds the guest's name: a sentence that asks for it is dropped (golden run 2, 2026-09-17). Never returns ''. */
 const NAME_ASK_RE = /[^.?!\n]*\b(may we (know|have|ask)[^.?!\n]{0,20}\bname|what(?:'s| is) your name|ano(?:ng)? (?:po )?(?:ang )?pangalan|unsa(?:y)? (?:imong|inyong) ngalan)\b[^.?!\n]*\?/gi;
+// Golden 2026-09-26 (first-rate-tl): "May we know your name po, and if you have dates in mind, share lang dito..." ends in
+// "." so the whole-question rule above missed it. The leading name clause of a compound sentence goes; the rest stays.
+const NAME_CLAUSE_RE = /\bmay we (?:know|have|ask for) (?:your|the) (?:first )?name(?: po)?,? and (?:also )?(\p{L})/giu;
 export function dropNameAsk(reply: string): string {
-  const out = reply.replace(NAME_ASK_RE, '').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean).join('\n\n');
+  const out = reply.replace(NAME_ASK_RE, '').replace(NAME_CLAUSE_RE, (_m, c: string) => c.toUpperCase())
+    .split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean).join('\n\n');
   return out || reply;
 }
 

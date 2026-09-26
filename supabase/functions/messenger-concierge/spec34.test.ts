@@ -3,7 +3,7 @@
 // FACTS/VOICE follow the card and carry a live promotion; PHP 1,929 appears nowhere.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { rateLine, quoteTotal, type Flow } from './booking.ts';
-import { lintReply } from './voice.ts';
+import { dropNameAsk, lintReply } from './voice.ts';
 import { allowedPesos, pesosIn } from './golden-score.ts';
 import { FACTS, VOICE, factsFor, tierLine, voiceFor } from '../_shared/cascade-core/facts.ts';
 import { SEED_CARD, type RateCard } from '../_shared/cascade-core/pricing.ts';
@@ -29,6 +29,14 @@ Deno.test('rateLine promo lines are lint-clean in en, tl and bis and quote only 
     for (const p of pesosIn(line)) assert(ok.has(p), `${p} not allowed in: ${line}`);
     assert(!line.includes('1,929'));
   }
+});
+
+Deno.test('dropNameAsk removes a compound name ask that ends in a full stop (golden first-rate-tl, 2026-09-26)', () => {
+  const r = dropNameAsk('Our direct rate po starts at PHP 1,780 per night.\n\nMay we know your name po, and if you have dates in mind, share lang dito, pati ilan kayo, and we\'ll check the calendar and the best rate for you right away.\n\nWe can arrange the booking dito sa chat.');
+  assertEquals(/your name/i.test(r), false, r);
+  assert(r.includes('If you have dates in mind, share lang dito, pati ilan kayo'), r);
+  assertEquals(dropNameAsk('May we know your name?\n\nThanks.'), 'Thanks.');
+  assertEquals(dropNameAsk('Our rate is PHP 1,780.'), 'Our rate is PHP 1,780.');
 });
 
 Deno.test('a plain stay is quoted exactly as before', () => {
