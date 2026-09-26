@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "release_id": "guest_message_log_20260926",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "7b739acf95a61c38b72811a5dba876eebf2e21cb"
+  },
+  "migrations": [
+    "20260926010000_guest_message_log.sql"
+  ],
+  "migration_sha256": {
+    "20260926010000_guest_message_log.sql": "481b685e4b8edcb43142716818b20e62a4c18c00c65d00fe622d933f201c9ce7"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260926T015447Z",
+    "verified_at": "2026-09-26T01:54:47Z",
+    "production_rule": "One new table (RLS on, service_role only), one new service_role read function and one job_heartbeats row. Nothing existing is altered. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_log_exists_with_rls_and_the_lock",
+      "query": "select exists (select 1 from pg_class where oid = 'public.guest_message_log'::regclass and relrowsecurity) and exists (select 1 from pg_constraint where conrelid = 'public.guest_message_log'::regclass and contype = 'p')",
+      "expect": true
+    },
+    {
+      "name": "the_body_is_the_reviewed_body",
+      "query": "select md5(prosrc) = 'e7d723364e6bb7d2c5cc06343eea7f57' from pg_proc where oid = 'public.due_guest_messages_v1(timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "service_role_only",
+      "query": "select has_function_privilege('service_role','public.due_guest_messages_v1(timestamptz)','EXECUTE') and not has_function_privilege('anon','public.due_guest_messages_v1(timestamptz)','EXECUTE') and not has_function_privilege('authenticated','public.due_guest_messages_v1(timestamptz)','EXECUTE') and not has_table_privilege('anon','public.guest_message_log','SELECT') and not has_table_privilege('authenticated','public.guest_message_log','SELECT') and has_table_privilege('service_role','public.guest_message_log','INSERT')",
+      "expect": true
+    },
+    {
+      "name": "the_heartbeat_row_is_seeded",
+      "query": "select exists (select 1 from public.job_heartbeats where job_name = 'guest-messages-hourly')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260926_guest_message_log.sql with run-sql-on-host.sh (unschedules guest-messages-hourly, drops the function and the table, removes the heartbeat row; export the log first if it has rows)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_before_function_then_cron",
+      "required_state": "Apply before deploying guest-messages (waves 2064c0c); the cron one-off supabase/sql/2026-09-26-guest-messages-cron.sql only after the deploy. The relay's guestMessage action (a new Apps Script version) goes live before guest-messages can e-mail anyone."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-26 ~02:00Z on a disposable restore of production backup cascade-supabase-20260926T015447Z (prefix cascade-migration-rehearsal-344eb3fc647a, 0 leftovers). 103 public tables and 128 ledger rows before; migration 1 of 1; forward checks 4/4; pgTAP guest_message_log.sql 14/14; 104 tables after.",
+    "evidence": "New objects only. pgTAP guest_message_log.sql (14). Functions: deno test 195/195 (messenger-concierge, telegram-expense, upload-booking-receipt, guest-messages, _shared); deno check clean for guest-messages, telegram-expense, messenger-concierge."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
