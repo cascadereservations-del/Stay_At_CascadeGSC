@@ -12,7 +12,7 @@ const BUCKET = 'booking-receipts';
 const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type, x-receipt-filename',
+  'Access-Control-Allow-Headers': 'authorization, content-type, x-receipt-filename, x-pay-full',
   'Content-Type': 'application/json',
 };
 
@@ -46,7 +46,7 @@ Deno.serve(async (request) => {
   const db = createClient(supabaseUrl, serviceKey);
   const { data: booking, error: bookingError } = await db
     .from('booking_inquiries')
-    .select('id, receipt_image_path')
+    .select('id, receipt_image_path, total_amount, status')
     .eq('id', claim.bookingId)
     .maybeSingle();
   if (bookingError || !booking) return response({ error: 'invalid_upload_token' }, 401);
@@ -67,9 +67,13 @@ Deno.serve(async (request) => {
   });
   if (uploadError) return response({ error: 'receipt_upload_failed' }, 500);
 
+  // SPEC-34 (D-262): a held request is created with the reservation fee before the guest picks "Pay in Full" on the
+  // site, so the receipt says which it is. x-pay-full: true on a pending request makes the expected amount the stored
+  // total (never a client figure), so the receipt check no longer calls a full payment "over".
+  const payFull = request.headers.get('x-pay-full') === 'true' && booking.status === 'pending' && Number(booking.total_amount) > 0;
   const { data: updated, error: updateError } = await db
     .from('booking_inquiries')
-    .update({ receipt_image_path: objectPath })
+    .update(payFull ? { receipt_image_path: objectPath, deposit_amount: Number(booking.total_amount) } : { receipt_image_path: objectPath })
     .eq('id', claim.bookingId)
     .is('receipt_image_path', null)
     .select('id')
