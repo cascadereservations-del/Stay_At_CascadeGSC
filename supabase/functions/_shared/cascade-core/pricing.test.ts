@@ -54,5 +54,8 @@ Deno.test('loadCard: a failed read falls back to the seed card (never zero), a g
   _resetCardCache();
   const c2 = await loadCard({ rpc: () => Promise.resolve({ data: good, error: null }) }, 2);
   assertEquals([c2.base, currentCard().base, quote(c2, '2026-11-02', '2026-11-05', NOW).total], [1800, 1800, 5400]);
+  // a later failed read (cache expired) keeps the last good card, not the seed
+  const c3 = await loadCard({ rpc: () => Promise.resolve({ data: null, error: { message: 'blip' } }) }, 2 + 61_000);
+  assertEquals([c3.base, currentCard().base], [1800, 1800]);
   _resetCardCache();
 });

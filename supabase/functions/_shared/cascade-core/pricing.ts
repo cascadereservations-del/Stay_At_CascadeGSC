@@ -111,8 +111,10 @@ export async function loadCard(db: Rpc, nowMs = Date.now()): Promise<RateCard> {
     cached = { card: normalizeCard(data), at: nowMs };
     return (current = cached.card);
   } catch (e) {
-    console.error(JSON.stringify({ event: 'rate_card_fallback', error: String((e as Error)?.message ?? e) }));
-    return (current = SEED_CARD);
+    // Review 2026-09-26: `current` is shared by every request on this instance, so a failed read keeps the last card
+    // read successfully (the one other in-flight turns already quoted from) and only falls to the seed without one.
+    console.error(JSON.stringify({ event: 'rate_card_fallback', error: String((e as Error)?.message ?? e), kept: cached ? 'last_good' : 'seed' }));
+    return (current = cached?.card ?? SEED_CARD);
   }
 }
 /** Tests only. */
