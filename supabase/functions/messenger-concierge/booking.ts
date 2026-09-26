@@ -335,18 +335,18 @@ export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, cha
   const dates = dmRange(flow.checkin!, flow.checkout!);
   // After a receipt, "nothing is charged" would be false: the 5-day rule decides, and the host says so.
   if (!change && flow.step === 'receipt_sent') return pick(lang, {
-    en: `Understood${c}. We've let our host know and they'll release the hold on ${dates} for you; they'll go over your payment with you here.`,
-    tl: `Noted po${c}. Sinabihan na namin ang host at ire-release nila ang hold sa ${dates}; pag-uusapan nila dito ang payment ninyo.`,
-    bis: `Noted${c}. Gi-ingnan na namo ang host ug i-release nila ang hold sa ${dates}; istoryahan nila diri ang inyong payment.` });
+    en: `Understood${c}. We've let our host know and they'll release the hold on ${dates} for you; they'll go over your payment with you here. 🌿`,
+    tl: `Noted po${c}. Sinabihan na namin ang host at ire-release nila ang hold sa ${dates}; pag-uusapan nila dito ang payment ninyo. 🌿`,
+    bis: `Noted${c}. Gi-ingnan na namo ang host ug i-release nila ang hold sa ${dates}; istoryahan nila diri ang inyong payment. 🌿` });
   return change
     ? pick(lang, {
-        en: `Noted${c} - we can look at that. We've passed the change to our host, and they'll confirm the new dates and the hold here.`,
-        tl: `Noted po${c} - we can look at that. Naipasa na namin sa host ang change; iko-confirm nila dito ang bagong dates at ang hold.`,
-        bis: `Noted${c} - we can look at that. Gipasa na namo sa host ang change; i-confirm nila diri ang bag-ong dates ug ang hold.` })
+        en: `Noted${c} - we can look at that. We've passed the change to our host, and they'll confirm the new dates and the hold here. 🌿`,
+        tl: `Noted po${c} - we can look at that. Naipasa na namin sa host ang change; iko-confirm nila dito ang bagong dates at ang hold. 🌿`,
+        bis: `Noted${c} - we can look at that. Gipasa na namo sa host ang change; i-confirm nila diri ang bag-ong dates ug ang hold. 🌿` })
     : pick(lang, {
-        en: `Understood${c}. We've let our host know and they'll release the hold on ${dates} for you; nothing is charged. If your plans change again, your dates are one message away.`,
-        tl: `Noted po${c}. Sinabihan na namin ang host at ire-release nila ang hold sa ${dates}; walang bayad. Kung magbago ulit ang plano ninyo, one message away lang po ang dates.`,
-        bis: `Noted${c}. Gi-ingnan na namo ang host ug i-release nila ang hold sa ${dates}; walay bayad. Kung mausab balik ang plano, one message away ra ang dates.` });
+        en: `Understood${c}. We've let our host know and they'll release the hold on ${dates} for you; nothing is charged. If your plans change again, your dates are one message away. 🌿`,
+        tl: `Noted po${c}. Sinabihan na namin ang host at ire-release nila ang hold sa ${dates}; walang bayad. Kung magbago ulit ang plano ninyo, one message away lang po ang dates. 🌿`,
+        bis: `Noted${c}. Gi-ingnan na namo ang host ug i-release nila ang hold sa ${dates}; walay bayad. Kung mausab balik ang plano, one message away ra ang dates. 🌿` });
 }
 /** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
 export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): string {
@@ -365,9 +365,9 @@ export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): str
 export function strayReceiptReply(name: string | null, lang: Lang): string {
   const n = firstName(name), c = n ? `, ${n}` : '';
   return pick(lang, {
-    en: `Thank you${c}. We have your photo. Our host will match it to your booking and confirm here; if the hold had lapsed, they'll check the dates are still open and set them up again.`,
-    tl: `Salamat po${c}. Nasa amin na ang photo. Ima-match ito ng host sa booking ninyo at iko-confirm dito; kung nag-lapse na ang hold, iche-check nila kung open pa ang dates at ise-set up ulit.`,
-    bis: `Salamat${c}. Naa na sa amo ang photo. I-match ni sa host sa inyong booking ug i-confirm diri; kung na-lapse na ang hold, i-check nila kung open pa ang dates ug i-set up balik.` });
+    en: `Thank you${c}. We have your photo. Our host will match it to your booking and confirm here; if the hold had lapsed, they'll check the dates are still open and set them up again. 🌿`,
+    tl: `Salamat po${c}. Nasa amin na ang photo. Ima-match ito ng host sa booking ninyo at iko-confirm dito; kung nag-lapse na ang hold, iche-check nila kung open pa ang dates at ise-set up ulit. 🌿`,
+    bis: `Salamat${c}. Naa na sa amo ang photo. I-match ni sa host sa inyong booking ug i-confirm diri; kung na-lapse na ang hold, i-check nila kung open pa ang dates ug i-set up balik. 🌿` });
 }
 
 /** The first reply of a flow: a host's welcome that acknowledges what the guest already told us

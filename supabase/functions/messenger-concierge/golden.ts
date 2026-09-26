@@ -4,8 +4,10 @@
 // A wording wish after the freeze becomes ONE new case here plus one example in facts.ts (protocol 10 section 8).
 import type { Kind, Reg } from './golden-score.ts';
 
-export type GoldenTurn = { say: string; kind: Kind; lang: Reg; noInvite?: boolean; must?: RegExp[]; mustNot?: RegExp[]; image?: boolean };
-export type GoldenCase = { id: string; group: 'first' | 'followup' | 'register' | 'flow' | 'handoff'; turns: GoldenTurn[] };
+export type GoldenTurn = { say: string; kind: Kind; lang: Reg; noInvite?: boolean; must?: RegExp[]; mustNot?: RegExp[]; image?: boolean;
+  /** SPEC-32 s7: minutes the probe clock moves before this turn (default 1), and the effects it must record. */
+  advance_minutes?: number; effects?: RegExp[] };
+export type GoldenCase = { id: string; group: 'first' | 'followup' | 'register' | 'flow' | 'handoff' | 'payment'; turns: GoldenTurn[] };
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** "Oct 27 to 29" / "Oct 30 to Nov 1", `offset` days from `now`, `nights` long. */
@@ -20,6 +22,33 @@ const m = (say: string, lang: Reg = 'en', extra: Partial<GoldenTurn> = {}): Gold
 
 // Golden run 6: today + 40 had filled up with a real booking, so the open-date cases tested the reserved path. Pass
 // GOLDEN_OPEN_FROM="2026-11-02" (the first day of 15 open nights, from a read-only calendar query) to pin them.
+// ---- SPEC-32 s7 (REVIEW-bot-2026-09-26): the payment path after the QR. Flow lines are Lloyd's, frozen: only R2/R9 and
+// the case's own checks apply to them. `effects` is what the probe recorded - a card raised, a QR with the amount.
+const PAY = 'Ben Munez 09171234567 ben@example.com';
+const f = (say: string, lang: Reg, extra: Partial<GoldenTurn> = {}): GoldenTurn => ({ say, kind: 'flow', lang, ...extra });
+const img = (kind: Kind, lang: Reg, extra: Partial<GoldenTurn> = {}): GoldenTurn => ({ say: '', image: true, kind, lang, ...extra });
+export function paymentCases(d2: string, d3: string): GoldenCase[] {
+  const fee = (): GoldenTurn[] => [f(`Hi, is ${d2} available? 2 adults`, 'en'), f('yes', 'en'), f(PAY, 'en'),
+    f('fee', 'en', { must: [/24 hours/, /0956 011 5744/, /₱1,691/, /receipt/], mustNot: [LINK, /(?:receipt[\s\S]*){2}/], effects: [/"fx":"submit"/, /"qr"[^}]*1691/] })];
+  const full = (): GoldenTurn[] => [f(`Available po ba ang ${d3}? 2 kami`, 'tl'), f('opo', 'tl'), f(PAY, 'tl'),
+    f('full', 'tl', { must: [/₱5,073/, /₱1,000/, /\bpo\b/], mustNot: [LINK, /balance/, /near|Malapit na|Duol na/], effects: [/"qr"[^}]*5073/] })];
+  const cases: Array<[string, GoldenTurn[]]> = [
+    ['pay-fee-en', fee()],
+    ['pay-full-tl', full()],
+    ['pay-receipt-en', [...fee(), img('flow', 'en', { must: [/received your receipt|receipt is with us/], mustNot: [LINK], effects: [/"fx":"receipt"/] })]],
+    ['pay-paid-question-tl', [...full(), img('flow', 'tl'), f('Paid na po, received niyo na po ba?', 'tl', { must: [/^(Opo|Yes)/, /receipt/], mustNot: [LINK, /personally verify/], effects: [/"handoff"[^}]*payment/] })]],
+    ['pay-maya-question-en', [...fee(), { say: 'Can I use Maya instead of GCash?', kind: 'midflow', lang: 'en', must: [/QR|Maya/], mustNot: [LINK, /arrange the booking|on our site|\bconfirmed\b/] }]],
+    ['pay-question-mid-hold-en', [...fee(), { say: 'Is there parking?', kind: 'midflow', lang: 'en', must: [/parking/i], mustNot: [LINK, /arrange the booking/] }]],
+    ['pay-cancel-mid-hold-en', [...fee(), { say: 'cancel po, change of plans', kind: 'code', lang: 'en', must: [/release the hold/], mustNot: [LINK, /we'?ll cancel|cancelled for you/], effects: [/"handoff"[^}]*cancellation/] }]],
+    ['pay-hold-expired-tl', [...full(), img('code', 'tl', { advance_minutes: 1500, must: [/ima-match|i-match|match it/], mustNot: [LINK], effects: [/"handoff"[^}]*payment/] })]],
+    // The s3 rule wants payment talk (or a booking) before a photo counts as a receipt: a photo after "Hi" alone is
+    // anything at all, and keeps the brochure. So this case says it paid first (SPEC-32 s7's 'Hi' + photo contradicted s3).
+    ['pay-receipt-no-booking-en', [{ say: 'Hi', kind: 'model', lang: 'en' }, { say: 'I sent the GCash payment for my stay', kind: 'handoff', lang: 'en', noInvite: true },
+      img('code', 'en', { must: [/match it to your booking/], mustNot: [LINK], effects: [/"handoff"[^}]*payment/] })]],
+  ];
+  return cases.map(([id, turns]) => ({ id, group: 'payment', turns }));
+}
+
 export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null, openFrom: Date | null = null, soonRange: string | null = null): GoldenCase[] {
   const base = openFrom ?? now, o = openFrom ? 0 : 40;
   const d2 = range(base, o, 2), d3 = range(base, o + 7, 3), d1 = range(base, o + 14, 1);
@@ -84,6 +113,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'handoff-complaint-en', group: 'handoff', turns: [{ say: 'Hi, we checked in yesterday and the aircon is not working', kind: 'handoff', lang: 'en', noInvite: true }] },
     { id: 'handoff-payment-en', group: 'handoff', turns: [{ say: 'I already sent the GCash payment, please confirm', kind: 'handoff', lang: 'en', noInvite: true }] },
     { id: 'handoff-refund-en', group: 'handoff', turns: [{ say: 'We need to cancel our booking next week, can we get a refund?', kind: 'handoff', lang: 'en', noInvite: true }] },
+    ...paymentCases(d2, d3),
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
   if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { kind: 'code', // SPEC-28: code writes this reply

@@ -84,3 +84,9 @@ Deno.test('GOLDEN_OPEN_FROM pins the open-date cases to a known-open window (gol
   assertEquals(avail(goldenCases(new Date('2026-09-17T00:00:00Z'), null, null, new Date('2026-11-02T00:00:00Z'))).includes('Nov 2 to 4'), true);
   assertEquals(avail(goldenCases(new Date('2026-09-17T00:00:00Z'))).includes('Oct 27 to 29'), true); // unchanged without it
 });
+
+Deno.test('SPEC-32 s7: rule E fails a turn whose effect is missing, however right the reply reads', () => {
+  const base = { guest: 'cancel po', reply: 'Understood, Ben. We have let our host know.', prevReply: null, kind: 'code' as const, lang: 'en' as const, firstTurn: false, siteUrl: 'https://x' };
+  assertEquals(scoreReply({ ...base, effects: [/"handoff"[^}]*cancellation/], effectsText: '[{"fx":"handoff","text":"cancel po","detail":{"risk":"cancellation","note":"Ref X"}}]' }).E, null);
+  assertEquals(scoreReply({ ...base, effects: [/"handoff"[^}]*cancellation/], effectsText: '[]' }).E?.startsWith('effect missing'), true);
+});

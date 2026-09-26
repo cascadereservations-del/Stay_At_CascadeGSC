@@ -23,7 +23,7 @@ console.log(`${cases.length} conversations x ${runs} runs. One line per conversa
 for (const c of cases) {
   for (let run = 1; run <= runs; run++) {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cascade-probe': secret },
-      body: JSON.stringify({ psid: `probe:${crypto.randomUUID()}`, name: NAME, golden: true, turns: c.turns.map((t) => (t.image ? { text: t.say, image: true } : t.say)) }) });
+      body: JSON.stringify({ psid: `probe:${crypto.randomUUID()}`, name: NAME, golden: true, turns: c.turns.map((t) => (t.image || t.advance_minutes ? { text: t.say || undefined, image: t.image, advance_minutes: t.advance_minutes } : t.say)) }) });
     const j = await res.json().catch(() => null);
     if (!res.ok || !j?.ok) { rows.push({ id: c.id, run, turn: 0, guest: '-', reply: '', fails: [`probe failed: HTTP ${res.status} ${JSON.stringify(j).slice(0, 200)}`], step: null, ms: 0 }); continue; }
     compactChars = j.voice_compact_chars;
@@ -33,7 +33,8 @@ for (const c of cases) {
       const got = j.turns[i] ?? { reply: '', step: null, ms: 0 };
       said.push(t.say);
       const score = scoreReply({ guest: t.say, reply: got.reply, prevReply: prev, kind: t.kind, lang: t.lang, firstTurn: i === 0, siteUrl: SITE_URL, name: NAME,
-        held: heldFrom(said, NAME), noInvite: t.noInvite, guestUsedPo: /\bpo\b/i.test(t.say), must: t.must, mustNot: t.mustNot });
+        held: heldFrom(said, NAME), noInvite: t.noInvite, guestUsedPo: /\bpo\b/i.test(t.say), must: t.must, mustNot: t.mustNot,
+        effects: t.effects, effectsText: JSON.stringify(got.effects ?? []) });
       rows.push({ id: c.id, run, turn: i + 1, guest: t.say, reply: got.reply, fails: failures(score), step: got.step, ms: got.ms });
       prev = got.reply;
     }

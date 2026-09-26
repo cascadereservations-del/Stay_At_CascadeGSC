@@ -13,8 +13,10 @@ export type Ctx = {
   guest: string; reply: string; prevReply: string | null; kind: Kind; lang: Reg; firstTurn: boolean; siteUrl: string;
   name?: string | null; held?: { dates?: boolean; pax?: boolean; name?: boolean }; noInvite?: boolean; guestUsedPo?: boolean;
   must?: RegExp[]; mustNot?: RegExp[];
+  /** SPEC-32 s7: what the turn did (submit, qr, receipt, handoff + risk), scored against the probe's recorded effects. */
+  effects?: RegExp[]; effectsText?: string;
 };
-export const RUBRIC = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'X'] as const;
+export const RUBRIC = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'X', 'E'] as const;
 export type Rule = typeof RUBRIC[number];
 export type Score = Record<Rule, string | null>;
 
@@ -154,6 +156,9 @@ export function scoreReply(c: Ctx): Score {
   // X the case's own expectations
   const miss = (c.must ?? []).find((re) => !re.test(r)), hit = (c.mustNot ?? []).find((re) => re.test(r));
   if (miss) s.X = `expected ${miss}`; else if (hit) s.X = `must not match ${hit}`;
+  // E the turn's effects (a reply can read right while no card was raised - REVIEW F1)
+  const lost = (c.effects ?? []).find((re) => !re.test(c.effectsText ?? ''));
+  if (lost) s.E = `effect missing ${lost}`;
   return s;
 }
 export const failures = (s: Score): string[] => RUBRIC.filter((k) => s[k]).map((k) => `${k}: ${s[k]}`);
