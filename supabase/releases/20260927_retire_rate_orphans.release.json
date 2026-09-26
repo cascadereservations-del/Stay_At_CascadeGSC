@@ -44,7 +44,7 @@
   "feature_flags": [
     {
       "name": "no_reader_left",
-      "required_state": "Nothing reads either key: grep of waves, stay-site (incl. index.html; stay-site/supabase/functions/submit-booking is a stale undeployed copy), admin-dashboard/app/src, guest-guide, manual; pg_proc, pg_views, cron.job (2026-09-27). n8n workflows and the relay Apps Script source: PENDING a browser read before apply."
+      "required_state": "Nothing reads either key: grep of waves, stay-site (incl. index.html; stay-site/supabase/functions/submit-booking is a stale undeployed copy), admin-dashboard/app/src, guest-guide, manual; pg_proc, pg_views, cron.job (2026-09-27). Read in the browser 2026-09-26 ~17:00Z: Cascade n8n 3/3 workflows (CH-W04, CH-W07, CH-S01; node parameters loaded) and all 19 Apps Script projects of cascadereservations (monaco models, relay Cacscade Reservations and Pricing Advisor API included) - no mention of either key."
     }
   ],
   "compatibility": {
