@@ -10,6 +10,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
+import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -61,7 +62,9 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
     for (const b of rows) {
       const ref = 'DIR-' + String(b.id).slice(0, 8).toUpperCase();
       if (dry) { released.push(ref + ' (candidate by age; the RPC decides)'); continue; }
-      const guestLine = `Hi ${String(b.guest_name).split(' ')[0]}, your hold for ${dm(b.checkin_date)}–${dm(b.checkout_date)} at Cascade Hideaway has been released because we did not receive the ₱${peso(b.deposit_amount)} reservation fee within ${HOLD_HOURS} hours. The dates are open again — if you still want them, book again at the site and send the receipt right after.`;
+      // Session 56 (SPEC-33 s4, D-264): this line is now e-mailed to the guest, so it carries the Cassy voice and one easy way
+      // back - the site, or a reply - instead of "book again at the site and send the receipt right after".
+      const guestLine = `Hi ${String(b.guest_name).split(' ')[0]}, we held ${dm(b.checkin_date)}–${dm(b.checkout_date)} at Cascade Hideaway for you for ${HOLD_HOURS} hours, and as the ₱${peso(b.deposit_amount)} reservation fee didn't reach us in that time, the hold has now been released.\n\nIf you'd still like to stay with us, you're welcome to book again at ${SITE_URL}, or simply reply to this message and we'll gladly check the dates and set it up for you again. 🌿`;
       await tgSend(withHeader('attention', `hold expired ${ref}`, groups(
         [`Hold released: ${b.guest_name} · ${dm(b.checkin_date)} → ${dm(b.checkout_date)}`, `₱${peso(b.deposit_amount)} of ₱${peso(b.total_amount)} never arrived`],
         [`👤 ${b.guest_phone}${b.guest_email ? ` · ${b.guest_email}` : ''}`, `🕒 Submitted ${new Date(b.submitted_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })}`],
