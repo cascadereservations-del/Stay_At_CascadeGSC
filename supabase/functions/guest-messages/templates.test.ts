@@ -1,7 +1,7 @@
 // deno test --no-check --allow-env guest-messages/
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { lintReply } from '../messenger-concierge/voice.ts';
-import { atCheckinLine, channelFor, chunks, day, render, type Channel, type Fields, type Key } from './templates.ts';
+import { SUBJECT, afterDepartureHold, atCheckinLine, channelFor, chunks, day, doorCodeCard, render, type Channel, type Fields, type Key } from './templates.ts';
 
 // The word rules only: the chat-length rules (too_long, too_dense, two_asks) do not apply to a scheduled host message (design section 6).
 const WORD = ['form_speak', 'robot_word', 'shouting', 'command_tone', 'exclaim', 'boilerplate'];
@@ -11,7 +11,7 @@ const ben: Fields = { guest_name: 'Ben Cruz', checkin_date: '2026-10-20', checko
 const full: Fields = { ...ben, deposit_amount: 3560 };
 const long: Fields = { ...ben, guest_name: 'Maximiliano-Bartholomew Esperanza-Villanueva de los Santos', total_amount: 99999, deposit_amount: 12345, pax: 3,
   onground_name: 'Kristine Alexandra Montemayor', onground_phone: '0917 123 4567' };
-const KEYS: Key[] = ['confirmation', 'pre_arrival'];
+const KEYS: Key[] = ['confirmation', 'pre_arrival', 'door_code', 'mid_stay', 'checkout_reminder', 'after_departure'];
 const CH: Channel[] = ['messenger', 'email', 'card_only'];
 
 Deno.test('every message passes the word rules, whole and per paragraph, on every channel', () => {
@@ -23,7 +23,9 @@ Deno.test('every message passes the word rules, whole and per paragraph, on ever
 });
 
 Deno.test('no placeholder is left', () => {
-  for (const k of KEYS) for (const c of CH) for (const f of [ben, long]) assert(!/\{\{|\}\}|undefined|NaN|null/.test(render(k, f, c)), `${k}/${c}`);
+  // {{door_pin}} is the one slot left on purpose: the host types the PIN (message 3 only, exactly once).
+  for (const k of KEYS) for (const c of CH) for (const f of [ben, long]) assert(!/\{\{|\}\}|undefined|NaN|null/.test(render(k, f, c).replace('{{door_pin}}', '')), `${k}/${c}`);
+  for (const k of KEYS) assertEquals(render(k, ben, 'card_only').split('{{door_pin}}').length - 1, k === 'door_code' ? 1 : 0, k);
 });
 
 Deno.test('message 1 fits one Messenger message with a long name and 5-digit amounts', () => {
@@ -71,4 +73,50 @@ Deno.test('the channel rule: 23 h window, HUMAN_AGENT only for the tapped confir
   assertEquals(channelFor('confirmation', h(48), true, true, true, now), { channel: 'messenger', humanAgent: true });
   assertEquals(channelFor('confirmation', h(170), true, true, true, now), { channel: 'email', humanAgent: false });
   assertEquals(channelFor('confirmation', h(1), false, false, true, now), { channel: 'card_only', humanAgent: false });
+});
+
+// Session 56: messages 3-6.
+const reviews: Fields = { ...ben, review_facebook_url: 'https://facebook.com/x/reviews', review_google_url: 'https://g.page/r/x/review', review_airbnb_url: 'https://airbnb.com/h/cascadesgsc' };
+Deno.test('message 5.2: a blank review link drops its bullet, and none left drops the list', () => {
+  const all = render('after_departure', reviews, 'email');
+  assertEquals((all.match(/^• /gm) ?? []).length, 3);
+  const two = render('after_departure', { ...reviews, review_facebook_url: '' }, 'email');
+  assert(!two.includes('Facebook:') && two.includes('• Google: https://g.page/r/x/review') && two.includes('Wherever is easiest for you:'));
+  const none = render('after_departure', ben, 'email');
+  assert(!none.includes('Wherever is easiest') && !none.includes('• '));
+  assert(!/\n{3,}/.test(none) && !/\n{3,}/.test(all), 'no blank gap where the list was');
+  assert(none.includes('We look forward to welcoming you back.'));
+});
+
+Deno.test('message 3 is a Finance card: the PIN slot stays literal, no digit run could be a PIN, the text runs to the end', () => {
+  for (const f of [ben, full, long]) {
+    const card = doorCodeCard('DIR-4A19F743', f);
+    assert(card.startsWith('🔑 DOOR CODE READY TO SEND · DIR-4A19F743'));
+    assert(card.includes('✅ ID on file') && card.includes('not recorded yet'));
+    assert(card.endsWith(render('door_code', f, 'card_only')), 'the 📨 ⤵ block is the whole message, last');
+    assertEquals(card.split('📨 ⤵').length - 1, 1);
+    const scan = card.replace(f.onground_phone ?? '\u0000', '');
+    assert(!/(?<![\d.,/])\d{4,6}(?![\d.,])/.test(scan), 'a 4-6 digit run: ' + (scan.match(/(?<![\d.,/])\d{4,6}(?![\d.,])/) ?? [])[0]);
+  }
+  assert(doorCodeCard('DIR-1', ben).includes('⚠️ Balance ₱1,780 + ₱1,000 deposit: not recorded yet.'));
+  assert(doorCodeCard('DIR-1', full).includes('⚠️ ₱1,000 deposit: not recorded yet.'));
+  assert(!render('door_code', ben, 'card_only').includes('on-ground') && render('door_code', long, 'card_only').includes('📞 Kristine Alexandra Montemayor 0917 123 4567'));
+  assertEquals(SUBJECT.door_code, ''); // never e-mailed
+});
+
+Deno.test('messages 4, 5.1, 5.2 open with the first name and carry the relay subjects', () => {
+  assert(render('mid_stay', ben, 'messenger').startsWith('Good afternoon, Ben 🌿'));
+  assert(render('mid_stay', ben, 'messenger').includes('a free mid-stay refresh tomorrow'));
+  assert(render('checkout_reminder', ben, 'email').startsWith('Good morning, Ben 🌿') && render('checkout_reminder', ben, 'email').includes('12:00 noon'));
+  assert(render('after_departure', ben, 'email').startsWith('Hi Ben,'));
+  assertEquals([SUBJECT.mid_stay, SUBJECT.checkout_reminder, SUBJECT.after_departure], ["A mid-stay refresh, if you'd like one", 'Your check-out today', 'Thank you for staying with us']);
+});
+
+Deno.test('message 5.2 is held for an open complaint or safety handoff, or an open work order from the stay', () => {
+  assertEquals(afterDepartureHold([], 0), false);
+  assertEquals(afterDepartureHold([{ risk: 'complaint', status: 'open' }], 0), true);
+  assertEquals(afterDepartureHold([{ risk: 'safety', status: 'open' }], 0), true);
+  assertEquals(afterDepartureHold([{ risk: 'complaint', status: 'dismissed' }], 0), false);
+  assertEquals(afterDepartureHold([{ risk: 'payment', status: 'open' }], 0), false);
+  assertEquals(afterDepartureHold([], 1), true);
 });
