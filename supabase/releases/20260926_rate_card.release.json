@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "release_id": "rate_card_20260926",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "4756fab31b44fa87f3467216f7ef57a28d6c95f2"
+  },
+  "migrations": [
+    "20260926020000_rate_card.sql"
+  ],
+  "migration_sha256": {
+    "20260926020000_rate_card.sql": "0c5ae2404bb538efa1319df97748c1f793d3ddf7b348143d61c7c7be317835d4"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260926T081144Z",
+    "verified_at": "2026-09-26T08:11:44Z",
+    "production_rule": "Seeds booking_rate_policy_versions (1 row, today's card) and a new rate_promotions table (the Anniversary Promotion); four new functions; open_booking_hold_v1 also stamps rate_policy_version_id; the lifecycle event check gains two promotion event types. No stored booking amount changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_seeded_card_is_todays_card",
+      "query": "select (public.get_rate_card_v1() ->> 'base')::numeric = 1780 and (public.get_rate_card_v1() ->> 'deposit_pct')::numeric = 50 and public.get_rate_card_v1() -> 'tiers' = '[{\"min_nights\":2,\"pct\":5},{\"min_nights\":5,\"pct\":10},{\"min_nights\":7,\"pct\":15},{\"min_nights\":14,\"pct\":20},{\"min_nights\":28,\"pct\":25}]'::jsonb",
+      "expect": true
+    },
+    {
+      "name": "the_anniversary_promotion_is_on_the_card",
+      "query": "select exists (select 1 from jsonb_array_elements(public.get_rate_card_v1() -> 'promotions') p where p ->> 'name' = 'Anniversary Promotion' and p ->> 'first_night' = '2026-10-11' and p ->> 'last_night' = '2026-10-17' and (p ->> 'nightly_rate')::numeric = 1543) and position('1929' in public.get_rate_card_v1()::text) = 0",
+      "expect": true
+    },
+    {
+      "name": "the_body_is_the_reviewed_body",
+      "query": "select md5(prosrc) = '2053a60fe7a1ed34eb9f358fa08c66e3' from pg_proc where oid = 'public.get_rate_card_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "anon_reads_the_card_and_writes_nothing",
+      "query": "select has_function_privilege('anon','public.get_rate_card_v1(uuid)','EXECUTE') and not has_function_privilege('anon','public.publish_rate_card_v1(numeric,jsonb,date,text,text,numeric,uuid)','EXECUTE') and not has_function_privilege('anon','public.save_rate_promotion_v1(uuid,text,date,date,numeric,text,uuid)','EXECUTE') and not has_function_privilege('anon','public.end_rate_promotion_v1(uuid,text)','EXECUTE') and not has_table_privilege('anon','public.rate_promotions','SELECT') and (select relrowsecurity from pg_class where oid = 'public.rate_promotions'::regclass)",
+      "expect": true
+    },
+    {
+      "name": "one_open_card_version",
+      "query": "select count(*) = 1 from public.booking_rate_policy_versions where effective_to is null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "roll_back_the_functions_first",
+        "action": "Redeploy submit-booking, messenger-concierge and telegram-cassy from their pre-SPEC-34 commits (waves 803e2e6 / 06a8884) and delete rate-card, or they fall back to the seed card and log rate_card_fallback."
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260926_rate_card.sql with run-sql-on-host.sh (drops the four functions and rate_promotions, restores open_booking_hold_v1, clears the card versions and their audit events, restores the event check). Export rate_promotions and booking_rate_policy_versions first if Lloyd edited them."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_before_functions",
+      "required_state": "Apply before deploying pricing.ts consumers (submit-booking, rate-card, messenger-concierge, telegram-cassy). Until then every function keeps its own copy of the same card, so nothing a guest sees changes at apply time."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-26 ~08:25Z on a disposable restore of production backup cascade-supabase-20260926T081144Z (prefix cascade-migration-rehearsal-c716b6ad78c6, 0 leftovers). 104 public tables and 129 ledger rows before; migration 1 of 1; forward checks 5/5; pgTAP rate_card.sql 23/23; 105 tables after. The first run failed 17 pgTAP lines on a --no-acl grant (authenticated reading booking_rate_policy_versions); production grants authenticated SELECT on it (read 2026-09-26), and the suite now reads the table as the test owner.",
+    "evidence": "New objects only, plus open_booking_hold_v1 filling a column that already existed (nullable, FK). pgTAP rate_card.sql (23). Functions: pricing.test.ts 5/5 (the SPEC-34 2.2 pins and the submit-booking authority rule)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}

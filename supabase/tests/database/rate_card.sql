@@ -47,8 +47,6 @@ select set_config('request.jwt.claims', json_build_object('sub', 'e2000000-0000-
 insert into t55 select 'v1', public.publish_rate_card_v1(1800, '[{"min_nights":3,"pct":10}]', (now() at time zone 'Asia/Manila')::date, 'pgTAP s55 v1', 'pgtap-s55-v1-0000000000', 50, 'e1000000-0000-4000-8000-000000000055');
 select is((public.get_rate_card_v1('e1000000-0000-4000-8000-000000000055') ->> 'base')::numeric, 1800::numeric, 'a card published from today is read today');
 insert into t55 select 'v2', public.publish_rate_card_v1(1900, '[{"min_nights":3,"pct":10}]', (now() at time zone 'Asia/Manila')::date + 10, 'pgTAP s55 v2', 'pgtap-s55-v2-0000000000', 50, 'e1000000-0000-4000-8000-000000000055');
-select is((select effective_to from public.booking_rate_policy_versions where id = (select id from t55 where k = 'v1')), (now() at time zone 'Asia/Manila')::date + 9,
-  'publishing from a later date closes the open version the day before');
 select is((public.get_rate_card_v1('e1000000-0000-4000-8000-000000000055') ->> 'base')::numeric, 1800::numeric, 'the later card is not quoted before its day');
 select is(public.publish_rate_card_v1(1950, '[{"min_nights":3,"pct":10}]', (now() at time zone 'Asia/Manila')::date + 10, 'pgTAP s55 fix', 'pgtap-s55-v2b-000000000', 50, 'e1000000-0000-4000-8000-000000000055'),
   (select id from t55 where k = 'v2'), 'the same start date corrects the open version in place');
@@ -71,7 +69,10 @@ select ok(not exists (select 1 from jsonb_array_elements(public.get_rate_card_v1
 select lives_ok($$select public.save_rate_promotion_v1(null, 'After End 55', date '2027-03-03', date '2027-03-05', 1400, 'pgTAP s55', 'e1000000-0000-4000-8000-000000000055')$$,
   'an ended promotion no longer blocks the dates');
 
+-- Table reads as the owner of the test, not as authenticated (a --no-acl restore has no table grants).
 reset role;
+select is((select effective_to from public.booking_rate_policy_versions where id = (select id from t55 where k = 'v1')), (now() at time zone 'Asia/Manila')::date + 9,
+  'publishing from a later date closes the open version the day before');
 select is((select count(*)::int from public.booking_lifecycle_events where property_id = 'e1000000-0000-4000-8000-000000000055'
            and event_type in ('rate_policy_published', 'rate_promotion_saved', 'rate_promotion_ended')), 6,
   'every write is audited: 3 publishes, 2 saves, 1 end');
