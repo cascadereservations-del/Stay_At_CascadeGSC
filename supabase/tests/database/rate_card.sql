@@ -81,8 +81,9 @@ select is((select count(*)::int from public.booking_lifecycle_events where prope
 insert into public.booking_inquiries(id, property_id, guest_name, guest_phone, checkin_date, checkout_date, status, source, total_amount, deposit_amount)
 values ('ea550000-0000-4000-8000-00000000000a', 'e1000000-0000-4000-8000-000000000055', 'Synthetic Hold 55', '09170000055', current_date + 40, current_date + 42, 'pending', 'direct', 3600, 1800);
 select ok((public.open_booking_hold_v1('ea550000-0000-4000-8000-00000000000a', 24) ->> 'ok')::boolean, 'the hold opens');
-select is((select rate_policy_version_id from public.booking_holds where booking_id = 'ea550000-0000-4000-8000-00000000000a'), (select id from t55 where k = 'v1'),
-  'open_booking_hold_v1 stamps the card version in force');
+-- Since release rate_card_upcoming_20260926 the stamp is the version in force on the CHECK-IN date (+40 falls in v2, from +10).
+select is((select rate_policy_version_id from public.booking_holds where booking_id = 'ea550000-0000-4000-8000-00000000000a'), (select id from t55 where k = 'v2'),
+  'open_booking_hold_v1 stamps the card version in force on the check-in date');
 
 select * from finish();
 rollback;
