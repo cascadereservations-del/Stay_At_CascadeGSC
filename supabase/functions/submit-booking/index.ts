@@ -1,4 +1,4 @@
-// submit-booking v14
+// submit-booking v17 (SPEC-34: the stored rate card is authoritative for the stored total and deposit)
 // Creates the booking request and returns a short-lived, booking-scoped token
 // for the optional private receipt upload. The browser never supplies a
 // Storage path or URL and cannot write to booking-receipts directly.
@@ -17,6 +17,9 @@ import { normalizeEmail, normalizePhilippinePhone } from '../_shared/guest-ident
 // and carries guest_context_v1 lines for a returning direct guest (empty for a first-timer).
 import { withHeader, groups, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
+// v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored (it only
+// chooses fee or full: pay_full); the server stores and returns its own total and deposit.
+import { loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -25,22 +28,6 @@ const CORS = {
 };
 
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
-
-const TIERS = [
-  { min: 1,  max: 1,   rate: 1780 },
-  { min: 2,  max: 4,   rate: 1691 },
-  { min: 5,  max: 6,   rate: 1602 },
-  { min: 7,  max: 13,  rate: 1513 },
-  { min: 14, max: 27,  rate: 1424 },
-  { min: 28, max: 999, rate: 1335 },
-];
-function calcExpected(nights: number): { total: number; deposit: number } {
-  const tier = TIERS.find(t => nights >= t.min && nights <= t.max) ?? TIERS[0];
-  const total   = tier.rate * nights;
-  const deposit = Math.ceil(total * 0.5);
-  return { total, deposit };
-}
-function near(a: number, b: number): boolean { return b > 0 && Math.abs(a - b) / b <= 0.10; }
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS });
@@ -113,25 +100,24 @@ Deno.serve(async (req) => {
 
   const { data: settings } = await db
     .from('app_settings').select('key, value')
-    .in('key', ['min_nights', 'max_nights', 'deposit_percent']);
+    .in('key', ['min_nights', 'max_nights']);
   const setting = (k: string, fb: number) =>
     Number((settings ?? []).find(s => s.key === k)?.value ?? fb);
   const minNights  = setting('min_nights',  1);
   const maxNights  = setting('max_nights', 30);
-  const depositPct = setting('deposit_percent', 50);
 
   if (nights < minNights)
     return json({ error: 'below_minimum_nights', min_nights: minNights }, 400);
   if (nights > maxNights)
     return json({ error: 'above_maximum_nights', max_nights: maxNights }, 400);
 
-  const expected      = calcExpected(nights);
-  const totalAmount   = (clientTotal > 0 && near(clientTotal, expected.total))
-    ? clientTotal : expected.total;
-  // Accept the frontend deposit if it is EITHER the 50% reservation fee OR the full total
-  // (site rule 2026-09-18: check-in less than 5 days away => 100% full payment; otherwise 50%). Else fall back to 50%.
-  const depositAmount = (clientDeposit > 0 && (near(clientDeposit, expected.deposit) || near(clientDeposit, totalAmount)))
-    ? clientDeposit : Math.ceil(totalAmount * (depositPct / 100));
+  const card = await loadCard(db);
+  const depositPct = card.deposit_pct;
+  const amounts = serverAmounts(card, checkinStr, checkoutStr, { payFull: body.pay_full, total: clientTotal, deposit: clientDeposit });
+  const { q, full: payFull } = amounts;
+  const totalAmount   = amounts.total;
+  const depositAmount = amounts.deposit;
+  if (amounts.mismatch) console.log(JSON.stringify({ event: 'client_total_mismatch', client_total: clientTotal, client_deposit: clientDeposit, total: totalAmount, deposit: depositAmount }));
 
   // SPEC-30 (D-233, D-239): a guest who changed dates releases their OWN earlier unpaid request first (same phone
   // and e-mail, no receipt, last 24 h) - and only when the new dates are then free, so moving onto somebody else's
@@ -187,7 +173,7 @@ Deno.serve(async (req) => {
   // service_role cannot write the table) that the lifecycle guard and the hourly releaser read.
   const HOLD_HOURS = 24;
   const daysOut = Math.round((checkin.getTime() - today.getTime()) / 86_400_000);
-  const isHold = body.hold === true && daysOut >= 5 && !near(depositAmount, totalAmount);
+  const isHold = body.hold === true && daysOut >= 5 && !payFull;
   let holdExpiresAt: string | null = null;
   if (isHold) {
     const { data: hold, error: holdErr } = await db.rpc('open_booking_hold_v1', { p_booking_id: inquiry.id, p_hours: HOLD_HOURS });
@@ -248,7 +234,7 @@ Deno.serve(async (req) => {
 
   async function notifyTelegram(receiptSignedUrl: string | null): Promise<void> {
     if (!tgToken || !tgFinanceId) return;
-    const depLabel = near(depositAmount, totalAmount) ? 'Full payment' : `Deposit (${depositPct}%)`;
+    const depLabel = payFull ? 'Full payment' : `Deposit (${depositPct}%)`;
     const ctxLines = guestContextLines(await guestContext(db, { guestId: resolvedGuestId, name: guestName }));
     // Session 28: one idea per group (who / history / when / money / what happens next / Do).
     const msg = withHeader('booking', `Direct ${ref}${isHold ? ' · HOLD' : ''}`, groups(
@@ -256,7 +242,8 @@ Deno.serve(async (req) => {
       [`👤 ${guestName}`, `📞 ${guestPhone}`, guestEmail && `📧 ${guestEmail}`, contactType === 'whatsapp' && `💬 WhatsApp preferred`],
       ctxLines,
       [`📅 ${checkinStr} → ${checkoutStr}`, `🌙 ${nights} night${nights === 1 ? '' : 's'} · 👥 ${pax} guest${pax === 1 ? '' : 's'}`],
-      [`💰 Total ₱${totalAmount.toLocaleString()}`, `💳 ${depLabel} ₱${depositAmount.toLocaleString()}`, `📒 Ledger: pending review (confirms on approval)`],
+      [`💰 Total ₱${totalAmount.toLocaleString()}`, q.promo_nights > 0 && `🏷️ ${q.promo_name}: ${q.promo_nights} night${q.promo_nights === 1 ? '' : 's'} at ₱${Number(q.promo_rate).toLocaleString()}`,
+       `💳 ${depLabel} ₱${depositAmount.toLocaleString()}`, `📒 Ledger: pending review (confirms on approval)`],
       [isHold ? `🗓️ HOLD ${HOLD_HOURS} h while the guest pays${holdExpiresAt ? ` (until ${new Date(holdExpiresAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })})` : ' (hold row not opened — RPC missing?)'}; released automatically if no receipt arrives`
               : `🗓️ Dates held pending your review · 📎 receipt pending or not provided`,
        isHold && `🧾 The receipt arrives here as its own card when the guest uploads it`],
@@ -325,6 +312,8 @@ Deno.serve(async (req) => {
     nights,
     total_amount:   totalAmount,
     deposit_amount: depositAmount,
+    pay_full:       payFull,
+    promo_nights:   q.promo_nights,
     currency:       'PHP',
     receipt_upload_token: receiptUploadToken,
     receipt_upload_expires_at: receiptUploadToken ? new Date(receiptUploadExpiresAt).toISOString() : null,

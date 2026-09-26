@@ -427,3 +427,6 @@ enabled = true
 
 [functions.client-error]
 verify_jwt = false
+
+[functions.rate-card]
+verify_jwt = false
