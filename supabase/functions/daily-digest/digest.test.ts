@@ -124,3 +124,16 @@ Deno.test('SPEC-18: a failing health check is printed as its problem, never as i
   assert(!/agree with movements|payouts equal/.test(text), text);
   assert(!/₱0\.00/.test(text), text);
 });
+
+Deno.test('ops (SPEC-05 D): an arrival within 3 days without an ID gets one line under stock and wakes a quiet day', () => {
+  const r = opsReport({ ...base, idMissing: [{ guest: 'Ben', checkin: '2026-09-16' }, { guest: 'Ana', checkin: '2026-09-17' }] })!;
+  assertEquals(r.kind, 'daily');
+  assertEquals(r.lines, ['🪪 ID still missing: Ben, arriving Wed 16 Sep; Ana, arriving Thu 17 Sep']);
+  assertEquals(r.action, "Ask Ben for the guests' IDs, so the door-code card can go out.");
+  const busy = opsReport({ ...base, stock: [{ name: 'Liquid Hand Soap', qty_on_hand: 0, unit: 'pc', runway: 0 }],
+    arrivals: [{ guest_name: 'Queenie Gonzales', nights: 2, checkin_time: '14:00' }], idMissing: [{ guest: 'Ben', checkin: '2026-09-16' }] })!;
+  const iStock = busy.lines.findIndex((l) => l.startsWith('📦')), iId = busy.lines.findIndex((l) => l.startsWith('🪪'));
+  assert(iStock >= 0 && iId === iStock + 2, 'the ID line sits just under stock, after a group break');
+  assert(busy.action.startsWith('Restock'), 'it never takes the action from stock or a move');
+  assertEquals(opsReport({ ...base, idMissing: [] }), null);
+});

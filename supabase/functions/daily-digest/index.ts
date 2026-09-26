@@ -175,11 +175,20 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
     return [{ guest, night, nights }];
   });
 
+  // SPEC-05 D (session 56): a confirmed direct booking arriving within 3 days whose ID is not on file - the door-code card
+  // waits for it, so this line is the nudge. booking_inquiries.guest_id -> guest_profile_details.id_on_file; no profile = missing.
+  const { data: soon } = await db.from('booking_inquiries').select('guest_name,checkin_date,guest_id')
+    .eq('status', 'confirmed').eq('source', 'direct').gte('checkin_date', today).lte('checkin_date', addDays(today, 3)).order('checkin_date');
+  const ids = ((soon ?? []) as any[]).map((b) => b.guest_id).filter(Boolean);
+  const { data: onFile } = ids.length ? await db.from('guest_profile_details').select('guest_id').in('guest_id', ids).eq('id_on_file', true) : { data: [] };
+  const verified = new Set(((onFile ?? []) as any[]).map((p) => p.guest_id));
+  const idMissing = ((soon ?? []) as any[]).filter((b) => !verified.has(b.guest_id)).map((b) => ({ guest: String(b.guest_name ?? '').trim().split(/\s+/)[0] || 'a guest', checkin: String(b.checkin_date) }));
+
   const report = opsReport({
     today, tomorrow,
     arrivals: arrivalsData ?? [], departures: departuresData ?? [],
     tmrArrivals: tmrArrivalsData ?? [], tmrDepartures: tmrDeparturesData ?? [],
-    notices: noticesData ?? [], stock, weather, resRows: resData ?? [], midStay,
+    notices: noticesData ?? [], stock, weather, resRows: resData ?? [], midStay, idMissing,
   });
   return report ? withHeader(report.kind, friendlyDate(today), renderReport(report)) : null;
 }

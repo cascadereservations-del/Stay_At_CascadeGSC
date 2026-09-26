@@ -18,6 +18,8 @@ export type OpsInput = {
   arrivals: CalRow[]; departures: CalRow[]; tmrArrivals: CalRow[]; tmrDepartures: CalRow[];
   notices: Notice[]; stock: StockItem[]; weather: Weather | null; resRows: ResRow[];
   midStay?: MidStay[];
+  /** SPEC-05 D: confirmed direct arrivals within 3 days without an ID on file (first name, check-in date). */
+  idMissing?: Array<{ guest: string; checkin: string }>;
 };
 export type OpsReport = Report & { kind: HeaderKind };
 export type Pending = { transaction_date: string | null; payee_name: string | null; category: string | null; gross_amount: number | string | null; source: string | null };
@@ -94,7 +96,8 @@ export function opsReport(i: OpsInput): OpsReport | null {
   const midStay = i.midStay ?? [];
   const a = i.arrivals.length, d = i.departures.length;
   const movement = a > 0 || d > 0 || i.tmrArrivals.length > 0 || i.tmrDepartures.length > 0;
-  const empty = !movement && !todayNotices.length && !tmrNotices.length && !midStay.length && !outOfStock.length;
+  const idMissing = i.idMissing ?? [];
+  const empty = !movement && !todayNotices.length && !tmrNotices.length && !midStay.length && !outOfStock.length && !idMissing.length;
   if (empty && !brownout) return null;
 
   const head = a || d ? [a ? plural(a, 'arrival') : '', d ? plural(d, 'departure') : ''].filter(Boolean).join(', ') : 'no arrivals or departures';
@@ -107,6 +110,8 @@ export function opsReport(i: OpsInput): OpsReport | null {
   if (d) lines.push(`📤 Departing: ${names(i.departures, i.resRows, i.today, 'departure')}`);
   for (const m of midStay) lines.push(`🛎 Mid-stay: ${m.guest}, night ${m.night} of ${m.nights} — towels and water topped up? everything okay?`);
   if (outOfStock.length) { brk(); lines.push(`📦 Out of stock: ${outOfStock.map((s) => s.name).join(', ')}`); }
+  // SPEC-05 D: just under stock; one line, however many guests (the group cap stays five).
+  if (idMissing.length) { brk(); lines.push(`🪪 ID still missing: ${idMissing.map((m) => `${m.guest}, arriving ${friendlyDate(m.checkin)}`).join('; ')}`); }
   const w = (a || d) ? weatherLine(i.weather) : '';
   if (w) { brk(); lines.push(`🌤 ${w}`); }
   const tmr: string[] = [];
@@ -124,6 +129,7 @@ export function opsReport(i: OpsInput): OpsReport | null {
     : a && d ? `Coordinate the cleaning window between ${dep} and ${arr}.`
     : a ? `Have the unit ready before ${arr} arrives.`
     : d ? `Inspect the unit after ${dep} checks out.`
+    : idMissing.length ? `Ask ${idMissing[0].guest} for the guests' IDs, so the door-code card can go out.`
     : midStay.length ? `send ${midStay[0].guest} this (Show as text to long-press it, or Revise with Cassy):\n📨 Hi ${midStay[0].guest}, quick check from Cascade Hideaway - is everything okay with the unit? If you need fresh towels, drinking water or anything else, just say the word. 🌿`
     : i.tmrArrivals.length ? `Prepare the unit for ${names(i.tmrArrivals, i.resRows, i.tomorrow, 'arrival')} tomorrow.`
     : todayNotices.length ? `Note ${todayNotices[0].title}.`
