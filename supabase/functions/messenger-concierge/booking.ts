@@ -371,9 +371,9 @@ export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): str
 export const PAY_HOW_RE = /\b(how (?:do|can|should|would) (?:i|we) pay|how to pay|paano (?:po )?(?:mag-?bayad|magbabayad|ang bayad)|pa-?unsa(?:on)? (?:pag-?)?bayad|(?:payment|pay) (?:method|options?)|mode of payment|where (?:do|can) (?:i|we) (?:pay|send (?:the )?payment)|can (?:i|we) pay (?:by|via|with|through|using)|(?:send|give)(?: me| us)? (?:the |your )?(?:gcash|qr))\b/i;
 export function payHowReply(flow: Flow | null, name: string | null, lang: Lang, now = new Date()): string {
   const n = firstName(name), y = n ? `${n}, you` : 'You', po = lang === 'tl' ? ' po' : '';
-  if (!flow?.checkin || !flow?.checkout) return `${y} may pay${po} by GCash with the QR below. Share your check-in and check-out dates and we'll send it again with the exact amount already set, so there is nothing to type; a screenshot of the payment here is all we need after.`;
+  if (!flow?.checkin || !flow?.checkout) return `${y} may pay${po} by GCash with the QR below. Whenever you're ready, share your check-in and check-out dates and we'll send it again with the exact amount already set, so there's nothing to type; a screenshot of the payment here is all we need after.`;
   const next = prompt(flow, null, false, now).split('\n\n').pop() ?? '';
-  return `${y} may pay${po} by GCash with the QR below. Once your booking details are complete, we'll send it again with the exact amount already set, so there is nothing to type.${next ? `\n\n${next}` : ''}`;
+  return `${y} may pay${po} by GCash with the QR below. Whenever you're ready, we'll finish your booking details and send it again with the exact amount already set, so there's nothing to type.${next ? `\n\n${next}` : ''}`;
 }
 /** SPEC-31 s3 (REVIEW F3): a photo with no live upload - never promises the dates are still free. */
 export function strayReceiptReply(name: string | null, lang: Lang): string {
@@ -645,8 +645,8 @@ function relDay(iso: string, now: Date, lang: Lang | undefined): string {
 export function paymentPromise(lang: Lang | undefined): string {
   return pick(lang, {
     en:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales.`,
-    // D-258: English in every register; Taglish keeps one courtesy "po".
-    tl:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales po.`,
+    // D-258: English in every register, no "po" here: it rides under a line that already carries one (golden R6 caps it at 2).
+    tl:  `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales.`,
     bis: `For your peace of mind: we only ever ask for payment here in this chat or on our site, through the GCash QR we send, and the account name you will see is Cascades, registered to Marifel Suzanne Boncales.`,
   });
 }

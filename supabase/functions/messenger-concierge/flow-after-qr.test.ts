@@ -152,6 +152,15 @@ Deno.test('D-258: "paano magbayad?" with dates held gets the QR, English with on
   assertEquals((r.reply.match(/\bBen\b/g) ?? []).length, 1);
 });
 
+Deno.test('D-258: the pay-how lines pass the golden voice rules (R3 care, R6 contracted, at most 2 po with the promise line)', async () => {
+  const { isCold } = await import('./voice.ts');
+  const { payHowReply, paymentPromise } = await import('./booking.ts');
+  const a = payHowReply(null, 'Ben', 'en');
+  const t = payHowReply(flow({ step: 'offer', lang: 'tl' }), 'Ben', 'tl');
+  for (const x of [a, t]) { assertEquals(isCold(x), false); assertEquals(/\bthere is\b/.test(x), false); }
+  assertEquals(((t + '\n\n' + paymentPromise('tl')).match(/\bpo\b/g) ?? []).length <= 2, true);
+});
+
 Deno.test('D-258: a new booking on a thread the bot answered minutes ago does not greet again', async () => {
   const r = await turn(null, { text: 'Can I book Dec 1 to 3 for 2 guests?' }, ['paid na po?']);
   assertEquals(/thank you for reaching out/i.test(r.reply), false);
