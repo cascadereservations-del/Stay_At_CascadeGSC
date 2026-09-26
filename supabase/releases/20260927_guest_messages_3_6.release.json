@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "release_id": "guest_messages_3_6_20260927",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "597ced739f4027b799b25aadedf647c817480451"
+  },
+  "migrations": [
+    "20260927010000_guest_messages_3_6.sql"
+  ],
+  "migration_sha256": {
+    "20260927010000_guest_messages_3_6.sql": "a6934bc325e8a2995b9baea9022db86c8a2c7dadccfdaaf1db79a17813a6f91f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260926T162629Z",
+    "verified_at": "2026-09-26T16:30:12Z",
+    "production_rule": "Replaces due_guest_messages_v1 in place (same signature, same service_role-only grant) and inserts three app_settings rows (review links; on conflict do nothing). No table or column changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_body_is_the_reviewed_body",
+      "query": "select md5(prosrc) = '4513e1e984dc255f2fbf88764184fe89' from pg_proc where oid = 'public.due_guest_messages_v1(timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "service_role_only",
+      "query": "select has_function_privilege('service_role','public.due_guest_messages_v1(timestamptz)','EXECUTE') and not has_function_privilege('anon','public.due_guest_messages_v1(timestamptz)','EXECUTE') and not has_function_privilege('authenticated','public.due_guest_messages_v1(timestamptz)','EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "the_review_links_exist",
+      "query": "select (select value #>> '{}' from public.app_settings where key = 'review_airbnb_url') = 'https://airbnb.com/h/cascadesgsc' and (select count(*) from public.app_settings where key in ('review_facebook_url','review_google_url')) = 2",
+      "expect": true
+    },
+    {
+      "name": "it_still_answers",
+      "query": "select count(*) >= 0 from public.due_guest_messages_v1()",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260927_guest_messages_3_6.sql with run-sql-on-host.sh (the function as release guest_message_log_20260926 left it; the three review rows deleted). guest-messages v2 keeps working: it only sends what the function says is due."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_function",
+      "required_state": "Apply, then deploy guest-messages (waves 4dac60d or later) and daily-digest (1b8a61c or later). guest-messages v1 against the new function would try to send door_code_offer as a message key it cannot render - deploy v2 within the same block, before the next minute-5 cron run."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-26 ~16:35Z on a disposable restore of production backup cascade-supabase-20260926T162629Z (prefix cascade-migration-rehearsal-5c3fff40059c, 0 leftovers). 105 public tables and 131 ledger rows before; migration 1 of 1; forward checks 4/4; pgTAP guest_messages_3_6.sql 24/24; guest_message_log.sql 13/14 - the one failure is test 13 (table grants), a --no-acl restore artefact; production read 2026-09-26 16:37Z: RLS on, anon and authenticated have no SELECT, service_role has INSERT, and this migration does not touch the table.",
+    "evidence": "Same signature and grant. pgTAP guest_messages_3_6.sql (24) and guest_message_log.sql (14). Functions: guest-messages 11/11, daily-digest 10/10, deno check clean."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}

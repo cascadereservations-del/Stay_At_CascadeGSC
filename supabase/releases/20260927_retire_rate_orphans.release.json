@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "release_id": "retire_rate_orphans_20260927",
+  "phase": "contract",
+  "source": {
+    "branch": "main",
+    "commit": "597ced739f4027b799b25aadedf647c817480451"
+  },
+  "migrations": [
+    "20260927020000_retire_rate_orphans.sql"
+  ],
+  "migration_sha256": {
+    "20260927020000_retire_rate_orphans.sql": "5fc3d913ad431ec4f31d17d5253a84704f606e47cdad59c4a658675acaf0109e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260926T162629Z",
+    "verified_at": "2026-09-26T16:30:12Z",
+    "production_rule": "Deletes two inert app_settings rows (nightly_rate_php, deposit_percent) that SPEC-34 replaced with the rate card (D-263 item 6). Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_orphans_are_gone",
+      "query": "select not exists (select 1 from public.app_settings where key in ('nightly_rate_php','deposit_percent'))",
+      "expect": true
+    },
+    {
+      "name": "the_rate_card_still_prices",
+      "query": "select (public.get_rate_card_v1() ->> 'base')::numeric > 0 and (public.get_rate_card_v1() ->> 'deposit_pct')::numeric > 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260927_retire_rate_orphans.sql with run-sql-on-host.sh (re-inserts nightly_rate_php 1780 and deposit_percent 50)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_reader_left",
+      "required_state": "Nothing reads either key: grep of waves, stay-site (incl. index.html; stay-site/supabase/functions/submit-booking is a stale undeployed copy), admin-dashboard/app/src, guest-guide, manual; pg_proc, pg_views, cron.job (2026-09-27). n8n workflows and the relay Apps Script source: PENDING a browser read before apply."
+    }
+  ],
+  "compatibility": {
+    "mode": "contract",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-26 ~16:40Z on a disposable restore of production backup cascade-supabase-20260926T162629Z (prefix cascade-migration-rehearsal-fdbb1cdaff74, 0 leftovers). Migration 1 of 1; forward checks 2/2; pgTAP rate_card.sql 22/23 - test 7 anon writes nothing is the known --no-acl artefact; production read 2026-09-26: anon has no EXECUTE on publish_rate_card_v1, save_rate_promotion_v1, end_rate_promotion_v1.",
+    "evidence": "Deletes rows no deployed code reads; submit-booking v17+ prices from get_rate_card_v1."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "n8n or the Apps Script source was found to read either key"
+  ]
+}
