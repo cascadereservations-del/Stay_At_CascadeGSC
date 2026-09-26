@@ -1,7 +1,7 @@
 // Voice close-out (2026-09-17): the rubric of docs/response-protocol-final.md §7, scored in code on every golden
 // reply. Pure, no I/O, unit-tested (golden-score.test.ts). A check returns null when it passes, else a short reason.
 // The checks are deliberately narrow: a scorer that cries wolf sends us back to tuning by ear.
-import { RATE_TIERS } from '../_shared/cascade-core/facts.ts';
+import { quote, SEED_CARD, tierRate, type RateCard } from '../_shared/cascade-core/pricing.ts';
 import { earlyFeeFor, fixEarlyFee, isCold, lintReply, type Violation } from './voice.ts';
 
 export type Reg = 'en' | 'tl' | 'bis';
@@ -47,18 +47,33 @@ const ADDRESS_RE = /\b(block|blk\.?)\s*\d+|\blot\s*\d+/i;
 
 /** Every peso figure a reply may state: the rate card, stay totals, savings, the reservation fee and balance,
  *  the deposit, hourly early check-in fees and the listed fares. Anything else was invented. */
-export function allowedPesos(): Set<number> {
-  const ok = new Set<number>([1780, 1000, 120, 180, 10, 50]);
+export function allowedPesos(card: RateCard = SEED_CARD): Set<number> {
+  const base = card.base, ok = new Set<number>([base, 1000, 120, 180, 10, 50]);
   for (let h = 1; h <= 6; h++) ok.add(100 * h);
-  for (const t of RATE_TIERS) { ok.add(t.rate); ok.add(1780 - t.rate); }
-  for (let n = 1; n <= 60; n++) {
-    const t = RATE_TIERS.find((x) => n >= x.min && n <= x.max)!;
-    const total = n * t.rate, fee = Math.ceil(total / 2);
-    for (const v of [total, n * 1780, n * (1780 - t.rate), fee, total - fee]) ok.add(v);
+  const add = (total: number, n: number, rate: number) => {
+    const fee = Math.ceil(total * card.deposit_pct / 100);
+    for (const v of [total, n * base, n * (base - rate), base * n - total, fee, total - fee]) ok.add(v);
     // A stay quoted together with an early check-in is ONE figure the guest reads:
     // a PHP 3,382 stay arriving at 10 AM is PHP 3,582. Both halves are already
     // allowed on their own, so R9 was flagging the honest sum as invented.
     for (let h = 1; h <= 6; h++) ok.add(total + 100 * h);
+  };
+  for (let n = 1; n <= 60; n++) {
+    const rate = tierRate(card, n);
+    ok.add(rate); ok.add(base - rate);
+    add(n * rate, n, rate);
+  }
+  // SPEC-34 (D-262): every stay that touches a promotion (starting up to 14 nights before it, 1-14 nights long).
+  for (const p of card.promotions) {
+    ok.add(p.nightly_rate); ok.add(base - p.nightly_rate);
+    for (let s = -14; s <= Math.round((Date.parse(p.last_night) - Date.parse(p.first_night)) / 86_400_000); s++) {
+      const ci = new Date(Date.parse(p.first_night + 'T00:00:00Z') + s * 86_400_000).toISOString().slice(0, 10);
+      for (let n = 1; n <= 14; n++) {
+        const co = new Date(Date.parse(ci + 'T00:00:00Z') + n * 86_400_000).toISOString().slice(0, 10);
+        const q = quote(card, ci, co);
+        if (q.promo_nights) add(q.total, n, q.tier_rate);
+      }
+    }
   }
   return ok;
 }

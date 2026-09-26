@@ -1,7 +1,8 @@
 // Cassy draft_guest_reply (Telegram plan §3, session 27). A host pastes a guest message (or sends a
 // chat screenshot captioned "cassy reply") and gets a reply to copy - in the Concierge's own voice,
 // gated by the Concierge's own deterministic risk classifier. Never sends anything to a guest.
-import { FACTS, VOICE, SITE_URL } from '../_shared/cascade-core/facts.ts';
+import { factsFor, voiceFor, SITE_URL } from '../_shared/cascade-core/facts.ts';
+import { loadCard } from '../_shared/cascade-core/pricing.ts'; // SPEC-34: drafts quote the stored rate card
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
 import { detectLang } from '../messenger-concierge/booking.ts';
 import { lintReply, thinPo } from '../messenger-concierge/voice.ts';
@@ -36,10 +37,11 @@ const FLAG: Partial<Record<RiskCode, string>> = {
 
 // deno-lint-ignore no-explicit-any
 export async function draftGuestReply(db: any, guestText: string, guestName: string | null): Promise<string> {
+  const card = await loadCard(db);
   const risk = classify(guestText, { hasBooking: true }); // SPEC-32 s2: the host drafts for a known guest
   // deno-lint-ignore no-explicit-any
   const ctx = guestName ? guestContextLines(await guestContext(db, { name: guestName }).catch(() => ({} as any))) : [];
-  const system = `${VOICE}\n\nFACTS:\n${typeof FACTS === 'string' ? FACTS : JSON.stringify(FACTS)}\n\nYou are drafting for the HOST to copy and send from the Facebook Page; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. Do not invent availability or prices beyond FACTS; if dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
+  const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are drafting for the HOST to copy and send from the Facebook Page; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. Do not invent availability or prices beyond FACTS; if dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
   // The draft never sees the calendar: dates get a "will check" instruction, and a draft that still
   // claims availability is flagged in code (live 2026-09-17: "Yes, available pa po ang October 3 to 4").
   const datesAsked = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}[\/-]\d{1,2}|\b(?:available|avail|vacant|bakante|free)\b/i.test(guestText);
@@ -59,12 +61,13 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
 /** Session 28: the ✏️ Revise tap. Rewrites a host message in the Concierge voice; every fact, figure,
  * date and name stays. Returns the card the host reads (never sent to a guest). */
 // deno-lint-ignore no-explicit-any
-export async function reviseHostMessage(_db: any, template: string, context: string): Promise<string> {
+export async function reviseHostMessage(db: any, template: string, context: string): Promise<string> {
+  const card = await loadCard(db);
   // Session 29 (live): a Bislish template came back as Tagalog with six "po". The register is read from the template
   // itself and enforced in code, as the Concierge does (D-170).
   const lang = detectLang(template);
   const register = { en: 'refined conversational English, no "po"', tl: 'natural Taglish, at most two "po"', bis: 'natural Bislish (Cebuano with English hospitality terms), never Tagalog words or "po"/"opo"' }[lang];
-  const system = `${VOICE}\n\nFACTS:\n${typeof FACTS === 'string' ? FACTS : JSON.stringify(FACTS)}\n\nYou are revising a message the HOST is about to send to a guest. The message is in ${register}: reply in exactly that register. Keep every fact, figure, date, amount and name exactly; make it warmer, shorter and more natural, one message, no greeting line if the original has none. Return ONLY JSON {"reply": "<the revised message>"}.`;
+  const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are revising a message the HOST is about to send to a guest. The message is in ${register}: reply in exactly that register. Keep every fact, figure, date, amount and name exactly; make it warmer, shorter and more natural, one message, no greeting line if the original has none. Return ONLY JSON {"reply": "<the revised message>"}.`;
   const q = `${context ? `Card context:\n${context.slice(0, 800)}\n\n` : ''}Message to revise:\n\"\"\"${template.slice(0, 1500)}\"\"\"`;
   const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy revise', temperature: 0.5, maxTokens: 400, timeoutMs: 30_000 });
   const reply = thinPo(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'), lang === 'bis' ? 0 : lang === 'tl' ? 2 : 1);

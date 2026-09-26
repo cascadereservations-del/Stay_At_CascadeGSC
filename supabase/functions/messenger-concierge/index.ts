@@ -13,11 +13,12 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
+import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
-import { AIRBNB_URL, FACTS, MAYA_FACT, VOICE, SITE_URL, RATE_TIERS, voiceCompact } from '../_shared/cascade-core/facts.ts';
+import { AIRBNB_URL, MAYA_FACT, SITE_URL, discountRange, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
+import { currentCard, livePromos, loadCard, tierRate } from '../_shared/cascade-core/pricing.ts';
 import { chatJson, geminiBreaker, setProviderKey } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
@@ -121,8 +122,9 @@ function stayAnchor(text: string, lang = 'english'): string {
   const m = /\b(\d{1,2})\s*(?:nights?|gabi|days?|araw)\b/i.exec(text);
   if (!m) return '';
   const n = Number(m[1]);
-  const tier = RATE_TIERS.find((t) => n >= t.min && n <= t.max);
-  if (!tier || n < 2) return '';
+  // SPEC-34: the live card's tier for n nights and its base (the standard every saving is measured from).
+  const card = currentCard(), std = card.base, tier = { rate: tierRate(card, n) };
+  if (n < 2 || n > 60 || tier.rate >= std) return '';
   const extras = n >= 5 ? ', plus drinking water for the stay and a complimentary mid-stay refresh with fresh linens and towels' : ''; // D-249: the refresh starts at 5 nights, as the site says
   // Order and wording follow pricing research: anchor on the standard rate, adjust to the precise
   // direct rate (precise figures read as calculated and lower), then the per-stay total, then the
@@ -130,8 +132,8 @@ function stayAnchor(text: string, lang = 'english'): string {
   // SPEC-28 section 1: the quoted wording was English whatever the guest wrote, so a Taglish rate question got an English
   // answer with one "po". A Taglish turn gets the same three facts, same order, in everyday Taglish.
   const q = lang === 'taglish'
-    ? [`para sa ${n} nights po, bumababa ang direct rate namin sa ${peso(tier.rate)} per night mula sa standard ${peso(1780)}`, `mga ${peso(n * tier.rate)} para sa buong stay imbes na ${peso(n * 1780)}`, `kaya makakatipid kayo ng mga ${peso(n * (1780 - tier.rate))}`, n >= 5 ? 'kasama na rin ang drinking water for the stay at complimentary mid-stay refresh with fresh linens and towels' : '']
-    : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(1780)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * 1780)}`, `so you keep about ${peso(n * (1780 - tier.rate))}`, extras.slice(2)];
+    ? [`para sa ${n} nights po, bumababa ang direct rate namin sa ${peso(tier.rate)} per night mula sa standard ${peso(std)}`, `mga ${peso(n * tier.rate)} para sa buong stay imbes na ${peso(n * std)}`, `kaya makakatipid kayo ng mga ${peso(n * (std - tier.rate))}`, n >= 5 ? 'kasama na rin ang drinking water for the stay at complimentary mid-stay refresh with fresh linens and towels' : '']
+    : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(std)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * std)}`, `so you keep about ${peso(n * (std - tier.rate))}`, extras.slice(2)];
   return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "${q[0]}", (2) "${q[1]}", (3) "${q[2]}"${q[3] ? `, (4) "${q[3]}"` : ''}. Do not state the percentage; do not use the word "discount" more than once; then the link, then ask which dates they are looking at.] `;
 }
 // Dates the guest has already given, so a later early/late check-in question is answered against
@@ -299,9 +301,11 @@ async function landmarksBlock(db: Db): Promise<string> {
 // words also occur in VOICE's FIRST paragraph ("The REFERENCE REPLIES below are Lloyd's approved wording"), so since
 // 2026-09-13 every follow-up ran on 1,751 of ~30,000 characters: no Cassy persona, none of the three native protocols,
 // no voice rules. The cut is now made at the HEADING line, in facts.ts, and voice.test.ts asserts what it keeps.
-const VOICE_COMPACT = voiceCompact();
-const systemPrompt = (thread: Thread, availability: string, landmarks = '', compact = false) =>
-  `${compact ? VOICE_COMPACT : VOICE}\n\nGUEST FIRST NAME: ${thread.guest_name ?? 'unknown'}\n\nFACTS\n${FACTS}\n\nLANDMARKS\n${landmarks}\n\nAVAILABILITY\n${availability}`;
+// SPEC-34: VOICE and FACTS are refilled from the rate card loaded for this turn (a promotion block when one is live).
+const systemPrompt = (thread: Thread, availability: string, landmarks = '', compact = false) => {
+  const card = currentCard(), voice = voiceFor(card);
+  return `${compact ? voiceCompact(voice) : voice}\n\nGUEST FIRST NAME: ${thread.guest_name ?? 'unknown'}\n\nFACTS\n${factsFor(card)}\n\nLANDMARKS\n${landmarks}\n\nAVAILABILITY\n${availability}`;
+};
 
 // Language of the guest's message, decided in code so the instruction can ride on the user turn itself, where small
 // models honour it: guestLang() in booking.ts, the one detector (SPEC-28 section 4).
@@ -557,7 +561,7 @@ const QR_URL = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/ass
 async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }> {
   const q = quoteTotal(flow.checkin!, flow.checkout!); // session 28: the guest chose fee or full; submit-booking accepts either
   const body = { guest_name: flow.name ?? thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
-    pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit };
+    pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit, pay_full: flow.pay_full === true };
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
   if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: `Sorry po, something went wrong on our side — please try again in a minute, or book here: ${SITE_URL}`, image: null }; }
@@ -657,6 +661,7 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
 
 export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects = liveEffects, now = new Date()): Promise<void> {
   const msg = ev.message; if (!msg) return;
+  await loadCard(db); // SPEC-34: every quote this turn reads the stored rate card (60 s cache; seed card + log on failure)
 
   // Staff replied from the Page inbox: hold the bot on this thread.
   if (msg.is_echo) {
@@ -826,8 +831,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const datesHint = datesKnown.length ? `[Guest's dates already given: ${datesKnown.join('; ')} - answer for these days, do not ask for dates.] ` : '';
       // Capacity rides on the guest turn too: "pwede 5 adults?" got "we can accommodate 5 adults" (live 2026-09-13).
       const capHint = /\b([4-9]|1\d)\s*(adults?|pax|persons?|people|guests?|tao|matanda)\b/i.test(text) ? '[Capacity is a hard limit: 3 adults, or 3 adults + 1 child, or 2 adults + 2 children. This group does not fit - say so warmly and suggest a larger place; never say we can accommodate them.] ' : '';
-      const anchor = stayAnchor(guestTexts.slice(-3).join(' '), lang);
-      const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, 5% from 2 nights up to 25% from 28 nights, the longer the stay the higher the discount - then the link. Do not quote any other number and do not promise a special price.] ${anchor}` : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
+      // SPEC-34 (D-262): a dated stay that touches a promotion gets code's figures (rateLine: promo nights anchored on
+      // the standard rate), so the model never does promo arithmetic or denies a live promotion.
+      const stay = stayFrom(guestTexts.slice(-3), now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null;
+      const anchor = stay && sq && sq.q.promo_nights > 0 && sq.nights <= 60
+        ? `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph, then the link: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3 } as Flow, now)}" Never mention any other "was" or "usual" price.] `
+        : stayAnchor(guestTexts.slice(-3).join(' '), lang);
+      const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - then the link. Do not quote any other number and do not promise a special price.] ${anchor}` : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
       const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';

@@ -9,14 +9,9 @@
 // kb_documents is the engineering KB - never load it here.
 // Deliberately excluded (shared only after confirmation, by a human): lot number and map
 // pin, WiFi password, door PIN, GCash / UnionBank numbers, on-ground partner's number.
-export const RATE_TIERS = [
-  { min: 1,  max: 1,   rate: 1780, disc: 0  },
-  { min: 2,  max: 4,   rate: 1691, disc: 5  },
-  { min: 5,  max: 6,   rate: 1602, disc: 10 },
-  { min: 7,  max: 13,  rate: 1513, disc: 15 },
-  { min: 14, max: 27,  rate: 1424, disc: 20 },
-  { min: 28, max: 999, rate: 1335, disc: 25 },
-];
+// SPEC-34 (D-261): the rates are NOT written here any more. The stored rate card (pricing.ts, get_rate_card_v1) is the
+// one source; FACTS and VOICE below are written for the seed card and factsFor / voiceFor refill them from the live one.
+import { livePromos, SEED_CARD, tierRate, type RateCard } from './pricing.ts';
 
 // The short link is what the hosts actually send; it resolves to
 // https://cascadereservations-del.github.io/Stay_At_CascadeGSC/
@@ -319,8 +314,50 @@ OUTPUT: JSON only, {"reply": string, "uncertain": boolean, "guest_name": string|
 /** The follow-up prompt: everything in VOICE except the first-contact reference replies, plus the OUTPUT contract.
  *  Cut at the HEADING line (a newline before it, the bracket after it), never at the bare words "REFERENCE REPLIES":
  *  they also occur in VOICE's first paragraph, and cutting there left follow-ups with 6 % of the voice (2026-09-13 to 17). */
-export function voiceCompact(): string {
-  const head = VOICE.lastIndexOf('\nREFERENCE REPLIES (');
-  if (head < 0) return VOICE;
-  return VOICE.slice(0, head).trim() + '\n\n' + VOICE.slice(VOICE.lastIndexOf('OUTPUT:')).trim();
+export function voiceCompact(voice = VOICE): string {
+  const head = voice.lastIndexOf('\nREFERENCE REPLIES (');
+  if (head < 0) return voice;
+  return voice.slice(0, head).trim() + '\n\n' + voice.slice(voice.lastIndexOf('OUTPUT:')).trim();
+}
+
+// ---- SPEC-34: FACTS and VOICE from the live rate card ----
+const n0 = (v: number) => v.toLocaleString('en-US');
+const sortedTiers = (card: RateCard) => [...card.tiers].sort((a, b) => a.min_nights - b.min_nights);
+/** "1 night 1,780 - 2-4 nights 1,691 (5% off) - ... - 28+ nights 1,335 (25%)" for any card. */
+export function tierLine(card: RateCard): string {
+  const ts = sortedTiers(card);
+  const span = (a: number, b: number | null) => b === null ? `${a}+ nights` : a === b ? `${a} night${a === 1 ? '' : 's'}` : `${a}-${b} nights`;
+  const parts = [`${span(1, ts.length ? ts[0].min_nights - 1 : null)} ${n0(card.base)}`];
+  ts.forEach((t, i) => parts.push(`${span(t.min_nights, i + 1 < ts.length ? ts[i + 1].min_nights - 1 : null)} ${n0(tierRate(card, t.min_nights))} (${t.pct}%${i === 0 ? ' off' : ''})`));
+  return parts.join(' - ');
+}
+/** "from 5% at 2 nights up to 25% at 28 nights" (FACTS) - the discount-ask range, from the card. */
+export function discountRange(card: RateCard, at = 'at'): string {
+  const ts = sortedTiers(card);
+  if (!ts.length) return '';
+  const a = ts[0], b = ts[ts.length - 1];
+  return `from ${a.pct}% ${at} ${a.min_nights} nights up to ${b.pct}% ${at} ${b.min_nights} nights`;
+}
+const md = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const nextDay = (d: string) => new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10);
+/** D-262: a running or upcoming promotion, anchored on the standard rate, never on a "was" price. */
+export function promoFacts(card: RateCard, now = new Date()): string {
+  const ps = livePromos(card, now);
+  if (!ps.length) return '';
+  return `\n\nPROMOTION - live on direct bookings now (D-262)\n` + ps.map((p) =>
+    `- ${p.name}: PHP ${n0(p.nightly_rate)} per night for the nights of ${md(p.first_night)} to ${md(p.last_night)}, ${p.last_night.slice(0, 4)} (check-out by ${md(nextDay(p.last_night))}), instead of our standard PHP ${n0(card.base)}. A promotion night takes the promotion price in place of the length-of-stay rate; nights outside it keep the normal rates, so one stay can mix both.`).join('\n') +
+    `\n- Mention the promotion warmly whenever the guest's dates touch those nights, or they ask about a promo, a discount or a good time to come. Anchor it on the standard PHP ${n0(card.base)} only - never on any other "was" or "usual" price. For a stay's total use the figures code gives you, never your own arithmetic. Never say there is no promotion while one is listed here.`;
+}
+const SEED_TIER_LINE = tierLine(SEED_CARD), SEED_RANGE = discountRange(SEED_CARD);
+/** FACTS for the live card: the rate lines and every "PHP 1,780" refilled, plus the promotion block. */
+export function factsFor(card: RateCard, now = new Date()): string {
+  const t = FACTS.replace(SEED_TIER_LINE, tierLine(card)).replace(SEED_RANGE, discountRange(card)).replaceAll('PHP 1,780', `PHP ${n0(card.base)}`);
+  const promo = promoFacts(card, now);
+  return promo ? t.replace('\n\nBOOKING & PAYMENT', `${promo}\n\nBOOKING & PAYMENT`) : t;
+}
+/** VOICE for the live card: its examples quote the base and the 3-night rate of the seed card. */
+export function voiceFor(card: RateCard): string {
+  const r3 = tierRate(card, 3), s3 = tierRate(SEED_CARD, 3);
+  if (card.base === SEED_CARD.base && r3 === s3) return VOICE;
+  return VOICE.replaceAll(`PHP ${n0(SEED_CARD.base)}`, `PHP ${n0(card.base)}`).replaceAll(`PHP ${n0(s3)}`, `PHP ${n0(r3)}`).replaceAll(`PHP ${n0(3 * s3)}`, `PHP ${n0(3 * r3)}`);
 }

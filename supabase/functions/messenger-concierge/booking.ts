@@ -1,7 +1,7 @@
 // Messenger book intent (booking PRD §A, session 27). Pure functions, no I/O: a code-driven
 // slot-filling flow that index.ts runs BEFORE the model. The model never books; it only answers
 // questions. State is one jsonb on concierge_threads.booking_flow.
-import { RATE_TIERS } from '../_shared/cascade-core/facts.ts';
+import { currentCard, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
 
 /** Register: en = Native English protocol, tl = Native Filipino (Taglish, purposeful po), bis = Native Bisaya (Bislish, no po). */
 export type Lang = 'en' | 'tl' | 'bis';
@@ -226,24 +226,41 @@ export function openWindows(bookedNights: Set<string>, today: string, horizonEnd
 }
 const nights = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86_400_000);
 const peso = (v: number) => `₱${v.toLocaleString('en-PH')}`;
-/** Site rate card: nightly tier by length of stay × nights (the site and submit-booking compute the same). */
-export function quoteTotal(checkin: string, checkout: string): { nights: number; rate: number; total: number; deposit: number } {
-  const n = Math.max(1, nights(checkin, checkout));
-  const tier = RATE_TIERS.find((t) => n >= t.min && n <= t.max) ?? RATE_TIERS[RATE_TIERS.length - 1];
-  const total = tier.rate * n;
-  return { nights: n, rate: tier.rate, total, deposit: Math.ceil(total / 2) };
+/** SPEC-34: the stored rate card's quote (pricing.ts) - the same one submit-booking stores and the site shows.
+ *  `card` defaults to the card index.ts loaded for this turn; tests get the seed card. */
+export function quoteTotal(checkin: string, checkout: string, card: RateCard = currentCard()): { nights: number; rate: number; total: number; deposit: number; q: Quote } {
+  const q = quote(card, checkin, checkout);
+  return { nights: q.n, rate: q.tier_rate, total: q.total, deposit: q.deposit, q };
 }
 /** Lloyd 2026-09-18: a booking made inside 5 days of check-in - same day through 4 days out - pays in full up
  *  front, so the fee-or-full choice is not offered. `submit-booking` already uses this boundary for holds
  *  (`daysOut >= 5`); the old 48-hour rule disagreed with it. Manila calendar days, not hours. */
 export const lastMinute = (checkin: string, now = new Date()) =>
   Math.round((Date.parse(checkin) - Date.parse(now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }))) / 86_400_000) <= 4;
-const STD_RATE = RATE_TIERS[0].rate; // the one-night rate: the standard the direct discount is measured against
 const php = (v: number) => `PHP ${v.toLocaleString('en-PH')}`;
-/** SPEC-14 (D-184): the direct-booking rate, said before the offer. Every figure comes from quoteTotal / RATE_TIERS. */
-export function rateLine(flow: Flow, now = new Date()): string {
-  const q = quoteTotal(flow.checkin!, flow.checkout!);
-  const body = q.nights >= 2
+/** D-262: promo nights anchored on the standard rate (never a "was" price); a mixed stay names both parts. */
+function promoRateLine(lang: Lang | undefined, x: ReturnType<typeof quoteTotal>, std: number): string {
+  const { q } = x, pn = q.nights.filter((n) => n.source === 'promo'), name = q.promo_name!, pr = php(q.promo_rate!);
+  const when = pn.length === 1 ? dm(pn[0].date) : dmRange(pn[0].date, pn[pn.length - 1].date);
+  if (q.promo_nights === q.n) return q.n === 1
+    ? pick(lang, {
+        en: `For 1 night the direct rate is ${pr} with our ${name} (our standard is ${php(std)}).`,
+        tl: `For 1 night po, ang direct rate ay ${pr} with our ${name} (standard namin ay ${php(std)}).`,
+        bis: `For 1 night, ang direct rate kay ${pr} with our ${name} (ang standard namo kay ${php(std)}).` })
+    : pick(lang, {
+        en: `Your ${q.n} nights fall inside our ${name}, so booking directly brings them to ${pr} per night instead of the standard ${php(std)} — ${php(q.total)} for the stay.`,
+        tl: `Pasok po ang ${q.n} nights ninyo sa ${name} namin, kaya sa direct booking ay ${pr} per night imbes na ang standard na ${php(std)} — ${php(q.total)} for the stay.`,
+        bis: `Sulod sa among ${name} ang inyong ${q.n} nights, so sa direct booking kay ${pr} per night imbes sa standard nga ${php(std)} — ${php(q.total)} for the stay.` });
+  const rest = q.n - q.promo_nights, rr = php(q.tier_rate);
+  return pick(lang, {
+    en: `Booking directly with us, your ${q.n} nights come to ${php(q.total)}: ${q.promo_nights} night${q.promo_nights === 1 ? '' : 's'} (${when}) at our ${name} rate of ${pr}, and ${rest} night${rest === 1 ? '' : 's'} at ${rr}, instead of the standard ${php(std)} a night.`,
+    tl: `Kapag direct booking po sa amin, ang ${q.n} nights ninyo ay ${php(q.total)}: ${q.promo_nights} night${q.promo_nights === 1 ? '' : 's'} (${when}) sa ${name} rate na ${pr}, at ${rest} night${rest === 1 ? '' : 's'} sa ${rr}, imbes na ang standard na ${php(std)} per night.`,
+    bis: `Kung direct booking sa amo, ang inyong ${q.n} nights kay ${php(q.total)}: ${q.promo_nights} night${q.promo_nights === 1 ? '' : 's'} (${when}) sa ${name} rate nga ${pr}, ug ${rest} night${rest === 1 ? '' : 's'} sa ${rr}, imbes sa standard nga ${php(std)} per night.` });
+}
+/** SPEC-14 (D-184): the direct-booking rate, said before the offer. Every figure comes from quoteTotal (the rate card). */
+export function rateLine(flow: Flow, now = new Date(), card: RateCard = currentCard()): string {
+  const q = quoteTotal(flow.checkin!, flow.checkout!, card), STD_RATE = card.base;
+  const body = q.q.promo_nights > 0 ? promoRateLine(flow.lang, q, STD_RATE) : q.nights >= 2
     ? pick(flow.lang, {
         en: `Booking directly with us brings your ${q.nights} nights to ${php(q.rate)} per night instead of the standard ${php(STD_RATE)} — ${php(q.total)} for the stay.`,
         tl: `Kapag direct booking po sa amin, ang ${q.nights} nights ninyo ay nasa ${php(q.rate)} per night imbes na ang standard na ${php(STD_RATE)} — ${php(q.total)} for the stay.`,
@@ -492,6 +509,7 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
       `📅 ${dmRange(flow.checkin!, flow.checkout!)} · ${q.nights} night${q.nights === 1 ? '' : 's'} · ${flow.pax} guest${flow.pax === 1 ? '' : 's'}`,
       `📞 ${flow.phone}${flow.email ? ` · ${flow.email}` : ''}`,
       `💰 Total ${peso(q.total)}`,
+      ...(q.q.promo_nights > 0 ? [`🏷️ ${q.q.promo_name}: ${q.q.promo_nights} night${q.q.promo_nights === 1 ? '' : 's'} at ${peso(q.q.promo_rate!)}`] : []),
       pick(L, { en: `🔐 ₱1,000 refundable security deposit, returned after check-out`, tl: `🔐 ₱1,000 refundable security deposit, ibabalik after check-out`, bis: `🔐 ₱1,000 refundable security deposit, i-uli after check-out` }),
       ``,
       payChoice(flow),

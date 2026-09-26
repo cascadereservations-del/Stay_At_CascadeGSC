@@ -3,11 +3,35 @@
 // passes when three runs out of three pass. Dates are computed from today, so the set does not rot.
 // A wording wish after the freeze becomes ONE new case here plus one example in facts.ts (protocol 10 section 8).
 import type { Kind, Reg } from './golden-score.ts';
+import { quote, SEED_CARD, type RateCard } from '../_shared/cascade-core/pricing.ts';
 
 export type GoldenTurn = { say: string; kind: Kind; lang: Reg; noInvite?: boolean; must?: RegExp[]; mustNot?: RegExp[]; image?: boolean;
   /** SPEC-32 s7: minutes the probe clock moves before this turn (default 1), and the effects it must record. */
   advance_minutes?: number; effects?: RegExp[] };
-export type GoldenCase = { id: string; group: 'first' | 'followup' | 'register' | 'flow' | 'handoff' | 'payment'; turns: GoldenTurn[] };
+export type GoldenCase = { id: string; group: 'first' | 'followup' | 'register' | 'flow' | 'handoff' | 'payment' | 'promo'; turns: GoldenTurn[] };
+
+/** SPEC-34 (D-262): while a promotion is at least 5 days out (so no case meets the full-payment rule), a stay fully
+ *  inside it and one straddling its last night, as a flow and as a free question, en and tl. PHP 1,929 never appears. */
+export function promoCases(card: RateCard, now = new Date()): GoldenCase[] {
+  const out: GoldenCase[] = [];
+  const day = (d: string, k: number) => new Date(Date.parse(d + 'T00:00:00Z') + k * 86_400_000);
+  for (const p of card.promotions) {
+    if (day(p.first_night, 1).getTime() < now.getTime() + 5 * 86_400_000) continue;
+    const inside = range(day(p.first_night, 1), 0, 3), straddle = range(day(p.last_night, -1), 0, 3);
+    const inQ = quote(card, day(p.first_night, 1).toISOString().slice(0, 10), day(p.first_night, 4).toISOString().slice(0, 10));
+    const stQ = quote(card, day(p.last_night, -1).toISOString().slice(0, 10), day(p.last_night, 2).toISOString().slice(0, 10));
+    const pr = new RegExp(p.nightly_rate.toLocaleString('en-US')), base = new RegExp(card.base.toLocaleString('en-US')), no = [/1,929/];
+    const tot = (v: number) => new RegExp(v.toLocaleString('en-US'));
+    out.push(
+      { id: 'promo-inside-flow-en', group: 'promo', turns: [{ say: `Hi, is ${inside} available? 2 adults`, kind: 'flow', lang: 'en', must: [new RegExp(p.name), pr, base, tot(inQ.total), /set the dates aside/i], mustNot: no }] },
+      { id: 'promo-straddle-flow-tl', group: 'promo', turns: [{ say: `Available po ba ang ${straddle}? 2 kami`, kind: 'flow', lang: 'tl', must: [pr, tot(stQ.total), tot(stQ.tier_rate)], mustNot: no }] },
+      { id: 'promo-rate-dated-en', group: 'promo', turns: [m(`How much would ${straddle} cost?`, 'en', { must: [tot(stQ.total), pr], mustNot: no })] },
+      { id: 'promo-ask-en', group: 'promo', turns: [m('Do you have any promo this month or next?', 'en', { must: [pr, new RegExp(p.name, 'i')], mustNot: [...no, /\bno (current |ongoing )?promo/i] })] },
+      { id: 'promo-ask-tl', group: 'promo', turns: [m('May promo po ba kayo ngayong October?', 'tl', { must: [pr], mustNot: [...no, /walang promo/i] })] },
+    );
+  }
+  return out;
+}
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** "Oct 27 to 29" / "Oct 30 to Nov 1", `offset` days from `now`, `nights` long. */
@@ -120,6 +144,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'handoff-payment-en', group: 'handoff', turns: [{ say: 'I already sent the GCash payment, please confirm', kind: 'handoff', lang: 'en', noInvite: true }] },
     { id: 'handoff-refund-en', group: 'handoff', turns: [{ say: 'We need to cancel our booking next week, can we get a refund?', kind: 'handoff', lang: 'en', noInvite: true }] },
     ...paymentCases(d2, d3),
+    ...promoCases(SEED_CARD, now),
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
   if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { kind: 'code', // SPEC-28: code writes this reply
