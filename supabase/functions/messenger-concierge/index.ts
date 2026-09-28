@@ -12,6 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { discountHostLine, houseRule } from './persona.ts';
+import { jevRoute, unionRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
@@ -159,7 +160,7 @@ function stayFrom(guestTexts: string[], now: Date): { checkin: string; checkout:
   return null;
 }
 
-type Turn = { role: 'guest' | 'bot'; text: string; at: string };
+type Turn = { role: 'guest' | 'bot'; text: string; at: string; route?: Record<string, unknown> }; // D-271: route = regex vs Jev, per guest turn (shadow log)
 type Thread = { psid: string; guest_name: string | null; human_until: string | null; bot_turns: number; history: Turn[]; last_risk: string | null; booking_flow?: Flow | null; last_mid?: string | null };
 // deno-lint-ignore no-explicit-any
 type Db = SupabaseClient<any, 'public', any>;
@@ -687,6 +688,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   }
 
   const psid: string = ev.sender.id;
+  // D-271: Jev runs beside the thread read, so its ~350 ms costs almost no wall time. Probes spend the probe key (D-254).
+  const jevP = jevRoute(String(msg.text ?? '').trim(), env(psid.startsWith('probe:') ? 'CASCADE_OPENROUTER_PROBE_KEY' : 'CASCADE_OPENROUTER_BOT_KEY'));
   // D-222: one retry, then stop. A failed read used to fall through as a brand-new thread, and the upsert at the end
   // would have overwritten the guest's history with this one turn. The caller alerts the host with the link.
   let { data: row, error: rowErr } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
@@ -722,7 +725,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // D-258 (live 2026-09-26 02:14Z): a second booking on a thread the bot answered minutes ago opened with "Hi Ben, thank you
   // for reaching out". A new flow greets only when the bot has not spoken for 12 h.
   const greetNow = !thread.history.some((h) => h.role === 'bot' && now.getTime() - Date.parse(h.at) < 12 * 3_600_000);
-  const g = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now, hasBooking: !!thread.booking_flow?.ref }); // SPEC-32 s2
+  const g0 = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now, hasBooking: !!thread.booking_flow?.ref }); // SPEC-32 s2
+  // D-271 safety net: Jev may raise a routine turn to a handoff (smoke, a Bisaya complaint, a date change the regex missed);
+  // it never lowers the regex, and a live booking flow keeps its own deterministic steps.
+  const jev = text ? await jevP : null;
+  const jevRisk = g0.reply && !isActive(thread.booking_flow, now) ? unionRisk(g0.risk, jev) : g0.risk;
+  const g = jevRisk !== g0.risk ? { ...g0, risk: jevRisk, handoff: true } : g0;
+  if (jev) console.log('jev_route', JSON.stringify({ psid: psid.slice(-6), regex: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), host: +jev.needsHost.toFixed(2), lang: jev.lang, ms: jev.ms, raised: jevRisk !== g0.risk }));
   // Lloyd 2026-09-13: a discount ask gets the answer (the direct site applies the best rate
   // automatically; the longer the stay, the higher the discount) AND the host line and card.
   // SPEC-34 (D-262): while a promotion is live, "any promo?" has a factual answer - the promotion - so it is answered
@@ -1094,7 +1103,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     }
   }
 
-  const turns: Turn[] = [{ role: 'guest', text: text || '[attachment]', at: now.toISOString() }];
+  const turns: Turn[] = [{ role: 'guest', text: text || '[attachment]', at: now.toISOString(), ...(jev ? { route: { re: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), h: +jev.needsHost.toFixed(2), l: jev.lang, rl: guestLang(text), up: jevRisk !== g0.risk } } : {}) }];
   if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString() });
   await db.from('concierge_threads').upsert({
     psid, guest_name: thread.guest_name, human_until: thread.human_until,
