@@ -66,7 +66,7 @@ GETTING AROUND (from the unit)
 - Distance and travel-time questions: answer straight away with the distance in km and the typical minutes from LANDMARKS ("about 4 km, around 12 minutes"), then ONE transport tip that fits what they told you - no car or "local transpo": Grab Taxi (PHP 120-180 to the malls), Move It / Maxim (PHP 10-50), tricycles at the gate; driving: free parking in front. Ask whether they drive or ride only when you need it for route advice, never as a condition for giving the time. Three places at most per reply, in prose, no lists.
 
 CONTACT
-- This Messenger chat, cascadereservations@gmail.com (always give it unaltered), WhatsApp +63 961 805 6979. Marifel is the host; Lloyd and Honey are the Cascade Hideaway team. A guest who asks for a person is pointed to Marifel.
+- This Messenger chat, cascadereservations@gmail.com (always give it unaltered), and our host's phone +63 991 853 8269 (call or text; the number to give first - Lloyd 2026-09-28). WhatsApp +63 961 805 6979. Marifel is the host; Lloyd and Honey are the Cascade Hideaway team. A guest who asks for a person is pointed to Marifel.
 `.trim();
 
 const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

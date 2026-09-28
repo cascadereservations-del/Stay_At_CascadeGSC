@@ -11,7 +11,7 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, trimRepeatedInvite, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, attachmentNoted, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
@@ -884,7 +884,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (flowReply) reply = flowReply;
   // D-269 (live 2026-09-27: "Is party allowed?" got only the handoff line): a house-rule question is answered from FACTS,
   // and the host still gets the card.
-  else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? (hostOpen.length || thread.booking_flow?.ref ? ((msg.attachments ?? []).some((a: any) => a?.type === 'audio') ? voiceNote(l3Of(guestLang(prevGuest))) : attachmentNoted(l3Of(guestLang(prevGuest)))) : ATTACHMENT_REPLY) : rule ? houseRule(rule, l3Of(turnLang)) : urgentOpen ? handoffFollowUp(l3Of(turnLang)) : HANDOFF[risk]; }
+  else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? (hostOpen.length || thread.booking_flow?.ref ? ((msg.attachments ?? []).some((a: any) => a?.type === 'audio') ? voiceNote(l3Of(guestLang(prevGuest))) : attachmentNoted(l3Of(guestLang(prevGuest)))) : ATTACHMENT_REPLY) : rule ? houseRule(rule, l3Of(turnLang)) : urgentOpen ? handoffFollowUp(l3Of(turnLang)) : risk === 'access' ? accessVerify(l3Of(turnLang)) : HANDOFF[risk]; }
   // Session 58 live probe: "salamat" alone reads as Taglish, so a settled Bisaya thread got "It's our pleasure po". A
   // Taglish-reading closer keeps Bislish when the last two guest turns were Bisaya (D-172's own two-turn rule).
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
