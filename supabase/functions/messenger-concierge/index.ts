@@ -465,6 +465,42 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
   ].filter((r) => r.length);
   const sent = await tgCall('sendMessage', { chat_id: chat, text: body, disable_web_page_preview: true, reply_markup: { inline_keyboard: keyboard } });
   if (sent?.result?.message_id) await db.from('concierge_handoffs').update({ tg_message_id: sent.result.message_id }).eq('id', id);
+  // Session 58 (Lloyd 2026-09-28: "notification specially regarding urgent guest concerns ... both in email and telegram"):
+  // the first card of an access or safety matter also reaches the Finance group and the host inbox, so a
+  // lockout at night reaches whoever is awake. A follow-up (the same risk already open) stays on the OPS card.
+  if (URGENT_RISKS.includes(risk) && !(dup ?? []).length) await urgentAlert(db, thread, text, risk, short, link);
+}
+
+// Lloyd 2026-09-28: urgent only - a lockout or a safety report. Complaints (towels, wifi, noise) stay on the OPS card, so the
+// inbox is never flooded; one alert per matter, follow-ups never e-mail.
+const URGENT_RISKS: RiskCode[] = ['access', 'safety'];
+const URGENT_WHAT: Partial<Record<RiskCode, string>> = {
+  access: 'cannot get into the unit (door, code or key)', safety: 'reported a safety problem',
+};
+/** Telegram notices are written for people: what happened and who must act first, the ids last. */
+async function urgentAlert(db: Db, thread: Thread, text: string, risk: RiskCode, short: string, link: string): Promise<void> {
+  const who = thread.guest_name ?? 'A Messenger guest';
+  const at = new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const lines = [
+    `${who} ${URGENT_WHAT[risk]}. The host needs to act now.`,
+    `They wrote: "${text.slice(0, 400)}"`,
+    `Answer from the OPS card (tap an option or reply to it), or in the page inbox. ${link}`,
+    `Sent by Cassy at ${at}, Manila time. Ref #CH-${short}`,
+  ].join('\n\n');
+  const tasks: Promise<unknown>[] = [];
+  const fin = env('TELEGRAM_FINANCE_CHAT_ID');
+  if (fin) tasks.push(tgCall('sendMessage', { chat_id: fin, text: withHeader('alert', `guest ${risk}`, lines), disable_web_page_preview: true }));
+  const url = env('EMAIL_RELAY_URL'), token = env('EMAIL_RELAY_TOKEN');
+  if (url && token) {
+    const { data } = await db.from('app_settings').select('value').eq('key', 'email_recipients').maybeSingle();
+    const to = String((data as { value?: unknown } | null)?.value ?? '').split(',')[0].trim() || 'cascadereservations@gmail.com';
+    tasks.push(fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({ action: 'guestMessage', token, guest_email: to, guest_name: 'Cascade host', subject: `URGENT: ${who} ${URGENT_WHAT[risk]}`, message: lines }),
+    }).then(async (r) => { if (!r.ok) throw new Error(`relay ${r.status}`); return r.text(); }));
+  }
+  const res = await Promise.allSettled(tasks);
+  console.log('urgent_alert', JSON.stringify({ risk, short, telegram: !!fin, email: !!(url && token), failed: res.filter((r) => r.status === 'rejected').map((r) => String((r as PromiseRejectedResult).reason).slice(0, 80)) }));
 }
 
 // `like` on a uuid column is a Postgres error (uuid ~~ text), so "Option not found" on every tap
