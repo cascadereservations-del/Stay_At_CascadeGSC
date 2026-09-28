@@ -18,7 +18,7 @@ import { needsCalendarCheck } from './booking.ts';
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
-import { priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
+import { postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, SITE_URL, discountRange, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
@@ -722,7 +722,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // guest's question in the button's words (the Page's "How much? Available?" menu items reached no one before: the webhook
   // had no postback field and this function dropped every event without a message).
   const entry = priorityEntry(ev);
-  const pbText = !entry && ev.postback?.payload !== 'GET_STARTED' ? String(ev.postback?.title ?? '').trim() : '';
+  const pbText = postbackText(ev);
   const msg = ev.message ?? (entry ? { mid: ev.postback?.mid ?? `ref-${ev.timestamp ?? now.getTime()}`, text: '' } : pbText ? { mid: ev.postback?.mid, text: pbText } : null); if (!msg) return;
   await loadContact(db); // Lloyd 2026-09-28: the on-ground contact comes from the dashboard (app_settings), 60 s cache
   await loadCard(db); // SPEC-34: every quote this turn reads the stored rate card (60 s cache; seed card + log on failure)
@@ -1208,8 +1208,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
 // Session 59: the priority-help entry point on the Page - a persistent menu item (postback PRIORITY), first - and the app's
 // webhook fields that deliver postbacks and m.me referrals. Probe-secret gated; ?profile=get reads, ?profile=set merges ours
-// into what is there (never drops an item). No ice breaker: it shows only to new chatters, nearly all prospects. The page's
-// own subscribed fields need pages_manage_metadata, which the page token lacks - that checkbox is the Meta dashboard's.
+// into what is there (never drops an item). No ice breaker: it shows only to new chatters, nearly all prospects. Get Started
+// is set because Meta refuses a menu change without it (#100, live 2026-09-28); a tap on it is a hello (postbackText). The
+// page's own subscribed fields need pages_manage_metadata, which the page token lacks - that checkbox is the Meta dashboard's.
 const PRIORITY_MENU = { type: 'postback', title: 'Staying now? Priority help', payload: 'PRIORITY' };
 const PAGE_FIELDS = ['messages', 'message_echoes', 'messaging_postbacks', 'messaging_referrals'];
 async function messengerProfile(set: boolean): Promise<Response> {
@@ -1228,6 +1229,7 @@ async function messengerProfile(set: boolean): Promise<Response> {
   const menu = (prof.persistent_menu ?? []).find((m: any) => m.locale === 'default') ?? { locale: 'default', composer_input_disabled: false, call_to_actions: [] };
   if (!(menu.call_to_actions ?? []).some((c: any) => c.payload === 'PRIORITY')) menu.call_to_actions = [PRIORITY_MENU, ...(menu.call_to_actions ?? [])];
   out.profile = await post(`${GRAPH}/${PAGE_ID}/messenger_profile?access_token=${tok}`, {
+    get_started: prof.get_started ?? { payload: 'GET_STARTED' },
     persistent_menu: [menu, ...(prof.persistent_menu ?? []).filter((m: any) => m.locale !== 'default')],
   });
   const sub = ((before.app_fields as any)?.data ?? []).find((x: any) => x.object === 'page');

@@ -3,7 +3,7 @@
 // check (check-in date + booking-name initial, stay on today), then the urgent host card; a stranger gets two tries, an
 // ordinary card and the phone route, and no second verification for 24 h.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { priorityAnswer, priorityEntry, stayIsCurrent } from './priority.ts';
+import { postbackText, priorityAnswer, priorityEntry, stayIsCurrent } from './priority.ts';
 
 (Deno as unknown as { serve: unknown }).serve = () => ({ finished: Promise.resolve(), shutdown: () => Promise.resolve() });
 const { handle, probeEffects } = await import('./index.ts');
@@ -105,10 +105,16 @@ Deno.test('after the ask, a message with no date is an ordinary turn (a complain
   assertEquals(r.saved?.history.at(-1).route?.priority, undefined);
 });
 
-Deno.test('any other menu tap is the guest asking in the button words; Get Started stays silent', async () => {
+Deno.test('any other menu tap is the guest asking in the button words', async () => {
   const r = await turn({ postback: { title: 'I forgot the door code', payload: 'DOOR', mid: 'pb2' } });
   assertEquals(r.handoffs.map((h) => h.detail.risk), ['access']);
   assertEquals(r.saved.history.find((h: any) => h.role === 'guest').text, 'I forgot the door code');
-  const g = await turn({ postback: { title: 'Get Started', payload: 'GET_STARTED', mid: 'pb3' } });
-  assertEquals([g.reply, g.saved], ['', undefined]);
+});
+
+Deno.test('Get Started is a hello; the priority button and the guide link are not questions', () => {
+  assertEquals(postbackText({ postback: { title: 'Get Started', payload: 'GET_STARTED' } }), 'Hi');
+  assertEquals(postbackText({ postback: { title: 'How much? Available?', payload: 'How much? Available?' } }), 'How much? Available?');
+  assertEquals(postbackText({ postback: { title: 'Staying now? Priority help', payload: 'PRIORITY' } }), '');
+  assertEquals(postbackText({ postback: { payload: 'GET_STARTED', referral: { ref: 'priority' } } }), '');
+  assertEquals(postbackText({ message: { text: 'hi' } }), '');
 });

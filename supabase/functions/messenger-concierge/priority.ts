@@ -37,3 +37,10 @@ export function stayIsCurrent(r: VerifyResult | null, now = new Date()): boolean
   const today = manilaToday(now);
   return !!r?.match && !!r.checkin_date && !!r.checkout_date && r.checkin_date <= today && today <= r.checkout_date;
 }
+
+/** A menu tap that is not priority help is the guest's question in the button's words; Get Started (Meta requires the button
+ *  for a persistent menu) is a hello, so a new chatter who taps it gets the greeting, not silence. */
+export function postbackText(ev: Record<string, any>): string {
+  if (!ev?.postback || priorityEntry(ev)) return '';
+  return ev.postback.payload === 'GET_STARTED' ? 'Hi' : String(ev.postback.title ?? '').trim();
+}
