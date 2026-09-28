@@ -45,6 +45,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { withHeader, groups, doSend, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
+import { welcomeBack } from '../messenger-concierge/persona.ts';
+import { dmRange } from '../messenger-concierge/booking.ts';
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -314,8 +316,7 @@ async function handleBooking(
   const ctxLines = guestContextLines(await guestContext(supabase, { guestId, name: event.guest_name })).map(esc);
   // Session 28: a returning guest gets the welcome-back message ready to send (Copy / Revise buttons).
   const first = String(event.guest_name ?? '').split(' ')[0] || 'there';
-  const when = event.checkin_date && event.checkout_date ? ` on ${event.checkin_date} to ${event.checkout_date}` : '';
-  const welcome = `Hi ${first}, welcome back to Cascade Hideaway! We are glad to have you with us again${when}. Everything will be ready the way you like it - just message us if there is anything you need before you arrive. 🌿`;
+  const welcome = welcomeBack(first, event.checkin_date && event.checkout_date ? dmRange(event.checkin_date, event.checkout_date) : ''); // session 58: persona gate
   const doLines = isReturning
     ? [...doSend(first, esc(welcome)), ...(ctxLines.some((l) => l.startsWith('🧹')) ? ['Then confirm the last issue is closed.'] : [])]
     : [`Do: prepare for check-in${event.checkin_date ? ` on ${event.checkin_date}` : ''}.`];

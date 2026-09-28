@@ -533,6 +533,11 @@ export const receiptLapsed = (what: 'hold' | 'link', lang: Lang | undefined) => 
   tl: `Salamat po. Nag-expire na ang upload link — message lang po "book" and we'll set the dates up again.`,
   bis: `Salamat. Na-expire na ang upload link — message lang "book" and amo i-set up ang dates again.`,
 });
+/** airbnb-email-sync (session 28): the welcome-back line a host sends a returning Airbnb guest from the new-booking card.
+ *  Session 58: it lived in that function with an "!" and ISO dates ("2026-10-02 to 2026-10-04"); `dates` is dmRange's
+ *  "Oct 2 to 4", or '' when unknown. English: the host sends it on Airbnb. */
+export const welcomeBack = (first: string, dates: string) =>
+  `Hi ${first}, welcome back to Cascade Hideaway. We're glad to have you with us again${dates ? ` on ${dates}` : ''}. Everything will be ready the way you like it; just message us if there's anything you need before you arrive. 🌿`;
 /** The image would not open, or the upload failed for another reason: the guest sends it again. */
 export const receiptRetry = (lang: Lang | undefined) => by(lang, {
   en: `Sorry, I couldn't open that image. Could you send it once more?`,

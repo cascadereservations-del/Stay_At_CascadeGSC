@@ -2,7 +2,7 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictOf, type PriorUse } from './followup.ts';
 import { groups, doSend } from '../_shared/cascade-core/format.ts';
-import { lintReply } from '../messenger-concierge/voice.ts';
+import { lintReply, toneRules } from '../messenger-concierge/voice.ts';
 import { templateOf, TEMPLATE_MARK } from '../_shared/cascade-core/format.ts';
 
 Deno.test('verdict: the Maya pre-send screen (amount null) is not a proof; short and match by amount', () => {
@@ -16,7 +16,7 @@ Deno.test('verdict: the Maya pre-send screen (amount null) is not a proof; short
 Deno.test('sample replies: one paragraph, pass the voice lint, no po in Bisaya, exact amounts', () => {
   for (const lang of ['en', 'tl', 'bis'] as const) for (const v of ['not_proof', 'short'] as const) {
     const m = guestFollowUp(v, lang, 'Ben Cruz', 1691, 1000);
-    assertEquals(lintReply(m), [], `${lang}/${v}`);
+    assertEquals([...lintReply(m), ...toneRules(m, lang)], [], `${lang}/${v}`); // session 58: the persona gate too
     assertEquals(/\n/.test(m), false);
     assertEquals(m.startsWith('Hi Ben'), true);
     assertEquals(m.includes('₱1,691'), true);
