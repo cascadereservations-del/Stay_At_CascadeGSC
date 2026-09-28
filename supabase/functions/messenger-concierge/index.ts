@@ -718,9 +718,12 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
 }
 
 export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects = liveEffects, now = new Date()): Promise<void> {
-  // Session 59: a priority-help postback (menu button, ice breaker) or m.me referral has no message; it becomes an empty turn.
+  // Session 59: a priority-help postback or m.me referral has no message; it becomes an empty turn. Any other menu tap is the
+  // guest's question in the button's words (the Page's "How much? Available?" menu items reached no one before: the webhook
+  // had no postback field and this function dropped every event without a message).
   const entry = priorityEntry(ev);
-  const msg = ev.message ?? (entry ? { mid: ev.postback?.mid ?? `ref-${ev.timestamp ?? now.getTime()}`, text: '' } : null); if (!msg) return;
+  const pbText = !entry && ev.postback?.payload !== 'GET_STARTED' ? String(ev.postback?.title ?? '').trim() : '';
+  const msg = ev.message ?? (entry ? { mid: ev.postback?.mid ?? `ref-${ev.timestamp ?? now.getTime()}`, text: '' } : pbText ? { mid: ev.postback?.mid, text: pbText } : null); if (!msg) return;
   await loadContact(db); // Lloyd 2026-09-28: the on-ground contact comes from the dashboard (app_settings), 60 s cache
   await loadCard(db); // SPEC-34: every quote this turn reads the stored rate card (60 s cache; seed card + log on failure)
 
@@ -1203,11 +1206,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   });
 }
 
-// Session 59: the priority-help entry points on the Page - persistent menu item and ice breaker (postback PRIORITY), and the
-// webhook fields that deliver postbacks and m.me referrals. Probe-secret gated; ?profile=get reads, ?profile=set merges
-// ours into what is there (never drops an existing item). Titles: menu <= 30 chars, ice breaker <= 80 (Meta limits).
+// Session 59: the priority-help entry point on the Page - a persistent menu item (postback PRIORITY), first - and the app's
+// webhook fields that deliver postbacks and m.me referrals. Probe-secret gated; ?profile=get reads, ?profile=set merges ours
+// into what is there (never drops an item). No ice breaker: it shows only to new chatters, nearly all prospects. The page's
+// own subscribed fields need pages_manage_metadata, which the page token lacks - that checkbox is the Meta dashboard's.
 const PRIORITY_MENU = { type: 'postback', title: 'Staying now? Priority help', payload: 'PRIORITY' };
-const PRIORITY_ICE = { question: "I'm staying now and need priority help", payload: 'PRIORITY' };
 const PAGE_FIELDS = ['messages', 'message_echoes', 'messaging_postbacks', 'messaging_referrals'];
 async function messengerProfile(set: boolean): Promise<Response> {
   const tok = env('META_PAGE_TOKEN'), app = `${env('META_APP_ID')}|${env('META_APP_SECRET')}`;
@@ -1224,15 +1227,9 @@ async function messengerProfile(set: boolean): Promise<Response> {
   const prof = (before.profile as any)?.data?.[0] ?? {};
   const menu = (prof.persistent_menu ?? []).find((m: any) => m.locale === 'default') ?? { locale: 'default', composer_input_disabled: false, call_to_actions: [] };
   if (!(menu.call_to_actions ?? []).some((c: any) => c.payload === 'PRIORITY')) menu.call_to_actions = [PRIORITY_MENU, ...(menu.call_to_actions ?? [])];
-  const ice = (prof.ice_breakers ?? []).find((m: any) => m.locale === 'default')?.call_to_actions ?? [];
-  if (!ice.some((c: any) => c.payload === 'PRIORITY')) ice.push(PRIORITY_ICE);
   out.profile = await post(`${GRAPH}/${PAGE_ID}/messenger_profile?access_token=${tok}`, {
-    get_started: prof.get_started ?? { payload: 'GET_STARTED' }, // Meta requires it for a persistent menu
     persistent_menu: [menu, ...(prof.persistent_menu ?? []).filter((m: any) => m.locale !== 'default')],
-    ice_breakers: [{ locale: 'default', call_to_actions: ice }],
   });
-  const pageHave: string[] = ((before.page_fields as any)?.data ?? []).find((a: any) => String(a.id) === env('META_APP_ID'))?.subscribed_fields ?? [];
-  out.page_fields = await post(`${GRAPH}/${PAGE_ID}/subscribed_apps?access_token=${tok}`, { subscribed_fields: [...new Set([...pageHave, ...PAGE_FIELDS])] });
   const sub = ((before.app_fields as any)?.data ?? []).find((x: any) => x.object === 'page');
   const appHave: string[] = (sub?.fields ?? []).map((f: any) => f.name);
   if (sub?.callback_url && !PAGE_FIELDS.every((f) => appHave.includes(f))) {

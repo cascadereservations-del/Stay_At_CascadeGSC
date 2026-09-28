@@ -104,3 +104,11 @@ Deno.test('after the ask, a message with no date is an ordinary turn (a complain
   assertEquals(r.rpcs.length, 0);
   assertEquals(r.saved?.history.at(-1).route?.priority, undefined);
 });
+
+Deno.test('any other menu tap is the guest asking in the button words; Get Started stays silent', async () => {
+  const r = await turn({ postback: { title: 'I forgot the door code', payload: 'DOOR', mid: 'pb2' } });
+  assertEquals(r.handoffs.map((h) => h.detail.risk), ['access']);
+  assertEquals(r.saved.history.find((h: any) => h.role === 'guest').text, 'I forgot the door code');
+  const g = await turn({ postback: { title: 'Get Started', payload: 'GET_STARTED', mid: 'pb3' } });
+  assertEquals([g.reply, g.saved], ['', undefined]);
+});
