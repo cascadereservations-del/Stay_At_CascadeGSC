@@ -7,7 +7,9 @@ export type RiskCode =
 const RULES: Array<[RiskCode, RegExp]> = [
   ['safety',           /\b(emergency|fire|flood|injur|hurt|bleed|police|ambulance|unsafe|threat|suicid|kill myself|harass|stalk|smoke (coming|from|in the|everywhere)|smell(s|ing)? (of )?(gas|smoke|burning)|burning smell|gas leak|sparks?|electric(al)? shock|short circuit)/i], // D-270: Jev bench - "smoke coming from the kitchen" was routine; "can we smoke?" stays a house-rule question
   // "pin" needs a closing boundary: Bisaya "pinakaduol" (nearest) was gated as an access request (live 2026-09-13).
-  ['access',           /\b(door code|access code|pin\b|passcode|keypad|locked out|can'?t (get in|open)|door won'?t|smart ?lock)/i],
+  // Session 58 (live lockout 2026-09-28, "nakalimutan ko po yung code ... didn't bring a card" read as routine; only Jev
+  // caught it): a forgotten code, key or card and "can't get inside" in all three registers are the door too.
+  ['access',           /\b(door code|access code|pin\b|passcode|keypad|locked (myself |ourselves |us )?out|can'?t (get in|open|get inside|go inside|enter)|door won'?t|smart ?lock|forg[eo]t\w*\b[^.?!\n]{0,25}\b(door|access|gate|pin|key|keys|card|keycard)\b|didn'?t bring\b[^.?!\n]{0,15}\b(key|keys|card|keycard)\b|nakalimutan\b[^.?!\n]{0,30}\b(code|pin|susi|card)\b|naiwan\b[^.?!\n]{0,30}\b(susi|card|key)\b|(hindi|di) (po )?(ako |kami )?(maka-?pasok|makapasok)|(dili|di) (ko|mi|kami) (ka)?sulod)/i],
   // "Is the deposit refundable?" is a routine policy question; asking for money back is not.
   // SPEC-32 s2 (F14): "refunded", "refund policy" and "refunds rule" are a prospect's policy question - they escalate only
   // on a thread that holds a booking or names one (REFUND_BOOKED below). A bare "refund" ("I want a refund") always does.

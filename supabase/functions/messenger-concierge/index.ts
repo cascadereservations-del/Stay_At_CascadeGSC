@@ -11,7 +11,7 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, closers, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, closers, handoffFollowUp, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
@@ -416,6 +416,14 @@ async function pendingBlock(db: Db, psid: string): Promise<string> {
   return `\n\nPENDING WITH THE HOST (already passed along; the host will answer these personally):\n${lines.join('\n')}\nKeep answering everything else normally. If the guest asks about a pending item again, say warmly that the host is reviewing it and will reply personally - do not answer it yourself and do not promise an outcome.`;
 }
 
+/** Session 58 (live lockout 2026-09-28): the host-owned matters this guest has open from the last 24 h, newest first. */
+const HOST_OWNED: RiskCode[] = ['access', 'safety', 'complaint', 'payment', 'refund', 'cancellation'];
+async function openHostRisks(db: Db, psid: string, now: Date): Promise<{ risk: RiskCode; at: number }[]> {
+  const { data } = await db.from('concierge_handoffs').select('risk, created_at').eq('psid', psid).eq('status', 'open')
+    .gte('created_at', new Date(now.getTime() - HUMAN_HOLD_MS).toISOString()).order('created_at', { ascending: false }).limit(10);
+  return ((data ?? []) as { risk: RiskCode; created_at: string }[]).filter((h) => HOST_OWNED.includes(h.risk)).map((h) => ({ risk: h.risk, at: Date.parse(h.created_at) }));
+}
+
 async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note = '', anyWording = false): Promise<void> {
   const chat = env('TELEGRAM_CHAT_ID'); if (!chat) return;
   // A repeat of the SAME ask within 24 h nudges nobody twice. It used to be one open card per
@@ -439,7 +447,8 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
     });
     if (wo?.id) woLine = `🔧 Work order #${wo.id.slice(0, 8)} ${wo.created ? 'raised' : 'already open'}${wo.blocks_arrival ? ' — blocks the next arrival until closed' : ''}`;
   }
-  const body = withHeader('guest', `handoff · ${risk}`, [
+  // Session 58: a lockout or a safety report is an alert, not a guest note - it must stand out in OPS at night.
+  const body = withHeader(risk === 'access' || risk === 'safety' ? 'alert' : 'guest', `handoff · ${risk}`, [
     `🛎 Guest needs the host (${risk})`,
     `Guest: ${thread.guest_name ?? thread.psid}`,
     `> ${text.slice(0, 400)}`,
@@ -698,8 +707,15 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const ruleOnly = !!ruleKind && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
   const negotiate = !!text && g.risk === 'policy_exception' && !ruleOnly;
   const hostAsk = discountAsk || negotiate;
-  let risk: RiskCode = text ? g.risk : 'uncertain';
-  let handoff = (g.handoff && !negotiate) || !text;   // the bot steps aside: handoff line to the guest, 24 h hold
+  // Session 58 (live lockout 2026-09-28): after the access handoff the guest's callback number and name went to the model
+  // as routine turns; it said "we've passed it along" without passing anything and closed on "let us know your preferred
+  // dates". A routine follow-up within 12 h of an open access or safety handoff now joins it: a new host card carries the
+  // message, and the guest gets handoffFollowUp. Any open host-owned matter also mutes the booking close and look block.
+  const hostOpen = text ? await openHostRisks(db, psid, now) : [];
+  const urgentOpen = g.risk === 'routine' && !isActive(thread.booking_flow, now) && !THANKS_RE.test(text) && !CLOSER_ONLY_RE.test(text)
+    ? hostOpen.find((h) => (h.risk === 'access' || h.risk === 'safety') && now.getTime() - h.at < 12 * 3_600_000)?.risk ?? null : null;
+  let risk: RiskCode = text ? (urgentOpen ?? g.risk) : 'uncertain';
+  let handoff = (g.handoff && !negotiate) || !text || !!urgentOpen;   // the bot steps aside: handoff line to the guest, 24 h hold
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
   let draftNote = '';                 // D-227: a spent model budget, named on the host's card
   let reply = '';
@@ -796,7 +812,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (flowReply) reply = flowReply;
   // D-269 (live 2026-09-27: "Is party allowed?" got only the handoff line): a house-rule question is answered from FACTS,
   // and the host still gets the card.
-  else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : HANDOFF[risk]; }
+  else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : urgentOpen ? handoffFollowUp(l3Of(turnLang)) : HANDOFF[risk]; }
   // Session 58 live probe: "salamat" alone reads as Taglish, so a settled Bisaya thread got "It's our pleasure po". A
   // Taglish-reading closer keeps Bislish when the last two guest turns were Bisaya (D-172's own two-turn rule).
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
@@ -985,10 +1001,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       // Mid-flow the resumed card already shows the site once (D-172), so only a reviews or trust
       // question earns anything, and only the reviews line.
-      const look = (handoff || hostAsk || payHold || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
+      const look = (handoff || hostAsk || payHold || hostOpen.length > 0 || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
         : flowFollowUp ? (TRUST_RE.test(text) ? lookNudge(text, l3, { site: true, reviews: reviewsShown }) : '')
         : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
-      if (!hostAsk && !look && !payHold) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
+      if (!hostAsk && !look && !payHold && !hostOpen.length) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (thread.guest_name) reply = dropNameAsk(reply); // golden run 2: the model asked a guest we already know for their name

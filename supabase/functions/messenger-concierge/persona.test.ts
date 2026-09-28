@@ -74,6 +74,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   receiptAlready: (l) => [P.receiptAlready(l)],
   receiptLapsed: (l) => [P.receiptLapsed('hold', l), P.receiptLapsed('link', l)],
   receiptRetry: (l) => [P.receiptRetry(l)],
+  handoffFollowUp: (l) => [P.handoffFollowUp(l)],
   welcomeBack: () => [P.welcomeBack('Joseph', 'Oct 2 to 4'), P.welcomeBack('there', '')],
 };
 /** Lloyd approved these word for word: they carry his "!" greeting and up to six purposeful "po" (voice.test.ts pins them). */

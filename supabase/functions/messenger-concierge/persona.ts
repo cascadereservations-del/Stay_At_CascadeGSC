@@ -421,6 +421,13 @@ export const HANDOFF: Record<RiskCode, string> = {
   policy_exception: "That's a request our host would love to consider personally. We've passed it along, and you can expect a reply soon.",
   uncertain:        "Let us bring in our host for this one so you receive a complete answer. They'll be with you shortly.",
 };
+/** Session 58 (live lockout 2026-09-28): the guest's next message while an access or safety handoff is open (a callback
+ *  number, their name). It goes to the host as its own card, so "passed on" is true; no booking close, no link. */
+export const handoffFollowUp = (lang: Lang) => by(lang, {
+  en: `Thank you. We've passed this on to our host together with your earlier message, and they'll reach you directly.`,
+  tl: `Salamat po. Na-pass na namin ito sa host kasama ng nauna ninyong message, and they'll reach you directly.`,
+  bis: `Salamat. Na-pass na namo ni sa host uban sa inyong nauna nga message, and they'll reach you directly.`,
+});
 /** A sticker, photo or reaction with no text: a prospect, so the link rather than a handoff line. */
 export const ATTACHMENT_REPLY = `Thank you for your message. If you have dates in mind, share them here and we'll check the calendar for you, or you may see the home, live availability and our direct rates on our site:\n\n👉 ${SITE_URL}`;
 /** Suggest mode: the guest hears this while the host picks a reply. */
