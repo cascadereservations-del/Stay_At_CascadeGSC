@@ -233,11 +233,6 @@ export function doorCodeCard(ref: string, f: Fields): string {
   ].join('\n');
 }
 
-/** Message 5.2 is held (a person writes instead) while a complaint or safety handoff is open, or a work order raised
- *  during the stay is still open (design section 3). */
-export function afterDepartureHold(openHandoffs: Array<{ risk?: string | null; status?: string | null }>, openWorkOrders: number): boolean {
-  return openWorkOrders > 0 || openHandoffs.some((h) => h.status === 'open' && ['complaint', 'safety'].includes(String(h.risk)));
-}
 
 /** The channel rule (design section 2): Messenger when the guest wrote in the last 23 h; the tapped confirmation may use
  *  HUMAN_AGENT inside Meta's 7 days (a person just tapped Confirm), never a scheduled message; else e-mail; else card only. */

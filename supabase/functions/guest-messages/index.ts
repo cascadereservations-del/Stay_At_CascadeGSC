@@ -15,7 +15,7 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { withHeader, groups, autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { fbSendText, threadForBooking } from '../_shared/cascade-core/messenger.ts';
-import { SUBJECT, afterDepartureHold, channelFor, chunks, day, doorCodeCard, render, type Key } from './templates.ts';
+import { SUBJECT, channelFor, chunks, day, doorCodeCard, render, type Key } from './templates.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -40,15 +40,15 @@ async function tgSend(text: string, chat = OPS_CHAT, markup: unknown = autoKeybo
   if (r && !r.ok) console.error('tgSend non-ok', r.status, (await r.text().catch(() => '')).slice(0, 200));
 }
 
-/** Message 5.2's skip rule (design section 3): an open complaint/safety handoff on the guest's thread, or an open work order
- *  raised during the stay. work_orders has no booking link (source_ref names a cleaning session), so the stay's dates are
- *  the link. A failed read counts as open: the host writes personally, which is never wrong. */
+/** Message 5.2's skip rule (design section 3), in SQL: guest_message_hold_v1 - an open complaint/safety handoff on the
+ *  booking's thread, or an open work order raised on the stay's dates. It is an RPC because work_orders is revoked from
+ *  service_role (the table read got "permission denied" on the 2026-09-27 synthetic run and held every 5.2). A failed
+ *  read still counts as open: the host writes personally, which is never wrong - and the card says why. */
 // deno-lint-ignore no-explicit-any
-async function complaintOpen(db: any, psid: string | null, checkin: string, checkout: string): Promise<boolean> {
-  const h = psid ? await db.from('concierge_handoffs').select('risk,status').eq('psid', psid).eq('status', 'open') : { data: [], error: null };
-  const w = await db.from('work_orders').select('id').eq('status', 'open').gte('created_at', `${checkin}T00:00:00+08:00`).lte('created_at', `${checkout}T23:59:59+08:00`).limit(1);
-  if (h.error || w.error) { console.error('complaintOpen read failed', String(h.error?.message ?? w.error?.message)); return true; }
-  return afterDepartureHold(h.data ?? [], (w.data ?? []).length);
+async function complaintOpen(db: any, bookingId: string): Promise<boolean> {
+  const { data, error } = await db.rpc('guest_message_hold_v1', { p_booking_id: bookingId });
+  if (error) { console.error('guest_message_hold_v1 failed', String(error.message)); return true; }
+  return data === true;
 }
 
 /** null when the relay accepted it, else a short reason. The relay answers {result: 'success' | 'skipped' | 'error'}. */
@@ -107,7 +107,7 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         const key = lockKey;
         const t = await threadForBooking(db, d.booking_id);
         const lastGuestAt = Math.max(0, ...((t?.history ?? []) as Array<{ role?: string; at?: string }>).filter((h) => h?.role === 'guest').map((h) => Date.parse(String(h.at)) || 0));
-        const hold = key === 'after_departure' && await complaintOpen(db, t?.psid ?? null, b.checkin_date, b.checkout_date);
+        const hold = key === 'after_departure' && await complaintOpen(db, d.booking_id);
         const plan = hold ? { channel: 'card_only' as const, humanAgent: false } : channelFor(key, lastGuestAt, !!t, !!b.guest_email, body.tapped === true, now);
         if (dry) { results.push({ ref, key, channel: plan.channel, human_agent: plan.humanAgent, hold }); continue; }
 

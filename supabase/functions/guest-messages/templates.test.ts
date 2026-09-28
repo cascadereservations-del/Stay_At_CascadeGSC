@@ -1,7 +1,7 @@
 // deno test --no-check --allow-env guest-messages/
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { lintReply } from '../messenger-concierge/voice.ts';
-import { SUBJECT, afterDepartureHold, atCheckinLine, channelFor, chunks, day, doorCodeCard, render, type Channel, type Fields, type Key } from './templates.ts';
+import { SUBJECT, atCheckinLine, channelFor, chunks, day, doorCodeCard, render, type Channel, type Fields, type Key } from './templates.ts';
 
 // The word rules only: the chat-length rules (too_long, too_dense, two_asks) do not apply to a scheduled host message (design section 6).
 const WORD = ['form_speak', 'robot_word', 'shouting', 'command_tone', 'exclaim', 'boilerplate'];
@@ -111,12 +111,4 @@ Deno.test('messages 4, 5.1, 5.2 open with the first name and carry the relay sub
   assert(render('after_departure', ben, 'email').startsWith('Hi Ben,'));
   assertEquals([SUBJECT.mid_stay, SUBJECT.checkout_reminder, SUBJECT.after_departure], ["A mid-stay refresh, if you'd like one", 'Your check-out today', 'Thank you for staying with us']);
 });
-
-Deno.test('message 5.2 is held for an open complaint or safety handoff, or an open work order from the stay', () => {
-  assertEquals(afterDepartureHold([], 0), false);
-  assertEquals(afterDepartureHold([{ risk: 'complaint', status: 'open' }], 0), true);
-  assertEquals(afterDepartureHold([{ risk: 'safety', status: 'open' }], 0), true);
-  assertEquals(afterDepartureHold([{ risk: 'complaint', status: 'dismissed' }], 0), false);
-  assertEquals(afterDepartureHold([{ risk: 'payment', status: 'open' }], 0), false);
-  assertEquals(afterDepartureHold([], 1), true);
-});
+// The 5.2 hold rule lives in SQL (guest_message_hold_v1) and is pinned by pgTAP stay-site tests/database/guest_message_reads.sql.
