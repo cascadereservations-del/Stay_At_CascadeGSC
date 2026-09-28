@@ -122,7 +122,7 @@ Deno.test('Get Started is a hello; the priority button and the guide link are no
 });
 
 // D-281 (DESIGN-contact-host-button-2026-09-28): one "Reach my host" button, only when the guest seems to be staying now.
-import { CONTACT_CHIP, contactHostChip } from './priority.ts';
+import { CONTACT_CHIP, contactHostChip, isStayingNow } from './priority.ts';
 const base = { risk: 'routine', profileName: 'Sean', inHouse: ['Joseph Ewing'], flowActive: false, priorityOpen: false, history: [] as any[], now };
 const fires = (t: string, o: Partial<typeof base> = {}) => contactHostChip(t, { ...base, ...o }) !== null;
 
@@ -152,4 +152,9 @@ Deno.test('a tap on the button enters priority help in the guest register, not t
   const r = await turn({ message: { mid: 'q1', text: 'Reach my host', quick_reply: { payload: 'PRIORITY' } } }, [{ role: 'guest', text: 'andito na po kami, wala pong tubig', at: ago(0.2) }, { role: 'bot', text: 'x', at: ago(0.2) }]);
   assertEquals(/^Sige po, nandito lang kami/.test(r.reply), true, r.reply);
   assertEquals(r.saved.history.at(-2).route, { src: 'chip' });
+});
+
+Deno.test('a guest at the residence now is staying (no booking pitch); a past or prospective guest is not', () => {
+  for (const t of ["I'm staying here right now until Sunday, is there parking?", 'andito na po kami', 'ako po yong nag rerent nung airbnb now']) assertEquals(isStayingNow(t), true, t);
+  for (const t of ['is there parking?', 'I stayed here last year', 'We rented here last year, how much now?', 'can we stay 3 nights?']) assertEquals(isStayingNow(t), false, t);
 });

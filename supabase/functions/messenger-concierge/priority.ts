@@ -63,6 +63,12 @@ const COMPANION_RE = /\b(friend|girlfriend|boyfriend|wife|husband|partner|sister
 const PLACEHOLDER = new Set(['', 'reserved', 'airbnb', 'not', 'guest']);
 const first = (s: string | null | undefined) => (s ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
 
+/** The guest says they are at the residence now ("nag rerent ... now", "andito na po kami", "my stay here is until Sunday");
+ *  "rented last year, how much now?" is a prospect. Also mutes the booking pitch for them (Lloyd 2026-09-28). */
+export function isStayingNow(text: string): boolean {
+  return text.split(/[.?!\n]+/).some((x) => HERE_NOW_RE.test(x) || (STAYING_RE.test(x) && NOW_RE.test(x) && !PAST_RE.test(x)));
+}
+
 /** The contact-host quick reply for this turn, or null. `inHouse`: guest_name / raw_summary of stays on today. */
 export function contactHostChip(text: string, o: {
   risk: string; profileName: string | null; inHouse: string[]; flowActive: boolean; priorityOpen: boolean;
@@ -70,8 +76,7 @@ export function contactHostChip(text: string, o: {
 }): typeof CONTACT_CHIP | null {
   if (o.flowActive || o.priorityOpen || !text) return null;
   if (o.history.some((h) => h.role === 'bot' && h.route?.chip === PRIORITY_PAYLOAD && o.now.getTime() - Date.parse(h.at) < 12 * 3_600_000)) return null;
-  const sentences = text.split(/[.?!\n]+/);
-  const staying = sentences.some((x) => HERE_NOW_RE.test(x) || (STAYING_RE.test(x) && NOW_RE.test(x) && !PAST_RE.test(x))); // "rented last year, how much now?" is a prospect
+  const staying = isStayingNow(text);
   const hostAsk = HOST_ASK_RE.test(text) && !PROSPECT_RE.test(text);
   const companion = COMPANION_RE.test(text) && ['access', 'safety', 'complaint'].includes(o.risk);
   const names = [first(parseName(text)), first(o.profileName)].filter((n) => n.length >= 2);

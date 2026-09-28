@@ -18,7 +18,7 @@ import { needsCalendarCheck } from './booking.ts';
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
-import { CONTACT_CHIP, contactHostChip, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
+import { CONTACT_CHIP, contactHostChip, isStayingNow, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, SITE_URL, discountRange, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
@@ -829,6 +829,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // dates". A routine follow-up within 12 h of an open access or safety handoff now joins it: a new host card carries the
   // message, and the guest gets handoffFollowUp. Any open host-owned matter also mutes the booking close and look block.
   const hostOpen = await openHostRisks(db, psid, now); // G5: an attachment reads it too
+  // Lloyd 2026-09-28 ("skip the nudge for staying guests"): someone at the residence now, this turn or in the last 24 h, gets
+  // no booking pitch from code - no dates nudge, no site invite, no "arrange it here in the chat".
+  const stayingNow = isStayingNow(text) || thread.history.some((h) => h.role === 'guest' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000 && isStayingNow(h.text));
   // Live test 2026-09-28 11:42-11:45Z: a repeat of the door ask ("nakalimutan ko ang code", "hindi ako makapasok") got the
   // full access line each time, "naiwan aking cellphone sa loob" got the complaint line, and "available tonight?" was
   // swallowed as a follow-up. The same matter (routine, access, complaint) joins the open card; a question Jev is sure
@@ -1101,7 +1104,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // !followUp meant an active thread never heard it until a 6-hour gap (the ninth reply, live).
       if (!introduced && !flowFollowUp) reply = breakAfterIntro(withIntro(reply, l3));
       reply = gladNotHappy(reply);
-      if ((!followUp || (hostAsk && !siteShown)) && !reply.includes(SITE_URL) && !flowFollowUp && !payHold) reply = beforeClose(reply, firstInvite(l3, SITE_URL)); // D-269: a second discount turn does not repeat the link
+      if ((!followUp || (hostAsk && !siteShown)) && !reply.includes(SITE_URL) && !flowFollowUp && !payHold && !stayingNow) reply = beforeClose(reply, firstInvite(l3, SITE_URL)); // D-269: a second discount turn does not repeat the link
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (hostAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }
       // D-269 (live 2026-09-27: the same "That's a request our host would love to consider" closed two replies in a row): the
@@ -1113,7 +1116,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       }
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
-      if (followUp && !payHold && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply = beforeClose(reply, decisionInvite(l3, SITE_URL)); // session 30: never a bare link after the close
+      if (followUp && !payHold && !stayingNow && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply = beforeClose(reply, decisionInvite(l3, SITE_URL)); // session 30: never a bare link after the close
       // Repair a dangling "…on our site:" BEFORE the nudge decides (live 2026-09-17 19:12: the nudge saw no link,
       // appended its own line, and only then was the link put back - two invitations).
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po');
@@ -1128,12 +1131,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const look = (handoff || hostAsk || payHold || hostOpen.length > 0 || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
         : flowFollowUp ? (TRUST_RE.test(text) ? lookNudge(text, l3, { site: true, reviews: reviewsShown }) : '')
         : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
-      if (!hostAsk && !look && !payHold && !hostOpen.length) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
+      if (!hostAsk && !look && !payHold && !hostOpen.length && !stayingNow) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (thread.guest_name) reply = dropNameAsk(reply); // golden run 2: the model asked a guest we already know for their name
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
-      if (!flowFollowUp && !hostAsk && !payHold) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
+      if (!flowFollowUp && !hostAsk && !payHold && !stayingNow) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
       if (payHold) { const held = payHoldReply(reply, paidClaimReply(flow!, flow!.name ?? thread.guest_name, l3), SITE_URL); if (held !== reply) console.warn('pay_hold_guard', reply.slice(0, 160)); reply = held; }
       if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2);
       // Appended last: linkSolo rewrites any line holding SITE_URL into a solo 👉 line, which would
