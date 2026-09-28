@@ -71,6 +71,8 @@ async function conciergeDraft(before: Line[], latest: string, name: string | nul
   const j = r?.ok ? await r.json().catch(() => null) : null;
   const t = j?.ok ? j.turns?.[0] : null;
   if (!t?.reply || /DIR-PROBE/.test(t.reply)) return null; // a probe booking reference must never reach a host's clipboard
+  // The concierge's own fallback when its model call fails (live 2026-09-28: the probe key 401'd) is not a draft.
+  if (/^Let us bring in our host/.test(t.reply.trim())) { console.warn('cassy_brain_fallback', JSON.stringify({ risk: t.risk })); return null; }
   return { reply: forHost(t.reply), step: t.step ?? null, risk: t.risk ?? null, effects: t.effects ?? [] };
 }
 
