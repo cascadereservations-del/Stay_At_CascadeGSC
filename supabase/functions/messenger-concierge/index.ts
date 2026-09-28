@@ -736,7 +736,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // from FACTS like a discount ask, and the host still gets the card with two options. A bare "our host will consider it"
   // left the guest's question unanswered (live 2026-09-27). Safety, access, payment, refund, complaint and cancellation
   // stay pure handoffs: there the bot must not improvise.
-  const negotiate = !!text && g.risk === 'policy_exception' && !houseRuleKind(text);
+  // The canned house-rule answer only when the rule IS the question: "Is Oct 20 to 22 available? Also is party allowed?"
+  // lost its dates question to it (live Cassy test 2026-09-28) - a mixed message is answered whole by the model.
+  const ruleOnly = !!houseRuleKind(text) && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
+  const negotiate = !!text && g.risk === 'policy_exception' && !ruleOnly;
   const hostAsk = discountAsk || negotiate;
   let risk: RiskCode = text ? g.risk : 'uncertain';
   let handoff = (g.handoff && !negotiate) || !text;   // the bot steps aside: handoff line to the guest, 24 h hold
@@ -835,7 +838,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (flowReply) reply = flowReply;
   // D-269 (live 2026-09-27: "Is party allowed?" got only the handoff line): a house-rule question is answered from FACTS,
   // and the host still gets the card.
-  else if (handoff) { const rule = risk === 'policy_exception' ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : HANDOFF[risk]; }
+  else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : HANDOFF[risk]; }
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, turnLang, THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
@@ -870,7 +873,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const recentBot = thread.history.filter((h) => h.role === 'bot').slice(-3).map((h) => h.text).join('\n');
       const figures = (rawAnchor.match(/PHP [\d,]+/g) ?? []).filter((a) => a !== peso(currentCard().base));
       const anchor = figures.some((a) => recentBot.includes(a)) ? '[The stay figures were already given in this chat: refer to them in a few words, do not repeat them.] ' : rawAnchor;
-      const discHint = hostAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).filter((p) => !rawAnchor && !recentBot.includes(p.name)).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - ${siteShown ? 'the site link is already in this chat, so do not repeat it; close with one soft question about their dates' : 'then the link'}. Do not quote any other number and do not promise a special price.] ${anchor}`
+      const houseMixed = negotiate && !!houseRuleKind(text); // D-270: a house rule inside a longer message - the rule, then everything else
+      const discHint = houseMixed ? `[A house rule is asked (${houseRuleKind(text)}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).filter((p) => !rawAnchor && !recentBot.includes(p.name)).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - ${siteShown ? 'the site link is already in this chat, so do not repeat it; close with one soft question about their dates' : 'then the link'}. Do not quote any other number and do not promise a special price.] ${anchor}`
         : promoAsk ? `[Promo ask: answer in two short paragraphs after the greeting - ${livePromos(currentCard(), now).map((p) => `our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('; ')}; outside those nights, booking direct still lowers the nightly rate the longer the stay. Ask which dates they have in mind. Quote no other number and no other "was" price.] ${anchor}`
         : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';

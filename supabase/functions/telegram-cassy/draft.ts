@@ -55,6 +55,8 @@ const FLAG: Partial<Record<RiskCode, string>> = {
 export function forHost(reply: string): string {
   let r = reply;
   for (const s of Object.values(CASSY_INTRO)) r = r.replace(s.trim(), '').replace(/\n{3,}/g, '\n\n');
+  // "we've shared your message with our host" is the bot's line; the host sending the draft IS the host (live test 2026-09-28).
+  r = r.replace(/[^.!?\n]*\b(shared your (message|request) with (our host|them)|our host also looks at special requests|na-share na (namin|namo))[^.!?\n]*[.!?][ \t]*/gi, '').replace(/\n{3,}/g, '\n\n');
   return leafAtClose(r.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').trim());
 }
 
