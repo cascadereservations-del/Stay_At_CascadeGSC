@@ -1206,19 +1206,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   });
 }
 
-// Session 59: the priority-help entry point on the Page - a persistent menu item (postback PRIORITY), first - and the app's
-// webhook fields that deliver postbacks and m.me referrals. Probe-secret gated; ?profile=get reads; with ?profile=set
-// the default-locale menu is exactly MENU (other locales kept). No ice breaker: it shows only to new chatters, nearly all prospects. Get Started
-// is set because Meta refuses a menu change without it (#100, live 2026-09-28); a tap on it is a hello (postbackText). The
-// page's own subscribed fields need pages_manage_metadata, which the page token lacks - that checkbox is the Meta dashboard's.
-// Lloyd 2026-09-28 (guests first; "it does not sound luxury or warm" -> the warm-host wording): a short label; the payload
-// is the question the bot receives.
-const MENU = [
-  { type: 'postback', title: "Staying with us? We're here", payload: 'PRIORITY' },
-  { type: 'postback', title: 'Dates and rates', payload: 'How much is it, and are my dates available?' },
-  { type: 'postback', title: 'The neighbourhood', payload: 'Where exactly are you, and what is the area like? Is it safe?' },
-  { type: 'postback', title: 'Comforts of the home', payload: 'What comforts does the home have? Wi-Fi, Netflix, parking?' },
-];
+// Session 59 (Lloyd 2026-09-28, "we're over complicating things ... revert to previous without any menu"): ?profile=get reads
+// the Page's Messenger profile and webhook fields; ?profile=set CLEARS the persistent menu and the Get Started button (the
+// chat is a plain text box again) and keeps the app's webhook fields (postbacks and m.me referrals still reach the bot -
+// the welcome guide's priority link and the contact-host button use them). Probe-secret gated.
 const PAGE_FIELDS = ['messages', 'message_echoes', 'messaging_postbacks', 'messaging_referrals'];
 async function messengerProfile(set: boolean): Promise<Response> {
   const tok = env('META_PAGE_TOKEN'), app = `${env('META_APP_ID')}|${env('META_APP_SECRET')}`;
@@ -1232,12 +1223,9 @@ async function messengerProfile(set: boolean): Promise<Response> {
   const before = await read();
   if (!set) return new Response(JSON.stringify(before, null, 1), { headers: { 'Content-Type': 'application/json' } });
   const out: Record<string, unknown> = {};
-  const prof = (before.profile as any)?.data?.[0] ?? {};
-  const menu = { locale: 'default', composer_input_disabled: false, call_to_actions: MENU };
-  out.profile = await post(`${GRAPH}/${PAGE_ID}/messenger_profile?access_token=${tok}`, {
-    get_started: prof.get_started ?? { payload: 'GET_STARTED' },
-    persistent_menu: [menu, ...(prof.persistent_menu ?? []).filter((m: any) => m.locale !== 'default')],
-  });
+  out.profile = await (await fetch(`${GRAPH}/${PAGE_ID}/messenger_profile?access_token=${tok}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: ['persistent_menu', 'get_started'] }), signal: AbortSignal.timeout(15_000),
+  })).json().catch(() => ({}));
   const sub = ((before.app_fields as any)?.data ?? []).find((x: any) => x.object === 'page');
   const appHave: string[] = (sub?.fields ?? []).map((f: any) => f.name);
   if (sub?.callback_url && !PAGE_FIELDS.every((f) => appHave.includes(f))) {
