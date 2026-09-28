@@ -797,7 +797,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // D-269 (live 2026-09-27: "Is party allowed?" got only the handoff line): a house-rule question is answered from FACTS,
   // and the host still gets the card.
   else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : HANDOFF[risk]; }
-  else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, turnLang, THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
+  // Session 58 live probe: "salamat" alone reads as Taglish, so a settled Bisaya thread got "It's our pleasure po". A
+  // Taglish-reading closer keeps Bislish when the last two guest turns were Bisaya (D-172's own two-turn rule).
+  else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
   else {
