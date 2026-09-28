@@ -2,7 +2,8 @@
 // Risk codes mirror guest_reply_drafts.risk_code (P8 shared inbox).
 export type RiskCode =
   | 'routine' | 'payment' | 'refund' | 'cancellation' | 'complaint'
-  | 'safety' | 'access' | 'policy_exception' | 'uncertain';
+  | 'safety' | 'access' | 'policy_exception' | 'uncertain'
+  | 'priority'; // session 59: a verified in-house guest asked for priority help (menu button / welcome guide link)
 
 const RULES: Array<[RiskCode, RegExp]> = [
   ['safety',           /\b(emergency|fire|flood|injur|hurt|bleed|police|ambulance|unsafe|threat|suicid|kill myself|harass|stalk|smoke (coming|from|in the|everywhere)|smell(s|ing)? (of )?(gas|smoke|burning)|burning smell|gas leak|sparks?|electric(al)? shock|short circuit|nahimatay|fainted|unconscious|dumudugo|nagdugo|seizure|convuls|chest pain|hirap huminga|can'?t breathe|allerg|amoy (ng )?gas|baho (og|sa|ug) gas|sparking|nag-?spark|baha (na )?sa loob|water (coming|rising|leaking) (in|under|through)|knocking\b[^.?!\n]{0,25}\b(door|window)|stranger|intruder|sumusunod|nagsunod|gisundan|break(ing)? in|nakawan|robbed|magnanakaw|kawatan)/i], // D-270: Jev bench - "smoke coming from the kitchen" was routine; "can we smoke?" stays a house-rule question

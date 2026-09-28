@@ -11,13 +11,14 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, trimRepeatedInvite, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
+import { priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, SITE_URL, discountRange, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
@@ -418,7 +419,7 @@ async function pendingBlock(db: Db, psid: string): Promise<string> {
 }
 
 /** Session 58 (live lockout 2026-09-28): the host-owned matters this guest has open from the last 24 h, newest first. */
-const HOST_OWNED: RiskCode[] = ['access', 'safety', 'complaint', 'payment', 'refund', 'cancellation'];
+const HOST_OWNED: RiskCode[] = ['access', 'safety', 'priority', 'complaint', 'payment', 'refund', 'cancellation'];
 async function openHostRisks(db: Db, psid: string, now: Date): Promise<{ risk: RiskCode; at: number }[]> {
   const { data } = await db.from('concierge_handoffs').select('risk, created_at').eq('psid', psid).eq('status', 'open')
     .gte('created_at', new Date(now.getTime() - HUMAN_HOLD_MS).toISOString()).order('created_at', { ascending: false }).limit(10);
@@ -499,9 +500,44 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
 
 // Lloyd 2026-09-28: urgent only - a lockout or a safety report. Complaints (towels, wifi, noise) stay on the OPS card, so the
 // inbox is never flooded; one alert per matter, follow-ups never e-mail.
-const URGENT_RISKS: RiskCode[] = ['access', 'safety'];
+/** Session 59: one priority-help turn. Verified (verify_booking + the stay is on today) -> host card with the urgent alert;
+ *  not matched -> ask once more, then forward as an ordinary card with the phone route. After an unmatched ask the next
+ *  24 h skip verification, so the check cannot be guessed by restarting from the menu.
+ *  ponytail: history scan for the 24 h cap; a counter column if someone is ever seen guessing. */
+async function priorityTurn(db: Db, thread: Thread, text: string, entry: PriorityEntry | null, answer: { date: string | null; initial: string | null } | null, asked: number, link: string, fx: Effects, now: Date, mid?: string): Promise<void> {
+  const prev = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
+  const lang = l3Of(guestLang(text || prev));
+  const q = entry?.kind === 'verify' ? { date: entry.date, initial: entry.initial } : answer;
+  const tries = entry?.kind === 'verify' ? 1 : asked;
+  const blocked = thread.history.some((h) => h.role === 'bot' && h.route?.priority === 'unmatched' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000);
+  let reply: string, route: Record<string, unknown> = {};
+  if (!q) { reply = priorityAsk(lang); route = { priority: 1 }; }
+  else {
+    const v = !blocked && q.date && q.initial
+      ? ((await db.rpc('verify_booking', { p_checkin_date: q.date, p_initial: q.initial })).data as VerifyResult | null) : null;
+    if (stayIsCurrent(v, now)) {
+      await fx.handoff(db, thread, `Priority help: ${v!.full_name ?? 'guest'} (booking name matched), staying ${v!.checkin_date} to ${v!.checkout_date}. Their next message says what is wrong.`, 'priority', link, '', true);
+      reply = priorityVerified(v!.first_name ?? null, lang); route = { priority: 'verified' };
+    } else if (!blocked && tries < 2) { reply = priorityRetry(lang); route = { priority: tries + 1 }; }
+    else {
+      await fx.handoff(db, thread, `Priority help asked, stay not matched (check-in ${q.date ?? '?'}, initial ${q.initial ?? '?'})${text ? `: ${text}` : ''}`, 'uncertain', link, 'Could not match the stay - check who this is before sharing anything.', true);
+      reply = priorityUnmatched(lang); route = { priority: 'unmatched' };
+    }
+  }
+  await fx.send(thread.psid, reply);
+  const at = now.toISOString();
+  console.log('priority_turn', JSON.stringify({ psid: thread.psid.slice(-6), entry: entry?.kind ?? null, outcome: route.priority }));
+  await db.from('concierge_threads').upsert({
+    psid: thread.psid, guest_name: thread.guest_name, human_until: thread.human_until, bot_turns: thread.bot_turns,
+    history: [...thread.history, { role: 'guest', text: text || '[priority help]', at }, { role: 'bot', text: reply, at, route }].slice(-HISTORY_KEEP * 2),
+    last_risk: 'priority', updated_at: at, booking_flow: thread.booking_flow ?? null, last_mid: mid ?? thread.last_mid ?? null,
+  });
+}
+
+const URGENT_RISKS: RiskCode[] = ['access', 'safety', 'priority'];
 const URGENT_WHAT: Partial<Record<RiskCode, string>> = {
   access: 'cannot get into the unit (door, code or key)', safety: 'reported a safety problem',
+  priority: 'is staying now and asked for priority help (stay verified)',
 };
 /** Telegram notices are written for people: what happened and who must act first, the ids last. */
 async function urgentAlert(db: Db, thread: Thread, text: string, risk: RiskCode, short: string, link: string): Promise<void> {
@@ -682,7 +718,9 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
 }
 
 export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: Effects = liveEffects, now = new Date()): Promise<void> {
-  const msg = ev.message; if (!msg) return;
+  // Session 59: a priority-help postback (menu button, ice breaker) or m.me referral has no message; it becomes an empty turn.
+  const entry = priorityEntry(ev);
+  const msg = ev.message ?? (entry ? { mid: ev.postback?.mid ?? `ref-${ev.timestamp ?? now.getTime()}`, text: '' } : null); if (!msg) return;
   await loadContact(db); // Lloyd 2026-09-28: the on-ground contact comes from the dashboard (app_settings), 60 s cache
   await loadCard(db); // SPEC-34: every quote this turn reads the stored rate card (60 s cache; seed card + log on failure)
 
@@ -728,6 +766,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
   const text: string = (msg.text ?? '').trim();
   const link = `https://www.facebook.com/messages/t/${psid}`;
+  // Session 59: priority help. The tap, the guide's link, or the answer to the ask (a date in the reply within 30 min).
+  // Mode off stays off (Lloyd's switch); a human hold does not stop it, like the door and safety (D-277).
+  const lastAsk = [...thread.history].reverse().find((h) => h.role === 'bot');
+  const asked = lastAsk?.route?.priority && now.getTime() - Date.parse(lastAsk.at) < 30 * 60_000 ? Number(lastAsk.route.priority) || 0 : 0;
+  const priReply = asked && text ? priorityAnswer(text, now) : null;
+  if (entry && mode === 'off') return; // the tap shows in the page inbox; nothing automatic
+  if (mode !== 'off' && (entry || priReply?.date)) return await priorityTurn(db, thread, text, entry, priReply, asked, link, fx, now, msg.mid);
   // Conversation stage, computed here rather than guessed by the model: a greeting belongs to the
   // first exchange or after a long silence; every other turn continues the chat. The same gap
   // resets the 12-turn cap (2026-09-13: bot_turns only ever grew, so a chatty guest was handed to
@@ -787,7 +832,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const answerable = g.risk === 'routine' && !!jev && ANSWERABLE.includes(jev.intent) && jev.confidence >= 0.8;
   const sameMatter = g.risk === 'routine' || g.risk === 'access' || g.risk === 'complaint';
   const urgentOpen = sameMatter && !answerable && !isActive(thread.booking_flow, now) && !THANKS_RE.test(text) && !CLOSER_ONLY_RE.test(text)
-    ? hostOpen.find((h) => (h.risk === 'access' || h.risk === 'safety') && now.getTime() - h.at < 12 * 3_600_000)?.risk ?? null : null;
+    ? hostOpen.find((h) => (h.risk === 'access' || h.risk === 'safety' || h.risk === 'priority') && now.getTime() - h.at < 12 * 3_600_000)?.risk ?? null : null;
   let risk: RiskCode = text ? (urgentOpen ?? g.risk) : 'uncertain';
   let handoff = (g.handoff && !negotiate) || !text || !!urgentOpen;   // the bot steps aside: handoff line to the guest, 24 h hold
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
@@ -1158,6 +1203,45 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   });
 }
 
+// Session 59: the priority-help entry points on the Page - persistent menu item and ice breaker (postback PRIORITY), and the
+// webhook fields that deliver postbacks and m.me referrals. Probe-secret gated; ?profile=get reads, ?profile=set merges
+// ours into what is there (never drops an existing item). Titles: menu <= 30 chars, ice breaker <= 80 (Meta limits).
+const PRIORITY_MENU = { type: 'postback', title: 'Staying now? Priority help', payload: 'PRIORITY' };
+const PRIORITY_ICE = { question: "I'm staying now and need priority help", payload: 'PRIORITY' };
+const PAGE_FIELDS = ['messages', 'message_echoes', 'messaging_postbacks', 'messaging_referrals'];
+async function messengerProfile(set: boolean): Promise<Response> {
+  const tok = env('META_PAGE_TOKEN'), app = `${env('META_APP_ID')}|${env('META_APP_SECRET')}`;
+  const get = async (u: string) => (await fetch(u, { signal: AbortSignal.timeout(10_000) })).json().catch(() => ({}));
+  const post = async (u: string, b: unknown) => (await fetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b), signal: AbortSignal.timeout(15_000) })).json().catch(() => ({}));
+  const read = async () => ({
+    profile: await get(`${GRAPH}/${PAGE_ID}/messenger_profile?fields=get_started,persistent_menu,ice_breakers,greeting&access_token=${tok}`),
+    page_fields: await get(`${GRAPH}/${PAGE_ID}/subscribed_apps?access_token=${tok}`),
+    app_fields: await get(`${GRAPH}/${env('META_APP_ID')}/subscriptions?access_token=${app}`),
+  });
+  const before = await read();
+  if (!set) return new Response(JSON.stringify(before, null, 1), { headers: { 'Content-Type': 'application/json' } });
+  const out: Record<string, unknown> = {};
+  const prof = (before.profile as any)?.data?.[0] ?? {};
+  const menu = (prof.persistent_menu ?? []).find((m: any) => m.locale === 'default') ?? { locale: 'default', composer_input_disabled: false, call_to_actions: [] };
+  if (!(menu.call_to_actions ?? []).some((c: any) => c.payload === 'PRIORITY')) menu.call_to_actions = [PRIORITY_MENU, ...(menu.call_to_actions ?? [])];
+  const ice = (prof.ice_breakers ?? []).find((m: any) => m.locale === 'default')?.call_to_actions ?? [];
+  if (!ice.some((c: any) => c.payload === 'PRIORITY')) ice.push(PRIORITY_ICE);
+  out.profile = await post(`${GRAPH}/${PAGE_ID}/messenger_profile?access_token=${tok}`, {
+    get_started: prof.get_started ?? { payload: 'GET_STARTED' }, // Meta requires it for a persistent menu
+    persistent_menu: [menu, ...(prof.persistent_menu ?? []).filter((m: any) => m.locale !== 'default')],
+    ice_breakers: [{ locale: 'default', call_to_actions: ice }],
+  });
+  const pageHave: string[] = ((before.page_fields as any)?.data ?? []).find((a: any) => String(a.id) === env('META_APP_ID'))?.subscribed_fields ?? [];
+  out.page_fields = await post(`${GRAPH}/${PAGE_ID}/subscribed_apps?access_token=${tok}`, { subscribed_fields: [...new Set([...pageHave, ...PAGE_FIELDS])] });
+  const sub = ((before.app_fields as any)?.data ?? []).find((x: any) => x.object === 'page');
+  const appHave: string[] = (sub?.fields ?? []).map((f: any) => f.name);
+  if (sub?.callback_url && !PAGE_FIELDS.every((f) => appHave.includes(f))) {
+    out.app_fields = await post(`${GRAPH}/${env('META_APP_ID')}/subscriptions?access_token=${app}`, { object: 'page', callback_url: sub.callback_url, verify_token: env('META_VERIFY_TOKEN'), fields: [...new Set([...appHave, ...PAGE_FIELDS])].join(',') });
+  }
+  out.after = await read();
+  return new Response(JSON.stringify(out, null, 1), { headers: { 'Content-Type': 'application/json' } });
+}
+
 /** Scripted turns through the real handle() on a fresh probe: thread; every outward effect is recorded, none is made.
  *  body: { psid: "probe:<uuid>", name?: string, now?: iso, turns: Array<string | { text?: string, image?: true, advance_minutes?: number }> } */
 async function runProbe(body: string): Promise<Response> {
@@ -1185,7 +1269,11 @@ async function runProbe(body: string): Promise<Response> {
       const message: Record<string, unknown> = { mid: `probe-${i}`, text: turn.text ?? undefined };
       if (turn.image) message.attachments = [{ type: 'image', payload: { url: 'https://example.invalid/receipt.jpg' } }];
       const calls: ProbeCall[] = [], t0 = Date.now();
-      await handle(db, { sender: { id: psid }, recipient: { id: PAGE_ID }, message }, 'auto', probeEffects(calls, p.name ?? null, now), now);
+      // Session 59: "[PRIORITY]" probes the menu button (a postback, no message); "[PRIORITY:<yyyy-mm-dd>:<initial>]" the guide link.
+      const pri = /^\[PRIORITY(?::([^\]]+))?\]$/.exec(turn.text ?? '');
+      const ev = pri ? (pri[1] ? { sender: { id: psid }, recipient: { id: PAGE_ID }, referral: { ref: `priority:${pri[1]}` }, timestamp: now.getTime() } : { sender: { id: psid }, recipient: { id: PAGE_ID }, postback: { payload: 'PRIORITY', mid: `probe-${i}` } })
+        : { sender: { id: psid }, recipient: { id: PAGE_ID }, message };
+      await handle(db, ev, 'auto', probeEffects(calls, p.name ?? null, now), now);
       const { data: row } = await db.from('concierge_threads').select('booking_flow, last_risk, guest_name').eq('psid', psid).maybeSingle();
       const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
       out.push({ guest: turn.text ?? '[image]', reply, step: row?.booking_flow?.step ?? null, flow_lang: row?.booking_flow?.lang ?? null, risk: row?.last_risk ?? null,
@@ -1223,7 +1311,7 @@ Deno.serve(async (req) => {
   // Probe: header-gated, probe: psids only, sends nothing. A missing or wrong header falls through to the HMAC check,
   // which rejects it, so the probe adds no unauthenticated surface.
   const probeSecret = env('CASCADE_PROBE_SECRET'), probeHeader = req.headers.get('x-cascade-probe');
-  if (probeSecret.length >= 24 && probeHeader === probeSecret) return await runProbe(body);
+  if (probeSecret.length >= 24 && probeHeader === probeSecret) return url.searchParams.get('profile') ? await messengerProfile(url.searchParams.get('profile') === 'set') : await runProbe(body);
   if (!(await hmacOk(env('META_APP_SECRET'), body, req.headers.get('x-hub-signature-256')))) return new Response('bad signature', { status: 401 });
 
   const db: Db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));

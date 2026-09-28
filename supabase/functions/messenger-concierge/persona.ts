@@ -419,6 +419,7 @@ export const HANDOFF: Record<RiskCode, string> = {
   complaint:        "Thank you for letting us know right away. Our host has already been alerted, and our service partners have been notified so they can attend to this as soon as possible.\n\nYour comfort matters to us, and we'll make sure this is followed through promptly.",
   safety:           "Your safety comes first. Our host has been alerted immediately. If anyone is in danger, please call 911 right away.",
   access:           "For your security, access details are shared personally by our host. We've alerted them and they'll message you directly.",
+  priority:         "Our host has been alerted and will answer you here first.",
   policy_exception: "That's a request our host would love to consider personally. We've passed it along, and you can expect a reply soon.",
   uncertain:        "Let us bring in our host for this one so you receive a complete answer. They'll be with you shortly.",
 };
@@ -429,6 +430,33 @@ export const accessVerify = (lang: Lang, c: Contact = currentContact()) => by(la
   en: `We're on it. For everyone's security the door code is shared only by our host, and your message is with them now. So they can match your stay quickly, may we have the name on the booking and your check-in date?\n\nIf you don't hear back within a few minutes, you may also call or text our on-ground partner ${c.name} at ${c.phone}.`,
   tl: `Naiintindihan po namin. For everyone's security, ang host lang ang nagbibigay ng door code, at nasa kanila na po ang message ninyo. Para mabilis nilang ma-match ang stay ninyo, ano ang name sa booking at ang check-in date?\n\nIf wala pang reply after a few minutes, you may also call or text our on-ground partner ${c.name} at ${c.phone}.`,
   bis: `Sabot mi. For everyone's security, ang host ra ang naghatag sa door code, ug naa na nila ang inyong message. Para dali nila ma-match ang inyong stay, unsa ang name sa booking ug ang check-in date?\n\nIf walay reply after a few minutes, pwede pud mo mo-call or text sa among on-ground partner nga si ${c.name} sa ${c.phone}.`,
+});
+/** Session 59 (Lloyd 2026-09-28): priority help for a guest staying now (menu button, ice breaker or the welcome guide's
+ *  link). The ask is the welcome guide's own check - check-in date and the name on the booking. */
+export const priorityAsk = (lang: Lang) => by(lang, {
+  en: `Of course. So we can put you through to our host first, may we have your check-in date and the name on the booking? For example: Sept 27, Ana.`,
+  tl: `Sige po. Para ma-prioritize kayo ng host, ano ang check-in date ninyo at ang name sa booking? Halimbawa: Sept 27, Ana.`,
+  bis: `Sige. Para ma-prioritize mo sa host, unsa ang inyong check-in date ug ang name sa booking? Pananglitan: Sept 27, Ana.`,
+});
+export const priorityRetry = (lang: Lang) => by(lang, {
+  en: `We could not match that to a stay today. May we have the check-in date and the name on the booking once more? For example: Sept 27, Ana.`,
+  tl: `Hindi po namin ito ma-match sa stay ngayong araw. Pakisend ulit ang check-in date at ang name sa booking? Halimbawa: Sept 27, Ana.`,
+  bis: `Wala namo ni ma-match sa stay karong adlawa. Palihug i-send usab ang check-in date ug ang name sa booking? Pananglitan: Sept 27, Ana.`,
+});
+/** Verified and staying now: the host card and the urgent alert are already out; the guest says what is wrong next. */
+export const priorityVerified = (first: string | null, lang: Lang, c: Contact = currentContact()) => {
+  const thanks = first && first !== 'Guest' ? `Thank you, ${first}.` : 'Thank you.';
+  return by(lang, {
+    en: `${thanks} Our host has been alerted and will answer you here first. Tell us what is happening and it goes straight to them.\n\nIf you need someone at the unit now, you may call or text our on-ground partner ${c.name} at ${c.phone}.`,
+    tl: `${thanks.replace('Thank you', 'Salamat po')} Na-alert na ang host at kayo ang uunahin nila dito. Sabihin lang po kung ano ang nangyayari at diretso ito sa kanila.\n\nIf kailangan ninyo ng tao sa unit ngayon, you may call or text our on-ground partner ${c.name} at ${c.phone}.`,
+    bis: `${thanks.replace('Thank you', 'Salamat')} Na-alert na ang host ug ikaw ang unahon nila diri. Isulti lang kung unsa ang nahitabo ug diretso ni sa ila.\n\nIf kinahanglan mo og tawo sa unit karon, pwede mo mo-call or text sa among on-ground partner nga si ${c.name} sa ${c.phone}.`,
+  });
+};
+/** Not matched after two tries (or a repeat within a day): still forwarded to the host, with the phone route. */
+export const priorityUnmatched = (lang: Lang, c: Contact = currentContact()) => by(lang, {
+  en: `Thank you. We've passed your message to our host, and they will reply here. If you need someone at the unit now, you may call or text our on-ground partner ${c.name} at ${c.phone}.`,
+  tl: `Salamat po. Na-pass na namin ang message ninyo sa host, at dito sila magre-reply. If kailangan ninyo ng tao sa unit ngayon, you may call or text our on-ground partner ${c.name} at ${c.phone}.`,
+  bis: `Salamat. Na-pass na namo ang inyong message sa host, ug diri sila mo-reply. If kinahanglan mo og tawo sa unit karon, pwede mo mo-call or text sa among on-ground partner nga si ${c.name} sa ${c.phone}.`,
 });
 /** Session 58 (live lockout 2026-09-28): the guest's next message while an access or safety handoff is open (a callback
  *  number, their name). It goes to the host as its own card, so "passed on" is true; no booking close, no link. */
