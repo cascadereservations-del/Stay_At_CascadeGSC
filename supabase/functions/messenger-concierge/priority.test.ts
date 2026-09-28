@@ -114,6 +114,8 @@ Deno.test('any other menu tap is the guest asking in the button words', async ()
 Deno.test('Get Started is a hello; the priority button and the guide link are not questions', () => {
   assertEquals(postbackText({ postback: { title: 'Get Started', payload: 'GET_STARTED' } }), 'Hi');
   assertEquals(postbackText({ postback: { title: 'How much? Available?', payload: 'How much? Available?' } }), 'How much? Available?');
+  assertEquals(postbackText({ postback: { title: 'Dates and price', payload: 'How much is it, and are my dates available?' } }), 'How much is it, and are my dates available?');
+  assertEquals(postbackText({ postback: { title: 'Door help', payload: 'DOOR_HELP' } }), 'Door help');
   assertEquals(postbackText({ postback: { title: 'Staying now? Priority help', payload: 'PRIORITY' } }), '');
   assertEquals(postbackText({ postback: { payload: 'GET_STARTED', referral: { ref: 'priority' } } }), '');
   assertEquals(postbackText({ message: { text: 'hi' } }), '');

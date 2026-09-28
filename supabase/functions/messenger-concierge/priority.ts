@@ -42,5 +42,9 @@ export function stayIsCurrent(r: VerifyResult | null, now = new Date()): boolean
  *  for a persistent menu) is a hello, so a new chatter who taps it gets the greeting, not silence. */
 export function postbackText(ev: Record<string, any>): string {
   if (!ev?.postback || priorityEntry(ev)) return '';
-  return ev.postback.payload === 'GET_STARTED' ? 'Hi' : String(ev.postback.title ?? '').trim();
+  const payload = String(ev.postback.payload ?? '').trim();
+  if (payload === 'GET_STARTED') return 'Hi';
+  // The menu's payload is the full question ("Dates and price" -> "How much is it, and are my dates available?"); a code-like
+  // payload (CAPS_AND_UNDERSCORES) falls back to the button's label.
+  return payload && !/^[A-Z0-9_]+$/.test(payload) ? payload : String(ev.postback.title ?? '').trim();
 }

@@ -1207,11 +1207,17 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 }
 
 // Session 59: the priority-help entry point on the Page - a persistent menu item (postback PRIORITY), first - and the app's
-// webhook fields that deliver postbacks and m.me referrals. Probe-secret gated; ?profile=get reads, ?profile=set merges ours
-// into what is there (never drops an item). No ice breaker: it shows only to new chatters, nearly all prospects. Get Started
+// webhook fields that deliver postbacks and m.me referrals. Probe-secret gated; ?profile=get reads; with ?profile=set
+// the default-locale menu is exactly MENU (other locales kept). No ice breaker: it shows only to new chatters, nearly all prospects. Get Started
 // is set because Meta refuses a menu change without it (#100, live 2026-09-28); a tap on it is a hello (postbackText). The
 // page's own subscribed fields need pages_manage_metadata, which the page token lacks - that checkbox is the Meta dashboard's.
-const PRIORITY_MENU = { type: 'postback', title: 'Staying now? Priority help', payload: 'PRIORITY' };
+// Lloyd 2026-09-28 ("rephrase and re organize", guests first): a short label; the payload is the question the bot receives.
+const MENU = [
+  { type: 'postback', title: 'Staying now? Priority help', payload: 'PRIORITY' },
+  { type: 'postback', title: 'Dates and price', payload: 'How much is it, and are my dates available?' },
+  { type: 'postback', title: 'Location and safety', payload: 'Where exactly are you, and is the area safe?' },
+  { type: 'postback', title: 'Wi-Fi, Netflix and parking', payload: 'Do you have Wi-Fi, Netflix and parking?' },
+];
 const PAGE_FIELDS = ['messages', 'message_echoes', 'messaging_postbacks', 'messaging_referrals'];
 async function messengerProfile(set: boolean): Promise<Response> {
   const tok = env('META_PAGE_TOKEN'), app = `${env('META_APP_ID')}|${env('META_APP_SECRET')}`;
@@ -1226,8 +1232,7 @@ async function messengerProfile(set: boolean): Promise<Response> {
   if (!set) return new Response(JSON.stringify(before, null, 1), { headers: { 'Content-Type': 'application/json' } });
   const out: Record<string, unknown> = {};
   const prof = (before.profile as any)?.data?.[0] ?? {};
-  const menu = (prof.persistent_menu ?? []).find((m: any) => m.locale === 'default') ?? { locale: 'default', composer_input_disabled: false, call_to_actions: [] };
-  if (!(menu.call_to_actions ?? []).some((c: any) => c.payload === 'PRIORITY')) menu.call_to_actions = [PRIORITY_MENU, ...(menu.call_to_actions ?? [])];
+  const menu = { locale: 'default', composer_input_disabled: false, call_to_actions: MENU };
   out.profile = await post(`${GRAPH}/${PAGE_ID}/messenger_profile?access_token=${tok}`, {
     get_started: prof.get_started ?? { payload: 'GET_STARTED' },
     persistent_menu: [menu, ...(prof.persistent_menu ?? []).filter((m: any) => m.locale !== 'default')],
