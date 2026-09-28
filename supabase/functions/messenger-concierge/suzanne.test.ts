@@ -2,7 +2,7 @@
 // Live 2026-09-26 13:01-13:16Z (Suzanne): "Available today?" got "Thank you. Check-in on Sep 26 is noted. Until which date
 // would you like to stay?", "So is it available today?" got "Check-out would need to fall after Sep 26", and only
 // "Tomorrow" reached the calendar - which said the night was taken. Lloyd: warmer, and optimised for conversion.
-import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { answer, availabilityLine, nightsIn, opener, prompt, start, type Flow } from './booking.ts';
 import { isCold, lintReply } from './voice.ts';
 const now = new Date('2026-09-26T13:01:10Z'); // 21:01 Manila
@@ -51,4 +51,20 @@ Deno.test('Suzanne: the check-out step takes nights, "tomorrow", and a repeated 
   assertEquals(same.reply, 'Of course. With check-in on Sep 26, the earliest check-out is Sep 27. How many nights would you like to stay with us?');
   assertEquals(lintReply(same.reply!), []);
   assertEquals([nightsIn('3 nights'), nightsIn('isang gabi'), nightsIn('duha ka gabii'), nightsIn('Oct 5 please')], [3, 1, 2, null]);
+});
+
+Deno.test('Suzanne 2026-09-28: "How much?" after the offer quotes the offered night, and a yes goes straight to the details', () => {
+  const f: Flow = { step: 'dates', lang: 'en', alt, started_at: '', updated_at: '' };
+  const price = answer(f, 'How much?', now);
+  assertEquals(price.action, 'ask');
+  assertEquals(price.flow.alt, alt); // the offer stands
+  assertEquals(price.reply, "For 1 night the direct rate is PHP 1,780.\n\nWould that night suit you? We'd be glad to set it aside for you.");
+  assertEquals(lintReply(price.reply!, 'How much?'), []);
+  const yes = answer(price.flow, 'yes', now);
+  assertEquals([yes.flow.step, yes.flow.agreed, yes.flow.checkin], ['pax', true, '2026-10-02']);
+  const two = answer(yes.flow, '2', now);
+  assertEquals(two.flow.step, 'contact'); // no second "Shall we set the dates aside?"
+  assert(two.reply!.startsWith('For 1 night the direct rate is PHP 1,780.\n\nThank you. May we have the name for the reservation'), two.reply!);
+  assertEquals(lintReply(two.reply!), []);
+  for (const lang of ['tl', 'bis'] as const) assertEquals(lintReply(answer({ ...f, lang }, 'magkano po?', now).reply!, 'magkano po?'), [], lang);
 });

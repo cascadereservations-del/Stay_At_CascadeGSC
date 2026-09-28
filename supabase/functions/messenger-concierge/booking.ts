@@ -26,6 +26,9 @@ export type Flow = {
   photo_at?: string;
   /** Live 2026-09-26 (Suzanne): the nearest open window we offered after a reserved line; a plain yes takes it. */
   alt?: Window;
+  /** Live 2026-09-28 (Suzanne, Lloyd: "convert the guest in the optimal number of responses"): the guest already said yes
+   *  to the offered window, so after the guest count the flow goes straight to the details - no second "set it aside?". */
+  agreed?: boolean;
 };
 
 export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i-?book|mag-?reserve|hold (the|my|our) dates|arrange (it|the booking)|(do|settle) it here|here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i; // session 30: invitations now offer the chat route, so its natural answers start the flow
@@ -39,6 +42,7 @@ const AVAIL_RE = /\b(available|avail|vacant|bakante|open|free|may (?:vacancy|slo
 const OFFER_YES_RE = /^\W*(yes|yes please|yes po|sure|of course|ok(ay)?( po)?|sige( po)?|oo( po)?|opo|go|please do|proceed|set (it|them) aside)\b/i;
 const OFFER_NO_RE = /^\W*(no|not (yet|now)|hindi( po)?|dili|wala( pa)?|later|maybe later)\b/i;
 const ASK_RE = /\?|\b(magkano|how much|pwede|can (i|we)|is (it|there)|are there|meron)\b/i;
+const PRICE_RE = /\b(how much|magkano|tagpila|pila|price|rate|cost|hm)\b/i;
 const QUESTION_WORD_RE = /\b(magkano|how|what|where|when|which|why|do you|does|can|could|pwede|puwede|is (it|there)|are there|meron|ano|saan|paano|asa|unsa)\b/i;
 /** Moved here from voice.ts (which imports this file) so start() can use it without an import cycle. */
 export const AMENITY_RE = /\b(amenities|amenity|included|inclusions|photos?|pictures?|pics|wifi|wi-fi|internet|aircon|air-?con|\bac\b|kitchen|tv|netflix|washing|laundry|parking)\b|what'?s (it|the place|the unit|the home) like/i;
@@ -611,7 +615,16 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       const d = parseDates(text, now);
       // The nearest window was offered as a question: a whole-message yes takes it, a no closes gently (isChatYes, not
       // OFFER_YES_RE - "ok let me think" must not book). index.ts re-reads the calendar because the dates changed.
-      if (!d[0] && f.alt && isChatYes(text)) { f.checkin = f.alt.start; f.checkout = f.alt.end; f.alt = undefined; f.step = f.pax ? 'offer' : 'pax'; return ask(); }
+      if (!d[0] && f.alt && isChatYes(text)) { f.checkin = f.alt.start; f.checkout = f.alt.end; f.alt = undefined; f.agreed = true; f.step = f.pax ? 'offer' : 'pax'; return ask(); }
+      // Live 2026-09-28 (Suzanne, "How much?" after the Oct 2 offer got the model quoting Oct 30 from a two-day-old
+      // message): a price question about the offered window is answered by code, then the offer is made again.
+      if (!d[0] && f.alt && PRICE_RE.test(text)) {
+        const one = f.alt.nights === 1 && !f.alt.open_ended;
+        return ask(`${rateLine({ ...f, checkin: f.alt.start, checkout: f.alt.end }, now)}\n\n${pick(L, {
+          en: `Would ${one ? 'that night' : 'those dates'} suit you? We'd be glad to set ${one ? 'it' : 'them'} aside for you.`,
+          tl: `Okay po ba sa inyo ang ${one ? 'night' : 'dates'} na iyon? Gladly naming ise-set aside para sa inyo.`,
+          bis: `Okay ba ninyo ang ${one ? 'night' : 'dates'} nga to? Amo dayon i-set aside para ninyo.` })}`);
+      }
       if (!d[0] && f.alt && OFFER_NO_RE.test(text)) return { flow: { ...f, step: 'cancelled', alt: undefined }, reply: cancelReply(L), action: 'cancelled' };
       f.alt = undefined;
       if (!d[0]) return retry('the dates');
@@ -638,7 +651,10 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       const p = parsePax(text);
       if (!p) return retry('the number of guests');
       if (overCapacity(text, p)) return ask(pick(L, { en: `As much as we'd love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 children. For a party of ${p}, a larger place would give you more room to rest. If your group fits, just let us know the count again.`, tl: `Comfortable po ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maganda po ang mas malaking place para mas may space kayo. If kasya po ang group ninyo, sabihin lang po ulit kung ilan kayo.`, bis: `Comfortable ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maayo ang mas dako nga place para mas naa moy space. If kasya ang group ninyo, ingna lang mi pila mo.` }));
-      f.pax = p; f.step = 'offer'; return ask();
+      f.pax = p;
+      // The guest already agreed to these dates (flow.agreed): the price and the details ask in one message.
+      if (f.agreed) { f.step = 'contact'; return ask(`${rateLine(f, now)}\n\n${prompt(f, null, false, now)}`); }
+      f.step = 'offer'; return ask();
     }
     case 'offer': {
       if (OFFER_NO_RE.test(text)) return { flow: { ...f, step: 'cancelled' }, reply: cancelReply(L), action: 'cancelled' };

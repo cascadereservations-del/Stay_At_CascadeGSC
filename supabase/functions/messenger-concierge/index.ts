@@ -835,7 +835,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // Follow-ups: compact prompt (no exemplars) on the full model - cheaper than the old full
       // prompt AND better behaved than lite; the language hint rides on the guest's own turn.
       const lang = turnLang, l3 = l3Of(turnLang);
-      const guestTexts = [...thread.history.filter((h) => h.role === 'guest').map((h) => h.text), text];
+      // Live 2026-09-28 (Suzanne): "How much?" was answered for Oct 30 from a message two days old. Dates the model reads
+      // come from the guest's last 24 hours only.
+      const guestTexts = [...thread.history.filter((h) => h.role === 'guest' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000).map((h) => h.text), text];
       const context = (await availabilityBlock(db)) + (await pendingBlock(db, psid)) + guestDatesBlock(guestTexts) + stateBlock;
       // The dates also ride on the guest turn: the system-side block alone was ignored for a
       // Bisaya late check-out question (live 2026-09-13) and the model asked for dates again.
