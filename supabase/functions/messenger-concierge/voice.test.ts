@@ -123,7 +123,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   const f = start(guest, now);
   assertEquals([f.lang, f.pax, f.asked], ['tl', 2, 'availability']);
   const first = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
-  assertEquals(first.startsWith("Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to 22, and we'd be glad to have the two of you."), true);
+  assertEquals(first.startsWith("Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to 22, and we'd be glad to have kayong dalawa."), true); // D-269: Taglish names the party in Filipino
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
   let s = answer(f, '09171234567', now); assertEquals(s.flow.lang, 'tl'); // a bare number keeps the register
   assertEquals(answer(f, '09171234567 ben@example.com', now).flow.lang, 'tl'); // an e-mail is not English (live render 11:35)
@@ -141,7 +141,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   for (const step of ['dates', 'checkout', 'pax', 'offer', 'contact', 'confirm'] as const) assertEquals(lintReply(prompt({ ...base, lang: 'tl', step }, 'Ben')), [], step);
   assertEquals(lintReply(availabilityLine({ ...base, lang: 'tl' }, new Set(['2026-10-03'])), 'available pa po ba'), []);
   const mid = availabilityAck({ ...base, lang: 'tl' }, availabilityLine({ ...base, lang: 'tl' }, new Set())) + '\n\n' + prompt({ ...base, lang: 'tl', step: 'contact' }, 'Ben');
-  assertEquals(mid.startsWith("Available po ang Oct 3 to 4, and we'd be glad to have the two of you."), true);
+  assertEquals(mid.startsWith("Available po ang Oct 3 to 4, and we'd be glad to have kayong dalawa."), true);
   assertEquals(lintReply(mid, 'Oct 3 to 4 po, available pa po ba?'), []);
 });
 
@@ -308,9 +308,10 @@ Deno.test('ensureGreeting: first contact always opens with the approved greeting
 
 Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line pass the lint in three registers', () => {
   const f: Flow = { ...base, checkin: '2026-11-17', checkout: '2026-11-19', step: 'offer' };
-  // Lloyd's approved first reply, verbatim (2026-09-18)
+  // Lloyd's approved first reply (2026-09-18); D-269: the offer asks with the hold wording every other offer uses, and
+  // without a second "glad" under the welcome.
   const en = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben', false, now);
-  assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be glad to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 \u2014 PHP 3,382 for the stay.\n\nShall we set the dates aside for you?");
+  assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be glad to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 \u2014 PHP 3,382 for the stay.\n\nShall we hold those dates for you?");
   assertEquals(en.length < 700, true);
   const taken = availabilityLine(f, new Set(['2026-11-17']), { start: '2026-11-20', end: '2026-11-23', nights: 3 });
   assertEquals(taken, "I'm sorry, Nov 17 to 19 is already reserved. The nearest open dates are Nov 20 to 23, and we'd be glad to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.");

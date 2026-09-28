@@ -17,7 +17,8 @@ Deno.test('Suzanne: "Available today?" is answered in the first reply, open or t
   assertEquals((open.match(/thank you/gi) ?? []).length, 1); // thanked once
   assertEquals(lintReply(open, 'Available today?', { firstTurn: true }), []);
   const taken = availabilityLine(tonight(f), new Set(['2026-09-26']), alt, now, true);
-  assertEquals(taken, "I'm sorry, tonight (Sep 26) is already reserved. The nearest open night is Oct 2, and we'd be glad to welcome you then.\n\nWould that night suit you? If other dates work better, just share them and we'll gladly check.");
+  // D-269: the same one-yes question as the price path (holdOffer), so both ways to Oct 2 read alike.
+  assertEquals(taken, "I'm sorry, tonight (Sep 26) is already reserved. The nearest open night is Oct 2.\n\nShall we hold that night for you? We'd be so glad to have you with us. If other dates work better, just share them and we'll gladly check.");
   assertEquals(isCold(taken), false);
   for (const lang of ['en', 'tl', 'bis'] as const) {
     const line = availabilityLine({ ...tonight(f), lang }, new Set(['2026-09-26']), alt, now, true);
@@ -27,7 +28,7 @@ Deno.test('Suzanne: "Available today?" is answered in the first reply, open or t
     assertEquals(lintReply(prompt({ ...f, lang }, null, false, now)), [], lang);
   }
   // Without `offer` (the model-rewrite path, no flow to keep the window) there is no yes/no question to strand.
-  assertEquals(availabilityLine(tonight(f), new Set(['2026-09-26']), alt, now).includes('suit you?'), false);
+  assertEquals(availabilityLine(tonight(f), new Set(['2026-09-26']), alt, now).includes('Shall we hold'), false);
 });
 
 Deno.test('Suzanne: a yes to the offered night takes it; a maybe does not; a no closes gently', () => {

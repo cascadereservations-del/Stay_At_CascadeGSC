@@ -159,12 +159,12 @@ Deno.test('flow: a name is data, not language - a Taglish booking stays Taglish 
   assertEquals(f.lang, 'tl');
   let s = answer(f, '2 po', now);
   assertEquals([s.flow.lang, s.flow.step], ['tl', 'offer']);
-  assertEquals(prompt(s.flow, 'Ben', false, now).includes('I-set na po ba namin ang dates para sa inyo?'), true);
+  assertEquals(prompt(s.flow, 'Ben', false, now).includes('I-hold na po ba namin ang dates na iyon para sa inyo?'), true);
   s = answer(s.flow, 'sige po', now);
   assertEquals([s.flow.lang, s.flow.step], ['tl', 'contact']);
   s = answer(s.flow, 'ben munez', now);
   assertEquals([s.flow.lang, s.flow.name], ['tl', 'Ben Munez']);          // was 'en' before the fix
-  assertEquals(s.reply!.includes('At ang mobile number po na matatawagan namin?'), true);
+  assertEquals(s.reply!.includes('At ang mobile number na matatawagan namin?'), true);
   s = answer(s.flow, '09171234567 ben@example.com', now);
   assertEquals([s.flow.lang, s.flow.step], ['tl', 'confirm']);
   assertEquals(prompt(s.flow, 'Ben', false, now).includes('Ito po ang details ng stay ninyo:'), true);

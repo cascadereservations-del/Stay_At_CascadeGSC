@@ -23,7 +23,7 @@ export function promoCases(card: RateCard, now = new Date()): GoldenCase[] {
     const pr = new RegExp(p.nightly_rate.toLocaleString('en-US')), base = new RegExp(card.base.toLocaleString('en-US')), no = [/1,929/];
     const tot = (v: number) => new RegExp(v.toLocaleString('en-US'));
     out.push(
-      { id: 'promo-inside-flow-en', group: 'promo', turns: [{ say: `Hi, is ${inside} available? 2 adults`, kind: 'flow', lang: 'en', must: [new RegExp(p.name), pr, base, tot(inQ.total), /set the dates aside/i], mustNot: no }] },
+      { id: 'promo-inside-flow-en', group: 'promo', turns: [{ say: `Hi, is ${inside} available? 2 adults`, kind: 'flow', lang: 'en', must: [new RegExp(p.name), pr, base, tot(inQ.total), /hold (that night|those dates) for you/i], mustNot: no }] },
       { id: 'promo-straddle-flow-tl', group: 'promo', turns: [{ say: `Available po ba ang ${straddle}? 2 kami`, kind: 'flow', lang: 'tl', must: [pr, tot(stQ.total), tot(stQ.tier_rate)], mustNot: no }] },
       { id: 'promo-rate-dated-en', group: 'promo', turns: [m(`How much would ${straddle} cost?`, 'en', { must: [tot(stQ.total), pr], mustNot: no })] },
       { id: 'promo-ask-en', group: 'promo', turns: [m('Do you have any promo this month or next?', 'en', { must: [pr, new RegExp(p.name, 'i')], mustNot: [...no, /\bno (current |ongoing )?promo/i] })] },
@@ -88,8 +88,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'first-greeting-tl', group: 'first', turns: [m('Hello po, good evening', 'en', { must: [LINK] })] }, // an English greeting with a courtesy "po" is English (Lloyd 2026-09-13)
     { id: 'first-rate-en', group: 'first', turns: [m('How much per night?', 'en', { must: [LINK, /1,780/, /thank you for reaching out/i] })] },
     { id: 'first-rate-tl', group: 'first', turns: [m('Hm po per night?', 'tl', { must: [LINK, /1,780/] })] },
-    { id: 'first-avail-en', group: 'first', turns: [{ say: `Hi, is ${d2} available? We're 2 adults`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i, /1,691/, /set the dates aside/i], mustNot: [LINK, /reservation fee|50%/i] }] },
-    { id: 'first-avail-tl', group: 'first', turns: [{ say: `Available po ba ang ${d2}? 2 po kami`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i, /1,691/, /I-set na po/i], mustNot: [LINK, /reservation fee|50%/i] }] },
+    { id: 'first-avail-en', group: 'first', turns: [{ say: `Hi, is ${d2} available? We're 2 adults`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i, /1,691/, /hold (that night|those dates) for you/i], mustNot: [LINK, /reservation fee|50%/i] }] },
+    { id: 'first-avail-tl', group: 'first', turns: [{ say: `Available po ba ang ${d2}? 2 po kami`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i, /1,691/, /I-hold na po/i], mustNot: [LINK, /reservation fee|50%/i] }] },
     { id: 'first-location-en', group: 'first', turns: [m('location', 'en', { must: [LINK, /Bria Homes/i, /thank you for reaching out/i] })] },
     { id: 'first-howtobook-en', group: 'first', turns: [m('How do I book?', 'en', { must: [LINK, /thank you for reaching out/i] })] },
     // SPEC-28 section 2: dates AND a question in the first message - both answered, one greeting (R7)
@@ -128,13 +128,13 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     ] },
     // SPEC-14 (D-184): the offer is answered yes, declined, or met by the 48-hour rule
     { id: 'flow-offer-yes-en', group: 'flow', turns: [
-      { say: `Hi, is ${d2} available? 2 adults`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i, /1,691/, /set the dates aside/i], mustNot: [LINK] },
+      { say: `Hi, is ${d2} available? 2 adults`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i, /1,691/, /hold (that night|those dates) for you/i], mustNot: [LINK] },
       { say: 'yes', kind: 'flow', lang: 'en', must: [/name for the reservation/i] },
       { say: 'ben munez', kind: 'flow', lang: 'en', must: [/mobile number/i] },
       { say: '09171234567 ben@example.com', kind: 'flow', lang: 'en', must: [/👤 Ben Munez/, /🔐/, /"fee" or "full"/] },
     ] },
     { id: 'flow-offer-no-en', group: 'flow', turns: [
-      { say: `Hello, is ${d3} available? 2 adults`, kind: 'flow', lang: 'en', must: [/set the dates aside/i] },
+      { say: `Hello, is ${d3} available? 2 adults`, kind: 'flow', lang: 'en', must: [/hold (that night|those dates) for you/i] },
       { say: 'not now', kind: 'flow', lang: 'en', must: [/send your dates again/i], mustNot: [LINK] },
     ] },
     { id: 'flow-cancel-tl', group: 'flow', turns: [{ say: `Pa-book po ${d1}, 2 po kami`, kind: 'flow', lang: 'tl' }, { say: 'cancel po', kind: 'flow', lang: 'tl', mustNot: [LINK] }] },

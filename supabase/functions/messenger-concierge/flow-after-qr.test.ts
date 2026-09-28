@@ -148,7 +148,7 @@ Deno.test('D-258: "paano magbayad?" with dates held gets the QR, English with on
   const r = await turn(flow({ step: 'offer', lang: 'tl', booking_id: undefined, ref: undefined, deposit: undefined, total: undefined, hold: undefined, hold_expires_at: undefined, receipt_token: undefined, receipt_expires_at: undefined }), { text: 'paano po magbayad?' });
   assertEquals(r.calls.filter((c) => c.fx === 'qr').length, 1);
   assertEquals(/^Ben, you may pay po by GCash/.test(r.reply), true);
-  assertEquals(/I-set na po ba namin ang dates/.test(r.reply), true);
+  assertEquals(/I-hold na po ba namin ang dates/.test(r.reply), true);
   assertEquals((r.reply.match(/\bBen\b/g) ?? []).length, 1);
 });
 
