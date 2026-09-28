@@ -1,6 +1,6 @@
 // deno test --no-check --allow-env guest-messages/
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { lintReply } from '../messenger-concierge/voice.ts';
+import { lintReply, toneRules } from '../messenger-concierge/voice.ts';
 import { SUBJECT, atCheckinLine, channelFor, chunks, day, doorCodeCard, render, type Channel, type Fields, type Key } from './templates.ts';
 
 // The word rules only: the chat-length rules (too_long, too_dense, two_asks) do not apply to a scheduled host message (design section 6).
@@ -18,6 +18,9 @@ Deno.test('every message passes the word rules, whole and per paragraph, on ever
   for (const k of KEYS) for (const c of CH) for (const f of [ben, full, long]) {
     const t = render(k, f, c);
     assertEquals(words(t), [], `${k}/${c}`);
+    // Session 58, the persona gate: the concierge's tone rules too (no urgency, no "!", two "po" at most). The one-🌿-at-
+    // the-close rule is a chat rule: these letters (section 7 verbatim) carry the leaf at the salutation and the sign-off.
+    assertEquals(toneRules(t.replace('{{door_pin}}', '')).filter((v) => v !== 'leaf_not_at_close'), [], `${k}/${c} tone`);
     for (const p of t.split(/\n\s*\n/)) assertEquals(words(p), [], `${k}/${c}: ${p.slice(0, 60)}`);
   }
 });

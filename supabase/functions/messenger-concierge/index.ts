@@ -11,11 +11,11 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
-import { discountHostLine, houseRule } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, closers, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
+import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -40,41 +40,11 @@ const HUMAN_HOLD_MS = 24 * 3_600_000;
 const ECHO_HOLD_MS = 2 * 3_600_000;
 const HISTORY_KEEP = 16; // 32 stored entries; 12 dropped a guest's dates after a 30-turn chat (2026-09-13)
 
-// Guest-facing handoff lines, from Lloyd's approved wording (voice questionnaire, group 8):
-// warm, positively framed, "we" not "I", emoji only where it earns its place, and no "po" —
-// these go out in English. No booking link: everyone who sees these already has a booking.
-const HANDOFF: Record<RiskCode, string> = {
-  routine:          '',
-  payment:          "Thank you. Our host will personally verify your payment and send your confirmation shortly, so everything is properly recorded.\n\nWe're looking forward to welcoming you to Cascade Hideaway, and we'll have everything ready for your stay.",
-  refund:           "Thank you for letting us know. Refunds are reviewed personally by our host, and we've passed this along for their attention right away. We'll make sure it is followed through.",
-  cancellation:     "Thank you for letting us know about the change in your plans. Our host has already been notified and will personally assist you with your booking.\n\nWe'll keep the next steps as smooth as possible for you.",
-  complaint:        "Thank you for letting us know right away. Our host has already been alerted, and our service partners have been notified so they can attend to this as soon as possible.\n\nYour comfort matters to us, and we'll make sure this is followed through promptly.",
-  safety:           "Your safety comes first. Our host has been alerted immediately. If anyone is in danger, please call 911 right away.",
-  access:           "For your security, access details are shared personally by our host. We've alerted them and they'll message you directly.",
-  policy_exception: "That's a request our host would love to consider personally. We've passed it along, and you can expect a reply soon.",
-  uncertain:        "Let us bring in our host for this one so you receive a complete answer. They'll be with you shortly.",
-};
-// Sticker, photo or reaction with no text: a prospect, so answer with the link rather than a handoff line.
-const ATTACHMENT_REPLY = "Thank you for your message. If you have dates in mind, share them here and we'll check the calendar for you, or you may see the home, live availability and our direct rates on our site:\n\n👉 " + SITE_URL;
+// Guest-facing handoff lines, the attachment reply, ACK_SUGGEST and the dates-first answer live in persona.ts (session 58).
 // Early/late check-in-out before dates are known (see needsDatesFirst in policy.ts).
 const LOCAL_RE = /\b(po|pwede|kailan|maaga|naa|moy|kami|namin|ba|ninyo|nyo)\b/i;
-// Voice close-out (protocol 10): no greeting on a follow-up, two "po" at most, both routes, never a bare link.
-function datesFirstReply(name: string | null, text: string, followUp: boolean): string {
-  const local = LOCAL_RE.test(text);
-  const open = followUp ? (name ? `${name}, ` : '') : `${name ? `Hi ${name}.` : 'Hello.'} `;
-  const cap = (s: string) => (open.endsWith(', ') ? s[0].toLowerCase() + s.slice(1) : s);
-  if (local) return `${open}${cap('Salamat')} po sa pagtanong. We'd be glad to arrange that for you: depende ito sa calendar ng araw na iyon, and kapag walang ibang guest na dumarating o umaalis that day, madali pong ma-arrange.
-
-Share lang dito ang dates ninyo and we'll check right away, o puwede ninyong i-check ang live availability sa aming site:
-
-👉 ${SITE_URL}`;
-  return `${open}${cap('We')}'d be glad to arrange that for you. It depends on the calendar for that day: when no other guest arrives or leaves the same day, it's easy to arrange.
-
-If you share your dates here, we'll check right away and arrange it in this chat, or you may see live availability on our site:
-
-👉 ${SITE_URL}`;
-}
-const ACK_SUGGEST = "Thank you for your message. Our host will reply personally very shortly.\n\nIn the meantime, you may check live availability and rates here:\n👉 " + SITE_URL;
+const datesFirstReply = (name: string | null, text: string, followUp: boolean, lang: string) =>
+  datesFirstLine(name, !LOCAL_RE.test(text) ? 'en' : lang === 'bisaya' ? 'bis' : 'tl', followUp);
 
 // Two turns that need no model (live audit 2026-09-13: the model padded "salamat po" with a
 // sales nudge and answered "are you a bot?" with "I ... just like a human host would").
@@ -89,26 +59,10 @@ const pick = (xs: string[]) => xs[Math.floor(Math.random() * xs.length)];
 type L3 = 'en' | 'tl' | 'bis';
 const l3Of = (lang: string): L3 => (lang === 'bisaya' ? 'bis' : lang === 'taglish' ? 'tl' : 'en');
 function closingReply(name: string | null, lang: string, thanks: boolean, lastBotText: string): string {
-  const n = name ? `, ${name}` : '';
   const l = l3Of(lang);
   const fresh = (xs: string[]) => { const ys = xs.filter((x) => !lastBotText.includes(x.replace(/^[^.]*\.\s*/, '').slice(0, 40))); return ys.length ? ys : xs; };
-  let reply = pick(fresh(({
-    en: thanks
-      ? [`It's our pleasure${n}. We're here whenever you need us.`, `You're most welcome${n}. Message us anytime and we'll take care of it.`, `Our pleasure${n}. If anything else comes to mind, we're one message away.`]
-      : [`Thank you${n}. We're here whenever you need us.`, `Noted with thanks${n}. Take care, and message us anytime.`, `Thank you${n}. We'll be right here whenever you're ready.`],
-    tl: thanks
-      ? [`It's our pleasure po${n}. Nandito lang kami anytime.`, `Walang anuman po${n}. Message lang anytime and we'll take care of it.`, `Salamat din po${n}. Kung may maisip pa kayo, one message away lang kami.`]
-      : [`Salamat po${n}. Nandito lang kami kapag kailangan ninyo.`, `Sige po${n}, ingat kayo. Message lang anytime.`, `Noted po${n}. Nandito lang kami kapag ready na kayo.`],
-    bis: thanks
-      ? [`Walay sapayan${n}. Naa ra mi diri anytime.`, `Salamat pud${n}. Message lang if naa moy need and we'll take care of it.`]
-      : [`Salamat${n}. Naa ra mi diri kung naa moy need.`, `Noted${n}. Amping, ug message lang anytime.`],
-  })[l]));
-  if (!lastBotText.includes(SITE_URL)) reply += '\n\n' + ({
-    en: `Whenever you're ready, we can arrange the booking right here in the chat, or you may secure your dates on our site:`,
-    tl: `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site:`,
-    bis: `Kung ready na mo, we can arrange the booking diri sa chat, or pwede pud i-secure ang dates sa among site:`,
-  })[l] + `\n\n👉 ${SITE_URL}`;
-  return reply;
+  const reply = pick(fresh(closers(name, l, thanks)));
+  return lastBotText.includes(SITE_URL) ? reply : `${reply}\n\n${readyInvite(l)}`;
 }
 // D-173 / SPEC-01: Lloyd's approved wording, three registers ("automated" failed our own lint;
 // there was no Bisaya line). The strings live in booking.ts so voice.test.ts can lint them.
@@ -358,7 +312,9 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
   // Already nudged when the reply ends with a question, carries the link, or its last paragraph
   // already talks about dates or booking (live v56: the model wrote its own dates line and the
   // guard added a second one).
-  const isEn = lang === 'english' || lang === 'english_po';
+  // english_po replies are English with one courtesy po, so the nudge stays English too (live v55: an English answer got
+  // a Taglish nudge); l3Of maps english_po to 'en'.
+  const l = l3Of(lang);
   const lastPara = reply.trim().split(/\n{2,}/).pop() ?? '';
   if (reply.includes(SITE_URL)) return reply;
   // golden run 2026-09-17: a dates ask anywhere in the reply is the next step - never a second one after the warm close
@@ -367,24 +323,13 @@ function bookingNudge(reply: string, lang: string, datesKnown: boolean, linkRece
   // withheld only when one of our last two replies already carried the link.
   // Voice close-out: the saving rides inside the one invitation sentence (it used to be a third paragraph after the link,
   // which pushed replies past four paragraphs and read as a second nudge).
-  const siteEn = `We can arrange the booking right here in the chat, or you may secure your dates on our site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
-  const siteTl = `We can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
   // The model already closed with a dates line: add only the site part (no second "let us know").
   if (/\?\s*$/.test(reply.trim()) || /\b(dates?|petsa|book|reserve|availability|i-?hold)\b/i.test(lastPara)) {
-    return linkRecent ? reply : `${reply.trim()}\n\n${isEn ? siteEn : siteTl}`;
+    return linkRecent ? reply : `${reply.trim()}\n\n${nudgeSite(l)}`;
   }
-  // Soft, warm, friendly - an open door, never a push.
-  const en = !datesKnown
-    ? `Just let us know your preferred dates, and we'll gladly check our availability for you.${linkRecent ? '' : ' ' + siteEn}`
-    : linkRecent ? '' // session 30: the canned "No pressure at all…" / "Whenever it feels right…" lines stacked a second invitation on the model's own warm close
-    : `Whenever you feel ready, we can arrange the booking right here in the chat, or you may secure your dates on our site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
-  const tl = !datesKnown
-    ? `Sabihin lang po ang preferred dates ninyo at gladly po naming iche-check ang availability para sa inyo.${linkRecent ? '' : ' ' + siteTl}`
-    : linkRecent ? ''
-    : `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site, where direct bookings carry our best rates:\n\n👉 ${SITE_URL}`;
-  // english_po replies are English with one courtesy po, so the nudge stays English too
-  // (live v55: an English answer got a Taglish nudge).
-  const add = isEn ? en : tl;
+  // Soft, warm, friendly - an open door, never a push. Session 30: with the link recent and dates known, nothing is added
+  // (the canned lines stacked a second invitation on the model's own warm close).
+  const add = !datesKnown ? `${nudgeDates(l)}${linkRecent ? '' : ' ' + nudgeSite(l)}` : linkRecent ? '' : nudgeReady(l);
   return add ? `${reply.trim()}\n\n${add}` : reply.trim();
 }
 // Messenger renders markdown literally ("*   Robinsons", "**2:00 PM**" seen live 2026-09-13).
@@ -453,7 +398,7 @@ async function tgCall(method: string, body: Record<string, unknown>): Promise<an
 // Two candidate replies for the host, in the concierge voice. Rides the normal draft() path so it
 // inherits the provider fallback; the options come back joined by a separator line.
 async function suggestOptions(thread: Thread, text: string, availability: string): Promise<string[]> {
-  const ask = `${stayAnchor(text)}The guest just wrote: "${text}". Our host will answer this personally. Draft exactly TWO alternative replies the host could send - one gently declining or holding the line, one accommodating if we can - each complete, in our voice, 40-90 words, no link. Return them in "reply" separated by a line containing only ---. Set uncertain to false.`;
+  const ask = `${stayAnchor(text)}The guest just wrote: "${text}". Our host will answer this personally. Draft exactly TWO alternative replies the host could send - one gently declining or holding the line, one accommodating if we can - each complete, in our voice, 40-90 words, no link. Name a rate, tier or promotion only in FACTS' own words and figures; never call it special, exclusive or a deal (a 5-night tier was called "a special rate", 2026-09-28). Return them in "reply" separated by a line containing only ---. Set uncertain to false.`;
   try {
     const out = await draft(thread, ask, availability, 'lite', true); // compact: 9.6k -> ~5.8k input tokens (llm_usage, 2026-09-13)
     const parts = out.reply.split(/\n\s*---\s*\n/).map((s) => s.trim()).filter(Boolean);
@@ -570,28 +515,26 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
     pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit, pay_full: flow.pay_full === true };
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
-  if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: `Sorry po, something went wrong on our side — please try again in a minute, or book here: ${SITE_URL}`, image: null }; }
-  if (r.status === 409 || j.error === 'dates_unavailable') return { flow: { ...flow, step: 'dates', updated_at: new Date().toISOString() }, reply: reg(flow.lang, { en: `Sorry — those dates were reserved just moments ago. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`, tl: `Sorry po, kaka-reserve lang ng dates na iyon. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`, bis: `Sorry, kaka-reserve lang sa dates nga na. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.` }), image: null };
-  if (!j.ok) { console.error('submit_flow_rejected', JSON.stringify(j).slice(0, 200)); return { flow, reply: `Sorry po, I couldn't send that request (${String(j.error ?? 'error').replace(/_/g, ' ')}). You can also book here: ${SITE_URL}`, image: null }; }
+  if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: submitFailed(flow.lang), image: null }; }
+  if (r.status === 409 || j.error === 'dates_unavailable') return { flow: { ...flow, step: 'dates', updated_at: new Date().toISOString() }, reply: datesTaken(flow.lang), image: null };
+  if (!j.ok) { console.error('submit_flow_rejected', JSON.stringify(j).slice(0, 200)); return { flow, reply: submitFailed(flow.lang), image: null }; }
   const f: Flow = { ...flow, step: 'await_receipt', booking_id: j.inquiry_id, ref: j.ref, deposit: Number(j.deposit_amount), total: Number(j.total_amount), hold: j.hold === true,
     hold_expires_at: j.hold_expires_at ?? null, receipt_token: j.receipt_upload_token, receipt_expires_at: j.receipt_upload_expires_at, updated_at: new Date().toISOString() };
   return { flow: f, reply: paymentReply(f, f.name ?? thread.guest_name, SITE_URL), image: QR_URL };
 }
-const receiptThanks = (flow: Flow, first: string) => reg(flow.lang, { en: `Thank you, ${first}. We've received your receipt and we'll confirm the reservation as soon as it's reviewed. You'll hear from us here.`, tl: `Salamat po, ${first}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`, bis: `Salamat, ${first}. Na-receive na namo ang receipt — amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.` });
 async function forwardReceipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }> {
-  const first = name ? name.split(' ')[0] : 'po';
-  if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: reg(flow.lang, { en: `Thank you. That hold has since expired — just say "book" and we'll set the dates up again.`, tl: `Salamat po. Nag-expire na ang hold na iyon — message lang po "book" and we'll set the dates up again.`, bis: `Salamat. Na-expire na ang hold — message lang "book" and amo i-set up ang dates again.` }) };
+  if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: receiptLapsed('hold', flow.lang) };
   const img = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
-  if (!img || !img.ok) return { sent: false, reply: reg(flow.lang, { en: `Sorry, I couldn't open that image. Could you send it once more?`, tl: `Sorry po, hindi ko ma-open ang image. Puwede po bang i-send ulit?`, bis: `Sorry, wala nako ma-open ang image. Pwede i-send usab?` }) };
+  if (!img || !img.ok) return { sent: false, reply: receiptRetry(flow.lang) };
   const bytes = new Uint8Array(await img.arrayBuffer());
   const mime = (img.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim();
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY') }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => ({})) : {};
-  if (r?.ok) return { sent: true, reply: receiptThanks(flow, first) };
-  if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: reg(flow.lang, { en: `Your receipt is already with us and it's being reviewed.`, tl: `Nasa amin na po ang receipt ninyo — nire-review na.`, bis: `Naa na sa amo ang receipt — gi-review na.` }) };
-  if (r?.status === 401) return { sent: false, reply: reg(flow.lang, { en: `Thank you. That upload link has since expired — just say "book" and we'll set the dates up again.`, tl: `Salamat po. Nag-expire na ang upload link — message lang po "book" and we'll set the dates up again.`, bis: `Salamat. Na-expire na ang upload link — message lang "book" and amo i-set up ang dates again.` }) };
+  if (r?.ok) return { sent: true, reply: receiptThanks(name, flow.lang) };
+  if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: receiptAlready(flow.lang) };
+  if (r?.status === 401) return { sent: false, reply: receiptLapsed('link', flow.lang) };
   console.error('forward_receipt_failed', r?.status, JSON.stringify(j).slice(0, 200));
-  return { sent: false, reply: `I couldn't attach that receipt po (${String(j?.error ?? 'error').replace(/_/g, ' ')}). Could you send it again?` };
+  return { sent: false, reply: receiptRetry(flow.lang) };
 }
 
 /** availabilityLine's taken-dates line in any register ("I'm sorry, ... already reserved", "Pasensya na po, reserved na"). */
@@ -662,7 +605,7 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
       const f: Flow = { ...flow, step: 'await_receipt', booking_id: 'probe', ref: 'DIR-PROBE', deposit, total: q.total, hold, hold_expires_at: hold ? until : null, receipt_token: 'probe', receipt_expires_at: until, updated_at: at.toISOString() };
       return Promise.resolve({ flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL, at), image: QR_URL });
     },
-    receipt: (flow, _url, name) => { calls.push({ fx: 'receipt' }); return Promise.resolve({ sent: true, reply: receiptThanks(flow, name ? name.split(' ')[0] : 'po') }); },
+    receipt: (flow, _url, name) => { calls.push({ fx: 'receipt' }); return Promise.resolve({ sent: true, reply: receiptThanks(name, flow.lang) }); },
     name: () => Promise.resolve(guestName),
   };
 }
@@ -856,7 +799,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : HANDOFF[risk]; }
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, turnLang, THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
-  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
+  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
   else {
     try {
       const stateBlock = followUp
@@ -1077,7 +1020,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // (model answer + card) is not lint-scored as one message.
     if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Kapag ready po kayo|We can arrange (the booking|everything)|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
     // Lloyd 2026-09-17 14:30: show the direct site whenever practicable - once, under a resumed confirm card.
-    if (flowFollowUp && flow?.step === 'confirm' && !handoff) reply +='\n\n' + ({ en: `If you'd like to see more of the home first, everything is on our site, where direct bookings enjoy our best rates:`, tl: `If you'd like to see more of the home first, nasa site namin po ang lahat, with our best rates for direct bookings:`, bis: `If you'd like to see more of the home first, naa sa among site ang tanan, with our best rates for direct bookings:` })[flow.lang ?? 'en'] + `\n\n👉 ${SITE_URL}`;
+    if (flowFollowUp && flow?.step === 'confirm' && !handoff) reply += '\n\n' + confirmSiteInvite(flow.lang ?? 'en');
     const lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     if (mode === 'auto') {

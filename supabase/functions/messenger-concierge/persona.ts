@@ -12,7 +12,11 @@
 // Phase 2 (D-269): every guest-facing line of booking.ts lives here. Lines Lloyd approved word for word are marked
 // APPROVED and moved unchanged (greeting, Cassy's introduction, the bot answer, the payment message and promise, the
 // D-258 payment-path lines); reword them only with Lloyd.
+// Session 58 (roadmap 1, the persona gate): the fixed guest lines index.ts used to keep inline (handoffs, closers, the
+// dates-first answer, the nudges, the submit and receipt lines) live here too, so persona.test.ts holds every one.
 import type { Lang } from './booking.ts';
+import type { RiskCode } from './policy.ts';
+import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 const by = pick;
@@ -401,3 +405,137 @@ export function paymentMessage(p: PaymentFacts, L: Lang | undefined): string {
   const close = by(L, { en: `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, tl: `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, bis: `Salamat${nm}. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿` });
   return [head, '', pay, '', later, '', close].join('\n');
 }
+
+// ---- The fixed turns index.ts sends (session 58: moved from index.ts unchanged unless noted) ----
+
+/** APPROVED (voice questionnaire, group 8): warm, "we" not "I", no "po" - these go out in English. No booking link:
+ *  everyone who sees these already has a booking. */
+export const HANDOFF: Record<RiskCode, string> = {
+  routine:          '',
+  payment:          "Thank you. Our host will personally verify your payment and send your confirmation shortly, so everything is properly recorded.\n\nWe're looking forward to welcoming you to Cascade Hideaway, and we'll have everything ready for your stay.",
+  refund:           "Thank you for letting us know. Refunds are reviewed personally by our host, and we've passed this along for their attention right away. We'll make sure it is followed through.",
+  cancellation:     "Thank you for letting us know about the change in your plans. Our host has already been notified and will personally assist you with your booking.\n\nWe'll keep the next steps as smooth as possible for you.",
+  complaint:        "Thank you for letting us know right away. Our host has already been alerted, and our service partners have been notified so they can attend to this as soon as possible.\n\nYour comfort matters to us, and we'll make sure this is followed through promptly.",
+  safety:           "Your safety comes first. Our host has been alerted immediately. If anyone is in danger, please call 911 right away.",
+  access:           "For your security, access details are shared personally by our host. We've alerted them and they'll message you directly.",
+  policy_exception: "That's a request our host would love to consider personally. We've passed it along, and you can expect a reply soon.",
+  uncertain:        "Let us bring in our host for this one so you receive a complete answer. They'll be with you shortly.",
+};
+/** A sticker, photo or reaction with no text: a prospect, so the link rather than a handoff line. */
+export const ATTACHMENT_REPLY = `Thank you for your message. If you have dates in mind, share them here and we'll check the calendar for you, or you may see the home, live availability and our direct rates on our site:\n\n👉 ${SITE_URL}`;
+/** Suggest mode: the guest hears this while the host picks a reply. */
+export const ACK_SUGGEST = `Thank you for your message. Our host will reply personally very shortly.\n\nIn the meantime, you may check live availability and rates here:\n👉 ${SITE_URL}`;
+
+/** Early/late check-in-out before the dates are known (policy.ts needsDatesFirst). No greeting on a follow-up, two "po"
+ *  at most, both routes, never a bare link. Session 58: a settled Bisaya thread used to get the Taglish line with its
+ *  "po"; it has its own now. */
+export function datesFirstLine(name: string | null, lang: Lang, followUp: boolean): string {
+  const open = followUp ? (name ? `${name}, ` : '') : `${name ? `Hi ${name}.` : 'Hello.'} `;
+  const c = (s: string) => (open.endsWith(', ') ? s[0].toLowerCase() + s.slice(1) : s);
+  if (lang === 'bis') return `${open}${c('Salamat')} sa pagpangutana. We'd be glad to arrange that for you: depende ni sa calendar anang adlawa, and kung walay laing guest nga moabot o mobiya that day, sayon ra ma-arrange.
+
+Share lang diri ang inyong dates and we'll check right away, or pwede pud i-check ang live availability sa among site:
+
+👉 ${SITE_URL}`;
+  if (lang === 'tl') return `${open}${c('Salamat')} po sa pagtanong. We'd be glad to arrange that for you: depende ito sa calendar ng araw na iyon, and kapag walang ibang guest na dumarating o umaalis that day, madali pong ma-arrange.
+
+Share lang dito ang dates ninyo and we'll check right away, o puwede ninyong i-check ang live availability sa aming site:
+
+👉 ${SITE_URL}`;
+  return `${open}${c('We')}'d be glad to arrange that for you. It depends on the calendar for that day: when no other guest arrives or leaves the same day, it's easy to arrange.
+
+If you share your dates here, we'll check right away and arrange it in this chat, or you may see live availability on our site:
+
+👉 ${SITE_URL}`;
+}
+
+/** "salamat po" / "ok, bye": the caller picks one line (not the one it sent last). */
+export function closers(name: string | null, lang: Lang, thanks: boolean): string[] {
+  const n = name ? `, ${name}` : '';
+  return ({
+    en: thanks
+      ? [`It's our pleasure${n}. We're here whenever you need us.`, `You're most welcome${n}. Message us anytime and we'll take care of it.`, `Our pleasure${n}. If anything else comes to mind, we're one message away.`]
+      : [`Thank you${n}. We're here whenever you need us.`, `Noted with thanks${n}. Take care, and message us anytime.`, `Thank you${n}. We'll be right here whenever you're ready.`],
+    tl: thanks
+      ? [`It's our pleasure po${n}. Nandito lang kami anytime.`, `Walang anuman po${n}. Message lang anytime and we'll take care of it.`, `Salamat din po${n}. Kung may maisip pa kayo, one message away lang kami.`]
+      : [`Salamat po${n}. Nandito lang kami kapag kailangan ninyo.`, `Sige po${n}, ingat kayo. Message lang anytime.`, `Noted po${n}. Nandito lang kami kapag ready na kayo.`],
+    bis: thanks
+      ? [`Walay sapayan${n}. Naa ra mi diri anytime.`, `Salamat pud${n}. Message lang if naa moy need and we'll take care of it.`]
+      : [`Salamat${n}. Naa ra mi diri kung naa moy need.`, `Noted${n}. Amping, ug message lang anytime.`],
+  })[lang];
+}
+/** The open door under a closer when our last reply did not carry the link. */
+export const readyInvite = (lang: Lang) => by(lang, {
+  en: `Whenever you're ready, we can arrange the booking right here in the chat, or you may secure your dates on our site:`,
+  tl: `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site:`,
+  bis: `Kung ready na mo, we can arrange the booking diri sa chat, or pwede pud i-secure ang dates sa among site:`,
+}) + `\n\n👉 ${SITE_URL}`;
+
+// bookingNudge (Lloyd 2026-09-13: one soft next step). Session 58: a Bisaya thread used to get the Taglish lines, "po"
+// and all; it now has its own (the gate's no-po-in-Bislish rule found it).
+/** The site part alone, when the model already closed on dates. */
+export const nudgeSite = (lang: Lang) => by(lang, {
+  en: `We can arrange the booking right here in the chat, or you may secure your dates on our site, where direct bookings carry our best rates:`,
+  tl: `We can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site, where direct bookings carry our best rates:`,
+  bis: `We can arrange the booking diri sa chat, or pwede pud i-secure ang dates sa among site, where direct bookings carry our best rates:`,
+}) + `\n\n👉 ${SITE_URL}`;
+/** Dates not known yet. */
+export const nudgeDates = (lang: Lang) => by(lang, {
+  en: `Just let us know your preferred dates, and we'll gladly check our availability for you.`,
+  tl: `Sabihin lang po ang preferred dates ninyo at gladly po naming iche-check ang availability para sa inyo.`,
+  bis: `Share lang ang inyong preferred dates, and amo dayon i-check ang availability para ninyo.`,
+});
+/** Dates known, no link in our last two replies. */
+export const nudgeReady = (lang: Lang) => by(lang, {
+  en: `Whenever you feel ready, we can arrange the booking right here in the chat, or you may secure your dates on our site, where direct bookings carry our best rates:`,
+  tl: `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site, where direct bookings carry our best rates:`,
+  bis: `Kung ready na mo, we can arrange the booking diri sa chat, or pwede pud i-secure ang dates sa among site, where direct bookings carry our best rates:`,
+}) + `\n\n👉 ${SITE_URL}`;
+/** Lloyd 2026-09-17: the site once, under a resumed confirm card. */
+export const confirmSiteInvite = (lang: Lang) => by(lang, {
+  en: `If you'd like to see more of the home first, everything is on our site, where direct bookings enjoy our best rates:`,
+  tl: `If you'd like to see more of the home first, nasa site namin po ang lahat, with our best rates for direct bookings:`,
+  bis: `If you'd like to see more of the home first, naa sa among site ang tanan, with our best rates for direct bookings:`,
+}) + `\n\n👉 ${SITE_URL}`;
+
+// ---- Submit and receipt turns. Session 58: no error code reaches the guest (it is in the log), and no "Thank you, po."
+// when the name is unknown. ----
+
+/** submit-booking said 409 / dates_unavailable. */
+export const datesTaken = (lang: Lang | undefined) => by(lang, {
+  en: `Sorry — those dates were reserved just moments ago. If other dates suit you, just share your check-in and check-out and we'll gladly check them for you.`,
+  tl: `Sorry po, kaka-reserve lang ng dates na iyon. If may ibang dates kayong gusto, share lang po ang check-in and check-out and iche-check namin agad.`,
+  bis: `Sorry, kaka-reserve lang sa dates nga na. If naa moy other dates, share lang ang check-in and check-out and amo dayon i-check.`,
+});
+/** submit-booking failed or refused the request: the flow stays where it was. */
+export const submitFailed = (lang: Lang | undefined) => by(lang, {
+  en: `Sorry, that request didn't go through on our side. You may try again in a minute, or secure the dates on our site:`,
+  tl: `Sorry po, hindi natuloy ang request sa side namin. You may try again in a minute, o i-secure ang dates sa aming site:`,
+  bis: `Sorry, wala natuloy ang request sa among side. You may try again in a minute, or i-secure ang dates sa among site:`,
+}) + `\n\n👉 ${SITE_URL}`;
+export const receiptThanks = (name: string | null, lang: Lang | undefined) => by(lang, {
+  en: `Thank you${withName(name)}. We've received your receipt and we'll confirm the reservation as soon as it's reviewed. You'll hear from us here.`,
+  tl: `Salamat po${withName(name)}. Received na namin ang receipt — iko-confirm namin ang reservation once na-review na. Dito po namin kayo iu-update.`,
+  bis: `Salamat${withName(name)}. Na-receive na namo ang receipt — amo dayon i-confirm ang reservation once na-review na. Diri ra namo mo i-update.`,
+});
+export const receiptAlready = (lang: Lang | undefined) => by(lang, {
+  en: `Your receipt is already with us and it's being reviewed.`,
+  tl: `Nasa amin na po ang receipt ninyo — nire-review na.`,
+  bis: `Naa na sa amo ang receipt — gi-review na.`,
+});
+/** The hold ('hold') or the receipt upload link ('link') has lapsed. */
+export const receiptLapsed = (what: 'hold' | 'link', lang: Lang | undefined) => by(lang, what === 'hold' ? {
+  en: `Thank you. That hold has since expired — just say "book" and we'll set the dates up again.`,
+  tl: `Salamat po. Nag-expire na ang hold na iyon — message lang po "book" and we'll set the dates up again.`,
+  bis: `Salamat. Na-expire na ang hold — message lang "book" and amo i-set up ang dates again.`,
+} : {
+  en: `Thank you. That upload link has since expired — just say "book" and we'll set the dates up again.`,
+  tl: `Salamat po. Nag-expire na ang upload link — message lang po "book" and we'll set the dates up again.`,
+  bis: `Salamat. Na-expire na ang upload link — message lang "book" and amo i-set up ang dates again.`,
+});
+/** The image would not open, or the upload failed for another reason: the guest sends it again. */
+export const receiptRetry = (lang: Lang | undefined) => by(lang, {
+  en: `Sorry, I couldn't open that image. Could you send it once more?`,
+  tl: `Sorry po, hindi ko ma-open ang image. Puwede po bang i-send ulit?`,
+  bis: `Sorry, wala nako ma-open ang image. Pwede i-send usab?`,
+});

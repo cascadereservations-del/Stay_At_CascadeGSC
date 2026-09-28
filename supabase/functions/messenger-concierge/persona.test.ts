@@ -7,7 +7,8 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import * as P from './persona.ts';
 import { CAPACITY, LAST_MINUTE } from './persona.ts';
 import { rateLine, type Flow, type Lang } from './booking.ts';
-import { lintReply } from './voice.ts';
+import { addChatRoute, decisionInvite, firstInvite, lintReply, lookNudge, toneRules, turnoverCheckinLine } from './voice.ts';
+import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 
 const LANGS = ['en', 'tl', 'bis'] as const;
 const card: P.CardFacts = { resume: false, who: 'Ben Munez', range: 'Oct 20 to 22', nights: 2, pax: 2, phone: '09171234567', email: 'ben@example.com', total: '₱3,382', promo: null };
@@ -56,10 +57,29 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   relDayWord: (l) => [P.paymentMessage({ ...pay, rel: P.relDayWord(0, l) }, l)],
   houseRule: (l) => (['party', 'pets', 'guests'] as const).map((k) => P.houseRule(k, l)),
   discountHostLine: (l) => [`Booking directly gives our best rate, and the nightly rate goes down the longer you stay. ${P.discountHostLine(l)}`],
+  // Session 58: the fixed turns index.ts sends.
+  HANDOFF: () => Object.values(P.HANDOFF).filter(Boolean),
+  ATTACHMENT_REPLY: () => [P.ATTACHMENT_REPLY],
+  ACK_SUGGEST: () => [P.ACK_SUGGEST],
+  datesFirstLine: (l) => [true, false].flatMap((f) => [P.datesFirstLine('Ben', l, f), P.datesFirstLine(null, l, f)]),
+  closers: (l) => [true, false].flatMap((t) => [...P.closers('Ben', l, t), ...P.closers(null, l, t).map((c) => `${c}\n\n${P.readyInvite(l)}`)]),
+  readyInvite: (l) => [P.readyInvite(l)],
+  nudgeSite: (l) => [`The nearest mall is ten minutes by car.\n\n${P.nudgeSite(l)}`],
+  nudgeDates: (l) => [`${P.nudgeDates(l)} ${P.nudgeSite(l)}`, P.nudgeDates(l)],
+  nudgeReady: (l) => [P.nudgeReady(l)],
+  confirmSiteInvite: (l) => [`${P.stayCard(card, l)}\n\n${P.confirmSiteInvite(l)}`],
+  datesTaken: (l) => [P.datesTaken(l)],
+  submitFailed: (l) => [P.submitFailed(l)],
+  receiptThanks: (l) => [P.receiptThanks('Ben Munez', l), P.receiptThanks(null, l)],
+  receiptAlready: (l) => [P.receiptAlready(l)],
+  receiptLapsed: (l) => [P.receiptLapsed('hold', l), P.receiptLapsed('link', l)],
+  receiptRetry: (l) => [P.receiptRetry(l)],
 };
 /** Lloyd approved these word for word: they carry his "!" greeting and up to six purposeful "po" (voice.test.ts pins them). */
 const APPROVED = new Set(['greeting', 'greetBlock', 'BOT_REPLY', 'CASSY_INTRO', 'paymentMessage', 'relDayWord', 'paymentPromise']);
-const URGENCY = /\b(hurry|limited|last chance|act fast|book now|don'?t miss|selling fast|while (it|they) last|only \d+ (left|nights? left))\b/i;
+/** The guest lines voice.ts composes (invites, the chat route, the turnover line, the look block): same gate. */
+const VOICE_LINES = (l: Lang) => [decisionInvite(l, SITE_URL), firstInvite(l, SITE_URL), addChatRoute(`It is ten minutes by car.\n\n👉 ${SITE_URL}`, SITE_URL, l),
+  turnoverCheckinLine('Oct 2', l), lookNudge('may wifi po ba?', l, { site: false, reviews: false }), lookNudge('legit ba ni?', l, { site: true, reviews: false })];
 
 Deno.test('every persona export has samples, so a new move cannot skip the tone gate', () => {
   const skip = new Set(['pick', 'CAPACITY', 'LAST_MINUTE']);
@@ -68,16 +88,30 @@ Deno.test('every persona export has samples, so a new move cannot skip the tone 
 
 Deno.test('every persona move passes the lint and the voice rules in all three registers', () => {
   for (const lang of LANGS) for (const [name, make] of Object.entries(SAMPLES)) for (const m of make(lang)) {
-    const at = `${name}/${lang}: ${m.slice(0, 90)}`;
-    assertEquals(lintReply(m), [], at);
-    assert(!URGENCY.test(m), `urgency word: ${at}`);
-    assert((m.match(/🌿/gu) ?? []).length <= 1 && (!m.includes('🌿') || m.trimEnd().endsWith('🌿')), `one 🌿, at the close: ${at}`);
-    if (lang === 'bis') assert(!/\b(po|opo)\b/i.test(m), `no po in Bislish: ${at}`);
-    if (lang === 'tl') assert(!/the two of you/i.test(m), `Taglish says "kayong dalawa": ${at}`);
-    if (APPROVED.has(name)) continue;
-    const own = m.replace(/^(Hi [A-Z]\w*|Hello po|Hello)! /, ''); // the approved greeting's "!" may lead a composed first reply
-    assert(!/!/.test(own), `no exclamation: ${at}`);
-    assert((m.match(/\bpo\b/gi) ?? []).length <= 2, `at most two po: ${at}`);
+    assertEquals([...lintReply(m), ...toneRules(m, lang, APPROVED.has(name))], [], `${name}/${lang}: ${m.slice(0, 90)}`);
+  }
+});
+
+Deno.test('the lines voice.ts composes pass the same gate in all three registers', () => {
+  for (const lang of LANGS) for (const m of VOICE_LINES(lang)) assertEquals([...lintReply(m), ...toneRules(m, lang)], [], `${lang}: ${m.slice(0, 90)}`);
+});
+
+Deno.test('the gate itself catches what it is for (a check that cannot fail proves nothing)', () => {
+  assertEquals(toneRules('Book now, only 2 nights left.'), ['urgency']);
+  assertEquals(toneRules('Thank you. 🌿 See you soon.'), ['leaf_not_at_close']);
+  assertEquals(toneRules('Salamat po.', 'bis'), ['po_in_bislish']);
+  assertEquals(toneRules('Welcome, the two of you.', 'tl'), ['two_of_you_in_taglish']);
+  assertEquals(toneRules('See you soon!'), ['exclamation']);
+  assertEquals(toneRules('Hi Ben! See you soon.'), []);
+  assertEquals(toneRules('Opo po, sige po, salamat po.'), ['po_over_two']);
+  assertEquals(toneRules('Opo po, sige po, salamat po.', 'tl', true), []);
+});
+
+Deno.test('session 58: no raw error code and no "Thank you, po." reaches a guest', () => {
+  for (const lang of LANGS) {
+    assert(!/,\s*po\./.test(P.receiptThanks(null, lang)), lang);
+    assert(P.receiptThanks('Ben Munez', lang).includes('Ben.'), lang);
+    for (const m of [P.submitFailed(lang), P.receiptRetry(lang)]) assert(!/_|\(|error/i.test(m), `${lang}: ${m}`);
   }
 });
 

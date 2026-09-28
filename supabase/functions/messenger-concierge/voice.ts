@@ -421,6 +421,22 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
   return v;
 }
 
+/** Session 58, the persona gate: the rules beyond lintReply that every fixed guest line is held to (persona.test.ts, and
+ *  guest-messages/templates.test.ts). `approved`: Lloyd's word-for-word lines keep their "!" greeting and their "po". */
+const URGENCY_RE = /\b(hurry|limited|last chance|act fast|book now|don'?t miss|selling fast|while (it|they) last|only \d+ (left|nights? left))\b/i;
+export function toneRules(m: string, lang: L3 = 'en', approved = false): string[] {
+  const v: string[] = [];
+  if (URGENCY_RE.test(m)) v.push('urgency');
+  const leaves = (m.match(/🌿/gu) ?? []).length;
+  if (leaves > 1 || (leaves === 1 && !m.trimEnd().endsWith('🌿'))) v.push('leaf_not_at_close');
+  if (lang === 'bis' && /\b(po|opo)\b/i.test(m)) v.push('po_in_bislish');
+  if (lang === 'tl' && /the two of you/i.test(m)) v.push('two_of_you_in_taglish');
+  if (approved) return v;
+  if (/!/.test(m.replace(/^(Hi [A-Z]\w*|Hello po|Hello)! /, ''))) v.push('exclamation'); // the approved greeting's "!" may lead
+  if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
+  return v;
+}
+
 // SPEC-13 / D-176: look before you book. A guest deciding on a home they have never seen wants two
 // things the chat cannot give - pictures and other guests' words. The direct site has the first,
 // the Airbnb listing has the second. The invitation to BOOK stays the direct site; Airbnb is offered
