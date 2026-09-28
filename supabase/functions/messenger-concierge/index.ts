@@ -1211,12 +1211,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 // the default-locale menu is exactly MENU (other locales kept). No ice breaker: it shows only to new chatters, nearly all prospects. Get Started
 // is set because Meta refuses a menu change without it (#100, live 2026-09-28); a tap on it is a hello (postbackText). The
 // page's own subscribed fields need pages_manage_metadata, which the page token lacks - that checkbox is the Meta dashboard's.
-// Lloyd 2026-09-28 ("rephrase and re organize", guests first): a short label; the payload is the question the bot receives.
+// Lloyd 2026-09-28 (guests first; "it does not sound luxury or warm" -> the warm-host wording): a short label; the payload
+// is the question the bot receives.
 const MENU = [
-  { type: 'postback', title: 'Staying now? Priority help', payload: 'PRIORITY' },
-  { type: 'postback', title: 'Dates and price', payload: 'How much is it, and are my dates available?' },
-  { type: 'postback', title: 'Location and safety', payload: 'Where exactly are you, and is the area safe?' },
-  { type: 'postback', title: 'Wi-Fi, Netflix and parking', payload: 'Do you have Wi-Fi, Netflix and parking?' },
+  { type: 'postback', title: "Staying with us? We're here", payload: 'PRIORITY' },
+  { type: 'postback', title: 'Dates and rates', payload: 'How much is it, and are my dates available?' },
+  { type: 'postback', title: 'The neighbourhood', payload: 'Where exactly are you, and what is the area like? Is it safe?' },
+  { type: 'postback', title: 'Comforts of the home', payload: 'What comforts does the home have? Wi-Fi, Netflix, parking?' },
 ];
 const PAGE_FIELDS = ['messages', 'message_echoes', 'messaging_postbacks', 'messaging_referrals'];
 async function messengerProfile(set: boolean): Promise<Response> {

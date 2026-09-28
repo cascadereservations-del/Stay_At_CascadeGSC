@@ -63,7 +63,7 @@ const stay = { found: true, expired: false, match: true, first_name: 'Allyssa', 
 
 Deno.test('the menu button asks for the check-in date and booking name, and opens nothing yet', async () => {
   const r = await turn({ postback: { payload: 'PRIORITY', mid: 'pb1' } });
-  assertEquals(/check-in date and the name on the booking/.test(r.reply), true);
+  assertEquals(/check-in date and the name on your booking/.test(r.reply), true);
   assertEquals(r.handoffs.length, 0);
   assertEquals(r.saved.history.at(-1).route, { priority: 1 });
 });
@@ -73,7 +73,7 @@ Deno.test('verified and staying now: one priority card (urgent), the thanks by n
   assertEquals(r.rpcs, [{ name: 'verify_booking', args: { p_checkin_date: '2026-09-27', p_initial: 'A' } }]);
   assertEquals(r.handoffs.length, 1);
   assertEquals(r.handoffs[0].detail.risk, 'priority');
-  assertEquals(/^Thank you, Allyssa\. Our host has been alerted/.test(r.reply), true);
+  assertEquals(/^Thank you, Allyssa\. Your host has been told/.test(r.reply), true);
   assertEquals(/0991 853 8269/.test(r.reply), true);
 });
 
@@ -85,11 +85,11 @@ Deno.test('the guide link carries the check, so a verified guest types nothing',
 Deno.test('a stay that ended, or a wrong name: one more try, then an ordinary card and the phone route', async () => {
   const wrong = { ...stay, match: false };
   const first = await turn({ message: { mid: 'm2', text: 'Sept 27, Ben' } }, askedTurn(1), wrong);
-  assertEquals(/could not match that to a stay today/.test(first.reply), true);
+  assertEquals(/couldn't quite find today's stay/.test(first.reply), true);
   assertEquals(first.handoffs.length, 0);
   const second = await turn({ message: { mid: 'm3', text: 'Sept 26, Ben' } }, askedTurn(2), wrong);
   assertEquals(second.handoffs.map((h) => h.detail.risk), ['uncertain']);
-  assertEquals(/passed your message to our host/.test(second.reply) && /0991 853 8269/.test(second.reply), true);
+  assertEquals(/Your message is with your host/.test(second.reply) && /0991 853 8269/.test(second.reply), true);
   assertEquals(second.saved.history.at(-1).route, { priority: 'unmatched' });
 });
 
