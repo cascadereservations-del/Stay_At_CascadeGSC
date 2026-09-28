@@ -1304,7 +1304,7 @@ async function runProbe(body: string): Promise<Response> {
       const { data: row } = await db.from('concierge_threads').select('booking_flow, last_risk, guest_name').eq('psid', psid).maybeSingle();
       const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
       out.push({ guest: turn.text ?? '[image]', reply, step: row?.booking_flow?.step ?? null, flow_lang: row?.booking_flow?.lang ?? null, risk: row?.last_risk ?? null,
-        effects: calls.filter((c) => c.fx !== 'send'), chips: calls.filter((c) => c.fx === 'send').flatMap((c) => (c.detail as { chips?: string[] } | undefined)?.chips ?? []), lint: lintReply(reply, turn.text ?? '', { firstTurn: i === 0, name: row?.guest_name ?? null }), ms: Date.now() - t0 });
+        effects: calls.filter((c) => c.fx !== 'send'), lint: lintReply(reply, turn.text ?? '', { firstTurn: i === 0, name: row?.guest_name ?? null }), ms: Date.now() - t0 });
     }
     return json({ ok: true, voice_compact_chars: voiceCompact().length, turns: out });
   } catch (e) {
