@@ -672,6 +672,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       if (lastBot && now.getTime() - Date.parse(lastBot.at) < 3 * 60_000) { console.log('echo_ignored_meta_card', JSON.stringify({ psid: ev.recipient.id, types: msg.attachments.map((a: any) => a?.type) })); return; }
     }
     await db.from('concierge_threads').upsert({ psid: ev.recipient.id, human_until: new Date(now.getTime() + ECHO_HOLD_MS).toISOString(), updated_at: now.toISOString() });
+    // Session 58 (live 2026-09-28): the host answered the lockout from the page inbox, and the handoff stayed 'open' - only
+    // a Telegram card send closed one. With D-274 an open access handoff turns the guest's next question into a follow-up,
+    // so a typed staff reply now closes this guest's open handoffs.
+    if (msg.text) await db.from('concierge_handoffs').update({ status: 'sent', resolved_by: 'page inbox', resolved_at: now.toISOString() }).eq('psid', ev.recipient.id).eq('status', 'open');
     return;
   }
 
