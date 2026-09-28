@@ -145,3 +145,11 @@ Deno.test('Ask Cassy button: the prompt asks, and a reply to it is a question fo
   assertEquals(cassyAsk(q, 'How many did you count?', true), null);      // other bot prompts keep their own flows
   assertEquals(cassyAsk('  ', ASK_CASSY_PROMPT, true), null);
 });
+
+Deno.test('D-269: a reply to the Guest reply prompt is a draft request - text as the guest message, a bare screenshot as cassy draft', async () => {
+  const { draftAsk, DRAFT_PROMPT } = await import('./reply.ts');
+  assertEquals(draftAsk('Hi, is Oct 3 available?', DRAFT_PROMPT, true), 'cassy reply: Hi, is Oct 3 available?');
+  assertEquals(draftAsk('', DRAFT_PROMPT, true), 'cassy draft');
+  assertEquals(draftAsk('hello', DRAFT_PROMPT, false), null);
+  assertEquals(draftAsk('hello', '🤖 Ask Cassy: reply to this message with your question.', true), null);
+});

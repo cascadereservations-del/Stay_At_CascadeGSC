@@ -732,8 +732,14 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
   const discountAsk = !promoAsk && /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text);
   const siteShown = thread.history.filter((h) => h.role === 'bot').slice(-4).some((h) => h.text.includes(SITE_URL)); // D-269
+  // D-269 answer-then-escalate: a price proposal or special request (policy_exception that is not a house rule) is answered
+  // from FACTS like a discount ask, and the host still gets the card with two options. A bare "our host will consider it"
+  // left the guest's question unanswered (live 2026-09-27). Safety, access, payment, refund, complaint and cancellation
+  // stay pure handoffs: there the bot must not improvise.
+  const negotiate = !!text && g.risk === 'policy_exception' && !houseRuleKind(text);
+  const hostAsk = discountAsk || negotiate;
   let risk: RiskCode = text ? g.risk : 'uncertain';
-  let handoff = g.handoff || !text;   // the bot steps aside: handoff line to the guest, 24 h hold
+  let handoff = (g.handoff && !negotiate) || !text;   // the bot steps aside: handoff line to the guest, 24 h hold
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
   let draftNote = '';                 // D-227: a spent model budget, named on the host's card
   let reply = '';
@@ -859,7 +865,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const anchor = stay && sq && sq.q.promo_nights > 0 && sq.nights <= 60
         ? `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph, then the link: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3 } as Flow, now)}" Never mention any other "was" or "usual" price.] `
         : stayAnchor(guestTexts.slice(-3).join(' '), lang);
-      const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - ${siteShown ? 'the site link is already in this chat, so do not repeat it' : 'then the link'}. Do not quote any other number and do not promise a special price.] ${anchor}`
+      const discHint = hostAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - ${siteShown ? 'the site link is already in this chat, so do not repeat it' : 'then the link'}. Do not quote any other number and do not promise a special price.] ${anchor}`
         : promoAsk ? `[Promo ask: answer in two short paragraphs after the greeting - ${livePromos(currentCard(), now).map((p) => `our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('; ')}; outside those nights, booking direct still lowers the nightly rate the longer the stay. Ask which dates they have in mind. Quote no other number and no other "was" price.] ${anchor}`
         : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
@@ -986,12 +992,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // !followUp meant an active thread never heard it until a 6-hour gap (the ninth reply, live).
       if (!introduced && !flowFollowUp) reply = breakAfterIntro(withIntro(reply, l3));
       reply = gladNotHappy(reply);
-      if ((!followUp || (discountAsk && !siteShown)) && !reply.includes(SITE_URL) && !flowFollowUp && !payHold) reply = beforeClose(reply, firstInvite(l3, SITE_URL)); // D-269: a second discount turn does not repeat the link
+      if ((!followUp || (hostAsk && !siteShown)) && !reply.includes(SITE_URL) && !flowFollowUp && !payHold) reply = beforeClose(reply, firstInvite(l3, SITE_URL)); // D-269: a second discount turn does not repeat the link
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
-      if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }
+      if (hostAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }
       // D-269 (live 2026-09-27: the same "That's a request our host would love to consider" closed two replies in a row): the
       // host line is said once per thread, as the close of the answer's last paragraph when it fits, never as its own form line.
-      if (discountAsk) {
+      if (hostAsk) {
         const tail = discountHostLine(l3);
         if (!thread.history.some((h) => h.role === 'bot' && (h.text.includes(tail) || h.text.includes(HANDOFF.policy_exception)))) reply = joinTail(reply, tail, SITE_URL);
         handoff = true; risk = 'policy_exception';
@@ -1010,15 +1016,15 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       // Mid-flow the resumed card already shows the site once (D-172), so only a reviews or trust
       // question earns anything, and only the reviews line.
-      const look = (handoff || discountAsk || payHold || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
+      const look = (handoff || hostAsk || payHold || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
         : flowFollowUp ? (TRUST_RE.test(text) ? lookNudge(text, l3, { site: true, reviews: reviewsShown }) : '')
         : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
-      if (!discountAsk && !look && !payHold) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
+      if (!hostAsk && !look && !payHold) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (thread.guest_name) reply = dropNameAsk(reply); // golden run 2: the model asked a guest we already know for their name
       if (!flowFollowUp) reply = tidyReply(reply, SITE_URL, lang === 'english' || lang === 'english_po'); // session 30: no dangling "on our site:", one invitation, contractions
-      if (!flowFollowUp && !discountAsk && !payHold) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
+      if (!flowFollowUp && !hostAsk && !payHold) reply = addChatRoute(reply, SITE_URL, l3); // Lloyd 2026-09-17: the site AND the chat, guaranteed in code
       if (payHold) { const held = payHoldReply(reply, paidClaimReply(flow!, flow!.name ?? thread.guest_name, l3), SITE_URL); if (held !== reply) console.warn('pay_hold_guard', reply.slice(0, 160)); reply = held; }
       if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2);
       // Appended last: linkSolo rewrites any line holding SITE_URL into a solo 👉 line, which would
@@ -1094,7 +1100,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
  *  body: { psid: "probe:<uuid>", name?: string, now?: iso, turns: Array<string | { text?: string, image?: true, advance_minutes?: number }> } */
 async function runProbe(body: string): Promise<Response> {
   const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
-  let p: { psid?: string; name?: string; now?: string; golden?: boolean; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }> };
+  let p: { psid?: string; name?: string; now?: string; golden?: boolean; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }>; history?: Array<{ role?: string; text?: string }> };
   try { p = JSON.parse(body); } catch { return json({ ok: false, error: 'bad_json' }, 400); }
   const psid = String(p.psid ?? '');
   if (!/^probe:[A-Za-z0-9-]{8,64}$/.test(psid) || !Array.isArray(p.turns) || !p.turns.length || p.turns.length > 12) return json({ ok: false, error: 'probe_psid_and_1_to_12_turns_required' }, 400);
@@ -1106,6 +1112,11 @@ async function runProbe(body: string): Promise<Response> {
   setProviderKey((p.golden ? env('CASCADE_OPENROUTER_GOLDEN_RUN_KEY') : '') || env('CASCADE_OPENROUTER_PROBE_KEY') || null);
   try {
     await db.from('concierge_threads').delete().eq('psid', psid); // a fresh thread, always
+    // D-269: Cassy's reply helper seeds the conversation a host pasted (guest and host lines, oldest first), so the brain
+    // answers the newest guest message with the thread behind it - two minutes apart, ending three minutes ago.
+    const seed = (p.history ?? []).filter((h) => h?.text && (h.role === 'guest' || h.role === 'bot')).slice(-HISTORY_KEEP * 2);
+    if (seed.length) await db.from('concierge_threads').upsert({ psid, guest_name: p.name ?? null, bot_turns: seed.filter((h) => h.role === 'bot').length, updated_at: now.toISOString(),
+      history: seed.map((h, i) => ({ role: h.role, text: String(h.text).slice(0, 1500), at: new Date(now.getTime() - (3 + 2 * (seed.length - 1 - i)) * 60_000).toISOString() })) });
     for (const [i, t] of p.turns.entries()) {
       const turn = typeof t === 'string' ? { text: t } : t;
       now = new Date(now.getTime() + (turn.advance_minutes ?? 1) * 60_000);

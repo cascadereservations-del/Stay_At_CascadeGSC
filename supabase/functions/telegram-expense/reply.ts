@@ -33,6 +33,15 @@ export const CASSY_LABELS = ['🤖 Ask Cassy', '🤖 Cassy'];
 export function cassyAsk(text: string, replyToText: string, replyToBot: boolean): string | null {
   return replyToBot && replyToText.startsWith('🤖 Ask Cassy:') && text.trim() ? `cassy ${text.trim()}` : null;
 }
+/** D-269 (Lloyd 2026-09-28: "add a button where we can paste a screen or text and cassy would formulate the best replies"):
+ *  the ✍️ Guest reply button (or a bare /draft) asks for the guest's message; the reply to that prompt - pasted text, or a
+ *  screenshot with no caption - is a draft request for Cassy. Returns the text Cassy should receive, or null. */
+export const DRAFT_PROMPT = "✍️ Guest reply: reply to this message with the guest's message, or with a screenshot of the chat.";
+export const DRAFT_LABELS = ['✍️ Guest reply', '✍️ Draft reply'];
+export function draftAsk(text: string, replyToText: string, replyToBot: boolean): string | null {
+  if (!replyToBot || !replyToText.startsWith('✍️ Guest reply:')) return null;
+  return text.trim() ? `cassy reply: ${text.trim()}` : 'cassy draft';
+}
 
 export const NOT_WAITING = 'That card is not waiting for an answer, so nothing was saved. Tap a button on it, ask Cassy with /cassy <your question>, or /menu.';
 export const CANCELLED = '❌ Cancelled. Nothing saved.';

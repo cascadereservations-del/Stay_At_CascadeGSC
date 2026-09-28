@@ -9,3 +9,12 @@ Deno.test('draftRequest recognises the reply/draft/how-should-I-answer forms', (
   assertEquals(draftRequest('who is Queenie Gonzales?').draft, false);
   assertEquals(draftRequest('status').draft, false);
 });
+
+Deno.test('D-269: splitThread answers the guest lines after our last message; forHost drops the bot introduction', async () => {
+  const { splitThread, forHost } = await import('./draft.ts');
+  const s = splitThread([{ from: 'guest', text: 'Hi' }, { from: 'host', text: 'Hello Ana' }, { from: 'guest', text: 'Is party allowed?' }, { from: 'guest', text: 'for 5 friends' }]);
+  assertEquals(s.latest, 'Is party allowed?\nfor 5 friends');
+  assertEquals(s.before.length, 2);
+  assertEquals(splitThread([{ from: 'guest', text: 'Hi po' }]).latest, 'Hi po');
+  assertEquals(forHost("Hi Ana, thank you for reaching out. I'm Cassy, the home's digital concierge, here with Marifel and our team.\n\nThe night of Oct 3 is available."), "Hi Ana, thank you for reaching out.\n\nThe night of Oct 3 is available.");
+});

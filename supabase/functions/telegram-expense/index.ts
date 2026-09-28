@@ -28,7 +28,7 @@ import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; //
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
-import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
+import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -525,8 +525,8 @@ const KB_LABEL_CMD: Record<string,string> = {
   '💰 Log Expense':'/log', '📊 Summary':'/summary', '📌 Notices':'/notices',
   '🧾 Status':'/status', '🤖 Cassy':'/cassy',
 };
-const opsReplyKb = () => ({keyboard:[[{text:'📦 Stock check'},{text:'📋 Full inventory'}],[{text:'📋 Notices'},{text:'🤖 Ask Cassy'}],[{text:'☰ Menu'}]],is_persistent:true,resize_keyboard:true});
-const finReplyKb = () => ({keyboard:[[{text:'💰 Log Expense'},{text:'📦 Stock check'}],[{text:'📊 Summary'},{text:'📌 Notices'}],[{text:'🧾 Status'},{text:'☰ Menu'}]],is_persistent:true,resize_keyboard:true});
+const opsReplyKb = () => ({keyboard:[[{text:'📦 Stock check'},{text:'📋 Full inventory'}],[{text:'📋 Notices'},{text:'🤖 Ask Cassy'}],[{text:'✍️ Guest reply'},{text:'☰ Menu'}]],is_persistent:true,resize_keyboard:true});
+const finReplyKb = () => ({keyboard:[[{text:'💰 Log Expense'},{text:'📦 Stock check'}],[{text:'📊 Summary'},{text:'📌 Notices'}],[{text:'🧾 Status'},{text:'✍️ Guest reply'}],[{text:'☰ Menu'}]],is_persistent:true,resize_keyboard:true});
 
 function buildMenuHeader(title:string, subtitle:string, keyboard:{text:string}[][]): string {
   const longestRow = keyboard.length
@@ -1916,6 +1916,14 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
       // own prompts (expense/notice flows) and numeric fast entry ("500 supplies"), which stay here.
       {
         const m=update?.message; const t=String(m?.text??m?.caption??''); // v107: a photo captioned "cassy …" is a draft request (Telegram plan §3)
+        // D-269: the ✍️ Guest reply button (or a bare /draft) asks for the guest's message; the reply to that prompt - pasted
+        // text, or a screenshot with no caption - goes to Cassy as a draft request. A photo reply never reaches receipt OCR.
+        if(m&&typeof m.text==='string'&&(DRAFT_LABELS.includes(stripBotMention(m.text.trim()))||/^\s*\/draft(@\w+)?\s*$/i.test(m.text))){
+          if(!isAllowedChat(m.chat?.id))return;
+          await tgReply(m.chat.id,m.message_id,DRAFT_PROMPT,{reply_markup:{force_reply:true,selective:true,input_field_placeholder:'Paste the guest message or send a screenshot'}});
+          return;
+        }
+        {const d=m?draftAsk(String(m.text??''),String(m.reply_to_message?.text??''),!!m.reply_to_message?.from?.is_bot):null;if(d){if(typeof m.text==='string')m.text=d;else m.caption='cassy draft';}}
         // session 28: /cassy <q> and /draft <guest text> are the same requests as "cassy …" / "cassy reply: …"
         if(m&&typeof m.text==='string'&&/^\s*\/(cassy|draft)(@\w+)?\b/i.test(m.text)) m.text=m.text.replace(/^\s*\/cassy(@\w+)?\s*/i,'cassy ').replace(/^\s*\/draft(@\w+)?\s*/i,'cassy reply: ');
         // 2026-09-26: the 🤖 Ask Cassy button asks for the question; the reply to that prompt goes to Cassy.
@@ -1925,7 +1933,7 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
           return;
         }
         {const asked=m&&typeof m.text==='string'?cassyAsk(m.text,String(m.reply_to_message?.text??''),!!m.reply_to_message?.from?.is_bot):null;if(asked)m.text=asked;}
-        const named=/^\s*@?cassy\b/i.test(String(m?.text??t))||/^\s*\/deep\b/i.test(t);
+        const named=/^\s*@?cassy\b/i.test(String(m?.text??m?.caption??t))||/^\s*\/deep\b/i.test(t); // D-269: a screenshot reply to the draft prompt carries 'cassy draft' as its caption
         let free=t&&!m?.from?.is_bot&&!m?.reply_to_message&&!t.trimStart().startsWith('/')&&!/^\s*[₱\d]/.test(stripBotMention(t.trim()))&&isBotAddressed(m);
         // SPEC-16: someone who is being asked a question is answering it (e.g. "Joy Dishwashing 89"), not asking Cassy.
         if(free&&await hasAwaiting(db,m?.chat?.id,m?.from?.id))free=false;

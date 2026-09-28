@@ -15,7 +15,7 @@ import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
-import { draftRequest, draftGuestReply, transcribeChat, reviseHostMessage } from './draft.ts';
+import { draftRequest, draftGuestReply, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GATE_ENV = () => ({ financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), opsChat: env('TELEGRAM_CHAT_ID'), dmUserIds: env('CASSY_DM_USER_IDS').split(',').map((s) => s.trim()).filter(Boolean) });
@@ -127,20 +127,22 @@ async function draft(db: any, msg: any, pasted: string): Promise<void> {
   const chatId = String(msg.chat.id);
   const t0 = Date.now();
   try {
-    let guestText = pasted, guestName: string | null = null;
-    // "cassy draft" as a reply to someone's pasted message drafts for that message.
-    if (!guestText && typeof msg.reply_to_message?.text === 'string') guestText = msg.reply_to_message.text;
+    let guestText = pasted, guestName: string | null = null, thread: { before?: Line[]; platform?: Platform } = {};
+    // "cassy draft" as a reply to someone's pasted message drafts for that message (never to Cassy's own prompt).
+    if (!guestText && typeof msg.reply_to_message?.text === 'string' && !msg.reply_to_message.from?.is_bot) guestText = msg.reply_to_message.text;
     if (Array.isArray(msg.photo) && msg.photo.length) {
       const ph = await photoBytes(msg);
       if (!ph) { await tgSend(chatId, 'I could not fetch that screenshot. Paste the guest text instead: "cassy reply: …"', msg.message_id); return; }
+      // D-269: the whole visible thread, so the draft answers the newest guest messages with the conversation behind them.
       const t = await transcribeChat(ph.bytes, ph.mime);
-      if (t.guest_messages) { guestText = [guestText, t.guest_messages].filter(Boolean).join('\n'); guestName = t.guest_name; }
+      const s = splitThread(t.messages);
+      if (s.latest) { guestText = [guestText, s.latest].filter(Boolean).join('\n'); guestName = t.guest_name; thread = { before: s.before, platform: t.platform }; }
     }
     const nm = /\b(?:guest|from|for)\s*[:=]\s*([A-Z][\p{L}'-]+(?:\s+[A-Z][\p{L}'-]+){0,3})/u.exec(pasted);
     if (nm) { guestName = nm[1]; guestText = guestText.replace(nm[0], '').trim(); }
-    if (!guestText.trim()) { await tgSend(chatId, 'Give me the guest\'s message: "cassy reply: <what they wrote>", or send the chat screenshot with the caption "cassy draft".', msg.message_id); return; }
-    const out = await draftGuestReply(db, guestText, guestName);
-    await tgSend(chatId, out, msg.message_id);
+    if (!guestText.trim()) { await tgSend(chatId, 'I could not find a guest message there. Tap ✍️ Guest reply and paste what they wrote, or send a screenshot of the chat.', msg.message_id); return; }
+    const out = await draftGuestReply(db, guestText, guestName, thread);
+    for (const m of out) await tgSend(chatId, m, msg.message_id); // header, then each option alone: a long-press copies only the reply
     console.log('cassy_draft', JSON.stringify({ chat: chatId, from: msg.from?.id, photo: !!msg.photo, chars: guestText.length, ms: Date.now() - t0 }));
   } catch (e) {
     console.error('cassy_draft_failed', String(e).slice(0, 300));
