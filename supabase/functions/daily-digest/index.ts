@@ -197,7 +197,8 @@ async function buildWeeklyOpsMessage(db: any, today: string): Promise<string> {
   const [{ data: inv }, { data: wo }, { data: ho }, { data: arr }] = await Promise.all([
     db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit')
       .eq('property_id', PROPERTY_ID).eq('is_active', true).not('reorder_below', 'is', null).order('name'),
-    db.from('work_orders').select('title,priority').eq('property_id', PROPERTY_ID).not('status', 'in', '("resolved","cancelled")').order('created_at'),
+    // An RPC: work_orders is revoked from service_role; the table read got 403 and reported none (2026-09-28).
+    db.rpc('open_work_orders_v1', { p_property_id: PROPERTY_ID }),
     db.from('concierge_handoffs').select('guest_name,risk,created_at').eq('status', 'open').order('created_at'),
     db.from('calendar_events').select('guest_name,raw_summary,checkin_date,nights')
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').gte('checkin_date', today).lt('checkin_date', weekEnd).order('checkin_date'),
