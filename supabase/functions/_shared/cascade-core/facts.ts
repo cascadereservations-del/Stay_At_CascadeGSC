@@ -12,6 +12,7 @@
 // SPEC-34 (D-261): the rates are NOT written here any more. The stored rate card (pricing.ts, get_rate_card_v1) is the
 // one source; FACTS and VOICE below are written for the seed card and factsFor / voiceFor refill them from the live one.
 import { livePromos, SEED_CARD, tierRate, type RateCard } from './pricing.ts';
+import { currentContact, type Contact } from './contact.ts';
 
 // The short link is what the hosts actually send; it resolves to
 // https://cascadereservations-del.github.io/Stay_At_CascadeGSC/
@@ -66,7 +67,7 @@ GETTING AROUND (from the unit)
 - Distance and travel-time questions: answer straight away with the distance in km and the typical minutes from LANDMARKS ("about 4 km, around 12 minutes"), then ONE transport tip that fits what they told you - no car or "local transpo": Grab Taxi (PHP 120-180 to the malls), Move It / Maxim (PHP 10-50), tricycles at the gate; driving: free parking in front. Ask whether they drive or ride only when you need it for route advice, never as a condition for giving the time. Three places at most per reply, in prose, no lists.
 
 CONTACT
-- This Messenger chat, cascadereservations@gmail.com (always give it unaltered), and our host's phone +63 991 853 8269 (call or text; the number to give first - Lloyd 2026-09-28). WhatsApp +63 961 805 6979. Marifel is the host; Lloyd and Honey are the Cascade Hideaway team. A guest who asks for a person is pointed to Marifel.
+- This Messenger chat, cascadereservations@gmail.com (always give it unaltered), and {{ONGROUND}} (call or text; the number to give first). WhatsApp +63 961 805 6979. Marifel is the host; Lloyd and Honey are the Cascade Hideaway team. A guest who asks for a person is pointed to Marifel.
 `.trim();
 
 const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -350,8 +351,10 @@ export function promoFacts(card: RateCard, now = new Date()): string {
 }
 const SEED_TIER_LINE = tierLine(SEED_CARD), SEED_RANGE = discountRange(SEED_CARD);
 /** FACTS for the live card: the rate lines and every "PHP 1,780" refilled, plus the promotion block. */
-export function factsFor(card: RateCard, now = new Date()): string {
-  const t = FACTS.replace(SEED_TIER_LINE, tierLine(card)).replace(SEED_RANGE, discountRange(card)).replaceAll('PHP 1,780', `PHP ${n0(card.base)}`);
+export function factsFor(card: RateCard, now = new Date(), contact: Contact = currentContact()): string {
+  // Lloyd 2026-09-28: the on-ground contact is edited on the dashboard (app_settings, contact.ts), never typed here.
+  const t = FACTS.replace(SEED_TIER_LINE, tierLine(card)).replace(SEED_RANGE, discountRange(card)).replaceAll('PHP 1,780', `PHP ${n0(card.base)}`)
+    .replace('{{ONGROUND}}', `our on-ground partner ${contact.name}, ${contact.phone}`);
   const promo = promoFacts(card, now);
   return promo ? t.replace('\n\nBOOKING & PAYMENT', `${promo}\n\nBOOKING & PAYMENT`) : t;
 }

@@ -17,6 +17,7 @@
 import type { Lang } from './booking.ts';
 import type { RiskCode } from './policy.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
+import { currentContact, type Contact } from '../_shared/cascade-core/contact.ts';
 
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 const by = pick;
@@ -424,10 +425,10 @@ export const HANDOFF: Record<RiskCode, string> = {
 /** DESIGN-guest-case-catalogue G2 (Lloyd 2026-09-28: forward at once, reassure warmly; the host's number is +63 991 853
  *  8269, "prioritize this"): the door ask. Replaces HANDOFF.access as the guest line - the host shares the code, the guest
  *  gives what the host needs to match the stay, and a phone route if nobody answers in minutes. */
-export const accessVerify = (lang: Lang) => by(lang, {
-  en: `We're on it. For everyone's security the door code is shared only by our host, and your message is with them now. So they can match your stay quickly, may we have the name on the booking and your check-in date?\n\nIf you don't hear back within a few minutes, you may also call or text our host at +63 991 853 8269.`,
-  tl: `Naiintindihan po namin. For everyone's security, ang host lang ang nagbibigay ng door code, at nasa kanila na po ang message ninyo. Para mabilis nilang ma-match ang stay ninyo, ano ang name sa booking at ang check-in date?\n\nIf wala pang reply after a few minutes, you may also call or text our host at +63 991 853 8269.`,
-  bis: `Sabot mi. For everyone's security, ang host ra ang naghatag sa door code, ug naa na nila ang inyong message. Para dali nila ma-match ang inyong stay, unsa ang name sa booking ug ang check-in date?\n\nIf walay reply after a few minutes, pwede pud mo mo-call or text sa among host sa +63 991 853 8269.`,
+export const accessVerify = (lang: Lang, c: Contact = currentContact()) => by(lang, {
+  en: `We're on it. For everyone's security the door code is shared only by our host, and your message is with them now. So they can match your stay quickly, may we have the name on the booking and your check-in date?\n\nIf you don't hear back within a few minutes, you may also call or text our on-ground partner ${c.name} at ${c.phone}.`,
+  tl: `Naiintindihan po namin. For everyone's security, ang host lang ang nagbibigay ng door code, at nasa kanila na po ang message ninyo. Para mabilis nilang ma-match ang stay ninyo, ano ang name sa booking at ang check-in date?\n\nIf wala pang reply after a few minutes, you may also call or text our on-ground partner ${c.name} at ${c.phone}.`,
+  bis: `Sabot mi. For everyone's security, ang host ra ang naghatag sa door code, ug naa na nila ang inyong message. Para dali nila ma-match ang inyong stay, unsa ang name sa booking ug ang check-in date?\n\nIf walay reply after a few minutes, pwede pud mo mo-call or text sa among on-ground partner nga si ${c.name} sa ${c.phone}.`,
 });
 /** Session 58 (live lockout 2026-09-28): the guest's next message while an access or safety handoff is open (a callback
  *  number, their name). It goes to the host as its own card, so "passed on" is true; no booking close, no link. */

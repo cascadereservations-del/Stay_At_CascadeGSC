@@ -4,6 +4,7 @@
 // through its probe (real calendar, booking flow, persona.ts, voice guards; every send recorded, none made), so a fix to the
 // concierge is a fix to the drafts. Airbnb chats keep a separate model draft: Airbnb forbids links, off-platform contact and
 // payment, which the Messenger brain offers by design.
+import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { factsFor, voiceFor, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { loadCard } from '../_shared/cascade-core/pricing.ts'; // SPEC-34: drafts quote the stored rate card
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
@@ -81,7 +82,7 @@ async function conciergeDraft(before: Line[], latest: string, name: string | nul
 
 // deno-lint-ignore no-explicit-any
 async function rewrite(db: any, text: string, how: string): Promise<string> {
-  const card = await loadCard(db), lang = detectLang(text);
+  const card = await loadCard(db), lang = detectLang(text); await loadContact(db);
   const register = { en: 'refined conversational English, no "po"', tl: 'natural Taglish, at most two "po"', bis: 'natural Bislish (Cebuano with English hospitality terms), never Tagalog words or "po"/"opo"' }[lang];
   const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are rewriting a reply the HOST is about to send to a guest. It is in ${register}: keep exactly that register. ${how} Keep every fact, figure, date, amount, link and name exactly. Return ONLY JSON {"reply": "<the message>"}.`;
   const raw = await chatJson({ system, history: [], question: `Reply:\n"""${text.slice(0, 1500)}"""`, title: 'Cascade Cassy rewrite', temperature: 0.4, maxTokens: 400, timeoutMs: 30_000 });
@@ -90,7 +91,7 @@ async function rewrite(db: any, text: string, how: string): Promise<string> {
 
 // deno-lint-ignore no-explicit-any
 async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean): Promise<string> {
-  const card = await loadCard(db);
+  const card = await loadCard(db); await loadContact(db);
   const channel = airbnb
     ? 'This guest writes on AIRBNB: never include links, phone numbers, e-mail, GCash, QR or any payment outside Airbnb, and never suggest booking elsewhere; for a booking, invite them to send a booking request on the Airbnb listing.'
     : 'Do not invent availability or prices beyond FACTS.';
@@ -132,7 +133,7 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
  * date and name stays. Returns the card the host reads (never sent to a guest). */
 // deno-lint-ignore no-explicit-any
 export async function reviseHostMessage(db: any, template: string, context: string): Promise<string> {
-  const card = await loadCard(db);
+  const card = await loadCard(db); await loadContact(db);
   // Session 29 (live): a Bislish template came back as Tagalog with six "po". The register is read from the template
   // itself and enforced in code, as the Concierge does (D-170).
   const lang = detectLang(template);

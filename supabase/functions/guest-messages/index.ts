@@ -9,6 +9,7 @@
 //      📨 ⤵ block so the host can send it by hand (telegram-expense reads that block to the end on Show as text).
 // Auth: x-cascade-cron-secret (the cron job reads it from Vault, telegram-expense from the Edge secret). ?dry=1 lists.
 // ponytail: no retry queue - a failed send is a 'failed' row plus the ✋ card, the host sends by hand.
+import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
@@ -69,6 +70,7 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
     return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: JSON_H });
   }
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const contact = await loadContact(db); // Lloyd 2026-09-28: the dashboard's Guest contact (app_settings), not an Edge secret
   const dry = new URL(req.url).searchParams.get('dry') === '1';
   const body = await req.json().catch(() => ({})) as { booking_id?: string; tapped?: boolean };
   const one = typeof body.booking_id === 'string' && body.booking_id ? body.booking_id : null;
@@ -90,7 +92,7 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         const { data: b, error: bErr } = await db.from('booking_inquiries')
           .select('id,guest_name,guest_email,guest_phone,checkin_date,checkout_date,pax,total_amount,deposit_amount,status').eq('id', d.booking_id).maybeSingle();
         if (bErr || !b || b.status !== 'confirmed') { results.push({ ref, key: lockKey, status: 'not_confirmed' }); continue; }
-        const fields = { ...b, ...reviews, onground_name: Deno.env.get('CASCADE_ONGROUND_NAME') ?? '', onground_phone: Deno.env.get('CASCADE_ONGROUND_PHONE') ?? '' };
+        const fields = { ...b, ...reviews, onground_name: contact.name, onground_phone: contact.phone };
 
         // Message 3 (D-174, fraud design section 4): never sent, never a PIN. One card to Finance with Show as text only;
         // the log says 'card offered' and nothing else.

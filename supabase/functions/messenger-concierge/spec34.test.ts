@@ -2,6 +2,7 @@
 // SPEC-34 (D-262): the concierge quotes from the stored rate card; promo nights are anchored on the standard rate;
 // FACTS/VOICE follow the card and carry a live promotion; PHP 1,929 appears nowhere.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { DEFAULT_CONTACT } from '../_shared/cascade-core/contact.ts';
 import { rateLine, quoteTotal, type Flow } from './booking.ts';
 import { dropNameAsk, lintReply } from './voice.ts';
 import { allowedPesos, pesosIn } from './golden-score.ts';
@@ -47,13 +48,15 @@ Deno.test('a plain stay is quoted exactly as before', () => {
 
 Deno.test('FACTS and VOICE follow the card; the seed card leaves them byte-identical', () => {
   assert(FACTS.includes(tierLine(SEED_CARD)), 'the generated tier line matches the written one');
-  assertEquals(factsFor(noPromo, now), FACTS);
+  // Session 58: the on-ground contact line is filled from the dashboard setting (contact.ts); everything else is FACTS verbatim.
+  const filled = FACTS.replace('{{ONGROUND}}', `our on-ground partner ${DEFAULT_CONTACT.name}, ${DEFAULT_CONTACT.phone}`);
+  assertEquals(factsFor(noPromo, now), filled);
   assertEquals(voiceFor(SEED_CARD), VOICE);
   const live = factsFor(SEED_CARD, now);
   assert(live.includes('Anniversary Promotion: PHP 1,543 per night for the nights of Oct 11 to Oct 17, 2026 (check-out by Oct 18), instead of our standard PHP 1,780'));
   assert(live.includes('Never say there is no promotion'));
   assert(!live.includes('1,929'));
-  assertEquals(factsFor(SEED_CARD, new Date('2026-10-18T08:00:00Z')), FACTS, 'an ended promotion leaves FACTS');
+  assertEquals(factsFor(SEED_CARD, new Date('2026-10-18T08:00:00Z')), filled, 'an ended promotion leaves FACTS');
   const up: RateCard = { ...noPromo, base: 1900 };
   assert(factsFor(up, now).includes('1 night 1,900 - 2-4 nights 1,805 (5% off)'));
   assert(factsFor(up, now).includes('PHP 1,900 per night') && !factsFor(up, now).includes('PHP 1,780'));
