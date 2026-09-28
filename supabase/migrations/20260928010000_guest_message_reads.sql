@@ -30,7 +30,7 @@ as $function$
              from public.booking_inquiries b
              join public.work_orders w on w.property_id = b.property_id
             where b.id = p_booking_id
-              and w.status = 'open'
+              and w.status not in ('resolved', 'cancelled')  -- open, in_progress, awaiting_external: still unfinished
               and (w.created_at at time zone 'Asia/Manila')::date between b.checkin_date and b.checkout_date);
 $function$;
 
@@ -56,5 +56,24 @@ $function$;
 
 revoke all on function public.arrivals_without_id_v1(date, date) from public, anon, authenticated;
 grant execute on function public.arrivals_without_id_v1(date, date) to service_role;
+
+-- The Monday weekly OPS roll-up read work_orders as a table too (daily-digest, since the Telegram plan): 403 on
+-- 2026-09-28 00:00Z, so it reported no open work orders while 4 were open. Same shape it selected.
+create or replace function public.open_work_orders_v1(p_property_id uuid)
+returns table (title text, priority text)
+language sql
+stable
+security definer
+set search_path to ''
+as $function$
+  select w.title, w.priority
+    from public.work_orders w
+   where w.property_id = p_property_id
+     and w.status not in ('resolved', 'cancelled')
+   order by w.created_at;
+$function$;
+
+revoke all on function public.open_work_orders_v1(uuid) from public, anon, authenticated;
+grant execute on function public.open_work_orders_v1(uuid) to service_role;
 
 commit;

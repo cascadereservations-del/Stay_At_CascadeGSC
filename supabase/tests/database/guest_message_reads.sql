@@ -1,7 +1,7 @@
 -- Session 56 fix: release guest_message_reads_20260928. The 5.2 hold and the digest's ID read, as service_role sees them.
 -- Every fixture goes with the closing rollback.
 begin;
-select plan(9);
+select plan(12);
 
 insert into public.properties(id, name, is_active) values ('e1000000-0000-4000-8000-000000000057', 'Synthetic Guest Reads 56', true);
 insert into public.guests(id, property_id, name) values
@@ -45,6 +45,15 @@ select ok(has_function_privilege('service_role', 'public.guest_message_hold_v1(u
 select ok(has_function_privilege('service_role', 'public.arrivals_without_id_v1(date, date)', 'execute')
       and not has_function_privilege('anon', 'public.arrivals_without_id_v1(date, date)', 'execute')
       and not has_function_privilege('authenticated', 'public.arrivals_without_id_v1(date, date)', 'execute'), 'arrivals_without_id_v1 is service_role only');
+
+-- open_work_orders_v1 (the Monday roll-up): the resolved one is gone, a new open one is listed; service_role only.
+insert into public.work_orders(property_id, source_kind, source_ref, title, priority, status)
+values ('e1000000-0000-4000-8000-000000000057', 'manual', 'synthetic-56b', 'Synthetic loose tile', 'normal', 'open');
+select is((select array_agg(title) from public.open_work_orders_v1('e1000000-0000-4000-8000-000000000057')), array['Synthetic loose tile'], 'open_work_orders_v1 lists the open one only');
+select ok(not exists (select 1 from public.open_work_orders_v1('e1000000-0000-4000-8000-000000000057') where title = 'Synthetic broken shower'), 'a resolved work order is not listed');
+select ok(has_function_privilege('service_role', 'public.open_work_orders_v1(uuid)', 'execute')
+      and not has_function_privilege('anon', 'public.open_work_orders_v1(uuid)', 'execute')
+      and not has_function_privilege('authenticated', 'public.open_work_orders_v1(uuid)', 'execute'), 'open_work_orders_v1 is service_role only');
 
 select * from finish();
 rollback;
