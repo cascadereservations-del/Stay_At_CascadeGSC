@@ -35,7 +35,8 @@ export function unionRisk(regex: RiskCode, j: JevRoute | null): RiskCode {
   return up && j.confidence >= 0.8 && j.needsHost >= 0.6 ? up : regex;
 }
 
-export async function jevRoute(text: string, key: string | undefined, timeoutMs = 900): Promise<JevRoute | null> {
+// 1,500 ms: live on the edge a call took 640 ms and one returned nothing at 900 (2026-09-28); it runs beside the thread read.
+export async function jevRoute(text: string, key: string | undefined, timeoutMs = 1500): Promise<JevRoute | null> {
   if (!text.trim() || !key) return null;
   const t0 = Date.now();
   try {
@@ -53,9 +54,11 @@ export async function jevRoute(text: string, key: string | undefined, timeoutMs 
       signal: AbortSignal.timeout(timeoutMs),
     });
     const a = r.ok ? (await r.json())?.answers : null;
-    if (!a?.intent?.choice) return null;
+    if (!a?.intent?.choice) { console.warn('jev_skip', JSON.stringify({ reason: `http_${r.status}`, ms: Date.now() - t0 })); return null; }
     return { intent: a.intent.choice, confidence: Number(a.intent.confidence ?? 0), needsHost: Number(a.needs_host?.noul ?? 0), lang: a.lang?.choice ?? 'en', ms: Date.now() - t0 };
-  } catch {
+  } catch (e) {
+    // Measured, not silent: the weekly shadow comparison needs to know how often Jev was absent.
+    console.warn('jev_skip', JSON.stringify({ reason: String((e as Error)?.name ?? e).slice(0, 40), ms: Date.now() - t0 }));
     return null;
   }
 }
