@@ -197,7 +197,11 @@ export function breakAfterIntro(reply: string): string {
 export function joinTail(reply: string, tail: string, siteUrl: string): string {
   const ps = reply.trim().split(/\n\s*\n/);
   const i = ps.findLastIndex((p) => !p.includes(siteUrl) && !/^👉/.test(p.trim()) && !/[:?]\s*$/.test(p.trim()));
-  if (i >= 0 && ps[i].length + tail.length < 310) ps[i] = `${ps[i].trimEnd()} ${tail}`; else ps.push(tail);
+  if (i >= 0 && ps[i].length + tail.length < 310) ps[i] = `${ps[i].trimEnd()} ${tail}`;
+  else { // its own paragraph, above the invitation and its link so the message still closes on the link (live probe 2026-09-28)
+    const at = ps.findIndex((p) => p.includes(siteUrl) || /^👉/.test(p.trim()) || /:\s*$/.test(p.trim()));
+    ps.splice(at < 0 ? ps.length : at, 0, tail);
+  }
   return ps.join('\n\n');
 }
 /** D-269 (protocol: "one 🌿 at a close"; live 2026-09-27 the model put one mid-message and wrote on after it): a leaf

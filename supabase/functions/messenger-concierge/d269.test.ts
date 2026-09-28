@@ -44,3 +44,10 @@ Deno.test('stayAnchor: "a month" is 30 nights and "2 weeks" 14, priced by code (
   assert(/for 14 nights/.test(stayAnchor('2 weeks po magkano?')));
   assertEquals(stayAnchor('how much per night?'), '');
 });
+
+Deno.test('joinTail: a tail too long to join goes above the invitation, so the message still closes on the link', () => {
+  const t = discountHostLine('en');
+  const long = 'For 30 nights, your direct rate comes down to PHP 1,335 per night from the standard PHP 1,780, making it about PHP 40,050 for the entire stay instead of PHP 53,400, so you keep about PHP 13,350, plus drinking water and a mid-stay refresh.';
+  const r = joinTail(`${long}\n\nYou may see the home there:\n\n👉 ${SITE_URL}`, t, SITE_URL).split('\n\n');
+  assertEquals(r, [long, t, 'You may see the home there:', `👉 ${SITE_URL}`]);
+});
