@@ -13,6 +13,8 @@ const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-2.5-f
 const OPENROUTER_LITE_MODEL = env('CASCADE_OPENROUTER_LITE_MODEL') || 'google/gemini-2.5-flash-lite';
 // Deep tier (D-070 #5, Cassy deploy 4): explicit /deep goes straight to OpenRouter on a stronger model.
 const OPENROUTER_DEEP_MODEL = env('CASCADE_OPENROUTER_DEEP_MODEL') || 'anthropic/claude-sonnet-5';
+// Session 58: a second upstream (OpenAI, ~1/3 of Flash's price) that OpenRouter tries when the first model fails.
+const OPENROUTER_FALLBACK_MODEL = env('CASCADE_OPENROUTER_FALLBACK_MODEL') || 'openai/gpt-6-luna';
 // 2026-09-13 (Lloyd): the bare GEMINI_BOT_KEY belongs to another project and was being drained
 // through Cascade. CASCADE_GEMINI_BOT_KEY is the only Gemini key this project may use - no fallback.
 const geminiKey = () => env('CASCADE_GEMINI_BOT_KEY');
@@ -61,7 +63,9 @@ async function openrouter(q: ChatJsonRequest): Promise<string> {
   const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey()}`, 'X-Title': q.title ?? 'Cascade' },
-    body: JSON.stringify({ model: q.tier === 'lite' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, ...(q.plain ? {} : { response_format: { type: 'json_object' } }) }),
+    // Session 58: OpenRouter's own fallback list - a Google outage on the primary no longer leaves the guest without a
+    // reply while Gemini direct has no credit (402). Tested live: the list is accepted and the fallback returns JSON.
+    body: JSON.stringify({ models: [q.tier === 'lite' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL], messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, ...(q.plain ? {} : { response_format: { type: 'json_object' } }) }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
   });
   if (!r.ok) throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`);
