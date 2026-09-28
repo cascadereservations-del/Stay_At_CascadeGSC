@@ -5,7 +5,7 @@ export type RiskCode =
   | 'safety' | 'access' | 'policy_exception' | 'uncertain';
 
 const RULES: Array<[RiskCode, RegExp]> = [
-  ['safety',           /\b(emergency|fire|flood|injur|hurt|bleed|police|ambulance|unsafe|threat|suicid|kill myself|harass|stalk)/i],
+  ['safety',           /\b(emergency|fire|flood|injur|hurt|bleed|police|ambulance|unsafe|threat|suicid|kill myself|harass|stalk|smoke (coming|from|in the|everywhere)|smell(s|ing)? (of )?(gas|smoke|burning)|burning smell|gas leak|sparks?|electric(al)? shock|short circuit)/i], // D-270: Jev bench - "smoke coming from the kitchen" was routine; "can we smoke?" stays a house-rule question
   // "pin" needs a closing boundary: Bisaya "pinakaduol" (nearest) was gated as an access request (live 2026-09-13).
   ['access',           /\b(door code|access code|pin\b|passcode|keypad|locked out|can'?t (get in|open)|door won'?t|smart ?lock)/i],
   // "Is the deposit refundable?" is a routine policy question; asking for money back is not.
@@ -18,10 +18,10 @@ const RULES: Array<[RiskCode, RegExp]> = [
   // email ko" at the details step must not become a payment card and break the booking flow.
   ['payment',          /\b(paid|nagbayad|bayad na|receipt|screenshot|proof of|reference (no|number)|(send|sent|transfer)\w* .{0,25}(deposit|payment|gcash|money)|(deposit|payment) .{0,25}(sent|paid|made)|nabayaran|binayaran|bayad (ko|namin) na|nag-?gcash|nakapag-?bayad|gi-?bayad|nabayran|(na-?send|nasend|sinend|na-?transfer|napadala)\w* .{0,25}(bayad|payment|gcash|deposit|fee|pera|money|receipt))/i],
   // The cancellation policy is routine; changing an actual booking is not.
-  ['cancellation',     /\b(cancel\w*\s+(my|our|the|ang|yung)\s*(booking|reservation|stay|dates|reserba)|cancel po kasi|reschedul|move (my|the) (dates|booking)|change (my|the) dates)/i],
+  ['cancellation',     /\b(cancel\w*\s+(my|our|the|ang|yung)\s*(booking|reservation|stay|dates|reserba)|cancel po kasi|reschedul|move (my|our|the) (dates|booking|stay)|change (my|our|the) dates)/i],
   // D-222: "scam" left this rule - "legit po ba? hindi scam?" is a prospect's trust question (TRUST_RE answers it with
   // reviews), and routing it here sent a work order and told the prospect "service partners have been notified".
-  ['complaint',        /\b(complain|disappoint|terrible|dirty|broken|not working|no water|no wifi|no internet|brownout|noisy|report you|review you)/i],
+  ['complaint',        /\b(complain|disappoint|terrible|dirty|broken|not working|no water|no wifi|no internet|brownout|noisy|report you|review you|walay tubig|walang tubig|walay kuryente|walang kuryente|sira ang|guba ang|leaking)/i], // D-270: Tagalog/Bisaya complaints (Jev bench)
   // Lloyd 2026-09-13: a general "discount?" / "cheaper?" is answered from the rate tiers (the site
   // applies the best rate automatically; longer stays, higher discount). Only haggling and a
   // named price (next rule) go to the host.

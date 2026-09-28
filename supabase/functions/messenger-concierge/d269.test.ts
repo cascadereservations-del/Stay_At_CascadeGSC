@@ -51,3 +51,12 @@ Deno.test('joinTail: a tail too long to join goes above the invitation, so the m
   const r = joinTail(`${long}\n\nYou may see the home there:\n\n👉 ${SITE_URL}`, t, SITE_URL).split('\n\n');
   assertEquals(r, [long, t, 'You may see the home there:', `👉 ${SITE_URL}`]);
 });
+
+Deno.test('D-270 risk gaps the Jev bench found: smoke, Bisaya complaints and "move our dates" escalate; "can we smoke?" does not', async () => {
+  const { classify } = await import('./policy.ts');
+  assertEquals(classify("There's smoke coming from the kitchen"), 'safety');
+  assertEquals(classify('I smell gas near the stove'), 'safety');
+  assertEquals(classify('walay tubig diri sa unit'), 'complaint');
+  assertEquals(classify('Can we move our dates to Nov 2?'), 'cancellation');
+  assertEquals(classify('Can we smoke on the porch?'), 'routine');
+});
