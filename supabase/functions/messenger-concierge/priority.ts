@@ -13,7 +13,7 @@ export function priorityEntry(ev: Record<string, any>): PriorityEntry | null {
   const ref = String(ev?.referral?.ref ?? ev?.postback?.referral?.ref ?? '');
   const m = /^priority:(\d{4}-\d{2}-\d{2}):(\p{L})$/u.exec(ref);
   if (m) return { kind: 'verify', date: m[1], initial: m[2] };
-  if (ref === 'priority' || String(ev?.postback?.payload ?? '') === PRIORITY_PAYLOAD) return { kind: 'start' };
+  if (ref === 'priority' || String(ev?.postback?.payload ?? '') === PRIORITY_PAYLOAD || String(ev?.message?.quick_reply?.payload ?? '') === PRIORITY_PAYLOAD) return { kind: 'start' };
   return null;
 }
 
@@ -48,3 +48,35 @@ export function postbackText(ev: Record<string, any>): string {
   // payload (CAPS_AND_UNDERSCORES) falls back to the button's label.
   return payload && !/^[A-Z0-9_]+$/.test(payload) ? payload : String(ev.postback.title ?? '').trim();
 }
+
+// Session 59 (D-281, Lloyd: "only show ... to contact immediately the host if the name is detected to be the current guest or
+// the guest requested to contact the host or indicated ... she is currently staying or connected with the guest and have
+// emergency"). One quick reply, rules from [[DESIGN-contact-host-button-2026-09-28]] (Fable). A tap is PRIORITY: the flow above.
+export const CONTACT_CHIP = { title: 'Reach my host', payload: PRIORITY_PAYLOAD };
+const HOST_ASK_RE = /\b(contact|call|reach|talk to|speak to|message|text|number of|kausap|makausap|tawag|tawagan|kontak|ma-?contact|istorya|number sa)\b[^.?!\n]{0,25}\b(host|owner|caretaker|manager|may-?ari|tag-?iya)\b|\bhost'?s? (number|contact|phone)\b/i;
+const PROSPECT_RE = /\b(before|bago|if|kung|kapag)\b[^.?!\n]{0,20}\b(book|booking|mag-?book|reserve)|\b(planning to|interested)\b/i;
+const STAYING_RE = /\b(staying|renting|rented|checked[- ]?in|nag[- ]?re?rent|nag[- ]?stay|nagsstay|nakacheck-?in|na-?check-?in)\b/i;
+const NOW_RE = /\b(now|right now|rn|currently|tonight|ngayon|karon|na po|na kami|na mi|until|hanggang|hangtod|my stay (here )?is|stay (ko|namin|nako|namo))\b/i;
+const HERE_NOW_RE = /\b(andito|nandito|naa (mi|ko|kami) diri|nia mi diri|dinhi mi|my stay (here )?is (until|till|hanggang))\b/i; // live 2026-09-28: "my stay here is until Sunday"
+const PAST_RE = /\b(last (year|month|week|time)|dati|noon|kaniadto|niadto|sauna|stayed)\b/i;
+const COMPANION_RE = /\b(friend|girlfriend|boyfriend|wife|husband|partner|sister|brother|mom|dad|kaibigan|asawa|kapatid|jowa|uyab|amiga|amigo|higala)\b[^.?!\n]{0,25}\b(book|booked|nag-?book|rent|renting|nag-?rent|guest|stay|staying)\b|\bi'?m with the guest\b|\bkasama ko (ang|si) guest\b|\bkauban nako ang guest\b/i;
+const PLACEHOLDER = new Set(['', 'reserved', 'airbnb', 'not', 'guest']);
+const first = (s: string | null | undefined) => (s ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+
+/** The contact-host quick reply for this turn, or null. `inHouse`: guest_name / raw_summary of stays on today. */
+export function contactHostChip(text: string, o: {
+  risk: string; profileName: string | null; inHouse: string[]; flowActive: boolean; priorityOpen: boolean;
+  history: { role: string; at: string; route?: Record<string, unknown> }[]; now: Date;
+}): typeof CONTACT_CHIP | null {
+  if (o.flowActive || o.priorityOpen || !text) return null;
+  if (o.history.some((h) => h.role === 'bot' && h.route?.chip === PRIORITY_PAYLOAD && o.now.getTime() - Date.parse(h.at) < 12 * 3_600_000)) return null;
+  const sentences = text.split(/[.?!\n]+/);
+  const staying = sentences.some((x) => HERE_NOW_RE.test(x) || (STAYING_RE.test(x) && NOW_RE.test(x) && !PAST_RE.test(x))); // "rented last year, how much now?" is a prospect
+  const hostAsk = HOST_ASK_RE.test(text) && !PROSPECT_RE.test(text);
+  const companion = COMPANION_RE.test(text) && ['access', 'safety', 'complaint'].includes(o.risk);
+  const names = [first(parseName(text)), first(o.profileName)].filter((n) => n.length >= 2);
+  const stays = o.inHouse.map(first).filter((n) => !PLACEHOLDER.has(n));
+  const named = names.some((n) => stays.includes(n));
+  return staying || hostAsk || companion || named ? CONTACT_CHIP : null;
+}
+

@@ -120,3 +120,36 @@ Deno.test('Get Started is a hello; the priority button and the guide link are no
   assertEquals(postbackText({ postback: { payload: 'GET_STARTED', referral: { ref: 'priority' } } }), '');
   assertEquals(postbackText({ message: { text: 'hi' } }), '');
 });
+
+// D-281 (DESIGN-contact-host-button-2026-09-28): one "Reach my host" button, only when the guest seems to be staying now.
+import { CONTACT_CHIP, contactHostChip } from './priority.ts';
+const base = { risk: 'routine', profileName: 'Sean', inHouse: ['Joseph Ewing'], flowActive: false, priorityOpen: false, history: [] as any[], now };
+const fires = (t: string, o: Partial<typeof base> = {}) => contactHostChip(t, { ...base, ...o }) !== null;
+
+Deno.test('the button fires on the live lockout message and on each trigger in three registers', () => {
+  assertEquals(CONTACT_CHIP.title.length <= 20 && CONTACT_CHIP.payload === 'PRIORITY', true);
+  const live = "Hello po ako po yong nag rerent nung airbnb now unfortunately I didn't bring a card and my phone po nakalimutan ko po yung code may i get it again naki chat lang po ako sa friend ko since i cant chat you my stay here is until Sunday po";
+  assertEquals(fires(live, { risk: 'access' }), true);
+  assertEquals(fires('ako po yong nag rerent nung airbnb now'), true); // the space in "nag rerent"
+  for (const t of ["We're staying here right now, until Sunday", 'andito na po kami, wala pong tubig', 'Naa mi diri karon, hangtod Domingo']) assertEquals(fires(t), true, t);
+  for (const t of ['Can I talk to the host?', 'Pwede po makausap ang may-ari?', 'Pwede ko ma-contact ang tag-iya?', "what is the host's number"]) assertEquals(fires(t), true, t);
+  for (const t of ['My girlfriend booked, we are locked out', 'Friend ko ang nag-book, hindi kami makapasok', 'Uyab nako ang nag-book, walay tubig']) assertEquals(fires(t, { risk: 'access' }), true, t);
+  assertEquals(fires('This is Joseph po', { profileName: null }), true); // named the in-house guest
+  assertEquals(fires('is there parking?', { profileName: 'Joseph' }), true); // the in-house guest's own account
+});
+
+Deno.test('the button stays away from prospects, past guests, a booking in progress and a second time', () => {
+  for (const t of ['Where do we stay near the mall?', 'I stayed here last year', 'Can I contact the host before booking?', 'We rented here last year, how much now?', 'My friend booked here last year, how much now?', 'is there parking?']) {
+    assertEquals(fires(t), false, t);
+  }
+  assertEquals(fires('Can I talk to the host?', { flowActive: true }), false);
+  assertEquals(fires('Can I talk to the host?', { priorityOpen: true }), false);
+  assertEquals(fires('Can I talk to the host?', { history: [{ role: 'bot', at: ago(2), route: { chip: 'PRIORITY' } }] }), false);
+  assertEquals(fires('Can I talk to the host?', { history: [{ role: 'bot', at: ago(13), route: { chip: 'PRIORITY' } }] }), true);
+});
+
+Deno.test('a tap on the button enters priority help in the guest register, not the English label', async () => {
+  const r = await turn({ message: { mid: 'q1', text: 'Reach my host', quick_reply: { payload: 'PRIORITY' } } }, [{ role: 'guest', text: 'andito na po kami, wala pong tubig', at: ago(0.2) }, { role: 'bot', text: 'x', at: ago(0.2) }]);
+  assertEquals(/^Sige po, nandito lang kami/.test(r.reply), true, r.reply);
+  assertEquals(r.saved.history.at(-2).route, { src: 'chip' });
+});

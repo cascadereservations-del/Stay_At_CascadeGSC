@@ -18,7 +18,7 @@ import { needsCalendarCheck } from './booking.ts';
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
-import { postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
+import { CONTACT_CHIP, contactHostChip, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, SITE_URL, discountRange, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
@@ -134,14 +134,16 @@ async function hmacOk(secret: string, body: string, header: string | null): Prom
 
 // humanAgent: a host's own reply from a handoff card. Sent with the HUMAN_AGENT tag (Meta feature
 // added 2026-09-13) so it still delivers up to 7 days after the guest's last message, not 24 h.
-async function fbSend(psid: string, text: string, humanAgent = false): Promise<boolean> {
+type Chip = { title: string; payload: string };
+async function fbSend(psid: string, text: string, humanAgent = false, chips: Chip[] = []): Promise<boolean> {
   const token = env('META_PAGE_TOKEN');
   const post = (payload: unknown) => fetch(`${GRAPH}/${PAGE_ID}/messages?access_token=${token}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10_000),
   }).catch(() => null);
   await post({ recipient: { id: psid }, sender_action: 'typing_on' });
   const envelope = humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : { messaging_type: 'RESPONSE' };
-  const r = await post({ recipient: { id: psid }, ...envelope, message: { text } });
+  const quick = chips.length ? { quick_replies: chips.map((c) => ({ content_type: 'text', title: c.title, payload: c.payload })) } : {}; // D-281 contact-host button
+  const r = await post({ recipient: { id: psid }, ...envelope, message: { text, ...quick } });
   if (r && !r.ok) console.error('fb_send_failed', r.status, (await r.text()).slice(0, 200));
   return !!r?.ok;
 }
@@ -506,7 +508,7 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
  *  ponytail: history scan for the 24 h cap; a counter column if someone is ever seen guessing. */
 async function priorityTurn(db: Db, thread: Thread, text: string, entry: PriorityEntry | null, answer: { date: string | null; initial: string | null } | null, asked: number, link: string, fx: Effects, now: Date, mid?: string): Promise<void> {
   const prev = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
-  const lang = l3Of(guestLang(text || prev));
+  const lang = l3Of(guestLang(entry ? prev : (text || prev))); // a tap's English label is not the guest's register
   const q = entry?.kind === 'verify' ? { date: entry.date, initial: entry.initial } : answer;
   const tries = entry?.kind === 'verify' ? 1 : asked;
   const blocked = thread.history.some((h) => h.role === 'bot' && h.route?.priority === 'unmatched' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000);
@@ -529,7 +531,7 @@ async function priorityTurn(db: Db, thread: Thread, text: string, entry: Priorit
   console.log('priority_turn', JSON.stringify({ psid: thread.psid.slice(-6), entry: entry?.kind ?? null, outcome: route.priority }));
   await db.from('concierge_threads').upsert({
     psid: thread.psid, guest_name: thread.guest_name, human_until: thread.human_until, bot_turns: thread.bot_turns,
-    history: [...thread.history, { role: 'guest', text: text || '[priority help]', at }, { role: 'bot', text: reply, at, route }].slice(-HISTORY_KEEP * 2),
+    history: [...thread.history, { role: 'guest', text: text || '[priority help]', at, route: { src: text === CONTACT_CHIP.title ? 'chip' : entry ? 'menu' : 'typed' } }, { role: 'bot', text: reply, at, route }].slice(-HISTORY_KEEP * 2),
     last_risk: 'priority', updated_at: at, booking_flow: thread.booking_flow ?? null, last_mid: mid ?? thread.last_mid ?? null,
   });
 }
@@ -677,7 +679,7 @@ async function nearestWindow(db: Db, flow: Flow): Promise<Window | null> {
 // (no behaviour change on the guest path); probeEffects records the calls and sends nothing, so scripted golden
 // conversations run through the REAL handle() - real prompt, real model, real calendar - on a fresh probe: thread.
 type Effects = {
-  send(psid: string, text: string): Promise<void>;
+  send(psid: string, text: string, chips?: Chip[]): Promise<void>;
   qr(psid: string, flow: Flow | null, fallbackUrl: string): Promise<void>;
   ops(text: string): Promise<void>;
   handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string, anyWording?: boolean): Promise<void>;
@@ -686,7 +688,7 @@ type Effects = {
   name(psid: string): Promise<string | null>;
 };
 const liveEffects: Effects = {
-  send: async (psid, text) => { await fbSend(psid, text); },
+  send: async (psid, text, chips) => { await fbSend(psid, text, false, chips ?? []); },
   // session 28: the QR carries the chosen amount (QR Ph tag 54); the static site QR is the fallback
   qr: async (psid, flow, fallbackUrl) => {
     let sent = false;
@@ -699,7 +701,7 @@ const liveEffects: Effects = {
 type ProbeCall = { fx: string; text?: string; detail?: unknown };
 export function probeEffects(calls: ProbeCall[], guestName: string | null, now = new Date()): Effects {
   return {
-    send: (_psid, text) => { calls.push({ fx: 'send', text }); return Promise.resolve(); },
+    send: (_psid, text, chips) => { calls.push({ fx: 'send', text, ...(chips?.length ? { detail: { chips: chips.map((c) => c.title) } } : {}) }); return Promise.resolve(); },
     qr: (_psid, flow) => { calls.push({ fx: 'qr', detail: { amount: flow?.deposit ?? null } }); return Promise.resolve(); },
     ops: (text) => { calls.push({ fx: 'ops', text: text.slice(0, 300) }); return Promise.resolve(); },
     handoff: (_db, _thread, text, risk, _link, note) => { calls.push({ fx: 'handoff', text: text.slice(0, 200), detail: { risk, note: note ?? '' } }); return Promise.resolve(); },
@@ -1155,6 +1157,17 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   }
 
   const sentToGuest = Boolean(reply) && mode === 'auto';
+  // D-281: one "Reach my host" button, only when the guest seems to be staying now (named the in-house guest, asked for the
+  // host, said they are staying, or speaks for the guest with an urgent matter). DESIGN-contact-host-button-2026-09-28.
+  let hostChip: typeof CONTACT_CHIP | null = null;
+  if (reply && text) {
+    const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+    const { data: inHouse } = await db.from('calendar_events').select('guest_name, raw_summary').eq('status', 'confirmed').lte('checkin_date', today).gte('checkout_date', today).limit(4);
+    hostChip = contactHostChip(text, {
+      risk, profileName: thread.guest_name, inHouse: ((inHouse ?? []) as { guest_name: string | null; raw_summary: string | null }[]).map((r) => r.guest_name || r.raw_summary || ''),
+      flowActive: isActive(thread.booking_flow, now) || !!flow, priorityOpen: hostOpen.some((h) => h.risk === 'priority'), history: thread.history, now,
+    });
+  }
   if (reply) {
     // Mid-flow (session 28 T6): the guest is already booking here - no site invite after the answer, and the composite
     // (model answer + card) is not lint-scored as one message.
@@ -1167,7 +1180,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // falls back to 'suggest', D-222), the guest gets the safety or access line and the host the card and the urgent alert.
     const urgentNow = handoff && (risk === 'safety' || risk === 'access');
     if (mode === 'auto' || urgentNow) {
-      await fx.send(psid, reply);
+      await fx.send(psid, reply, hostChip ? [hostChip] : []);
       if (flowImage) {
         await fx.qr(psid, flow, flowImage);
         // SPEC-10 control 6: the payment promise, as its own message under the QR. It rides with the
@@ -1177,7 +1190,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         await fx.send(psid, paymentPromise(flow?.lang));
       }
     }
-    else { await fx.send(psid, ACK_SUGGEST); await fx.ops(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
+    else { await fx.send(psid, ACK_SUGGEST, hostChip ? [hostChip] : []); await fx.ops(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }
     if (handoff) {
       // A discount or pet request goes to the host, but it must not mute the bot for 24 h: a
       // prospect who then asks about Wi-Fi still gets an answer (live guest, 2026-09-13). The hold
@@ -1196,7 +1209,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   }
 
   const turns: Turn[] = [{ role: 'guest', text: text || '[attachment]', at: now.toISOString(), ...(jev ? { route: { re: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), h: +jev.needsHost.toFixed(2), l: jev.lang, rl: guestLang(text), up: jevRisk !== g0.risk } } : {}) }];
-  if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString() });
+  if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString(), ...(hostChip ? { route: { chip: hostChip.payload } } : {}) });
   await db.from('concierge_threads').upsert({
     psid, guest_name: thread.guest_name, human_until: thread.human_until,
     bot_turns: priorTurns + (sentToGuest && !handoff && !flowReply ? 1 : 0),
@@ -1264,13 +1277,14 @@ async function runProbe(body: string): Promise<Response> {
       const calls: ProbeCall[] = [], t0 = Date.now();
       // Session 59: "[PRIORITY]" probes the menu button (a postback, no message); "[PRIORITY:<yyyy-mm-dd>:<initial>]" the guide link.
       const pri = /^\[PRIORITY(?::([^\]]+))?\]$/.exec(turn.text ?? '');
+      if (turn.text === `[CHIP:${CONTACT_CHIP.title}]`) { message.text = CONTACT_CHIP.title; message.quick_reply = { payload: CONTACT_CHIP.payload }; } // D-281 tap
       const ev = pri ? (pri[1] ? { sender: { id: psid }, recipient: { id: PAGE_ID }, referral: { ref: `priority:${pri[1]}` }, timestamp: now.getTime() } : { sender: { id: psid }, recipient: { id: PAGE_ID }, postback: { payload: 'PRIORITY', mid: `probe-${i}` } })
         : { sender: { id: psid }, recipient: { id: PAGE_ID }, message };
       await handle(db, ev, 'auto', probeEffects(calls, p.name ?? null, now), now);
       const { data: row } = await db.from('concierge_threads').select('booking_flow, last_risk, guest_name').eq('psid', psid).maybeSingle();
       const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
       out.push({ guest: turn.text ?? '[image]', reply, step: row?.booking_flow?.step ?? null, flow_lang: row?.booking_flow?.lang ?? null, risk: row?.last_risk ?? null,
-        effects: calls.filter((c) => c.fx !== 'send'), lint: lintReply(reply, turn.text ?? '', { firstTurn: i === 0, name: row?.guest_name ?? null }), ms: Date.now() - t0 });
+        effects: calls.filter((c) => c.fx !== 'send'), chips: calls.filter((c) => c.fx === 'send').flatMap((c) => (c.detail as { chips?: string[] } | undefined)?.chips ?? []), lint: lintReply(reply, turn.text ?? '', { firstTurn: i === 0, name: row?.guest_name ?? null }), ms: Date.now() - t0 });
     }
     return json({ ok: true, voice_compact_chars: voiceCompact().length, turns: out });
   } catch (e) {
