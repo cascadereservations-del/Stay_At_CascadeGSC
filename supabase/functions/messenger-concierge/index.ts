@@ -12,7 +12,7 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
 import { discountHostLine, houseRule } from './persona.ts';
-import { jevRoute, unionRisk } from './jev.ts'; // D-271
+import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
@@ -729,8 +729,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // D-271 safety net: Jev may raise a routine turn to a handoff (smoke, a Bisaya complaint, a date change the regex missed);
   // it never lowers the regex, and a live booking flow keeps its own deterministic steps.
   const jev = text ? await jevP : null;
-  const jevRisk = g0.reply && !isActive(thread.booking_flow, now) ? unionRisk(g0.risk, jev) : g0.risk;
-  const g = jevRisk !== g0.risk ? { ...g0, risk: jevRisk, handoff: true } : g0;
+  // D-271 primary (eval 60/60 tuning, 17/20 held-out vs regex 45/60, 9/20): Jev decides the soft risks, raises what the regex
+  // missed, and lowers a regex false alarm only when sure no one must act; money, danger, the door and data probes keep the
+  // regex floor. A live booking flow keeps its deterministic steps.
+  const jevRisk = g0.reply && !isActive(thread.booking_flow, now) ? routeRisk(g0.risk, jev) : g0.risk;
+  const g = jevRisk !== g0.risk ? { ...g0, risk: jevRisk, handoff: jevRisk !== 'routine' } : g0;
   if (jev) console.log('jev_route', JSON.stringify({ psid: psid.slice(-6), regex: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), host: +jev.needsHost.toFixed(2), lang: jev.lang, ms: jev.ms, raised: jevRisk !== g0.risk }));
   // Lloyd 2026-09-13: a discount ask gets the answer (the direct site applies the best rate
   // automatically; the longer the stay, the higher the discount) AND the host line and card.
@@ -747,7 +750,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // stay pure handoffs: there the bot must not improvise.
   // The canned house-rule answer only when the rule IS the question: "Is Oct 20 to 22 available? Also is party allowed?"
   // lost its dates question to it (live Cassy test 2026-09-28) - a mixed message is answered whole by the model.
-  const ruleOnly = !!houseRuleKind(text) && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
+  const ruleKind = houseRuleKind(text);
+  const houseAsk = !!ruleKind || (jev?.intent === 'house_rule' && jev.confidence >= 0.8); // D-271: a house rule with no keyword
+  const ruleOnly = !!ruleKind && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
   const negotiate = !!text && g.risk === 'policy_exception' && !ruleOnly;
   const hostAsk = discountAsk || negotiate;
   let risk: RiskCode = text ? g.risk : 'uncertain';
@@ -841,7 +846,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // Lloyd 2026-09-17 14:40: Bislish only when the guest keeps writing Bisaya (this turn and their previous one); a lone
   // Bisaya turn gets Taglish. Settled once per turn, so the code-owned lines follow the same register as the model.
   const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
-  const turnLang = guestLang(text) === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : guestLang(text);
+  const thisLang = primaryLang(guestLang(text), jev); // D-271 hybrid: Jev overrides only an English reading, when sure
+  const turnLang = thisLang === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : thisLang;
 
   if (!g.reply) { /* mode off, or a human holds this thread */ }
   else if (flowReply) reply = flowReply;
@@ -882,8 +888,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const recentBot = thread.history.filter((h) => h.role === 'bot').slice(-3).map((h) => h.text).join('\n');
       const figures = (rawAnchor.match(/PHP [\d,]+/g) ?? []).filter((a) => a !== peso(currentCard().base));
       const anchor = figures.some((a) => recentBot.includes(a)) ? '[The stay figures were already given in this chat: refer to them in a few words, do not repeat them.] ' : rawAnchor;
-      const houseMixed = negotiate && !!houseRuleKind(text); // D-270: a house rule inside a longer message - the rule, then everything else
-      const discHint = houseMixed ? `[A house rule is asked (${houseRuleKind(text)}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).filter((p) => !rawAnchor && !recentBot.includes(p.name)).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - ${siteShown ? 'the site link is already in this chat, so do not repeat it; close with one soft question about their dates' : 'then the link'}. Do not quote any other number and do not promise a special price.] ${anchor}`
+      const houseMixed = negotiate && houseAsk; // D-270/271: a house rule (keyword or Jev) the canned line does not cover - the rule, then everything else
+      const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).filter((p) => !rawAnchor && !recentBot.includes(p.name)).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - ${siteShown ? 'the site link is already in this chat, so do not repeat it; close with one soft question about their dates' : 'then the link'}. Do not quote any other number and do not promise a special price.] ${anchor}`
         : promoAsk ? `[Promo ask: answer in two short paragraphs after the greeting - ${livePromos(currentCard(), now).map((p) => `our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('; ')}; outside those nights, booking direct still lowers the nightly rate the longer the stay. Ask which dates they have in mind. Quote no other number and no other "was" price.] ${anchor}`
         : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';

@@ -7,7 +7,7 @@
 import { factsFor, voiceFor, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { loadCard } from '../_shared/cascade-core/pricing.ts'; // SPEC-34: drafts quote the stored rate card
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
-import { jevRoute, unionRisk } from '../messenger-concierge/jev.ts'; // D-271
+import { isHard, jevRoute, routeRisk } from '../messenger-concierge/jev.ts'; // D-271
 import { CASSY_INTRO, detectLang } from '../messenger-concierge/booking.ts';
 import { leafAtClose, lintReply, thinPo } from '../messenger-concierge/voice.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts';
@@ -106,11 +106,13 @@ async function modelDraft(db: any, guestText: string, guestName: string | null, 
 // deno-lint-ignore no-explicit-any
 export async function draftGuestReply(db: any, guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform } = {}): Promise<string[]> {
   const platform = thread.platform === 'airbnb' || /\bairbnb\b/i.test(guestText) ? 'airbnb' : thread.platform ?? 'messenger';
-  // SPEC-32 s2: the host drafts for a known guest. D-271: Jev may raise the flag the regex missed (smoke, a Bisaya complaint).
-  const risk = unionRisk(classify(guestText, { hasBooking: true }), await jevRoute(guestText, Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')));
   // deno-lint-ignore no-explicit-any
   const ctx = guestName ? guestContextLines(await guestContext(db, { name: guestName }).catch(() => ({} as any))) : [];
   const brain = platform === 'airbnb' ? null : await conciergeDraft(thread.before ?? [], guestText, guestName).catch(() => null);
+  // SPEC-32 s2: the host drafts for a known guest, so the booked-guest regex is the floor. D-271: the concierge's own routing
+  // (Jev-primary) already ran inside the probe - no second Jev call; Airbnb and the fallback route here.
+  const base = classify(guestText, { hasBooking: true });
+  const risk: RiskCode = isHard(base) ? base : brain?.risk ? brain.risk as RiskCode : routeRisk(base, await jevRoute(guestText, Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')));
   const main = brain?.reply || await modelDraft(db, guestText, guestName, ctx, platform === 'airbnb');
   const lint = lintReply(main, guestText); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_draft', brain: !!brain, lint }));
   const short = main.length > 320 ? await rewrite(db, main, 'Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.').catch(() => '') : '';

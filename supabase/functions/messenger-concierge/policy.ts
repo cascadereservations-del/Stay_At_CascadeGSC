@@ -26,10 +26,10 @@ const RULES: Array<[RiskCode, RegExp]> = [
   // applies the best rate automatically; longer stays, higher discount). Only haggling and a
   // named price (next rule) go to the host.
   // D-222: "more than N" counts people only ("more than 2 km from SM" is a distance question).
-  ['policy_exception', /\b(haggle|tawad|pets?|dogs?|cats?|party|event|extra guest|more than \d+ ?(guests?|pax|people|persons?|adults?|kids?|children|tao|tawo)|overnight visitor)/i],
+  ['policy_exception', /\b(haggle|tawad|pets?|dogs?|cats?|aso|pusa|iro|iring|videoke|karaoke|party|event|extra guest|more than \d+ ?(guests?|pax|people|persons?|adults?|kids?|children|tao|tawo)|overnight visitor)/i],
   // A guest proposing their own price ("can you do 1500", "pwede po ba 1,500 per night", "student rate")
   // is a negotiation: the host decides (D-067). A proposal verb near a 3-5 digit amount, or a budget plea.
-  ['policy_exception', /\b(can you (do|make it|give)|could you do|possible( po)?( ba)?|pwede( po)?( ba)?|kaya( po)?( ba)?|make it|how about)\b[^.?!]{0,30}?\b\d{1,2},?\d{3}\b|\b(student|senior|budget) (rate|price|discount)|\brate na lang\b|\bmagkano na lang\b/i],
+  ['policy_exception', /\b(can you (do|make it|give)|could you do|possible( po)?( ba)?|pwede( po)?( ba)?|kaya( po)?( ba)?|make it|how about)\b[^.?!]{0,30}?\b\d{1,2},?\d{3}\b|\b(student|senior|budget) (rate|price|discount)|\brate na lang\b|\bmagkano na lang\b|\b(last|lowest|final) price\b/i], // D-271 held-out eval: "last price po?"
   ['uncertain',        /\b(system prompt|ignore (previous|your) instructions|api key|database|owner'?s? (phone|address)|other guests?|who else is staying)/i],
 ];
 
@@ -37,8 +37,8 @@ const RULES: Array<[RiskCode, RegExp]> = [
  *  host hears it (persona.ts houseRule). Haggling and named prices return null: those stay the host's line alone. */
 export function houseRuleKind(text: string): 'party' | 'pets' | 'guests' | null {
   if (/\b(haggle|tawad)/i.test(text)) return null;
-  if (/\b(part(y|ies)|events?)\b/i.test(text)) return 'party';
-  if (/\b(pets?|dogs?|cats?)\b/i.test(text)) return 'pets';
+  if (/\b(part(y|ies)|events?|videoke|karaoke)\b/i.test(text)) return 'party';
+  if (/\b(pets?|dogs?|cats?|aso|pusa|iro|iring)\b/i.test(text)) return 'pets'; // D-271: Tagalog and Bisaya pet words
   if (/\b(extra guests?|overnight visitors?|more than \d+ ?(guests?|pax|people|persons?|adults?|kids?|children|tao|tawo))\b/i.test(text)) return 'guests';
   return null;
 }

@@ -6,7 +6,7 @@
 // can ADD an escalation the regex missed but never lower one (unionRisk).
 import type { RiskCode } from './policy.ts';
 
-export type JevRoute = { intent: string; confidence: number; needsHost: number; lang: 'en' | 'tl' | 'bis'; ms: number };
+export type JevRoute = { intent: string; confidence: number; needsHost: number; lang: 'en' | 'tl' | 'bis'; langConfidence: number; ms: number };
 
 export const JEV_INTENTS: Record<string, string> = {
   availability: 'Asks whether dates or tonight are open.', price: 'Asks the price or rate of a stay.',
@@ -32,7 +32,47 @@ const ESCALATE: Record<string, RiskCode> = { safety: 'safety', complaint: 'compl
 export function unionRisk(regex: RiskCode, j: JevRoute | null): RiskCode {
   if (regex !== 'routine' || !j) return regex;
   const up = ESCALATE[j.intent];
-  return up && j.confidence >= 0.8 && j.needsHost >= 0.6 ? up : regex;
+  // A door needs no second opinion: a sure intent is enough (eval: "unsa ang code?" was access 1.00, host 0.46). Safety keeps
+  // the host check - "is it safe to walk around at night?" was safety 0.85 but host 0.42, and real danger scored 0.66-0.97.
+  const sure = j.intent === 'access' ? j.confidence >= 0.8 : j.confidence >= 0.8 && j.needsHost >= 0.6;
+  return up && sure ? up : regex;
+}
+
+/** Money, danger, a door and a probe for private data: the regex is a floor Jev can never lower. */
+const HARD = new Set<RiskCode>(['safety', 'access', 'payment', 'refund', 'uncertain']);
+export const isHard = (r: RiskCode) => HARD.has(r);
+/** Jev-primary routing (Lloyd 2026-09-28: "make it primary whenever appropriate ... without degrading quality"). Hard risks
+ *  keep the regex floor; Jev may raise any turn it is sure about (unionRisk); for the soft risks a confident Jev decides -
+ *  house rules and price asks go to answer-then-escalate, a complaint or date change needs Jev to say a human must act, and
+ *  a regex false alarm ("Is it noisy at night?", "an event venue nearby") is lowered only when Jev is sure no one must act.
+ *  Every false alarm it lowers would otherwise hold the bot silent on that thread for 24 h. */
+export function routeRisk(regex: RiskCode, j: JevRoute | null): RiskCode {
+  if (!j || HARD.has(regex)) return regex;
+  const up = unionRisk(regex, j);
+  if (up !== regex) return up;
+  const rulesAsk = j.confidence >= 0.8 && (j.intent === 'house_rule' || j.intent === 'negotiation');
+  if (rulesAsk) return 'policy_exception';
+  // Jev is sure nobody must act, whatever it calls the intent: a soft regex alarm is lowered (eval 2026-09-28: "Is it noisy
+  // at night?", "Any brownout schedule?", "an event venue nearby" - host 0.08 to 0.18).
+  if (j.needsHost < 0.2) return 'routine';
+  if (j.confidence < 0.8) return regex;
+  switch (j.intent) {
+    case 'house_rule': case 'negotiation': return 'policy_exception';
+    case 'complaint': return j.needsHost >= 0.6 ? 'complaint' : regex;
+    case 'cancel_or_change': return j.needsHost >= 0.6 ? 'cancellation' : regex;
+    // Any other intent: the regex stands. Lowering is only the "sure no one must act" rule above - a confident "price" or
+    // "amenity" reading lowered "last price po?" and "pwede ba mag-videoke?" on the held-out set.
+    default: return regex;
+  }
+}
+
+/** The register for model replies, hybrid (eval 2026-09-28, 80 cases: regex 76, Jev 77, hybrid 78). The regex's one
+ *  weakness is defaulting to English when a word is not in its list ("naay ipis sa kusina", "may lalaking sumusunod"), so
+ *  Jev overrides only an English reading, and only when sure (>= 0.9); where the regex found Tagalog or Bisaya it stays
+ *  (Jev read "walay nilimpyo" as Taglish). */
+export function primaryLang<T extends string>(regexLang: T, j: JevRoute | null): T | 'taglish' | 'bisaya' {
+  if (!j || j.langConfidence < 0.9 || (regexLang !== 'english' && regexLang !== 'english_po') || j.lang === 'en') return regexLang;
+  return j.lang === 'tl' ? 'taglish' : 'bisaya';
 }
 
 // 1,500 ms: live on the edge a call took 640 ms and one returned nothing at 900 (2026-09-28); it runs beside the thread read.
@@ -55,7 +95,7 @@ export async function jevRoute(text: string, key: string | undefined, timeoutMs 
     });
     const a = r.ok ? (await r.json())?.answers : null;
     if (!a?.intent?.choice) { console.warn('jev_skip', JSON.stringify({ reason: `http_${r.status}`, ms: Date.now() - t0 })); return null; }
-    return { intent: a.intent.choice, confidence: Number(a.intent.confidence ?? 0), needsHost: Number(a.needs_host?.noul ?? 0), lang: a.lang?.choice ?? 'en', ms: Date.now() - t0 };
+    return { intent: a.intent.choice, confidence: Number(a.intent.confidence ?? 0), needsHost: Number(a.needs_host?.noul ?? 0), lang: a.lang?.choice ?? 'en', langConfidence: Number(a.lang?.confidence ?? 0), ms: Date.now() - t0 };
   } catch (e) {
     // Measured, not silent: the weekly shadow comparison needs to know how often Jev was absent.
     console.warn('jev_skip', JSON.stringify({ reason: String((e as Error)?.name ?? e).slice(0, 40), ms: Date.now() - t0 }));
