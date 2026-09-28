@@ -139,7 +139,9 @@ export const firstInvite = (lang: L3, siteUrl: string) => ({
 /** SPEC-14 (D-184): first contact always opens with the approved greeting. The model thanked the guest in only
  *  12 of 33 first replies (golden run 9), so a first reply that carries no thank-you has its own salutation
  *  replaced by greeting() - the same line the book flow has used since session 28. */
-const THANKED_RE = /thank you for (reaching out|messaging|checking|asking)|welcome to cascade|salamat sa pag-?message/i;
+// Session 58 live probe: "Salamat po sa pag-reach out sa Cascade Hideaway." was missed, so the greeting went on top of it
+// and the guest was thanked twice in one opening.
+const THANKED_RE = /thank you for (reaching out|messaging|checking|asking)|welcome to cascade|salamat(?: po)? sa pag-?(?:message|mensahe|reach out|pag-?abot)/i;
 export function ensureGreeting(reply: string, name: string | null, lang: L3, intro = false): string {
   if (!reply.trim() || THANKED_RE.test(reply)) return reply;
   const first = name ? name.split(' ')[0] : '';
