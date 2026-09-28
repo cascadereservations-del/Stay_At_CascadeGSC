@@ -18,7 +18,6 @@ import { needsCalendarCheck } from './booking.ts';
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
-import { CHIP, chipsFor, isHello, quickReplyText, stripPassiveClose, type Chip } from './chips.ts'; // session 59: one-tap next steps
 import { postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -135,15 +134,14 @@ async function hmacOk(secret: string, body: string, header: string | null): Prom
 
 // humanAgent: a host's own reply from a handoff card. Sent with the HUMAN_AGENT tag (Meta feature
 // added 2026-09-13) so it still delivers up to 7 days after the guest's last message, not 24 h.
-async function fbSend(psid: string, text: string, humanAgent = false, chips: Chip[] = []): Promise<boolean> {
+async function fbSend(psid: string, text: string, humanAgent = false): Promise<boolean> {
   const token = env('META_PAGE_TOKEN');
   const post = (payload: unknown) => fetch(`${GRAPH}/${PAGE_ID}/messages?access_token=${token}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10_000),
   }).catch(() => null);
   await post({ recipient: { id: psid }, sender_action: 'typing_on' });
   const envelope = humanAgent ? { messaging_type: 'MESSAGE_TAG', tag: 'HUMAN_AGENT' } : { messaging_type: 'RESPONSE' };
-  const quick = chips.length ? { quick_replies: chips.map((c) => ({ content_type: 'text', title: c.title, payload: c.payload })) } : {};
-  const r = await post({ recipient: { id: psid }, ...envelope, message: { text, ...quick } });
+  const r = await post({ recipient: { id: psid }, ...envelope, message: { text } });
   if (r && !r.ok) console.error('fb_send_failed', r.status, (await r.text()).slice(0, 200));
   return !!r?.ok;
 }
@@ -531,7 +529,7 @@ async function priorityTurn(db: Db, thread: Thread, text: string, entry: Priorit
   console.log('priority_turn', JSON.stringify({ psid: thread.psid.slice(-6), entry: entry?.kind ?? null, outcome: route.priority }));
   await db.from('concierge_threads').upsert({
     psid: thread.psid, guest_name: thread.guest_name, human_until: thread.human_until, bot_turns: thread.bot_turns,
-    history: [...thread.history, { role: 'guest', text: text || '[priority help]', at, route: { src: entry ? 'menu' : 'typed' } }, { role: 'bot', text: reply, at, route }].slice(-HISTORY_KEEP * 2),
+    history: [...thread.history, { role: 'guest', text: text || '[priority help]', at }, { role: 'bot', text: reply, at, route }].slice(-HISTORY_KEEP * 2),
     last_risk: 'priority', updated_at: at, booking_flow: thread.booking_flow ?? null, last_mid: mid ?? thread.last_mid ?? null,
   });
 }
@@ -679,7 +677,7 @@ async function nearestWindow(db: Db, flow: Flow): Promise<Window | null> {
 // (no behaviour change on the guest path); probeEffects records the calls and sends nothing, so scripted golden
 // conversations run through the REAL handle() - real prompt, real model, real calendar - on a fresh probe: thread.
 type Effects = {
-  send(psid: string, text: string, chips?: Chip[]): Promise<void>;
+  send(psid: string, text: string): Promise<void>;
   qr(psid: string, flow: Flow | null, fallbackUrl: string): Promise<void>;
   ops(text: string): Promise<void>;
   handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string, anyWording?: boolean): Promise<void>;
@@ -688,7 +686,7 @@ type Effects = {
   name(psid: string): Promise<string | null>;
 };
 const liveEffects: Effects = {
-  send: async (psid, text, chips) => { await fbSend(psid, text, false, chips ?? []); },
+  send: async (psid, text) => { await fbSend(psid, text); },
   // session 28: the QR carries the chosen amount (QR Ph tag 54); the static site QR is the fallback
   qr: async (psid, flow, fallbackUrl) => {
     let sent = false;
@@ -701,7 +699,7 @@ const liveEffects: Effects = {
 type ProbeCall = { fx: string; text?: string; detail?: unknown };
 export function probeEffects(calls: ProbeCall[], guestName: string | null, now = new Date()): Effects {
   return {
-    send: (_psid, text, chips) => { calls.push({ fx: 'send', text, ...(chips?.length ? { detail: { chips: chips.map((c) => c.title) } } : {}) }); return Promise.resolve(); },
+    send: (_psid, text) => { calls.push({ fx: 'send', text }); return Promise.resolve(); },
     qr: (_psid, flow) => { calls.push({ fx: 'qr', detail: { amount: flow?.deposit ?? null } }); return Promise.resolve(); },
     ops: (text) => { calls.push({ fx: 'ops', text: text.slice(0, 300) }); return Promise.resolve(); },
     handoff: (_db, _thread, text, risk, _link, note) => { calls.push({ fx: 'handoff', text: text.slice(0, 200), detail: { risk, note: note ?? '' } }); return Promise.resolve(); },
@@ -751,7 +749,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
   const psid: string = ev.sender.id;
   // D-271: Jev runs beside the thread read, so its ~350 ms costs almost no wall time. Probes spend the probe key (D-254).
-  const jevP = jevRoute((quickReplyText(msg) || String(msg.text ?? '')).trim(), env(psid.startsWith('probe:') ? 'CASCADE_OPENROUTER_PROBE_KEY' : 'CASCADE_OPENROUTER_BOT_KEY'));
+  const jevP = jevRoute(String(msg.text ?? '').trim(), env(psid.startsWith('probe:') ? 'CASCADE_OPENROUTER_PROBE_KEY' : 'CASCADE_OPENROUTER_BOT_KEY'));
   // D-222: one retry, then stop. A failed read used to fall through as a brand-new thread, and the upsert at the end
   // would have overwritten the guest's history with this one turn. The caller alerts the host with the link.
   let { data: row, error: rowErr } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
@@ -769,9 +767,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
   if (!thread.guest_name) thread.guest_name = await fx.name(psid);
 
-  // Session 59: a quick-reply tap carries the question as its payload; src tags the turn for the menu/chip/typed comparison.
-  const text: string = (quickReplyText(msg) || msg.text || '').trim();
-  const src: 'menu' | 'chip' | 'typed' = ev.postback || ev.referral ? 'menu' : msg.quick_reply ? 'chip' : 'typed';
+  const text: string = (msg.text ?? '').trim();
   const link = `https://www.facebook.com/messages/t/${psid}`;
   // Session 59: priority help. The tap, the guide's link, or the answer to the ask (a date in the reply within 30 min).
   // Mode off stays off (Lloyd's switch); a human hold does not stop it, like the door and safety (D-277).
@@ -845,7 +841,6 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
   let draftNote = '';                 // D-227: a spent model budget, named on the host's card
   let reply = '';
-  let chips: Chip[] = [];             // session 59: quick replies under a routine answer
 
   // Book flow: runs before every other branch. A receipt image on a thread that is waiting for one
   // is evidence, not an attachment handoff; a slot answer is code-parsed; a question mid-flow passes
@@ -932,10 +927,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // Lloyd 2026-09-17 14:40: Bislish only when the guest keeps writing Bisaya (this turn and their previous one); a lone
   // Bisaya turn gets Taglish. Settled once per turn, so the code-owned lines follow the same register as the model.
   const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
-  // Session 59 (DESIGN-quick-reply-next-steps): a menu or chip turn carries English words the guest did not write - the
-  // register is the last TYPED guest turn's, so a Taglish thread stays Taglish after a tap.
-  const lastTyped = [...thread.history].reverse().find((h) => h.role === 'guest' && (!h.route?.src || h.route.src === 'typed') && !/^\[/.test(h.text))?.text ?? '';
-  const thisLang = src === 'typed' ? primaryLang(guestLang(text), jev) : guestLang(lastTyped); // D-271 hybrid: Jev overrides only an English reading, when sure
+  const thisLang = primaryLang(guestLang(text), jev); // D-271 hybrid: Jev overrides only an English reading, when sure
   const turnLang = thisLang === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : thisLang;
 
   if (!g.reply) { /* mode off, or a human holds this thread */ }
@@ -1134,15 +1126,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const look = (handoff || hostAsk || payHold || hostOpen.length > 0 || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
         : flowFollowUp ? (TRUST_RE.test(text) ? lookNudge(text, l3, { site: true, reviews: reviewsShown }) : '')
         : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
-      // Session 59: chips are the next step under a routine answer, so the text stops asking for one (no nudge, no passive
-      // "let us know your dates" close). Eligibility per DESIGN-quick-reply-next-steps section 3.
-      chips = chipsFor({
-        eligible: !handoff && risk === 'routine' && !hostAsk && !payHold && !hostOpen.length && !urgentOpen && !flowFollowUp && !flow && !!text
-          && !THANKS_RE.test(text) && !CLOSER_ONLY_RE.test(text) && !BOT_RE.test(text) && priorTurns < 30,
-        hello: isHello(text), place: PLACE_RE.test(text) || /(where|neighbou?rhood|area|safe)/i.test(text), amenity: AMENITY_RE.test(text),
-      });
-      if (!hostAsk && !look && !payHold && !hostOpen.length && !chips.length) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
-      if (chips.length) reply = stripPassiveClose(reply, l3);
+      if (!hostAsk && !look && !payHold && !hostOpen.length) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
       reply = linkSolo(reply, SITE_URL);
       if (knownPax && !flowFollowUp) reply = dropPaxAsk(reply);
       if (thread.guest_name) reply = dropNameAsk(reply); // golden run 2: the model asked a guest we already know for their name
@@ -1183,9 +1167,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // falls back to 'suggest', D-222), the guest gets the safety or access line and the host the card and the urgent alert.
     const urgentNow = handoff && (risk === 'safety' || risk === 'access');
     if (mode === 'auto' || urgentNow) {
-      if (handoff || risk !== 'routine') chips = [];
-      chips = chips.filter((c) => !(c.title === 'See the home' && reply.includes(SITE_URL))); // the link is already here
-      await fx.send(psid, reply, chips);
+      await fx.send(psid, reply);
       if (flowImage) {
         await fx.qr(psid, flow, flowImage);
         // SPEC-10 control 6: the payment promise, as its own message under the QR. It rides with the
@@ -1213,9 +1195,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     }
   }
 
-  const tag = { src, ...(src === 'chip' ? { chip: String(msg.text ?? '').slice(0, 20) } : {}) }; // session 59 measurement
-  const turns: Turn[] = [{ role: 'guest', text: text || '[attachment]', at: now.toISOString(), route: { ...tag, ...(jev ? { re: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), h: +jev.needsHost.toFixed(2), l: jev.lang, rl: guestLang(text), up: jevRisk !== g0.risk } : {}) } }];
-  if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString(), ...(chips.length ? { route: { chips: chips.map((c) => c.title) } } : {}) });
+  const turns: Turn[] = [{ role: 'guest', text: text || '[attachment]', at: now.toISOString(), ...(jev ? { route: { re: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), h: +jev.needsHost.toFixed(2), l: jev.lang, rl: guestLang(text), up: jevRisk !== g0.risk } } : {}) }];
+  if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString() });
   await db.from('concierge_threads').upsert({
     psid, guest_name: thread.guest_name, human_until: thread.human_until,
     bot_turns: priorTurns + (sentToGuest && !handoff && !flowReply ? 1 : 0),
@@ -1295,9 +1276,6 @@ async function runProbe(body: string): Promise<Response> {
       const calls: ProbeCall[] = [], t0 = Date.now();
       // Session 59: "[PRIORITY]" probes the menu button (a postback, no message); "[PRIORITY:<yyyy-mm-dd>:<initial>]" the guide link.
       const pri = /^\[PRIORITY(?::([^\]]+))?\]$/.exec(turn.text ?? '');
-      // Session 59: "[CHIP:<title>]" probes a quick-reply tap (the title as text, the chip's question as payload).
-      const chipTap = /^\[CHIP:(.+)\]$/.exec(turn.text ?? '');
-      if (chipTap) { const c = Object.values(CHIP).find((x) => x.title === chipTap[1]); message.text = chipTap[1]; if (c) message.quick_reply = { payload: c.payload }; }
       const ev = pri ? (pri[1] ? { sender: { id: psid }, recipient: { id: PAGE_ID }, referral: { ref: `priority:${pri[1]}` }, timestamp: now.getTime() } : { sender: { id: psid }, recipient: { id: PAGE_ID }, postback: { payload: 'PRIORITY', mid: `probe-${i}` } })
         : { sender: { id: psid }, recipient: { id: PAGE_ID }, message };
       await handle(db, ev, 'auto', probeEffects(calls, p.name ?? null, now), now);
