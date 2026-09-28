@@ -54,6 +54,8 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   paymentPromise: (l) => [P.paymentPromise(l)],
   paymentMessage: (l) => [P.paymentMessage(pay, l), P.paymentMessage({ ...pay, hold: false, near: true, full: true }, l), P.paymentMessage({ ...pay, name: '', hold: false }, l)],
   relDayWord: (l) => [P.paymentMessage({ ...pay, rel: P.relDayWord(0, l) }, l)],
+  houseRule: (l) => (['party', 'pets', 'guests'] as const).map((k) => P.houseRule(k, l)),
+  discountHostLine: (l) => [`Booking directly gives our best rate, and the nightly rate goes down the longer you stay. ${P.discountHostLine(l)}`],
 };
 /** Lloyd approved these word for word: they carry his "!" greeting and up to six purposeful "po" (voice.test.ts pins them). */
 const APPROVED = new Set(['greeting', 'greetBlock', 'BOT_REPLY', 'CASSY_INTRO', 'paymentMessage', 'relDayWord', 'paymentPromise']);

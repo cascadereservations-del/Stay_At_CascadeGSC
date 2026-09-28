@@ -168,3 +168,10 @@ Deno.test('D-258: a new booking on a thread the bot answered minutes ago does no
   assertEquals(/thank you for reaching out/i.test(r.reply), false);
   assertEquals(/^Hi\b/.test(r.reply), false);
 });
+
+Deno.test('D-269: "Is party allowed?" is answered from FACTS and the host still gets the card (live 2026-09-27: handoff line only)', async () => {
+  const r = await turn(null, { text: 'Is party allowed?' });
+  assertEquals(/parties or events/.test(r.reply), true);
+  assertEquals(/request our host would love/.test(r.reply), false);
+  assertEquals(r.calls.filter((c) => c.fx === 'handoff').length, 1);
+});

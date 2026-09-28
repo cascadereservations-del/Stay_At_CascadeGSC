@@ -192,6 +192,20 @@ export function breakAfterIntro(reply: string): string {
   const head = ss.slice(0, i + 1).join('').trim(), tail = ss.slice(i + 1).join('').trim();
   return [head, tail, ...rest].join('\n\n');
 }
+/** D-269: a sentence that belongs to the answer (the discount host line) closes the last plain paragraph when it fits -
+ *  never after a question, a "...on our site:" label or a link - else it stands as its own paragraph. */
+export function joinTail(reply: string, tail: string, siteUrl: string): string {
+  const ps = reply.trim().split(/\n\s*\n/);
+  const i = ps.findLastIndex((p) => !p.includes(siteUrl) && !/^👉/.test(p.trim()) && !/[:?]\s*$/.test(p.trim()));
+  if (i >= 0 && ps[i].length + tail.length < 310) ps[i] = `${ps[i].trimEnd()} ${tail}`; else ps.push(tail);
+  return ps.join('\n\n');
+}
+/** D-269 (protocol: "one 🌿 at a close"; live 2026-09-27 the model put one mid-message and wrote on after it): a leaf
+ *  that closes the message stays (the last one only); a leaf anywhere else goes. */
+export function leafAtClose(reply: string): string {
+  if (!reply.includes('🌿')) return reply;
+  return reply.trimEnd().endsWith('🌿') ? reply.replace(/\s*🌿(?=[\s\S]*🌿)/gu, '') : reply.replace(/[ \t]*🌿/gu, '');
+}
 /** Golden run 2026-09-25 (first-rate-tl, R10 "5 paragraphs"): greeting, answer, dates ask, invitation and close each
  *  stood alone. Protocol rule 4 caps a reply at four paragraphs (a 👉 link line belongs to the paragraph above it), so
  *  the greeting paragraph joins the next one when the two fit in 320 characters. */

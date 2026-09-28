@@ -289,6 +289,38 @@ export const payChoiceLine = (fullOnly: boolean, total: string, deposit: string,
       tl: `Ang reservation fee na ${deposit} ang magho-hold ng dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; o puwede rin pong bayaran ang full ${total} ngayon. Sabihin lang po "fee" o "full", kung alin ang mas okay sa inyo.`,
       bis: `Ang reservation fee nga ${deposit} ang mo-hold sa dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; o pwede pud bayran ang full ${total} karon. Ingna lang mi og "fee" o "full", kung asa ang mas okay ninyo.` });
 
+/** D-269 (live 2026-09-27, Suzanne "Is party allowed?" got only "That's a request our host would love to consider"): a
+ *  house-rule question is answered from FACTS first; the host still hears it, and the guest is told so once. */
+export const houseRule = (kind: 'party' | 'pets' | 'guests', lang?: Lang) => {
+  const host = by(lang, {
+    en: `we've shared your message with our host, who will reply here personally.`,
+    tl: `na-share na namin ang message ninyo sa host, and they'll reply here personally.`,
+    bis: `na-share na namo ang inyong message sa among host, and they'll reply here personally.`,
+  });
+  if (kind === 'party') return by(lang, {
+    en: `We're a quiet private retreat for registered guests, suited to rest and work rather than parties or events, and quiet hours run from 10 PM to 6 AM. If you have a small occasion in mind, ${host}`,
+    tl: `Ang Cascade po ay tahimik na private retreat for registered guests, suited to rest and work rather than parties or events, at quiet hours mula 10 PM hanggang 6 AM. If may small occasion kayong naiisip, ${host}`,
+    bis: `Ang Cascade kay hilom nga private retreat for registered guests, suited to rest and work rather than parties or events, ug quiet hours from 10 PM to 6 AM. If naa moy gamay nga occasion nga gi-plano, ${host}`,
+  });
+  if (kind === 'pets') return by(lang, {
+    en: `We're a pet-free home, which keeps it fresh and allergy-friendly for every guest. If you'd like to ask about your pet, ${host}`,
+    tl: `Pet-free po ang Cascade, para fresh and allergy-friendly para sa lahat ng guests. If gusto ninyong i-ask ang tungkol sa pet ninyo, ${host}`,
+    bis: `Pet-free ang Cascade, para fresh ug allergy-friendly para sa tanang guests. If gusto mo mangutana bahin sa inyong pet, ${host}`,
+  });
+  return by(lang, {
+    en: `${CAPACITY.en} Overnight stays are for the guests on the booking, and day visitors are welcome with advance notice. For anything beyond that, ${host}`,
+    tl: `${CAPACITY.tl} Ang overnight ay para sa guests sa booking, at welcome ang day visitors basta may advance notice po. For anything beyond that, ${host}`,
+    bis: `${CAPACITY.bis} Ang overnight para sa guests sa booking, ug welcome ang day visitors basta naay advance notice. For anything beyond that, ${host}`,
+  });
+};
+/** D-269: a discount turn still reaches the host (Lloyd 2026-09-13), said once per thread and as part of the answer -
+ *  not "That's a request our host would love to consider", which read as a form letter twice in one chat. */
+export const discountHostLine = (lang?: Lang) => by(lang, {
+  en: `Our host also looks at special requests personally, so we've shared your message with them.`,
+  tl: `Personal ding tinitingnan ng host ang special requests, kaya na-share na namin ang message ninyo.`,
+  bis: `Personal pud nga gitan-aw sa among host ang special requests, so na-share na namo ang inyong message.`,
+});
+
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => by(lang, {
   en: `Of course, and there's no rush at all. Nothing has been sent, so nothing is committed. Whenever you'd like to continue, just send your dates again and we'll pick up right where we left off. 🌿`,

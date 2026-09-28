@@ -33,6 +33,16 @@ const RULES: Array<[RiskCode, RegExp]> = [
   ['uncertain',        /\b(system prompt|ignore (previous|your) instructions|api key|database|owner'?s? (phone|address)|other guests?|who else is staying)/i],
 ];
 
+/** D-269: a policy_exception about a HOUSE RULE (party, pets, extra guests) has a factual answer in FACTS, given before the
+ *  host hears it (persona.ts houseRule). Haggling and named prices return null: those stay the host's line alone. */
+export function houseRuleKind(text: string): 'party' | 'pets' | 'guests' | null {
+  if (/\b(haggle|tawad)/i.test(text)) return null;
+  if (/\b(part(y|ies)|events?)\b/i.test(text)) return 'party';
+  if (/\b(pets?|dogs?|cats?)\b/i.test(text)) return 'pets';
+  if (/\b(extra guests?|overnight visitors?|more than \d+ ?(guests?|pax|people|persons?|adults?|kids?|children|tao|tawo))\b/i.test(text)) return 'guests';
+  return null;
+}
+
 const REFUND_BOOKED = /\b(refund\w*)/i;
 /** A turn names a booking of its own ("my booking", "yung bayad"), whatever the thread holds. */
 export const NAMES_BOOKING = /\b(my|our|aming|among|yung) (booking|reservation|stay|deposit|payment|bayad)\b/i;

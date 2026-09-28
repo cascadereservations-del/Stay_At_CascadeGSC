@@ -10,11 +10,12 @@
 // Deploy with verify_jwt=false: Meta cannot send a Supabase JWT.
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { draftFailureNote, gate, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
+import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
+import { discountHostLine, houseRule } from './persona.ts';
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, pick as reg, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, SITE_URL, discountRange, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
@@ -118,10 +119,14 @@ function botReply(name: string | null, lang: string): string {
 // the standard total, the discounted total and the added value are computed here so the
 // numbers are never invented ("5 nights: PHP 8,900 becomes about PHP 8,010, with drinking water").
 const peso = (n: number) => 'PHP ' + n.toLocaleString('en-US');
-function stayAnchor(text: string, lang = 'english'): string {
+export function stayAnchor(text: string, lang = 'english'): string {
   const m = /\b(\d{1,2})\s*(?:nights?|gabi|days?|araw)\b/i.exec(text);
-  if (!m) return '';
-  const n = Number(m[1]);
+  // D-269 (live 2026-09-27: "If I book for a month, how much?" got a nightly rate and "the total will be shown on our site"):
+  // a month is 30 nights and a week 7, so the total comes from code like any named stay.
+  const w = m ? null : /\b(a|one|isang|usa ka|\d)\s*(month|buwan|bulan|weeks?|linggo|semana)\b|\bmonth-?long\b/i.exec(text);
+  if (!m && !w) return '';
+  const k = w && /^\d$/.test(w[1] ?? '') ? Number(w[1]) : 1;
+  const n = m ? Number(m[1]) : (/week|linggo|semana/i.test(w![2] ?? '') ? 7 : 30) * k;
   // SPEC-34: the live card's tier for n nights and its base (the standard every saving is measured from).
   const card = currentCard(), std = card.base, tier = { rate: tierRate(card, n) };
   if (n < 2 || n > 60 || tier.rate >= std) return '';
@@ -726,6 +731,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // Not bare "sale": "May sale po ba sa SM?" is about the mall (second review 2026-09-26).
   const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
   const discountAsk = !promoAsk && /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text);
+  const siteShown = thread.history.filter((h) => h.role === 'bot').slice(-4).some((h) => h.text.includes(SITE_URL)); // D-269
   let risk: RiskCode = text ? g.risk : 'uncertain';
   let handoff = g.handoff || !text;   // the bot steps aside: handoff line to the guest, 24 h hold
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
@@ -821,7 +827,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
   if (!g.reply) { /* mode off, or a human holds this thread */ }
   else if (flowReply) reply = flowReply;
-  else if (handoff) reply = text ? HANDOFF[risk] : ATTACHMENT_REPLY;
+  // D-269 (live 2026-09-27: "Is party allowed?" got only the handoff line): a house-rule question is answered from FACTS,
+  // and the host still gets the card.
+  else if (handoff) { const rule = risk === 'policy_exception' ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : HANDOFF[risk]; }
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, turnLang, THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
@@ -851,7 +859,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const anchor = stay && sq && sq.q.promo_nights > 0 && sq.nights <= 60
         ? `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph, then the link: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3 } as Flow, now)}" Never mention any other "was" or "usual" price.] `
         : stayAnchor(guestTexts.slice(-3).join(' '), lang);
-      const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - then the link. Do not quote any other number and do not promise a special price.] ${anchor}`
+      const discHint = discountAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')} - ${siteShown ? 'the site link is already in this chat, so do not repeat it' : 'then the link'}. Do not quote any other number and do not promise a special price.] ${anchor}`
         : promoAsk ? `[Promo ask: answer in two short paragraphs after the greeting - ${livePromos(currentCard(), now).map((p) => `our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('; ')}; outside those nights, booking direct still lowers the nightly rate the longer the stay. Ask which dates they have in mind. Quote no other number and no other "was" price.] ${anchor}`
         : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
       const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: ask for their name once, warmly, inside this reply.] ' : '';
@@ -978,10 +986,16 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // !followUp meant an active thread never heard it until a 6-hour gap (the ninth reply, live).
       if (!introduced && !flowFollowUp) reply = breakAfterIntro(withIntro(reply, l3));
       reply = gladNotHappy(reply);
-      if ((!followUp || discountAsk) && !reply.includes(SITE_URL) && !flowFollowUp && !payHold) reply = beforeClose(reply, firstInvite(l3, SITE_URL));
+      if ((!followUp || (discountAsk && !siteShown)) && !reply.includes(SITE_URL) && !flowFollowUp && !payHold) reply = beforeClose(reply, firstInvite(l3, SITE_URL)); // D-269: a second discount turn does not repeat the link
       if (flowFollowUp) reply = `${answerOnly(reply)}\n\n${flowFollowUp}`; // the answer came first (and only the answer, session 29); now the flow's own ask
       if (discountAsk) { const ps = reply.trim().split(/\n\s*\n/); const last = ps[ps.length - 1] ?? ''; if (ps.length > 2 && last.length < 90 && !last.includes(SITE_URL) && !/:\s*$/.test(last)) reply = ps.slice(0, -1).join('\n\n'); }
-      if (discountAsk) { reply += `\n\n${HANDOFF.policy_exception}`; handoff = true; risk = 'policy_exception'; }
+      // D-269 (live 2026-09-27: the same "That's a request our host would love to consider" closed two replies in a row): the
+      // host line is said once per thread, as the close of the answer's last paragraph when it fits, never as its own form line.
+      if (discountAsk) {
+        const tail = discountHostLine(l3);
+        if (!thread.history.some((h) => h.role === 'bot' && (h.text.includes(tail) || h.text.includes(HANDOFF.policy_exception)))) reply = joinTail(reply, tail, SITE_URL);
+        handoff = true; risk = 'policy_exception';
+      }
       // A decision moment ("will think about it", "how do I book") always leaves the door open
       // with the link (live audit 2026-09-13: the model gave warmth and no link).
       if (followUp && !payHold && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text) && !reply.includes(SITE_URL)) reply = beforeClose(reply, decisionInvite(l3, SITE_URL)); // session 30: never a bare link after the close
@@ -1016,6 +1030,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       } // golden run: the nudge and the chat route each carried a "po" of their own
       if (!flowFollowUp) reply = fitFourParagraphs(reply); // golden 2026-09-25: five paragraphs on a first Taglish rate reply
       reply = capName(reply, thread.guest_name); // golden 2026-09-25 reg-bot-bis: the name three times
+      reply = leafAtClose(reply); // D-269 (live 2026-09-27: a 🌿 mid-message, then another paragraph)
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.
