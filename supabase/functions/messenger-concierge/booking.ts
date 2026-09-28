@@ -2,6 +2,7 @@
 // slot-filling flow that index.ts runs BEFORE the model. The model never books; it only answers
 // questions. State is one jsonb on concierge_threads.booking_flow.
 import { cardOn, currentCard, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
+import { LAST_MINUTE, choiceAck, detailsAsk, holdOffer, oneNight, partyAsk, partyWelcome } from './persona.ts'; // D-268: the words live there
 
 /** Register: en = Native English protocol, tl = Native Filipino (Taglish, purposeful po), bis = Native Bisaya (Bislish, no po). */
 export type Lang = 'en' | 'tl' | 'bis';
@@ -282,18 +283,9 @@ export function rateLine(flow: Flow, now = new Date(), card: RateCard = currentC
         tl: `Kapag direct booking po sa amin, ang ${q.nights} nights ninyo ay nasa ${php(q.rate)} per night imbes na ang standard na ${php(STD_RATE)} — ${php(q.total)} for the stay.`,
         bis: `Kung direct booking sa amo, ang inyong ${q.nights} nights kay ${php(q.rate)} per night imbes sa standard nga ${php(STD_RATE)} — ${php(q.total)} for the stay.`,
       })
-    : pick(flow.lang, {
-        en: `For 1 night the direct rate is ${php(q.rate)}.`,
-        tl: `For 1 night po, ang direct rate ay ${php(q.rate)}.`,
-        bis: `For 1 night, ang direct rate kay ${php(q.rate)}.`,
-      });
-  // The site's own rule (D-166): inside 48 hours the full amount secures the stay, so the choice is never offered.
-  return lastMinute(flow.checkin!, now)
-    ? `${body} ${pick(flow.lang, {
-        en: `As your check-in is less than five days away, the full amount secures the stay.`,
-        tl: `As your check-in is less than five days away, the full amount secures the stay.`,
-        bis: `As your check-in is less than five days away, the full amount secures the stay.` })}`
-    : body;
+    : oneNight(php(q.rate), flow.lang);
+  // The site's own rule (D-166): inside five days the full amount secures the stay, so the choice is never offered.
+  return lastMinute(flow.checkin!, now) ? `${body} ${LAST_MINUTE}` : body;
 }
 /** SPEC-14 (D-184): the card's payment sentence - the fee-or-full choice, or the full-only sentence inside 48 h. */
 export function payChoice(flow: Flow): string {
@@ -480,6 +472,8 @@ export function party(flow: Flow): string {
 }
 /** Mid-flow: new dates were just given and are open - acknowledge before the next ask (protocol rule 1, live 2026-09-17 10:57). */
 export function availabilityAck(flow: Flow, openLine: string): string {
+  // D-268: the guest chose these dates from our offer - acknowledge the choice, not announce it as news.
+  if (flow.agreed && flow.checkin && flow.checkout) return choiceAck(nights(flow.checkin, flow.checkout) === 1 ? dm(flow.checkin) : dmRange(flow.checkin, flow.checkout), flow.lang);
   const who = party(flow);
   return `${openLine}, ${pick(flow.lang, { en: `and we'd be glad to welcome ${who}.`, tl: `and we'd be glad to have ${who}.`, bis: `and looking forward mi to have ${who}.` })}`;
 }
@@ -523,11 +517,7 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
       tl: `Ilang nights po ang stay ninyo from ${dm(flow.checkin!)}? Puwede rin ang check-out date.`,
       bis: `Pila ka nights ang stay ninyo from ${dm(flow.checkin!)}? Pwede pud ang check-out date.`,
     });
-    case 'pax': return pick(L, {
-      en: `And how many guests will be staying? The home comfortably accommodates up to 3 adults, or 2 adults with 2 children.`,
-      tl: `Ilan po kayo? Comfortable po ang home for up to 3 adults, or 2 adults with 2 kids.`,
-      bis: `Pila mo ka tanan? Comfortable ang home for up to 3 adults, or 2 adults with 2 kids.`,
-    });
+    case 'pax': return partyAsk(L);
     case 'offer': return `${rateLine(flow, now)}\n\n${pick(L, {
       en: `Shall we set the dates aside for you?`,
       tl: `I-set na po ba namin ang dates para sa inyo?`,
@@ -535,12 +525,7 @@ export function prompt(flow: Flow, name: string | null, resume = false, now = ne
     })}`;
     case 'contact': {
       if (flow.name || flow.phone || flow.email) return nextAsk(flow);
-      const t = name ? `, ${name.split(' ')[0]}` : '';
-      return pick(L, {
-        en: `Thank you${t}. May we have the name for the reservation, a mobile number we can reach you on, and an email address for your confirmation?`,
-        tl: `Salamat po${t}. Maaari po ba naming makuha ang pangalan para sa reservation, mobile number na matatawagan namin, at email address para sa confirmation ninyo?`,
-        bis: `Salamat${t}. Pwede namo makuha ang name for the reservation, mobile number nga ma-contact namo, ug email address for your confirmation?`,
-      });
+      return detailsAsk(name ? name.split(' ')[0] : '', L);
     }
     case 'confirm': { const q = quoteTotal(flow.checkin!, flow.checkout!); const who = flow.name ?? name ?? null; return [
       resume // after a mid-flow question (Lloyd 2026-09-17: nudge subtly to complete the booking)
@@ -623,10 +608,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       if (!d[0] && f.alt && PRICE_RE.test(text)) {
         const one = f.alt.nights === 1 && !f.alt.open_ended;
         f.quoted = true;
-        return ask(`${rateLine({ ...f, checkin: f.alt.start, checkout: f.alt.end }, now)}\n\n${pick(L, {
-          en: `Would ${one ? 'that night' : 'those dates'} suit you? We'd be glad to set ${one ? 'it' : 'them'} aside for you.`,
-          tl: `Okay po ba sa inyo ang ${one ? 'night' : 'dates'} na iyon? Gladly naming ise-set aside para sa inyo.`,
-          bis: `Okay ba ninyo ang ${one ? 'night' : 'dates'} nga to? Amo dayon i-set aside para ninyo.` })}`);
+        return ask(`${rateLine({ ...f, checkin: f.alt.start, checkout: f.alt.end }, now)}\n\n${holdOffer(one, L)}`);
       }
       if (!d[0] && f.alt && OFFER_NO_RE.test(text)) return { flow: { ...f, step: 'cancelled', alt: undefined }, reply: cancelReply(L), action: 'cancelled' };
       f.alt = undefined;
@@ -659,9 +641,9 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       if (f.agreed) {
         f.step = 'contact';
         const lead = f.quoted // the price was just given: welcome them instead of quoting it twice (live probe 2026-09-28)
-          ? pick(L, { en: `We'd be glad to welcome ${party(f)}.`, tl: `We'd be glad to have ${party(f)}.`, bis: `Looking forward mi to have ${party(f)}.` })
+          ? partyWelcome(party(f), L)
           : rateLine(f, now);
-        return ask(`${lead}\n\n${prompt(f, null, false, now)}`);
+        return ask(`${lead}\n\n${detailsAsk('', L).replace(/^(Salamat po|Salamat)\. /, '')}`);
       }
       f.step = 'offer'; return ask();
     }

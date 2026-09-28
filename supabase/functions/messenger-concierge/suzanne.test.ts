@@ -58,15 +58,15 @@ Deno.test('Suzanne 2026-09-28: "How much?" after the offer quotes the offered ni
   const price = answer(f, 'How much?', now);
   assertEquals(price.action, 'ask');
   assertEquals(price.flow.alt, alt); // the offer stands
-  assertEquals(price.reply, "For 1 night the direct rate is PHP 1,780.\n\nWould that night suit you? We'd be glad to set it aside for you.");
+  assertEquals(price.reply, "One night with us comes to PHP 1,780.\n\nShall we hold that night for you? We'd be so glad to have you with us.");
   assertEquals(lintReply(price.reply!, 'How much?'), []);
   const yes = answer(price.flow, 'yes', now);
   assertEquals([yes.flow.step, yes.flow.agreed, yes.flow.checkin], ['pax', true, '2026-10-02']);
   const two = answer(yes.flow, '2', now);
   assertEquals(two.flow.step, 'contact'); // no second "Shall we set the dates aside?"
-  assert(two.reply!.startsWith("We'd be glad to welcome the two of you.\n\nThank you. May we have the name for the reservation"), two.reply!); // quoted once, not twice
+  assertEquals(two.reply, "The two of you, then, and we're already looking forward to it.\n\nTo prepare your reservation, may we have your full name, a mobile number we can reach you on, and an email for the confirmation? All three in one message is easiest."); // quoted once, not twice
   const noPriceAsked = answer(answer(f, 'yes', now).flow, '2', now);
-  assert(noPriceAsked.reply!.startsWith('For 1 night the direct rate is PHP 1,780.'), noPriceAsked.reply!); // no price asked: it is given here
+  assert(noPriceAsked.reply!.startsWith('One night with us comes to PHP 1,780.'), noPriceAsked.reply!); // no price asked: it is given here
   assertEquals(lintReply(two.reply!), []);
   for (const lang of ['tl', 'bis'] as const) assertEquals(lintReply(answer({ ...f, lang }, 'magkano po?', now).reply!, 'magkano po?'), [], lang);
 });

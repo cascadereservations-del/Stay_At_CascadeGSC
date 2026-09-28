@@ -42,13 +42,13 @@ Deno.test('dmRange: one month reads once, two months read twice', () => {
 Deno.test('rateLine: the direct rate, the one-night rate, and the last-minute sentence', () => {
   const f = (a: string, z: string): Flow => ({ step: 'offer', checkin: a, checkout: z, pax: 2, lang: 'en', started_at: now.toISOString(), updated_at: now.toISOString() });
   assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now), 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 — PHP 3,382 for the stay.');
-  assertEquals(rateLine(f('2026-11-17', '2026-11-18'), now), 'For 1 night the direct rate is PHP 1,780.');
+  assertEquals(rateLine(f('2026-11-17', '2026-11-18'), now), 'One night with us comes to PHP 1,780.'); // D-268 persona.ts
   assertEquals(rateLine(f('2026-11-17', '2026-11-22'), now), 'Booking directly with us brings your 5 nights to PHP 1,602 per night instead of the standard PHP 1,780 — PHP 8,010 for the stay.');
   // Lloyd 2026-09-18: inside 5 days of check-in the site asks for the full amount, so the offer says so first.
-  assertEquals(rateLine(f('2026-09-18', '2026-09-20'), now).endsWith('As your check-in is less than five days away, the full amount secures the stay.'), true);
-  assertEquals(rateLine(f('2026-09-21', '2026-09-23'), now).includes('less than five days away'), true);  // 4 days out
-  assertEquals(rateLine(f('2026-09-22', '2026-09-24'), now).includes('less than five days away'), false); // 5 days out
-  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now).includes('less than five days away'), false);
+  assertEquals(rateLine(f('2026-09-18', '2026-09-20'), now).endsWith("As you're arriving within the next five days, the full amount confirms your stay right away."), true);
+  assertEquals(rateLine(f('2026-09-21', '2026-09-23'), now).includes('within the next five days'), true);  // 4 days out
+  assertEquals(rateLine(f('2026-09-22', '2026-09-24'), now).includes('within the next five days'), false); // 5 days out
+  assertEquals(rateLine(f('2026-11-17', '2026-11-19'), now).includes('within the next five days'), false);
 });
 
 Deno.test('openWindows: runs of open nights, the last one open-ended', () => {
