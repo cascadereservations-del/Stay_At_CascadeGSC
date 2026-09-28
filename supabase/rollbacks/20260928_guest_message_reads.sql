@@ -3,4 +3,5 @@
 begin;
 drop function if exists public.guest_message_hold_v1(uuid);
 drop function if exists public.arrivals_without_id_v1(date, date);
+drop function if exists public.open_work_orders_v1(uuid);
 commit;

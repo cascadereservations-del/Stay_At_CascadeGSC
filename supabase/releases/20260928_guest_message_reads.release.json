@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "release_id": "guest_message_reads_20260928",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "b7de22d3af8f4c1058d920c5ad624133b7d15c91"
+  },
+  "migrations": [
+    "20260928010000_guest_message_reads.sql"
+  ],
+  "migration_sha256": {
+    "20260928010000_guest_message_reads.sql": "db6f010852405d59a2cbb6ce87c46ebe3ea7a4e7cf53172cb83433162dc7d623"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "Three new service_role-only read functions (guest_message_hold_v1, arrivals_without_id_v1, open_work_orders_v1). No table, column or existing grant changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_bodies_are_the_reviewed_bodies",
+      "query": "select (select md5(prosrc) from pg_proc where oid = 'public.guest_message_hold_v1(uuid)'::regprocedure) = 'd3b0f4236da0e022a4acbc9fe227a2fb' and (select md5(prosrc) from pg_proc where oid = 'public.arrivals_without_id_v1(date,date)'::regprocedure) = '166b04547bb1d41618e41bceb8b4e91f' and (select md5(prosrc) from pg_proc where oid = 'public.open_work_orders_v1(uuid)'::regprocedure) = '98cb984d346799de8ec5a928f341d301'",
+      "expect": true
+    },
+    {
+      "name": "service_role_only",
+      "query": "select has_function_privilege('service_role','public.guest_message_hold_v1(uuid)','EXECUTE') and not has_function_privilege('anon','public.guest_message_hold_v1(uuid)','EXECUTE') and not has_function_privilege('authenticated','public.guest_message_hold_v1(uuid)','EXECUTE') and has_function_privilege('service_role','public.arrivals_without_id_v1(date,date)','EXECUTE') and not has_function_privilege('anon','public.arrivals_without_id_v1(date,date)','EXECUTE') and not has_function_privilege('authenticated','public.arrivals_without_id_v1(date,date)','EXECUTE') and has_function_privilege('service_role','public.open_work_orders_v1(uuid)','EXECUTE') and not has_function_privilege('anon','public.open_work_orders_v1(uuid)','EXECUTE') and not has_function_privilege('authenticated','public.open_work_orders_v1(uuid)','EXECUTE')",
+      "expect": true
+    },
+    {
+      "name": "the_synthetic_stay_is_not_held",
+      "query": "select public.guest_message_hold_v1('e5600000-0000-4000-8000-0000000000c0') = false",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "deploy guest-messages and daily-digest from waves before e306a91, then apply supabase/rollbacks/20260928_guest_message_reads.sql with run-sql-on-host.sh (drops the three functions)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply, then deploy guest-messages and daily-digest from waves 6f22029 or later. Until the deploy, 5.2 stays held (the old table read) and the digest ID line stays empty - no wrong send either way."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING",
+    "evidence": "New functions only. pgTAP guest_message_reads.sql (12). Functions: guest-messages + daily-digest 20/20, deno check clean; waves e306a91 + 6f22029."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
