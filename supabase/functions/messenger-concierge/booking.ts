@@ -29,6 +29,8 @@ export type Flow = {
   /** Live 2026-09-28 (Suzanne, Lloyd: "convert the guest in the optimal number of responses"): the guest already said yes
    *  to the offered window, so after the guest count the flow goes straight to the details - no second "set it aside?". */
   agreed?: boolean;
+  /** The offered window's price was already given (a price question at the dates step): it is not repeated. */
+  quoted?: boolean;
 };
 
 export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i-?book|mag-?reserve|hold (the|my|our) dates|arrange (it|the booking)|(do|settle) it here|here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i; // session 30: invitations now offer the chat route, so its natural answers start the flow
@@ -620,6 +622,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       // message): a price question about the offered window is answered by code, then the offer is made again.
       if (!d[0] && f.alt && PRICE_RE.test(text)) {
         const one = f.alt.nights === 1 && !f.alt.open_ended;
+        f.quoted = true;
         return ask(`${rateLine({ ...f, checkin: f.alt.start, checkout: f.alt.end }, now)}\n\n${pick(L, {
           en: `Would ${one ? 'that night' : 'those dates'} suit you? We'd be glad to set ${one ? 'it' : 'them'} aside for you.`,
           tl: `Okay po ba sa inyo ang ${one ? 'night' : 'dates'} na iyon? Gladly naming ise-set aside para sa inyo.`,
@@ -653,7 +656,13 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       if (overCapacity(text, p)) return ask(pick(L, { en: `As much as we'd love to host everyone, the home is most comfortable for up to 3 adults, or 2 adults with 2 children. For a party of ${p}, a larger place would give you more room to rest. If your group fits, just let us know the count again.`, tl: `Comfortable po ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maganda po ang mas malaking place para mas may space kayo. If kasya po ang group ninyo, sabihin lang po ulit kung ilan kayo.`, bis: `Comfortable ang home for up to 3 adults, or 2 adults with 2 kids. For ${p}, mas maayo ang mas dako nga place para mas naa moy space. If kasya ang group ninyo, ingna lang mi pila mo.` }));
       f.pax = p;
       // The guest already agreed to these dates (flow.agreed): the price and the details ask in one message.
-      if (f.agreed) { f.step = 'contact'; return ask(`${rateLine(f, now)}\n\n${prompt(f, null, false, now)}`); }
+      if (f.agreed) {
+        f.step = 'contact';
+        const lead = f.quoted // the price was just given: welcome them instead of quoting it twice (live probe 2026-09-28)
+          ? pick(L, { en: `We'd be glad to welcome ${party(f)}.`, tl: `We'd be glad to have ${party(f)}.`, bis: `Looking forward mi to have ${party(f)}.` })
+          : rateLine(f, now);
+        return ask(`${lead}\n\n${prompt(f, null, false, now)}`);
+      }
       f.step = 'offer'; return ask();
     }
     case 'offer': {

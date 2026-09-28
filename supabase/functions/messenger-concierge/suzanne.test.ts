@@ -64,7 +64,9 @@ Deno.test('Suzanne 2026-09-28: "How much?" after the offer quotes the offered ni
   assertEquals([yes.flow.step, yes.flow.agreed, yes.flow.checkin], ['pax', true, '2026-10-02']);
   const two = answer(yes.flow, '2', now);
   assertEquals(two.flow.step, 'contact'); // no second "Shall we set the dates aside?"
-  assert(two.reply!.startsWith('For 1 night the direct rate is PHP 1,780.\n\nThank you. May we have the name for the reservation'), two.reply!);
+  assert(two.reply!.startsWith("We'd be glad to welcome the two of you.\n\nThank you. May we have the name for the reservation"), two.reply!); // quoted once, not twice
+  const noPriceAsked = answer(answer(f, 'yes', now).flow, '2', now);
+  assert(noPriceAsked.reply!.startsWith('For 1 night the direct rate is PHP 1,780.'), noPriceAsked.reply!); // no price asked: it is given here
   assertEquals(lintReply(two.reply!), []);
   for (const lang of ['tl', 'bis'] as const) assertEquals(lintReply(answer({ ...f, lang }, 'magkano po?', now).reply!, 'magkano po?'), [], lang);
 });
