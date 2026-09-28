@@ -428,6 +428,19 @@ export const handoffFollowUp = (lang: Lang) => by(lang, {
   tl: `Salamat po. Na-pass na namin ito sa host kasama ng nauna ninyong message, and they'll reach you directly.`,
   bis: `Salamat. Na-pass na namo ni sa host uban sa inyong nauna nga message, and they'll reach you directly.`,
 });
+/** DESIGN-guest-case-catalogue G5: a photo or file from a guest with an open host matter or a booking - never the prospect
+ *  reply with the site link. */
+export const attachmentNoted = (lang: Lang) => by(lang, {
+  en: `Thank you, we have your file and it is with our host together with your earlier message. If it is urgent, a few words typed here reach them fastest.`,
+  tl: `Salamat po, received na namin ang file at nasa host na ito kasama ng nauna ninyong message. If urgent, a few words typed here ang pinakamabilis na paraan.`,
+  bis: `Salamat, na-receive na namo ang file ug naa na ni sa host uban sa inyong nauna nga message. If urgent, a few words typed here ang pinakapaspas nga paagi.`,
+});
+/** G5: a voice note (common on a borrowed phone) - the host reads the chat as text. */
+export const voiceNote = (lang: Lang) => by(lang, {
+  en: `Thank you for the voice note. Our host reads this chat as text, so a few typed words about what you need will reach them right away.`,
+  tl: `Salamat po sa voice note. Text ang nababasa ng host dito, so a few typed words about what you need will reach them right away.`,
+  bis: `Salamat sa voice note. Text ang mabasa sa among host diri, so a few typed words about what you need will reach them right away.`,
+});
 /** A sticker, photo or reaction with no text: a prospect, so the link rather than a handoff line. */
 export const ATTACHMENT_REPLY = `Thank you for your message. If you have dates in mind, share them here and we'll check the calendar for you, or you may see the home, live availability and our direct rates on our site:\n\n👉 ${SITE_URL}`;
 /** Suggest mode: the guest hears this while the host picks a reply. */

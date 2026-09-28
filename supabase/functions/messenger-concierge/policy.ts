@@ -5,11 +5,11 @@ export type RiskCode =
   | 'safety' | 'access' | 'policy_exception' | 'uncertain';
 
 const RULES: Array<[RiskCode, RegExp]> = [
-  ['safety',           /\b(emergency|fire|flood|injur|hurt|bleed|police|ambulance|unsafe|threat|suicid|kill myself|harass|stalk|smoke (coming|from|in the|everywhere)|smell(s|ing)? (of )?(gas|smoke|burning)|burning smell|gas leak|sparks?|electric(al)? shock|short circuit)/i], // D-270: Jev bench - "smoke coming from the kitchen" was routine; "can we smoke?" stays a house-rule question
+  ['safety',           /\b(emergency|fire|flood|injur|hurt|bleed|police|ambulance|unsafe|threat|suicid|kill myself|harass|stalk|smoke (coming|from|in the|everywhere)|smell(s|ing)? (of )?(gas|smoke|burning)|burning smell|gas leak|sparks?|electric(al)? shock|short circuit|nahimatay|fainted|unconscious|dumudugo|nagdugo|seizure|convuls|chest pain|hirap huminga|can'?t breathe|allerg|amoy (ng )?gas|baho (og|sa|ug) gas|sparking|nag-?spark|baha (na )?sa loob|water (coming|rising|leaking) (in|under|through)|knocking\b[^.?!\n]{0,25}\b(door|window)|stranger|intruder|sumusunod|nagsunod|gisundan|break(ing)? in|nakawan|robbed|magnanakaw|kawatan)/i], // D-270: Jev bench - "smoke coming from the kitchen" was routine; "can we smoke?" stays a house-rule question
   // "pin" needs a closing boundary: Bisaya "pinakaduol" (nearest) was gated as an access request (live 2026-09-13).
   // Session 58 (live lockout 2026-09-28, "nakalimutan ko po yung code ... didn't bring a card" read as routine; only Jev
   // caught it): a forgotten code, key or card and "can't get inside" in all three registers are the door too.
-  ['access',           /\b(door code|access code|pin\b|passcode|keypad|locked (myself |ourselves |us )?out|can'?t (get in|open|get inside|go inside|enter)|door won'?t|smart ?lock|forg[eo]t\w*\b[^.?!\n]{0,25}\b(door|access|gate|pin|key|keys|card|keycard)\b|didn'?t bring\b[^.?!\n]{0,15}\b(key|keys|card|keycard)\b|nakalimutan\b[^.?!\n]{0,30}\b(code|pin|susi|card)\b|naiwan\b[^.?!\n]{0,30}\b(susi|card|key)\b|(hindi|di) (po )?(ako |kami )?(maka-?pasok|makapasok)|(dili|di) (ko|mi|kami) (ka)?sulod)/i],
+  ['access',           /\b(door code|access code|pin\b|passcode|keypad|locked (myself |ourselves |us )?out|can'?t (get in|open|get inside|go inside|enter)|door won'?t|smart ?lock|forg[eo]t\w*\b[^.?!\n]{0,25}\b(door|access|gate|pin|key|keys|card|keycard)\b|didn'?t bring\b[^.?!\n]{0,15}\b(key|keys|card|keycard)\b|nakalimutan\b[^.?!\n]{0,30}\b(code|pin|susi|card)\b|naiwan\b[^.?!\n]{0,30}\b(susi|card|key)\b|(hindi|di) (po )?(ako |kami )?(maka-?pasok|makapasok)|(dili|di) (ko|mi|kami) (ka)?sulod|unsa (ang |man ang )?code|code sa (pultahan|door|unit)|lock\b[^.?!\n]{0,20}\b(beeping|blinking|red|dead|low batt\w*|won'?t|wont|not responding|hindi nag-?respond|ayaw)|ayaw (mag-?open|bumukas|mag-?unlock|mag-?bukas)|dili (ma-?abli|mo-?abli|mo-?open)|gate pass|send (me|us) (the |your )?(exact )?(address|location|map|pin)|exact (address|location)|house (number|no)\b|block and lot|\bblk\b|guard\w*\b[^.?!\n]{0,20}\b(won'?t|wont|hindi|dili|ayaw))/i],
   // "Is the deposit refundable?" is a routine policy question; asking for money back is not.
   // SPEC-32 s2 (F14): "refunded", "refund policy" and "refunds rule" are a prospect's policy question - they escalate only
   // on a thread that holds a booking or names one (REFUND_BOOKED below). A bare "refund" ("I want a refund") always does.
@@ -18,12 +18,12 @@ const RULES: Array<[RiskCode, RegExp]> = [
   // SPEC-32 s2 (F2): Taglish and Bisaya claims ("nasend ko na po yung bayad" went to the model, which confirmed a booking
   // no one had checked). A send / transfer / padala verb needs the money within 25 characters: "na-send ko na po ang
   // email ko" at the details step must not become a payment card and break the booking flow.
-  ['payment',          /\b(paid|nagbayad|bayad na|receipt|screenshot|proof of|reference (no|number)|(send|sent|transfer)\w* .{0,25}(deposit|payment|gcash|money)|(deposit|payment) .{0,25}(sent|paid|made)|nabayaran|binayaran|bayad (ko|namin) na|nag-?gcash|nakapag-?bayad|gi-?bayad|nabayran|(na-?send|nasend|sinend|na-?transfer|napadala)\w* .{0,25}(bayad|payment|gcash|deposit|fee|pera|money|receipt))/i],
+  ['payment',          /\b(paid|nagbayad|bayad na|receipt|screenshot|proof of|reference (no|number)|(send|sent|transfer)\w* .{0,25}(deposit|payment|gcash|money)|(deposit|payment) .{0,25}(sent|paid|made)|nabayaran|binayaran|bayad (ko|namin) na|nag-?gcash|nakapag-?bayad|gi-?bayad|nabayran|(na-?send|nasend|sinend|na-?transfer|napadala)\w* .{0,25}(bayad|payment|gcash|deposit|fee|pera|money|receipt)|charged (twice|double|two times)|charged (me |us )?(php ?)?\d|siningil\w*|double.?charg\w*|overcharg\w*|wrong amount|amount\b[^.?!\n]{0,20}\b(wrong|mali|iba)|nadoble\b[^.?!\n]{0,15}\b(bayad|payment)|sobra\b[^.?!\n]{0,15}\b(bayad|singil|nabayaran|charge))/i],
   // The cancellation policy is routine; changing an actual booking is not.
-  ['cancellation',     /\b(cancel\w*\s+(my|our|the|ang|yung)\s*(booking|reservation|stay|dates|reserba)|cancel po kasi|reschedul|move (my|our|the) (dates|booking|stay)|change (my|our|the) dates)/i],
+  ['cancellation',     /\b(cancel\w*\s+(my|our|the|ang|yung)\s*(booking|reservation|stay|dates|reserba)|cancel po kasi|reschedul|move (my|our|the) (dates|booking|stay)|change (my|our|the) dates|(di|hindi) na (kami|ako|mi) tuloy|dili na mi (mo-?adto|padayon|mo-?stay))/i],
   // D-222: "scam" left this rule - "legit po ba? hindi scam?" is a prospect's trust question (TRUST_RE answers it with
   // reviews), and routing it here sent a work order and told the prospect "service partners have been notified".
-  ['complaint',        /\b(complain|disappoint|terrible|dirty|broken|not working|no water|no wifi|no internet|brownout|noisy|report you|review you|walay tubig|walang tubig|walay kuryente|walang kuryente|sira ang|guba ang|leaking)/i], // D-270: Tagalog/Bisaya complaints (Jev bench)
+  ['complaint',        /\b(complain|disappoint|terrible|dirty|broken|not working|no water|no wifi|no internet|brownout|noisy|report you|review you|walay tubig|walang tubig|walay kuryente|walang kuryente|sira ang|guba ang|leak\w*|tumutulo|nagtulo|nagatulo|wala\w*( pong?| pa| kami| mi| na)? (wifi|internet|tubig|kuryente|ilaw|signal|hot water)|nawalan (ng|og|sa) (kuryente|tubig|wifi|signal|ilaw)|no (power|electricity|hot water|signal|aircon|light)|wifi\b[^.?!\n]{0,12}\b(down|off|slow|not|dead|weak)|slow (wifi|internet|net)|mahina (ang |ang inyong )?(wifi|internet|signal|tubig)|(hindi|di|ayaw|dili|wala\w*) (po )?(gumagana|gumana|lumalamig|umaandar|umandar|mag-? ?on|mo-? ?on|mugana|mo-?gana|nag-?on|nagagana)|ipis|cockroach|roach|\bants\b|langgam|daga|\brats?\b|surot|bed ?bugs?|lamok|mosquito|(remote|towel|key ?card)\b[^.?!\n]{0,10}\b(missing|wala|nawawala)|missing (remote|towel|pillow|blanket)|(left|forgot|naiwan|nakalimutan|nabilin|na-?left)\b[^.?!\n]{0,40}\b(in|at|sa) (the |ang )?(unit|room|house|home|kwarto|banyo|cr|bathroom|kitchen|kusina)\b|lost (my|our)\b|nawala\w*\b[^.?!\n]{0,30}\b(ko|namin|nako|namo)\b|can you check (the )?(unit|room)|(we|kami|mi)\b[^.?!\n]{0,10}\b(already left|umalis na|checked out na|nakalabas na|left na|nakaalis na)|leaving now|paalis na (kami|mi)|(nakalimutan|forgot|naiwan)\b[^.?!\n]{0,25}\b(i-?off|turn off|patayin|aircon on|ilaw on))/i], // D-270: Tagalog/Bisaya complaints (Jev bench)
   // Lloyd 2026-09-13: a general "discount?" / "cheaper?" is answered from the rate tiers (the site
   // applies the best rate automatically; longer stays, higher discount). Only haggling and a
   // named price (next rule) go to the host.
@@ -49,9 +49,15 @@ const REFUND_BOOKED = /\b(refund\w*)/i;
 /** A turn names a booking of its own ("my booking", "yung bayad"), whatever the thread holds. */
 export const NAMES_BOOKING = /\b(my|our|aming|among|yung) (booking|reservation|stay|deposit|payment|bayad)\b/i;
 /** `hasBooking`: the thread holds a booking (booking_flow.ref), or the caller is the host drafting for a known guest. */
+// Session 58 (DESIGN-guest-case-catalogue G3): a prospect's safety QUESTION ("is there a fire extinguisher?", "does the road
+// flood?") is not an emergency - it used to send the 911 line, mute the bot 24 h and raise an urgent work order. The safety
+// rule is skipped only when the text asks about safety and says nothing is happening now.
+const SAFETY_ASK_RE = /\b(is there|are there|do you have|meron|may (ba|po|kayo)|naa ba|nearby|near(est)?|station|exit|extinguisher|alarm|contact (number|no)|hotline|number|schedule|does (the|it|this)|when it rains|kung umulan|kung mag-?ulan|safe (po )?ba|how safe|is it safe|what if|in case|paano kung|unsaon kung)\b/i;
+const SAFETY_NOW_RE = /\b(now|right now|ngayon|karon|na po|na gyud|help|tulong|tabang|please|pls|911|coming|rising|there is|there'?s|may (tao|lalaki|babae|usok|apoy|baha)|naa\w* (tawo|aso|kalayo|baha)|nahimatay|fainted|dumudugo|bleeding|nasugatan|injured|reaction|attack|seizure|sparking|smell|amoy|baho|knocking|stranger|intruder|sumusunod|gisundan)\b/i;
 export function classify(text: string, opts: { hasBooking?: boolean } = {}): RiskCode {
   const booked = !!opts.hasBooking || NAMES_BOOKING.test(text);
   for (const [code, re] of RULES) {
+    if (code === 'safety' && re.test(text) && SAFETY_ASK_RE.test(text) && !SAFETY_NOW_RE.test(text)) continue;
     if (re.test(text)) return code;
     if (code === 'refund' && booked && REFUND_BOOKED.test(text) && !/\brefundable\b/i.test(text)) return 'refund';
   }
@@ -120,4 +126,29 @@ export function draftFailureNote(err: unknown): string {
   return /openrouter_(402|429)\b/.test(String(err))
     ? 'The model budget for today is used up; raise the key limit at openrouter.ai/settings/keys.'
     : '';
+}
+
+// ---- Session 58 (DESIGN-guest-case-catalogue G1): what the host card needs to match a person to a stay ----
+
+/** The name a guest gives in a message ("my name is Allyssa", "Allyssa Estenzo po yung name ko"), or null. */
+export function statedName(text: string): string | null {
+  const NAME = String.raw`([A-Z][\p{L}'-]+(?: [A-Z][\p{L}'-]+)?)`;
+  const m = new RegExp(String.raw`\b(?:my name is|name ko(?: po)? ay|ako (?:po )?si|this is|i am|i'm)\s+` + NAME, 'u').exec(text)
+    ?? new RegExp('^\s*' + NAME + String.raw`\s+(?:po\s+)?(?:yung|ang|ni)\s+name\s+(?:ko|nako)`, 'u').exec(text);
+  const name = m?.[1] ?? null;
+  return name && !/^(The|This|Here|Hi|Hello|Good|Guest|Sorry)\b/.test(name) ? name : null;
+}
+
+export type StayRow = { guest_name: string | null; raw_summary: string | null; checkin_date: string; checkout_date: string; source: string | null };
+/** In-house / arriving / departing lines for a host card, from confirmed calendar rows; `today` is YYYY-MM-DD (Manila). */
+export function stayLines(rows: StayRow[], today: string): string[] {
+  const who = (r: StayRow) => `${r.guest_name || r.raw_summary || 'unnamed'} · ${r.checkin_date} to ${r.checkout_date} · ${r.source ?? '?'}`;
+  const inHouse = rows.filter((r) => r.checkin_date <= today && today < r.checkout_date);
+  const arriving = rows.filter((r) => r.checkin_date === today);
+  const departing = rows.filter((r) => r.checkout_date === today);
+  return [
+    `In-house: ${inHouse.length ? inHouse.map(who).join(' | ') : 'nobody'}`,
+    ...(arriving.length ? [`Arriving today: ${arriving.map(who).join(' | ')}`] : []),
+    ...(departing.length ? [`Departing today: ${departing.map(who).join(' | ')}`] : []),
+  ];
 }

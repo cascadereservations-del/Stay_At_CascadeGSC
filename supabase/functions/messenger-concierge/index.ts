@@ -10,8 +10,8 @@
 // Deploy with verify_jwt=false: Meta cannot send a Supabase JWT.
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, trimRepeatedInvite, type RiskCode } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, closers, handoffFollowUp, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
+import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, trimRepeatedInvite, type RiskCode, type StayRow } from './policy.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, attachmentNoted, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
@@ -431,9 +431,12 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
   // swallowed a dog request and a price proposal (live audit 2026-09-13) - the host never saw them.
   // SPEC-31 s2: after the QR every payment claim is the same ask, whatever its wording - one card per 24 h.
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const { data: dup } = await db.from('concierge_handoffs').select('guest_text').eq('psid', thread.psid).eq('risk', risk).eq('status', 'open').gte('created_at', new Date(Date.now() - HUMAN_HOLD_MS).toISOString()).limit(10);
+  const { data: dup } = await db.from('concierge_handoffs').select('id, guest_text').eq('psid', thread.psid).eq('risk', risk).eq('status', 'open').gte('created_at', new Date(Date.now() - HUMAN_HOLD_MS).toISOString()).order('created_at', { ascending: true }).limit(10);
   if ((dup ?? []).some((d: any) => anyWording || norm(String(d.guest_text)) === norm(text))) return;
-  const options = await suggestOptions(thread, text, await availabilityBlock(db));
+  // Session 58 (DESIGN-guest-case-catalogue section 4): a follow-up to an open matter says which card it belongs to and
+  // skips the two model options (one model call per follow-up, and the host already has the first card).
+  const firstOpen: string | null = (dup ?? [])[0]?.id ? String((dup as any[])[0].id).slice(0, 8) : null;
+  const options = firstOpen ? [] : await suggestOptions(thread, text, await availabilityBlock(db));
   const { data: row } = await db.from('concierge_handoffs').insert({ psid: thread.psid, guest_name: thread.guest_name, guest_text: text, risk, options }).select('id').single();
   const id: string = row?.id ?? ''; if (!id) return;
   const short = id.slice(0, 8);
@@ -448,10 +451,26 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
     if (wo?.id) woLine = `🔧 Work order #${wo.id.slice(0, 8)} ${wo.created ? 'raised' : 'already open'}${wo.blocks_arrival ? ' — blocks the next arrival until closed' : ''}`;
   }
   // Session 58: a lockout or a safety report is an alert, not a guest note - it must stand out in OPS at night.
-  const body = withHeader(risk === 'access' || risk === 'safety' ? 'alert' : 'guest', `handoff · ${risk}`, [
-    `🛎 Guest needs the host (${risk})`,
-    `Guest: ${thread.guest_name ?? thread.psid}`,
+  // G1 (live 2026-09-28: "Sean" was Allyssa, at the door of Joseph Ewing's Airbnb stay): for a host-owned matter the card
+  // shows the Manila time, the stay on the calendar today, the name the guest gave, and their earlier turns, so the host
+  // matches a person to a stay in one glance. The bot never verifies identity; the host does.
+  const nowMs = Date.now();
+  const hhmm = new Date(nowMs).toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit' });
+  let context: string[] = [];
+  if (HOST_OWNED.includes(risk)) {
+    const today = new Date(nowMs + 8 * 3_600_000).toISOString().slice(0, 10);
+    const { data: stays } = await db.from('calendar_events').select('guest_name, raw_summary, checkin_date, checkout_date, source')
+      .eq('status', 'confirmed').lte('checkin_date', today).gte('checkout_date', today).limit(6);
+    const earlier = thread.history.filter((h) => h.role === 'guest').slice(-3).map((h) => h.text);
+    const said = [text, ...earlier].map(statedName).find(Boolean);
+    context = [...stayLines((stays ?? []) as StayRow[], today), ...(said ? [`Says their name is: ${said}`] : []),
+      ...(earlier.length ? ['Earlier from them:', ...earlier.reverse().map((t) => `· ${t.slice(0, 160)}`)] : [])];
+  }
+  const body = withHeader(risk === 'access' || risk === 'safety' ? 'alert' : 'guest', `handoff · ${risk} · ${hhmm}`, [
+    firstOpen ? `➕ Follow-up to #CH-${firstOpen} (${risk})` : `🛎 Guest needs the host (${risk})`,
+    `Guest: ${thread.guest_name ?? thread.psid} (Messenger account)`,
     `> ${text.slice(0, 400)}`,
+    ...context,
     ...(woLine ? [woLine] : []),
     ...(note ? [`⚠️ ${note}`] : []), // D-227: why the bot stepped aside, when it is something the host can fix
     '',
@@ -468,7 +487,13 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
   // Session 58 (Lloyd 2026-09-28: "notification specially regarding urgent guest concerns ... both in email and telegram"):
   // the first card of an access or safety matter also reaches the Finance group and the host inbox, so a
   // lockout at night reaches whoever is awake. A follow-up (the same risk already open) stays on the OPS card.
-  if (URGENT_RISKS.includes(risk) && !(dup ?? []).length) await urgentAlert(db, thread, text, risk, short, link);
+  // Live test 2026-09-28 11:42Z: awaiting the relay (it answered after 20 s, the e-mail did arrive) held the webhook past
+  // Meta's timeout, Meta re-delivered the message and the guest got the access line twice. The alert runs after the reply.
+  if (URGENT_RISKS.includes(risk) && !(dup ?? []).length) {
+    const work = urgentAlert(db, thread, text, risk, short, link).catch((e) => console.error('urgent_alert_failed', String(e).slice(0, 200)));
+    const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+    if (edge?.waitUntil) edge.waitUntil(work);
+  }
 }
 
 // Lloyd 2026-09-28: urgent only - a lockout or a safety report. Complaints (towels, wifi, noise) stay on the OPS card, so the
@@ -495,7 +520,7 @@ async function urgentAlert(db: Db, thread: Thread, text: string, risk: RiskCode,
     const { data } = await db.from('app_settings').select('value').eq('key', 'email_recipients').maybeSingle();
     const to = String((data as { value?: unknown } | null)?.value ?? '').split(',')[0].trim() || 'cascadereservations@gmail.com';
     tasks.push(fetch(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20_000),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(45_000),
       body: JSON.stringify({ action: 'guestMessage', token, guest_email: to, guest_name: 'Cascade host', subject: `URGENT: ${who} ${URGENT_WHAT[risk]}`, message: lines }),
     }).then(async (r) => { if (!r.ok) throw new Error(`relay ${r.status}`); return r.text(); }));
   }
@@ -751,8 +776,15 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // as routine turns; it said "we've passed it along" without passing anything and closed on "let us know your preferred
   // dates". A routine follow-up within 12 h of an open access or safety handoff now joins it: a new host card carries the
   // message, and the guest gets handoffFollowUp. Any open host-owned matter also mutes the booking close and look block.
-  const hostOpen = text ? await openHostRisks(db, psid, now) : [];
-  const urgentOpen = g.risk === 'routine' && !isActive(thread.booking_flow, now) && !THANKS_RE.test(text) && !CLOSER_ONLY_RE.test(text)
+  const hostOpen = await openHostRisks(db, psid, now); // G5: an attachment reads it too
+  // Live test 2026-09-28 11:42-11:45Z: a repeat of the door ask ("nakalimutan ko ang code", "hindi ako makapasok") got the
+  // full access line each time, "naiwan aking cellphone sa loob" got the complaint line, and "available tonight?" was
+  // swallowed as a follow-up. The same matter (routine, access, complaint) joins the open card; a question Jev is sure
+  // is answerable (availability, amenities, directions, policy, price, house rules) is answered, still with no sales close.
+  const ANSWERABLE = ['availability', 'amenity', 'directions', 'policy_info', 'price', 'house_rule'];
+  const answerable = g.risk === 'routine' && !!jev && ANSWERABLE.includes(jev.intent) && jev.confidence >= 0.8;
+  const sameMatter = g.risk === 'routine' || g.risk === 'access' || g.risk === 'complaint';
+  const urgentOpen = sameMatter && !answerable && !isActive(thread.booking_flow, now) && !THANKS_RE.test(text) && !CLOSER_ONLY_RE.test(text)
     ? hostOpen.find((h) => (h.risk === 'access' || h.risk === 'safety') && now.getTime() - h.at < 12 * 3_600_000)?.risk ?? null : null;
   let risk: RiskCode = text ? (urgentOpen ?? g.risk) : 'uncertain';
   let handoff = (g.handoff && !negotiate) || !text || !!urgentOpen;   // the bot steps aside: handoff line to the guest, 24 h hold
@@ -852,7 +884,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (flowReply) reply = flowReply;
   // D-269 (live 2026-09-27: "Is party allowed?" got only the handoff line): a house-rule question is answered from FACTS,
   // and the host still gets the card.
-  else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? ATTACHMENT_REPLY : rule ? houseRule(rule, l3Of(turnLang)) : urgentOpen ? handoffFollowUp(l3Of(turnLang)) : HANDOFF[risk]; }
+  else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? (hostOpen.length || thread.booking_flow?.ref ? ((msg.attachments ?? []).some((a: any) => a?.type === 'audio') ? voiceNote(l3Of(guestLang(prevGuest))) : attachmentNoted(l3Of(guestLang(prevGuest)))) : ATTACHMENT_REPLY) : rule ? houseRule(rule, l3Of(turnLang)) : urgentOpen ? handoffFollowUp(l3Of(turnLang)) : HANDOFF[risk]; }
   // Session 58 live probe: "salamat" alone reads as Taglish, so a settled Bisaya thread got "It's our pleasure po". A
   // Taglish-reading closer keeps Bislish when the last two guest turns were Bisaya (D-172's own two-turn rule).
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
@@ -1103,7 +1135,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       if (risk === 'safety') thread.human_until = new Date(now.getTime() + HUMAN_HOLD_MS).toISOString();
       if (mode === 'auto') {
         if (text || card) await fx.handoff(db, thread, text || '[photo: likely a payment receipt]', risk, link, draftNote, card?.anyWording);
-        else await fx.ops(withHeader('guest', 'handoff · attachment', `🛎 Concierge handoff (attachment)\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`)); // SPEC-31 s3: a photo, not an uncertainty
+        else await fx.ops(withHeader(hostOpen.some((h) => h.risk === 'access' || h.risk === 'safety') ? 'alert' : 'guest', 'handoff · attachment', `🛎 Concierge handoff (attachment)\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`)); // SPEC-31 s3: a photo, not an uncertainty
       }
     } else if (flagOnly && mode === 'auto') {
       await fx.ops(withHeader('guest', 'glance', `👀 ${calendarDown ? 'The calendar could not be read: the guest was told we will confirm the dates. Please check and reply.' : 'Concierge answered but wants a host to glance'}\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nBot replied:\n${reply.slice(0, 500)}\n\n${link}`));
