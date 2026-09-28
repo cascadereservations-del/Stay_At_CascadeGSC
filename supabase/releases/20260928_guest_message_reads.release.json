@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260928T020618Z",
+    "verified_at": "2026-09-28T02:10:03Z",
     "production_rule": "Three new service_role-only read functions (guest_message_hold_v1, arrivals_without_id_v1, open_work_orders_v1). No table, column or existing grant changes. Take a fresh backup if this one is more than an hour old at apply time."
   },
   "forward_verification": [
@@ -56,8 +56,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING",
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-28 ~02:12Z on a disposable restore of production backup cascade-supabase-20260928T020618Z (prefix cascade-migration-rehearsal-70ffd94776fe, 0 leftovers). 105 public tables and 133 ledger rows before; migration 1 of 1; forward checks 3/3; pgTAP guest_message_reads.sql 12/12; 105 tables after.",
     "evidence": "New functions only. pgTAP guest_message_reads.sql (12). Functions: guest-messages + daily-digest 20/20, deno check clean; waves e306a91 + 6f22029."
   },
   "approvals": {
