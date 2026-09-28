@@ -1113,7 +1113,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     if (flowFollowUp && flow?.step === 'confirm' && !handoff) reply += '\n\n' + confirmSiteInvite(flow.lang ?? 'en');
     const lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
-    if (mode === 'auto') {
+    // Lloyd 2026-09-28: an emergency or a lockout is never left to a draft - whatever the mode (a failed settings read
+    // falls back to 'suggest', D-222), the guest gets the safety or access line and the host the card and the urgent alert.
+    const urgentNow = handoff && (risk === 'safety' || risk === 'access');
+    if (mode === 'auto' || urgentNow) {
       await fx.send(psid, reply);
       if (flowImage) {
         await fx.qr(psid, flow, flowImage);
@@ -1133,7 +1136,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // other questions, remembers what is pending with the host (see pendingBlock), and pauses
       // only when a human actually replies from the inbox (echo) - or on a safety report.
       if (risk === 'safety') thread.human_until = new Date(now.getTime() + HUMAN_HOLD_MS).toISOString();
-      if (mode === 'auto') {
+      if (mode === 'auto' || urgentNow) {
         if (text || card) await fx.handoff(db, thread, text || '[photo: likely a payment receipt]', risk, link, draftNote, card?.anyWording);
         else await fx.ops(withHeader(hostOpen.some((h) => h.risk === 'access' || h.risk === 'safety') ? 'alert' : 'guest', 'handoff · attachment', `🛎 Concierge handoff (attachment)\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`)); // SPEC-31 s3: a photo, not an uncertainty
       }

@@ -2,7 +2,16 @@
 // Session 58: the regex floor from DESIGN-guest-case-catalogue-2026-09-28 (appendix A, G2/G3/G4/G6/G7). Each wording was
 // routine (or a false alarm) before; the near misses must stay where they are.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { classify, type RiskCode } from './policy.ts';
+import { classify, gate, type RiskCode } from './policy.ts';
+
+Deno.test('an emergency or a lockout gets through a human hold; other messages stay with the human; "off" stays off', () => {
+  const hold = { mode: 'auto', humanUntil: new Date(Date.now() + 3_600_000).toISOString(), botTurns: 3 };
+  for (const t of ['my wife fainted, need a hospital now', 'may amoy gas sa kusina', 'I forgot the door code and can\'t get in']) {
+    const g = gate(t, hold); assertEquals([g.reply, g.handoff], [true, true], t);
+  }
+  const quiet = gate('what time is check-out?', hold); assertEquals([quiet.reply, quiet.handoff], [false, false]);
+  const off = gate('my wife fainted, need a hospital now', { ...hold, mode: 'off' }); assertEquals(off.reply, false);
+});
 
 const CASES: Record<RiskCode, string[]> = {
   access: [ // G2 a failing lock, the Bisaya code ask; G4 a claim on the address
