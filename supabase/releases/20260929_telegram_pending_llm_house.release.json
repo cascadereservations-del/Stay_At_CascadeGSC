@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "release_id": "telegram_pending_llm_house_20260929",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "023360c8b07a961ef09c6484b4dc457b8f587e2a"
+  },
+  "migrations": [
+    "20260929020000_telegram_pending_llm_house.sql"
+  ],
+  "migration_sha256": {
+    "20260929020000_telegram_pending_llm_house.sql": "df478cf90ca876c2c1dc0ea8805925a4fd4b825f4d6581368c3a8198239a34df"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260929T074854Z",
+    "verified_at": "2026-09-29T07:54:12Z",
+    "production_rule": "telegram_pending_kind_check widened by one value ('llm_house'); every existing kind kept. No data, table, function or grant changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_check_names_llm_house_and_keeps_the_rest",
+      "query": "select pg_get_constraintdef(oid) like '%llm_house%' and pg_get_constraintdef(oid) like '%awaiting_reply%' and pg_get_constraintdef(oid) like '%llm_expense%' from pg_constraint where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260929_telegram_pending_llm_house.sql with run-sql-on-host.sh (deletes unconfirmed llm_house cards, narrows the CHECK); Cassy's teach tool then fails closed."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_only",
+      "required_state": "No deploy needed: telegram-cassy (teach card) and telegram-expense (tap) are already live and fail closed until this is applied."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-29T07:54:12Z on a disposable restore of production backup cascade-supabase-20260929T074854Z (prefix cascade-migration-rehearsal-fdf800a9f8f8, 0 leftovers). Migration 1 of 1; forward check 1/1; pgTAP telegram_pending_llm_house.sql 4/4; 106 tables before and after.",
+    "evidence": "CHECK widened by one value. pgTAP telegram_pending_llm_house.sql (4)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
