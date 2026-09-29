@@ -10,8 +10,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
+import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { renderReport, withHeader, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
-import { friendlyDate, opsReport, weeklyFinanceReport, weeklyOpsReport, type MidStay, type Weather } from './report.ts';
+import { friendlyDate, opsReport, weeklyFinanceReport, weeklyOpsReport, type CassyWeek, type MidStay, type Weather } from './report.ts';
 import { overdue } from '../finance-watch/watch.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
@@ -194,21 +195,26 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
 // ── Weekly OPS roll-up (Mondays, Telegram plan §4): low stock, work orders, handoffs, the week ahead ──
 async function buildWeeklyOpsMessage(db: any, today: string): Promise<string> {
   const weekEnd = addDays(today, 7);
-  const [{ data: inv }, { data: wo }, { data: ho }, { data: arr }] = await Promise.all([
+  const since = new Date(new Date(`${today}T00:00:00Z`).getTime() - 7 * 86_400_000).toISOString();
+  const [{ data: inv }, { data: wo }, { data: ho }, { data: arr }, { data: wk, error: wkErr }] = await Promise.all([
     db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit')
       .eq('property_id', PROPERTY_ID).eq('is_active', true).not('reorder_below', 'is', null).order('name'),
     // An RPC: work_orders is revoked from service_role; the table read got 403 and reported none (2026-09-28).
     db.rpc('open_work_orders_v1', { p_property_id: PROPERTY_ID }),
-    db.from('concierge_handoffs').select('guest_name,risk,created_at').eq('status', 'open').order('created_at'),
+    db.from('concierge_handoffs').select('psid,guest_name,risk,created_at').eq('status', 'open').order('created_at'),
     db.from('calendar_events').select('guest_name,raw_summary,checkin_date,nights')
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').gte('checkin_date', today).lt('checkin_date', weekEnd).order('checkin_date'),
+    // D-285: the week's handoffs by risk. Advisory: a failed read drops the first sentence of the handoff line.
+    db.from('concierge_handoffs').select('risk').gte('created_at', since),
   ]);
+  if (wkErr) console.warn('[daily-digest] week handoffs', wkErr.message);
   const lowStock = ((inv ?? []) as any[]).filter((i) => Number(i.qty_on_hand) <= Number(i.reorder_below))
     .map((i) => ({ name: String(i.name), qty_on_hand: Number(i.qty_on_hand), unit: i.unit, runway: 0 }));
   const report = weeklyOpsReport({
     today, lowStock,
     workOrders: ((wo ?? []) as any[]).map((w) => ({ title: String(w.title), priority: w.priority })),
-    handoffs: ((ho ?? []) as any[]).map((h) => ({ guest: h.guest_name, risk: h.risk, days: Math.max(0, daysBetween(String(h.created_at).slice(0, 10), today)) })),
+    handoffs: ((ho ?? []) as any[]).map((h) => ({ guest: h.guest_name, key: h.psid, risk: h.risk, hours: (Date.now() - Date.parse(String(h.created_at))) / 3_600_000 })),
+    weekRisks: ((wk ?? []) as any[]).map((h) => h.risk ?? null),
     arrivals: ((arr ?? []) as any[]).map((s) => ({ guest: String(s.guest_name ?? '').trim() || String(s.raw_summary ?? 'Guest'), date: String(s.checkin_date), nights: s.nights })),
   });
   return withHeader('weekly', `week of ${friendlyDate(today)}`, renderReport(report));
@@ -246,9 +252,13 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
   const since = new Date(new Date(`${today}T00:00:00Z`).getTime() - 7 * 86_400_000).toISOString();
   const { data: decided, error: decErr } = await db.rpc('finance_decisions_week_v1', { p_property_id: PROPERTY_ID, p_since: since });
   if (decErr) console.warn('[daily-digest] finance decisions', decErr.message);
+  // D-285: Cassy's week (voice-lint hits, house misses). Advisory like the decisions line.
+  const { data: cassy, error: cassyErr } = await db.rpc('cassy_week_v1', { p_since: since });
+  if (cassyErr) console.warn('[daily-digest] cassy week', cassyErr.message);
   const weekly = weeklyFinanceReport({
     today, pending: pendingRows ?? [], overdueLines, warns, consoleUrl: CONSOLE_URL,
     decisions: (decided ?? []) as Array<{ reviewer: string; approved: number; rejected: number }>,
+    cassy: cassyErr ? null : (cassy as CassyWeek | null),
   });
   if (firstOfMonth) weekly.lines.unshift(`Monthly CSV: download Airbnb Transaction History and send the .csv to this chat (last export covered ${lastExport ?? 'unknown'}).`);
   return withHeader('weekly', `week of ${friendlyDate(today)}`, renderReport(weekly));
@@ -257,6 +267,14 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
 // ── Main handler ────────────────────────────────────────────────────────────
 Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
+  // D-285: ?dry=1 builds both Monday texts whatever the weekday and returns them; nothing is sent, no heartbeat. Cron-secret gated.
+  if (new URL(req.url).searchParams.get('dry') === '1') {
+    const secret = Deno.env.get('CASCADE_CRON_SHARED_SECRET') ?? '';
+    if (!secret || !cronSecretMatches(secret, req.headers.get('x-cascade-cron-secret'))) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: JSON_H });
+    const db = createClient(SUPABASE_URL, SERVICE_ROLE), today = getManilaDateStr();
+    const [ops, finance] = await Promise.all([buildWeeklyOpsMessage(db, today), buildFinanceMessage(db, today)]);
+    return new Response(JSON.stringify({ ok: true, dry: true, date: today, ops, finance }), { status: 200, headers: JSON_H });
+  }
   let mode = 'ops';
   try { const b = await req.json(); mode = String(b?.mode ?? 'ops').toLowerCase(); } catch { /* default ops */ }
   const db    = createClient(SUPABASE_URL, SERVICE_ROLE);

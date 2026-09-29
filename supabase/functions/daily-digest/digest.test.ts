@@ -50,7 +50,7 @@ Deno.test('ops: an item at zero fires ATTENTION on a quiet day; a second-morning
 });
 
 Deno.test('weekly: ops roll-up leads with the waiting guest; finance roll-up leads with the overdue payout', () => {
-  const ops = weeklyOpsReport({ today: '2026-09-21', lowStock: [{ name: 'Tea', qty_on_hand: 3, unit: 'pc', runway: 0 }], workOrders: [{ title: 'Aircon leak', priority: 'high' }], handoffs: [{ guest: 'Ben', risk: 'payment', days: 3 }], arrivals: [{ guest: 'Ana', date: '2026-09-23', nights: 2 }] });
+  const ops = weeklyOpsReport({ today: '2026-09-21', lowStock: [{ name: 'Tea', qty_on_hand: 3, unit: 'pc', runway: 0 }], workOrders: [{ title: 'Aircon leak', priority: 'high' }], handoffs: [{ guest: 'Ben', risk: 'payment', hours: 72 }], arrivals: [{ guest: 'Ana', date: '2026-09-23', nights: 2 }] });
   assertEquals(ops.decision, 'Week of Mon 21 Sep: 1 arrival, 1 low-stock item, 1 open work order, 1 unanswered guest.');
   assertEquals(ops.lines.filter(Boolean).length, 4);
   assertEquals(ops.lines.filter((l) => l === '').length, 3); // one break between each group
@@ -136,4 +136,58 @@ Deno.test('ops (SPEC-05 D): an arrival within 3 days without an ID gets one line
   assert(iStock >= 0 && iId === iStock + 2, 'the ID line sits just under stock, after a group break');
   assert(busy.action.startsWith('Restock'), 'it never takes the action from stock or a move');
   assertEquals(opsReport({ ...base, idMissing: [] }), null);
+});
+
+// D-285 (DESIGN-weekly-quality-line-2026-09-29): two Cassy lines on the Monday Finance card, one better handoff line on OPS.
+const quiet = { today: '2026-10-05', pending: [], overdueLines: [], warns: [], consoleUrl: 'u', decisions: [] };
+const zero = { turns: 41, linted: 0, rules: [], misses: 0, teach: [] };
+
+Deno.test('D-285 1: no lint and no misses - no Cassy lines, the card is what it was without them (D-160)', () => {
+  assertEquals(weeklyFinanceReport({ ...quiet, cassy: zero }), weeklyFinanceReport(quiet));
+  const busy = { ...quiet, pending: [{ transaction_date: '2026-10-01', payee_name: 'P', category: 'supplies', gross_amount: 250, source: 'ocr' }] };
+  assertEquals(weeklyFinanceReport({ ...busy, cassy: zero }), weeklyFinanceReport(busy));
+  assertEquals(weeklyFinanceReport({ ...quiet, cassy: null }), weeklyFinanceReport(quiet)); // a failed read
+});
+
+Deno.test('D-285 2: the voice line names the count and the top two rules', () => {
+  const r = weeklyFinanceReport({ ...quiet, cassy: { ...zero, linted: 3, rules: [{ rule: 'too_long', n: 2 }, { rule: 'two_asks', n: 1 }] } });
+  assertEquals(r.lines, ['🗣 Cassy: 3 of 41 guest messages got a reply that broke a voice rule (too long 2, two questions 1)']);
+  assertEquals(r.action, '');
+});
+
+Deno.test('D-285 3: the teach line; a receipt action wins; on an otherwise empty card the Teach action appears', () => {
+  const cassy = { ...zero, misses: 4, teach: [{ words: 'parking gate', n: 2 }, { words: 'laundry', n: 1 }, { words: 'iron', n: 1 }] };
+  const r = weeklyFinanceReport({ ...quiet, cassy });
+  assertEquals(r.lines, ['📚 Cassy had no house answer 4 times. Asked about: parking gate (2), laundry, iron. Teach with: cassy teach: ...']);
+  assertEquals(r.action, 'Teach Cassy about parking gate with cassy teach: ...');
+  const withReceipt = weeklyFinanceReport({ ...quiet, cassy, pending: [{ transaction_date: '2026-10-01', payee_name: 'P', category: 'supplies', gross_amount: 250, source: 'ocr' }] });
+  assert(withReceipt.action.startsWith('Confirm the receipts'), withReceipt.action);
+  const i = withReceipt.lines.findIndex((l) => l.startsWith('📚'));
+  assertEquals(withReceipt.lines[i - 1], '', 'the Cassy group is its own group');
+  assertEquals(weeklyFinanceReport({ ...quiet, cassy: { ...zero, misses: 1, teach: [] } }).lines, ['📚 Cassy had no house answer 1 time. Teach with: cassy teach: ...']);
+});
+
+Deno.test('D-285 4: an unknown rule prints its name with spaces; the Cassy group sits after the decisions line', () => {
+  const r = weeklyFinanceReport({ ...quiet, decisions: [{ reviewer: 'Lloyd', approved: 1, rejected: 0 }], cassy: { ...zero, linted: 1, rules: [{ rule: 'foo_bar', n: 1 }] } });
+  assertEquals(r.lines, ['🧑‍⚖️ Bookings decided this week: 1 confirmed (Lloyd 1) · 0 declined', '', '🗣 Cassy: 1 of 41 guest messages got a reply that broke a voice rule (foo bar 1)']);
+});
+
+Deno.test('D-285 5: OPS lists a waiting guest once, over 24 h only, and counts the week by risk, most first', () => {
+  const base5 = { today: '2026-10-05', lowStock: [], workOrders: [], arrivals: [] };
+  const suz = (h: number) => ({ guest: 'Suzanne', key: 'psid:070054', risk: 'policy_exception', hours: h });
+  const r = weeklyOpsReport({ ...base5,
+    handoffs: [suz(35), suz(35), suz(34), { guest: 'Ben', key: 'psid:1', risk: 'payment', hours: 3 }],
+    weekRisks: ['access', 'payment', 'access', 'policy_exception', 'access', null],
+  });
+  assertEquals(r.lines.filter((l) => l.startsWith('💬')), ['💬 Handed to you this week: 3 access, 1 payment, 1 policy exception, 1 question. Still waiting over a day: Suzanne (policy exception, 1 day)']);
+  assertEquals(r.decision, 'Week of Mon 5 Oct: 0 arrivals, 0 low-stock items, 0 open work orders, 1 unanswered guest.');
+  assertEquals(r.action, 'Reply to Suzanne first.');
+  const none = weeklyOpsReport({ ...base5, handoffs: [], weekRisks: [] });
+  assertEquals(none.lines.some((l) => l.startsWith('💬')), false);
+  const fresh = weeklyOpsReport({ ...base5, handoffs: [{ guest: 'Ben', risk: 'payment', hours: 3 }], weekRisks: ['payment'] });
+  assertEquals(fresh.lines.filter((l) => l.startsWith('💬')), ['💬 Handed to you this week: 1 payment']);
+  assertEquals(fresh.action, '');
+  const old = weeklyOpsReport({ ...base5, handoffs: [{ guest: 'Ana', risk: null, hours: 80 }, { guest: 'Ben', risk: 'payment', hours: 30 }] });
+  assertEquals(old.lines.filter((l) => l.startsWith('💬')), ['💬 Still waiting over a day: Ana (question, 3 days), Ben (payment, 1 day)']);
+  assertEquals(old.action, 'Reply to Ana first.');
 });

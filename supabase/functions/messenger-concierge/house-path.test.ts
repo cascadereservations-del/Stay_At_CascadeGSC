@@ -34,7 +34,8 @@ async function turn(text: string, history: any[] = [], verify: any = null, extra
   const calls: Array<{ fx: string; text?: string; detail?: any }> = [];
   await handle(db as any, { sender: { id: 'probe:h1' }, recipient: { id: 'page' }, message: { mid: `m-${Math.random()}`, text } }, 'auto', probeEffects(calls as any, 'Allyssa', now), now);
   const saved = writes.find((w) => w.table === 'concierge_threads' && w.op === 'upsert')?.v;
-  return { reply: calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n'), handoffs: calls.filter((c) => c.fx === 'handoff'), saved, rpcs: rpcs.filter((r) => r.name === 'verify_booking') };
+  return { reply: calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n'), handoffs: calls.filter((c) => c.fx === 'handoff'), saved, rpcs: rpcs.filter((r) => r.name === 'verify_booking'),
+    stats: writes.filter((w) => w.table === 'concierge_turn_stats').map((w) => w.v) }; // D-285
 }
 const asked = (tries: number, h = 0.1) => [{ role: 'guest', text: "what's the wifi password?", at: ago(h) }, { role: 'bot', text: 'ask', at: ago(h), route: { house: tries, q: "what's the wifi password?" } }];
 const stay = { found: true, match: true, first_name: 'Allyssa', checkin_date: '2026-09-27', checkout_date: '2026-09-29' };
@@ -45,6 +46,9 @@ Deno.test('unverified: the wifi password gets the stay check, which never names 
   assert(!/password|wifi|wi-fi/i.test(r.reply));
   assertEquals(r.handoffs.length, 0);
   assertEquals(r.saved.history.at(-1).route, { house: 1, q: "Hi, what's the wifi password?" });
+  // D-285: one stats row for the turn - locked, a probe, no psid and no text in it.
+  assertEquals(r.stats.length, 1);
+  assertEquals([r.stats[0].house, r.stats[0].probe, r.stats[0].miss, 'psid' in r.stats[0]], ['locked', true, null, false]);
 });
 
 Deno.test('the answer matches a stay on today: verified through check-out, no priority card, the question goes on', async () => {

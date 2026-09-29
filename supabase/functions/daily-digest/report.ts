@@ -143,9 +143,29 @@ export type WeeklyOpsInput = {
   today: string;
   lowStock: StockItem[];
   workOrders: Array<{ title: string; priority?: string | null }>;
-  handoffs: Array<{ guest: string | null; risk: string | null; days: number }>;
+  /** Open concierge_handoffs rows, oldest first; `key` (the psid) merges one guest's rows. */
+  handoffs: Array<{ guest: string | null; key?: string | null; risk: string | null; hours: number }>;
+  /** D-285: the risk of every handoff created this week. */
+  weekRisks?: Array<string | null>;
   arrivals: Array<{ guest: string; date: string; nights?: number | null }>;
 };
+const riskWords = (r: string | null) => r ? r.replace(/_/g, ' ') : 'question';
+/** D-285: "3 access, 1 payment" - counts by risk, most first (ties by name). */
+function riskCounts(risks: Array<string | null>): string {
+  const n = new Map<string, number>();
+  for (const r of risks) n.set(riskWords(r), (n.get(riskWords(r)) ?? 0) + 1);
+  return [...n].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([w, k]) => `${k} ${w}`).join(', ');
+}
+/** D-285: guests waiting on a person over 24 h, one entry per guest (its oldest row), oldest first. */
+function waitingGuests(rows: WeeklyOpsInput['handoffs']): Array<{ guest: string; risk: string | null; days: number }> {
+  const byGuest = new Map<string, { guest: string; risk: string | null; hours: number }>();
+  for (const h of rows) {
+    if (h.hours <= 24) continue;
+    const k = h.key || h.guest || 'guest', seen = byGuest.get(k);
+    if (!seen || h.hours > seen.hours) byGuest.set(k, { guest: h.guest ?? 'guest', risk: h.risk, hours: h.hours });
+  }
+  return [...byGuest.values()].sort((a, b) => b.hours - a.hours).map((w) => ({ guest: w.guest, risk: w.risk, days: Math.floor(w.hours / 24) }));
+}
 export function weeklyOpsReport(i: WeeklyOpsInput): Report {
   const lines: string[] = [];
   const brk = () => { if (lines.length && lines[lines.length - 1] !== '') lines.push(''); };
@@ -153,9 +173,11 @@ export function weeklyOpsReport(i: WeeklyOpsInput): Report {
   else lines.push('📥 This week: no arrivals booked yet');
   if (i.lowStock.length) { brk(); lines.push(`📦 Low stock: ${i.lowStock.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''}`).join(', ')}`); }
   if (i.workOrders.length) { brk(); lines.push(`🔧 Open work orders: ${i.workOrders.map((w) => w.title + (w.priority ? ` (${w.priority})` : '')).join('; ')}`); }
-  if (i.handoffs.length) { brk(); lines.push(`💬 Guests still waiting on a reply: ${i.handoffs.map((h) => `${h.guest ?? 'guest'} (${h.risk ?? 'question'}, ${plural(h.days, 'day')})`).join(', ')}`); }
-  const decision = `Week of ${friendlyDate(i.today)}: ${plural(i.arrivals.length, 'arrival')}, ${plural(i.lowStock.length, 'low-stock item')}, ${plural(i.workOrders.length, 'open work order')}, ${plural(i.handoffs.length, 'unanswered guest')}.`;
-  const action = i.handoffs.length ? `Reply to ${i.handoffs[0].guest ?? 'the waiting guest'} first.`
+  const waiting = waitingGuests(i.handoffs), week = riskCounts(i.weekRisks ?? []);
+  const ho = [week && `Handed to you this week: ${week}`, waiting.length && `Still waiting over a day: ${waiting.map((w) => `${w.guest} (${riskWords(w.risk)}, ${plural(w.days, 'day')})`).join(', ')}`].filter(Boolean).join('. ');
+  if (ho) { brk(); lines.push(`💬 ${ho}`); }
+  const decision = `Week of ${friendlyDate(i.today)}: ${plural(i.arrivals.length, 'arrival')}, ${plural(i.lowStock.length, 'low-stock item')}, ${plural(i.workOrders.length, 'open work order')}, ${plural(waiting.length, 'unanswered guest')}.`;
+  const action = waiting.length ? `Reply to ${waiting[0].guest} first.`
     : i.lowStock.length ? `Restock ${i.lowStock.slice(0, 3).map((s) => s.name).join(', ')} this week.`
     : i.workOrders.length ? `Close out ${i.workOrders[0].title}.`
     : i.arrivals.length ? `Prepare for ${i.arrivals[0].guest} on ${friendlyDate(i.arrivals[0].date)}.` : '';
@@ -171,7 +193,25 @@ export type WeeklyFinanceInput = {
   consoleUrl: string;
   /** SPEC-10 control 11: one row per reviewer from finance_decisions_week_v1. */
   decisions?: Array<{ reviewer: string; approved: number; rejected: number }>;
+  /** D-285: cassy_week_v1 (guest turns, probes excluded); null when the read failed. */
+  cassy?: CassyWeek | null;
 };
+export type CassyWeek = { turns: number; linted: number; rules: Array<{ rule: string; n: number }>; misses: number; teach: Array<{ words: string; n: number }> };
+const RULE_WORDS: Record<string, string> = {
+  too_long: 'too long', two_asks: 'two questions', too_dense: 'too dense', form_speak: 'form wording', robot_word: 'robot word',
+  shouting: 'capitals', cold_opener: 'cold opener', command_tone: 'command tone', exclaim: 'exclamation', boilerplate: 'boilerplate', no_answer: 'did not answer',
+};
+/** D-285: the voice line and the teach list; each only when its count is above 0 (D-160). */
+export function cassyLines(c: CassyWeek | null | undefined): string[] {
+  if (!c) return [];
+  const out: string[] = [];
+  if (c.linted > 0) out.push(`🗣 Cassy: ${c.linted} of ${plural(c.turns, 'guest message')} got a reply that broke a voice rule (${c.rules.map((r) => `${RULE_WORDS[r.rule] ?? r.rule.replace(/_/g, ' ')} ${r.n}`).join(', ')})`);
+  if (c.misses > 0) {
+    const asked = c.teach.map((t) => t.n > 1 ? `${t.words} (${t.n})` : t.words).join(', ');
+    out.push(`📚 Cassy had no house answer ${plural(c.misses, 'time')}.${asked ? ` Asked about: ${asked}.` : ''} Teach with: cassy teach: ...`);
+  }
+  return out;
+}
 
 /** SPEC-10 control 11: who decided what this week. Empty when nobody decided anything — D-160,
  *  the roll-up posts on movement, and "0 confirmed · 0 declined" is not movement. */
@@ -189,6 +229,8 @@ export function weeklyFinanceReport(i: WeeklyFinanceInput): Report {
   if (i.pending.length) lines.push(`🧾 ${plural(i.pending.length, 'receipt')} awaiting review, ₱${peso(total)} in total`);
   const decided = decisionsLine(i.decisions);
   if (decided) { brk(); lines.push(decided); }
+  const cassy = cassyLines(i.cassy);
+  if (cassy.length) { brk(); lines.push(...cassy); }
   if (i.overdueLines.length) brk();
   for (const l of i.overdueLines.slice(0, 2)) lines.push(`⏳ ${l}`);
   if (i.warns.length) brk();
@@ -196,7 +238,8 @@ export function weeklyFinanceReport(i: WeeklyFinanceInput): Report {
   const decision = `Finance week of ${friendlyDate(i.today)}: ${plural(i.pending.length, 'receipt')} pending, ${plural(i.overdueLines.length, 'overdue payout')}, ${plural(i.warns.length, 'health warning')}.`;
   const action = i.overdueLines.length ? 'Chase the overdue payout first.'
     : i.pending.length ? `Confirm the receipts in the admin console: ${i.consoleUrl}`
-    : i.warns.length ? 'Open Settings → System health and clear the warnings.' : '';
+    : i.warns.length ? 'Open Settings → System health and clear the warnings.'
+    : i.cassy && i.cassy.misses > 0 ? `Teach Cassy ${i.cassy.teach.length ? `about ${i.cassy.teach[0].words} ` : ''}with cassy teach: ...` : '';
   return { decision, lines, action };
 }
 

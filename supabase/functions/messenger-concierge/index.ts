@@ -13,6 +13,7 @@ import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supa
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, trimRepeatedInvite, type RiskCode, type StayRow } from './policy.ts';
 import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
+import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
@@ -1229,13 +1230,14 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       flowActive: isActive(thread.booking_flow, now) || !!flow, priorityOpen: hostOpen.some((h) => h.risk === 'priority'), history: thread.history, now,
     });
   }
+  let lint: string[] = []; // D-285: hoisted for the turn's stats row
   if (reply) {
     // Mid-flow (session 28 T6): the guest is already booking here - no site invite after the answer, and the composite
     // (model answer + card) is not lint-scored as one message.
     if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Kapag ready po kayo|We can arrange (the booking|everything)|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
     // Lloyd 2026-09-17 14:30: show the direct site whenever practicable - once, under a resumed confirm card.
     if (flowFollowUp && flow?.step === 'confirm' && !handoff) reply += '\n\n' + confirmSiteInvite(flow.lang ?? 'en');
-    const lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
+    lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     // Lloyd 2026-09-28: an emergency or a lockout is never left to a draft - whatever the mode (a failed settings read
     // falls back to 'suggest', D-222), the guest gets the safety or access line and the host the card and the urgent alert.
@@ -1279,6 +1281,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     last_mid: msg.mid ?? thread.last_mid ?? null,
     ...(thread.verified_until !== undefined ? { verified_until: thread.verified_until } : {}),
   });
+  // D-285: one stats row per guest turn for the Monday card. Advisory: a failed write never costs the reply or the history.
+  try {
+    const { error } = await db.from('concierge_turn_stats').insert(turnStats({ psid, text, replied: !!g.reply, lint: sentToGuest ? lint : [], jev, house, houseLocked, re: g0.risk, up: jevRisk !== g0.risk }));
+    if (error) console.error('turn_stats_failed', String(error.message ?? error).slice(0, 160));
+  } catch (e) { console.error('turn_stats_failed', String(e).slice(0, 160)); }
 }
 
 // Session 59 (Lloyd 2026-09-28, "we're over complicating things ... revert to previous without any menu"): ?profile=get reads
