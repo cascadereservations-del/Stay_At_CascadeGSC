@@ -880,7 +880,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const hostOpen = await openHostRisks(db, psid, now); // G5: an attachment reads it too
   // Lloyd 2026-09-28 ("skip the nudge for staying guests"): someone at the residence now, this turn or in the last 24 h, gets
   // no booking pitch from code - no dates nudge, no site invite, no "arrange it here in the chat".
-  const stayingNow = isStayingNow(text) || thread.history.some((h) => h.role === 'guest' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000 && isStayingNow(h.text));
+  // D-282 live probe 2026-09-29: a stay verified by the guide's check is a staying guest too (the Wi-Fi answer got the
+  // photos, reviews and "arrange the booking" block).
+  const verified = !!thread.verified_until && thread.verified_until >= dayStr(new Date(now.getTime() + 8 * 3_600_000));
+  const stayingNow = verified || isStayingNow(text) || thread.history.some((h) => h.role === 'guest' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000 && isStayingNow(h.text));
   // Live test 2026-09-28 11:42-11:45Z: a repeat of the door ask ("nakalimutan ko ang code", "hindi ako makapasok") got the
   // full access line each time, "naiwan aking cellphone sa loob" got the complaint line, and "available tonight?" was
   // swallowed as a follow-up. The same matter (routine, access, complaint) joins the open card; a question Jev is sure
@@ -985,7 +988,6 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const turnLang = thisLang === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : thisLang;
   // D-282: house how-tos for the model (HOUSE block). A verified current guest reads the guest tier; anyone else reads
   // public rows, and a question whose best answer is guest-tier gets the stay check instead (never mid-booking).
-  const verified = !!thread.verified_until && thread.verified_until >= dayStr(new Date(now.getTime() + 8 * 3_600_000));
   const house = text && g.reply ? matchHouse(await loadHouse(db).catch((e) => { console.error('house_load_failed', String(e).slice(0, 200)); return []; }), text, verified ? 'guest' : 'public') : null;
   const houseLocked = !!house?.locked && !flow && !flowReply && !handoff;
   let houseAskSent = false;
@@ -1184,7 +1186,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       // Mid-flow the resumed card already shows the site once (D-172), so only a reviews or trust
       // question earns anything, and only the reviews line.
-      const look = (handoff || hostAsk || payHold || hostOpen.length > 0 || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
+      const look = (handoff || hostAsk || stayingNow || payHold || hostOpen.length > 0 || risk !== 'routine' || THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text) || BOT_RE.test(text)) ? ''
         : flowFollowUp ? (TRUST_RE.test(text) ? lookNudge(text, l3, { site: true, reviews: reviewsShown }) : '')
         : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
       if (!hostAsk && !look && !payHold && !hostOpen.length && !stayingNow) reply = bookingNudge(reply, lang, datesKnown.length > 0, siteRecent);
