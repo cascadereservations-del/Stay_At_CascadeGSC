@@ -107,6 +107,22 @@ export async function teachCard(db: Db, chatId: string | number, args: Record<st
   return { card: { text, keyboard: [[{ text: '✅ Save it', callback_data: `llm_house_confirm:${data.id}` }, { text: '❌ Cancel', callback_data: `llm_cancel:${data.id}` }]] }, result: { card_sent: true, topic: t.topic, tier: t.tier, retire: t.retire } };
 }
 
+/** D-283: who may save a taught fact - any tap in the Finance chat (Lloyd, Marifel; she stays unmapped, D-186), or a mapped,
+ *  enabled owner/admin anywhere (Lloyd in a DM). Everyone else is refused and the card stays for someone who may. */
+export async function mayTeach(db: Db, chatId: unknown, fromId: unknown, financeChat: string): Promise<boolean> {
+  if (financeChat && String(chatId ?? '') === financeChat) return true;
+  if (!fromId) return false;
+  const { data } = await db.from('staff_access_profiles').select('role').eq('telegram_user_id', fromId).is('disabled_at', null).maybeSingle();
+  return ['owner', 'admin'].includes(String(data?.role ?? ''));
+}
+
+/** The card's line after the tap. A retire card carries no real tier (teachArgs defaults it), so none is shown. */
+export function houseTapLine(p: HouseTeach, who: string, esc: (s: string) => string = (s) => s): string {
+  return p.retire
+    ? `📘 Retired "${esc(p.title)}" by ${who}. Cassy stops using it within 10 minutes.`
+    : `📘 Saved "${esc(p.title)}" (${p.tier}) by ${who}. Cassy uses it within 10 minutes.`;
+}
+
 /** The tap: upsert on topic, or retire. Returns an error message, or null when saved. */
 export async function applyHouseFact(db: Db, p: HouseTeach, tappedBy: string): Promise<string | null> {
   const at = new Date().toISOString(), by = `${tappedBy} (asked by ${p.by})`.slice(0, 200);

@@ -1,6 +1,6 @@
 // deno test supabase/functions/_shared/cascade-core/house.test.ts
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { fillPlaceholders, houseBlock, matchHouse, teachArgs, type HouseRow } from './house.ts';
+import { fillPlaceholders, houseBlock, houseTapLine, matchHouse, mayTeach, teachArgs, type HouseRow, type HouseTeach } from './house.ts';
 
 // Keywords as seeded (stay-site 20260929010000_house_facts.sql).
 const R = (topic: string, tier: HouseRow['tier'], keywords: string[]): HouseRow => ({ topic, title: topic, body: `${topic} body`, keywords, tier });
@@ -67,4 +67,24 @@ Deno.test('teach: the slug is cleaned, an unknown tier falls to staff, keywords 
   if (!('error' in t)) { assertEquals(t.topic, 'aircon-cleaning-supplier'); assertEquals(t.tier, 'staff'); assertEquals(t.keywords, ['aircon', 'cleaning', 'service']); }
   assertEquals(teachArgs({ topic: 'x1', title: 'X' }, 'L'), { error: 'need body' });
   assert(!('error' in teachArgs({ topic: 'wifi', title: 'Wi-Fi', retire: true }, 'L')));
+});
+
+// The teach tap's wall (D-283): Finance chat, or a mapped enabled owner/admin; Honey in OPS is refused.
+function roleDb(role: string | null) {
+  const q: any = { select: () => q, eq: () => q, is: () => q, maybeSingle: () => Promise.resolve({ data: role ? { role } : null, error: null }) };
+  return { from: () => q };
+}
+Deno.test('teach tap: Finance chat always; elsewhere only a mapped owner/admin', async () => {
+  assertEquals(await mayTeach(roleDb(null), -100123, 555, '-100123'), true);          // Marifel in Finance, unmapped
+  assertEquals(await mayTeach(roleDb('admin'), 497550740, 497550740, '-100123'), true); // Lloyd in a DM
+  assertEquals(await mayTeach(roleDb('cleaner'), -100999, 777, '-100123'), false);    // a cleaner in OPS
+  assertEquals(await mayTeach(roleDb(null), -100999, 888, '-100123'), false);         // Honey in OPS, unmapped
+  assertEquals(await mayTeach(roleDb('admin'), -100999, undefined, '-100123'), false); // no tapper id
+});
+
+Deno.test('tap line: a save names its tier, a retire says Cassy stops using it', () => {
+  const p: HouseTeach = { topic: 'x', title: 'Pool_hours', body: 'b', tier: 'public', keywords: [], retire: false, by: 'L' };
+  assertEquals(houseTapLine(p, 'Loyd'), '📘 Saved "Pool_hours" (public) by Loyd. Cassy uses it within 10 minutes.');
+  const r = houseTapLine({ ...p, retire: true, tier: 'staff' }, 'Loyd', (s) => s.replace(/_/g, '\_'));
+  assertEquals(r, '📘 Retired "Pool\_hours" by Loyd. Cassy stops using it within 10 minutes.');
 });
