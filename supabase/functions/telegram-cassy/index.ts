@@ -12,6 +12,8 @@ import { withObservability } from '../_shared/observability.ts';
 import { chatTools, geminiBreaker, type ChatTurn } from '../_shared/cascade-core/providers.ts';
 import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaToday, type Card } from '../_shared/cascade-core/tools.ts';
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
+import { HOUSE_READ_DECL, HOUSE_TEACH_DECL, houseInfo, teachCard } from '../_shared/cascade-core/house.ts'; // D-282
+import { toneRules } from '../messenger-concierge/voice.ts';
 import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
@@ -28,7 +30,8 @@ Asked when the unit is next free or available: call stays with to = today + 30 d
 Answer only from tool results. If a tool has no data, say so plainly; never estimate or invent.
 If a tool returns an error, say "I could not read <what>" and stop; never ask anyone for permission or access.
 Call only the tools the question needs.
-Write tools (log_expense, create_notice) only send a confirmation card; after one, your decision line says what the card holds and the action is "Tap ✅ on the card". Nothing is saved until the tap.
+House how-tos (aircon, Wi-Fi, door, EcoFlow, turnover steps, suppliers): call house_info and answer from it; never invent a step.
+Write tools (log_expense, create_notice, teach_house_fact) only send a confirmation card; after one, your decision line says what the card holds and the action is "Tap ✅ on the card". Nothing is saved until the tap.
 ${surface === 'ops' ? 'SURFACE OPS: staff and cleaners read this. Money fields are removed from your tools; never mention amounts.' : 'SURFACE FINANCE: admins read this; figures are allowed.'}
 Reply in the language of the question (English, Tagalog, Bisaya or Taglish), warm and direct.
 FINAL ANSWER FORMAT: return only JSON {"decision": "<one line: what needs a decision, or that nothing does>", "lines": ["<at most 5 short lines, each with its number and why it matters>"], "action": "<one action doable in under two minutes, or empty>"}.`;
@@ -84,13 +87,24 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
   const t0 = Date.now();
   try {
     // Ops chat may schedule notices but never log money; finance chat gets both write tools.
-    const tools = [...TOOL_DECLS, ...WRITE_TOOL_DECLS.filter((t) => surface === 'finance' || t.name === 'create_notice')];
+    // D-282: house_info on both surfaces; teaching only where log_expense lives (the Finance chat: Lloyd and Marifel).
+    const tools = [...TOOL_DECLS, HOUSE_READ_DECL, ...WRITE_TOOL_DECLS.filter((t) => surface === 'finance' || t.name === 'create_notice'), ...(surface === 'finance' ? [HOUSE_TEACH_DECL] : [])];
     const ctx = { chatId, from: msg.from ?? {}, surface };
     let cardSent = false;
     const res = await chatTools({
       system: VOICE(surface, today), history: await history(db, chatId), question, tools, title: 'Cascade Cassy', tier, maxRounds: tier === 'deep' ? 5 : 3, maxTokens: tier === 'deep' ? 1200 : 700,
-      forceTool: wantsExpense(question, surface) ? 'log_expense' : undefined,
+      forceTool: wantsExpense(question, surface) ? 'log_expense' : surface === 'finance' && /^\s*(teach|edit|retire)\b/i.test(question) ? 'teach_house_fact' : undefined,
       run: async (name, args) => {
+        if (name === 'house_info') return await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; });
+        if (name === 'teach_house_fact') {
+          if (surface !== 'finance') return { error: 'house facts are taught in the finance chat' };
+          const w = await teachCard(db, chatId, args, [msg.from?.first_name, msg.from?.id].filter(Boolean).join(' ')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: 'teach_house_fact unavailable' } }; });
+          if (w.card) {
+            const lint = args.retire ? [] : toneRules(String(args.body ?? '')); // voice.ts rules: a warning on the card, never a block
+            await tgSend(chatId, lint.length ? `${w.card.text}\n⚠️ Voice check: ${lint.join(', ')} - edit or tap anyway.` : w.card.text, msg.message_id, w.card); cardSent = true;
+          }
+          return w.result;
+        }
         if (isWriteTool(name)) {
           const w = await writeTool(db, ctx, name, args).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: `${name} unavailable` } }; });
           if (w.card) { await tgSend(chatId, w.card.text, msg.message_id, w.card); cardSent = true; }

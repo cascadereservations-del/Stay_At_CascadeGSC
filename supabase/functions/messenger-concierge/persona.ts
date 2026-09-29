@@ -438,6 +438,13 @@ export const priorityAsk = (lang: Lang) => by(lang, {
   tl: `Sige po, nandito lang kami para sa inyo. Ano ang check-in date ninyo at ang name sa booking, para ma-una namin kayo sa host? Halimbawa: Sept 27, Ana.`,
   bis: `Sige, naa ra mi diri para ninyo. Unsa ang inyong check-in date ug ang name sa booking, para ma-una namo mo sa host? Pananglitan: Sept 27, Ana.`,
 });
+// D-282: a guest-tier house fact (Wi-Fi password, door entry, key card) asked by a thread not yet verified. Never says
+// what the fact is; the answer is parsed like the priority ask, then the original question is answered.
+export const houseVerifyAsk = (lang: Lang) => by(lang, {
+  en: `That detail is kept for guests staying with us. May we have your check-in date and the name on your booking? For example: Sept 27, Ana.`,
+  tl: `Para po sa mga guest na naka-stay sa amin ang detail na iyan. Ano ang check-in date ninyo at ang name sa booking? Halimbawa: Sept 27, Ana.`,
+  bis: `Para sa mga guest nga naka-stay karon namo ang maong detail. Unsa ang inyong check-in date ug ang name sa booking? Pananglitan: Sept 27, Ana.`,
+});
 export const priorityRetry = (lang: Lang) => by(lang, {
   en: `Thank you. We couldn't quite find today's stay under those details. Could you share the check-in date and the name on your booking once more? For example: Sept 27, Ana.`,
   tl: `Salamat po. Hindi pa namin mahanap ang stay ngayong araw sa details na iyon. Pakishare ulit ang check-in date at ang name sa booking? Halimbawa: Sept 27, Ana.`,

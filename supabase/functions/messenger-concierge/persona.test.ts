@@ -78,6 +78,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   accessVerify: (l) => [P.accessVerify(l)],
   priorityAsk: (l) => [P.priorityAsk(l)],
   priorityRetry: (l) => [P.priorityRetry(l)],
+  houseVerifyAsk: (l) => [P.houseVerifyAsk(l)],
   priorityVerified: (l) => [P.priorityVerified('Allyssa', l), P.priorityVerified('Guest', l), P.priorityVerified(null, l)],
   priorityUnmatched: (l) => [P.priorityUnmatched(l)],
   attachmentNoted: (l) => [P.attachmentNoted(l)],

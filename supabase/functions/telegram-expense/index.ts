@@ -25,6 +25,7 @@ import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cas
 import { chatJson } from '../_shared/cascade-core/providers.ts'; // /ping tests the real route (2026-09-24)
 import { notifyMessengerBookingDeclined } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
+import { applyHouseFact } from '../_shared/cascade-core/house.ts'; // D-282: Cassy's teach card
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
@@ -1464,6 +1465,20 @@ async function handleCallbackQueryInner(cq:any,db:any){
     const err=await dbWrite(db.from('ops_notices').update(ch).eq('id',payload.noticeId));
     if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('update the notice',err));return;}
     await tgEdit(chatId,msgId,firstLine+'\n✅ *Notice updated.*');
+    return;
+  }
+  // D-282: "cassy teach" cards. Taught in the Finance chat (Lloyd, Marifel - her Telegram stays unmapped, D-186) or by an
+  // owner/admin mapped in staff_access_profiles (Lloyd in a DM). Anyone else is refused and the card stays for them.
+  if(data.startsWith('llm_house_confirm:')){
+    const pid=data.slice('llm_house_confirm:'.length);
+    let ok=isFinanceChat(chatId);
+    if(!ok&&cq.from?.id){const{data:p}=await db.from('staff_access_profiles').select('role').eq('telegram_user_id',cq.from.id).is('disabled_at',null).maybeSingle();ok=['owner','admin'].includes(String(p?.role??''));}
+    if(!ok){await tgEdit(chatId,msgId,`${cq.message?.text??firstLine}\n\n⛔ Only Lloyd or Marifel can teach Cassy.`,cq.message?.reply_markup);return;}
+    const payload=await consumePending(db,pid);
+    if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired - ask Cassy again._');return;}
+    const err=await applyHouseFact(db,payload,whoFrom(cq.from));
+    if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED(payload.retire?'retire the fact':'save the fact',err));return;}
+    await tgEdit(chatId,msgId,`📘 ${payload.retire?'Retired':'Saved'} "${mdEsc(payload.title)}" (${payload.tier}) by ${mdEsc(cq.from?.first_name??'staff')}. Cassy uses it within 10 minutes.`);
     return;
   }
   if(data.startsWith('llm_confirm:')){

@@ -11,13 +11,14 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, trimRepeatedInvite, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, nudgeDates, nudgeReady, nudgeSite, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
+import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
 import { CONTACT_CHIP, contactHostChip, isStayingNow, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
@@ -117,7 +118,7 @@ function stayFrom(guestTexts: string[], now: Date): { checkin: string; checkout:
 }
 
 type Turn = { role: 'guest' | 'bot'; text: string; at: string; route?: Record<string, unknown> }; // D-271: route = regex vs Jev, per guest turn (shadow log)
-type Thread = { psid: string; guest_name: string | null; human_until: string | null; bot_turns: number; history: Turn[]; last_risk: string | null; booking_flow?: Flow | null; last_mid?: string | null };
+type Thread = { psid: string; guest_name: string | null; human_until: string | null; bot_turns: number; history: Turn[]; last_risk: string | null; booking_flow?: Flow | null; last_mid?: string | null; verified_until?: string | null };
 // deno-lint-ignore no-explicit-any
 type Db = SupabaseClient<any, 'public', any>;
 
@@ -511,13 +512,12 @@ async function priorityTurn(db: Db, thread: Thread, text: string, entry: Priorit
   const lang = l3Of(guestLang(entry ? prev : (text || prev))); // a tap's English label is not the guest's register
   const q = entry?.kind === 'verify' ? { date: entry.date, initial: entry.initial } : answer;
   const tries = entry?.kind === 'verify' ? 1 : asked;
-  const blocked = thread.history.some((h) => h.role === 'bot' && h.route?.priority === 'unmatched' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000);
+  const blocked = unmatchedRecently(thread, now);
   let reply: string, route: Record<string, unknown> = {};
   if (!q) { reply = priorityAsk(lang); route = { priority: 1 }; }
   else {
-    const v = !blocked && q.date && q.initial
-      ? ((await db.rpc('verify_booking', { p_checkin_date: q.date, p_initial: q.initial })).data as VerifyResult | null) : null;
-    if (stayIsCurrent(v, now)) {
+    const v = !blocked ? await verifyStay(db, thread, q, now) : null;
+    if (v) {
       await fx.handoff(db, thread, `Priority help: ${v!.full_name ?? 'guest'} (booking name matched), staying ${v!.checkin_date} to ${v!.checkout_date}. Their next message says what is wrong.`, 'priority', link, '', true);
       reply = priorityVerified(v!.first_name ?? null, lang); route = { priority: 'verified' };
     } else if (!blocked && tries < 2) { reply = priorityRetry(lang); route = { priority: tries + 1 }; }
@@ -527,13 +527,49 @@ async function priorityTurn(db: Db, thread: Thread, text: string, entry: Priorit
     }
   }
   await fx.send(thread.psid, reply);
-  const at = now.toISOString();
   console.log('priority_turn', JSON.stringify({ psid: thread.psid.slice(-6), entry: entry?.kind ?? null, outcome: route.priority }));
+  await saveSideTurn(db, thread, text || '[priority help]', text === CONTACT_CHIP.title ? 'chip' : entry ? 'menu' : 'typed', reply, route, now, mid);
+}
+
+/** A turn answered outside the main path (priority help, the house check): the guest's words, our reply, the thread. */
+async function saveSideTurn(db: Db, thread: Thread, said: string, src: string, reply: string, route: Record<string, unknown>, now: Date, mid?: string): Promise<void> {
+  const at = now.toISOString();
   await db.from('concierge_threads').upsert({
     psid: thread.psid, guest_name: thread.guest_name, human_until: thread.human_until, bot_turns: thread.bot_turns,
-    history: [...thread.history, { role: 'guest', text: text || '[priority help]', at, route: { src: text === CONTACT_CHIP.title ? 'chip' : entry ? 'menu' : 'typed' } }, { role: 'bot', text: reply, at, route }].slice(-HISTORY_KEEP * 2),
+    history: [...thread.history, { role: 'guest', text: said, at, route: { src } }, { role: 'bot', text: reply, at, route }].slice(-HISTORY_KEEP * 2),
     last_risk: 'priority', updated_at: at, booking_flow: thread.booking_flow ?? null, last_mid: mid ?? thread.last_mid ?? null,
+    ...(thread.verified_until !== undefined ? { verified_until: thread.verified_until } : {}),
   });
+}
+
+/** After an unmatched stay check, 24 h without another, so the check cannot be guessed by starting over. */
+const unmatchedRecently = (thread: Thread, now: Date) =>
+  thread.history.some((h) => h.role === 'bot' && h.route?.priority === 'unmatched' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000);
+
+/** D-282: the welcome guide's check, factored out of priorityTurn so the house path verifies WITHOUT the host card and
+ *  urgent alert: verify_booking(check-in date, initial) AND the stay is on today. A match opens guest-tier house facts on
+ *  this thread through check-out (concierge_threads.verified_until). */
+async function verifyStay(db: Db, thread: Thread, q: { date: string | null; initial: string | null }, now: Date): Promise<VerifyResult | null> {
+  if (!q.date || !q.initial) return null;
+  const v = (await db.rpc('verify_booking', { p_checkin_date: q.date, p_initial: q.initial })).data as VerifyResult | null;
+  if (!stayIsCurrent(v, now)) return null;
+  thread.verified_until = v!.checkout_date!;
+  return v;
+}
+
+/** D-282: the house ask was answered but the stay did not match - the priority retry once, then the unmatched path (host
+ *  card, phone route). Never the urgent alert: this is a how-to question. */
+async function houseUnmatched(db: Db, thread: Thread, text: string, tries: number, question: string, link: string, fx: Effects, now: Date, mid?: string): Promise<void> {
+  const lang = l3Of(guestLang(question || text));
+  let reply: string, route: Record<string, unknown>;
+  if (tries < 2 && !unmatchedRecently(thread, now)) { reply = priorityRetry(lang); route = { house: tries + 1, q: question }; }
+  else {
+    await fx.handoff(db, thread, `Asked "${question.slice(0, 200)}" (a guests-only detail); the stay did not match: ${text}`, 'uncertain', link, 'Could not match the stay - check who this is before sharing anything.', true);
+    reply = priorityUnmatched(lang); route = { priority: 'unmatched' };
+  }
+  await fx.send(thread.psid, reply);
+  console.log('house_verify', JSON.stringify({ psid: thread.psid.slice(-6), outcome: route.house ?? route.priority }));
+  await saveSideTurn(db, thread, text, 'typed', reply, route, now, mid);
 }
 
 const URGENT_RISKS: RiskCode[] = ['access', 'safety', 'priority'];
@@ -751,7 +787,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
   const psid: string = ev.sender.id;
   // D-271: Jev runs beside the thread read, so its ~350 ms costs almost no wall time. Probes spend the probe key (D-254).
-  const jevP = jevRoute(String(msg.text ?? '').trim(), env(psid.startsWith('probe:') ? 'CASCADE_OPENROUTER_PROBE_KEY' : 'CASCADE_OPENROUTER_BOT_KEY'));
+  const jevKey = env(psid.startsWith('probe:') ? 'CASCADE_OPENROUTER_PROBE_KEY' : 'CASCADE_OPENROUTER_BOT_KEY');
+  const jevP = jevRoute(String(msg.text ?? '').trim(), jevKey);
   // D-222: one retry, then stop. A failed read used to fall through as a brand-new thread, and the upsert at the end
   // would have overwritten the guest's history with this one turn. The caller alerts the host with the link.
   let { data: row, error: rowErr } = await db.from('concierge_threads').select('*').eq('psid', psid).maybeSingle();
@@ -769,15 +806,27 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
   if (!thread.guest_name) thread.guest_name = await fx.name(psid);
 
-  const text: string = (msg.text ?? '').trim();
+  const said: string = (msg.text ?? '').trim();
   const link = `https://www.facebook.com/messages/t/${psid}`;
   // Session 59: priority help. The tap, the guide's link, or the answer to the ask (a date in the reply within 30 min).
   // Mode off stays off (Lloyd's switch); a human hold does not stop it, like the door and safety (D-277).
   const lastAsk = [...thread.history].reverse().find((h) => h.role === 'bot');
   const asked = lastAsk?.route?.priority && now.getTime() - Date.parse(lastAsk.at) < 30 * 60_000 ? Number(lastAsk.route.priority) || 0 : 0;
-  const priReply = asked && text ? priorityAnswer(text, now) : null;
+  const priReply = asked && said ? priorityAnswer(said, now) : null;
   if (entry && mode === 'off') return; // the tap shows in the page inbox; nothing automatic
-  if (mode !== 'off' && (entry || priReply?.date)) return await priorityTurn(db, thread, text, entry, priReply, asked, link, fx, now, msg.mid);
+  if (mode !== 'off' && (entry || priReply?.date)) return await priorityTurn(db, thread, said, entry, priReply, asked, link, fx, now, msg.mid);
+  // D-282: the answer to the house ask (a guests-only detail asked before the stay was verified). A match opens the guest
+  // tier and the ORIGINAL question is answered on this turn; a miss retries once, then the unmatched path.
+  const houseAsked = !asked && lastAsk?.route?.house && now.getTime() - Date.parse(lastAsk.at) < 30 * 60_000 ? Number(lastAsk.route.house) || 0 : 0;
+  let houseQuestion = '';
+  if (mode !== 'off' && houseAsked && said) {
+    const q = priorityAnswer(said, now), question = String(lastAsk!.route!.q ?? '');
+    if (q.date) {
+      if (!unmatchedRecently(thread, now) && await verifyStay(db, thread, q, now)) houseQuestion = question;
+      else return await houseUnmatched(db, thread, said, houseAsked, question, link, fx, now, msg.mid);
+    }
+  }
+  const text = houseQuestion || said;
   // Conversation stage, computed here rather than guessed by the model: a greeting belongs to the
   // first exchange or after a long silence; every other turn continues the chat. The same gap
   // resets the 12-turn cap (2026-09-13: bot_turns only ever grew, so a chatty guest was handed to
@@ -797,7 +846,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const g0 = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now, hasBooking: !!thread.booking_flow?.ref }); // SPEC-32 s2
   // D-271 safety net: Jev may raise a routine turn to a handoff (smoke, a Bisaya complaint, a date change the regex missed);
   // it never lowers the regex, and a live booking flow keeps its own deterministic steps.
-  const jev = text ? await jevP : null;
+  const jev = text ? await (houseQuestion ? jevRoute(text, jevKey) : jevP) : null;
   // D-271 primary (eval 60/60 tuning, 17/20 held-out vs regex 45/60, 9/20): Jev decides the soft risks, raises what the regex
   // missed, and lowers a regex false alarm only when sure no one must act; money, danger, the door and data probes keep the
   // regex floor. A live booking flow keeps its deterministic steps.
@@ -934,6 +983,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
   const thisLang = primaryLang(guestLang(text), jev); // D-271 hybrid: Jev overrides only an English reading, when sure
   const turnLang = thisLang === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : thisLang;
+  // D-282: house how-tos for the model (HOUSE block). A verified current guest reads the guest tier; anyone else reads
+  // public rows, and a question whose best answer is guest-tier gets the stay check instead (never mid-booking).
+  const verified = !!thread.verified_until && thread.verified_until >= dayStr(new Date(now.getTime() + 8 * 3_600_000));
+  const house = text && g.reply ? matchHouse(await loadHouse(db).catch((e) => { console.error('house_load_failed', String(e).slice(0, 200)); return []; }), text, verified ? 'guest' : 'public') : null;
+  const houseLocked = !!house?.locked && !flow && !flowReply && !handoff;
+  let houseAskSent = false;
 
   if (!g.reply) { /* mode off, or a human holds this thread */ }
   else if (flowReply) reply = flowReply;
@@ -944,6 +999,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // Taglish-reading closer keeps Bislish when the last two guest turns were Bisaya (D-172's own two-turn rule).
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
+  else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
   else {
     try {
@@ -958,7 +1014,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // Live 2026-09-28 (Suzanne): "How much?" was answered for Oct 30 from a message two days old. Dates the model reads
       // come from the guest's last 24 hours only.
       const guestTexts = [...thread.history.filter((h) => h.role === 'guest' && now.getTime() - Date.parse(h.at) < 24 * 3_600_000).map((h) => h.text), text];
-      const context = (await availabilityBlock(db)) + (await pendingBlock(db, psid)) + guestDatesBlock(guestTexts) + stateBlock;
+      const context = (await availabilityBlock(db)) + (await pendingBlock(db, psid)) + guestDatesBlock(guestTexts) + stateBlock + (house ? `\n\n${houseBlock(house.rows)}` : '');
       // The dates also ride on the guest turn: the system-side block alone was ignored for a
       // Bisaya late check-out question (live 2026-09-13) and the model asked for dates again.
       const datesKnown = [...new Set(guestTexts.join(' \n ').match(DATES_RE) ?? [])].slice(-3);
@@ -1163,7 +1219,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // D-281: one "Reach my host" button, only when the guest seems to be staying now (named the in-house guest, asked for the
   // host, said they are staying, or speaks for the guest with an urgent matter). DESIGN-contact-host-button-2026-09-28.
   let hostChip: typeof CONTACT_CHIP | null = null;
-  if (reply && text) {
+  if (reply && text && !houseAskSent) {
     const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
     const { data: inHouse } = await db.from('calendar_events').select('guest_name, raw_summary').eq('status', 'confirmed').lte('checkin_date', today).gte('checkout_date', today).limit(4);
     hostChip = contactHostChip(text, {
@@ -1211,14 +1267,15 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     }
   }
 
-  const turns: Turn[] = [{ role: 'guest', text: text || '[attachment]', at: now.toISOString(), ...(jev ? { route: { re: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), h: +jev.needsHost.toFixed(2), l: jev.lang, rl: guestLang(text), up: jevRisk !== g0.risk } } : {}) }];
-  if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString(), ...(hostChip ? { route: { chip: hostChip.payload } } : {}) });
+  const turns: Turn[] = [{ role: 'guest', text: said || '[attachment]', at: now.toISOString(), ...(jev ? { route: { re: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), h: +jev.needsHost.toFixed(2), l: jev.lang, rl: guestLang(text), up: jevRisk !== g0.risk } } : {}) }];
+  if (sentToGuest) turns.push({ role: 'bot', text: reply, at: now.toISOString(), ...(hostChip ? { route: { chip: hostChip.payload } } : houseAskSent ? { route: { house: 1, q: text } } : {}) });
   await db.from('concierge_threads').upsert({
     psid, guest_name: thread.guest_name, human_until: thread.human_until,
     bot_turns: priorTurns + (sentToGuest && !handoff && !flowReply ? 1 : 0),
     history: [...thread.history, ...turns].slice(-HISTORY_KEEP * 2), last_risk: risk, updated_at: now.toISOString(),
     booking_flow: thread.booking_flow ?? null,
     last_mid: msg.mid ?? thread.last_mid ?? null,
+    ...(thread.verified_until !== undefined ? { verified_until: thread.verified_until } : {}),
   });
 }
 
