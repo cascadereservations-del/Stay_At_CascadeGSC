@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "release_id": "concierge_turn_stats_20260929",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "1b4bf23f72108d98fdcfff735f032e4cfe1d3a71"
+  },
+  "migrations": [
+    "20260929030000_concierge_turn_stats.sql"
+  ],
+  "migration_sha256": {
+    "20260929030000_concierge_turn_stats.sql": "3bca372060f255e5317b3afefb370fa60bb63a1d1d35369818be9131a2f51332"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260929T134930Z",
+    "verified_at": "2026-09-29T13:49:30Z",
+    "production_rule": "One new table public.concierge_turn_stats (RLS on, no policy, service_role select/insert only) and one new function public.cassy_week_v1(timestamptz) (security definer, service_role execute only). No existing data, function or grant changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "service_role_only_table",
+      "query": "select c.relrowsecurity and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'concierge_turn_stats') and not has_table_privilege('anon','public.concierge_turn_stats','select') and not has_table_privilege('authenticated','public.concierge_turn_stats','select') and has_table_privilege('service_role','public.concierge_turn_stats','insert') from pg_class c where c.oid = 'public.concierge_turn_stats'::regclass",
+      "expect": true
+    },
+    {
+      "name": "cassy_week_v1_service_role_only",
+      "query": "select has_function_privilege('service_role','public.cassy_week_v1(timestamptz)','execute') and not has_function_privilege('anon','public.cassy_week_v1(timestamptz)','execute') and not has_function_privilege('authenticated','public.cassy_week_v1(timestamptz)','execute')",
+      "expect": true
+    },
+    {
+      "name": "cassy_week_v1_reads_an_empty_week",
+      "query": "select public.cassy_week_v1(now()) = '{\"turns\": 0, \"linted\": 0, \"rules\": [], \"misses\": 0, \"teach\": []}'::jsonb",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20260929_concierge_turn_stats.sql with run-sql-on-host.sh (drops cassy_week_v1 and concierge_turn_stats; the stats rows are lost). No function redeploy needed: the messenger-concierge insert and the daily-digest read are advisory."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply, then deploy messenger-concierge and daily-digest from waves 8861b82 or later. Deploying first is safe: the insert logs turn_stats_failed and the Monday card goes out without the Cassy lines."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-29T13:54Z on a disposable restore of production backup cascade-supabase-20260929T134930Z (prefix cascade-migration-rehearsal-c5c9b8879ee6, 0 leftovers). 106 public tables and 136 ledger rows before; migration 1 of 1; forward checks 3/3; pgTAP concierge_turn_stats.sql 10/10; 107 tables after.",
+    "evidence": "New table + new function only. pgTAP concierge_turn_stats.sql (10). Functions: waves 8861b82, 474 tests, deno check clean on messenger-concierge and daily-digest."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
