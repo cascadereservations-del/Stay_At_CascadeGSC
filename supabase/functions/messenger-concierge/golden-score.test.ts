@@ -11,7 +11,7 @@ const rules = (o: Partial<Ctx>) => failures(scoreReply(base(o))).map((f) => f.sp
 
 Deno.test('every example in VOICE passes the rubric: the model copies examples, so they are the standard', () => {
   const head = VOICE.lastIndexOf('\nREFERENCE REPLIES (');
-  const chunks = VOICE.slice(0, VOICE.lastIndexOf('\nOUTPUT:')).split(/\nQ: /).slice(1);
+  const chunks = VOICE.slice(0, VOICE.lastIndexOf('\nBEFORE YOU ANSWER')).split(/\nQ: /).slice(1);
   let seen = 0, offset = VOICE.indexOf('\nQ: ');
   for (const chunk of chunks) {
     const first = offset > head; offset = VOICE.indexOf('\nQ: ', offset + 1) < 0 ? VOICE.length : VOICE.indexOf('\nQ: ', offset + 1);

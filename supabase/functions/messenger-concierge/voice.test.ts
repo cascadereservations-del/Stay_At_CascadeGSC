@@ -55,7 +55,7 @@ Deno.test('warmth: the follow-up (compact) prompt keeps the reply shape and the 
   assertEquals(compact.includes('THE SHAPE OF EVERY REPLY'), true);
   assertEquals(compact.includes('MID-CONVERSATION EXAMPLES'), true);
   // THE regression of 2026-09-13 to 17: the cut landed in VOICE's first paragraph and follow-ups lost the whole voice.
-  for (const must of ['PERSONA - CASSY', 'NATIVE ENGLISH CONCIERGE RULE', 'NATIVE FILIPINO CONCIERGE LANGUAGE RULE', 'NATIVE BISAYA/CEBUANO CONCIERGE RULE', 'HARD LINES', 'OUTPUT: JSON only']) assertEquals(compact.includes(must), true, must);
+  for (const must of ['PERSONA - CASSY', 'NATIVE ENGLISH CONCIERGE RULE', 'NATIVE FILIPINO CONCIERGE LANGUAGE RULE', 'NATIVE BISAYA/CEBUANO CONCIERGE RULE', 'HARD LINES', 'BEFORE YOU ANSWER - five checks', '(5) LANGUAGE']) assertEquals(compact.includes(must), true, must);
   assertEquals(compact.length > 15_000, true);
   assertEquals(compact.includes('Q: Good evening'), false); // first-contact replies stay out of follow-ups
   assertEquals(/1-3 short sentences/.test(VOICE), false);
@@ -663,4 +663,28 @@ Deno.test('D-286: a 👉 link line belongs to the paragraph above it - lintReply
   assertEquals(lintReply(`A.\n\nB.\n\nC.\n\nD.\n\nE.`).includes('too_dense'), true);
   assertEquals(lintReply(`${'x'.repeat(300)}:\n\n👉 ${url}`).includes('too_dense'), false); // the link's characters are not the paragraph's
   assertEquals(lintReply('y'.repeat(330)).includes('too_dense'), true);
+});
+
+// D-286: the OUTPUT contract left VOICE (OUTPUT_ANSWER, appended by the concierge only). The D-179 trap: voiceCompact used to
+// slice from lastIndexOf('OUTPUT:'), which is -1 now and would keep one character.
+import { OUTPUT_ANSWER } from '../_shared/cascade-core/facts.ts';
+Deno.test('D-286: VOICE has no OUTPUT contract; voiceCompact keeps the BEFORE YOU ANSWER checks whole', () => {
+  assertEquals(VOICE.lastIndexOf('OUTPUT:'), -1);
+  const compact = voiceCompact();
+  const checks = VOICE.slice(VOICE.lastIndexOf('\nBEFORE YOU ANSWER')).trim();
+  assertEquals(compact.endsWith(checks), true);
+  for (const k of ['(1)', '(2)', '(3)', '(4)', '(5) LANGUAGE', 'If any check fails, rewrite.']) assertEquals(compact.includes(k), true, k);
+  assertEquals(compact.includes('REFERENCE REPLIES (first contact'), false);
+  assertEquals(VOICE.includes('prepared before you arrive'), true); // the approved first-contact reference reply keeps it; only the Oct 27 example changed
+  assertEquals(VOICE.split('MID-CONVERSATION EXAMPLES')[1].split('REFERENCE REPLIES')[0].includes('prepared before you arrive'), false);
+  for (const k of ['"answer"', '"ask"', '"uncertain"', '"guest_name"', 'no greeting', 'no link']) assertEquals(OUTPUT_ANSWER.includes(k), true, k);
+});
+Deno.test('D-286: parseDraftJson reads answer and ask, and falls back to reply', () => {
+  const a = parseDraftJson('{"answer":"Yes, fibre Wi-Fi.","ask":"Which dates?","uncertain":false,"guest_name":null}');
+  assertEquals([a.answer, a.ask], ['Yes, fibre Wi-Fi.', 'Which dates?']);
+  const b = parseDraftJson('{"answer": "Line one.\n\nLine two.", "ask": null, "uncertain": false}'); // raw newlines
+  assertEquals([b.answer, b.ask ?? null], ['Line one.\n\nLine two.', null]);
+  const c = parseDraftJson('{"answer": "Yes.\nMore.", "ask": "Kailan po?", "uncertain": true}');
+  assertEquals([c.answer, c.ask, c.uncertain], ['Yes.\nMore.', 'Kailan po?', true]);
+  assertEquals(parseDraftJson('{"reply":"Old shape."}').reply, 'Old shape.');
 });

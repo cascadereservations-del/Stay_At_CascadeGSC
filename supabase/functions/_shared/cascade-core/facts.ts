@@ -182,7 +182,7 @@ The home has fiber Wi-Fi, steady enough for video calls and streaming, so you ca
 Whenever you're ready, we can arrange the booking right here in the chat, or you may secure the dates on our site, where direct bookings carry our best rates:
 👉 ${SITE_URL}
 
-We'll have everything prepared before you arrive. 🌿
+We'd be glad to welcome you. 🌿
 
 Q: magkano po kung 3 nights? at may kitchen po ba? (Taglish - mirror it, "po" once or twice only)
 A: Ben, para sa 3 nights po, bumababa ang direct rate namin sa PHP 1,691 per night mula PHP 1,780, kaya mga PHP 5,073 lang para sa buong stay.
@@ -309,16 +309,23 @@ For Airbnb bookings, Airbnb's own cancellation policy applies.
 Plans can change, so if anything comes up, just message us anytime and we'll guide you through the options.
 
 
-OUTPUT: JSON only, {"reply": string, "uncertain": boolean, "guest_name": string|null}. guest_name is the guest's first name ONLY if they stated it in THIS message ("I'm Grace", "si Ben po ito"), otherwise null - never guess it from anything else. When GUEST FIRST NAME is unknown and this is the first exchange, ask for their name once, warmly, inside the reply ("May we know your name?" - with "po" only in a Taglish reply). Keep the blank lines between paragraphs inside the reply string. Two checks before you answer: (1) the first line after the greeting acknowledges THIS guest's message specifically - their dates, their plan, their question - in your own words; (2) no sentence in the reply is copied whole from a REFERENCE REPLY; (3) if the guest asked how far or how long to reach somewhere, the reply gives the km and minutes from LANDMARKS in prose (no bullet list) with one transport tip that fits what they said, and never makes the answer wait on a question; (4) if the guest asked to arrive before noon or leave after noon and their dates are not yet known, or the day is on an ANOTHER GUEST CHECKS OUT/IN list, the reply does NOT say they may, can, or certainly can - it asks for the dates (or says check-out stays at 12 noon on that day) and promises nothing; (5) LANGUAGE: the reply is in the same language and register as THIS message from the guest - natural Taglish for Taglish or Tagalog ("pwede po ba mag early check in"), Bisaya for Bisaya, English for English - decided per message, so a guest who switches gets the switch mirrored. Keep "po" (once or twice) when the reply is in Tagalog or Taglish, never in a Bisaya reply, and keep the Taglish conversational: English words stay English where that is how a host would text it. If any check fails, rewrite. uncertain=true when you could not answer from FACTS/AVAILABILITY, the guest seems upset, or they ask about an existing booking, accessibility needs, or anything a host should see.
+BEFORE YOU ANSWER - five checks: (1) the first line after the greeting acknowledges THIS guest's message specifically - their dates, their plan, their question - in your own words; (2) no sentence in the reply is copied whole from a REFERENCE REPLY; (3) if the guest asked how far or how long to reach somewhere, the reply gives the km and minutes from LANDMARKS in prose (no bullet list) with one transport tip that fits what they said, and never makes the answer wait on a question; (4) if the guest asked to arrive before noon or leave after noon and their dates are not yet known, or the day is on an ANOTHER GUEST CHECKS OUT/IN list, the reply does NOT say they may, can, or certainly can - it asks for the dates (or says check-out stays at 12 noon on that day) and promises nothing; (5) LANGUAGE: the reply is in the same language and register as THIS message from the guest - natural Taglish for Taglish or Tagalog ("pwede po ba mag early check in"), Bisaya for Bisaya, English for English - decided per message, so a guest who switches gets the switch mirrored. Keep "po" (once or twice) when the reply is in Tagalog or Taglish, never in a Bisaya reply, and keep the Taglish conversational: English words stay English where that is how a host would text it. If any check fails, rewrite.
 `.trim());
 
-/** The follow-up prompt: everything in VOICE except the first-contact reference replies, plus the OUTPUT contract.
+/** D-286: the concierge's contract, appended after VOICE by messenger-concierge only (telegram-cassy's drafts carry their
+ *  own {"reply"} contract; this one used to sit inside VOICE and contradict theirs). The model writes the answer; persona.ts
+ *  compose() writes the greeting, the introduction, the one next step and the close around it. */
+export const OUTPUT_ANSWER = `OUTPUT: JSON only, {"answer": string, "ask": string|null, "uncertain": boolean, "guest_name": string|null}. Code writes the greeting, your introduction, the invitation, the link and the close around your answer: the REFERENCE REPLIES show whole messages, and your answer is their middle - what the guest asked, its context, and one sentence of care. So "answer" carries no greeting, no introduction, no link, no invitation to book and no closing line or 🌿. On a first message it does not use the guest's name (the greeting carries it); on a follow-up, the name once, early. One paragraph on a first message, at most two after, with a blank line between them. "ask" is at most ONE question back to the guest (their dates, their name, how many), only when the answer truly needs it and never one the chat already answered; otherwise null. When GUEST FIRST NAME is unknown and this is the first exchange, "ask" is for their name, warmly ("May we know your name?" - with "po" only in a Taglish reply). guest_name is the guest's first name ONLY if they stated it in THIS message ("I'm Grace", "si Ben po ito"), otherwise null - never guess it from anything else. uncertain=true when you could not answer from FACTS/AVAILABILITY, the guest seems upset, or they ask about an existing booking, accessibility needs, or anything a host should see.`;
+
+/** The follow-up prompt: everything in VOICE except the first-contact reference replies, plus the BEFORE YOU ANSWER checks.
  *  Cut at the HEADING line (a newline before it, the bracket after it), never at the bare words "REFERENCE REPLIES":
- *  they also occur in VOICE's first paragraph, and cutting there left follow-ups with 6 % of the voice (2026-09-13 to 17). */
+ *  they also occur in VOICE's first paragraph, and cutting there left follow-ups with 6 % of the voice (2026-09-13 to 17).
+ *  D-286: the checks block is found by its own heading; OUTPUT is no longer in VOICE (a lastIndexOf of -1 would keep one
+ *  character - the D-179 trap). */
 export function voiceCompact(voice = VOICE): string {
-  const head = voice.lastIndexOf('\nREFERENCE REPLIES (');
-  if (head < 0) return voice;
-  return voice.slice(0, head).trim() + '\n\n' + voice.slice(voice.lastIndexOf('OUTPUT:')).trim();
+  const head = voice.lastIndexOf('\nREFERENCE REPLIES ('), checks = voice.lastIndexOf('\nBEFORE YOU ANSWER');
+  if (head < 0 || checks < head) return voice;
+  return voice.slice(0, head).trim() + '\n\n' + voice.slice(checks).trim();
 }
 
 // ---- SPEC-34: FACTS and VOICE from the live rate card ----

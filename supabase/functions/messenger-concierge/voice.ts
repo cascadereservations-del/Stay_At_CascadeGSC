@@ -252,17 +252,21 @@ export function capName(reply: string, name: string | null, max = 2): string {
 /** Live 2026-09-25 14:47Z: three drafts in a minute came back as malformed JSON ("Expected property name", "Unterminated
  *  string") and each guest got the host-handoff line instead of an answer. Fences are stripped, then the "reply" field is
  *  read on its own (raw newlines allowed). Throws SyntaxError only when no reply can be found. */
-export function parseDraftJson(raw: string): { reply?: string; uncertain?: boolean; guest_name?: unknown } {
+// D-286: the concierge contract is {answer, ask, uncertain, guest_name}; an old-shape {reply} is read as the answer.
+export function parseDraftJson(raw: string): { answer?: string; ask?: string | null; reply?: string; uncertain?: boolean; guest_name?: unknown } {
   const t = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
-  try { return JSON.parse(t); } catch { /* read the reply field on its own below */ }
-  const m = t.match(/["']reply["']\s*:\s*"((?:[^"\\]|\\.)*)"/s);
-  if (m) {
-    try {
-      const reply = JSON.parse(`"${m[1].replace(/\r?\n/g, '\\n').replace(/\t/g, '\\t')}"`) as string;
+  try { return JSON.parse(t); } catch { /* read the fields on their own below */ }
+  const field = (k: string) => {
+    const m = t.match(new RegExp(`["']${k}["']\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 's'));
+    return m ? JSON.parse(`"${m[1].replace(/\r?\n/g, '\\n').replace(/\t/g, '\\t')}"`) as string : undefined;
+  };
+  try {
+    const answer = field('answer'), reply = answer === undefined ? field('reply') : undefined;
+    if (answer !== undefined || reply !== undefined) {
       const name = t.match(/["']guest_name["']\s*:\s*"([^"\\\n]{1,40})"/)?.[1];
-      return { reply, uncertain: /["']uncertain["']\s*:\s*true/.test(t), guest_name: name ?? null };
-    } catch { /* fall through */ }
-  }
+      return { ...(answer !== undefined ? { answer, ask: field('ask') ?? null } : { reply }), uncertain: /["']uncertain["']\s*:\s*true/.test(t), guest_name: name ?? null };
+    }
+  } catch { /* fall through */ }
   throw new SyntaxError('draft_json_unreadable');
 }
 /** Insert a block before a short warm close (so the close stays last), else append it. */
