@@ -88,12 +88,15 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
   try {
     // Ops chat may schedule notices but never log money; finance chat gets both write tools.
     // D-282: house_info on both surfaces; teaching only where log_expense lives (the Finance chat: Lloyd and Marifel).
-    const tools = [...TOOL_DECLS, HOUSE_READ_DECL, ...WRITE_TOOL_DECLS.filter((t) => surface === 'finance' || t.name === 'create_notice'), ...(surface === 'finance' ? [HOUSE_TEACH_DECL] : [])];
+    // Live read 2026-09-29: "cassy house wifi" called guest_stays too and answered with a guest's stays from the chat
+    // history. "cassy house ..." now offers the house tool alone, forced.
+    const houseAsk = /^\s*house\b/i.test(question);
+    const tools = houseAsk ? [HOUSE_READ_DECL] : [...TOOL_DECLS, HOUSE_READ_DECL, ...WRITE_TOOL_DECLS.filter((t) => surface === 'finance' || t.name === 'create_notice'), ...(surface === 'finance' ? [HOUSE_TEACH_DECL] : [])];
     const ctx = { chatId, from: msg.from ?? {}, surface };
     let cardSent = false;
     const res = await chatTools({
       system: VOICE(surface, today), history: await history(db, chatId), question, tools, title: 'Cascade Cassy', tier, maxRounds: tier === 'deep' ? 5 : 3, maxTokens: tier === 'deep' ? 1200 : 700,
-      forceTool: wantsExpense(question, surface) ? 'log_expense' : surface === 'finance' && /^\s*(teach|edit|retire)\b/i.test(question) ? 'teach_house_fact' : undefined,
+      forceTool: houseAsk ? 'house_info' : wantsExpense(question, surface) ? 'log_expense' : surface === 'finance' && /^\s*(teach|edit|retire)\b/i.test(question) ? 'teach_house_fact' : undefined,
       run: async (name, args) => {
         if (name === 'house_info') return await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; });
         if (name === 'teach_house_fact') {
