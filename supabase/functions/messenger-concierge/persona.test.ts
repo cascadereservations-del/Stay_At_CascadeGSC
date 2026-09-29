@@ -7,12 +7,44 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import * as P from './persona.ts';
 import { CAPACITY, LAST_MINUTE } from './persona.ts';
 import { rateLine, type Flow, type Lang } from './booking.ts';
-import { addChatRoute, decisionInvite, firstInvite, lintReply, lookNudge, toneRules, turnoverCheckinLine } from './voice.ts';
-import { SITE_URL } from '../_shared/cascade-core/facts.ts';
+import { decisionInvite, firstInvite, lintReply, lookNudge, paragraphs, toneRules, turnoverCheckinLine } from './voice.ts';
+import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
+import { scoreReply } from './golden-score.ts';
 
 const LANGS = ['en', 'tl', 'bis'] as const;
 const card: P.CardFacts = { resume: false, who: 'Ben Munez', range: 'Oct 20 to 22', nights: 2, pax: 2, phone: '09171234567', email: 'ben@example.com', total: '₱3,382', promo: null };
 const pay: P.PaymentFacts = { name: 'Ben', dates: 'Oct 20 to 22', ref: 'DIR-1', until: 'Sep 18 at 10:00 AM', rel: 'tomorrow', hold: true, near: false, deposit: '₱1,691', balance: '₱1,691', full: false };
+
+// ---- D-286: compose() fixtures ----
+const ANSWER: Record<Lang, string> = {
+  en: `For a month-long stay, the direct rate comes down to PHP 1,335 per night, about PHP 40,050 for 30 nights, and the longer stay includes drinking water and a mid-stay refresh.`,
+  tl: `Para sa month-long stay po, PHP 1,335 per night ang direct rate, mga PHP 40,050 for 30 nights, kasama na ang drinking water at mid-stay refresh.`,
+  bis: `Para sa month-long stay, PHP 1,335 per night ang direct rate, mga PHP 40,050 for 30 nights, apil na ang drinking water ug mid-stay refresh.`,
+};
+const ASK: Record<Lang, string> = { en: 'Which dates do you have in mind?', tl: 'Kailan po ninyo balak mag-stay?', bis: 'Kanus-a mo plano mag-stay?' };
+const ctx = (o: Partial<P.ComposeCtx> = {}): P.ComposeCtx => ({ lang: 'en', name: 'Ben', greet: false, intro: false, followUp: true, flowFollowUp: null,
+  hostLine: '', quiet: false, look: '', decision: false, bookingTurn: false, siteRecent: false, datesKnown: false,
+  held: { dates: false, pax: false, name: true }, prevBot: '', ...o });
+const A = (l: Lang, ask: string | null = null) => ({ answer: ANSWER[l], ask });
+const CARD_TAIL = `Here's your stay, ready whenever you are:\n📅 Oct 20 to 22 · 2 nights · 2 guests\n💰 Total ₱3,382`;
+/** One of every shape: first reply, first with an ask, follow-up with and without a link, an ask, a host line, a look turn,
+ *  a pay hold, a flow card. */
+const COMPOSE_CASES = (l: Lang): Array<[Partial<P.ComposeCtx>, { answer: string; ask: string | null }]> => [
+  [{ greet: true, intro: true, followUp: false }, A(l)],
+  [{ greet: true, intro: true, followUp: false, name: null, held: { dates: false, pax: false, name: false } }, A(l, ASK[l])],
+  [{ bookingTurn: true }, A(l)],
+  [{ bookingTurn: true, siteRecent: true }, A(l)],
+  [{ datesKnown: true, siteRecent: true }, A(l)],
+  [{}, A(l, ASK[l])],
+  [{ hostLine: P.discountHostLine(l), bookingTurn: true }, A(l)],
+  [{ look: lookNudge('is there wifi?', l, { site: false, reviews: false }) }, A(l)],
+  [{ look: lookNudge('legit ba?', l, { site: true, reviews: false }), greet: true, intro: true, followUp: false }, A(l)],
+  [{ quiet: true }, A(l)],
+  [{ flowFollowUp: CARD_TAIL }, A(l)],
+];
+const NEXT_CASES: Array<Partial<P.ComposeCtx>> = [
+  { greet: true, followUp: false }, { bookingTurn: true }, { bookingTurn: true, datesKnown: true }, { decision: true }, {},
+];
 
 /** Every guest-facing move, with the fact shapes it is called with. Fragments (partyName, datesOpen, relDayWord) are
  *  linted inside the sentences that carry them. */
@@ -84,11 +116,16 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   attachmentNoted: (l) => [P.attachmentNoted(l)],
   voiceNote: (l) => [P.voiceNote(l)],
   welcomeBack: () => [P.welcomeBack('Joseph', 'Oct 2 to 4'), P.welcomeBack('there', '')],
+  // D-286: the frame compose() writes around the model's answer - every shape it can emit.
+  compose: (l) => COMPOSE_CASES(l).map(([o, a]) => P.compose(a, ctx({ lang: l, ...o })).reply),
+  nextStep: (l) => NEXT_CASES.map((o) => P.nextStep(ctx({ lang: l, ...o }), null)).filter(Boolean),
+  cleanAnswer: (l) => [P.cleanAnswer(ANSWER[l] + ' We can arrange the booking right here in the chat, or you may secure your dates on our site:\n👉 ' + SITE_URL, { greeted: true, followUp: false }).text],
+  closeLine: (l) => [P.closeLine(l, ''), P.closeLine(l, P.closeLine(l, ''))],
 };
 /** Lloyd approved these word for word: they carry his "!" greeting and up to six purposeful "po" (voice.test.ts pins them). */
 const APPROVED = new Set(['greeting', 'greetBlock', 'BOT_REPLY', 'CASSY_INTRO', 'paymentMessage', 'relDayWord', 'paymentPromise']);
 /** The guest lines voice.ts composes (invites, the chat route, the turnover line, the look block): same gate. */
-const VOICE_LINES = (l: Lang) => [decisionInvite(l, SITE_URL), firstInvite(l, SITE_URL), addChatRoute(`It is ten minutes by car.\n\n👉 ${SITE_URL}`, SITE_URL, l),
+const VOICE_LINES = (l: Lang) => [decisionInvite(l, SITE_URL), firstInvite(l, SITE_URL),
   turnoverCheckinLine('Oct 2', l), lookNudge('may wifi po ba?', l, { site: false, reviews: false }), lookNudge('legit ba ni?', l, { site: true, reviews: false })];
 
 Deno.test('every persona export has samples, so a new move cannot skip the tone gate', () => {
@@ -160,4 +197,104 @@ Deno.test('every offer asks the same one-yes question: the price path, the offer
     assert(P.datesReservedNearest('tonight (Sep 26)', 'Oct 2', true, true, lang).includes(q), `reserved ${lang}`);
     assert(/already reserved|reserved na/.test(P.datesReservedNearest('Sep 26 to 27', 'Oct 2', true, true, lang)), `index.ts RESERVED_RE ${lang}`);
   }
+});
+
+// ---- D-286: the model writes only the answer; compose() writes the frame (DESIGN-model-answers-code-composes section 1) ----
+const leaves = (s: string) => (s.match(/🌿/gu) ?? []).length;
+const po = (s: string) => (s.match(/\bpo\b/gi) ?? []).length;
+const endsOnLink = (s: string) => /(👉|⭐|🏡)[^\n]*https?:\/\/\S+\s*$/.test(s.trim());
+
+Deno.test('D-286 nextStep: one next step, first match wins (design section 1, rules 1-7)', () => {
+  for (const l of LANGS) {
+    const n = (o: Partial<P.ComposeCtx>, ask: string | null = null) => P.nextStep(ctx({ lang: l, ...o }), ask);
+    assertEquals(n({ flowFollowUp: CARD_TAIL }), '', `1 mid-flow ${l}`);                       // the flow's card is the step
+    assertEquals(n({ quiet: true, bookingTurn: true }, ASK[l]), '', `2 quiet ${l}`);           // pay hold, staying, host matter
+    const look = lookNudge('is there wifi?', l, { site: false, reviews: false });
+    const lk = n({ look, bookingTurn: true }, ASK[l]);
+    assert(lk.includes(SITE_URL) && lk.includes(AIRBNB_URL) && /chat/i.test(lk), `3 look carries both routes ${l}: ${lk}`);
+    assertEquals(n({}, ASK[l]), ASK[l], `4 ask ${l}`);
+    assertEquals(n({ held: { dates: true, pax: false, name: true }, datesKnown: true, siteRecent: true }, 'Which dates would you like?'), '', `4 a held slot is not asked ${l}`);
+    assertEquals(n({ decision: true, siteRecent: true }), decisionInvite(l, SITE_URL), `5 decision ${l}`);
+    assertEquals(n({ greet: true, followUp: false }), firstInvite(l, SITE_URL), `6 first ${l}`);
+    assertEquals(n({ bookingTurn: true }), P.nudgeSite(l), `6 booking, dates unknown ${l}`);
+    assertEquals(n({ bookingTurn: true, datesKnown: true }), P.nudgeReady(l), `6 booking, dates known ${l}`);
+    assertEquals(n({ bookingTurn: true, siteRecent: true }), P.nudgeDates(l), `7 link recent, dates unknown ${l}`);
+    assertEquals(n({}), P.nudgeDates(l), `7 dates unknown ${l}`);
+    assertEquals(n({ datesKnown: true, siteRecent: true }), '', `7 dates known, link recent ${l}`);
+  }
+});
+
+Deno.test('D-286 cleanAnswer: the model frame goes - greeting, Cassy, links, invitations, closes, leaves - and is logged', () => {
+  const url = SITE_URL;
+  const g = P.cleanAnswer(`Hi Ben! Thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge. For a month-long stay, the rate is PHP 1,335 per night.`, { greeted: true, followUp: false, name: 'Ben' });
+  assertEquals(g.text, 'For a month-long stay, the rate is PHP 1,335 per night.');
+  assert(g.stripped.length >= 2);
+  assertEquals(P.cleanAnswer(`Hi Ben, yes po, may wifi.`, { greeted: false, followUp: true }).text, 'Ben, yes po, may wifi.');
+  assertEquals(P.cleanAnswer(`Hi Ben, welcome back. Yes, the wifi is fibre.`, { greeted: false, followUp: false }).text, 'Hi Ben, welcome back. Yes, the wifi is fibre.'); // a long-gap return keeps its salutation (SPEC-21)
+  assertEquals(P.cleanAnswer(`Yes, parking is free.\n\nYou may check availability on our site:\n👉 ${url}`, { greeted: false, followUp: true }).text, 'Yes, parking is free.');
+  assertEquals(P.cleanAnswer(`Yes, parking is free. We can arrange the booking right here in the chat, or you may secure your dates on our site.`, { greeted: false, followUp: true }).text, 'Yes, parking is free.');
+  const closes = P.cleanAnswer(`Ben, yes - the PHP 1,000 refundable deposit applies to every stay.\n\nWe're here if you have any other questions.\n\nWe'll have everything prepared before you arrive. 🌿`, { greeted: false, followUp: true });
+  assertEquals(closes.text, 'Ben, yes - the PHP 1,000 refundable deposit applies to every stay.');
+  assertEquals(leaves(P.cleanAnswer('Yes, there is a kitchen. 🌿 It has an induction cooker.', { greeted: false, followUp: true }).text), 0);
+  assertEquals(P.cleanAnswer('Yes.', { greeted: false, followUp: true }).stripped, []);
+  assertEquals(P.cleanAnswer(`Airbnb reviews: ${AIRBNB_URL}`, { greeted: false, followUp: true }).text, '');   // an answer that was only frame is empty
+});
+
+Deno.test('D-286 closeLine: one 🌿 at the end, never the previous reply close', () => {
+  for (const l of LANGS) {
+    const a = P.closeLine(l, ''), b = P.closeLine(l, `Something.\n\n${a}`);
+    assert(a.endsWith('🌿') && leaves(a) === 1, a);
+    assert(a !== b, `${l}: ${a} twice`);
+  }
+});
+
+Deno.test('D-286 compose: the first reply is greeting / answer / invitation, ends on the link, the name once', () => {
+  for (const l of LANGS) {
+    const live = { ...A(l), answer: l === 'en' ? `For a month-long stay, Ben, the direct rate is PHP 1,335 per night, about PHP 37,380 for 28 nights.` : ANSWER[l] };
+    const r = P.compose(live, ctx({ lang: l, greet: true, intro: true, followUp: false })).reply, ps = paragraphs(r);
+    assert(/Cassy/.test(ps[0]) && !/\d/.test(ps[0]), `greeting paragraph alone ${l}: ${ps[0]}`);
+    assert(ps.length <= 4 && endsOnLink(r), `${l}: ${r}`);
+    assertEquals((r.match(/\bBen\b/g) ?? []).length, 1, `name once ${l}: ${r}`);
+    assertEquals(leaves(r), 0, l);
+    const s = scoreReply({ guest: 'How much for a month-long stay?', reply: r, prevReply: null, kind: 'model', lang: l, firstTurn: true, siteUrl: SITE_URL, name: 'Ben' });
+    for (const k of ['R1', 'R4', 'R7', 'R10'] as const) assertEquals(s[k], null, `${k} ${l}: ${r}`);
+    // an ask on a first reply rides in the answer; the reply still ends on the link (Lloyd's approved first replies)
+    const q = P.compose(A(l, ASK[l]), ctx({ lang: l, greet: true, intro: true, followUp: false })).reply;
+    assert(q.includes(ASK[l]) && endsOnLink(q), `${l}: ${q}`);
+  }
+});
+
+Deno.test('D-286 compose: a follow-up ends on its one next step, and closes only after a link', () => {
+  for (const l of LANGS) {
+    const prev = `Earlier reply.\n\n${P.closeLine(l, '')}`;
+    const linked = P.compose(A(l), ctx({ lang: l, bookingTurn: true, prevBot: prev })).reply;
+    assert(linked.trimEnd().endsWith('🌿') && leaves(linked) === 1, `close after link ${l}: ${linked}`);
+    assert(!linked.endsWith(P.closeLine(l, '')), `not the previous close ${l}`);
+    assert(!/^(hi|hello)\b/i.test(linked), l);
+    const unlinked = P.compose(A(l), ctx({ lang: l })).reply;
+    assert(unlinked.endsWith(P.nudgeDates(l).replace(/ po\b/g, '').slice(-20)) && leaves(unlinked) === 0, `no link, no close ${l}: ${unlinked}`);
+    const asked = P.compose(A(l, ASK[l]), ctx({ lang: l })).reply;
+    assert(asked.endsWith(ASK[l].replace(/ po\b/g, '').slice(-10)) && leaves(asked) === 0, `the ask ends it ${l}: ${asked}`);
+    for (const r of [linked, unlinked, asked]) assert(paragraphs(r).length <= 4, `${l}: ${r}`);
+  }
+});
+
+Deno.test('D-286 compose: host line once in the answer, look turn one invitation, quiet and flow turns add nothing', () => {
+  for (const l of LANGS) {
+    const host = P.compose(A(l), ctx({ lang: l, hostLine: P.discountHostLine(l), bookingTurn: true })).reply;
+    assertEquals(host.split(P.discountHostLine(l)).length - 1, 1, l);
+    assert(paragraphs(host)[0].includes(P.discountHostLine(l)), `joined to the answer ${l}: ${host}`);
+    const look = P.compose(A(l), ctx({ lang: l, look: lookNudge('is there wifi?', l, { site: false, reviews: false }) })).reply;
+    assertEquals(paragraphs(look).filter((p) => p.includes(SITE_URL)).length, 1, `${l}: ${look}`);
+    assert(/chat/i.test(look), l);
+    // a staying guest's or a paying guest's own question stays in the answer; nothing else is added
+    assertEquals(P.compose(A(l, ASK[l]), ctx({ lang: l, quiet: true, bookingTurn: true })).reply, `${ANSWER[l]} ${ASK[l]}`);
+    assertEquals(P.compose(A(l), ctx({ lang: l, flowFollowUp: CARD_TAIL })).reply, `${ANSWER[l]}\n\n${CARD_TAIL}`);
+  }
+});
+
+Deno.test('D-286 compose: "po" thinned over the whole message - two in Taglish, none in Bislish', () => {
+  const heavy = { answer: 'Opo, may wifi po kami. Fibre po ito, at mabilis po talaga para sa work po.', ask: null };
+  assert(po(P.compose(heavy, ctx({ lang: 'tl', bookingTurn: true })).reply) <= 2);
+  assertEquals(po(P.compose(heavy, ctx({ lang: 'bis', bookingTurn: true })).reply), 0);
 });

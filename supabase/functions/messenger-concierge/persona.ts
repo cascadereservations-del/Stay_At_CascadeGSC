@@ -18,6 +18,7 @@ import type { Lang } from './booking.ts';
 import type { RiskCode } from './policy.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { currentContact, type Contact } from '../_shared/cascade-core/contact.ts';
+import { answerOnly, ASKING_RE, asksHeld, capName, CLOSE_START_RE, CLOSER_RE, decisionInvite, firstInvite, fitParagraphs, INVITE_RE, sentencesOf, thinPo } from './voice.ts';
 
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 const by = pick;
@@ -615,3 +616,151 @@ export const receiptRetry = (lang: Lang | undefined) => by(lang, {
   tl: `Sorry po, hindi ko ma-open ang image. Puwede po bang i-send ulit?`,
   bis: `Sorry, wala nako ma-open ang image. Pwede i-send usab?`,
 });
+
+// ---- D-286: the model writes only the answer; code composes the message around it ----
+// DESIGN-model-answers-code-composes-2026-09-30. The model returns {answer, ask}; this writes the greeting and Cassy's
+// introduction (their own paragraph), the ONE next step, and a close only after a link. The frame used to be written twice
+// - by the model and by seventeen repairs in index.ts - and every new fault was a combination nobody had tested.
+
+export type ComposeCtx = {
+  lang: Lang;
+  name: string | null;
+  /** the first reply in the thread (nothing answered yet) */
+  greet: boolean;
+  /** Cassy not yet introduced, and not under a resumed flow card (D-173) */
+  intro: boolean;
+  /** our last reply was under 6 hours ago */
+  followUp: boolean;
+  /** mid-booking: the flow's own card and ask follow the answer, and nothing else does */
+  flowFollowUp: string | null;
+  /** D-269: the discount host line, once per thread ('' otherwise) */
+  hostLine: string;
+  /** a pay hold, a staying guest, an open host matter: the answer only */
+  quiet: boolean;
+  /** lookNudge's block ('' when none) */
+  look: string;
+  /** "think about it", "how do I book" on a follow-up */
+  decision: boolean;
+  /** a booking, rate or dates question */
+  bookingTurn: boolean;
+  /** the link is in one of our last two replies */
+  siteRecent: boolean;
+  datesKnown: boolean;
+  held: { dates: boolean; pax: boolean; name: boolean };
+  /** our previous reply, so the close is never the same twice (R8) */
+  prevBot: string;
+};
+
+/** SPEC-13 / D-176: the look block with the chat route in front of it - both routes, one invitation. */
+const LOOK_LEAD: Record<Lang, string> = {
+  en: `When you have dates in mind, just tell us here and we'll arrange the booking in this chat.`,
+  tl: `Kapag may dates na kayo, sabihin lang dito and we'll arrange the booking sa chat.`,
+  bis: `Kung naa na moy dates, ingna lang mi diri and we'll arrange the booking sa chat.`,
+};
+function lookStep(look: string, c: ComposeCtx): string {
+  const [sentence, ...links] = look.split(/\n\s*\n/);
+  const block = `${sentence.trim().replace(/[.\s]*$/, ':')}\n${links.join('\n').trim()}`;
+  if (look.includes(SITE_URL)) return `${LOOK_LEAD[c.lang]} ${block}`;
+  return c.greet ? `${firstInvite(c.lang, SITE_URL)}\n\n${block}` : block; // reviews only: a first reply still carries the site
+}
+
+/** D-286: the one next step (design section 1, first match wins). '' = nothing. */
+export function nextStep(c: ComposeCtx, ask: string | null): string {
+  if (c.flowFollowUp || c.quiet) return '';                                   // 1-2: the flow's card, or the answer alone
+  if (c.look) return lookStep(c.look, c);                                     // 3: look before you book
+  if (ask && !asksHeld(ask, c.held)) return ask.trim();                       // 4: the model's one question
+  if (c.decision) return decisionInvite(c.lang, SITE_URL);                    // 5: a decision moment
+  if (c.greet) return firstInvite(c.lang, SITE_URL);                          // 6: first contact carries the link
+  if (c.bookingTurn && !c.siteRecent) return c.datesKnown ? nudgeReady(c.lang) : nudgeSite(c.lang);
+  if (!c.datesKnown) return nudgeDates(c.lang);                               // 7
+  return c.siteRecent ? '' : nudgeReady(c.lang);
+}
+
+/** The prospect closes, one 🌿 each (the Oct 27 example's "prepared before you arrive" was said to guests with no booking). */
+const CLOSES: Record<Lang, string[]> = {
+  en: [`We'd be glad to welcome you. 🌿`, `We look forward to welcoming you to Cascade. 🌿`, `We'd love to have you with us. 🌿`],
+  tl: [`We'd be glad to have you dito sa Cascade. 🌿`, `We're looking forward to welcoming you. 🌿`],
+  bis: [`Looking forward mi to have you. 🌿`, `Looking forward mi sa inyong stay sa Cascade. 🌿`],
+};
+/** The close under a link, never the one our previous reply ended on. */
+export function closeLine(lang: Lang, prevBot: string): string {
+  const last = prevBot.trim().split('\n').pop()?.trim() ?? '';
+  return CLOSES[lang].find((x) => x !== last) ?? CLOSES[lang][0];
+}
+
+const THANKED_SENTENCE_RE = /thank you for (reaching out|messaging|checking|asking)|welcome to cascade|salamat(?: po)? sa pag-?(?:message|mensahe|reach out)/i;
+const TO_YOU_TOO_RE = /^(?:and\s+)?(?:good (?:morning|afternoon|evening|day)\s+)?to you(?: too| as well)?(?:\s+po)?[,.!]?\s*/i;
+const FOLLOW_LINE_RE = /^\s*(hello|hi|hey|good (morning|afternoon|evening)|kumusta|kamusta|maayong \w+)[^\n]{0,60}?[!.,]?\s*\n+/i;
+const FOLLOW_INLINE_RE = /^\s*(hello|hi|hey|maayong \p{L}+|magandang \p{L}+|good (?:morning|afternoon|evening)|kumusta|kamusta)( po)?,?\s+((?:sir|ma'?am)\s+)?(\p{Lu}[\p{L}'-]*[,!.])/iu;
+const URL_LINE_RE = /https?:\/\/|^\s*👉\s*$/;
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** D-286: the one guard over the model's frame. Drops a leading salutation (when code greets, or on a follow-up - "Hi Ben,"
+ *  becomes "Ben,"), the greeting's thank-you and Cassy sentences when code greets, every link line and the ":" sentence
+ *  that introduced it, invitation and closing sentences, and every 🌿. `stripped` is logged as frame_stripped, so we can
+ *  measure how often the model still writes a frame. May return '' (an answer that was all frame). */
+export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boolean; name?: string | null }): { text: string; stripped: string[] } {
+  const stripped: string[] = [];
+  let t = answer.trim();
+  if (t.includes('🌿')) { stripped.push('🌿'); t = t.replace(/[ \t]*🌿/gu, ''); }
+  if (o.greeted) {
+    const who = `(?:${o.name ? esc(first(o.name)) + '|' : ''}there)?`;
+    const m = new RegExp(`^\\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|kumusta|kamusta|maayong \\p{L}+|magandang \\p{L}+)(?: po)?[ ,]*${who}[,.!]?\\s*`, 'iu').exec(t);
+    if (m && m[0].trim()) { stripped.push(m[0].trim()); t = t.slice(m[0].length).replace(TO_YOU_TOO_RE, ''); }
+  } else if (o.followUp) {
+    const before = t;
+    t = t.replace(FOLLOW_LINE_RE, '').replace(FOLLOW_INLINE_RE, (_m, _a, _b, s: string | undefined, n: string) => `${s ? s[0].toUpperCase() + s.slice(1) : ''}${n}`.replace(/!$/, ','));
+    if (t !== before) stripped.push('salutation');
+  }
+  const kept: string[] = [];
+  for (const line of t.split('\n')) {
+    if (URL_LINE_RE.test(line)) { // the link line goes, and the ":" sentence above it
+      stripped.push(line.trim());
+      for (let i = kept.length - 1; i >= 0; i--) {
+        if (!kept[i].trim()) continue;
+        if (/:\s*$/.test(kept[i])) { const ss = sentencesOf(kept[i]); stripped.push(ss.pop()!.trim()); kept[i] = ss.join('').trimEnd(); }
+        break;
+      }
+      continue;
+    }
+    kept.push(sentencesOf(line).filter((s) => {
+      const drop = (INVITE_RE.test(s) && ASKING_RE.test(s)) || s.search(CLOSER_RE) >= 0 || CLOSE_START_RE.test(s)
+        || (o.greeted && (THANKED_SENTENCE_RE.test(s) || /\bCassy\b/.test(s)));
+      if (drop && s.trim()) stripped.push(s.trim());
+      return !drop;
+    }).join('').trimEnd());
+  }
+  const text = kept.join('\n').split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean).join('\n\n').replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+  return { text, stripped };
+}
+
+/** A sentence that belongs to the answer (the host line, a first reply's ask) closes its last paragraph when it fits. */
+const joinLast = (answer: string, s: string) => {
+  if (!answer) return s;
+  const ps = answer.split(/\n\s*\n/);
+  if (ps[ps.length - 1].length + s.length < 320) ps[ps.length - 1] = `${ps[ps.length - 1]} ${s}`; else ps.push(s);
+  return ps.join('\n\n');
+};
+
+/** D-286: the whole message from the model's answer. `fitted` is true when the answer had to be joined into two
+ *  paragraphs (logged as frame_fit; the golden pass bar is zero). */
+export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx): { reply: string; stripped: string[]; fitted: boolean } {
+  const clean = cleanAnswer(m.answer, { greeted: c.greet, followUp: c.followUp, name: c.name });
+  let answer = c.flowFollowUp ? answerOnly(clean.text) : clean.text;
+  if (c.hostLine) answer = joinLast(answer, c.hostLine);
+  const ask = m.ask?.trim() || null;
+  // A first reply ends on the link (Lloyd's approved first replies ask inside the answer); a quiet turn's own question stays.
+  const askInAnswer = !!ask && !c.flowFollowUp && (c.greet || c.quiet) && !asksHeld(ask, c.held);
+  if (askInAnswer) answer = joinLast(answer, ask!);
+  const fit = fitParagraphs(answer, 2);
+  const step = nextStep(c, askInAnswer ? null : ask);
+  const close = !c.greet && /https?:\/\/\S+\s*$/.test(step) ? closeLine(c.lang, c.prevBot) : '';
+  const head = c.greet ? greetBlock(c.name, c.lang, c.intro) : '';
+  let reply = [(head + fit).trim(), step, close].filter(Boolean).join('\n\n');
+  reply = thinPo(reply, c.lang === 'bis' ? 0 : 2);
+  if (c.flowFollowUp) reply = reply ? `${reply}\n\n${c.flowFollowUp}` : c.flowFollowUp;
+  reply = capName(reply, c.name, c.greet && !c.flowFollowUp ? 1 : 2);
+  // Nothing left (an answer that was all frame, and no step): the model's words without links or leaves, never silence.
+  if (!reply.trim()) reply = m.answer.split('\n').filter((l) => !URL_LINE_RE.test(l)).join('\n').replace(/[ \t]*🌿/gu, '').trim();
+  return { reply, stripped: clean.stripped, fitted: fit !== answer };
+}

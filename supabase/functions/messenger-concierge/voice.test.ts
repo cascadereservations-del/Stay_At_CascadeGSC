@@ -559,15 +559,15 @@ Deno.test('a bare "sa site" invitation is dropped when the look block carries th
 });
 
 // Golden run 2026-09-25, first-rate-tl (R10 "5 paragraphs").
-import { fitFourParagraphs } from './voice.ts';
+import { fitParagraphs } from './voice.ts';
 Deno.test('five text paragraphs: the greeting joins the next one; a link line never counts', () => {
   const live = 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Ako si Cassy, ang digital concierge ng Cascade, kasama si Marifel at ang team.\n\nOur direct rate po starts at PHP 1,780 per night, and the nightly rate goes lower the longer you stay with us.\n\nIf you have dates in mind, share lang dito, pati ilan kayo, and we\'ll check the calendar and the best rate for you right away.\n\nWe can arrange the booking dito sa chat, o puwede rin ninyong i-check ang live availability sa aming site:\n\n👉 https://tinyurl.com/Stay-at-Cascade\n\nSalamat. Looking forward kami sa stay ninyo. 🌿';
-  const out = fitFourParagraphs(live);
+  const out = fitParagraphs(live);
   const text = out.split('\n\n').filter((p) => !p.startsWith('👉'));
   assertEquals(text.length, 4);
   assertEquals(out.includes('site:\n\n👉 https://tinyurl.com/Stay-at-Cascade'), true);
   assertEquals(text.every((p) => p.length <= 320), true);
-  assertEquals(fitFourParagraphs(out), out);
+  assertEquals(fitParagraphs(out), out);
 });
 
 // Golden run 2026-09-25, reg-bot-bis: the 🌿 shared a sentence with the site and was dropped with it (R3).
@@ -591,12 +591,12 @@ Deno.test('the name at most twice; extra vocatives go from the end', () => {
 // Golden 2026-09-25, first-noon-checkin-on-turnover-day-tl run 2: greeting + answer did not fit in 320.
 Deno.test('five paragraphs: the shortest adjacent text pair that fits is joined, never across a link', () => {
   const live = "Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Ako si Cassy, ang digital concierge ng Cascade, kasama si Marifel at ang team.\n\nYes po, available ang Oct 2. Another guest is checking out that day, so check-in stays at 2:00 PM while we prepare the unit to the same standard for you. If the home is ready earlier, we'll message you right away.\n\nFor 1 night, the direct rate is PHP 1,780. May I confirm lang po ilan kayo, so we can prepare the unit?\n\nWe can arrange the booking dito sa chat right away, o puwede ninyong i-secure ang stay sa aming site:\n\n👉 https://tinyurl.com/Stay-at-Cascade\n\nWe'll have everything ready for you. 🌿";
-  const out = fitFourParagraphs(live);
+  const out = fitParagraphs(live);
   const paras = out.split('\n\n');
   assertEquals(paras.filter((p) => !p.startsWith('👉')).length, 4);
   assertEquals(paras.every((p) => p.length <= 320), true);
   assertEquals(out.includes('site:\n\n👉 https://tinyurl.com/Stay-at-Cascade'), true);
-  assertEquals(fitFourParagraphs(out), out);
+  assertEquals(fitParagraphs(out), out);
 });
 
 // Live 2026-09-25 14:47Z: malformed draft JSON handed guests to the host (draft_failed x3).

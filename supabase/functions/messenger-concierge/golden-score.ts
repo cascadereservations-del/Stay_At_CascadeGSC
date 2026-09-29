@@ -2,7 +2,7 @@
 // reply. Pure, no I/O, unit-tested (golden-score.test.ts). A check returns null when it passes, else a short reason.
 // The checks are deliberately narrow: a scorer that cries wolf sends us back to tuning by ear.
 import { quote, SEED_CARD, tierRate, type RateCard } from '../_shared/cascade-core/pricing.ts';
-import { earlyFeeFor, fixEarlyFee, isCold, lintReply, paragraphs, type Violation } from './voice.ts';
+import { ASKING_RE, earlyFeeFor, fixEarlyFee, INVITE_RE, isCold, lintReply, paragraphs, type Violation } from './voice.ts';
 export type Reg = 'en' | 'tl' | 'bis';
 /** model = a free answer written by the model; code = a code-owned line in index.ts (closer, bot, dates-first, sticker);
  *  flow = Lloyd's approved booking-flow lines (frozen: only R2 and R9 apply); midflow = model answer + the flow's card;
@@ -23,8 +23,6 @@ const QUESTION_RE = /\?|\b(is it|is there|are there|do you|does it|can we|can i|
 const ANSWER_RE = /\b(yes|opo|oo|naa|wala|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|we have|we can|we're|we are|we'd|it's|it is|there's|you're welcome|you may|our|the (rate|home|unit|nearest|nightly)|check-?in|check-?out|for \d+ nights?)\b|₱|php|\d/i;
 const BANNED_EXTRA_RE = /\b(no pressure|walang pressure|completely understand|as an ai|language model)\b/i;
 const R2_RULES: Violation[] = ['form_speak', 'robot_word', 'shouting', 'command_tone', 'exclaim', 'boilerplate', 'cold_opener'];
-const INVITE_RE = /\b(on|sa) (our|aming|among|the) site\b|\bsite namin\b|\barrange (the|your|a|everything|it)\b|\bsecure (your|the|ang) (dates?|stay)\b|\bbook(ing)? (directly|direct) (on|sa|through)\b/i;
-const ASKING_RE = /\b(you (may|can)|we can arrange|feel free|whenever you('re| are| feel)|when you('ve| have)|puwede|pwede|maaari|kapag|kung ready)\b/i;
 const CHAT_RE = /\b(chat|tell us here|let us know here|sabihin lang (po )?dito|ingna lang mi diri|share [^.?!\n]{0,20}(here|dito|diri))\b/i;
 const DATES_ASK_RE = /\b(which|what) dates\b|\b(share|send|let us know|tell us)\b[^.?!\n]{0,30}\b(your|ang|inyong) (preferred |target )?dates\b|\bkailan po\b|\bwhen (would|will|are) you\b|\bunsa(ng)? (nga )?dates?\b|\bano(ng)? (po )?(mga )?(dates?|petsa)\b/i;
 const PAX_ASK_RE = /\bhow many (guests|people|persons|of you|adults)\b|\bnumber of guests\b|\bilan (po )?(kayo|ang)\b|\bpila (mo|ka tawo|kabuok)\b/i;

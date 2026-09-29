@@ -97,7 +97,7 @@ export function s63Cases(): GoldenCase[] {
     { id: 's63-deposit-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'bis', { must: MONTH }), m('Wala bay security deposit kung usa ka bulan?', 'bis', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
     { id: 's63-party-en', group: 'handoff', turns: [party('Is party allowed?', 'en')] },
     { id: 's63-party-tl', group: 'handoff', turns: [party('Pwede po ba mag-party?', 'tl')] },
-    { id: 's63-party-bis', group: 'handoff', turns: [bisOpen, party('Pwede ba mag-party diha?', 'bis')] },
+    { id: 's63-party-bis', group: 'handoff', turns: [bisOpen, party('Pwede ba mi mag-party diri?', 'bis')] },
   ];
 }
 

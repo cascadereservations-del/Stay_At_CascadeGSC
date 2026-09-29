@@ -24,7 +24,7 @@ const BOILERPLATE_RE = /\b(rest assured|please be advised|kindly|absolutely|cert
 // Session 29 (live, "is there parking?" at confirm): the model echoed the stay card from history and rephrased the site
 // invite, so the card went out twice with an invite between. When the flow's own ask follows, only the answer is kept.
 const FLOW_NOISE_RE = /^(here are your stay details|here's your stay|ito po ang details|mao ni ang details|📅|📞|💰|💳|to secure (your|the) stay|para ma-secure|👉)|https?:\/\/|\b(our|sa) site\b|\bdirect(ly)? book|\bdetails\b[^\n]{0,20}\bstay\b|\bstay details\b|· \d+ nights?\b|^\W{0,4}total ₱|ready whenever you are/i;
-const CLOSER_RE = /\s*[^.!?\n]*\b(any (other|more|further) questions|(iba|uban|ubang|lain|laing)\b[^.!?\n]{0,25}(katanungan|questions?|tanong|pangutana)|mag-atubili)\b[^.!?\n]*[.!?]?/gi;
+export const CLOSER_RE = /\s*[^.!?\n]*\b(any (other|more|further) questions|(iba|uban|ubang|lain|laing)\b[^.!?\n]{0,25}(katanungan|questions?|tanong|pangutana)|mag-atubili)\b[^.!?\n]*[.!?]?/gi;
 /** The model's answer without an echoed card, a site invite or an "any other questions" closer. Never returns ''. */
 export function answerOnly(reply: string): string {
   const paras = reply.split(/\n\s*\n/);
@@ -215,12 +215,12 @@ export function leafAtClose(reply: string): string {
 /** Golden run 2026-09-25 (first-rate-tl, R10 "5 paragraphs"): greeting, answer, dates ask, invitation and close each
  *  stood alone. Protocol rule 4 caps a reply at four paragraphs (a 👉 link line belongs to the paragraph above it), so
  *  the greeting paragraph joins the next one when the two fit in 320 characters. */
-export function fitFourParagraphs(reply: string): string {
+export function fitParagraphs(reply: string, max = 4): string {
   const isLink = (p: string) => /^(👉|https?:\/\/)/.test(p);
   let paras = reply.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   // Golden 2026-09-25 (turnover-day tl): greeting + answer was 385 characters, so the shortest adjacent text pair that
   // fits in 320 is joined instead - never across a link line, so a link stays directly under its sentence.
-  while (paras.filter((p) => !isLink(p)).length > 4) {
+  while (paras.filter((p) => !isLink(p)).length > max) {
     let best = -1;
     for (let i = 0; i + 1 < paras.length; i++) {
       if (isLink(paras[i]) || isLink(paras[i + 1])) continue;
@@ -295,6 +295,16 @@ export function dropNameAsk(reply: string): string {
   return out || reply;
 }
 
+/** D-286: an invitation sentence (golden-score R4 counts the same) and a closing sentence - the frame compose() writes, so
+ *  cleanAnswer takes them out of the model's answer. */
+export const INVITE_RE = /\b(on|sa) (our|aming|among|the) site\b|\bsite namin\b|\barrange (the|your|a|everything|it)\b|\bsecure (your|the|ang) (dates?|stay)\b|\bbook(ing)? (directly|direct) (on|sa|through)\b/i;
+export const ASKING_RE = /\b(you (may|can)|we can arrange|feel free|whenever you('re| are| feel)|when you('ve| have)|puwede|pwede|maaari|kapag|kung ready)\b/i;
+export const CLOSE_START_RE = /^\s*(we'?d be (happy|glad|so glad) to (welcome|have) you|we'?d love to (host|welcome|have) you|we look forward to|(we'?re )?looking forward|masaya (po )?naming|we'?ll have everything (ready|prepared)|we'?re (always )?here (if|whenever|for)|we'?re one message away|hope to (see|welcome) you)/i;
+/** D-286: the model's one question asks for a slot the chat already holds (dates, the count, the name). */
+const DATES_ASK_RE = /\b(which|what) dates\b|\bdates (do|would) you\b|\bdates in mind\b|\bpreferred dates\b|\bkailan\b|\bkanus-?a\b|\bcheck-?in and check-?out\b/i;
+export const asksHeld = (ask: string, held: { dates: boolean; pax: boolean; name: boolean }) =>
+  (held.dates && DATES_ASK_RE.test(ask)) || (held.pax && PAX_ASK_RE.test(ask.trim())) || (held.name && ask.search(NAME_ASK_RE) >= 0);
+
 // K18 fact guards (D-182). Availability and the early check-in fee reached the model as prompt text only, and the golden
 // set caught both wrong: a booked range called open, PHP 400 for a 10 AM arrival. Code owns both facts; no wording added.
 // Golden run 6: "Wi-Fi is available ... for your dates" was read as a date claim and the Wi-Fi answer was replaced. A claim
@@ -304,7 +314,7 @@ const MD = String.raw`(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a
 const OPEN_CLAIM_RE = new RegExp(String.raw`(?:${MD}|\b(?:those|these|your|the) (?:dates|nights)\b)[^.!?\n]{0,40}\b(?:is|are|remains?)\s+(?:still\s+)?(?:open|available|bakante)\b|\b(?:open|available|bakante)\s+(?:po\s+)?(?:ang|from|on|for|sa)\s+(?:the\s+)?(?:night\s+of\s+)?${MD}`, 'i');
 const BOOKED_CLAIM_RE = new RegExp(String.raw`${MD}[^.!?\n]*\b(?:reserved|booked|taken)\b|\b(?:reserved|booked|taken)\b[^.!?\n]*${MD}`, 'i');
 const NOT_OPEN_RE = /\b(not|isn't|aren't|no longer|hindi|dili)\s+(yet\s+)?(available|open|bakante)\b/gi;
-const sentencesOf = (line: string): string[] => line.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [line];
+export const sentencesOf = (line: string): string[] => line.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [line];
 /** SPEC-31 s4 (F4, F7): a question while the hold is open. The booking is already arranged, so no invitation, no link,
  *  and never "your booking is confirmed" or a promised reminder - that sentence becomes the code's own status line. */
 const PAY_CLAIM_RE = /(is|ay) (now )?confirmed|na-confirm na|we'?ll (send|email) .{0,30}(reminder|receipt)/i;
@@ -414,7 +424,7 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
   // Easy to consume (protocol rule 4): at most four paragraphs, none longer than ~320 characters. D-286: a 👉 link line
   // belongs to the paragraph above it - the same count golden-score uses, so D-285 measures the protocol.
   const paras = paragraphs(reply);
-  if (paras.length > 4 || paras.some((p) => p.replace(/\n(👉|https?:\/\/)[^\n]*/g, '').length > 320)) v.push('too_dense');
+  if (paras.length > 4 || paras.some((p) => p.replace(/\n[^\n]*https?:\/\/[^\n]*/g, '').length > 320)) v.push('too_dense');
   if (FORM_RE.test(reply)) v.push('form_speak');
   if (ROBOT_RE.test(reply)) v.push('robot_word');
   if (/\b[A-Z]{6,}\b/.test(reply.replace(/\b(GCASH|PHP|YES|QR|OK|DEPOSIT|FULL)\b/g, ''))) v.push('shouting');

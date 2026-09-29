@@ -17,7 +17,7 @@ import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, CASSY_INTRO, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
-import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitFourParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
+import { addChatRoute, AMENITY_RE, dropBankUnlessAsked, payHoldReply, answerOnly, appendLook, beforeClose, breakAfterIntro, capName, claimsOpen, decisionInvite, dropNameAsk, dropPaxAsk, dropSiteInvite, dropSoloLink, ensureGreeting, firstInvite, fitParagraphs, joinTail, leafAtClose, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, thinPo, lookNudge, tidyReply, TRUST_RE, withIntro } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
 import { CONTACT_CHIP, contactHostChip, isStayingNow, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
@@ -1205,7 +1205,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         reply = addChatRoute(appendLook(reply, look), SITE_URL, l3); // the invitation keeps both routes when the reply had none (golden fu-ok-salamat-tl)
         if (l3 === 'tl' && !flowFollowUp) reply = thinPo(reply, 2); // the block's own "po" was the third (golden run 2026-09-24, R6)
       } // golden run: the nudge and the chat route each carried a "po" of their own
-      if (!flowFollowUp) reply = fitFourParagraphs(reply); // golden 2026-09-25: five paragraphs on a first Taglish rate reply
+      if (!flowFollowUp) reply = fitParagraphs(reply); // golden 2026-09-25: five paragraphs on a first Taglish rate reply
       reply = capName(reply, thread.guest_name); // golden 2026-09-25 reg-bot-bis: the name three times
       reply = leafAtClose(reply); // D-269 (live 2026-09-27: a 🌿 mid-message, then another paragraph)
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
