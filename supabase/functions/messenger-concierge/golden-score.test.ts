@@ -95,3 +95,15 @@ Deno.test('D-286 R1: a first greeting paragraph that names Cassy is skipped, how
   assertEquals(scoreReply(base({ guest: 'How much for a month-long stay?', firstTurn: true, reply: `${greet}\n\nFor 28 nights the direct rate is PHP 1,335 a night, PHP 37,380 for the stay.` })).R1, null);
   assertEquals(scoreReply(base({ guest: 'How much for a month-long stay?', firstTurn: true, reply: `${greet}\n\nWhich dates would you like?` })).R1 !== null, true);
 });
+Deno.test('D-286: the nine s63 cases (month, deposit, party x en/tl/bis) catch the 2026-09-30 frame faults', () => {
+  const cs = goldenCases(new Date('2026-10-01T00:00:00Z')).filter((c) => c.id.startsWith('s63-'));
+  assertEquals(cs.length, 9);
+  const month = cs.find((c) => c.id === 's63-month-en')!.turns[0], dep = cs.find((c) => c.id === 's63-deposit-en')!.turns[1];
+  const greet = `Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, here with Marifel and our team.`;
+  const live = `${greet} For a month-long stay, Ben, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.`; // the live fault
+  assertEquals(rules({ guest: month.say, firstTurn: true, reply: live, must: month.must, mustNot: month.mustNot }).includes('X'), true);
+  assertEquals(rules({ guest: month.say, firstTurn: true, reply: `${greet}\n\nFor a month-long stay, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.`, must: month.must, mustNot: month.mustNot }).includes('X'), false);
+  const twoCloses = `Ben, yes - the PHP 1,000 refundable deposit applies to every stay.\n\nWe're here if you have any other questions.\n\nJust let us know your preferred dates, and we'll gladly check our availability for you.`;
+  assertEquals(rules({ guest: dep.say, reply: twoCloses, must: dep.must, mustNot: dep.mustNot }).includes('X'), true);
+  assertEquals(rules({ guest: dep.say, reply: `Ben, yes - the PHP 1,000 refundable deposit applies to every stay. We'll have everything prepared before you arrive. 🌿`, must: dep.must, mustNot: dep.mustNot }).includes('X'), true);
+});

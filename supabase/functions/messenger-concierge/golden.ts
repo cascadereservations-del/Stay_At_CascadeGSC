@@ -79,6 +79,28 @@ export function paymentCases(d2: string, d3: string): GoldenCase[] {
   return cases.map(([id, turns]) => ({ id, group: 'payment', turns }));
 }
 
+/** D-286 (live read 2026-09-30, Suzanne's three questions): the frame faults - intro and answer in one paragraph, the name
+ *  twice, two closes, a "prepared before you arrive" close to a prospect - in en, tl and bis. A first Bisaya turn gets
+ *  Taglish (D-172), so the bis cases open with a Bisaya turn and ask on the second. The month total accepts 28 or 30
+ *  nights at PHP 1,335: the design read 28, stayAnchor (D-269) says a month is 30. */
+export function s63Cases(): GoldenCase[] {
+  const MONTH = [/1,335/, /37,380|40,050/], ONCE = /(\bBen\b[\s\S]*){2}/, DIGIT_P1 = /^(?:(?!\n\s*\n)[\s\S])*\d/;
+  const CLOSE_TWICE = /we'?re here[\s\S]*(preferred dates|we'?d be glad)|(preferred dates|we'?d be glad)[\s\S]*we'?re here/i, PREPARED = /prepared (for|before) (you |your )?arriv/i;
+  const party = (say: string, lang: Reg): GoldenTurn => ({ say, kind: 'handoff', lang, noInvite: true, must: [/quiet/i], effects: [/"handoff"[^}]*policy_exception/] });
+  const bisOpen = m('Maayong buntag, naa bay parking?', 'tl');
+  return [
+    { id: 's63-month-en', group: 'followup', turns: [m('How much for a month-long stay?', 'en', { must: MONTH, mustNot: [DIGIT_P1, ONCE] })] },
+    { id: 's63-month-tl', group: 'followup', turns: [m('Magkano po for a month-long stay?', 'tl', { must: MONTH, mustNot: [DIGIT_P1, ONCE] })] },
+    { id: 's63-month-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'bis', { must: MONTH })] },
+    { id: 's63-deposit-en', group: 'followup', turns: [m('How much for a month-long stay?', 'en', { must: MONTH }), m('No security deposit for a month stay?', 'en', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
+    { id: 's63-deposit-tl', group: 'followup', turns: [m('Magkano po for a month-long stay?', 'tl', { must: MONTH }), m('Wala po bang security deposit pag isang buwan?', 'tl', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
+    { id: 's63-deposit-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'bis', { must: MONTH }), m('Wala bay security deposit kung usa ka bulan?', 'bis', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
+    { id: 's63-party-en', group: 'handoff', turns: [party('Is party allowed?', 'en')] },
+    { id: 's63-party-tl', group: 'handoff', turns: [party('Pwede po ba mag-party?', 'tl')] },
+    { id: 's63-party-bis', group: 'handoff', turns: [bisOpen, party('Pwede ba mag-party diha?', 'bis')] },
+  ];
+}
+
 export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null, openFrom: Date | null = null, soonRange: string | null = null): GoldenCase[] {
   const base = openFrom ?? now, o = openFrom ? 0 : 40;
   const d2 = range(base, o, 2), d3 = range(base, o + 7, 3), d1 = range(base, o + 14, 1);
@@ -145,6 +167,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'handoff-refund-en', group: 'handoff', turns: [{ say: 'We need to cancel our booking next week, can we get a refund?', kind: 'handoff', lang: 'en', noInvite: true }] },
     ...paymentCases(d2, d3),
     ...promoCases(SEED_CARD, now),
+    ...s63Cases(),
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
   if (bookedRange) cases.push({ id: 'first-avail-taken-en', group: 'first', turns: [m(`Hello, is ${bookedRange} available?`, 'en', { kind: 'code', // SPEC-28: code writes this reply
