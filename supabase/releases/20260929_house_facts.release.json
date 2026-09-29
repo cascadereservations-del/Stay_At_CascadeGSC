@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "release_id": "house_facts_20260929",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "aa9886335ccbc812b97b940b858a2226402b0b68"
+  },
+  "migrations": [
+    "20260929010000_house_facts.sql"
+  ],
+  "migration_sha256": {
+    "20260929010000_house_facts.sql": "4abfdd363739f38fff9fe3afd33d4dbf211baf650aa9dc7df4f99c5dc013fb25"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20260929T071952Z",
+    "verified_at": "2026-09-29T07:24:35Z",
+    "production_rule": "One new table public.house_facts (RLS on, no policy, service_role only; 44 seed rows) and one nullable column concierge_threads.verified_until date. No existing data, function or grant changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "seeded_44_active_rows",
+      "query": "select count(*) = 44 and count(*) filter (where tier = 'public') = 30 and count(*) filter (where tier = 'guest') = 5 and count(*) filter (where tier = 'staff') = 9 from public.house_facts where is_active",
+      "expect": true
+    },
+    {
+      "name": "service_role_only",
+      "query": "select c.relrowsecurity and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'house_facts') and not has_table_privilege('anon','public.house_facts','select') and not has_table_privilege('authenticated','public.house_facts','select') and has_table_privilege('service_role','public.house_facts','select') and has_table_privilege('service_role','public.house_facts','insert') from pg_class c where c.oid = 'public.house_facts'::regclass",
+      "expect": true
+    },
+    {
+      "name": "verified_until_is_a_nullable_date",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'concierge_threads' and column_name = 'verified_until' and data_type = 'date' and is_nullable = 'YES')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "deploy messenger-concierge, telegram-cassy and telegram-expense from waves 9ef15fc, then apply supabase/rollbacks/20260929_house_facts.sql with run-sql-on-host.sh (drops house_facts and concierge_threads.verified_until; taught facts are lost - read them out first)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply, then deploy messenger-concierge, telegram-cassy and telegram-expense from waves 2859e3b or later. Deploying first is safe but pointless: the house block reads nothing (house_load_failed logged) and verified_until is only written when the row carries it."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-09-29T07:24:35Z on a disposable restore of production backup cascade-supabase-20260929T071952Z (prefix cascade-migration-rehearsal-ffdee629fb03, 0 leftovers). 105 public tables and 134 ledger rows before; migration 1 of 1; forward checks 3/3; pgTAP house_facts.sql 11/11; 106 tables after.",
+    "evidence": "New table + nullable column only. pgTAP house_facts.sql (11). Functions: waves 2859e3b, 458 tests, deno check clean on all three."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
