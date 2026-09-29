@@ -2,8 +2,7 @@
 // reply. Pure, no I/O, unit-tested (golden-score.test.ts). A check returns null when it passes, else a short reason.
 // The checks are deliberately narrow: a scorer that cries wolf sends us back to tuning by ear.
 import { quote, SEED_CARD, tierRate, type RateCard } from '../_shared/cascade-core/pricing.ts';
-import { earlyFeeFor, fixEarlyFee, isCold, lintReply, type Violation } from './voice.ts';
-
+import { earlyFeeFor, fixEarlyFee, isCold, lintReply, paragraphs, type Violation } from './voice.ts';
 export type Reg = 'en' | 'tl' | 'bis';
 /** model = a free answer written by the model; code = a code-owned line in index.ts (closer, bot, dates-first, sticker);
  *  flow = Lloyd's approved booking-flow lines (frozen: only R2 and R9 apply); midflow = model answer + the flow's card;
@@ -19,15 +18,6 @@ export type Ctx = {
 export const RUBRIC = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'X', 'E'] as const;
 export type Rule = typeof RUBRIC[number];
 export type Score = Record<Rule, string | null>;
-
-/** Paragraphs with a link line folded into the sentence it belongs to (linkSolo puts blank lines around the link). */
-export function paragraphs(reply: string): string[] {
-  const out: string[] = [];
-  for (const p of reply.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)) {
-    if (/^(👉|https?:\/\/)/.test(p) && out.length) out[out.length - 1] += '\n' + p; else out.push(p);
-  }
-  return out;
-}
 
 const QUESTION_RE = /\?|\b(is it|is there|are there|do you|does it|can we|can i|may i|pwede|meron|naa ba|magkano|pila|tagpila|how (much|far|many|long)|available|avail|bakante)\b/i;
 const ANSWER_RE = /\b(yes|opo|oo|naa|wala|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|we have|we can|we're|we are|we'd|it's|it is|there's|you're welcome|you may|our|the (rate|home|unit|nearest|nightly)|check-?in|check-?out|for \d+ nights?)\b|₱|php|\d/i;
@@ -109,7 +99,8 @@ export function scoreReply(c: Ctx): Score {
   // R1 answers first (flow lines answer availability in code; a handoff line is the answer)
   if ((c.kind === 'model' || c.kind === 'midflow') && QUESTION_RE.test(c.guest)) {
     // a first-contact greeting paragraph ("Hi Ben, thank you for reaching out to Cascade Hideaway.") is not where the answer lives
-    const first = c.firstTurn && GREET_RE.test(paras[0]) && paras[0].length < 110 && !/\d|₱/.test(paras[0]) ? (paras[1] ?? '') : paras[0];
+    // D-286: the greeting + Cassy introduction is its own paragraph, and longer than 110 characters
+    const first = c.firstTurn && GREET_RE.test(paras[0]) && (paras[0].length < 110 || /\bCassy\b/.test(paras[0])) && !/\d|₱/.test(paras[0]) ? (paras[1] ?? '') : paras[0];
     const opening = first.trim().split(/(?<=[.!?])\s+/).find((x) => !(GREET_RE.test(x) && x.length < 40)) ?? '';
     if (/\?\s*$/.test(opening)) s.R1 = 'the first sentence asks back';
     else if (lint.includes('no_answer') && !ANSWER_RE.test(first)) s.R1 = 'no answer in the first paragraph';

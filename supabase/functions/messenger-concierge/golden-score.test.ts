@@ -90,3 +90,8 @@ Deno.test('SPEC-32 s7: rule E fails a turn whose effect is missing, however righ
   assertEquals(scoreReply({ ...base, effects: [/"handoff"[^}]*cancellation/], effectsText: '[{"fx":"handoff","text":"cancel po","detail":{"risk":"cancellation","note":"Ref X"}}]' }).E, null);
   assertEquals(scoreReply({ ...base, effects: [/"handoff"[^}]*cancellation/], effectsText: '[]' }).E?.startsWith('effect missing'), true);
 });
+Deno.test('D-286 R1: a first greeting paragraph that names Cassy is skipped, however long; the answer is the next paragraph', () => {
+  const greet = `Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, here with Marifel and our team.`;
+  assertEquals(scoreReply(base({ guest: 'How much for a month-long stay?', firstTurn: true, reply: `${greet}\n\nFor 28 nights the direct rate is PHP 1,335 a night, PHP 37,380 for the stay.` })).R1, null);
+  assertEquals(scoreReply(base({ guest: 'How much for a month-long stay?', firstTurn: true, reply: `${greet}\n\nWhich dates would you like?` })).R1 !== null, true);
+});

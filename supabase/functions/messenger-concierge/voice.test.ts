@@ -656,3 +656,11 @@ Deno.test('SPEC-31 s4 (F4, F7): mid-hold, a model reply loses the invitation, th
   assertEquals(out.includes('a screenshot of the GCash confirmation'), true);
   assertEquals(payHoldReply(`👉 ${url}`, status, url), status); // never empty
 });
+Deno.test('D-286: a 👉 link line belongs to the paragraph above it - lintReply counts as golden-score does', () => {
+  const url = 'https://tinyurl.com/Stay-at-Cascade';
+  const four = `Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, here with Marifel and our team.\n\nYes, there's free parking in front of the unit.\n\nWe can arrange everything right here in the chat, or you may see the home and live availability on our site:\n\n👉 ${url}\n\nWe'd be glad to welcome you. 🌿`;
+  assertEquals(lintReply(four).includes('too_dense'), false); // four paragraphs; the link is not a fifth
+  assertEquals(lintReply(`A.\n\nB.\n\nC.\n\nD.\n\nE.`).includes('too_dense'), true);
+  assertEquals(lintReply(`${'x'.repeat(300)}:\n\n👉 ${url}`).includes('too_dense'), false); // the link's characters are not the paragraph's
+  assertEquals(lintReply('y'.repeat(330)).includes('too_dense'), true);
+});

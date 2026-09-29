@@ -396,15 +396,25 @@ export function setTurnoverCheckin(reply: string, line: string): string {
   return out || reply;
 }
 
+/** Paragraphs with a link line folded into the sentence it belongs to (linkSolo puts blank lines around the link). */
+export function paragraphs(reply: string): string[] {
+  const out: string[] = [];
+  for (const p of reply.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)) {
+    if (/^(👉|https?:\/\/)/.test(p) && out.length) out[out.length - 1] += '\n' + p; else out.push(p);
+  }
+  return out;
+}
+
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
   const v: Violation[] = [];
   const asks = (reply.match(/\?/g) ?? []).length;
   if (asks > 2) v.push('two_asks');
   if (reply.length > 700) v.push('too_long');
-  // Easy to consume (protocol rule 4): at most four paragraphs, none longer than ~320 characters.
-  const paras = reply.split(/\n\s*\n/).filter((p) => p.trim());
-  if (paras.length > 4 || paras.some((p) => p.length > 320)) v.push('too_dense');
+  // Easy to consume (protocol rule 4): at most four paragraphs, none longer than ~320 characters. D-286: a 👉 link line
+  // belongs to the paragraph above it - the same count golden-score uses, so D-285 measures the protocol.
+  const paras = paragraphs(reply);
+  if (paras.length > 4 || paras.some((p) => p.replace(/\n(👉|https?:\/\/)[^\n]*/g, '').length > 320)) v.push('too_dense');
   if (FORM_RE.test(reply)) v.push('form_speak');
   if (ROBOT_RE.test(reply)) v.push('robot_word');
   if (/\b[A-Z]{6,}\b/.test(reply.replace(/\b(GCASH|PHP|YES|QR|OK|DEPOSIT|FULL)\b/g, ''))) v.push('shouting');
