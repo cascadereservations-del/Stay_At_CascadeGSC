@@ -1082,30 +1082,48 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // it; the content guards below still do; compose() writes the greeting, the ONE next step and the close around it.
       // The seventeen frame repairs that stood here (greeting, intro, link strips, nudges, the chat route, the look block
       // placement, the paragraph fit) are retired - the frame is written once, by code.
-      let answer = out.reply;
-      // A guest who calls US "Ma'am"/"Sir" does not become "Ma'am Löyd" (live 2026-09-13, twice
-      // despite the prompt rule): drop a title the model put before their name in that case.
-      if (thread.guest_name && /\b(ma'?am|sir|maam)\b/i.test(text)) answer = answer.replace(new RegExp(`\\b(ma'?am|sir)\\s+(?=${thread.guest_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b)`, 'giu'), '');
-      answer = gladNotHappy(plainText(redactAddress(answer)));
-      if (lang === 'english' || lang === 'english_po') answer = contractions(answer); // protocol 08: natural contractions
-      if (knownPax && !flowFollowUp) answer = dropPaxAsk(answer);
-      if (thread.guest_name) answer = dropNameAsk(answer); // golden run 2: the model asked a guest we already know for their name
-      if (payHold) { const held = payHoldReply(answer, paidClaimReply(flow!, flow!.name ?? thread.guest_name, l3), SITE_URL); if (held !== answer) console.warn('pay_hold_guard', answer.slice(0, 160)); answer = held; }
+      // The content guards on the model's answer (the English fallback below goes through the same ones).
+      const guard = (a: string, english: boolean) => {
+        // A guest who calls US "Ma'am"/"Sir" does not become "Ma'am Löyd" (live 2026-09-13, twice
+        // despite the prompt rule): drop a title the model put before their name in that case.
+        if (thread.guest_name && /\b(ma'?am|sir|maam)\b/i.test(text)) a = a.replace(new RegExp(`\\b(ma'?am|sir)\\s+(?=${thread.guest_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b)`, 'giu'), '');
+        a = gladNotHappy(plainText(redactAddress(a)));
+        if (english) a = contractions(a); // protocol 08: natural contractions
+        if (knownPax && !flowFollowUp) a = dropPaxAsk(a);
+        if (thread.guest_name) a = dropNameAsk(a); // golden run 2: the model asked a guest we already know for their name
+        if (payHold) { const held = payHoldReply(a, paidClaimReply(flow!, flow!.name ?? thread.guest_name, l3), SITE_URL); if (held !== a) console.warn('pay_hold_guard', a.slice(0, 160)); a = held; }
+        return a;
+      };
+      const answer = guard(out.reply, lang === 'english' || lang === 'english_po');
       const siteRecent = thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL));
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       const quiet = payHold || stayingNow || hostOpen.length > 0;
-      // SPEC-13 / D-176: look before you book - an amenity or trust question the thread has not seen the links for.
-      const look = flowFollowUp || hostAsk || quiet || risk !== 'routine' ? '' : lookNudge(text, l3, { site: siteRecent, reviews: reviewsShown });
-      // D-269: the discount host line is said once per thread, closing the answer.
-      const hostLine = hostAsk && !thread.history.some((h) => h.role === 'bot' && (h.text.includes(discountHostLine(l3)) || h.text.includes(HANDOFF.policy_exception))) ? discountHostLine(l3) : '';
+      // D-269: the discount host line is said once per thread (in any register), closing the answer.
+      const hostSaid = thread.history.some((h) => h.role === 'bot' && ((['en', 'tl', 'bis'] as const).some((x) => h.text.includes(discountHostLine(x))) || h.text.includes(HANDOFF.policy_exception)));
       if (hostAsk) { handoff = true; risk = 'policy_exception'; }
-      const composed = compose({ answer, ask: out.ask ?? null }, {
-        lang: l3, name: thread.guest_name, greet: !everAnswered, intro: !introduced && !flowFollowUp, followUp, flowFollowUp, hostLine, quiet, look,
+      const frame = (l: typeof l3) => ({
+        lang: l, name: thread.guest_name, greet: !everAnswered, intro: !introduced && !flowFollowUp, followUp, flowFollowUp, quiet,
+        hostLine: hostAsk && !hostSaid ? discountHostLine(l) : '',
+        // SPEC-13 / D-176: look before you book - an amenity or trust question the thread has not seen the links for.
+        look: flowFollowUp || hostAsk || quiet || risk !== 'routine' ? '' : lookNudge(text, l, { site: siteRecent, reviews: reviewsShown }),
         decision: followUp && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text), // a decision moment leaves the door open with the link
         bookingTurn: /\b(discount|promo|book|reserve|reservation|link|site|website|magpa-?book|paano (po )?mag|how (do|can) (i|we)|rate|price|how much|magkano|pila|tagpila|avail|dates?|nights?|weekend|think about|decide|consider)\b/i.test(text),
         siteRecent: hostAsk ? siteShown : siteRecent, // D-269: a second discount turn does not repeat the link
         datesKnown: datesKnown.length > 0, held: { dates: datesKnown.length > 0, pax: !!knownPax, name: !!thread.guest_name }, prevBot: lastBot?.text ?? '',
       });
+      let composed = compose({ answer, ask: out.ask ?? null }, frame(l3));
+      // Lloyd 2026-09-30 ("if it's too long then use the english reply"; D-245: English passes for a Taglish guest): a Taglish
+      // message over 700 characters (a first-reply stay quote is ~655 of code-owned text) is drafted again in English and sent
+      // when shorter. The English draft goes through the same guards; one that claims dates open or offers an early check-in
+      // is not used, as the calendar guards above ran on the Taglish draft only.
+      if (l3 === 'tl' && composed.reply.length > 700) {
+        const en = await draft(thread, `[Your Taglish answer made the message too long for chat. Write the whole answer in warm, natural English with contractions and no "po". Keep every fact and figure exactly.] ${hints}${asked}`, context, 'full', followUp).catch(() => null);
+        const enAnswer = en ? guard(fixEarlyFee(dropBankUnlessAsked(en.reply, text), text), true) : '';
+        if (en && enAnswer && !claimsOpen(enAnswer) && !offersEarlyCheckin(enAnswer)) {
+          const c2 = compose({ answer: enAnswer, ask: en.ask ?? null }, frame('en'));
+          if (c2.reply.length < composed.reply.length) { console.warn('tl_too_long_english', JSON.stringify({ psid, tl: composed.reply.length, en: c2.reply.length })); composed = c2; }
+        }
+      }
       if (composed.stripped.length) console.log('frame_stripped', JSON.stringify({ psid, stripped: composed.stripped }).slice(0, 500)); // how often the model still writes a frame
       if (composed.fitted) console.warn('frame_fit', JSON.stringify({ psid, answer: answer.slice(0, 200) }));
       reply = composed.reply;
