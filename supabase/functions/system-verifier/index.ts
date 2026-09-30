@@ -97,6 +97,10 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
       const v13 = budgetFinding(k);
       if (v13) found.push(v13);
     }
+    // 2026-09-30 (Lloyd): the second Cascade OpenRouter key behind the guests' key - its budget logged the same way, so the
+    // key is proven live the hour it is set and watched after.
+    const orBackup = Deno.env.get('CASCADE_OPENROUTER_BACKUP_KEY');
+    if (orBackup) console.log(JSON.stringify({ event: 'openrouter_budget_backup', scope, ...(await readKey(orBackup)) }));
 
     if (dry) {
       console.log(JSON.stringify({ event: 'system_verifier', scope, dry: true, found: found.length }));
