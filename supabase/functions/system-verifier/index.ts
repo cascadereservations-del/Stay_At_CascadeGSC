@@ -101,14 +101,19 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
     // key is proven live the hour it is set and watched after.
     const orBackup = Deno.env.get('CASCADE_OPENROUTER_BACKUP_KEY');
     if (orBackup) console.log(JSON.stringify({ event: 'openrouter_budget_backup', scope, ...(await readKey(orBackup)) }));
-    // D-287: Cascade's own OmniRoute (the third rung). Probes never reach it, so this hourly call is its live proof: the key
-    // is accepted and the combo is listed. Advisory - a failure here never fails the verifier run.
+    // D-287: Cascade's own OmniRoute (the third rung). Probes never reach it, so this hourly call is its live proof: a tiny
+    // chat through the combo must come back with content. A listed combo is not proof - on 2026-09-30 /models listed
+    // cascade-guest while both of its Groq steps could not serve a guest prompt. ~40 tokens, a few Cloudflare neurons an
+    // hour. Advisory - a failure here never fails the verifier run.
     const omniUrl = (Deno.env.get('CASCADE_OMNIROUTE_URL') ?? '').replace(/\/+$/, ''), omniKey = Deno.env.get('CASCADE_OMNIROUTE_KEY');
     if (omniUrl && omniKey) {
       const model = Deno.env.get('CASCADE_OMNIROUTE_MODEL') || 'cascade-guest';
-      const r = await fetch(`${omniUrl}/models`, { headers: { Authorization: `Bearer ${omniKey}` }, signal: AbortSignal.timeout(10_000) }).catch(() => null);
-      const listed = r?.ok ? JSON.stringify(await r.json().catch(() => null)).includes(`"${model}"`) : false;
-      console.log(JSON.stringify({ event: 'omniroute_health', scope, status: r?.status ?? 0, model, listed }));
+      const r = await fetch(`${omniUrl}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${omniKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, max_tokens: 30, temperature: 0, messages: [{ role: 'user', content: 'Health check. Reply with exactly this JSON: {"answer":"ok, healthy"}' }] }),
+        signal: AbortSignal.timeout(25_000) }).catch(() => null);
+      const j = r?.ok ? await r.json().catch(() => null) : null;
+      const answered = Boolean(String(j?.choices?.[0]?.message?.content ?? '').trim());
+      console.log(JSON.stringify({ event: 'omniroute_health', scope, status: r?.status ?? 0, model, answered, served: j?.model ?? null }));
     }
 
     if (dry) {
