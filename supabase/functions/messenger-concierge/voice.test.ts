@@ -542,3 +542,8 @@ Deno.test('D-286: an English answer keeps natural contractions (the half of tidy
   assertEquals(contractions('We will have it ready, and you are welcome to check in. It is quiet.'), "We'll have it ready, and you're welcome to check in. It's quiet.");
   assertEquals(contractions('The window for you would be Oct 2.'), 'The window for you would be Oct 2.'); // never after a preposition
 });
+Deno.test('D-286 golden AFTER: a Bislish answer counts as an answer (naa / kay), so the D-285 line does not flag it', () => {
+  assertEquals(lintReply('Naa, Ben. Ang unit naay fiber Wi-Fi.', 'Naa bay wifi?').includes('no_answer'), false);
+  assertEquals(lintReply('Ang Cascade kay hilom nga private retreat, suited to rest.', 'Pwede ba mi mag-party diri?').includes('no_answer'), false);
+  assertEquals(lintReply('Unsa inyong dates?', 'Naa bay wifi?').includes('no_answer'), true);
+});

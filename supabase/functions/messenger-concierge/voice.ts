@@ -336,7 +336,8 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
   if (guestText && QUESTION_RE.test(guestText)) {
     const firstPara = reply.split(/\n\s*\n/)[0] ?? '';
     // D-173: a disclosure answers the bot question; without this every "are you a bot?" turn logged a false no_answer.
-    const answers = /\b(yes|yes po|oo|opo|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|\bi'?m cassy\b|\bako(?: po)? si cassy\b|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());
+    // Golden AFTER 2026-09-30: Bislish answers ("Naa, Ben.", "Ang Cascade kay hilom...") read as no answer.
+    const answers = /\b(yes|yes po|oo|opo|naa|naay|kay|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|\bi'?m cassy\b|\bako(?: po)? si cassy\b|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());
     if (!answers) v.push('no_answer');
   }
   return v;
