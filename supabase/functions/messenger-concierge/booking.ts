@@ -1,7 +1,7 @@
 // Messenger book intent (booking PRD §A, session 27). Pure functions, no I/O: a code-driven
 // slot-filling flow that index.ts runs BEFORE the model. The model never books; it only answers
 // questions. State is one jsonb on concierge_threads.booking_flow.
-import { cardOn, currentCard, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
+import { cardOn, currentCard, isLastMinute, quote, type Quote, type RateCard } from '../_shared/cascade-core/pricing.ts';
 // D-268 / D-269: every guest-facing word lives in persona.ts; this file decides the move and seals the facts.
 import * as P from './persona.ts';
 export { BOT_REPLY, CASSY_INTRO, cancelReply, greetBlock, greeting, paymentPromise, pick } from './persona.ts';
@@ -15,7 +15,7 @@ export type Flow = {
   checkin?: string; checkout?: string; pax?: number; phone?: string; email?: string | null;
   /** SPEC-14 (D-184): the name for the reservation, asked in the details step; it wins over the Facebook profile name. */
   name?: string;
-  /** session 28: the guest's choice - reservation fee (50 %) or the full amount; forced full inside 48 h */
+  /** session 28: the guest's choice - reservation fee (50 %) or the full amount; forced full when check-in is under 5 days away (the site's rule) */
   pay_full?: boolean; asked?: 'availability' | 'question' | null;
   /** SPEC-28 section 2: the first message also asked something besides availability ("is Oct 26 to 28 open? is there wifi?") */
   question?: boolean;
@@ -251,10 +251,9 @@ export function quoteTotal(checkin: string, checkout: string, card: RateCard = c
   return { nights: q.n, rate: q.tier_rate, total: q.total, deposit: q.deposit, q };
 }
 /** Lloyd 2026-09-18: a booking made inside 5 days of check-in - same day through 4 days out - pays in full up
- *  front, so the fee-or-full choice is not offered. `submit-booking` already uses this boundary for holds
- *  (`daysOut >= 5`); the old 48-hour rule disagreed with it. Manila calendar days, not hours. */
-export const lastMinute = (checkin: string, now = new Date()) =>
-  Math.round((Date.parse(checkin) - Date.parse(now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }))) / 86_400_000) <= 4;
+ *  front, so the fee-or-full choice is not offered. R4 (2026-10-01): the booking site is the source of truth; the rule
+ *  lives in pricing.ts (FULL_PAY_WITHIN_DAYS) and is shared with quote() and submit-booking. Manila calendar days. */
+export const lastMinute = isLastMinute;
 const php = (v: number) => `PHP ${v.toLocaleString('en-PH')}`;
 /** D-262: promo nights anchored on the standard rate (never a "was" price); a mixed stay names both parts. */
 function promoRateLine(lang: Lang | undefined, x: ReturnType<typeof quoteTotal>, std: number): string {
@@ -541,7 +540,7 @@ export function answer(flow: Flow, text: string, now = new Date()): Step {
       if (datesChanged) { f.pay_full = lastMinute(f.checkin!, now) ? true : undefined; return ask(); }
       const wantsFull = FULL_RE.test(text), wantsDeposit = DEPOSIT_RE.test(text) || YES_RE.test(text);
       if (wantsFull) { f.pay_full = true; return { flow: f, reply: null, action: 'submit' }; }
-      if (wantsDeposit && f.pay_full === true) return ask(payChoice(f)); // SPEC-14: inside 48 h the full amount secures the stay
+      if (wantsDeposit && f.pay_full === true) return ask(payChoice(f)); // SPEC-14: under 5 days out the full amount secures the stay
       if (wantsDeposit) { f.pay_full = false; return { flow: f, reply: null, action: 'submit' }; }
       if (changed) return ask();
       return retry('that');

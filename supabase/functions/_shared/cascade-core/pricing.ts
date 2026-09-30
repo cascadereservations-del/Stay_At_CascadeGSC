@@ -45,6 +45,13 @@ const addDays = (d: string, k: number) => new Date(Date.parse(d + 'T00:00:00Z') 
 const span = (a: string, b: string) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / DAY);
 export const manilaToday = (now = new Date()) => now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 
+/** Lloyd 2026-10-01 (R4): the booking site is the source of truth. A check-in LESS than this many Manila calendar days
+ *  away (same day through 4 days out) is offered only full payment, and no 24 h hold opens; 5+ days out offers the fee.
+ *  The site has no stored setting for it (index.html: daysOut <= 4), so this is the ONE constant the concierge, quote()
+ *  and submit-booking share - change all of them and the site together, never one. */
+export const FULL_PAY_WITHIN_DAYS = 5;
+export const isLastMinute = (checkin: string, now = new Date()) => span(manilaToday(now), checkin) < FULL_PAY_WITHIN_DAYS;
+
 export function tierPct(card: RateCard, n: number): number {
   let pct = 0;
   for (const t of [...card.tiers].sort((a, b) => a.min_nights - b.min_nights)) if (n >= t.min_nights) pct = t.pct;
@@ -74,7 +81,7 @@ export function quote(cardToday: RateCard, checkin: string, checkout: string, no
   return {
     nights, n, total, standard_total: card.base * n, tier_pct: pct, tier_rate: rate,
     deposit: Math.ceil(total * card.deposit_pct / 100),
-    last_minute: span(manilaToday(now), checkin) <= 4,
+    last_minute: isLastMinute(checkin, now),
     promo_nights: nights.filter((x) => x.source === 'promo').length,
     promo_name: promo?.promo ?? null,
     promo_rate: promo?.rate ?? null,

@@ -148,7 +148,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
       { say: 'Ben Munez 09171234567 ben@example.com', kind: 'flow', lang: 'en' },
       { say: 'Is there parking?', kind: 'midflow', lang: 'en', must: [/park/i], mustNot: [/(📅[\s\S]*){2}/] },
     ] },
-    // SPEC-14 (D-184): the offer is answered yes, declined, or met by the 48-hour rule
+    // SPEC-14 (D-184): the offer is answered yes, declined, or met by the under-5-days full-payment rule
     { id: 'flow-offer-yes-en', group: 'flow', turns: [
       { say: `Hi, is ${d2} available? 2 adults`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i, /1,691/, /hold (that night|those dates) for you/i], mustNot: [LINK] },
       { say: 'yes', kind: 'flow', lang: 'en', must: [/name for the reservation/i] },

@@ -3,7 +3,7 @@
 // for the optional private receipt upload. The browser never supplies a
 // Storage path or URL and cannot write to booking-receipts directly.
 // v11.7 (2026-07-02): FIX last-minute deposit. The site charges 100% when check-in is
-//   within 48h (else 50%). The old sanity check only accepted ~50% and clamped the full
+//   under 5 days away (else 50%; was 48h until D-185, 2026-09-18; R4 2026-10-01 follows the site). The old sanity check only accepted ~50% and clamped the full
 //   payment back to 50%, so last-minute bookings were recorded + emailed as 50%. Now accept
 //   the client deposit if it matches EITHER the 50% reservation fee OR the full total.
 // v12.1: remove service-signed decision URLs; Module C requires named AAL2 Finance review.
@@ -19,7 +19,7 @@ import { withHeader, groups, autoKeyboard, BTN } from '../_shared/cascade-core/f
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 // v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored (it only
 // chooses fee or full: pay_full); the server stores and returns its own total and deposit.
-import { loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
+import { FULL_PAY_WITHIN_DAYS, loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -173,7 +173,7 @@ Deno.serve(async (req) => {
   // service_role cannot write the table) that the lifecycle guard and the hourly releaser read.
   const HOLD_HOURS = 24;
   const daysOut = Math.round((checkin.getTime() - today.getTime()) / 86_400_000);
-  const isHold = body.hold === true && daysOut >= 5 && !payFull;
+  const isHold = body.hold === true && daysOut >= FULL_PAY_WITHIN_DAYS && !payFull;
   let holdExpiresAt: string | null = null;
   if (isHold) {
     const { data: hold, error: holdErr } = await db.rpc('open_booking_hold_v1', { p_booking_id: inquiry.id, p_hours: HOLD_HOURS });

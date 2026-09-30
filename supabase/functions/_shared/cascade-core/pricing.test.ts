@@ -1,6 +1,6 @@
 // SPEC-34 2.2 pins. Run: deno test _shared/cascade-core/pricing.test.ts
 import { assertEquals } from 'jsr:@std/assert@1';
-import { SEED_CARD, loadCard, quote, serverAmounts, _resetCardCache, currentCard } from './pricing.ts';
+import { FULL_PAY_WITHIN_DAYS, SEED_CARD, loadCard, quote, serverAmounts, isLastMinute, _resetCardCache, currentCard } from './pricing.ts';
 
 const NOW = new Date('2026-09-26T08:00:00Z');
 // The card before SPEC-34, as submit-booking and facts.ts hard-coded it.
@@ -40,6 +40,22 @@ Deno.test('a card scheduled for later prices the stays that check in on or after
 Deno.test('last minute is 4 Manila days or fewer', () => {
   assertEquals(quote(SEED_CARD, '2026-09-30', '2026-10-01', NOW).last_minute, true);
   assertEquals(quote(SEED_CARD, '2026-10-01', '2026-10-02', NOW).last_minute, false);
+});
+
+Deno.test('R4 (2026-10-01): the full-payment cutoff is the site\'s 5 Manila days - not 48 hours - and every reader agrees', () => {
+  assertEquals(FULL_PAY_WITHIN_DAYS, 5);
+  // NOW = 26 Sep 16:00 Manila. Days out 0..4 are full-payment-only; 5 and beyond may take the 50% fee.
+  for (let k = 0; k <= 6; k++) {
+    const ci = plus('2026-09-26', k), want = k < 5;
+    assertEquals(isLastMinute(ci, NOW), want, `isLastMinute ${k} days out`);
+    assertEquals(quote(SEED_CARD, ci, plus(ci, 1), NOW).last_minute, want, `quote ${k} days out`);
+    assertEquals(serverAmounts(SEED_CARD, ci, plus(ci, 1), { total: 1780, deposit: 890 }, NOW).full, want, `serverAmounts ${k} days out`);
+  }
+  // 3 days out (inside 5 days, outside the old 48 h rule) is full-payment-only.
+  assertEquals(isLastMinute('2026-09-29', NOW), true);
+  // Manila midnight, not UTC: 26 Sep 17:00 UTC is already 27 Sep 01:00 in Manila, so 2 Oct is 5 days out, not 6.
+  assertEquals(isLastMinute('2026-10-01', new Date('2026-09-26T17:00:00Z')), true);
+  assertEquals(isLastMinute('2026-10-02', new Date('2026-09-26T17:00:00Z')), false);
 });
 
 Deno.test('submit-booking authority: the card total is stored, whatever the client sent', () => {
