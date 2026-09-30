@@ -1010,14 +1010,17 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
       const knownPax = thread.booking_flow?.pax;
       const paxHint = knownPax && !flowFollowUp ? `[Already known from this chat: ${knownPax} guest${knownPax === 1 ? '' : 's'}. Do not ask how many guests again; ask something only if it is truly needed.] ` : '';
-      let out = await draft(thread, nameHint + discHint + capHint + datesHint + paxHint + flowHint + payHint + LANG_HINT[lang] + asked, context, 'full', followUp);
+      // Golden AFTER 2026-09-30: the rewrites below carried only the pax and dates hints, so a cold-rewritten stay quote lost
+      // the code's figures and said "the site will show the total". Every rewrite now carries the same hints as the first draft.
+      const hints = nameHint + discHint + capHint + datesHint + paxHint + flowHint + payHint;
+      let out = await draft(thread, hints + LANG_HINT[lang] + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
       if (NEGATIVE_RE.test(out.reply)) {
         console.error('negative_frame_retry', out.reply.slice(0, 160));
         const fix = `[REWRITE REQUIRED. Your draft opened with a negative ("${out.reply.slice(0, 60).replace(/\n/g, ' ')}..."). The first sentence must name what we DO offer for this wish - e.g. "For swimming po, EM Jake Wave Pool is about 2 km away" instead of "Wala po kaming pool"; "The unit is best suited to 3 adults" instead of "Hindi po pwede ang 4". Do not use "wala", "hindi pwede", "sorry", "unfortunately", "cannot", "not available" anywhere in the reply.] `;
-        out = await draft(thread, fix + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
+        out = await draft(thread, fix + hints + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
       }
       // Session 30: a correct but cold answer is a defect (protocol 08 section 6: answer, context, next step, reassurance,
       // warm close). One rewrite, the same way a negative opener gets one; if it fails we keep the first draft.
@@ -1028,12 +1031,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         const fix = l3 === 'en' ? `[REWRITE REQUIRED. The guest wrote in English and your draft was in Taglish. Write the whole reply in warm, natural English with contractions${lang === 'english_po' ? ' (one courtesy "po" is welcome)' : ', no "po"'}. Keep every fact. Do not copy a reference reply.] `
           : l3 === 'bis' ? `[REWRITE REQUIRED. The guest writes Bisaya and your draft used Tagalog words. Write it in natural Bislish: no "po", no "kayo", "namin", "dito", "hindi". Keep every fact.] `
           : `[REWRITE REQUIRED. The guest wrote in Tagalog / Taglish and your draft was plain English. Write it in natural Taglish with "po" once or twice, English for the hospitality and money terms. Keep every fact.] `;
-        out = await draft(thread, fix + paxHint + datesHint + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
+        out = await draft(thread, fix + hints + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
       }
       if (!flowFollowUp && isCold(out.reply)) {
         console.warn('cold_reply_retry', out.reply.slice(0, 160));
         const warm = `[REWRITE REQUIRED. Your draft was correct but read as blunt and transactional. Keep every fact. Write it the way a calm boutique-hotel concierge would type it in chat: the answer first; then one sentence that shows care or preparation done for the guest ("we'll have it ready", "so you can settle in without a second thought"). Natural contractions. No sales language, no "no pressure", no exclamation words, no second invitation.] `;
-        out = await draft(thread, warm + paxHint + datesHint + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
+        out = await draft(thread, warm + hints + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
       }
       // K18 (D-182): the early check-in fee is computed in code; a contradicting peso figure is corrected (mid-flow too:
       // this runs on the answer before the flow's card is added).

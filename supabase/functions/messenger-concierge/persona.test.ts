@@ -298,3 +298,25 @@ Deno.test('D-286 compose: "po" thinned over the whole message - two in Taglish, 
   assert(po(P.compose(heavy, ctx({ lang: 'tl', bookingTurn: true })).reply) <= 2);
   assertEquals(po(P.compose(heavy, ctx({ lang: 'bis', bookingTurn: true })).reply), 0);
 });
+
+// Golden AFTER 2026-09-30 (x3): reg-bisaya-three-turns and s63-deposit-bis closed on the same dates line twice (R8); the
+// model's one sentence of care was stripped when no code close followed it, so replies scored cold (R3).
+Deno.test('D-286 golden AFTER: the dates line is not the next step twice in a row', () => {
+  for (const l of LANGS) {
+    const prev = `Earlier answer.\n\n${P.nudgeDates(l)}`;
+    assertEquals(P.nextStep(ctx({ lang: l, prevBot: prev }), null), '', l);
+    assertEquals(P.nextStep(ctx({ lang: l, prevBot: 'Earlier answer.' }), null), P.nudgeDates(l), l);
+  }
+});
+Deno.test('D-286 golden AFTER: the answer keeps its sentence of care unless code closes the message', () => {
+  const care = `Yes, the Wi-Fi is fibre. We'll have everything ready for you.`;
+  assertEquals(P.cleanAnswer(care, { greeted: false, followUp: true }).text, care);
+  assertEquals(P.cleanAnswer(care, { greeted: false, followUp: true, codeCloses: true }).text, 'Yes, the Wi-Fi is fibre.');
+  // never kept: the prospect promise and the "any questions" closer (the Monday live faults)
+  assertEquals(P.cleanAnswer(`Yes. We'll have everything prepared before you arrive. We're here if you have any other questions.`, { greeted: false, followUp: true }).text, 'Yes.');
+  // compose: no link step, so the care stays; a link step brings closeLine, so the model close goes
+  const unlinked = P.compose({ answer: care, ask: null }, ctx({})).reply;
+  assert(unlinked.includes('ready for you'), unlinked);
+  const linked = P.compose({ answer: care, ask: null }, ctx({ bookingTurn: true })).reply;
+  assert(!linked.includes('ready for you') && linked.trimEnd().endsWith('🌿'), linked);
+});

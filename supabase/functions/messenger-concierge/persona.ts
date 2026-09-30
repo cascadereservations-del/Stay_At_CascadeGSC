@@ -18,7 +18,7 @@ import type { Lang } from './booking.ts';
 import type { RiskCode } from './policy.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { currentContact, type Contact } from '../_shared/cascade-core/contact.ts';
-import { answerOnly, ASKING_RE, asksHeld, capName, CLOSE_START_RE, CLOSER_RE, decisionInvite, firstInvite, fitParagraphs, INVITE_RE, sentencesOf, thinPo } from './voice.ts';
+import { ALWAYS_CLOSE_RE, answerOnly, ASKING_RE, asksHeld, capName, CLOSE_START_RE, CLOSER_RE, decisionInvite, firstInvite, fitParagraphs, INVITE_RE, sentencesOf, thinPo } from './voice.ts';
 
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 const by = pick;
@@ -664,6 +664,7 @@ function lookStep(look: string, c: ComposeCtx): string {
   return c.greet ? `${firstInvite(c.lang, SITE_URL)}\n\n${block}` : block; // reviews only: a first reply still carries the site
 }
 
+const unpo = (s: string) => s.replace(/ po\b/g, ''); // thinPo may have taken a "po" out of the line we sent
 /** D-286: the one next step (design section 1, first match wins). '' = nothing. */
 export function nextStep(c: ComposeCtx, ask: string | null): string {
   if (c.flowFollowUp || c.quiet) return '';                                   // 1-2: the flow's card, or the answer alone
@@ -672,7 +673,8 @@ export function nextStep(c: ComposeCtx, ask: string | null): string {
   if (c.decision) return decisionInvite(c.lang, SITE_URL);                    // 5: a decision moment
   if (c.greet) return firstInvite(c.lang, SITE_URL);                          // 6: first contact carries the link
   if (c.bookingTurn && !c.siteRecent) return c.datesKnown ? nudgeReady(c.lang) : nudgeSite(c.lang);
-  if (!c.datesKnown) return nudgeDates(c.lang);                               // 7
+  // 7 - never the same dates line twice in a row (golden AFTER 2026-09-30, R8)
+  if (!c.datesKnown) return unpo(c.prevBot).trimEnd().endsWith(unpo(nudgeDates(c.lang))) ? '' : nudgeDates(c.lang);
   return c.siteRecent ? '' : nudgeReady(c.lang);
 }
 
@@ -699,7 +701,7 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  *  becomes "Ben,"), the greeting's thank-you and Cassy sentences when code greets, every link line and the ":" sentence
  *  that introduced it, invitation and closing sentences, and every 🌿. `stripped` is logged as frame_stripped, so we can
  *  measure how often the model still writes a frame. May return '' (an answer that was all frame). */
-export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boolean; name?: string | null }): { text: string; stripped: string[] } {
+export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boolean; name?: string | null; codeCloses?: boolean }): { text: string; stripped: string[] } {
   const stripped: string[] = [];
   let t = answer.trim();
   if (t.includes('🌿')) { stripped.push('🌿'); t = t.replace(/[ \t]*🌿/gu, ''); }
@@ -724,7 +726,7 @@ export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boo
       continue;
     }
     kept.push(sentencesOf(line).filter((s) => {
-      const drop = (INVITE_RE.test(s) && ASKING_RE.test(s)) || s.search(CLOSER_RE) >= 0 || CLOSE_START_RE.test(s)
+      const drop = (INVITE_RE.test(s) && ASKING_RE.test(s)) || s.search(CLOSER_RE) >= 0 || ALWAYS_CLOSE_RE.test(s) || (!!o.codeCloses && CLOSE_START_RE.test(s))
         || (o.greeted && (THANKED_SENTENCE_RE.test(s) || /\bCassy\b/.test(s)));
       if (drop && s.trim()) stripped.push(s.trim());
       return !drop;
@@ -745,16 +747,17 @@ const joinLast = (answer: string, s: string) => {
 /** D-286: the whole message from the model's answer. `fitted` is true when the answer had to be joined into two
  *  paragraphs (logged as frame_fit; the golden pass bar is zero). */
 export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx): { reply: string; stripped: string[]; fitted: boolean } {
-  const clean = cleanAnswer(m.answer, { greeted: c.greet, followUp: c.followUp, name: c.name });
-  let answer = c.flowFollowUp ? answerOnly(clean.text) : clean.text;
-  if (c.hostLine) answer = joinLast(answer, c.hostLine);
   const ask = m.ask?.trim() || null;
   // A first reply ends on the link (Lloyd's approved first replies ask inside the answer); a quiet turn's own question stays.
   const askInAnswer = !!ask && !c.flowFollowUp && (c.greet || c.quiet) && !asksHeld(ask, c.held);
-  if (askInAnswer) answer = joinLast(answer, ask!);
-  const fit = fitParagraphs(answer, 2);
   const step = nextStep(c, askInAnswer ? null : ask);
   const close = !c.greet && /https?:\/\/\S+\s*$/.test(step) ? closeLine(c.lang, c.prevBot) : '';
+  // The model's sentence of care stays unless code closes the message (golden AFTER 2026-09-30: stripped, replies read cold).
+  const clean = cleanAnswer(m.answer, { greeted: c.greet, followUp: c.followUp, name: c.name, codeCloses: !!close });
+  let answer = c.flowFollowUp ? answerOnly(clean.text) : clean.text;
+  if (c.hostLine) answer = joinLast(answer, c.hostLine);
+  if (askInAnswer) answer = joinLast(answer, ask!);
+  const fit = fitParagraphs(answer, 2);
   const head = c.greet ? greetBlock(c.name, c.lang, c.intro) : '';
   let reply = [(head + fit).trim(), step, close].filter(Boolean).join('\n\n');
   reply = thinPo(reply, c.lang === 'bis' ? 0 : 2);

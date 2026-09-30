@@ -195,7 +195,10 @@ export function dropNameAsk(reply: string): string {
  *  cleanAnswer takes them out of the model's answer. */
 export const INVITE_RE = /\b(on|sa) (our|aming|among|the) site\b|\bsite namin\b|\barrange (the|your|a|everything|it)\b|\bsecure (your|the|ang) (dates?|stay)\b|\bbook(ing)? (directly|direct) (on|sa|through)\b/i;
 export const ASKING_RE = /\b(you (may|can)|we can arrange|feel free|whenever you('re| are| feel)|when you('ve| have)|puwede|pwede|maaari|kapag|kung ready)\b/i;
-export const CLOSE_START_RE = /^\s*(we'?d be (happy|glad|so glad) to (welcome|have) you|we'?d love to (host|welcome|have) you|we look forward to|(we'?re )?looking forward|masaya (po )?naming|we'?ll have everything (ready|prepared)|we'?re (always )?here (if|whenever|for)|we'?re one message away|hope to (see|welcome) you)/i;
+/** A warm close - also the answer's one sentence of care, so it goes only when compose() closes the message itself. */
+export const CLOSE_START_RE = /^\s*(we'?d be (happy|glad|so glad) to (welcome|have) you|we'?d love to (host|welcome|have) you|we look forward to|(we'?re )?looking forward|masaya (po )?naming|we'?ll have everything (ready|prepared)|hope to (see|welcome) you)/i;
+/** Never kept: the "we're here" closer beside a next step, and a promise of preparation to a guest with no booking (live 2026-09-30). */
+export const ALWAYS_CLOSE_RE = /^\s*(we'?re (always )?here (if|whenever|for)|we'?re one message away)|prepared (for|before) (you |your )?arriv/i;
 /** D-286: the model's one question asks for a slot the chat already holds (dates, the count, the name). */
 const DATES_ASK_RE = /\b(which|what) dates\b|\bdates (do|would) you\b|\bdates in mind\b|\bpreferred dates\b|\bkailan\b|\bkanus-?a\b|\bcheck-?in and check-?out\b/i;
 export const asksHeld = (ask: string, held: { dates: boolean; pax: boolean; name: boolean }) =>
