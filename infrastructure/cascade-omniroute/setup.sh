@@ -9,10 +9,13 @@ DIR=/opt/cascade-omniroute
 HOST=omniroute-cascade.rocloyd.com
 CFG=/etc/cloudflared/config.yml
 
-echo "== 1 image, pinned by digest (Alfred's stack runs :latest; Cascade's does not move under it)"
-docker pull -q diegosouzapw/omniroute:latest >/dev/null
-DIGEST=$(docker image inspect diegosouzapw/omniroute:latest --format '{{index .RepoDigests 0}}')
-echo "   $DIGEST"
+echo "== 1 image, pinned by tag then digest (Alfred's stack runs :latest; Cascade's does not move under it)"
+# 3.8.51 (2026-09-29): auto/* no longer bypasses a key's allowedCombos (adds per-key allowAutoCombos), image_url SSRF and the
+# Host-localhost setup spoof fixed. Upgrade = change TAG, back up the volume, re-run.
+TAG=${OMNIROUTE_TAG:-3.8.51}
+docker pull -q "diegosouzapw/omniroute:$TAG" >/dev/null
+DIGEST=$(docker image inspect "diegosouzapw/omniroute:$TAG" --format '{{index .RepoDigests 0}}')
+echo "   $TAG $DIGEST"
 
 echo "== 2 stack files in $DIR"
 mkdir -p "$DIR"; chmod 700 "$DIR"
@@ -61,5 +64,7 @@ echo "   http://localhost:20129/ -> $code"
 # route 10 there: $HOST, path ^/v1/, service http://localhost:20129 (added 2026-09-30); every other path answers 404.
 
 echo "== 4 local checks"
-curl -s -o /dev/null -w "   /v1/models without a key -> %{http_code} (401 expected)\n" http://localhost:20129/v1/models
+# Probe chat, not /v1/models: on 2026-09-30 models answered 401 while chat answered 200 with no key.
+curl -s -o /dev/null -w "   POST /v1/chat/completions without a key -> %{http_code} (401 expected)\n" -H 'Content-Type: application/json' \
+  -d '{"model":"cascade-guest","messages":[{"role":"user","content":"hi"}],"max_tokens":1}' http://localhost:20129/v1/chat/completions
 docker ps --filter name=cascade-omniroute --format '   {{.Names}} {{.Status}} {{.Ports}}'
