@@ -103,25 +103,6 @@ export function needsDatesFirst(text: string, priorGuestText: string): boolean {
   return TIMING_ASK.test(text) && !DATE_HINT.test(text) && !DATE_HINT.test(priorGuestText);
 }
 
-// Lloyd 2026-09-12: the site invitation + closer must not trail every reply. Keep them on a
-// fresh conversation or a booking/rate/availability question; otherwise, when the last two bot
-// turns already carried the link, drop the invitation paragraph (and the ':' lead-in before it)
-// and a short generic closer left dangling at the end.
-const INQUIRY_RE = /\b(rate|price|how much|magkano|pila|tagpila|avail|book|reserv|dates?|nights?|stay (for|from|on)|check.?in on|weekend)\b/i;
-const CLOSER_RE = /^(we('d| would| will)?( be)? ?(happy|glad|love|look forward)|we look forward|malipayon|masaya (po )?kami|maraming salamat|salamat)/i;
-export function trimRepeatedInvite(reply: string, priorBotTexts: string[], question: string, siteUrl: string): string {
-  if (priorBotTexts.length === 0 || INQUIRY_RE.test(question)) return reply;
-  if (!priorBotTexts.slice(-2).some((t) => t.includes(siteUrl))) return reply;
-  const paras = reply.split(/\n{2,}/);
-  const i = paras.findIndex((p) => p.includes(siteUrl));
-  if (i < 0) return reply;
-  paras.splice(i, 1);
-  if (i > 0 && /:\s*$/.test(paras[i - 1])) paras.splice(i - 1, 1);
-  const last = paras[paras.length - 1] ?? '';
-  if (paras.length > 1 && last.length < 90 && CLOSER_RE.test(last.trim())) paras.pop();
-  return paras.join('\n\n').trim();
-}
-
 /** D-227: the host's handoff card names a spent model budget - the one draft failure the host can fix in a
  *  minute. OpenRouter answers 402 (no credit) or 429 (limit reached); anything else gets no note.
  *  ponytail: if the Gemini fallback is open it throws last and hides the OpenRouter cause; that is the

@@ -6,7 +6,7 @@
 // lintReply() is run over every canned prompt in voice.test.ts (fails the build) and over every
 // outgoing reply at runtime (warn-only log `voice_lint`, so live drift is visible without blocking).
 
-import { AMENITY_RE, CASSY_INTRO, greeting } from './booking.ts';
+import { AMENITY_RE } from './booking.ts';
 import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 
 export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense' | 'command_tone' | 'exclaim' | 'boilerplate';
@@ -39,33 +39,16 @@ export function thinPo(text: string, keep = 2): string {
   return text.replace(/ po\b/g, (m) => (++n > keep ? '' : m));
 }
 
-// Session 30 (live 2026-09-17 18:25, "hello, available Oct 20 to 22?"): the reply read "…directly on our site:" with no
-// link under it, then two more nudges ("Direct bookings offer…", "No pressure at all…"), in stiff uncontracted English.
-const SOFT_NUDGE_RE = /\b(no pressure|whenever you(?:'d| would) like to secure|here whenever you(?:'re| are) ready|walang pressure|kapag handa na (po )?kayo)\b/i;
 const CONTRACTIONS: Array<[RegExp, string]> = [
   // Not after a preposition: "window for you would be" became "for you'd be", "how many of you will" became "of you'll" (golden run 2026-09-17).
   [/(?<!\b(?:for|to|of|with|from) )\b(We|we|You|you|I|They|they) would\b/g, "$1'd"], [/(?<!\b(?:for|to|of|with|from) )\b(We|we|You|you|They|they) are\b/g, "$1're"], [/(?<!\b(?:for|to|of|with|from) )\b(We|we|You|you|I|They|they) will\b/g, "$1'll"],
   [/\b(We|we|You|you|I|They|they) have\b(?= (?:been|already|prepared|arranged|noted|set|reserved))/g, "$1've"], [/\b(It|it|That|that|There|there) is\b/g, "$1's"],
   [/\b(D|d)o not\b/g, "$1on't"], [/\b(D|d)oes not\b/g, "$1oesn't"], [/\b(C|c)annot\b/g, "$1an't"], [/\b(I|i)s not\b/g, "$1sn't"],
 ];
-/** Code-owned polish for a model reply (D-097: prompt rules alone fail). An invite sentence that ends in ":" always has
- *  its link under it; when the site is offered, the soft "no pressure" paragraphs go (one invitation per message,
- *  protocol rule 4); English replies use contractions (protocol 08). Pure, so it is tested. */
-export function tidyReply(reply: string, siteUrl: string, english: boolean): string {
-  let paras = reply.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  for (let i = 0; i < paras.length; i++) {
-    if (!/:\s*$/.test(paras[i])) continue;
-    const next = paras[i + 1] ?? '';
-    if (/^(👉|https?:\/\/|🏡|⭐|📅|•|-)/.test(next)) continue;          // the colon is followed by what it promised
-    if (/\b(site|website|link)\b/i.test(paras[i])) paras.splice(i + 1, 0, `👉 ${siteUrl}`);
-    else paras[i] = paras[i].replace(/\s*:\s*$/, '.');
-  }
-  for (let i = 1; i < paras.length; i++) {
-    if (/^(👉|https?:\/\/)/.test(paras[i]) && !/:\s*$/.test(paras[i - 1]) && /\b(site|website)\b/i.test(paras[i - 1])) paras[i - 1] = paras[i - 1].replace(/[\s.🌿💚😊]*$/u, ':');
-  }
-  if (paras.some((p) => p.includes(siteUrl))) paras = paras.filter((p, i) => i === 0 || !SOFT_NUDGE_RE.test(p) || p.includes(siteUrl));
-  let out = paras.join('\n\n');
-  if (english) for (const [re, to] of CONTRACTIONS) out = out.replace(re, to);
+/** Protocol 08: an English answer uses natural contractions (session 30: stiff, uncontracted English read as cold). */
+export function contractions(text: string): string {
+  let out = text;
+  for (const [re, to] of CONTRACTIONS) out = out.replace(re, to);
   return out;
 }
 
@@ -106,23 +89,7 @@ export function isCold(reply: string): boolean {
 /** "Happy to help" is on the boilerplate list (R2); the approved first replies say "glad to help" (golden run 2026-09-25). */
 export const gladNotHappy = (reply: string) => reply.replace(/\b(be|am|are|we'?re|we'?d be|i'?d be) happy to help\b/gi, (m) => m.replace(/happy/i, (h) => (h[0] === 'H' ? 'Glad' : 'glad')));
 
-// Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site. The model copied
-// its own older site-only wording from the history despite the rule and the examples (live 19:19), so code guarantees it.
 type L3 = 'en' | 'tl' | 'bis';
-const CHAT_MENTION_RE = /\b(in (the|this) chat|here in chat|dito (po )?sa chat|diri sa chat|sa chat|tell us here|let us know here|(share|send)\b[^.?!\n]{0,25}\b(here|dito|diri))\b/i;
-const CHAT_ROUTE: Record<L3, string> = {
-  en: `Or simply tell us here, and we'll arrange the booking for you in this chat.`,
-  tl: `O sabihin lang dito, and we'll arrange the booking for you sa chat.`,
-  bis: `O ingna lang mi diri, and we'll arrange the booking for you sa chat.`,
-};
-/** When the site is offered and the chat route is not, the chat route follows the link. */
-export function addChatRoute(reply: string, siteUrl: string, lang: L3): string {
-  if (!reply.includes(siteUrl) || CHAT_MENTION_RE.test(reply)) return reply;
-  const paras = reply.split(/\n\s*\n/);
-  const i = paras.findIndex((p) => p.includes(siteUrl));
-  paras[i] = paras[i] + String.fromCharCode(10) + CHAT_ROUTE[lang]; // same paragraph as the link: a phone screen reads them as one offer, and the reply stays within four paragraphs
-  return paras.join('\n\n');
-}
 /** A decision moment ("let me think about it"): one sentence with both routes and the link, never a bare link. */
 export const decisionInvite = (lang: L3, siteUrl: string) => ({
   en: `When you've decided, just tell us here and we'll arrange the booking in this chat, or you may secure the dates on our site:`,
@@ -136,76 +103,9 @@ export const firstInvite = (lang: L3, siteUrl: string) => ({
   tl: `We can arrange everything dito sa chat, o puwede ninyong i-check ang home at live availability sa aming site:`,
   bis: `We can arrange everything diri sa chat, or pwede pud i-check ang home ug live availability sa among site:`,
 })[lang] + `\n\n👉 ${siteUrl}`;
-/** SPEC-14 (D-184): first contact always opens with the approved greeting. The model thanked the guest in only
- *  12 of 33 first replies (golden run 9), so a first reply that carries no thank-you has its own salutation
- *  replaced by greeting() - the same line the book flow has used since session 28. */
 // Session 58 live probe: "Salamat po sa pag-reach out sa Cascade Hideaway." was missed, so the greeting went on top of it
 // and the guest was thanked twice in one opening.
 const THANKED_RE = /thank you for (reaching out|messaging|checking|asking)|welcome to cascade|salamat(?: po)? sa pag-?(?:message|mensahe|reach out|pag-?abot)/i;
-export function ensureGreeting(reply: string, name: string | null, lang: L3, intro = false): string {
-  if (!reply.trim() || THANKED_RE.test(reply)) return reply;
-  const first = name ? name.split(' ')[0] : '';
-  // "there" too: "Hi there! I'm Cassy" left a stray "there!" after the greeting (golden run 2026-09-24).
-  const who = `(?:${first ? first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '|' : ''}there)?`;
-  const salute = new RegExp(`^\\s*(?:hi|hello|hey|good (?:morning|afternoon|evening)|kumusta|kamusta|maayong \\p{L}+)(?: po)?[ ,]*${who}[,.!]?\\s*`, 'iu');
-  // Golden run 2026-09-25: "Hi Ben, yes po, available..." lost its salutation and read "...Cascade Hideaway. yes po".
-  // Golden run 2026-09-25: "Good evening to you too, Ben." lost its salutation and left "To you too." behind.
-  const rest = reply.replace(salute, '').replace(/^(?:and\s+)?(?:a\s+)?(?:good (?:morning|afternoon|evening|day)\s+)?to you(?: too| as well)?(?:\s+po)?,?(?:\s+\p{Lu}[\p{L}'-]*)?[.!,]?\s*/iu, '').trimStart();
-  const body = rest.replace(/^\p{Ll}/u, (c) => c.toUpperCase());
-  return greeting(name, lang, intro) + (body || reply.trimStart());
-}
-/** D-173 / SPEC-01: a prompt rule alone fails at least once (D-097), so the introduction is also
- *  guaranteed in code on the first exchange. It goes after the reply's first sentence, which is
- *  where the greeting ends; with no sentence end to find it becomes the opening paragraph. A reply
- *  that already says Cassy is left exactly as it is. */
-export function withIntro(reply: string, lang: L3): string {
-  // SPEC-32 s3 (F14, probe D-T1): the model wrote the intro itself as its LAST paragraph, after the link. A Cassy sentence
-  // that sits below a link is taken out and placed the usual way; anywhere else it stands.
-  const ps = reply.split(/\n\s*\n/), link = ps.findIndex((p) => /👉|:\/\//.test(p)), at = ps.findIndex((p) => /\bCassy\b/.test(p));
-  if (at >= 0 && (link < 0 || at < link)) return reply;
-  if (at >= 0) reply = ps.map((p, i) => (i === at ? (p.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [p]).filter((s) => !/\bCassy\b/.test(s)).join('').trim() : p)).filter((p) => p.trim()).join('\n\n');
-  const intro = CASSY_INTRO[lang];
-  // Golden run 2026-09-25 (fu-ok-salamat-tl): the Taglish greeting's first sentence is only "Hi Ben!", so the intro went
-  // in before "Salamat sa pag-message...". D-173 puts it after the thank-you sentence, so that sentence joins the first.
-  const m = reply.match(/^([^.!?\n]{0,30}[.!?]\s*[^.!?\n]*(?:salamat sa pag-?message|thank you for reaching out)[^.!?\n]*[.!?])(\s*)/i)
-    ?? reply.match(/^([^.!?\n]*[.!?])(\s*)/);
-  if (!m) { // no sentence end in the first line: the intro is the second paragraph, never after a link paragraph
-    const [p0, ...more] = reply.trimStart().split(/\n\s*\n/);
-    return /👉|:\/\//.test(p0) || !more.length ? `${intro.trimEnd()}\n\n${reply.trimStart()}` : [p0, intro.trimEnd(), ...more].join('\n\n');
-  }
-  const rest = reply.slice(m[0].length);
-  if (!rest) return `${m[1]} ${intro.trimEnd()}`;
-  // Keep a paragraph break that was there (it used to be swallowed); a one-paragraph reply gets one after the intro
-  // (golden run 2026-09-24: "one block of text").
-  // Golden run 2026-09-25 (R10): the intro joined to a long first answer made one paragraph over 320 characters, so the
-  // answer starts its own paragraph whenever that would happen.
-  const firstRest = rest.split(/\n\s*\n/)[0] ?? '';
-  const sep = /\n/.test(m[2]) ? m[2] : !/\n\s*\n/.test(reply) || `${m[1]} ${intro} ${firstRest}`.length > 320 ? '\n\n' : ' ';
-  return `${m[1]} ${intro.trimEnd()}${sep}${rest}`;
-}
-/** Golden run 2026-09-25 (R10): the model wrote the intro itself and ran the answer on in the same paragraph (over 320
- *  characters). A first paragraph that long breaks after the sentence that names Cassy. */
-export function breakAfterIntro(reply: string): string {
-  const [first, ...rest] = reply.split(/\n\s*\n/);
-  if (!first || first.length <= 320) return reply;
-  const ss = sentencesOf(first);
-  const i = ss.findIndex((s) => /\bCassy\b/.test(s));
-  if (i < 0 || i === ss.length - 1) return reply;
-  const head = ss.slice(0, i + 1).join('').trim(), tail = ss.slice(i + 1).join('').trim();
-  return [head, tail, ...rest].join('\n\n');
-}
-/** D-269: a sentence that belongs to the answer (the discount host line) closes the last plain paragraph when it fits -
- *  never after a question, a "...on our site:" label or a link - else it stands as its own paragraph. */
-export function joinTail(reply: string, tail: string, siteUrl: string): string {
-  const ps = reply.trim().split(/\n\s*\n/);
-  const i = ps.findLastIndex((p) => !p.includes(siteUrl) && !/^👉/.test(p.trim()) && !/[:?]\s*$/.test(p.trim()));
-  if (i >= 0 && ps[i].length + tail.length < 310) ps[i] = `${ps[i].trimEnd()} ${tail}`;
-  else { // its own paragraph, above the invitation and its link so the message still closes on the link (live probe 2026-09-28)
-    const at = ps.findIndex((p) => p.includes(siteUrl) || /^👉/.test(p.trim()) || /:\s*$/.test(p.trim()));
-    ps.splice(at < 0 ? ps.length : at, 0, tail);
-  }
-  return ps.join('\n\n');
-}
 /** D-269 (protocol: "one 🌿 at a close"; live 2026-09-27 the model put one mid-message and wrote on after it): a leaf
  *  that closes the message stays (the last one only); a leaf anywhere else goes. */
 export function leafAtClose(reply: string): string {
@@ -269,14 +169,6 @@ export function parseDraftJson(raw: string): { answer?: string; ask?: string | n
   } catch { /* fall through */ }
   throw new SyntaxError('draft_json_unreadable');
 }
-/** Insert a block before a short warm close (so the close stays last), else append it. */
-export function beforeClose(reply: string, block: string): string {
-  const paras = reply.trim().split(/\n\s*\n/);
-  const last = paras[paras.length - 1] ?? '';
-  if (paras.length > 1 && last.length < 120 && !/👉|https?:\/\//.test(last)) { paras.splice(paras.length - 1, 0, block); return paras.join('\n\n'); }
-  return `${reply.trim()}\n\n${block}`;
-}
-
 /** The chat already holds the guest count: a paragraph that only asks for it again is dropped (live 2026-09-17 18:34,
  *  the model asked despite the hint - D-097, code owns it). Never returns ''. */
 const PAX_ASK_RE = /^[^\n]*\b(how many (guests|people|persons|of you)|number of guests|ilan po (kayo|ang)|pila (mo|ka tawo))\b[^\n]*\?\s*$/i;
@@ -492,58 +384,4 @@ export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews:
     tl: `If you'd like to read what past guests have shared, nasa aming Airbnb listing po ang reviews.`,
     bis: `If you'd like to read what past guests have shared, naa sa among Airbnb listing ang reviews.` }[lang];
   return `${sentence}\n\n${reviewsLine}`;
-}
-
-/** Golden run 2026-09-24 (5 of 9 failures): the look block offers the site, and the reply kept its own site invitation
- *  ("...or you may see the home and live availability on our site.") - two invitations, over 700 characters. With the
- *  block present the reply's site sentences go; a sentence that also carries the chat route keeps that half
- *  ("We can arrange everything right here in the chat."). Link lines are left to dropSoloLink. Never returns ''. */
-// Golden run 2026-09-25 (reg-bot-bis, 719 characters): "...ang aming direct rates sa site." - bare "sa site" too.
-const SITE_SENTENCE_RE = /\b(on|sa) (our|aming|among) (direct )?(site|website)\b|\bsite namin\b|\bsa (direct )?site\b/i;
-export function dropSiteInvite(reply: string): string {
-  const all = reply.split(/\n\s*\n/);
-  const out = all.map((p, i) => {
-    if (/^(👉|https?:\/\/|🏡|⭐)/.test(p.trim())) return p;
-    // Golden run 2026-09-25 (R4): the kept chat half stood as its own paragraph while the model's last paragraph already
-    // said "share them here" - two invitations. The chat route said anywhere else in the reply is enough.
-    const elsewhere = CHAT_MENTION_RE.test(all.filter((_, j) => j !== i).join('\n\n'));
-    return p.split('\n').map((line) => sentencesOf(line).map((s) => {
-      if (!SITE_SENTENCE_RE.test(s)) return s;
-      const chat = s.match(/^(.*?\b(?:chat|here|dito|diri)\b),?\s+(?:or|o)\s+[^.!?]*[.!?:]?\s*$/i);
-      if (!chat || SITE_SENTENCE_RE.test(chat[1]) || CHAT_MENTION_RE.test(p.replace(s, '')) || elsewhere) return ''; // the chat route is already said
-      return `${chat[1]}. `;
-    }).join('').trim()).filter(Boolean).join('\n');
-  }).map((p) => p.trim()).filter(Boolean).join('\n\n');
-  return out || reply;
-}
-
-/** The look block joins the chat-route paragraph as ONE invitation (both routes, protocol rule 4): its sentence ends in
- *  ":" with the labelled 🏡 / ⭐ lines directly under it, and a short warm close stays last (golden run 2026-09-24:
- *  the block as its own paragraphs made two invitations and five paragraphs). */
-export function appendLook(reply: string, look: string): string {
-  const [sentence, ...rest] = look.split(/\n\s*\n/);
-  const block = `${sentence.trim().replace(/[.\s]*$/, ':')}\n${rest.join('\n').trim()}`;
-  const paras = reply.trim().split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  const last = paras[paras.length - 1] ?? '';
-  const close = paras.length > 1 && last.length < 120 && !/👉|https?:\/\//.test(last) && !CHAT_MENTION_RE.test(last) ? paras.pop()! : '';
-  const i = paras.length - 1;
-  if (i >= 0 && CHAT_MENTION_RE.test(paras[i]) && !paras[i].includes('://')) paras[i] = `${paras[i]} ${block}`;
-  else paras.push(block);
-  if (close) paras.push(close);
-  return paras.join('\n\n');
-}
-
-/** The look block carries its own labelled site link, so the solo 👉 link goes; the sentence that introduced it keeps
- *  its words but ends in a full stop instead of a colon pointing at nothing (live 2026-09-23: "...on our site:"). */
-export function dropSoloLink(reply: string, url: string): string {
-  const paras = reply.split(/\n\s*\n/);
-  const out: string[] = [];
-  for (const p of paras) {
-    if (p.trim() === `👉 ${url}`) {
-      if (out.length) out[out.length - 1] = out[out.length - 1].replace(/\s*:\s*$/, '.');
-      continue;
-    }
-    out.push(p);
-  }
-  return out.join('\n\n');
 }

@@ -1,34 +1,15 @@
 // deno test --allow-env messenger-concierge/voice.test.ts  (from supabase/functions)
 // The communication protocol's build gate: every canned line the book flow can send passes lintReply().
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo, tidyReply } from './voice.ts';
+import { answerOnly, dropPaxAsk, isCold, lintReply, thinPo } from './voice.ts';
 import { VOICE, voiceCompact } from '../_shared/cascade-core/facts.ts';
 import { BOOK_RE } from './booking.ts';
 import { claimsOpen, earlyFeeFor, fixEarlyFee, setAvailability } from './voice.ts';
-import { addChatRoute, beforeClose, decisionInvite, ensureGreeting, withIntro } from './voice.ts';
+import { decisionInvite } from './voice.ts';
 import { AMENITY_RE, lookNudge, TRUST_RE } from './voice.ts';
 import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { BOT_REPLY, CASSY_INTRO, greeting } from './booking.ts';
 
-// Session 30, live 19:19 and 19:20 Manila: the model kept its older site-only invite, and "let me think about it" got a
-// bare link tacked on after the warm close.
-Deno.test('the chat route is guaranteed beside the site, and a decision moment never gets a bare link', () => {
-  const url = 'https://tinyurl.com/Stay-at-Cascade';
-  const live = `Ben, yes, the unit is well-suited for remote work.\n\nWhenever you're ready, you may secure your preferred dates on our site, where direct bookings carry our best rates:\n\n👉 ${url}\n\nWe look forward to making your work and stay comfortable.`;
-  const out = addChatRoute(live, url, 'en');
-  assertEquals(out.includes(`👉 ${url}\nOr simply tell us here, and we'll arrange the booking for you in this chat.\n\nWe look forward`), true); // same paragraph as the link
-  assertEquals(addChatRoute(out, url, 'en'), out);                                   // once
-  assertEquals(addChatRoute('Yes, parking is free.', url, 'en'), 'Yes, parking is free.'); // no site offered, nothing added
-  assertEquals(/ po\b/.test(addChatRoute(live, url, 'bis')), false);                  // no Tagalog po in Bisaya
-  assertEquals(lintReply(out, 'is the place good for working remotely?'), []);
-  const think = "That's perfectly fine, Ben. Take all the time you need.\n\nWe're here to assist you whenever you're ready. 🌿";
-  const t = beforeClose(think, decisionInvite('en', url));
-  assertEquals(t.endsWith("We're here to assist you whenever you're ready. 🌿"), true);  // the warm close stays last
-  assertEquals(t.includes(`or you may secure the dates on our site:\n\n👉 ${url}`), true);
-  assertEquals(/in this chat/.test(t), true);
-  assertEquals(lintReply(t, 'ok thanks, let me think about it first'), []);
-  for (const l of ['en', 'tl', 'bis'] as const) assertEquals(lintReply(decisionInvite(l, url)), [], l);
-});
 
 // Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site.
 Deno.test('invitations offer the chat route as well as the site, and its answers start the flow', () => {
@@ -224,26 +205,6 @@ Deno.test("calendar unknown: no availability claim, three registers", () => {
   }
 });
 
-// Session 30, live 18:25 Manila: the exact reply Lloyd called worse and awkward.
-Deno.test('tidyReply: a dangling site invite gets its link, one invitation, contractions', () => {
-  const url = 'https://tinyurl.com/Stay-at-Cascade';
-  const bad = [
-    'Ben, yes, the unit is available from October 20 to 22. We would be pleased to welcome you.',
-    'Alternatively, you may check and secure your dates directly on our site:',
-    'Direct bookings offer our best rates, with savings that increase the longer you stay.',
-    'No pressure at all; we are here whenever you would like to secure those dates.',
-  ].join('\n\n');
-  const out = tidyReply(bad, url, true);
-  assertEquals(out.includes(`on our site:\n\n👉 ${url}`), true);
-  assertEquals(/No pressure/.test(out), false);
-  assertEquals(out.includes("We'd be pleased"), true);
-  assertEquals(out.split(url).length - 1, 1);
-  assertEquals(lintReply(out, 'hello, available Oct 20 to 22?'), []);
-  // a colon already followed by its link is left alone; Taglish is not contracted; a non-site colon becomes a full stop
-  assertEquals(tidyReply(`Our site has the details:\n\n👉 ${url}`, url, false), `Our site has the details:\n\n👉 ${url}`);
-  assertEquals(tidyReply('We are ready po.', url, false), 'We are ready po.');
-  assertEquals(tidyReply('A few things to note:\n\nQuiet hours run 10 PM to 6 AM.', url, true), 'A few things to note.\n\nQuiet hours run 10 PM to 6 AM.');
-});
 
 // K18 (D-182): the golden run 4 replies, verbatim. Oct 7-9 is an airbnb block (nights of Oct 7 and 8).
 Deno.test('a booked range is never called open, and the early check-in fee is computed in code', () => {
@@ -293,20 +254,6 @@ We'd be glad to welcome you.`);
   assertEquals(fixEarlyFee(r2, 'Is there wifi?'), r2);
 });
 
-// ---- SPEC-14 (D-184) ------------------------------------------------------------------------
-Deno.test('ensureGreeting: first contact always opens with the approved greeting', () => {
-  const thanked = 'Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available.';
-  assertEquals(ensureGreeting(thanked, 'Ben', 'en'), thanked);                                   // already thanked: untouched
-  const tlThanked = 'Hi Ben! Salamat po sa pag-reach out sa Cascade Hideaway. May bakante pa po kami.'; // session 58 live: thanked twice
-  assertEquals(ensureGreeting(tlThanked, 'Ben', 'tl'), tlThanked);
-  assertEquals(ensureGreeting('Hi Ben! Yes, Nov 17 to 19 is open.', 'Ben', 'en'), 'Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, Nov 17 to 19 is open.');
-  assertEquals(ensureGreeting('Yes, Nov 17 to 19 is open.', 'Ben', 'en'), 'Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, Nov 17 to 19 is open.');
-  assertEquals(ensureGreeting("Hi there! I'm Cassy.", 'Ben', 'en'), "Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy."); // golden run 2026-09-24: no stray "there!"
-  assertEquals(ensureGreeting("Hello there, I'm Cassy.", null, 'en'), "Hello, thank you for reaching out to Cascade Hideaway. I'm Cassy.");
-  assertEquals(ensureGreeting('Hello po! Available po ang Nov 17.', null, 'tl'), 'Hello po! Salamat sa pag-message sa Cascade Hideaway. Available po ang Nov 17.');
-  assertEquals(ensureGreeting('Maayong buntag! Available ang Nov 17.', 'Ben', 'bis'), 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Nov 17.');
-  assertEquals(ensureGreeting('', 'Ben', 'en'), '');
-});
 
 Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line pass the lint in three registers', () => {
   const f: Flow = { ...base, checkin: '2026-11-17', checkout: '2026-11-19', step: 'offer' };
@@ -359,16 +306,6 @@ Deno.test('SPEC-01: nothing is introduced when the guest has already met her', (
   assertEquals(opener(f, 'Ben').includes('Cassy'), false);                      // a resumed card never carries it
 });
 
-Deno.test('SPEC-01: withIntro guarantees the sentence the model may have dropped', () => {
-  const plain = 'Hi Ben, thank you for reaching out to Cascade Hideaway. Oct 3 to 4 is available.';
-  const out = withIntro(plain, 'en');
-  assertEquals(out.startsWith('Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en.trimEnd() + '\n\n'), true); // one paragraph -> the answer gets its own (2026-09-24)
-  assertEquals(out.endsWith('Oct 3 to 4 is available.'), true);                 // inserted, nothing lost
-  assertEquals(withIntro(out, 'en'), out);                                      // never twice
-  assertEquals(withIntro('Ben, I am Cassy and yes it is open.', 'en'), 'Ben, I am Cassy and yes it is open.');
-  const noStop = 'Oct 3 to 4 is open';                                          // no sentence end to insert after
-  assertEquals(withIntro(noStop, 'en'), CASSY_INTRO.en.trimEnd() + '\n\n' + noStop);
-});
 
 Deno.test('SPEC-01: the are-you-a-bot answer is clean in all three registers', () => {
   for (const l3 of ['en', 'tl', 'bis'] as const) {
@@ -419,14 +356,6 @@ Deno.test('SPEC-13: the nudge stays occasional, not chatty', () => {
   assertEquals(AMENITY_RE.test('is Oct 3 to 4 available?'), false);
 });
 
-Deno.test('SPEC-21: the intro lands on a follow-up-shaped reply too, once, after the first sentence', () => {
-  const followUp = 'Ben, yes po, Oct 3 to 4 is open. We can hold it for you.';
-  const out = withIntro(followUp, 'en');
-  assertEquals(out.startsWith('Ben, yes po, Oct 3 to 4 is open. ' + CASSY_INTRO.en.trimEnd() + '\n\n'), true);
-  assertEquals(out.endsWith('We can hold it for you.'), true);
-  assertEquals(withIntro(out, 'en'), out);
-  assertEquals(out.includes('thank you for reaching out'), false);
-});
 
 Deno.test('session 46: a check-in alone is acknowledged once, not by both the opener and the checkout ask (live 2026-09-23 19:58)', () => {
   const notes = { en: 'from Oct 17', tl: 'from Oct 17', bis: 'from Oct 17' }; // Suzanne 2026-09-26: the ask names the check-in once
@@ -438,43 +367,10 @@ Deno.test('session 46: a check-in alone is acknowledged once, not by both the op
   }
 });
 
-import { dropSoloLink } from './voice.ts';
-Deno.test('session 46: when the look block carries the site, the solo link goes and its lead-in does not dangle (live 2026-09-23 19:57)', () => {
-  const lead = `If you have dates in mind, you may share them here and we'll check the calendar for you, or you may see the home, live availability, and our direct rates on our site:`;
-  const reply = `Yes, the unit has both fiber Wi-Fi and air-conditioning.\n\n${lead}\n\n👉 ${SITE_URL}\n\nWe'd be glad to welcome you.`;
-  const out = dropSoloLink(reply, SITE_URL);
-  assertEquals(out.includes(SITE_URL), false);
-  assertEquals(/:\s*$/m.test(out), false, out);
-  assertEquals(out.includes(lead.replace(/:$/, '.')), true, out);
-  assertEquals(dropSoloLink('No link here.', SITE_URL), 'No link here.');
-});
 
 // ---- golden run 2026-09-24: the look block made a second invitation (5 of 9 failures) ----------------------------------
-import { appendLook, dropSiteInvite } from './voice.ts';
 import { scoreReply } from './golden-score.ts';
-Deno.test('golden run 2026-09-24: with the look block, the reply keeps one invitation, the chat route and the close', () => {
-  const pre = `Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, we do have Wi-Fi.\n\nThe home has fiber Wi-Fi, steady enough for video calls.\n\nIf you have dates in mind, share them here and we'll check the calendar for you. We can also arrange the booking right here in the chat, or you may see the home and live availability on our site:\n\n👉 ${SITE_URL}\n\nWe'd be glad to welcome you.`;
-  const out = appendLook(dropSiteInvite(dropSoloLink(pre, SITE_URL)), lookNudge('Hi, do you have wifi?', 'en', { site: false, reviews: false }));
-  assertEquals(out.split(SITE_URL).length - 1, 1, out);                      // the site once, on the labelled line
-  assertEquals(out.includes('share them here'), true, out);                    // the chat route stays
-  assertEquals(out.endsWith("We'd be glad to welcome you."), true, out);      // the close stays last
-  assertEquals(/:\n🏡 Amenities and photos: /.test(out), true, out);          // the lines sit directly under their sentence
-  const s = scoreReply({ guest: 'Hi, do you have wifi?', reply: out, prevReply: null, kind: 'model', lang: 'en', firstTurn: true, siteUrl: SITE_URL, name: 'Ben' });
-  assertEquals(s.R4, null, out); assertEquals(s.R10, null, out);
-});
-Deno.test('dropSiteInvite keeps the chat half when it is the only chat route, and never empties a reply', () => {
-  assertEquals(dropSiteInvite('Yes, there is parking. We can arrange everything right here in the chat, or you may see the home on our site.'), 'Yes, there is parking. We can arrange everything right here in the chat.');
-  assertEquals(dropSiteInvite('See everything on our site.'), 'See everything on our site.');
-  assertEquals(dropSiteInvite('Parking is free.'), 'Parking is free.');
-});
 
-Deno.test('golden run 2026-09-24: a one-paragraph first reply gets its answer on its own paragraph after the intro', () => {
-  const one = 'Hi Ben, thank you for reaching out to Cascade Hideaway. Sep 28 to Oct 2 is already reserved. The nearest open dates are Oct 3 to 7.';
-  const out = withIntro(one, 'en');
-  assertEquals(out, 'Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en.trimEnd() + '\n\nSep 28 to Oct 2 is already reserved. The nearest open dates are Oct 3 to 7.');
-  const two = 'Hi Ben, thank you for reaching out.\n\nYes, we have Wi-Fi.';
-  assertEquals(withIntro(two, 'en'), 'Hi Ben, thank you for reaching out. ' + CASSY_INTRO.en.trimEnd() + '\n\nYes, we have Wi-Fi.'); // the break is kept, not swallowed
-});
 
 // Golden run 2026-09-25: Oct 2 is a real check-out day, and the reply offered 12 noon at no extra cost (Lloyd 2026-09-17: never).
 import { offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine } from './voice.ts';
@@ -494,19 +390,6 @@ Deno.test('turnover day: a noon or free early check-in offer is replaced by the 
   assertEquals(offersEarlyCheckin('Complimentary early check-in from 12 noon works on Oct 9, as no guest checks out that day.'), true);
 });
 
-// Golden run 2026-09-25 (R10): intro written by the model and run on into a long answer; one paragraph over 320 characters.
-import { breakAfterIntro } from './voice.ts';
-Deno.test('a first paragraph over 320 characters breaks after the Cassy sentence', () => {
-  const live = "Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, and Marifel and our team are right here with me. We're located inside Bria Homes along Conel Road, Barangay San Isidro, General Santos City. It's a quiet, gated residential community, about 10 to 15 minutes from SM, KCC, and Veranza, so you can settle in calmly after your day.\n\nFor our guests' privacy, the exact house details are shared once a booking is confirmed.";
-  const out = breakAfterIntro(live);
-  const paras = out.split('\n\n');
-  assertEquals(paras.length, 3);
-  assertEquals(paras[0].endsWith('right here with me.'), true);
-  assertEquals(paras[1].startsWith("We're located inside Bria Homes"), true);
-  assertEquals(paras.every((p) => p.length <= 320), true);
-  assertEquals(breakAfterIntro(out), out);
-  assertEquals(breakAfterIntro('Short first paragraph. I am Cassy.\n\nRest.'), 'Short first paragraph. I am Cassy.\n\nRest.');
-});
 
 // Golden run 2026-09-25, fu-reviews-tl: R3 read a warm reply as cold because the warmth shared a paragraph with the links;
 // R2 flagged "happy to help" (boilerplate) where the approved replies say "glad to help".
@@ -519,44 +402,10 @@ Deno.test('warmth beside the look block still counts; "happy to help" becomes "g
   assertEquals(gladNotHappy('We are happy to host you.'), 'We are happy to host you.');
 });
 
-// Golden run 2026-09-25: the model's "Hi Ben," was replaced by the approved greeting and the answer began in lower case.
-Deno.test('the answer after a replaced salutation starts with a capital', () => {
-  const out = ensureGreeting('Hi Ben, yes po, available ang Oct 2.', 'Ben', 'tl');
-  assertEquals(out.includes('Cascade Hideaway. Yes po, available ang Oct 2.'), true);
-});
 
-// Golden run 2026-09-25 (R4, fu-amenity-en x3): a short reply put the first-contact invitation in the middle, and its kept
-// chat half stood alone beside the model's own "share them here" paragraph - two invitations.
-Deno.test('the chat half of a dropped site invitation goes when another paragraph already offers the chat', () => {
-  const r = "Yes, Ben, the home has fiber Wi-Fi.\n\nWe can arrange everything right here in the chat, or you may see the home and live availability on our site.\n\nIf you have dates in mind, share them here and we'll check the calendar for you right away.";
-  const out = dropSiteInvite(r);
-  assertEquals(out, "Yes, Ben, the home has fiber Wi-Fi.\n\nIf you have dates in mind, share them here and we'll check the calendar for you right away.");
-  // Alone, the chat half is kept (the only chat route in the reply).
-  assertEquals(dropSiteInvite("Yes, we have Wi-Fi.\n\nWe can arrange everything right here in the chat, or you may see the home on our site."), "Yes, we have Wi-Fi.\n\nWe can arrange everything right here in the chat.");
-});
 
-// Golden run 2026-09-25, first-greeting-tl: "To you too." left after the salutation swap, and R3 counted code's own
-// greeting and Cassy sentence as the model's (cold) words.
-Deno.test('greeting echo goes with the salutation; code lines do not make a reply cold', () => {
-  const out = ensureGreeting('Good evening to you too, Ben. How may we assist you tonight, po?', 'Ben', 'en');
-  assertEquals(out.includes('To you too'), false);
-  assertEquals(out.endsWith('Cascade Hideaway. How may we assist you tonight, po?'), true);
-  const live = "Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, here with Marifel and our team. How may we assist you tonight, po?\n\nWe can arrange everything right here in the chat, or you may see the home and live availability on our site:\n\n👉 https://tinyurl.com/Stay-at-Cascade";
-  assertEquals(isCold(live), false);
-});
 
-// Golden run 2026-09-25, fu-ok-salamat-tl: the intro sat between "Hi Ben!" and the thank-you sentence.
-Deno.test('the intro follows the thank-you sentence even when a short salutation comes first', () => {
-  const out = withIntro('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Yes po, may libreng parking.', 'tl');
-  assertEquals(out.startsWith('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. ' + CASSY_INTRO.tl.trimEnd()), true);
-  assertEquals(withIntro('Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, we have Wi-Fi.', 'en').startsWith('Hi Ben, thank you for reaching out to Cascade Hideaway. ' + CASSY_INTRO.en.trimEnd()), true);
-});
 
-// Golden run 2026-09-25, reg-bot-bis (R10, 719 characters): a bare "sa site" invitation survived beside the look block.
-Deno.test('a bare "sa site" invitation is dropped when the look block carries the site', () => {
-  const r = 'Kung may dates na kayo in mind, i-share lang dito at iche-check namin agad. Puwede rin ninyong i-check ang live availability at ang aming direct rates sa site.';
-  assertEquals(dropSiteInvite(r), 'Kung may dates na kayo in mind, i-share lang dito at iche-check namin agad.');
-});
 
 // Golden run 2026-09-25, first-rate-tl (R10 "5 paragraphs").
 import { fitParagraphs } from './voice.ts';
@@ -687,4 +536,9 @@ Deno.test('D-286: parseDraftJson reads answer and ask, and falls back to reply',
   const c = parseDraftJson('{"answer": "Yes.\nMore.", "ask": "Kailan po?", "uncertain": true}');
   assertEquals([c.answer, c.ask, c.uncertain], ['Yes.\nMore.', 'Kailan po?', true]);
   assertEquals(parseDraftJson('{"reply":"Old shape."}').reply, 'Old shape.');
+});
+import { contractions } from './voice.ts';
+Deno.test('D-286: an English answer keeps natural contractions (the half of tidyReply that stays)', () => {
+  assertEquals(contractions('We will have it ready, and you are welcome to check in. It is quiet.'), "We'll have it ready, and you're welcome to check in. It's quiet.");
+  assertEquals(contractions('The window for you would be Oct 2.'), 'The window for you would be Oct 2.'); // never after a preposition
 });

@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { classify, gate, needsDatesFirst, trimRepeatedInvite } from './policy.ts';
+import { classify, gate, needsDatesFirst } from './policy.ts';
 
 Deno.test('mandatory escalations are caught before the model', () => {
   assertEquals(classify('Hi, what is the door code? I am locked out'), 'access');
@@ -59,15 +59,6 @@ Deno.test('early/late check-in-out without dates is answered deterministically',
   assertEquals(needsDatesFirst('Late check out 3pm on Oct 5?', ''), false);
   assertEquals(needsDatesFirst('Can we check in at midnight?', ''), false);
   assertEquals(needsDatesFirst('Do you have a crib?', ''), false);
-});
-
-Deno.test('site invitation and closer are dropped when already sent, kept on fresh or booking questions', () => {
-  const url = 'https://tinyurl.com/Stay-at-Cascade';
-  const reply = 'Hello Ana.\n\nYes, there is an iron.\n\nYou can secure your dates here:\n\n👉 ' + url + "\n\nWe'd be happy to welcome you.";
-  assertEquals(trimRepeatedInvite(reply, ['earlier reply with ' + url], 'Is there an iron?', url), 'Hello Ana.\n\nYes, there is an iron.');
-  assertEquals(trimRepeatedInvite(reply, [], 'Is there an iron?', url), reply);
-  assertEquals(trimRepeatedInvite(reply, ['earlier reply with ' + url], 'How much for 2 nights?', url), reply);
-  assertEquals(trimRepeatedInvite(reply, ['no link here', 'none here either'], 'Is there an iron?', url), reply);
 });
 
 Deno.test('D-222 P0: a trust question is not a complaint, and "more than N" counts people only', () => {
