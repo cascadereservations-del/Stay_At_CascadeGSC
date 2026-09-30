@@ -21,6 +21,16 @@ if [ ! -f "$DIR/.env" ]; then
   chmod 600 "$DIR/.env"
   echo "   new dashboard password written to $DIR/.env (read it with: ssh alfred cat $DIR/.env)"
 fi
+# Hardening (2026-09-30, OmniRoute v3.8.50 docs: docs/security/INFERENCE_AUTH_POSTURE.md, docs/reference/ENVIRONMENT.md):
+# - REQUIRE_API_KEY defaults to false and a bad bearer is treated as anonymous: /v1/chat/completions answered 200 with NO key
+#   until this was set (probed 2026-09-30 04:24Z; only the agent's two 5-token probes used it).
+# - EMERGENCY_FALLBACK (on by default) reroutes to NVIDIA's free tier, whose terms forbid serving end users.
+# - Call logs keep full request bodies (guest names, phones): 2 days, not 7; no conversation history.
+setenv() { grep -q "^$1=" "$DIR/.env" && sed -i "s|^$1=.*|$1=$2|" "$DIR/.env" || echo "$1=$2" >> "$DIR/.env"; }
+setenv REQUIRE_API_KEY true
+setenv OMNIROUTE_EMERGENCY_FALLBACK false
+setenv OMNIROUTE_DISABLE_CONVERSATION_TRACKING 1
+setenv CALL_LOG_RETENTION_DAYS 2
 cat > "$DIR/docker-compose.yml" <<EOF
 name: cascade-omniroute
 services:
