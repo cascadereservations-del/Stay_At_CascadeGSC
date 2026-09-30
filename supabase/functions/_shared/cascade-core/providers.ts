@@ -54,27 +54,43 @@ async function gemini(q: ChatJsonRequest): Promise<string> {
   return j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
-async function openrouter(q: ChatJsonRequest): Promise<string> {
+/** An OpenAI-compatible chat call: OpenRouter (either Cascade key) or Cascade's own OmniRoute gateway. */
+async function openaiChat(q: ChatJsonRequest, p: { name: 'openrouter' | 'omniroute'; url: string; key: string; model: Record<string, unknown> }): Promise<string> {
   const messages = [
     { role: 'system', content: q.system },
     ...q.history.map((h) => ({ role: h.role, content: h.text })),
     { role: 'user', content: q.question },
   ];
-  const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const r = await fetch(`${p.url}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey()}`, 'X-Title': q.title ?? 'Cascade' },
-    // Session 58: OpenRouter's own fallback list - a Google outage on the primary no longer leaves the guest without a
-    // reply while Gemini direct has no credit (402). Tested live: the list is accepted and the fallback returns JSON.
-    body: JSON.stringify({ models: [q.tier === 'lite' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL], messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, ...(q.plain ? {} : { response_format: { type: 'json_object' } }) }),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.key}`, 'X-Title': q.title ?? 'Cascade' },
+    body: JSON.stringify({ ...p.model, messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, ...(q.plain ? {} : { response_format: { type: 'json_object' } }) }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
   });
-  if (!r.ok) throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`);
+  if (!r.ok) throw new Error(`${p.name}_${r.status}: ${(await r.text()).slice(0, 300)}`);
   const j = await r.json();
-  const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'openrouter', model: j?.model, title: q.title, tier: q.tier ?? 'full', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
+  const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: p.name, model: j?.model, title: q.title, tier: q.tier ?? 'full', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
   // A reply cut by max_tokens reads as a sentence that stops mid-word (live 2026-09-24): make it visible, and let the
   // caller fall back rather than send half a sentence.
-  if (j?.choices?.[0]?.finish_reason === 'length') { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens })); throw new Error('openrouter_truncated'); }
+  if (j?.choices?.[0]?.finish_reason === 'length') { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens })); throw new Error(`${p.name}_truncated`); }
   return j?.choices?.[0]?.message?.content ?? '';
+}
+// Session 58: OpenRouter's own fallback list - a Google outage on the primary no longer leaves the guest without a
+// reply while Gemini direct has no credit (402). Tested live: the list is accepted and the fallback returns JSON.
+const openrouter = (q: ChatJsonRequest, key: string) => openaiChat(q, { name: 'openrouter', url: 'https://openrouter.ai/api/v1', key,
+  model: { models: [q.tier === 'lite' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL] } });
+/** 2026-09-30 (Lloyd, the Gemini prepay empty): the rungs after the guests' OpenRouter key - a second Cascade OpenRouter key
+ *  with its own cap (CASCADE_OPENROUTER_BACKUP_KEY), then Cascade's own OmniRoute gateway (CASCADE_OMNIROUTE_URL,
+ *  CASCADE_OMNIROUTE_KEY, CASCADE_OMNIROUTE_MODEL = its combo; never Alfred's). A rung whose secret is unset is skipped, and
+ *  a probe or golden run (keyOverride) spends neither. */
+function backupRungs(q: ChatJsonRequest): Array<{ name: string; run: () => Promise<string> }> {
+  if (keyOverride) return [];
+  const out: Array<{ name: string; run: () => Promise<string> }> = [];
+  const backup = env('CASCADE_OPENROUTER_BACKUP_KEY');
+  if (backup) out.push({ name: 'openrouter_backup', run: () => openrouter(q, backup) });
+  const url = env('CASCADE_OMNIROUTE_URL').replace(/\/+$/, ''), key = env('CASCADE_OMNIROUTE_KEY');
+  if (url && key) out.push({ name: 'omniroute', run: () => openaiChat(q, { name: 'omniroute', url, key, model: { model: env('CASCADE_OMNIROUTE_MODEL') || 'cascade-guest' } }) });
+  return out;
 }
 
 /** JSON-mode chat with provider fallback. Returns the raw text; throws when both providers fail. */
@@ -94,11 +110,13 @@ async function tripOn(e: unknown): Promise<void> {
   await geminiBreaker.trip?.(geminiBreaker.until).catch((err) => console.error('gemini_breaker_persist_failed', String(err).slice(0, 200)));
 }
 export async function chatJson(q: ChatJsonRequest): Promise<string> {
-  const hasOr = Boolean(orKey());
-  if (hasOr) {
-    try { return await openrouter(q); } catch (e) {
-      if (!geminiOpen()) throw e;
-      console.error('openrouter_failed_trying_gemini', String(e).slice(0, 300));
+  const rungs = [...(orKey() ? [{ name: 'openrouter', run: () => openrouter(q, orKey()) }] : []), ...backupRungs(q)];
+  let first: unknown = null;
+  for (const [i, r] of rungs.entries()) {
+    try { return await r.run(); } catch (e) {
+      first ??= e;
+      if (i === rungs.length - 1 && !geminiOpen()) throw first; // the guests' key error is the one the host card names (D-227)
+      console.error(`${r.name}_failed_trying_next`, String(e).slice(0, 300));
     }
   }
   try { return await gemini(q); } catch (e) { await tripOn(e); throw e; }
