@@ -46,17 +46,10 @@ for _ in $(seq 1 30); do code=$(curl -s -o /dev/null -w '%{http_code}' http://lo
 echo "   http://localhost:20129/ -> $code"
 [ "$code" != "000" ] || { echo "cascade-omniroute did not answer"; exit 1; }
 
-echo "== 4 tunnel: $HOST, /v1/ only"
-if ! grep -q "hostname: $HOST" "$CFG"; then
-  cp "$CFG" "$CFG.bak-$(date +%Y%m%d%H%M)-cascade-omniroute"
-  sed -i "s#^  - service: http_status:404\$#  - hostname: $HOST\n    path: ^/v1/\n    service: http://localhost:20129\n  - hostname: $HOST\n    service: http_status:404\n  - service: http_status:404#" "$CFG"
-fi
-cloudflared tunnel --config "$CFG" ingress validate
-echo "   restarting cloudflared (the other tunnel hostnames blip for a few seconds)"
-systemctl restart cloudflared
-sleep 5
-systemctl is-active cloudflared
+# == tunnel: NOT done here. alfred-brain is remotely managed - its routes live in the Cloudflare dashboard (Networking ->
+# Tunnels -> alfred-brain -> Routes) and $CFG's ingress is ignored (found 2026-09-30: an edit here gave 404). The route is
+# route 10 there: $HOST, path ^/v1/, service http://localhost:20129 (added 2026-09-30); every other path answers 404.
 
-echo "== 5 local checks"
+echo "== 4 local checks"
 curl -s -o /dev/null -w "   /v1/models without a key -> %{http_code} (401 expected)\n" http://localhost:20129/v1/models
 docker ps --filter name=cascade-omniroute --format '   {{.Names}} {{.Status}} {{.Ports}}'
