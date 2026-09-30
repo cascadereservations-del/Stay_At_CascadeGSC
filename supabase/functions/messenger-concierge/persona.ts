@@ -736,6 +736,15 @@ export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boo
   return { text, stripped };
 }
 
+/** Golden AFTER #2 (R10): the code's stay figures plus the sentence of care made one answer paragraph of 330-360 characters.
+ *  A paragraph over 320 splits at the sentence boundary nearest its middle. */
+const splitLong = (answer: string) => answer.split(/\n\s*\n/).flatMap((p) => {
+  const ss = p.length > 320 ? sentencesOf(p) : [];
+  if (ss.length < 2) return [p];
+  let best = 1, cost = Infinity;
+  for (let k = 1; k < ss.length; k++) { const a = ss.slice(0, k).join('').length, m = Math.max(a, p.length - a); if (m < cost) { cost = m; best = k; } }
+  return [ss.slice(0, best).join('').trim(), ss.slice(best).join('').trim()];
+}).join('\n\n');
 /** A sentence that belongs to the answer (the host line, a first reply's ask) closes its last paragraph when it fits. */
 const joinLast = (answer: string, s: string) => {
   if (!answer) return s;
@@ -754,7 +763,7 @@ export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx
   const close = !c.greet && /https?:\/\/\S+\s*$/.test(step) ? closeLine(c.lang, c.prevBot) : '';
   // The model's sentence of care stays unless code closes the message (golden AFTER 2026-09-30: stripped, replies read cold).
   const clean = cleanAnswer(m.answer, { greeted: c.greet, followUp: c.followUp, name: c.name, codeCloses: !!close });
-  let answer = c.flowFollowUp ? answerOnly(clean.text) : clean.text;
+  let answer = splitLong(c.flowFollowUp ? answerOnly(clean.text) : clean.text);
   if (c.hostLine) answer = joinLast(answer, c.hostLine);
   if (askInAnswer) answer = joinLast(answer, ask!);
   const fit = fitParagraphs(answer, 2);

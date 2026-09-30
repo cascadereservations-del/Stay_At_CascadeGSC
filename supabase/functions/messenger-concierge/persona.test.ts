@@ -320,3 +320,19 @@ Deno.test('D-286 golden AFTER: the answer keeps its sentence of care unless code
   const linked = P.compose({ answer: care, ask: null }, ctx({ bookingTurn: true })).reply;
   assert(!linked.includes('ready for you') && linked.trimEnd().endsWith('🌿'), linked);
 });
+
+// Golden AFTER #2 2026-09-30 (s63-month-en, s63-deposit-en, s63-month-tl): the code's stay figures plus the sentence of care
+// made one answer paragraph of 330-360 characters (R10), and pushed the ask into a paragraph of its own.
+Deno.test('D-286 golden AFTER #2: a long answer paragraph splits at a sentence, and the ask joins the second half', () => {
+  const long = `For a month-long stay, your direct rate comes down to PHP 1,335 per night from the standard PHP 1,780, so that's about PHP 40,050 for the stay instead of PHP 53,400. You'll keep about PHP 13,350, plus we'll provide drinking water for the stay and a complimentary mid-stay refresh with fresh linens and towels, so you can settle in comfortably for the month.`;
+  assert(long.length > 320);
+  for (const o of [{ greet: true, intro: true, followUp: false }, {}] as Partial<P.ComposeCtx>[]) {
+    const r = P.compose({ answer: long, ask: 'Which dates do you have in mind?' }, ctx(o)).reply;
+    const ps = paragraphs(r);
+    assert(ps.every((p) => p.replace(/\n[^\n]*https?:\/\/[^\n]*/g, '').length <= 320), r);
+    assert(ps.length <= 4, r);
+    assert(r.includes('PHP 40,050') && r.includes('PHP 13,350') && r.includes('Which dates do you have in mind?'), r);
+  }
+  const short = 'Yes, there is free parking.';
+  assertEquals(P.compose({ answer: short, ask: null }, ctx({ quiet: true })).reply, short);
+});
