@@ -18,7 +18,7 @@ import type { Lang } from './booking.ts';
 import type { RiskCode } from './policy.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { currentContact, type Contact } from '../_shared/cascade-core/contact.ts';
-import { ALWAYS_CLOSE_RE, answerOnly, ASKING_RE, asksHeld, capName, CLOSE_START_RE, CLOSER_RE, decisionInvite, firstInvite, fitParagraphs, INVITE_RE, sentencesOf, thinPo } from './voice.ts';
+import { ALWAYS_CLOSE_RE, answerOnly, ASKING_RE, asksDates, asksHeld, capName, DATES_NUDGE_RE, CLOSE_START_RE, CLOSER_RE, decisionInvite, firstInvite, fitParagraphs, INVITE_RE, sentencesOf, thinPo } from './voice.ts';
 
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 const by = pick;
@@ -701,7 +701,7 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  *  becomes "Ben,"), the greeting's thank-you and Cassy sentences when code greets, every link line and the ":" sentence
  *  that introduced it, invitation and closing sentences, and every 🌿. `stripped` is logged as frame_stripped, so we can
  *  measure how often the model still writes a frame. May return '' (an answer that was all frame). */
-export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boolean; name?: string | null; codeCloses?: boolean }): { text: string; stripped: string[] } {
+export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boolean; name?: string | null; codeCloses?: boolean; datesAsked?: boolean }): { text: string; stripped: string[] } {
   const stripped: string[] = [];
   let t = answer.trim();
   if (t.includes('🌿')) { stripped.push('🌿'); t = t.replace(/[ \t]*🌿/gu, ''); }
@@ -727,6 +727,7 @@ export function cleanAnswer(answer: string, o: { greeted: boolean; followUp: boo
     }
     kept.push(sentencesOf(line).filter((s) => {
       const drop = (INVITE_RE.test(s) && ASKING_RE.test(s)) || s.search(CLOSER_RE) >= 0 || ALWAYS_CLOSE_RE.test(s) || (!!o.codeCloses && CLOSE_START_RE.test(s))
+        || (!!o.datesAsked && DATES_NUDGE_RE.test(s) && !/\?\s*$/.test(s)) // the ask or the next step already asks for dates
         || (o.greeted && (THANKED_SENTENCE_RE.test(s) || /\bCassy\b/.test(s)));
       if (drop && s.trim()) stripped.push(s.trim());
       return !drop;
@@ -762,7 +763,8 @@ export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx
   const step = nextStep(c, askInAnswer ? null : ask);
   const close = !c.greet && /https?:\/\/\S+\s*$/.test(step) ? closeLine(c.lang, c.prevBot) : '';
   // The model's sentence of care stays unless code closes the message (golden AFTER 2026-09-30: stripped, replies read cold).
-  const clean = cleanAnswer(m.answer, { greeted: c.greet, followUp: c.followUp, name: c.name, codeCloses: !!close });
+  const datesAsked = (!!ask && !asksHeld(ask, c.held) && asksDates(ask)) || asksDates(step);
+  const clean = cleanAnswer(m.answer, { greeted: c.greet, followUp: c.followUp, name: c.name, codeCloses: !!close, datesAsked });
   let answer = splitLong(c.flowFollowUp ? answerOnly(clean.text) : clean.text);
   if (c.hostLine) answer = joinLast(answer, c.hostLine);
   if (askInAnswer) answer = joinLast(answer, ask!);

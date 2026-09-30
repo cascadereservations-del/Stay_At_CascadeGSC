@@ -200,7 +200,12 @@ export const CLOSE_START_RE = /^\s*(we'?d be (happy|glad|so glad) to (welcome|ha
 /** Never kept: the "we're here" closer beside a next step, and a promise of preparation to a guest with no booking (live 2026-09-30). */
 export const ALWAYS_CLOSE_RE = /^\s*(we'?re (always )?here (if|whenever|for)|we'?re one message away)|prepared (for|before) (you |your )?arriv/i;
 /** D-286: the model's one question asks for a slot the chat already holds (dates, the count, the name). */
-const DATES_ASK_RE = /\b(which|what) dates\b|\bdates (do|would) you\b|\bdates in mind\b|\bpreferred dates\b|\bkailan\b|\bkanus-?a\b|\bcheck-?in and check-?out\b/i;
+const DATES_ASK_RE = /\b(which|what) dates\b|\bdates (do|would) you\b|\bdates in mind\b|\bpreferred dates\b|\bkailan\b|\bkanus-?a\b|\bcheck-?in and check-?out\b|\bmay dates na\b|\bnaa na (mo|moy) dates\b/i;
+/** The line asks the guest for their dates (the model's ask, or the code's next step). */
+export const asksDates = (s: string) => DATES_ASK_RE.test(s);
+/** A share-your-dates statement ("Kung may dates na kayo in mind, i-share lang dito...", "If you have dates in mind, share
+ *  them here...", "Just let us know your preferred dates..."). Golden AFTER #3: the model wrote one beside its own dates ask. */
+export const DATES_NUDGE_RE = /\b(share|i-share|sabihin|ingna|let us know|tell us|send)\b[^.?!\n]{0,40}\b(dates?|petsa)\b|\b(if|kung|kapag|when)\b[^.?!\n]{0,30}\bdates?\b[^.?!\n]{0,40}\b(share|i-share|sabihin|ingna|let us know|tell us)\b/i;
 export const asksHeld = (ask: string, held: { dates: boolean; pax: boolean; name: boolean }) =>
   (held.dates && DATES_ASK_RE.test(ask)) || (held.pax && PAX_ASK_RE.test(ask.trim())) || (held.name && ask.search(NAME_ASK_RE) >= 0);
 

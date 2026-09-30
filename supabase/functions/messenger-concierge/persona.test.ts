@@ -336,3 +336,20 @@ Deno.test('D-286 golden AFTER #2: a long answer paragraph splits at a sentence, 
   const short = 'Yes, there is free parking.';
   assertEquals(P.compose({ answer: short, ask: null }, ctx({ quiet: true })).reply, short);
 });
+
+// Golden AFTER #3 + live tl probe 2026-09-30 (s63-month-tl, 705-746 characters): the model wrote its own Taglish dates
+// nudge inside the answer ("Kung may dates na kayo in mind, i-share lang dito..."), then asked for dates, then the code's
+// invitation followed - three calls to action. The nudge goes when the ask or the next step already asks for dates.
+Deno.test('D-286 golden AFTER #3: a share-your-dates line in the answer goes when the ask or the next step asks for dates', () => {
+  const tlAnswer = `Para sa 30 nights po, bumababa ang direct rate namin sa PHP 1,335 per night mula sa standard PHP 1,780, kaya mga PHP 40,050 para sa buong stay imbes na PHP 53,400. Makakatipid po kayo ng mga PHP 13,350, at kasama na rin ang drinking water for the stay at complimentary mid-stay refresh with fresh linens and towels.\n\nKung may dates na kayo in mind, i-share lang dito para ma-check namin ang availability for you.`;
+  const live = P.compose({ answer: tlAnswer, ask: 'May dates na ba kayo for your month-long stay?' }, ctx({ lang: 'tl', greet: true, intro: true, followUp: false })).reply;
+  assert(!/i-share lang dito/.test(live), live);
+  assert(live.includes('May dates na ba kayo') && live.includes('PHP 40,050'), live);
+  assert(live.length <= 700, `${live.length}: ${live}`);
+  const en = `Yes, there's free parking in front of the unit. If you have dates in mind, share them here and we'll check them for you.`;
+  assertEquals(P.compose({ answer: en, ask: null }, ctx({})).reply.includes('share them here'), false); // the next step is the dates line
+  // no dates ask anywhere else in the message: the model's own line is the only one, so it stays
+  assert(P.compose({ answer: en, ask: null }, ctx({ datesKnown: true, siteRecent: true })).reply.includes('share them here'));
+  // a question is the ask, never dropped as a nudge
+  assert(P.cleanAnswer('Which dates do you have in mind?', { greeted: false, followUp: true, datesAsked: true }).text.includes('Which dates'));
+});
