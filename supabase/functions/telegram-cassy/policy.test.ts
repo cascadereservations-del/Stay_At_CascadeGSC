@@ -1,6 +1,6 @@
 // deno test telegram-cassy/policy.test.ts  (run from supabase/functions)
 import { assertEquals, assert } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, HISTORY_WINDOW_MS } from './policy.ts';
 
 Deno.test('deep tier: /deep before or after the address escalates and is removed; the cap is exclusive', () => {
   assertEquals(deepRequest('/deep compare August and September occupancy'), { deep: true, text: 'compare August and September occupancy' });
@@ -128,4 +128,17 @@ Deno.test('SPEC-23: a stock list survives only when a stock tool ran, and histor
   const memo = memoOf(stale);
   assertEquals(memo, 'Ashley Abutazil has stayed with us twice.');
   assert(!memo.includes('•') && !/reorder/.test(memo));
+});
+
+Deno.test('history window: 5-day-old turns are dropped, 5-minute-old kept, exactly 30 minutes kept, order user then model', () => {
+  const now = Date.parse('2026-10-01T21:27:00Z');
+  const at = (ms: number) => new Date(now - ms).toISOString();
+  assertEquals(HISTORY_WINDOW_MS, 30 * 60_000);
+  assertEquals(recentTurns([{ created_at: at(5 * 86_400_000) }], now), []);
+  assertEquals(recentTurns([{ created_at: at(5 * 60_000) }], now).length, 1);
+  assertEquals(recentTurns([{ created_at: at(30 * 60_000) }], now).length, 1);
+  assertEquals(recentTurns([{ created_at: at(30 * 60_000 + 1) }], now).length, 0);
+  // remember() stamps user = t, model = t + 1 ms; the fetch is newest-first and index.ts reverses it
+  const rows = [{ role: 'model', created_at: at(59_999) }, { role: 'user', created_at: at(60_000) }];
+  assertEquals(recentTurns(rows, now).reverse().map((r) => r.role), ['user', 'model']);
 });

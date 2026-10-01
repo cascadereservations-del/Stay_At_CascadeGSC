@@ -82,3 +82,11 @@ export function onlyAskedFor(r: { decision: string; lines: string[]; action: str
 export function memoOf(r: { decision: string; lines: string[]; action: string }): string {
   return (r.decision || r.lines[0] || '').trim();
 }
+
+/** Chat history is context for a follow-up, not a memory: a turn older than this never reaches the model. Live 2026-10-02:
+ *  a 5-day-old "when is the next availability" pair was echoed as the answer to "where is the aircon remote?".
+ *  ponytail: one fixed window; per-topic relevance if staff start asking follow-ups after a longer pause. */
+export const HISTORY_WINDOW_MS = 30 * 60_000;
+export function recentTurns<T extends { created_at: string }>(rows: T[], nowMs: number, maxAgeMs = HISTORY_WINDOW_MS): T[] {
+  return rows.filter((r) => nowMs - Date.parse(r.created_at) <= maxAgeMs);
+}

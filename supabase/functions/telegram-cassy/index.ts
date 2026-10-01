@@ -14,7 +14,7 @@ import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaTo
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { HOUSE_READ_DECL, HOUSE_TEACH_DECL, houseInfo, teachCard } from '../_shared/cascade-core/house.ts'; // D-282
 import { toneRules } from '../messenger-concierge/voice.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, type Surface } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
 import { draftRequest, draftGuestReply, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
@@ -30,6 +30,7 @@ Asked when the unit is next free or available: call stays with to = today + 30 d
 Answer only from tool results. If a tool has no data, say so plainly; never estimate or invent.
 If a tool returns an error, say "I could not read <what>" and stop; never ask anyone for permission or access.
 Call only the tools the question needs.
+Earlier turns are context only. Answer the CURRENT question from THIS turn's tool results; never repeat an earlier answer.
 House how-tos (aircon, Wi-Fi, door, EcoFlow, turnover steps, suppliers): call house_info and answer from it; never invent a step.
 Write tools (log_expense, create_notice, teach_house_fact) only send a confirmation card; after one, your decision line says what the card holds and the action is "Tap ✅ on the card". Nothing is saved until the tap.
 ${surface === 'ops' ? 'SURFACE OPS: staff and cleaners read this. Money fields are removed from your tools; never mention amounts.' : 'SURFACE FINANCE: admins read this; figures are allowed.'}
@@ -46,14 +47,15 @@ async function tgSend(chatId: unknown, text: string, replyTo?: number, card?: Ca
 }
 
 async function history(db: any, chatId: string): Promise<ChatTurn[]> {
-  const { data } = await db.from('telegram_chat_history').select('role,parts').eq('chat_id', chatId).order('created_at', { ascending: false }).limit(6);
-  return ((data ?? []) as any[]).reverse()
+  const { data } = await db.from('telegram_chat_history').select('role,parts,created_at').eq('chat_id', chatId).order('created_at', { ascending: false }).limit(6);
+  return recentTurns((data ?? []) as any[], Date.now()).reverse()
     .map((r) => ({ role: r.role === 'model' ? 'assistant' : 'user', text: (r.parts ?? []).map((p: any) => p.text ?? '').join('').trim() } as ChatTurn))
     .filter((t) => t.text);
 }
 
 async function remember(db: any, chatId: string, q: string, a: string): Promise<void> {
-  await db.from('telegram_chat_history').insert([{ chat_id: chatId, role: 'user', parts: [{ text: q }] }, { chat_id: chatId, role: 'model', parts: [{ text: a }] }]);
+  const now = Date.now(); // distinct stamps: one insert used to give both rows the same created_at and the order read back at random
+  await db.from('telegram_chat_history').insert([{ chat_id: chatId, role: 'user', parts: [{ text: q }], created_at: new Date(now).toISOString() }, { chat_id: chatId, role: 'model', parts: [{ text: a }], created_at: new Date(now + 1).toISOString() }]);
   const { data: old } = await db.from('telegram_chat_history').select('id').eq('chat_id', chatId).order('created_at', { ascending: true });
   const rows = (old ?? []) as any[];
   if (rows.length > 12) await db.from('telegram_chat_history').delete().in('id', rows.slice(0, rows.length - 12).map((r) => r.id));
