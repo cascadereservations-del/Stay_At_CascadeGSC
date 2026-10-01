@@ -29,6 +29,7 @@ import { chatJson, geminiBreaker, setProviderKey } from '../_shared/cascade-core
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
 import { withHeader } from '../_shared/cascade-core/format.ts';
+import { maskMoney } from '../_shared/ops-money.ts'; // OPS never shows guest money (Lloyd 2026-10-02); the guest text and the sent options stay whole
 import { raiseWorkOrder } from '../_shared/cascade-core/workorders.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -448,7 +449,12 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
     options.map((_, i) => ({ text: `Send option ${i + 1}`, callback_data: `ch:${short}:${i + 1}` })),
     [{ text: '✍️ Write my own', callback_data: `ch:${short}:own` }],
   ].filter((r) => r.length);
-  const sent = await tgCall('sendMessage', { chat_id: chat, text: body, disable_web_page_preview: true, reply_markup: { inline_keyboard: keyboard } });
+  // Lloyd 2026-10-02: OPS (cleaners present) reads the card with amounts and the payment number hidden; the options stored in
+  // concierge_handoffs, and so what a tap sends the guest, are whole. Finance gets the full card when anything was hidden.
+  const opsBody = maskMoney(body);
+  const sent = await tgCall('sendMessage', { chat_id: chat, text: opsBody, disable_web_page_preview: true, reply_markup: { inline_keyboard: keyboard } });
+  const fin = env('TELEGRAM_FINANCE_CHAT_ID');
+  if (fin && fin !== chat && opsBody !== body) await tgCall('sendMessage', { chat_id: fin, text: `${body}\n\n(Full text for Finance. The OPS card hides amounts and the payment number; answer from the OPS card.)`, disable_web_page_preview: true });
   if (sent?.result?.message_id) await db.from('concierge_handoffs').update({ tg_message_id: sent.result.message_id }).eq('id', id);
   // Session 58 (Lloyd 2026-09-28: "notification specially regarding urgent guest concerns ... both in email and telegram"):
   // the first card of an access or safety matter also reaches the Finance group and the host inbox, so a
@@ -580,7 +586,7 @@ async function sendHostReply(db: Db, short: string, text: string, from: any, cbI
   // Before this the card showed a tick and the row closed while the guest had received nothing.
   if (!(await fbSend(h.psid, final, true))) {
     if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: 'Messenger refused the send. Nothing was sent.' });
-    if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: `\u26a0\ufe0f Messenger refused the reply to ${h.guest_name ?? h.psid}, so nothing was sent and this is still open. Tap again in a minute.\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}` });
+    if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: maskMoney(`\u26a0\ufe0f Messenger refused the reply to ${h.guest_name ?? h.psid}, so nothing was sent and this is still open. Tap again in a minute.\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}`) });
     return;
   }
   const now = new Date().toISOString();
@@ -588,7 +594,7 @@ async function sendHostReply(db: Db, short: string, text: string, from: any, cbI
   const { data: t } = await db.from('concierge_threads').select('history').eq('psid', h.psid).maybeSingle();
   await db.from('concierge_threads').upsert({ psid: h.psid, history: [...(t?.history ?? []), { role: 'bot', text: final, at: now }].slice(-HISTORY_KEEP * 2), updated_at: now });
   if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: `Sent as ${name}` });
-  if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: `✅ ${name} replied to ${h.guest_name ?? h.psid}:\n${text.trim().slice(0, 600)}\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}` });
+  if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: maskMoney(`✅ ${name} replied to ${h.guest_name ?? h.psid}:\n${text.trim().slice(0, 600)}\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}`) });
 }
 
 // Telegram updates forwarded by telegram-expense: button taps and "write my own" replies.

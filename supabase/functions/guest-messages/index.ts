@@ -14,9 +14,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
-import { withHeader, groups, autoKeyboard } from '../_shared/cascade-core/format.ts';
+import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { fbSendText, threadForBooking } from '../_shared/cascade-core/messenger.ts';
-import { SUBJECT, channelFor, chunks, day, doorCodeCard, render, type Key } from './templates.ts';
+import { SUBJECT, channelFor, chunks, doorCodeCard, messageCards, render, type Key } from './templates.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -26,10 +26,6 @@ const FINANCE_CHAT = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID') ?? '';
 const RELAY_URL    = Deno.env.get('EMAIL_RELAY_URL') ?? '';
 const RELAY_TOKEN  = Deno.env.get('EMAIL_RELAY_TOKEN') ?? '';
 const JSON_H       = { 'Content-Type': 'application/json' };
-const LABEL: Record<Key, string> = {
-  confirmation: 'Message 1 (confirmation)', pre_arrival: 'Message 2 (arrival and balance)', door_code: 'Message 3 (door code)',
-  mid_stay: 'Message 4 (mid-stay refresh)', checkout_reminder: 'Message 5.1 (check-out reminder)', after_departure: 'Message 5.2 (thank you and reviews)',
-};
 // Session 56: the door-code card gets Show as text only - no Revise, so no model ever reshapes a text that will hold a PIN.
 const SHOW_ONLY = { inline_keyboard: [[{ text: '📄 Show as text', callback_data: 'tpl:copy' }]] };
 
@@ -133,13 +129,10 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         const outcome = status === 'sent' ? (channel === 'messenger' ? '✅ sent on Messenger' : `✅ e-mailed to ${b.guest_email}`)
           : hold ? '✋ not sent: an open complaint, please write personally'
           : status === 'skipped' ? '✋ not sent: no open chat and no e-mail, please send it' : `✋ not sent (${err}), please send it`;
-        await tgSend(withHeader('guest', `${key} ${ref}`, groups(
-          [`${LABEL[key]} for ${b.guest_name} · ${day(b.checkin_date)} → ${day(b.checkout_date)}`, outcome],
-          [`👤 ${b.guest_phone ?? ''}${b.guest_email ? ` · ${b.guest_email}` : ''}`, t ? `💬 https://www.facebook.com/messages/t/${t.psid}` : null],
-          [status === 'sent' ? 'Do: nothing; the text is below for your record.'
-            : hold ? 'Do: write to the guest yourself once the concern is settled; the usual text is below for reference.'
-            : 'Do: send it by hand (Show as text, then long-press to copy).'],
-        )) + `\n\n📨 ⤵\n${text}`);
+        const cards = messageCards({ key, ref, name: b.guest_name, checkin: b.checkin_date, checkout: b.checkout_date, outcome, status, hold,
+          phone: b.guest_phone, email: b.guest_email, psid: t?.psid, text });
+        await tgSend(cards.ops);
+        if (cards.finance) await tgSend(cards.finance, FINANCE_CHAT); // amounts and the GCash number live here only (Lloyd 2026-10-02)
         results.push({ ref, key, channel, status });
       } catch (e) {
         console.error('guest-messages row', ref, lockKey, String(e));

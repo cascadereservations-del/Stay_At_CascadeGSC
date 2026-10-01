@@ -115,3 +115,35 @@ Deno.test('messages 4, 5.1, 5.2 open with the first name and carry the relay sub
   assertEquals([SUBJECT.mid_stay, SUBJECT.checkout_reminder, SUBJECT.after_departure], ["A mid-stay refresh, if you'd like one", 'Your check-out today', 'Thank you for staying with us']);
 });
 // The 5.2 hold rule lives in SQL (guest_message_hold_v1) and is pinned by pgTAP stay-site tests/database/guest_message_reads.sql.
+
+// Lloyd 2026-10-02: OPS never shows guest money or the payment number; Finance and the guest keep the whole text.
+import { messageCards } from './templates.ts';
+const cardFor = (key: Key, f: Fields, status = 'sent', hold = false) => {
+  const text = render(key, f, 'email');
+  return { text, ...messageCards({ key, ref: 'DIR-AB12CD34', name: f.guest_name, checkin: f.checkin_date, checkout: f.checkout_date, outcome: '✅ sent', status, hold, phone: '0917 000 1111', email: 'g@x.com', psid: '99', text }) };
+};
+const MONEY_LEAK = /₱|\bPHP\b|0956|\bGCash to\b.*\d|\d[\d,]{3,}\b.*balance/i;
+
+Deno.test('OPS card for the money messages hides every amount and the GCash number; Finance carries the full text; the sent text is whole', () => {
+  for (const key of ['confirmation', 'pre_arrival'] as Key[]) for (const f of [ben, full, long]) for (const status of ['sent', 'skipped', 'failed']) {
+    const c = cardFor(key, f, status);
+    // the text a guest is sent: the template output, untouched by the card builder
+    assertEquals(c.text, render(key, f, 'email'));
+    assert(c.text.includes('₱1,000') && (key === 'confirmation' || c.text.includes('0956 011 5744')), `${key}: the guest text still holds the payment details`);
+    assert(c.finance !== null, `${key}/${status}: Finance copy`);
+    assert(c.finance!.endsWith(`📨 ⤵\n${c.text}`), 'Finance card ends with the exact sent text');
+    assert(!MONEY_LEAK.test(c.ops), `${key}/${status}: OPS leaked\n${c.ops}`);
+    assert(!c.ops.includes('📨'), 'no Show as text button on a masked preview');
+    assert(c.ops.includes('payment details hidden'));
+    if (status !== 'sent') assert(c.ops.includes('Finance group'), 'a hand-send is pointed at Finance');
+  }
+});
+
+Deno.test('messages with no money keep one unchanged OPS card and send nothing to Finance', () => {
+  for (const key of ['mid_stay', 'checkout_reminder', 'after_departure'] as Key[]) {
+    const c = cardFor(key, ben, 'skipped');
+    assertEquals(c.finance, null);
+    assert(c.ops.endsWith(`📨 ⤵\n${c.text}`));
+    assert(c.ops.includes('Do: send it by hand (Show as text, then long-press to copy).'));
+  }
+});

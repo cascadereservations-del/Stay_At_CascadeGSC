@@ -5,6 +5,9 @@
 // {{door_pin}} left literal for the host to type; mid_stay (D-249 timing), checkout_reminder, after_departure.
 // A missing on-ground contact drops that paragraph; a missing review URL drops its bullet, all three drop the list.
 
+import { withHeader, groups } from '../_shared/cascade-core/format.ts';
+import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
+
 export type Key = 'confirmation' | 'pre_arrival' | 'door_code' | 'mid_stay' | 'checkout_reminder' | 'after_departure';
 export type Channel = 'messenger' | 'email' | 'card_only';
 export type Fields = {
@@ -254,4 +257,29 @@ export function chunks(text: string, max = 2000): string[] {
   }
   if (cur) out.push(cur);
   return out;
+}
+
+export const LABEL: Record<Key, string> = {
+  confirmation: 'Message 1 (confirmation)', pre_arrival: 'Message 2 (arrival and balance)', door_code: 'Message 3 (door code)',
+  mid_stay: 'Message 4 (mid-stay refresh)', checkout_reminder: 'Message 5.1 (check-out reminder)', after_departure: 'Message 5.2 (thank you and reviews)',
+};
+
+/** The card(s) after a scheduled message: always one for OPS, with the guest text below it (📨 ⤵, so Show as text works).
+ *  Lloyd 2026-10-02 (hide guest money): when the text holds an amount or the payment number, OPS gets a preview with those
+ *  parts masked and no 📨 (no Show as text of a masked text), and Finance gets the full card. The sent text is never changed. */
+export function messageCards(a: { key: Key; ref: string; name: string; checkin: string; checkout: string; outcome: string; status: string;
+  hold: boolean; phone?: string | null; email?: string | null; psid?: string | null; text: string }): { ops: string; finance: string | null } {
+  const card = (byHand: string, forRef: string, block: string) => withHeader('guest', `${a.key} ${a.ref}`, groups(
+    [`${LABEL[a.key]} for ${a.name} · ${day(a.checkin)} → ${day(a.checkout)}`, a.outcome],
+    [`👤 ${a.phone ?? ''}${a.email ? ` · ${a.email}` : ''}`, a.psid ? `💬 https://www.facebook.com/messages/t/${a.psid}` : null],
+    [a.status === 'sent' ? 'Do: nothing; the text is below for your record.'
+      : a.hold ? `Do: write to the guest yourself once the concern is settled; ${forRef}`
+      : byHand],
+  )) + `\n\n${block}`;
+  const full = card('Do: send it by hand (Show as text, then long-press to copy).', 'the usual text is below for reference.', `📨 ⤵\n${a.text}`);
+  if (!hasMoney(a.text)) return { ops: full, finance: null };
+  return {
+    ops: card('Do: send it by hand from the Finance group, where the full text is.', 'the full text is in the Finance group for reference.', `📄 Preview, payment details hidden here ⤵\n${maskMoney(a.text)}`),
+    finance: full,
+  };
 }
