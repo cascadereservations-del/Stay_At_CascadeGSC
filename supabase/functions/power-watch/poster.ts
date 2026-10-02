@@ -32,12 +32,18 @@ export function classifyFile(url: string): 'hit' | 'miss' | 'read' {
   return 'read';
 }
 
+// D-290: the wording about rescheduled and cancelled schedules is the advisory prompt telegram-expense already uses for
+// photos, plus the two fields that let a cancellation or a move be acted on (status, original_date).
 export const OCR_PROMPT = 'This is a SOCOTECO II (Philippines) power interruption advisory poster. Read all of it. Return ONLY minified JSON: ' +
   '{"date":"YYYY-MM-DD","start":"HH:MM" (24-hour),"end":"HH:MM" (24-hour),"hours":number,"substation":string,"feeders":[strings as printed, e.g. "14-3"],' +
-  '"areas":[strings],"purpose":string,"kind":"SCHEDULED" or "UNSCHEDULED"}. Use null for anything the poster does not show.';
+  '"areas":[strings],"purpose":string,"kind":"SCHEDULED" or "UNSCHEDULED","status":"ACTIVE" or "CANCELLED","original_date":"YYYY-MM-DD"}. ' +
+  'Ignore any schedule marked RESCHEDULED, struck-through, or cancelled: return only the ACTIVE schedule. ' +
+  'If the poster as a whole announces that an interruption is cancelled, called off or postponed, return status CANCELLED and the date that was cancelled. ' +
+  'If it moves an interruption to a new date, return the NEW date in date and the date it was moved from in original_date. ' +
+  'Use null for anything the poster does not show.';
 
-export type Ocr = { date?: string | null; start?: string | null; end?: string | null; hours?: number | null; substation?: string | null; feeders?: string[] | null; areas?: string[] | null; purpose?: string | null; kind?: string | null };
-export type Notice = { date: string; time: string | null; hours: number | null; title: string; purpose: string; poster: string; url: string };
+export type Ocr = { date?: string | null; start?: string | null; end?: string | null; hours?: number | null; substation?: string | null; feeders?: string[] | null; areas?: string[] | null; purpose?: string | null; kind?: string | null; status?: string | null; original_date?: string | null };
+export type Notice = { date: string; time: string | null; hours: number | null; title: string; purpose: string; poster: string; url: string; status: 'active' | 'cancelled'; originalDate: string | null };
 
 /** Ours when the filename said so, or the poster names feeder 14-3, Leon Llido, our area, or all areas. */
 export function affectsUs(o: Ocr, fileHit: boolean): boolean {
@@ -61,22 +67,32 @@ export function noticeFrom(o: Ocr, fileHit: boolean, url: string): Notice | null
   const where = [o.substation, (o.feeders ?? []).length ? `Feeders ${(o.feeders ?? []).join(', ')}` : '', !o.substation && !(o.feeders ?? []).length ? (o.areas ?? []).slice(0, 3).join(', ') : '']
     .filter(Boolean).join(', ');
   const kind = /unscheduled|emergency/i.test(String(o.kind ?? '')) ? 'unscheduled' : 'scheduled';
-  return { date, time: start ? `${start}:00` : null, hours, title: `SOCOTECO II ${kind} interruption${where ? ` - ${where}` : ''} (ours is ${FEEDER})`, purpose: String(o.purpose ?? '').trim(), poster, url };
+  const status = /cancel|postpone|called off/i.test(String(o.status ?? '')) ? 'cancelled' : 'active';
+  const originalDate = /^\d{4}-\d{2}-\d{2}$/.test(String(o.original_date ?? '')) && o.original_date !== date ? String(o.original_date) : null;
+  return { date, time: start ? `${start}:00` : null, hours, title: `SOCOTECO II ${kind} interruption${where ? ` - ${where}` : ''} (ours is ${FEEDER})`, purpose: String(o.purpose ?? '').trim(), poster, url, status, originalDate };
 }
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** 'HH:MM' the outage ends, from a start 'HH:MM[:SS]' and a length in hours; null when either is missing. Wraps past midnight. */
+export function endOf(time: string | null, hours: number | null): string | null {
+  if (!time || !hours) return null;
+  const mins = +time.slice(0, 2) * 60 + +time.slice(3, 5) + Math.round(hours * 60);
+  return `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
 export const dayLabel = (ymd: string) => { const d = new Date(ymd + 'T00:00:00Z'); return `${DOW[d.getUTCDay()]} ${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; };
-const clock = (t: string | null) => { if (!t) return ''; const h = +t.slice(0, 2), m = t.slice(3, 5); return `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`; };
+export const clock = (t: string | null) => { if (!t) return ''; const h = +t.slice(0, 2), m = t.slice(3, 5); return `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`; };
 
 /** Telegram and e-mail wording: what happens and what staff do first, the source last (Lloyd: notices are for people).
- *  Guests are not told about utilities unless they ask (Lloyd 2026-09-29). */
-export function alertText(n: Notice): { subject: string; body: string } {
-  const endT = n.time && n.hours ? (() => { const mins = +n.time.slice(0, 2) * 60 + +n.time.slice(3, 5) + Math.round(n.hours * 60); return `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`; })() : null;
+ *  D-290: a guest in the house that night gets a heads-up draft in Telegram; other guests hear only if they ask.
+ *  `nightsLine` is the blocking result from the Telegram card (which nights are held on our site). */
+export function alertText(n: Notice, nightsLine = ''): { subject: string; body: string } {
+  const endT = endOf(n.time, n.hours);
   const when = `${dayLabel(n.date)}${n.time ? `, ${clock(n.time)}${endT ? ` to ${clock(endT)}` : ''}` : ''}${n.hours ? ` (${n.hours} h)` : ''}`;
   const body = [
     `Power will be off at the residence on ${when}.`,
     `${n.title}.${n.purpose ? ` Purpose: ${n.purpose}.` : ''}`,
-    'Staff: charge the EcoFlow the day before and keep the emergency light on the fridge ready. Guests are told only if they ask about power.',
+    ...(nightsLine ? [nightsLine] : []),
+    'Staff: charge the EcoFlow the day before and keep the emergency light on the fridge ready. A guest staying that night gets a heads-up draft in Telegram; other guests are told only if they ask about power.',
     'It is on the operations board, so the daily digest carries it.',
     `Poster: ${n.url}`,
   ].join('\n\n');
