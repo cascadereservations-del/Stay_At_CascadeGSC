@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "stay_chains_20261002",
+  "phase": "expand",
+  "source": {
+    "branch": "s67/stay-chains",
+    "commit": "e8747eba995f0030843bdce8a3a28acf0b7cfaa4"
+  },
+  "migrations": [
+    "20261002010000_stay_chains.sql"
+  ],
+  "migration_sha256": {
+    "20261002010000_stay_chains.sql": "f1af43b26722b61d5e539e5473e0dbda98022e8ea5382a5c572ae9ba3ee6908a"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T080336Z",
+    "verified_at": "2026-10-02T08:04:00Z",
+    "production_rule": "Six new functions (stay_uid_inquiry_v1, stay_same_guest_v1, stay_continues_v1, stay_chains_v1, system_task_close_v1, guests_missing_details_v1) and four CREATE OR REPLACE changes (verify_turnover, get_missed_cleanings, due_guest_messages_v1, verify_booking; same signatures, grants and security as live; md5(prosrc) before: 895d50d992b48fa4d4c264a1a15f819b, 321f462e7b3e0cfa5ce33d09234f08cb, 4513e1e984dc255f2fbf88764184fe89, 32597e37d1fc428984d2070ebb53d703). No table, column, policy or data change. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time. Apply BEFORE 2026-10-03 00:00 UTC (turnover-verifier)."
+  },
+  "forward_verification": [
+    {
+      "name": "new_functions_grants",
+      "query": "select has_function_privilege('service_role','public.stay_chains_v1(uuid,date,date)','execute') and not has_function_privilege('authenticated','public.stay_chains_v1(uuid,date,date)','execute') and not has_function_privilege('anon','public.stay_chains_v1(uuid,date,date)','execute') and has_function_privilege('service_role','public.stay_continues_v1(uuid,date)','execute') and has_function_privilege('authenticated','public.stay_continues_v1(uuid,date)','execute') and not has_function_privilege('anon','public.stay_continues_v1(uuid,date)','execute') and has_function_privilege('service_role','public.system_task_close_v1(text,text,text)','execute') and not has_function_privilege('authenticated','public.system_task_close_v1(text,text,text)','execute') and not has_function_privilege('anon','public.system_task_close_v1(text,text,text)','execute') and has_function_privilege('service_role','public.guests_missing_details_v1(uuid[])','execute') and not has_function_privilege('authenticated','public.guests_missing_details_v1(uuid[])','execute') and not has_function_privilege('anon','public.guests_missing_details_v1(uuid[])','execute')",
+      "expect": true
+    },
+    {
+      "name": "changed_functions_keep_security_and_grants",
+      "query": "select (select prosecdef from pg_proc where oid = 'public.verify_booking(date,text,uuid)'::regprocedure) and (select prosecdef from pg_proc where oid = 'public.due_guest_messages_v1(timestamptz)'::regprocedure) and not (select prosecdef from pg_proc where oid = 'public.verify_turnover(date,uuid)'::regprocedure) and not (select prosecdef from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure) and has_function_privilege('anon','public.verify_booking(date,text,uuid)','execute') and has_function_privilege('service_role','public.due_guest_messages_v1(timestamptz)','execute') and (select bool_and(p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('verify_turnover','get_missed_cleanings','verify_booking','due_guest_messages_v1','stay_uid_inquiry_v1','stay_same_guest_v1','stay_continues_v1','stay_chains_v1','system_task_close_v1','guests_missing_details_v1'))",
+      "expect": true
+    },
+    {
+      "name": "real_chain_oct2_is_one_stay",
+      "query": "select public.stay_continues_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd','2026-10-02') and (public.verify_turnover('2026-10-02','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') -> 'issues') = '[\"no_checkout_scheduled\",\"stay_continues\"]'::jsonb and (public.verify_turnover('2026-10-02','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') ->> 'check_passed') = 'true'",
+      "expect": true
+    },
+    {
+      "name": "real_turnovers_unchanged",
+      "query": "select not public.stay_continues_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd','2026-10-04') and not public.stay_continues_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd','2026-09-28') and (public.verify_turnover('2026-10-04','6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') -> 'issues') = '[\"no_session_found\"]'::jsonb",
+      "expect": true
+    },
+    {
+      "name": "booking_check_shows_final_checkout",
+      "query": "select (public.verify_booking('2026-09-28', null, '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') ->> 'checkout_date') = '2026-10-04' and (public.verify_booking('2026-09-28', null, '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') ->> 'nights') = '6'",
+      "expect": true
+    },
+    {
+      "name": "operator_chain_list_one_junction",
+      "query": "select (select count(*) from public.stay_chains_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd','2026-10-02','2026-10-02')) = 1",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261002_stay_chains.sql with run-sql-on-host.sh (restores the four functions to their pre-release text, md5 verified, grants untouched, and drops the six new ones). No function redeploy needed: turnover-verifier, missed-cleaning-alert and the guest-messages job call the same RPCs. After a rollback a same-guest chain is two stays again, so turnover-verifier raises no_session_found for the first checkout."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_only",
+      "required_state": "SQL only: no function deploy is needed (turnover-verifier already treats an issues list containing no_checkout_scheduled as silent). Apply before 2026-10-03 00:00 UTC. supabase/sql/2026-10-02-s67-power-watch-15m.sql is independent of this release and goes through run-sql-on-host.sh after it; its undo is one cron.alter_job line."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-10-02 on a disposable restore of production backup cascade-supabase-20260929T134930Z (prefix cascade-migration-rehearsal-0675f826ce88, 0 leftovers). 106 public tables and 136 ledger rows before; migration 1 of 1; forward checks 6/6; pgTAP stay_chains.sql 57/57; 106 tables after. Re-run on the fresh backup you take before applying (the data-dependent checks then read the same rows production has). The rollback file was md5-verified against live text but not executed.",
+    "evidence": "Read-only against production on 2026-10-02: live md5(prosrc) of the four changed functions matched; the new matching logic run inline as SELECTs over the 25 confirmed-to-confirmed junctions since 2026-07-01 flags 4 as same-guest (2026-10-02 by guest_id; 2026-09-16, 2026-08-23, 2026-07-25 by real name) and none of the others; the chain walk gives 2026-09-28 -> 2026-10-04, 6 nights; live verify_turnover('2026-10-02') currently returns no_session_found."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "md5(prosrc) of verify_turnover, get_missed_cleanings, verify_booking or due_guest_messages_v1 differs from the value in production_rule (someone changed it since this was written): re-read pg_get_functiondef and rebase the migration before applying"
+  ]
+}
