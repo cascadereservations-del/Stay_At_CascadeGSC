@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T080336Z",
-    "verified_at": "2026-10-02T08:04:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T085849Z",
+    "verified_at": "2026-10-02T08:59:30Z",
     "production_rule": "Six new functions (stay_uid_inquiry_v1, stay_same_guest_v1, stay_continues_v1, stay_chains_v1, system_task_close_v1, guests_missing_details_v1) and four CREATE OR REPLACE changes (verify_turnover, get_missed_cleanings, due_guest_messages_v1, verify_booking; same signatures, grants and security as live; md5(prosrc) before: 895d50d992b48fa4d4c264a1a15f819b, 321f462e7b3e0cfa5ce33d09234f08cb, 4513e1e984dc255f2fbf88764184fe89, 32597e37d1fc428984d2070ebb53d703). No table, column, policy or data change. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time. Apply BEFORE 2026-10-03 00:00 UTC (turnover-verifier)."
   },
   "forward_verification": [
