@@ -58,3 +58,31 @@ Deno.test('a probe or golden run never spends the backup key or OmniRoute', asyn
   try { await assertRejects(() => chatJson(q), Error, 'openrouter_500'); } finally { setProviderKey(null); globalThis.fetch = realFetch; withEnv(false); geminiBreaker.until = 0; }
   assertEquals(hits.map((h) => h.to), ['probe-key']);
 });
+
+Deno.test('routine work tries the free combo first and stops there when it answers', async () => {
+  withEnv(true); geminiBreaker.until = 0; const hits: Hit[] = []; stub({ omni: 200 }, hits);
+  try { assertEquals(await chatJson({ ...q, tier: 'routine' }), '{"from":"omni"}'); } finally { globalThis.fetch = realFetch; withEnv(false); }
+  assertEquals(hits.map((h) => [h.to, h.body.model]), [['omni', 'cascade-routine']]);
+});
+
+Deno.test('the free combo fails: routine work falls through to the paid chain on the lite model', async () => {
+  withEnv(true); geminiBreaker.until = 0; const hits: Hit[] = []; let n = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input); const body = JSON.parse(String(init?.body ?? '{}'));
+    const to = url.includes('omni.test') ? 'omni' : 'or-main'; hits.push({ to, auth: '', body });
+    return n++ === 0 ? new Response('{"error":"x"}', { status: 429 }) : new Response(JSON.stringify({ choices: [{ message: { content: '{"from":"or-main"}' } }] }), { status: 200 });
+  }) as typeof fetch;
+  try { assertEquals(await chatJson({ ...q, tier: 'routine' }), '{"from":"or-main"}'); } finally { globalThis.fetch = realFetch; withEnv(false); }
+  assertEquals(hits.map((h) => h.to), ['omni', 'or-main']);
+  assertEquals((hits[1].body.models as string[])[0].includes('lite'), true, 'the paid fallback uses the lite model');
+});
+
+Deno.test('guest work never touches the free combo; a probe skips it even for routine work', async () => {
+  withEnv(true); geminiBreaker.until = 0; const hits: Hit[] = []; stub({ 'or-main': 200, 'probe-key': 200 }, hits);
+  try {
+    assertEquals(await chatJson(q), '{"from":"or-main"}');
+    setProviderKey('probe-key');
+    assertEquals(await chatJson({ ...q, tier: 'routine' }), '{"from":"probe-key"}');
+  } finally { setProviderKey(null); globalThis.fetch = realFetch; withEnv(false); }
+  assertEquals(hits.map((h) => h.to), ['or-main', 'probe-key']);
+});

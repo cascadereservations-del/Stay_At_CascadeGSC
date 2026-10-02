@@ -28,7 +28,7 @@ export type ChatJsonRequest = {
   temperature?: number;    // default 0.4
   maxTokens?: number;      // default 700
   timeoutMs?: number;      // default 25_000
-  tier?: 'full' | 'lite';  // default full; lite = cheap model for follow-ups and option drafts
+  tier?: 'full' | 'lite' | 'routine';  // default full; lite = cheap model for follow-ups and option drafts; routine = free first (below)
   plain?: boolean;         // SPEC-32 s5: no JSON mode - the last try after two unreadable JSON replies
 };
 // SPEC-32 s4 (D-254): probe and golden runs spend CASCADE_OPENROUTER_PROBE_KEY, never the guests' key. Set by runProbe for
@@ -78,7 +78,7 @@ async function openaiChat(q: ChatJsonRequest, p: { name: 'openrouter' | 'omnirou
 // Session 58: OpenRouter's own fallback list - a Google outage on the primary no longer leaves the guest without a
 // reply while Gemini direct has no credit (402). Tested live: the list is accepted and the fallback returns JSON.
 const openrouter = (q: ChatJsonRequest, key: string) => openaiChat(q, { name: 'openrouter', url: 'https://openrouter.ai/api/v1', key,
-  model: { models: [q.tier === 'lite' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL] } });
+  model: { models: [q.tier === 'lite' || q.tier === 'routine' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL] } });
 /** 2026-09-30 (Lloyd, the Gemini prepay empty): the rungs after the guests' OpenRouter key - a second Cascade OpenRouter key
  *  with its own cap (CASCADE_OPENROUTER_BACKUP_KEY), then Cascade's own OmniRoute gateway (CASCADE_OMNIROUTE_URL,
  *  CASCADE_OMNIROUTE_KEY, CASCADE_OMNIROUTE_MODEL = its combo; never Alfred's). A rung whose secret is unset is skipped, and
@@ -109,7 +109,20 @@ async function tripOn(e: unknown): Promise<void> {
   console.error('gemini_breaker_open', JSON.stringify({ status: m![1], until: new Date(geminiBreaker.until).toISOString() }));
   await geminiBreaker.trip?.(geminiBreaker.until).catch((err) => console.error('gemini_breaker_persist_failed', String(err).slice(0, 200)));
 }
+/** Session 68 (Lloyd 2026-10-03 "build 1-3"; D-224): short work with no guest data tries Cascade OmniRoute's free combo first
+ *  (cascade-routine: Groq gpt-oss-120b -> gpt-oss-20b -> Cloudflare Llama 3.3 70B, none of them train on inputs). Any failure
+ *  falls through to the paid chain on the lite model, and never becomes the error a host card names. Never pass tier 'routine'
+ *  with guest names, messages or photos. Probes and golden runs skip it. */
+async function routineFirst(q: ChatJsonRequest): Promise<string | null> {
+  if (q.tier !== 'routine' || keyOverride) return null;
+  const url = env('CASCADE_OMNIROUTE_URL').replace(/\/+$/, ''), key = env('CASCADE_OMNIROUTE_KEY');
+  if (!url || !key) return null;
+  try { return await openaiChat(q, { name: 'omniroute', url, key, model: { model: env('CASCADE_OMNIROUTE_ROUTINE_MODEL') || 'cascade-routine' } }); }
+  catch (e) { console.error('omniroute_routine_failed_trying_paid', String(e).slice(0, 300)); return null; }
+}
 export async function chatJson(q: ChatJsonRequest): Promise<string> {
+  const free = await routineFirst(q);
+  if (free !== null) return free;
   const rungs = [...(orKey() ? [{ name: 'openrouter', run: () => openrouter(q, orKey()) }] : []), ...backupRungs(q)];
   let first: unknown = null;
   for (const [i, r] of rungs.entries()) {

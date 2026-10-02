@@ -1928,7 +1928,7 @@ async function handlePing(chatId: any) {
   ];
   await tgSend(chatId, lines.join('\n'));
   try {
-    const txt = await chatJson({ system: 'You are a health check.', history: [], question: 'Reply with exactly: {"status":"ok"}', title: 'Cascade Ping', tier: 'lite', temperature: 0, maxTokens: 20, timeoutMs: 15_000 });
+    const txt = await chatJson({ system: 'You are a health check.', history: [], question: 'Reply with exactly: {"status":"ok"}', title: 'Cascade Ping', tier: 'routine', temperature: 0, maxTokens: 20, timeoutMs: 15_000 });
     await tgSend(chatId, `✅ Model route responded:\n\`${String(txt).slice(0, 120)}\``);
   } catch (e) { await tgSend(chatId, `❌ Model route error: ${errMsg(e)}`); }
 }

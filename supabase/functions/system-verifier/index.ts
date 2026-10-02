@@ -114,6 +114,10 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
       const j = r?.ok ? await r.json().catch(() => null) : null;
       const answered = Boolean(String(j?.choices?.[0]?.message?.content ?? '').trim());
       console.log(JSON.stringify({ event: 'omniroute_health', scope, status: r?.status ?? 0, model, answered, served: j?.model ?? null }));
+      // Session 68: the rung was dead 2.5 days (an unpriced model under a USD key cap) and only this log line knew. A real answer
+      // is now a heartbeat (successes only, so one bad hour does not page); job-heartbeat-monitor sends one Finance alert when
+      // 'omniroute-answer' has had no answer for 1.5 x its 2 h interval = 3 h.
+      if (!dry && answered) await heartbeat(db, 'omniroute-answer')('succeeded');
     }
 
     if (dry) {

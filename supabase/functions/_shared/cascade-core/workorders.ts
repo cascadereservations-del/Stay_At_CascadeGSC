@@ -37,7 +37,7 @@ const SYSTEM = `You advise the operations team of Cascade Hideaway, a one-unit A
 /** One cheap suggestion; empty strings when the model is unavailable. */
 export async function suggestFix(issue: string, context: string): Promise<{ action: string; guest_reply: string }> {
   try {
-    const raw = await chatJson({ system: SYSTEM, history: [], question: `Report: "${issue}". Context: ${context}`, tier: 'lite', maxTokens: 200, timeoutMs: 12_000, title: 'Cascade work order' });
+    const raw = await chatJson({ system: SYSTEM, history: [], question: `Report: "${issue}". Context: ${context}`, tier: 'routine', maxTokens: 200, timeoutMs: 12_000, title: 'Cascade work order' }); // a cleaner's issue note, no guest data: free first (session 68)
     const j = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, '').trim());
     return { action: String(j.action ?? '').trim().slice(0, 240), guest_reply: String(j.guest_reply ?? '').trim().slice(0, 300) };
   } catch (e) { console.warn('suggestFix failed (non-fatal):', String(e).slice(0, 200)); return { action: '', guest_reply: '' }; }
