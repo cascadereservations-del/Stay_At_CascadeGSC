@@ -47,7 +47,11 @@ async function tg(text: string, markup?: unknown): Promise<boolean> {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chat, text, disable_web_page_preview: true, ...(markup ? { reply_markup: markup } : {}) }), signal: AbortSignal.timeout(10_000),
   }).catch(() => null);
-  return !!r?.ok;
+  // Proof of delivery (2026-10-02: two cards were recorded as sent but never showed in OPS): Telegram's own answer, no text, no token.
+  const body = r ? await r.json().catch(() => null) : null;
+  console.log('power_watch_tg', JSON.stringify({ http: r?.status ?? null, ok: body?.ok ?? null, message_id: body?.result?.message_id ?? null,
+    chat_type: body?.result?.chat?.type ?? null, chat_tail: String(body?.result?.chat?.id ?? '').slice(-4), error: body?.description ?? null }));
+  return !!r?.ok && body?.ok === true;
 }
 
 /** The host inbox through the e-mail relay, the same route as the urgent guest alerts. */
