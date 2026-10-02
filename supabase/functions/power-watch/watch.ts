@@ -46,7 +46,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
       const summary = `SOCOTECO power interruption ${windowLabel(base.date, base.time, base.hours)} (Feeder ${FEEDER})`;
       const { error } = await db.from('calendar_events').upsert(cls.toBlock.map((night) => ({
         property_id: pid, uid: brownoutUid(night), source: 'manual', status: 'blocked', recon_status: 'admin_block',
-        checkin_date: night, checkout_date: nextDay(night), nights: 1, raw_summary: summary,
+        checkin_date: night, checkout_date: nextDay(night), raw_summary: summary, // nights is a generated column
       })), { onConflict: 'uid,property_id' });
       if (error) throw new Error(`brownout_rows: ${error.message}`);
       for (const night of cls.toBlock) rows.push({ uid: brownoutUid(night), source: 'manual', status: 'blocked', checkin_date: night, checkout_date: nextDay(night) });

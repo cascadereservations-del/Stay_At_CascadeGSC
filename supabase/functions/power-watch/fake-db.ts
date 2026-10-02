@@ -4,6 +4,7 @@
 // deno-lint-ignore-file no-explicit-any
 type Row = Record<string, any>;
 type Result = { data: any; error: null | { message: string; code?: string } };
+const GENERATED: Record<string, string[]> = { calendar_events: ['nights'] };
 
 class Query implements PromiseLike<Result> {
   private op: 'select' | 'insert' | 'update' | 'upsert' | 'delete' = 'select';
@@ -30,6 +31,12 @@ class Query implements PromiseLike<Result> {
 
   private run(): Result {
     const rows = this.db.tables[this.table] ??= [];
+    // Production refuses writes to generated columns (calendar_events.nights, 2026-10-02 first live run); so does the fake.
+    const generated = GENERATED[this.table] ?? [];
+    if (this.op !== 'select' && this.op !== 'delete') {
+      const bad = ([] as Row[]).concat(this.payload).flatMap((p) => generated.filter((c) => c in p));
+      if (bad.length) return { data: null, error: { message: `cannot insert a non-DEFAULT value into column "${bad[0]}"`, code: '428C9' } };
+    }
     const match = (r: Row) => this.tests.every((t) => t(r));
     let out: Row[] = [];
     if (this.op === 'select') out = rows.filter(match).slice(0, this.lim);
