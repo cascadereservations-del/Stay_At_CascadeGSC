@@ -117,12 +117,18 @@ async function routineFirst(q: ChatJsonRequest): Promise<string | null> {
   if (q.tier !== 'routine' || keyOverride) return null;
   const url = env('CASCADE_OMNIROUTE_URL').replace(/\/+$/, ''), key = env('CASCADE_OMNIROUTE_KEY');
   if (!url || !key) return null;
-  try { return await openaiChat(q, { name: 'omniroute', url, key, model: { model: env('CASCADE_OMNIROUTE_ROUTINE_MODEL') || 'cascade-routine' } }); }
+  try {
+    // gpt-oss reasons before it answers and its reasoning counts against max_tokens: give the free try room (a ping asks for 20).
+    const out = await openaiChat({ ...q, maxTokens: Math.max(q.maxTokens ?? 700, 1200) }, { name: 'omniroute', url, key, model: { model: env('CASCADE_OMNIROUTE_ROUTINE_MODEL') || 'cascade-routine' } });
+    if (!out.trim()) throw new Error('omniroute_routine_empty');
+    if (!q.plain) JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()); // an unreadable free reply goes to the paid chain
+    return out;
+  }
   catch (e) { console.error('omniroute_routine_failed_trying_paid', String(e).slice(0, 300)); return null; }
 }
 export async function chatJson(q: ChatJsonRequest): Promise<string> {
   const free = await routineFirst(q);
-  if (free !== null) return free;
+  if (free) return free;
   const rungs = [...(orKey() ? [{ name: 'openrouter', run: () => openrouter(q, orKey()) }] : []), ...backupRungs(q)];
   let first: unknown = null;
   for (const [i, r] of rungs.entries()) {

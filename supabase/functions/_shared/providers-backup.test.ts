@@ -86,3 +86,18 @@ Deno.test('guest work never touches the free combo; a probe skips it even for ro
   } finally { setProviderKey(null); globalThis.fetch = realFetch; withEnv(false); }
   assertEquals(hits.map((h) => h.to), ['or-main', 'probe-key']);
 });
+
+Deno.test('an empty or unreadable free reply is a failure: the paid chain answers; the free try gets room to reason', async () => {
+  for (const bad of ['', 'not json at all']) {
+    withEnv(true); geminiBreaker.until = 0; const hits: Hit[] = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input); const body = JSON.parse(String(init?.body ?? '{}'));
+      const to = url.includes('omni.test') ? 'omni' : 'or-main'; hits.push({ to, auth: '', body });
+      const content = to === 'omni' ? bad : '{"from":"or-main"}';
+      return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+    }) as typeof fetch;
+    try { assertEquals(await chatJson({ ...q, tier: 'routine', maxTokens: 20 }), '{"from":"or-main"}'); } finally { globalThis.fetch = realFetch; withEnv(false); }
+    assertEquals(hits.map((h) => h.to), ['omni', 'or-main']);
+    assertEquals([hits[0].body.max_tokens, hits[1].body.max_tokens], [1200, 20]);
+  }
+});
