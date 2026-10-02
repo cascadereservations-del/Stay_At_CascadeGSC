@@ -11,16 +11,16 @@ export const manilaToday = () => new Date().toLocaleDateString('en-CA', { timeZo
 const addDays = (ymd: string, n: number) => { const d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const isYmd = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-type Stay = { stay_kind: string; code: string; guest_name: string | null; checkin: string; checkout: string; nights: number; status: string; accommodation_total: number | null };
+type Stay = { stay_kind: string; code: string; guest_id?: string | null; guest_name: string | null; checkin: string; checkout: string; nights: number; status: string; accommodation_total: number | null };
 
 const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
 const nightsOf = (a: string, b: string) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000));
 
 async function stays(db: any, from: string, to: string): Promise<Stay[]> {
   const [air, direct] = await Promise.all([
-    db.from('airbnb_reservations').select('confirmation_code,guest_name,checkin_date,checkout_date,status,host_payout,host_service_fee')
+    db.from('airbnb_reservations').select('confirmation_code,guest_id,guest_name,checkin_date,checkout_date,status,host_payout,host_service_fee')
       .eq('property_id', PROPERTY_ID).neq('status', 'cancelled').gt('checkout_date', from).lte('checkin_date', to),
-    db.from('booking_inquiries').select('id,guest_name,checkin_date,checkout_date,status,total_amount')
+    db.from('booking_inquiries').select('id,guest_id,guest_name,checkin_date,checkout_date,status,total_amount')
       .eq('property_id', PROPERTY_ID).in('status', ['confirmed', 'completed']).gt('checkout_date', from).lte('checkin_date', to),
   ]);
   if (air.error) throw new Error(`airbnb_reservations: ${air.error.message}`);
@@ -38,11 +38,34 @@ async function stays(db: any, from: string, to: string): Promise<Stay[]> {
     ...((air.data ?? []) as any[]).map((r): Stay => {
       const g = gross.get(r.confirmation_code);
       const total = g ? Math.round((g.g - g.c) * 100) / 100 : (num(r.host_payout) != null ? Math.round(((num(r.host_payout) ?? 0) + (num(r.host_service_fee) ?? 0)) * 100) / 100 : null);
-      return { stay_kind: 'airbnb', code: r.confirmation_code, guest_name: r.guest_name, checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status, accommodation_total: total };
+      return { stay_kind: 'airbnb', code: r.confirmation_code, guest_id: r.guest_id, guest_name: r.guest_name, checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status, accommodation_total: total };
     }),
-    ...((direct.data ?? []) as any[]).map((i): Stay => ({ stay_kind: 'direct', code: 'DIR-' + String(i.id).slice(0, 8).toUpperCase(), guest_name: i.guest_name, checkin: i.checkin_date, checkout: i.checkout_date, nights: nightsOf(i.checkin_date, i.checkout_date), status: i.status, accommodation_total: num(i.total_amount) })),
+    ...((direct.data ?? []) as any[]).map((i): Stay => ({ stay_kind: 'direct', code: 'DIR-' + String(i.id).slice(0, 8).toUpperCase(), guest_id: i.guest_id, guest_name: i.guest_name, checkin: i.checkin_date, checkout: i.checkout_date, nights: nightsOf(i.checkin_date, i.checkout_date), status: i.status, accommodation_total: num(i.total_amount) })),
   ];
   return rows.sort((a, b) => a.checkin.localeCompare(b.checkin));
+}
+
+/**
+ * D-290: one guest's back-to-back bookings (checkout of one = check-in of the next, same guest) are ONE stay.
+ * Same guest = same guest_id, or no ids and the same non-empty name. Rows come in any order; the result is by check-in.
+ * The merged row spans the first check-in to the last check-out, sums nights and the accommodation total (null if any
+ * part has none) and says so in `note`, e.g. "(2 bookings joined 2 Oct)".
+ */
+export function mergeChained<T extends { stay_kind: string; code: string; guest_id?: string | null; guest_name?: string | null; checkin: string; checkout: string; nights: number; accommodation_total?: number | null }>(rows: T[]): Array<T & { note?: string }> {
+  const same = (a: T, b: T) => a.guest_id || b.guest_id ? a.guest_id === b.guest_id : !!a.guest_name?.trim() && a.guest_name.trim().toLowerCase() === b.guest_name?.trim().toLowerCase();
+  const out: Array<T & { note?: string; _joins?: string[] }> = [];
+  for (const r of [...rows].sort((a, b) => a.checkin.localeCompare(b.checkin))) {
+    const prev = out[out.length - 1];
+    if (prev && prev.checkout === r.checkin && same(prev, r)) {
+      prev._joins = [...(prev._joins ?? []), dm(r.checkin)];
+      prev.code = `${prev.code} + ${r.code}`;
+      prev.checkout = r.checkout;
+      prev.nights += r.nights;
+      if (prev.stay_kind !== r.stay_kind) prev.stay_kind = 'mixed';
+      prev.accommodation_total = prev.accommodation_total == null || r.accommodation_total == null ? null : Math.round((prev.accommodation_total + r.accommodation_total) * 100) / 100;
+    } else out.push({ ...r });
+  }
+  return out.map(({ _joins, ...r }) => (_joins ? { ...r, note: `(${_joins.length + 1} bookings joined ${_joins.join(', ')})` } : r) as T & { note?: string });
 }
 
 /** Nights of `s` that fall inside [from, to) and the revenue share for them (accommodation_total / nights per night). */
@@ -169,7 +192,7 @@ export async function runTool(db: any, name: string, args: Record<string, unknow
       const from = isYmd(args.from) ? args.from : today;
       const to = isYmd(args.to) ? args.to : addDays(from, 7);
       const rows = await stays(db, from, to);
-      return { from, to, today, first_open_night: firstOpenNight(rows, from, to), stays: rows.slice(0, 20).map((s) => ({ code: s.code, guest: s.guest_name, checkin: s.checkin, checkout: s.checkout, nights: s.nights, status: s.status, source: s.stay_kind, accommodation_total: s.accommodation_total })) };
+      return { from, to, today, first_open_night: firstOpenNight(rows, from, to), stays: mergeChained(rows).slice(0, 20).map((s) => ({ code: s.code, guest: s.guest_name, ...(s.note ? { note: s.note } : {}), checkin: s.checkin, checkout: s.checkout, nights: s.nights, status: s.status, source: s.stay_kind, accommodation_total: s.accommodation_total })) };
     }
     case 'period_metrics': {
       const from = isYmd(args.from) ? args.from : today.slice(0, 8) + '01';
@@ -237,10 +260,13 @@ export async function runTool(db: any, name: string, args: Record<string, unknow
       if (ab.error) throw new Error(`airbnb_reservations: ${ab.error.message}`);
       if (di.error) throw new Error(`booking_inquiries: ${di.error.message}`);
       const nightsOf = (a: string, b: string) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000));
-      const stays = [
-        ...((ab.data ?? []) as any[]).map((r) => ({ source: 'airbnb', code: r.confirmation_code, checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status })),
-        ...((di.data ?? []) as any[]).map((r) => ({ source: 'direct', code: String(r.id).slice(0, 8).toUpperCase(), checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status })),
-      ].sort((a, b) => (a.checkin < b.checkin ? 1 : -1)).slice(0, 10);
+      const all = [
+        ...((ab.data ?? []) as any[]).map((r) => ({ stay_kind: 'airbnb', code: r.confirmation_code, guest_id: g.guest_id, checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status })),
+        ...((di.data ?? []) as any[]).map((r) => ({ stay_kind: 'direct', code: String(r.id).slice(0, 8).toUpperCase(), guest_id: g.guest_id, checkin: r.checkin_date, checkout: r.checkout_date, nights: nightsOf(r.checkin_date, r.checkout_date), status: r.status })),
+      ];
+      // D-290: back-to-back bookings read as one stay, with a note saying so.
+      const stays = mergeChained(all).map((s) => ({ source: s.stay_kind, code: s.code, checkin: s.checkin, checkout: s.checkout, nights: s.nights, status: s.status, ...(s.note ? { note: s.note } : {}) }))
+        .sort((a, b) => (a.checkin < b.checkin ? 1 : -1)).slice(0, 10);
       return { found: true, name: g.name, total_stays: g.total_stays ?? stays.length, stays };
     }
     default: return { error: `unknown tool ${name}` };

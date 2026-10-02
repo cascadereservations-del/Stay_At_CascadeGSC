@@ -19,6 +19,7 @@ import { needsCalendarCheck } from './booking.ts';
 import { BOT_REPLY, CANCEL_RE, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
+import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
 import { CONTACT_CHIP, contactHostChip, isStayingNow, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
@@ -185,6 +186,7 @@ async function tgOps(text: string): Promise<void> {
 // windows. Handing it raw booked ranges made it merge two separate one-night bookings into one
 // block and miss the open night between them (live test, 2026-09-12).
 const HORIZON_DAYS = 120;
+const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'; // the one Cascade unit (stay_chains_v1 takes it)
 const dayStr = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (iso: string, n: number) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return dayStr(d); };
 const pretty = (iso: string) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
@@ -208,6 +210,9 @@ async function availabilityBlock(db: Db): Promise<string> {
     checkins.add(r.checkin_date); checkouts.add(r.checkout_date);
     for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) bookedNights.add(d);
   }
+  // D-290: a day one guest checks out and in again (a chained stay) is neither "another guest checks out" nor "checks in":
+  // nobody turns the unit over. A missing stay_chains_v1 gives [] and the lists stay as they were.
+  dropJunctionDays(await fetchChains(db, PROPERTY_ID, today, horizonEnd), checkins, checkouts);
 
   // Walk the horizon and collect runs of open nights as check-in -> check-out windows. SPEC-14: the walk itself
   // lives in booking.ts, so the model's block and the code's "nearest open dates" line can never disagree.
@@ -1057,7 +1062,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         if (stay) {
           const { data: co, error: coErr } = await db.from('calendar_events').select('checkout_date').neq('status', 'cancelled').eq('checkout_date', stay.checkin).limit(1);
           if (coErr) console.error('calendar_read_failed', 'turnover_guard', String(coErr.message ?? coErr).slice(0, 200));
-          if (co?.length) {
+          // D-290: a chained stay's junction day has no turnover, so the 12 noon guard does not apply to it.
+          if (co?.length && !(await stayContinues(db, PROPERTY_ID, stay.checkin))) {
             console.warn('turnover_noon_guard', JSON.stringify({ day: stay.checkin, reply: out.reply.slice(0, 160) }));
             out.reply = setTurnoverCheckin(out.reply, turnoverCheckinLine(pretty(stay.checkin), l3));
           }

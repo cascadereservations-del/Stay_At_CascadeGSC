@@ -20,6 +20,8 @@ export type OpsInput = {
   midStay?: MidStay[];
   /** SPEC-05 D: confirmed direct arrivals within 3 days without an ID on file (first name, check-in date). */
   idMissing?: Array<{ guest: string; checkin: string }>;
+  /** D-290: a same-guest chain joined today or tomorrow - one stay, so not an arrival, a departure or a turnover. */
+  stayOn?: Array<{ guest: string; junction: string; day: 'today' | 'tomorrow' }>;
 };
 export type OpsReport = Report & { kind: HeaderKind };
 export type Pending = { transaction_date: string | null; payee_name: string | null; category: string | null; gross_amount: number | string | null; source: string | null };
@@ -85,6 +87,8 @@ export function weatherLine(w: Weather | null): string {
   return `Weather: ${bits.join(', ')}`;
 }
 
+const stayOnText = (s: { guest: string; junction: string }) => `${s.guest} stays on (same guest, two bookings joined ${friendlyDate(s.junction)}) - no turnover`;
+
 export function opsReport(i: OpsInput): OpsReport | null {
   const todayNotices = i.notices.filter((n) => n.effective_date === i.today);
   const tmrNotices = i.notices.filter((n) => n.effective_date === i.tomorrow);
@@ -97,7 +101,8 @@ export function opsReport(i: OpsInput): OpsReport | null {
   const a = i.arrivals.length, d = i.departures.length;
   const movement = a > 0 || d > 0 || i.tmrArrivals.length > 0 || i.tmrDepartures.length > 0;
   const idMissing = i.idMissing ?? [];
-  const empty = !movement && !todayNotices.length && !tmrNotices.length && !midStay.length && !outOfStock.length && !idMissing.length;
+  const stayOn = i.stayOn ?? [];
+  const empty = !movement && !stayOn.length&& !todayNotices.length && !tmrNotices.length && !midStay.length && !outOfStock.length && !idMissing.length;
   if (empty && !brownout) return null;
 
   const head = a || d ? [a ? plural(a, 'arrival') : '', d ? plural(d, 'departure') : ''].filter(Boolean).join(', ') : 'no arrivals or departures';
@@ -108,6 +113,7 @@ export function opsReport(i: OpsInput): OpsReport | null {
   if (todayNotices.length) lines.push(todayNotices.map(noticeText).join('; '));
   if (a) lines.push(`📥 Arriving: ${names(i.arrivals, i.resRows, i.today, 'arrival')}`);
   if (d) lines.push(`📤 Departing: ${names(i.departures, i.resRows, i.today, 'departure')}`);
+  for (const s of stayOn.filter((x) => x.day === 'today')) lines.push(`🔁 ${stayOnText(s)}`);
   for (const m of midStay) lines.push(`🛎 Mid-stay: ${m.guest}, night ${m.night} of ${m.nights} — towels and water topped up? everything okay?`);
   if (outOfStock.length) { brk(); lines.push(`📦 Out of stock: ${outOfStock.map((s) => s.name).join(', ')}`); }
   // SPEC-05 D: just under stock; one line, however many guests (the group cap stays five).
@@ -117,6 +123,7 @@ export function opsReport(i: OpsInput): OpsReport | null {
   const tmr: string[] = [];
   if (i.tmrArrivals.length) tmr.push(`arriving ${names(i.tmrArrivals, i.resRows, i.tomorrow, 'arrival')}`);
   if (i.tmrDepartures.length) tmr.push(`departing ${names(i.tmrDepartures, i.resRows, i.tomorrow, 'departure')}`);
+  tmr.push(...stayOn.filter((x) => x.day === 'tomorrow').map(stayOnText));
   tmr.push(...tmrNotices.map(noticeText));
   const tw = (a || d || i.tmrArrivals.length || i.tmrDepartures.length) ? i.weather?.tomorrow : undefined;
   if (tw) tmr.push(`${tw.description} ${tw.low}–${tw.high}°C${tw.rainProb >= 40 ? `, ${tw.rainProb}% rain` : ''}${tw.thunderProb >= 40 ? ', thunder' : ''}`);
