@@ -12,6 +12,9 @@
 --                                            starts on it
 --   stay_chains_v1(property, from, to)       one row per junction, for the operator (guest name and codes: service_role only)
 --   system_task_close_v1(kind, ref, note)    close ONE system task by its key (service_role only)
+--   guests_missing_details_v1(guest_ids)     of the given guests, those with no ID on file and no phone or email anywhere
+--                                            (guests.phone/email, guest_profile_details.contact_number): daily-digest's
+--                                            "details missing" line. service_role only.
 -- Changed (create or replace, same signature, grants and security as live):
 --   verify_turnover        a continued checkout passes with issues {no_checkout_scheduled, stay_continues}
 --                          (turnover-verifier already treats no_checkout_scheduled as silent)
@@ -127,16 +130,31 @@ begin
 end;
 $function$;
 
+create or replace function public.guests_missing_details_v1(p_guest_ids uuid[])
+returns table(guest_id uuid)
+language sql stable security definer set search_path to '' as $$
+  select g.id
+    from public.guests g
+    left join public.guest_profile_details d on d.guest_id = g.id
+   where g.id = any(p_guest_ids)
+     and not coalesce(d.id_on_file, false)
+     and coalesce(btrim(d.contact_number), '') = ''
+     and coalesce(btrim(g.phone), '') = ''
+     and coalesce(btrim(g.email), '') = '';
+$$;
+
 revoke all on function public.stay_uid_inquiry_v1(text) from public, anon, authenticated;
 revoke all on function public.stay_same_guest_v1(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.stay_continues_v1(uuid, date) from public, anon, authenticated;
 revoke all on function public.stay_chains_v1(uuid, date, date) from public, anon, authenticated;
 revoke all on function public.system_task_close_v1(text, text, text) from public, anon, authenticated;
+revoke all on function public.guests_missing_details_v1(uuid[]) from public, anon, authenticated;
 grant execute on function public.stay_uid_inquiry_v1(text) to authenticated, service_role;
 grant execute on function public.stay_same_guest_v1(uuid, uuid) to authenticated, service_role;
 grant execute on function public.stay_continues_v1(uuid, date) to authenticated, service_role;
 grant execute on function public.stay_chains_v1(uuid, date, date) to service_role;
 grant execute on function public.system_task_close_v1(text, text, text) to service_role;
+grant execute on function public.guests_missing_details_v1(uuid[]) to service_role;
 
 comment on function public.stay_same_guest_v1(uuid, uuid) is
   'D-290: are two calendar_events the same guest? guest_id decides when both rows have one; else the same real name, or the same phone last-4. Invoker, RLS applies.';
@@ -146,6 +164,8 @@ comment on function public.stay_chains_v1(uuid, date, date) is
   'D-290: one row per same-guest junction in the range (guest name and booking codes). service_role only.';
 comment on function public.system_task_close_v1(text, text, text) is
   'D-290: closes the ONE open system task with key system:<kind>:<ref>; returns whether one was closed. service_role only.';
+comment on function public.guests_missing_details_v1(uuid[]) is
+  'D-290: which of these guests have no ID on file and no phone or email on record. Definer, service_role only.';
 
 -- verify_turnover: Check 0 gains one branch. Everything else is the live text.
 create or replace function public.verify_turnover(p_checkout_date date, p_property_id uuid DEFAULT NULL::uuid)

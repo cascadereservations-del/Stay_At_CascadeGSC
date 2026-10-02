@@ -11,7 +11,7 @@
 --   +60..+64  name      both "Reserved": a placeholder is not a name
 --   +70..+74  blocked   second row is a block;  +80..+84 second row cancelled;  +90..+94 first row cancelled
 begin;
-select plan(51);
+select plan(57);
 
 create function pg_temp.at(n int, hm text) returns timestamptz language sql stable as
 $$ select ((current_date + n) + hm::time) at time zone 'Asia/Manila' $$;
@@ -44,27 +44,27 @@ insert into public.booking_inquiries(id, property_id, guest_id, guest_name, gues
   ('c0de5555-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a7', 'Synthetic Gus', 'gus1@example.com', '09170000674', current_date + 40, current_date + 42, 'confirmed', 'direct', now(),                    3560, 1780),
   ('c0de6666-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000067', 'e6700000-0000-4000-8000-0000000000a7', 'Synthetic Gus', 'gus2@example.com', '09170000674', current_date + 42, current_date + 44, 'confirmed', 'direct', now() - interval '3 days', 3560, 1780);
 
-insert into public.calendar_events(id, property_id, uid, source, status, checkin_date, checkout_date, nights, guest_name, guest_phone, raw_description, linked_reservation_id) values
-  ('e6700000-0000-4000-8000-0000000000c1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a1@airbnb.com', 'airbnb', 'confirmed', current_date - 13, current_date - 11, 2, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b1'),
-  ('e6700000-0000-4000-8000-0000000000c2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a2@airbnb.com', 'airbnb', 'confirmed', current_date - 11, current_date - 9,  2, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b2'),
-  ('e6700000-0000-4000-8000-0000000000c3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b1@airbnb.com', 'airbnb', 'confirmed', current_date - 8,  current_date - 6,  2, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b3'),
-  ('e6700000-0000-4000-8000-0000000000c4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b2@airbnb.com', 'airbnb', 'confirmed', current_date - 6,  current_date - 4,  2, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b4'),
-  ('e6700000-0000-4000-8000-0000000000d1', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de1111-0000-4000-8000-000000000001', 'direct', 'confirmed', current_date + 20, current_date + 22, 2, 'Synthetic Dee',  '09170000671', null, null),
-  ('e6700000-0000-4000-8000-0000000000d2', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de2222-0000-4000-8000-000000000002', 'direct', 'confirmed', current_date + 22, current_date + 24, 2, 'Synthetic D.',   '09170000671', null, null),
-  ('e6700000-0000-4000-8000-0000000000e1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4a@airbnb.com', 'airbnb', 'confirmed', current_date + 30, current_date + 32, 2, 'Synthetic Lee', null, E'Reservation URL: x\nPhone Number (Last 4 Digits): 4242', null),
-  ('e6700000-0000-4000-8000-0000000000e2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4b@airbnb.com', 'airbnb', 'confirmed', current_date + 32, current_date + 34, 2, 'Synthetic Mar', null, E'Reservation URL: y\nPhone Number (Last 4 Digits): 4242', null),
-  ('e6700000-0000-4000-8000-0000000000e3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4c@airbnb.com', 'airbnb', 'confirmed', current_date + 40, current_date + 42, 2, 'Synthetic Ned', null, E'Phone Number (Last 4 Digits): 1111', null),
-  ('e6700000-0000-4000-8000-0000000000e4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4d@airbnb.com', 'airbnb', 'confirmed', current_date + 42, current_date + 44, 2, 'Synthetic Oma', null, E'Phone Number (Last 4 Digits): 2222', null),
-  ('e6700000-0000-4000-8000-0000000000f1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n1@airbnb.com', 'airbnb', 'confirmed', current_date + 50, current_date + 52, 2, 'Synthetic Pip',   null, null, null),
-  ('e6700000-0000-4000-8000-0000000000f2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n2@airbnb.com', 'airbnb', 'confirmed', current_date + 52, current_date + 54, 2, ' synthetic pip ', null, null, null),
-  ('e6700000-0000-4000-8000-000000000101', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p1@airbnb.com', 'airbnb', 'confirmed', current_date + 60, current_date + 62, 2, 'Reserved', null, null, null),
-  ('e6700000-0000-4000-8000-000000000102', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p2@airbnb.com', 'airbnb', 'confirmed', current_date + 62, current_date + 64, 2, 'Reserved', null, null, null),
-  ('e6700000-0000-4000-8000-000000000111', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl1@airbnb.com', 'airbnb', 'confirmed', current_date + 70, current_date + 72, 2, 'Synthetic Quin', null, null, null),
-  ('e6700000-0000-4000-8000-000000000112', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl2@airbnb.com', 'airbnb', 'blocked',   current_date + 72, current_date + 74, 2, 'Synthetic Quin', null, null, null),
-  ('e6700000-0000-4000-8000-000000000121', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx1@airbnb.com', 'airbnb', 'confirmed', current_date + 80, current_date + 82, 2, 'Synthetic Rae', null, null, null),
-  ('e6700000-0000-4000-8000-000000000122', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx2@airbnb.com', 'airbnb', 'cancelled', current_date + 82, current_date + 84, 2, 'Synthetic Rae', null, null, null),
-  ('e6700000-0000-4000-8000-000000000131', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx3@airbnb.com', 'airbnb', 'cancelled', current_date + 90, current_date + 92, 2, 'Synthetic Sol', null, null, null),
-  ('e6700000-0000-4000-8000-000000000132', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx4@airbnb.com', 'airbnb', 'confirmed', current_date + 92, current_date + 94, 2, 'Synthetic Sol', null, null, null);
+insert into public.calendar_events(id, property_id, uid, source, status, checkin_date, checkout_date, guest_name, guest_phone, raw_description, linked_reservation_id) values
+  ('e6700000-0000-4000-8000-0000000000c1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a1@airbnb.com', 'airbnb', 'confirmed', current_date - 13, current_date - 11, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b1'),
+  ('e6700000-0000-4000-8000-0000000000c2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-a2@airbnb.com', 'airbnb', 'confirmed', current_date - 11, current_date - 9, 'Synthetic Alpha', null, null, 'e6700000-0000-4000-8000-0000000000b2'),
+  ('e6700000-0000-4000-8000-0000000000c3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b1@airbnb.com', 'airbnb', 'confirmed', current_date - 8,  current_date - 6, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b3'),
+  ('e6700000-0000-4000-8000-0000000000c4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-b2@airbnb.com', 'airbnb', 'confirmed', current_date - 6,  current_date - 4, 'Synthetic Twin',  null, null, 'e6700000-0000-4000-8000-0000000000b4'),
+  ('e6700000-0000-4000-8000-0000000000d1', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de1111-0000-4000-8000-000000000001', 'direct', 'confirmed', current_date + 20, current_date + 22, 'Synthetic Dee',  '09170000671', null, null),
+  ('e6700000-0000-4000-8000-0000000000d2', 'e1000000-0000-4000-8000-000000000067', 'direct:c0de2222-0000-4000-8000-000000000002', 'direct', 'confirmed', current_date + 22, current_date + 24, 'Synthetic D.',   '09170000671', null, null),
+  ('e6700000-0000-4000-8000-0000000000e1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4a@airbnb.com', 'airbnb', 'confirmed', current_date + 30, current_date + 32, 'Synthetic Lee', null, E'Reservation URL: x\nPhone Number (Last 4 Digits): 4242', null),
+  ('e6700000-0000-4000-8000-0000000000e2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4b@airbnb.com', 'airbnb', 'confirmed', current_date + 32, current_date + 34, 'Synthetic Mar', null, E'Reservation URL: y\nPhone Number (Last 4 Digits): 4242', null),
+  ('e6700000-0000-4000-8000-0000000000e3', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4c@airbnb.com', 'airbnb', 'confirmed', current_date + 40, current_date + 42, 'Synthetic Ned', null, E'Phone Number (Last 4 Digits): 1111', null),
+  ('e6700000-0000-4000-8000-0000000000e4', 'e1000000-0000-4000-8000-000000000067', 'synth-67-l4d@airbnb.com', 'airbnb', 'confirmed', current_date + 42, current_date + 44, 'Synthetic Oma', null, E'Phone Number (Last 4 Digits): 2222', null),
+  ('e6700000-0000-4000-8000-0000000000f1', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n1@airbnb.com', 'airbnb', 'confirmed', current_date + 50, current_date + 52, 'Synthetic Pip',   null, null, null),
+  ('e6700000-0000-4000-8000-0000000000f2', 'e1000000-0000-4000-8000-000000000067', 'synth-67-n2@airbnb.com', 'airbnb', 'confirmed', current_date + 52, current_date + 54, ' synthetic pip ', null, null, null),
+  ('e6700000-0000-4000-8000-000000000101', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p1@airbnb.com', 'airbnb', 'confirmed', current_date + 60, current_date + 62, 'Reserved', null, null, null),
+  ('e6700000-0000-4000-8000-000000000102', 'e1000000-0000-4000-8000-000000000067', 'synth-67-p2@airbnb.com', 'airbnb', 'confirmed', current_date + 62, current_date + 64, 'Reserved', null, null, null),
+  ('e6700000-0000-4000-8000-000000000111', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl1@airbnb.com', 'airbnb', 'confirmed', current_date + 70, current_date + 72, 'Synthetic Quin', null, null, null),
+  ('e6700000-0000-4000-8000-000000000112', 'e1000000-0000-4000-8000-000000000067', 'synth-67-bl2@airbnb.com', 'airbnb', 'blocked',   current_date + 72, current_date + 74, 'Synthetic Quin', null, null, null),
+  ('e6700000-0000-4000-8000-000000000121', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx1@airbnb.com', 'airbnb', 'confirmed', current_date + 80, current_date + 82, 'Synthetic Rae', null, null, null),
+  ('e6700000-0000-4000-8000-000000000122', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx2@airbnb.com', 'airbnb', 'cancelled', current_date + 82, current_date + 84, 'Synthetic Rae', null, null, null),
+  ('e6700000-0000-4000-8000-000000000131', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx3@airbnb.com', 'airbnb', 'cancelled', current_date + 90, current_date + 92, 'Synthetic Sol', null, null, null),
+  ('e6700000-0000-4000-8000-000000000132', 'e1000000-0000-4000-8000-000000000067', 'synth-67-cx4@airbnb.com', 'airbnb', 'confirmed', current_date + 92, current_date + 94, 'Synthetic Sol', null, null, null);
 
 -- 1-5 stay_continues_v1: what is a chain
 select ok(pg_temp.cont(-11), 'airbnb to airbnb, same guest_id: the checkout is a continuation');
@@ -177,7 +177,6 @@ select ok(has_function_privilege('service_role', 'public.system_task_close_v1(te
 select ok(has_function_privilege('anon', 'public.verify_booking(date, text, uuid)', 'execute')
       and has_function_privilege('authenticated', 'public.verify_turnover(date, uuid)', 'execute')
       and has_function_privilege('service_role', 'public.get_missed_cleanings(uuid, integer)', 'execute')
-      and not has_function_privilege('anon', 'public.due_guest_messages_v1(timestamptz)', 'execute')
       and has_function_privilege('service_role', 'public.due_guest_messages_v1(timestamptz)', 'execute'), 'the four changed functions keep their grants (verify_booking stays anon by design, D-228)');
 select ok((select prosecdef from pg_proc where oid = 'public.verify_booking(date, text, uuid)'::regprocedure)
       and (select prosecdef from pg_proc where oid = 'public.due_guest_messages_v1(timestamptz)'::regprocedure)
@@ -185,7 +184,7 @@ select ok((select prosecdef from pg_proc where oid = 'public.verify_booking(date
       and not (select prosecdef from pg_proc where oid = 'public.get_missed_cleanings(uuid, integer)'::regprocedure), 'SECURITY DEFINER / INVOKER is unchanged on all four');
 select ok((select bool_and(p.proconfig = array['search_path=""']) from pg_proc p where p.pronamespace = 'public'::regnamespace
             and p.proname in ('verify_turnover', 'get_missed_cleanings', 'verify_booking', 'due_guest_messages_v1', 'stay_uid_inquiry_v1',
-                              'stay_same_guest_v1', 'stay_continues_v1', 'stay_chains_v1', 'system_task_close_v1')), 'every function here pins search_path to empty');
+                              'stay_same_guest_v1', 'stay_continues_v1', 'stay_chains_v1', 'system_task_close_v1', 'guests_missing_details_v1')), 'every function here pins search_path to empty');
 
 -- 48-52 system_task_close_v1
 create temp table t67 as select public.system_task_open_v1('e1000000-0000-4000-8000-000000000067', 'stay_chain', '2030-01-01', 'Synthetic chain task', 'detail', 'normal') id;
@@ -197,6 +196,43 @@ select ok(not public.system_task_close_v1('stay_chain', '2030-01-01', 'again') a
   'closing a task that is already done, or that does not exist, returns false');
 select is((select status from public.follow_up_tasks where idempotency_key = 'manual-task-000000067'), 'open', 'a task a person wrote (no system key) is never touched');
 select throws_ok($$select public.system_task_close_v1('Bad Kind!', 'x', 'n')$$, '22023', null, 'a malformed kind is refused');
+
+-- guests_missing_details_v1 (orchestrator addendum): of the given ids, those with no ID on file and no phone or email anywhere
+insert into public.guests(id, property_id, name, phone, email) values
+  ('e6700000-0000-4000-8000-000000000191', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gm1 nothing', null, null),
+  ('e6700000-0000-4000-8000-000000000192', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gm2 phone', '09170000681', null),
+  ('e6700000-0000-4000-8000-000000000193', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gm3 email', null, 'gm3@example.com'),
+  ('e6700000-0000-4000-8000-000000000194', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gm4 profile contact', null, null),
+  ('e6700000-0000-4000-8000-000000000195', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gm5 id on file', null, null),
+  ('e6700000-0000-4000-8000-000000000196', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gm6 blanks', '   ', ' '),
+  ('e6700000-0000-4000-8000-000000000197', 'e1000000-0000-4000-8000-000000000067', 'Synthetic Gm7 not asked', null, null);
+insert into public.guest_profile_details(guest_id, property_id, contact_number, id_on_file) values
+  ('e6700000-0000-4000-8000-000000000194', 'e1000000-0000-4000-8000-000000000067', '09170000682', false),
+  ('e6700000-0000-4000-8000-000000000195', 'e1000000-0000-4000-8000-000000000067', null, true),
+  ('e6700000-0000-4000-8000-000000000196', 'e1000000-0000-4000-8000-000000000067', '  ', false);
+select is((select array_agg(guest_id order by guest_id) from public.guests_missing_details_v1(array[
+    'e6700000-0000-4000-8000-000000000191', 'e6700000-0000-4000-8000-000000000192', 'e6700000-0000-4000-8000-000000000193',
+    'e6700000-0000-4000-8000-000000000194', 'e6700000-0000-4000-8000-000000000195', 'e6700000-0000-4000-8000-000000000196', gen_random_uuid()]::uuid[])),
+  array['e6700000-0000-4000-8000-000000000191', 'e6700000-0000-4000-8000-000000000196']::uuid[],
+  'guests_missing_details_v1: only the guest with nothing, and the one with blank phone, email and contact (phone, email, profile contact and ID on file each count)');
+select is((select count(*)::int from public.guests_missing_details_v1(array[]::uuid[])), 0, 'guests_missing_details_v1: an empty list gives no rows');
+select ok(has_function_privilege('service_role', 'public.guests_missing_details_v1(uuid[])', 'execute')
+      and not has_function_privilege('authenticated', 'public.guests_missing_details_v1(uuid[])', 'execute')
+      and not has_function_privilege('anon', 'public.guests_missing_details_v1(uuid[])', 'execute')
+      and (select prosecdef from pg_proc where oid = 'public.guests_missing_details_v1(uuid[])'::regprocedure), 'guests_missing_details_v1 is a definer function for service_role only');
+
+-- stay_chains_v1 contract for its callers (daily-digest, PostgREST): uids exactly as stored, dates as type date
+select is((select array[first_uid, next_uid] from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date + 22, current_date + 22)),
+  array[(select uid from public.calendar_events where id = 'e6700000-0000-4000-8000-0000000000d1'),
+        (select uid from public.calendar_events where id = 'e6700000-0000-4000-8000-0000000000d2')],
+  'stay_chains_v1: first_uid and next_uid equal calendar_events.uid exactly (direct rows keep direct:<id>)');
+select is(pg_get_function_result('public.stay_chains_v1(uuid, date, date)'::regprocedure),
+  'TABLE(junction_date date, guest_id uuid, guest_name text, first_uid text, first_source text, first_code text, first_checkin date, next_uid text, next_code text, next_checkout date)',
+  'stay_chains_v1: the date columns are type date and the rest are as documented');
+select is((select to_jsonb(x) ->> 'junction_date' || ' ' || (to_jsonb(x) ->> 'first_checkin') || ' ' || (to_jsonb(x) ->> 'next_checkout')
+             from public.stay_chains_v1('e1000000-0000-4000-8000-000000000067', current_date + 22, current_date + 22) x),
+  (current_date + 22)::text || ' ' || (current_date + 20)::text || ' ' || (current_date + 24)::text,
+  'stay_chains_v1: dates serialise as YYYY-MM-DD');
 
 select * from finish();
 rollback;

@@ -1,6 +1,6 @@
 -- Compensating rollback for release stay_chains_20261002 (D-290). Restores the four functions to their text before the
 -- release (md5(prosrc) verify_turnover 895d50d992b48fa4d4c264a1a15f819b, get_missed_cleanings 321f462e7b3e0cfa5ce33d09234f08cb,
--- verify_booking 32597e37d1fc428984d2070ebb53d703, due_guest_messages_v1 4513e1e984dc255f2fbf88764184fe89) and drops the five
+-- verify_booking 32597e37d1fc428984d2070ebb53d703, due_guest_messages_v1 4513e1e984dc255f2fbf88764184fe89) and drops the six
 -- new functions. CREATE OR REPLACE keeps every grant. Nothing else depends on the new functions; the edge functions only call
 -- the four old ones. The power-watch cron change (supabase/sql/2026-10-02-s67-power-watch-15m.sql) is separate; undo it with the
 -- one-line cron.alter_job at the foot of that file.
@@ -324,6 +324,7 @@ BEGIN
 END;
 $function$;
 
+drop function if exists public.guests_missing_details_v1(uuid[]);
 drop function if exists public.system_task_close_v1(text, text, text);
 drop function if exists public.stay_chains_v1(uuid, date, date);
 drop function if exists public.stay_continues_v1(uuid, date);
