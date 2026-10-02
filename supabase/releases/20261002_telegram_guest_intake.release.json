@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T100129Z",
-    "verified_at": "2026-10-02T10:02:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T110200Z",
+    "verified_at": "2026-10-02T11:02:30Z",
     "production_rule": "Four new functions (telegram_staff_actor_v1, telegram_guest_candidates_v1, telegram_save_guest_details_v1, telegram_save_guest_companion_v1). No table, column, policy, grant-on-existing-object or data change; nothing is dropped. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
