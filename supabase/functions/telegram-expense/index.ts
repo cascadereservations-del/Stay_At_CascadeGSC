@@ -26,6 +26,7 @@ import { chatJson } from '../_shared/cascade-core/providers.ts'; // /ping tests 
 import { notifyMessengerBookingDeclined } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
 import { applyHouseFact, houseTapLine, mayTeach } from '../_shared/cascade-core/house.ts'; // D-282: Cassy's teach card
+import { nightsPhrase, parsePwTap, parseTaskTap, patchNoticeState, readNotice, releaseNotice, rpcMissing } from '../_shared/cascade-core/brownout.ts'; // D-290: brownout card taps, stay/guest-details task taps
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
@@ -1236,7 +1237,7 @@ async function handleCallbackQuery(cq:any,db:any){
 async function handleCallbackQueryInner(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
   // SPEC-16: these taps answer for themselves, so a refused tap can explain itself in the toast.
-  if(!/^(inv:item:|inv:qty:|x:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
+  if(!/^(inv:item:|inv:qty:|x:|pw:|stc:|crm:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
 
   if(data==='xx'){await tgEdit(chatId,msgId,CANCELLED);return;}
   if(data.startsWith('x:')){
@@ -1503,6 +1504,43 @@ async function handleCallbackQueryInner(cq:any,db:any){
     const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Voided via Telegram NL',updated_at:new Date().toISOString()}).in('id',ids));
     if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('void those entries',err));return;}
     await tgEdit(chatId,msgId,firstLine+`\n✅ ${ids.length} transaction${ids.length!==1?'s':''} voided.`);return;
+  }
+  // D-290: the brownout card. Done records that Marifel blocked Airbnb; Undo and Unblock free the nights we hold on our own site (never Airbnb).
+  if(data.startsWith('pw:')){
+    const tap=parsePwTap(data);
+    if(!tap){await tgAnswerCB(cq.id,'That button is not valid. Nothing changed.');return;}
+    const who=whoFrom(cq.from).split(' ').slice(0,2).join(' ')||'Team';
+    const mt=new Date().toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit'});
+    const text=String(cq.message?.text??firstLine);
+    const rows=((cq.message?.reply_markup?.inline_keyboard??[]) as any[][]);
+    const keep=(drop:RegExp)=>({inline_keyboard:rows.map((r)=>r.filter((b:any)=>!drop.test(String(b?.callback_data??'')))).filter((r)=>r.length)});
+    if(tap.kind==='done'){
+      const st=await readNotice(db,tap.date);
+      if(!st||st.status!=='active'){await tgAnswerCB(cq.id,'That block is no longer active. Nothing changed.');return;}
+      let err:string|null=null;
+      try{await patchNoticeState(db,tap.date,{doneAt:new Date().toISOString(),doneBy:who});}catch(e){err=String((e as any)?.message??e).slice(0,120);}
+      await tgAnswerCB(cq.id);
+      if(err){await tgEdit(chatId,msgId,text+'\n'+NOTHING_CHANGED('record that Airbnb is blocked',err),cq.message?.reply_markup);return;}
+      await tgEdit(chatId,msgId,`${text}\n\n✅ Blocked in Airbnb, marked by ${who} at ${mt}`,keep(/^pw:done:/));return;
+    }
+    const r=await releaseNotice(db,PROPERTY_ID,tap.date,tap.kind==='undo'?'undo':'unblock',who);
+    await tgAnswerCB(cq.id);
+    if(!r.ok){await tgEdit(chatId,msgId,text+'\n'+NOTHING_CHANGED(tap.kind==='undo'?'undo the block':'unblock the nights',r.error),cq.message?.reply_markup);return;}
+    const freed=r.nights.length?`Unblocked on our site: ${nightsPhrase(r.nights)}. Marifel: also unblock in Airbnb if you blocked ${r.nights.length===1?'it':'them'}.`:'Nothing was left to unblock on our site.';
+    await tgEdit(chatId,msgId,`${text}\n\n↩ ${tap.kind==='undo'?'Undone':'Unblocked'} by ${who} at ${mt}. ${freed}${tap.kind==='unblock'?' The notice is off the operations board.':''}`,keep(/^pw:/));return;
+  }
+  // D-290 (Lane B cards): "stay continues" and "guest details" tasks closed from Telegram. The rpc may not be deployed yet; a missing function is logged, not shown as a failure.
+  if(data.startsWith('stc:')||data.startsWith('crm:')){
+    const tap=parseTaskTap(data);
+    if(!tap){await tgAnswerCB(cq.id,'That button is not valid. Nothing changed.');return;}
+    const who=whoFrom(cq.from).split(' ').slice(0,2).join(' ')||'Team';
+    const mt=new Date().toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit'});
+    const text=String(cq.message?.text??firstLine);
+    const{error}=await db.rpc('system_task_close_v1',{p_source_kind:tap.sourceKind,p_source_ref:tap.sourceRef,p_note:`tapped in Telegram by ${who}`});
+    await tgAnswerCB(cq.id);
+    if(error&&!rpcMissing(error)){await tgEdit(chatId,msgId,text+'\n'+NOTHING_CHANGED('close the task',String(error.message??error).slice(0,120)),cq.message?.reply_markup);return;}
+    if(error)console.warn('system_task_close_v1 missing, card closed anyway:',String(error.message??error).slice(0,120));
+    await tgEdit(chatId,msgId,`${text}\n\n✅ Done by ${who} at ${mt}`);return;
   }
   if(data.startsWith('cleanerack:')){
     const cleaner=decodeURIComponent(data.slice('cleanerack:'.length));

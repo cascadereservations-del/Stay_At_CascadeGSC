@@ -1,38 +1,51 @@
-// power-watch v1 (D-284, Lloyd 2026-09-29 "A"): SOCOTECO II scheduled power interruptions for our feeder 14-3.
-// Hourly from pg_cron (x-cascade-cron-secret, Vault). Reads socoteco2.com's WordPress feed (free), decides each poster by
+// power-watch v2 (D-284, Lloyd 2026-09-29 "A"; D-290, Lloyd 2026-10-02): SOCOTECO II scheduled power interruptions for our feeder 14-3.
+// Every 15 minutes from pg_cron (x-cascade-cron-secret, Vault). Reads socoteco2.com's WordPress feed (free), decides each poster by
 // its filename where it can (poster.ts) and reads the rest with the vision helper the receipts already use. A poster that
-// is ours becomes an ops_notices brownout (the daily digest and Cassy read it) and one alert to Telegram OPS and the host
-// inbox. An outage someone already put on the board (same day and start) is not repeated. Guests are not told: they hear
-// about utilities only if they ask (Lloyd 2026-09-29).
-// State: app_settings.power_watch_state {done: post ids, images: poster URLs already decided}; an image is only marked
-// once it was decided, so a many-poster notice is read across runs (the Apps Script marked the whole post after 4).
-// Not covered: unscheduled outages, which SOCOTECO posts on Facebook only (paid scraping; free tier first). The staff
-// house fact carries their 24/7 hotline.
+// is ours becomes an ops_notices brownout (the daily digest and Cassy read it), and in the SAME run:
+//   - every night the outage touches (plan.ts) is blocked on OUR booking site (calendar_events 'brownout:<night>' manual rows);
+//     nothing is written to Airbnb, Marifel blocks that by hand, so ONE OPS card goes out at once with what to block;
+//   - a guest already in the house on a touched night is never blocked: the card carries the prep and a draft message for them;
+//   - the host inbox gets the e-mail as before.
+// Each run then re-checks the notices it holds: "Airbnb block seen" when the iCal feed shows Marifel's block, one reminder after
+// 3 hours of silence, a "changed" card when SOCOTECO posts new times for a date, and a cancel card (Unblock button) when it
+// cancels or moves one. The taps (pw:done / pw:undo / pw:unblock) are handled in telegram-expense.
+// State: app_settings.power_watch_state {done: post ids, images: poster URLs already decided} as before, plus one key per outage date
+// power_watch_notice:<date> (brownout.ts NoticeState). A notice already on the board with no state (a photo saved in Telegram, the two
+// that predate v2) is adopted on the first run: blocked and announced like a new one, five at most per run.
+// What change detection can and cannot catch: it sees a NEW poster image for a date we already hold (a changed time, a cancelled or
+// moved notice) among the 10 newest posts. It does not re-read a poster whose image was already decided, so a poster edited in place at
+// the same URL is missed; a change announced only on Facebook or by text is missed; an unscheduled outage (SOCOTECO posts it on
+// Facebook only; paid scraping, free tier first) is missed; and one OCR misread is carried until a newer poster corrects it. Two
+// windows on one date are one notice: the newer poster replaces the older.
+// Not told: other guests, who hear about utilities only if they ask (Lloyd 2026-09-29). The staff house fact carries the 24/7 hotline.
 // ?dry=1 decides and logs but writes, alerts and marks nothing.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
-import { withHeader } from '../_shared/cascade-core/format.ts';
 import { parseModelJson, visionExtractText } from '../_shared/cascade-core/vision.ts';
-import { alertText, classifyFile, FEEDER, isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Notice, type Ocr } from './poster.ts';
+import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Ocr } from './poster.ts';
+import { touchedNights } from './plan.ts';
+import { pruneStates, reconcile, type Found } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=10&orderby=date&_fields=id,date,link,title,content';
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; CascadeOpsWatch/1.0)' };
 const STATE_KEY = 'power_watch_state';
-const MAX_READS = 4;   // poster reads per run; the rest wait for the next hour
+const MAX_READS = 4;   // poster reads per run; the rest wait for the next run
 const KEEP = 300;
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } });
 // deno-lint-ignore no-explicit-any
 type Db = any;
 
-async function tg(text: string): Promise<boolean> {
+/** A card to the OPS chat. Plain text (no parse_mode): the buttons are the card's own. */
+async function tg(text: string, markup?: unknown): Promise<boolean> {
   const token = env('TELEGRAM_BOT_TOKEN'), chat = env('TELEGRAM_CHAT_ID');
   if (!token || !chat) return false;
   const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chat, text, disable_web_page_preview: true }), signal: AbortSignal.timeout(10_000),
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chat, text, disable_web_page_preview: true, ...(markup ? { reply_markup: markup } : {}) }), signal: AbortSignal.timeout(10_000),
   }).catch(() => null);
   return !!r?.ok;
 }
@@ -48,21 +61,6 @@ async function mail(db: Db, subject: string, message: string): Promise<boolean> 
   return !!r?.ok;
 }
 
-/** Board + alert, once per outage: skipped when a brownout for that day and start (or with no start) is already on it. */
-async function publish(db: Db, n: Notice): Promise<'new' | 'known'> {
-  const { data: same } = await db.from('ops_notices').select('id, effective_time').eq('notice_type', 'brownout').eq('effective_date', n.date).eq('is_active', true);
-  if ((same ?? []).some((r: { effective_time: string | null }) => !r.effective_time || !n.time || r.effective_time === n.time)) return 'known';
-  const { error } = await db.from('ops_notices').insert({
-    property_id: PROPERTY_ID, notice_type: 'brownout', title: n.title, description: `${n.purpose ? n.purpose + ' | ' : ''}poster ${n.poster}`,
-    effective_date: n.date, effective_time: n.time, duration_hours: n.hours, feeder: `Feeder ${FEEDER}`, posted_by_name: 'Power watch (socoteco2.com)',
-  });
-  if (error) throw new Error(`ops_notices: ${error.message}`);
-  const a = alertText(n);
-  const [t, m] = await Promise.all([tg(withHeader('attention', `brownout ${a.subject.replace('Brownout at Cascade: ', '')}`, a.body)), mail(db, a.subject, a.body)]);
-  console.log('power_watch_alert', JSON.stringify({ date: n.date, time: n.time, telegram: t, email: m }));
-  return 'new';
-}
-
 async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   const res = await fetch(FEED, { headers: UA, signal: AbortSignal.timeout(20_000) });
   if (!res.ok) throw new Error(`socoteco_feed_${res.status}`);
@@ -70,8 +68,9 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   const posts = ((await res.json()) as any[]).filter(isPowerPost);
   const { data: st } = await db.from('app_settings').select('value').eq('key', STATE_KEY).maybeSingle();
   const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[] };
-  const today = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
-  const found: Notice[] = [], log: string[] = [];
+  const now = new Date();
+  const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  const found: Found[] = [], log: string[] = [];
   let reads = 0;
   for (const p of posts) {
     if (state.done.includes(p.id)) continue;
@@ -87,22 +86,33 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
         if (!img.ok) throw new Error(`poster_${img.status}`);
         const o = parseModelJson<Ocr>(await visionExtractText(OCR_PROMPT, new Uint8Array(await img.arrayBuffer()), img.headers.get('content-type') ?? 'image/jpeg', 'Cascade Power Watch'), {});
         const n = noticeFrom(o, c === 'hit', url);
-        log.push(`${url.split('/').pop()} ${c} -> ${n ? `ours ${n.date} ${n.time ?? ''}` : 'not ours'}`);
-        if (n && n.date >= today) found.push(n);
+        log.push(`${url.split('/').pop()} ${c} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}`);
+        if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
         state.images.push(url);
       } catch (e) {
-        complete = false; // read again next hour
+        complete = false; // read again next run
         console.warn('power_watch_read_failed', url.split('/').pop(), String(e).slice(0, 200));
       }
     }
     if (complete) state.done.push(p.id);
   }
-  const results: string[] = [];
+  let results: string[] = [];
   if (!dry) {
-    for (const n of found) results.push(`${n.date}: ${await publish(db, n)}`);
+    // Blocks and cards first; the poster state is saved only after them, so a failure re-reads the posters rather than losing a notice.
+    results = await reconcile({
+      db, propertyId: PROPERTY_ID, today, now,
+      send: async (c) => await tg(c.text, c.markup),
+      mail: (subject, body) => mail(db, subject, body),
+      log: (event, data) => console.log(event, JSON.stringify(data)),
+    }, found);
+    const pruned = await pruneStates(db, today);
+    if (pruned) results.push(`pruned ${pruned} old notice states`);
     await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
-  const out = { posts: posts.length, reads, found: found.map((n) => `${n.date} ${n.time ?? ''} ${n.hours ?? ''}h`), results, log, dry };
+  const out = {
+    posts: posts.length, reads, dry, results, log,
+    found: found.map((n) => `${n.date} ${n.time ?? ''} ${n.hours ?? ''}h ${n.status} nights ${touchedNights(n.date, n.time, n.hours).join('+')}`),
+  };
   console.log('power_watch_run', JSON.stringify(out));
   return out;
 }

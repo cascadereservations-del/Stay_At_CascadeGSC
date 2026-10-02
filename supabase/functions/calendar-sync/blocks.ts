@@ -28,12 +28,23 @@ export const monthDay = (d: string) => `${MON[Number(d.slice(5, 7)) - 1]} ${Numb
 const isPending = (r: CalRow) => (r.recon_status ?? 'pending') === 'pending';
 const isBlock = (r: CalRow) => r.source === 'airbnb' && r.status === 'blocked';
 
-/** A direct booking or an Airbnb stay on any of the block's nights is the explanation (D-236.4). */
+const nextDay = (ymd: string) => new Date(Date.parse(`${ymd}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+/** D-290: every night of an Airbnb block is a night power-watch blocked for a SOCOTECO interruption (a manual row, uid brownout:<night>).
+ *  Marifel's Airbnb block for it comes back through this feed, and it is explained; one night more than the outage is not. */
+function brownoutExplains(b: CalRow, rows: CalRow[]): boolean {
+  const held = new Set(rows.filter((o) => o.source === 'manual' && o.status !== 'cancelled' && o.uid.startsWith('brownout:')).map((o) => o.checkin_date));
+  if (!held.size || b.checkin_date >= b.checkout_date) return false;
+  for (let n = b.checkin_date; n < b.checkout_date; n = nextDay(n)) if (!held.has(n)) return false;
+  return true;
+}
+
+/** A direct booking or an Airbnb stay on any of the block's nights is the explanation (D-236.4), and so is a brownout block on all of them (D-290). */
 function covered(b: CalRow, rows: CalRow[]): boolean {
   return rows.some((o) =>
     o !== b && o.status !== 'cancelled' &&
     (o.source === 'direct' || (o.source === 'airbnb' && o.status === 'confirmed')) &&
-    o.checkin_date < b.checkout_date && b.checkin_date < o.checkout_date);
+    o.checkin_date < b.checkout_date && b.checkin_date < o.checkout_date) || brownoutExplains(b, rows);
 }
 
 /**
