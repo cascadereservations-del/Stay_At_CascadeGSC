@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING: take a fresh backup (supabase-backup-over-alfred.sh), then fill restore_point and verified_at",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T100129Z",
+    "verified_at": "2026-10-02T10:02:00Z",
     "production_rule": "Four new functions (telegram_staff_actor_v1, telegram_guest_candidates_v1, telegram_save_guest_details_v1, telegram_save_guest_companion_v1). No table, column, policy, grant-on-existing-object or data change; nothing is dropped. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
@@ -71,8 +71,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "NOT RUN. pgTAP supabase/tests/database/telegram_guest_intake.sql (67 assertions) and the six forward checks have not been executed against a restored backup: this build session had no local Postgres. The migration and test parse with libpg_query (pglast) and the picker query was run read-only against production. Rehearse on a disposable restore of a fresh backup before applying.",
+    "verified": true,
+    "rehearsal": "PASSED 2026-10-02 10:05Z on a disposable restore of cascade-supabase-20261002T100129Z (prefix cascade-migration-rehearsal-e0ccd0be0c03): forward 6/6, pgTAP telegram_guest_intake.sql 67/67, 107 public tables before and after, 0 leftovers.",
     "evidence": "Read-only against production on 2026-10-02: telegram_user_id is mapped on 2 admin profiles (each with property access); save_guest_profile_v1 / save_guest_companion_v1 definitions were read with pg_get_functiondef and mirrored; guest-id-photos is private with image/jpeg, png, webp and a 10 MB limit; the stay-to-guest join used by the picker returned a guest for every confirmed stay in the window."
   },
   "approvals": {
