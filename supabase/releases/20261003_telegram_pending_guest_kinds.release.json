@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "release_id": "telegram_pending_guest_kinds_20261003",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "4438f0e0bddbf2b5714b468463cdc84365d89532"
+  },
+  "migrations": [
+    "20261003010000_telegram_pending_guest_kinds.sql"
+  ],
+  "migration_sha256": {
+    "20261003010000_telegram_pending_guest_kinds.sql": "9c00b8fa0e3fccd38a3fe8cc7c3538696f5bf8468c7d37078e0441fdf794b915"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T220152Z",
+    "verified_at": "2026-10-02T22:06:24Z",
+    "production_rule": "telegram_pending_kind_check widened by two values ('guest_pick', 'guest_save'); every existing kind kept. No data, table, function or grant changes. Take a fresh backup if this one is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "the_check_names_guest_pick_and_guest_save_and_keeps_the_rest",
+      "query": "select pg_get_constraintdef(oid) like '%guest_pick%' and pg_get_constraintdef(oid) like '%guest_save%' and pg_get_constraintdef(oid) like '%llm_house%' and pg_get_constraintdef(oid) like '%awaiting_reply%' from pg_constraint where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261003_telegram_pending_guest_kinds.sql with run-sql-on-host.sh (deletes unconfirmed guest_pick/guest_save cards, narrows the CHECK); Cassy /guest then fails closed again."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_only",
+      "required_state": "No deploy needed: telegram-expense (/guest flow) is already live and fails closed until this is applied."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "Rehearsed 2026-10-02T22:06:24Z on a disposable restore of production backup cascade-supabase-20261002T220152Z (prefix cascade-migration-rehearsal-87ee2ec173fb, 0 leftovers). Migration 1 of 1; forward check 1/1; pgTAP telegram_pending_guest_kinds.sql 5/5; 107 tables before and after.",
+    "evidence": "CHECK widened by two values. pgTAP telegram_pending_guest_kinds.sql (5)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
