@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "telegram_guest_intake_20261002",
+  "phase": "expand",
+  "source": {
+    "branch": "s67b/guest-intake-sql",
+    "commit": "3f7182080b2173802bbdf1551db16396feb80297"
+  },
+  "migrations": [
+    "20261002020000_telegram_guest_intake.sql"
+  ],
+  "migration_sha256": {
+    "20261002020000_telegram_guest_intake.sql": "f35a38973611c2b8a3f3a53fe1bb982fa619ca725866b670da351160ef6811be"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261002T100129Z",
+    "verified_at": "2026-10-02T10:02:00Z",
+    "production_rule": "Four new functions (telegram_staff_actor_v1, telegram_guest_candidates_v1, telegram_save_guest_details_v1, telegram_save_guest_companion_v1). No table, column, policy, grant-on-existing-object or data change; nothing is dropped. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "new_functions_grants",
+      "query": "select has_function_privilege('service_role','public.telegram_guest_candidates_v1(bigint,uuid,date,date,text)','execute') and has_function_privilege('service_role','public.telegram_save_guest_details_v1(uuid,jsonb,bigint,text)','execute') and has_function_privilege('service_role','public.telegram_save_guest_companion_v1(uuid,text,text,text,text,text,bigint,text)','execute') and not has_function_privilege('service_role','public.telegram_staff_actor_v1(bigint,uuid)','execute') and not has_function_privilege('anon','public.telegram_guest_candidates_v1(bigint,uuid,date,date,text)','execute') and not has_function_privilege('anon','public.telegram_save_guest_details_v1(uuid,jsonb,bigint,text)','execute') and not has_function_privilege('anon','public.telegram_save_guest_companion_v1(uuid,text,text,text,text,text,bigint,text)','execute') and not has_function_privilege('authenticated','public.telegram_guest_candidates_v1(bigint,uuid,date,date,text)','execute') and not has_function_privilege('authenticated','public.telegram_save_guest_details_v1(uuid,jsonb,bigint,text)','execute') and not has_function_privilege('authenticated','public.telegram_save_guest_companion_v1(uuid,text,text,text,text,text,bigint,text)','execute') and not has_function_privilege('authenticated','public.telegram_staff_actor_v1(bigint,uuid)','execute')",
+      "expect": true
+    },
+    {
+      "name": "definer_with_empty_search_path",
+      "query": "select count(*) = 4 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('telegram_staff_actor_v1','telegram_guest_candidates_v1','telegram_save_guest_details_v1','telegram_save_guest_companion_v1')",
+      "expect": true
+    },
+    {
+      "name": "unmapped_telegram_user_is_refused_and_writes_nothing",
+      "query": "select (public.telegram_save_guest_details_v1((select id from public.guests order by created_at limit 1), '{\"id_on_file\":true}'::jsonb, -1, 'forward check') ->> 'reason') = 'unmapped_telegram_user' and (public.telegram_save_guest_companion_v1((select id from public.guests order by created_at limit 1), 'Forward Check', null, null, null, null, -1, 'forward check') ->> 'reason') = 'unmapped_telegram_user' and (public.telegram_guest_candidates_v1(-1, '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', current_date, current_date + 7, null) ->> 'reason') = 'unmapped_telegram_user'",
+      "expect": true
+    },
+    {
+      "name": "linked_admin_gets_a_candidate_list",
+      "query": "select (public.telegram_guest_candidates_v1((select p.telegram_user_id from public.staff_access_profiles p where p.telegram_user_id is not null and p.disabled_at is null and p.role in ('owner','admin') order by p.created_at limit 1), '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', current_date, current_date + 7, null) ->> 'ok')::boolean",
+      "expect": true
+    },
+    {
+      "name": "no_id_number_anywhere_in_the_new_functions",
+      "query": "select not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('telegram_staff_actor_v1','telegram_guest_candidates_v1','telegram_save_guest_details_v1','telegram_save_guest_companion_v1') and pg_get_functiondef(p.oid) ~* 'id_number|birthday|address')",
+      "expect": true
+    },
+    {
+      "name": "id_photo_bucket_is_private",
+      "query": "select not public from storage.buckets where id = 'guest-id-photos'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Redeploy the previous telegram-expense first (it stops calling the new RPCs), then apply supabase/rollbacks/20261002_telegram_guest_intake.sql with run-sql-on-host.sh: it drops the four functions. Rows they already wrote (guest_profile_details, guest_companions, history, objects in guest-id-photos) are ordinary audited rows and stay."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "telegram_expense_deploy",
+      "required_state": "Apply this release BEFORE deploying telegram-expense with the /guest flow. Until the function is deployed nothing calls the new RPCs and nothing changes for staff. A deployed telegram-expense without this release answers /guest with a plain \"not available yet\" message (the RPC is reported missing)."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "PASSED 2026-10-02 10:05Z on a disposable restore of cascade-supabase-20261002T100129Z (prefix cascade-migration-rehearsal-e0ccd0be0c03): forward 6/6, pgTAP telegram_guest_intake.sql 67/67, 107 public tables before and after, 0 leftovers.",
+    "evidence": "Read-only against production on 2026-10-02: telegram_user_id is mapped on 2 admin profiles (each with property access); save_guest_profile_v1 / save_guest_companion_v1 definitions were read with pg_get_functiondef and mirrored; guest-id-photos is private with image/jpeg, png, webp and a 10 MB limit; the stay-to-guest join used by the picker returned a guest for every confirmed stay in the window."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "telegram-expense is deployed before this release is applied and Lloyd has not been told /guest will answer \"not available yet\" until it is"
+  ]
+}
