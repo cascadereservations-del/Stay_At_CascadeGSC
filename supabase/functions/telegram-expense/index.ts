@@ -28,6 +28,7 @@ import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; //
 import { applyHouseFact, houseTapLine, mayTeach } from '../_shared/cascade-core/house.ts'; // D-282: Cassy's teach card
 import { nightsPhrase, parsePwTap, parseTaskTap, patchNoticeState, readNotice, releaseNotice, rpcMissing } from '../_shared/cascade-core/brownout.ts'; // D-290: brownout card taps, stay/guest-details task taps
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
+import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
 import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
@@ -194,6 +195,8 @@ async function fetchPhotoBytesByFileId(fileId:string):Promise<{bytes:Uint8Array;
 }
 function largestPhotoId(msg:any):string|null{const p=Array.isArray(msg.photo)?msg.photo:[];return p.length?p[p.length-1].file_id:null;}
 async function fetchPhotoBytes(msg:any):Promise<{bytes:Uint8Array;mime:string}|null>{const id=largestPhotoId(msg);return id?fetchPhotoBytesByFileId(id):null;}
+// session 67b: the /guest flow gets Telegram, the shared vision helper and the database through this one object (guest-flow.ts holds no globals).
+const guestDeps=(db:any)=>({db,propertyId:PROPERTY_ID,send:(c:any,t:string,x:Record<string,unknown>={})=>tgSend(c,t,x.reply_to_message_id?{...x,allow_sending_without_reply:true}:x),edit:tgEdit,answer:tgAnswerCB,photo:fetchPhotoBytesByFileId,read:(prompt:string,bytes:Uint8Array,mime:string)=>visionExtractText(prompt,bytes,mime,'Cascade Guest Intake'),visionReady:hasVisionKey,esc:mdEsc,today:toManilaDate});
 async function handleStockQuery(db:any,chatId:any,surface:'ops'|'finance',params:any){
   const filter=String(params?.filter??'low');const item=params?.item?String(params.item).trim().toLowerCase():null;const isFin=surface==='finance';
   const{data,error:invErr}=await db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit,is_consumable,consumption_per_booking,unit_cost,sort_order').eq('property_id',PROPERTY_ID).eq('is_active',true).order('sort_order');
@@ -1237,9 +1240,10 @@ async function handleCallbackQuery(cq:any,db:any){
 async function handleCallbackQueryInner(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
   // SPEC-16: these taps answer for themselves, so a refused tap can explain itself in the toast.
-  if(!/^(inv:item:|inv:qty:|x:|pw:|stc:|crm:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
+  if(!/^(inv:item:|inv:qty:|x:|pw:|stc:|crm:|gst:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
 
   if(data==='xx'){await tgEdit(chatId,msgId,CANCELLED);return;}
+  if(data.startsWith('gst:')){await onGuestTap(guestDeps(db),cq);return;} // session 67b: /guest pick, Other, Save, Cancel (they answer the tap themselves)
   if(data.startsWith('x:')){
     const pid=data.slice(2);
     const{data:row}=await db.from('telegram_pending').select('payload').eq('id',pid).eq('kind','awaiting_reply').maybeSingle();
@@ -1717,6 +1721,7 @@ async function handleTextMessage(msg:any,db:any){
     if(cmd==='/notices'){await handleNoticesList(chatId,db);return;}
     if(cmd==='/stock'){await handleStockQuery(db,chatId,isFinanceChat(chatId)?'finance':'ops',{filter:(args[0]??'').toLowerCase()==='all'?'all':'low'});return;}
     if(cmd==='/inventory'){await handleStockQuery(db,chatId,isFinanceChat(chatId)?'finance':'ops',{filter:'all'});return;}
+    if(cmd==='/guest'){const rp=msg.reply_to_message;await startGuestIntake(guestDeps(db),{...msg,photo:undefined},largestPhotoId(rp??{}));return;} // session 67b: reply /guest to a photo; a bare /guest explains itself
     if(cmd==='/count'){if(!isFinanceChat(chatId)){await tgSend(chatId,'Counts are updated from the Finance group.');return;}await promptCountScope(db,chatId);return;}
     if(cmd==='/menu'||cmd==='/help'||cmd==='/start'){await showMenu(chatId);return;}
     if(!isFinanceChat(chatId))return;
@@ -1774,6 +1779,7 @@ async function handlePhotoMessage(msg:any,db:any){
   const cid=msg.chat?.id;
   if(!isAllowedChat(cid))return;
   if(msg.from?.is_bot)return;
+  if(/^\/guest(@\w+)?(\s|$)/i.test(String(msg.caption??'').trim())){await startGuestIntake(guestDeps(db),msg,largestPhotoId(msg));return;} // session 67b: an ID or chat photo for one guest, confirm before save
   const wantsAdvisory=captionWantsAdvisory(msg.caption);
   if(wantsAdvisory){const ph=await fetchPhotoBytes(msg);if(!ph){await tgSend(cid,'⚠️ Could not fetch the image. Try again.');return;}await runAdvisoryOcr(db,cid,ph.bytes,ph.mime,msg.from??{});return;}
   if(!isFinanceChat(cid)){
@@ -1928,8 +1934,8 @@ async function handlePing(chatId: any) {
 }
 
 // Session 28: every feature has a command, so the ☰ menu button (setChatMenuButton, commands) lists them all.
-const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'cassy',description:'Ask Cassy: /cassy who arrives this week?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'notices',description:'Active brownouts, holidays, events, reminders'},{command:'brownout',description:'Add a brownout: /brownout <date> <time> <hours>'},{command:'deep',description:'Ask Cassy with the deeper model'}];
-const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'log',description:'Log an expense (guided)'},{command:'cassy',description:'Ask Cassy: /cassy what did we spend this month?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'payclean',description:'Mark a cleaning fee paid'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'count',description:'Update stock counts by group'},{command:'notices',description:'Active OPS notices'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'void',description:'Void entry: /void REFCODE'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'deep',description:'Ask Cassy with the deeper model'},{command:'ping',description:'Diagnostic: test the model + env vars'}];
+const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'cassy',description:'Ask Cassy: /cassy who arrives this week?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'guest',description:'Save a guest ID or chat photo: send it captioned /guest'},{command:'notices',description:'Active brownouts, holidays, events, reminders'},{command:'brownout',description:'Add a brownout: /brownout <date> <time> <hours>'},{command:'deep',description:'Ask Cassy with the deeper model'}];
+const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'log',description:'Log an expense (guided)'},{command:'cassy',description:'Ask Cassy: /cassy what did we spend this month?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'payclean',description:'Mark a cleaning fee paid'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'count',description:'Update stock counts by group'},{command:'guest',description:'Save a guest ID or chat photo: send it captioned /guest'},{command:'notices',description:'Active OPS notices'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'void',description:'Void entry: /void REFCODE'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'deep',description:'Ask Cassy with the deeper model'},{command:'ping',description:'Diagnostic: test the model + env vars'}];
 
 Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' }, async(req)=>{
   const url=new URL(req.url);
@@ -1966,6 +1972,11 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
       // Deploy 3: every bot-addressed free text goes to Cassy too, except commands, replies to the bot's
       // own prompts (expense/notice flows) and numeric fast entry ("500 supplies"), which stay here.
       {
+        // session 67b: the reply to the /guest "Guest name:" prompt is a name search, never a question for Cassy or an expense.
+        if(update?.message&&typeof update.message.text==='string'&&update.message.reply_to_message?.from?.is_bot&&String(update.message.reply_to_message.text??'').startsWith(GUEST_NAME_PROMPT_HEAD)){
+          if(!isAllowedChat(update.message.chat?.id))return;
+          await onGuestNameReply(guestDeps(db),update.message);return;
+        }
         const m=update?.message; const t=String(m?.text??m?.caption??''); // v107: a photo captioned "cassy …" is a draft request (Telegram plan §3)
         // D-269: the ✍️ Guest reply button (or a bare /draft) asks for the guest's message; the reply to that prompt - pasted
         // text, or a screenshot with no caption - goes to Cassy as a draft request. A photo reply never reaches receipt OCR.
