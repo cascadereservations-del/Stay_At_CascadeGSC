@@ -1,3 +1,5 @@
+// daily-digest v16 — D-290: same-guest chained stays are ONE stay (no turnover line, nights from the chain start), a once-per-chain
+//   OPS card with Marifel's Airbnb steps, and a once-per-stay guest-details reminder (cards.ts; sent refs in app_settings.daily_digest_state).
 // daily-digest v15 — report shape (phase 4, D-106 #4, 2026-09-13)
 // v15: both digests are built as a cascade-core Report (decision, at most five lines, one action)
 //   by daily-digest/report.ts (pure, tested in digest.test.ts) and rendered by
@@ -14,6 +16,8 @@ import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { renderReport, withHeader, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
 import { friendlyDate, opsReport, weeklyFinanceReport, weeklyOpsReport, type CassyWeek, type MidStay, type Weather } from './report.ts';
 import { overdue } from '../finance-watch/watch.ts';
+import { fetchChains, type Chain } from '../_shared/cascade-core/chains.ts';
+import { chainCard, detailsCard, midStayFor, stayOnFor, type Card, type DetailsStay } from './cards.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -30,8 +34,8 @@ const CONSOLE_URL   = 'https://cascadereservations-del.github.io/cascade-admin-d
 
 // ── Telegram (plain text: the report is rendered by code, nothing needs escaping) ──
 let sendFailures = 0;
-async function tgSend(chatId: string, text: string, reply_markup?: unknown): Promise<void> {
-  if (!TG_TOKEN || !chatId) { console.warn('tgSend: missing token or chatId'); return; }
+async function tgSend(chatId: string, text: string, reply_markup?: unknown): Promise<boolean> {
+  if (!TG_TOKEN || !chatId) { console.warn('tgSend: missing token or chatId'); return false; }
   const res = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
     method: 'POST', headers: JSON_H,
     body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, reply_markup }),
@@ -40,13 +44,13 @@ async function tgSend(chatId: string, text: string, reply_markup?: unknown): Pro
   if (res && !res.ok) console.error('tgSend non-ok:', res.status, await res.text().catch(() => '').then(t => t.slice(0, 200)));
   // SPEC-17 (D-212): the caller decides whether a failed send is a failed run.
   if (!res?.ok) sendFailures += 1;
+  return !!res?.ok;
 }
 
 // ── Date helpers ──────────────────────────────────────────────
 function getManilaDateStr(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 }
-const daysBetween = (from: string, to: string) => Math.round((new Date(to + 'T00:00:00Z').getTime() - new Date(from + 'T00:00:00Z').getTime()) / 86_400_000);
 const isMonday = (d: string) => new Date(d + 'T00:00:00Z').getUTCDay() === 1;
 function addDays(dateStr: string, n: number): string {
   const d = new Date(dateStr + 'T00:00:00Z');
@@ -114,7 +118,13 @@ async function fetchWeather(): Promise<Weather | null> {
 }
 
 // ── OPS digest: fetch, then report.ts decides what is said ───────────────────
-async function buildOpsMessage(db: any, today: string, tomorrow: string): Promise<string | null> {
+// D-290: a booking that continues a same-guest stay is not an arrival, and the one it continues is not a departure.
+const dropJunction = (rows: any[] | null, chains: Chain[], date: string, side: 'first_uid' | 'next_uid'): any[] => {
+  const uids = new Set(chains.filter((c) => c.junction_date === date).map((c) => c[side]));
+  return (rows ?? []).filter((r) => !uids.has(String(r.uid)));
+};
+
+async function buildOpsMessage(db: any, today: string, tomorrow: string, chains: Chain[]): Promise<string | null> {
   const wStart = addDays(today, -2);
   const wEnd   = addDays(tomorrow, 2);
   const [
@@ -128,18 +138,18 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
     { data: resData },
     weather,
   ] = await Promise.all([
-    db.from('calendar_events').select('guest_name,raw_summary,checkin_time,nights,source')
+    db.from('calendar_events').select('uid,guest_name,raw_summary,checkin_time,nights,source')
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').eq('checkin_date', today),
-    db.from('calendar_events').select('guest_name,raw_summary,checkout_time,nights,source')
+    db.from('calendar_events').select('uid,guest_name,raw_summary,checkout_time,nights,source')
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').eq('checkout_date', today),
-    db.from('calendar_events').select('guest_name,raw_summary,checkin_time,nights,source')
+    db.from('calendar_events').select('uid,guest_name,raw_summary,checkin_time,nights,source')
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').eq('checkin_date', tomorrow),
-    db.from('calendar_events').select('guest_name,raw_summary,checkout_time,source')
+    db.from('calendar_events').select('uid,guest_name,raw_summary,checkout_time,source')
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').eq('checkout_date', tomorrow),
     db.from('inventory_items')
       .select('name,qty_on_hand,reorder_below,unit,consumption_per_booking')
       .eq('property_id', PROPERTY_ID).eq('is_active', true).not('reorder_below', 'is', null).order('name'),
-    db.from('calendar_events').select('guest_name,raw_summary,checkin_date,checkout_date,nights')
+    db.from('calendar_events').select('uid,guest_name,raw_summary,checkin_date,checkout_date,nights')
       .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').lt('checkin_date', today).gt('checkout_date', today),
     db.from('ops_notices')
       .select('notice_type,title,effective_date,effective_time,duration_hours,feeder')
@@ -168,12 +178,11 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
     .slice(0, 5);
 
   // Telegram plan §2: a staff nudge on the second morning of any stay of three nights or more.
+  // D-290: a chained stay is one stay, so the nights are counted from the chain's first check-in.
   const midStay: MidStay[] = ((inHouseData ?? []) as any[]).flatMap((s) => {
-    const nights = Number(s.nights ?? daysBetween(String(s.checkin_date), String(s.checkout_date)));
-    const night = daysBetween(String(s.checkin_date), today) + 1;
-    if (nights < 3 || night !== 2) return [];
     const guest = String(s.guest_name ?? '').trim() || (String(s.raw_summary ?? '').toLowerCase() !== 'reserved' && s.raw_summary) || 'the guest';
-    return [{ guest, night, nights }];
+    const m = midStayFor({ uid: s.uid, guest, checkin_date: String(s.checkin_date), checkout_date: String(s.checkout_date), nights: s.nights }, today, chains);
+    return m ? [m] : [];
   });
 
   // SPEC-05 D (session 56): a confirmed direct booking arriving within 3 days whose ID is not on file - the door-code card
@@ -185,11 +194,70 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string): Promis
 
   const report = opsReport({
     today, tomorrow,
-    arrivals: arrivalsData ?? [], departures: departuresData ?? [],
-    tmrArrivals: tmrArrivalsData ?? [], tmrDepartures: tmrDeparturesData ?? [],
+    arrivals: dropJunction(arrivalsData, chains, today, 'next_uid'), departures: dropJunction(departuresData, chains, today, 'first_uid'),
+    tmrArrivals: dropJunction(tmrArrivalsData, chains, tomorrow, 'next_uid'), tmrDepartures: dropJunction(tmrDeparturesData, chains, tomorrow, 'first_uid'),
     notices: noticesData ?? [], stock, weather, resRows: resData ?? [], midStay, idMissing,
+    stayOn: [...stayOnFor(chains, today, 'today'), ...stayOnFor(chains, tomorrow, 'tomorrow')],
   });
   return report ? withHeader(report.kind, friendlyDate(today), renderReport(report)) : null;
+}
+
+// ── D-290 stay cards: the chain heads-up and the guest-details reminder ──────────────────────────────
+// Each is sent ONCE per ref. system_task_open_v1 returns the task id whether the row is new or old, so it cannot tell
+// "already sent"; the sent refs live in app_settings.daily_digest_state (the power-watch pattern). A failed send is not
+// recorded, so tomorrow's run tries again. The Done / Saved taps (stc:done, crm:done) are handled in telegram-expense.
+const STATE_KEY = 'daily_digest_state', KEEP = 200, CHAIN_HORIZON_DAYS = 14;
+type SentState = { stc: string[]; crm: string[] };
+
+async function sendCard(db: any, card: Card): Promise<boolean> {
+  const ok = await tgSend(OPS_CHAT, card.text, autoKeyboard(card.text, card.buttons));
+  if (!ok) return false;
+  const { error } = await db.rpc('system_task_open_v1', { p_property_id: PROPERTY_ID, p_source_kind: card.kind, p_source_ref: card.ref, p_title: card.title, p_detail: card.detail, p_priority: 'normal' });
+  if (error) console.warn(`system_task_open_v1 ${card.kind}: ${String(error.message).slice(0, 160)}`);
+  return true;
+}
+
+/** Guests of these stays (checking in within 2 days or in house) with no ID, no mobile number and no phone saved. */
+async function detailsStays(db: any, today: string, chains: Chain[]): Promise<DetailsStay[]> {
+  const { data: rows, error } = await db.from('calendar_events').select('uid,guest_name,checkin_date,source,linked_reservation_id')
+    .eq('property_id', PROPERTY_ID).eq('status', 'confirmed').lte('checkin_date', addDays(today, 2)).gt('checkout_date', today);
+  if (error) { console.warn('guest_details calendar read:', String(error.message).slice(0, 160)); return []; }
+  const continued = new Set(chains.map((c) => c.next_uid)); // the guest of a chain already arrived with its first booking
+  const stays = ((rows ?? []) as any[]).filter((r) => !continued.has(String(r.uid)));
+  const linked = stays.map((r) => r.linked_reservation_id).filter(Boolean);
+  const directIds = stays.map((r) => String(r.uid)).filter((u) => u.startsWith('direct:')).map((u) => u.slice(7));
+  const [air, dir] = await Promise.all([
+    linked.length ? db.from('airbnb_reservations').select('id,guest_id,guest_name,confirmation_code').in('id', linked) : { data: [] },
+    directIds.length ? db.from('booking_inquiries').select('id,guest_id,guest_name').in('id', directIds) : { data: [] },
+  ]);
+  const byAir = new Map(((air.data ?? []) as any[]).map((r) => [r.id, r])), byDir = new Map(((dir.data ?? []) as any[]).map((r) => [r.id, r]));
+  const found: DetailsStay[] = [];
+  for (const r of stays) {
+    const a = byAir.get(r.linked_reservation_id), d = byDir.get(String(r.uid).slice(7));
+    const x = a ?? d;
+    if (!x?.guest_id) continue;
+    found.push({ guestId: x.guest_id, guest: String(x.guest_name ?? r.guest_name ?? '').trim() || 'Guest', checkin: String(r.checkin_date), code: a?.confirmation_code ?? null, source: a ? 'airbnb' : 'direct' });
+  }
+  if (!found.length) return [];
+  // An RPC: guest_profile_details is revoked from service_role. Missing RPC = no reminders, never a wrong one.
+  const { data: miss, error: missErr } = await db.rpc('guests_missing_details_v1', { p_guest_ids: [...new Set(found.map((f) => f.guestId))] });
+  if (missErr) { console.warn('guests_missing_details_v1 unavailable:', String(missErr.message).slice(0, 160)); return []; }
+  const missing = new Set(((miss ?? []) as any[]).map((m) => (typeof m === 'string' ? m : m?.guest_id)));
+  return found.filter((f) => missing.has(f.guestId));
+}
+
+async function stayCards(db: any, today: string, chains: Chain[]): Promise<void> {
+  const { data: st } = await db.from('app_settings').select('value').eq('key', STATE_KEY).maybeSingle();
+  const state: SentState = { stc: [...(st?.value?.stc ?? [])], crm: [...(st?.value?.crm ?? [])] };
+  let changed = false;
+  const once = async (list: string[], card: Card) => {
+    if (list.includes(card.ref) || !(await sendCard(db, card))) return;
+    list.push(card.ref); changed = true;
+  };
+  const horizon = addDays(today, CHAIN_HORIZON_DAYS);
+  for (const c of chains.filter((x) => x.junction_date >= today && x.junction_date <= horizon)) await once(state.stc, chainCard(c));
+  for (const s of await detailsStays(db, today, chains)) await once(state.crm, detailsCard(s, today));
+  if (changed) await db.from('app_settings').upsert({ key: STATE_KEY, value: { stc: state.stc.slice(-KEEP), crm: state.crm.slice(-KEEP) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
 }
 
 // ── Weekly OPS roll-up (Mondays, Telegram plan §4): low stock, work orders, handoffs, the week ahead ──
@@ -284,7 +352,7 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
   await hb('started');
   const today = getManilaDateStr();
   const tmr   = addDays(today, 1);
-  console.log(`daily-digest v15: mode=${mode} date=${today}`);
+  console.log(`daily-digest v16: mode=${mode} date=${today}`);
   try {
     if (mode === 'finance') {
       if (!FINANCE_CHAT) return new Response(JSON.stringify({ ok: false, error: 'FINANCE_CHAT not configured' }), { status: 500, headers: JSON_H });
@@ -298,13 +366,16 @@ Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, asy
     } else {
       if (!OPS_CHAT) return new Response(JSON.stringify({ ok: false, error: 'OPS_CHAT not configured' }), { status: 500, headers: JSON_H });
       if (isMonday(today)) { const wk = await buildWeeklyOpsMessage(db, today); await tgSend(OPS_CHAT, wk, autoKeyboard(wk)); }
-      const msg = await buildOpsMessage(db, today, tmr);
+      const chains = await fetchChains(db, PROPERTY_ID, addDays(today, -30), addDays(today, CHAIN_HORIZON_DAYS));
+      const msg = await buildOpsMessage(db, today, tmr, chains);
+      if (msg !== null) await tgSend(OPS_CHAT, msg, autoKeyboard(msg)); // session 28: 📨 -> Copy/Revise, 📦 -> Inventory
+      // D-290: the cards never block the digest above, and a failure here is logged, not a failed run.
+      await stayCards(db, today, chains).catch((e) => console.error('stayCards failed:', String(e).slice(0, 200)));
       if (msg === null) {
         console.log(`daily-digest v15: skipping OPS — nothing actionable (${today})`);
         await hb('succeeded');
         return new Response(JSON.stringify({ ok: true, mode, date: today, skipped: true, reason: 'no_activity' }), { status: 200, headers: JSON_H });
       }
-      await tgSend(OPS_CHAT, msg, autoKeyboard(msg)); // session 28: 📨 -> Copy/Revise, 📦 -> Inventory
     }
     await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, mode, date: today }), { status: 200, headers: JSON_H });
