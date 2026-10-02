@@ -107,6 +107,8 @@ export function guestGroups(guests: Guest[]): Array<{ name: string; nights: stri
 }
 const who = (name: string) => name || 'A guest';
 const ifs = (c: unknown, text: string): string | false => (c ? text : false);
+/** Last line of every card that asks someone to act: the SOCOTECO poster itself (Telegram makes it a link). */
+const source = (st: NoticeState): Array<string | false> => [ifs(st.url, `SOCOTECO notice: ${st.url}`)];
 
 function guestLines(st: NoticeState, g: { name: string; nights: string[] }, changed: boolean): Array<string | false> {
   return [
@@ -129,6 +131,7 @@ export function newCard(st: NoticeState): Built {
     ],
     [ifs(st.blocked.length, `Marifel: block the same ${st.blocked.length === 1 ? 'night' : 'nights'} in Airbnb now.`)],
     gs.length ? guestLines(st, gs[0], false) : [],
+    source(st),
   );
   const text = header(subjectOf(st.date), body);
   return { text, markup: autoKeyboard(text, st.blocked.length ? doneUndo(st.date) : []) };
@@ -164,6 +167,7 @@ export function changedCard(st: NoticeState): Built {
       ifs(dropped.length, `Marifel: unblock ${nightsPhrase(dropped)} in Airbnb if you blocked ${dropped.length === 1 ? 'it' : 'them'}.`),
     ],
     gs.length ? guestLines(st, gs[0], true) : [],
+    source(st),
   );
   const text = header(subjectOf(st.date), body);
   return { text, markup: autoKeyboard(text, added.length ? doneUndo(st.date) : []) };
@@ -178,6 +182,7 @@ export function cancelCard(st: NoticeState): Built {
     [held.length
       ? `Unblock ${nightsPhrase(held)} on our booking site and in Airbnb?`
       : 'Nothing was blocked on our booking site for it. Tap Unblock to take it off the operations board.'],
+    source(st),
   );
   const text = header(subjectOf(st.date), body);
   return { text, markup: autoKeyboard(text, [{ text: '🔓 Unblock', callback_data: pwData('unblock', st.date) }]) };
@@ -188,6 +193,7 @@ export function reminderCard(st: NoticeState): Built {
   const body = groups(
     [`⚡ Reminder: Airbnb is not blocked yet for the SOCOTECO interruption on ${windowLabel(st.date, st.time, st.hours)}.`],
     [`Marifel: block ${nightsPhrase(st.blocked)} in Airbnb, then tap Blocked in Airbnb.`],
+    source(st),
   );
   const text = header(subjectOf(st.date), body);
   return { text, markup: autoKeyboard(text, [{ text: '✅ Blocked in Airbnb', callback_data: pwData('done', st.date) }]) };

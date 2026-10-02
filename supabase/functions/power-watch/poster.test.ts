@@ -1,6 +1,6 @@
 // deno test supabase/functions/power-watch/poster.test.ts - filenames are the real ones from socoteco2.com, 2026-09-29.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { affectsUs, alertText, classifyFile, endOf, FEEDER_RE, isPowerPost, noticeFrom, OCR_PROMPT, posterUrls } from './poster.ts';
+import { affectsUs, alertText, classifyFile, endOf, FEEDER_RE, isPowerPost, noticeFrom, OCR_PROMPT, posterFor, posterUrls } from './poster.ts';
 
 const U = 'https://www.socoteco2.com/wp-content/uploads/2026/09/';
 
@@ -73,4 +73,12 @@ Deno.test("the e-mail tells that a guest in the house gets a draft, carries the 
   assert(a.body.includes("Blocked on our booking site: nights of Oct 14 and Oct 15."));
   assert(a.body.includes("A guest staying that night gets a heads-up draft in Telegram"));
   assert(!/!/.test(a.body));
+});
+
+Deno.test('posterFor: the newest poster for the date by its filename, never another substation or feeder', () => {
+  const a = 'https://www.socoteco2.com/wp-content/uploads/2026/09/SPI-PMS-10082026-LEON-LLIDO-SS.jpg', b = 'https://www.socoteco2.com/wp-content/uploads/2026/09/SPI-PMS-10152026-MAASIM-A-SS.jpg', c = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-PMS-10152026-LEON-LLIDO-SS.jpg';
+  assertEquals(posterFor('2026-10-08', [a, b, c]), a);
+  assertEquals(posterFor('2026-10-15', [a, b, c]), c);
+  assertEquals(posterFor('2026-10-15', [a, b]), '', 'only another substation posted that day');
+  assertEquals(posterFor('2026-10-22', [a, b, c]), '');
 });

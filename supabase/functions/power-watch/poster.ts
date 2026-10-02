@@ -32,6 +32,14 @@ export function classifyFile(url: string): 'hit' | 'miss' | 'read' {
   return 'read';
 }
 
+/** The SOCOTECO poster for a date among the ones already read (power_watch_state.images): its filename carries MMDDYYYY
+ *  (SPI-PMS-10082026-LEON-LLIDO-SS.jpg). Another substation's or feeder's poster is never it; the newest wins. Lloyd 2026-10-03:
+ *  every card links the actual notice so staff can open it and check. Notices seeded from the board have no poster of their own. */
+export function posterFor(date: string, images: string[]): string {
+  const key = `${date.slice(5, 7)}${date.slice(8, 10)}${date.slice(0, 4)}`;
+  return [...images].reverse().find((u) => classifyFile(u) !== 'miss' && decodeURIComponent(u.split('/').pop() ?? '').includes(key)) ?? '';
+}
+
 // D-290: the wording about rescheduled and cancelled schedules is the advisory prompt telegram-expense already uses for
 // photos, plus the two fields that let a cancellation or a move be acted on (status, original_date).
 export const OCR_PROMPT = 'This is a SOCOTECO II (Philippines) power interruption advisory poster. Read all of it. Return ONLY minified JSON: ' +

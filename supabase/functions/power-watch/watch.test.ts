@@ -10,13 +10,13 @@ const found = (date: string, time: string | null, hours: number | null, postId: 
   date, time, hours, title: 'SOCOTECO II scheduled interruption - TEST SUBSTATION (ours is 14-3)', purpose: 'Maintenance', poster: 'SPI-TEST.jpg', url: URL0,
   status: 'active', originalDate: null, postId, ...extra,
 });
-function world(tables: Record<string, Record<string, unknown>[]> = {}) {
+function world(tables: Record<string, Record<string, unknown>[]> = {}, posters: string[] = []) {
   const db = new FakeDb({ calendar_events: [], ops_notices: [], app_settings: [], ...tables });
   const sent: Built[] = [], mails: string[] = [], logs: string[] = [];
   let up = true;
   const run = (f: Found[], nowIso = '2026-10-02T01:00:00Z') => reconcile({
     db, propertyId: PID, today: '2026-10-02', now: new Date(nowIso),
-    send: async (c) => { if (up) sent.push(c); return up; }, mail: async (s) => { mails.push(s); return true; }, log: (e) => logs.push(e),
+    send: async (c) => { if (up) sent.push(c); return up; }, mail: async (s) => { mails.push(s); return true; }, log: (e) => logs.push(e), posters,
   }, f);
   return { db, sent, mails, run, telegram: (ok: boolean) => { up = ok; } };
 }
@@ -34,6 +34,7 @@ Deno.test('a new outage: notice on the board, free nights blocked as manual rows
   assertStringIncludes(String(r.raw_summary), 'SOCOTECO power interruption Thu 15 Oct, 06:00-17:00');
   assertEquals(w.sent.length, 1);
   assertStringIncludes(w.sent[0].text, 'Blocked on our booking site: nights of Oct 14 and Oct 15.');
+  assertStringIncludes(w.sent[0].text, `SOCOTECO notice: ${URL0}`, 'the card links the poster it was read from');
   assertEquals(w.mails.length, 1);
   assertEquals(w.mails[0], 'Brownout at Cascade: Thu 15 Oct, 6:00 AM to 5:00 PM (11 h)');
   const st = (await readNotice(w.db, '2026-10-15'))!;
@@ -61,11 +62,13 @@ Deno.test('a night already blocked in Airbnb is said, not blocked again', async 
 });
 
 Deno.test('a notice already on the board with no state (a photo saved in Telegram, or one from before v2) is adopted once', async () => {
-  const w = world({ ops_notices: [{ id: 'n-old', property_id: PID, notice_type: 'brownout', is_active: true, effective_date: '2026-10-08', effective_time: '06:00:00', duration_hours: '11.0' }] });
+  const ours = 'https://www.socoteco2.com/wp-content/uploads/2026/09/SPI-PMS-10082026-LEON-LLIDO-SS.jpg', other = 'https://www.socoteco2.com/wp-content/uploads/2026/09/SPI-PMS-10082026-MAASIM-A-SS.jpg';
+  const w = world({ ops_notices: [{ id: 'n-old', property_id: PID, notice_type: 'brownout', is_active: true, effective_date: '2026-10-08', effective_time: '06:00:00', duration_hours: '11.0' }] }, [ours, other]);
   assertEquals(await w.run([]), ['2026-10-08: adopted']);
   assertEquals(live(w.db), ['2026-10-07', '2026-10-08']);
   assertEquals(w.sent.length, 1);
   assertEquals(w.mails.length, 0, 'adopted notices were already e-mailed or typed by a person');
+  assertStringIncludes(w.sent[0].text, `SOCOTECO notice: ${ours}`, 'a typed notice gets its poster from the ones already read, never another substation');
   assertEquals(await w.run([]), []);
   assertEquals(w.sent.length, 1);
   // the same poster arrives: same times, so it is the known outage and the board keeps ONE row
@@ -110,13 +113,15 @@ Deno.test('follow-ups: Airbnb block seen is said once; with no block one reminde
 Deno.test('a newer poster with new times updates the notice and the blocks, and an older poster does not undo it', async () => {
   const w = world();
   await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
-  assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 110)], '2026-10-02T02:00:00Z'), ['2026-10-15: changed']);
+  const moved = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-PMS-10152026-LEON-LLIDO-SS-REVISED.jpg';
+  assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 110, { url: moved })], '2026-10-02T02:00:00Z'), ['2026-10-15: changed']);
   assertEquals(live(w.db), ['2026-10-14'], 'night 15 released on our site');
   assertEquals(brownoutRows(w.db).find((r) => r.checkin_date === '2026-10-15')!.status, 'cancelled');
   assertEquals(w.db.tables.ops_notices.length, 1, 'updated, not a second row');
   assertEquals([w.db.tables.ops_notices[0].effective_time, w.db.tables.ops_notices[0].duration_hours], ['08:00:00', 3]);
   assertStringIncludes(w.sent[1].text, 'SOCOTECO changed the power interruption on Thu 15 Oct');
   assertStringIncludes(w.sent[1].text, 'Released on our booking site: night of Oct 15.');
+  assertStringIncludes(w.sent[1].text, `SOCOTECO notice: ${moved}`, 'a changed card links the NEW poster');
   assertEquals(await w.run([found('2026-10-15', '06:00:00', 11, 100)], '2026-10-02T03:00:00Z'), ['2026-10-15: older poster ignored']);
   assertEquals(live(w.db), ['2026-10-14']);
   // later still, it grows again: night 15 comes back (the cancelled row is re-used, not duplicated)
@@ -128,7 +133,9 @@ Deno.test('a newer poster with new times updates the notice and the blocks, and 
 Deno.test('a cancellation asks first; the Unblock tap frees the nights and takes the notice off the board; no reminder chases it', async () => {
   const w = world();
   await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
-  assertEquals(await w.run([found('2026-10-15', null, null, 120, { status: 'cancelled' })], '2026-10-02T02:00:00Z'), ['2026-10-15: cancelled']);
+  const off = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-CANCELLED-10152026-LEON-LLIDO-SS.jpg';
+  assertEquals(await w.run([found('2026-10-15', null, null, 120, { status: 'cancelled', url: off })], '2026-10-02T02:00:00Z'), ['2026-10-15: cancelled']);
+  assertStringIncludes(w.sent[1].text, `SOCOTECO notice: ${off}`, 'the cancel card links the cancellation poster');
   assertStringIncludes(w.sent[1].text, 'SOCOTECO cancelled the power interruption on Thu 15 Oct');
   assertStringIncludes(w.sent[1].text, 'Unblock nights of Oct 14 and Oct 15 on our booking site and in Airbnb?');
   assertEquals(live(w.db), ['2026-10-14', '2026-10-15'], 'nothing released before the tap');
@@ -145,10 +152,13 @@ Deno.test('a cancellation asks first; the Unblock tap frees the nights and takes
 Deno.test('a poster that moves an outage asks to unblock the old date and announces the new one', async () => {
   const w = world();
   await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
-  await w.run([found('2026-10-22', '06:00:00', 11, 130, { originalDate: '2026-10-15' })], '2026-10-02T02:00:00Z');
+  const resched = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-PMS-10222026-LEON-LLIDO-SS.jpg';
+  await w.run([found('2026-10-22', '06:00:00', 11, 130, { originalDate: '2026-10-15', url: resched })], '2026-10-02T02:00:00Z');
   assertEquals(w.sent.length, 3);
   assertStringIncludes(w.sent[1].text, 'SOCOTECO moved to Thu 22 Oct the power interruption on Thu 15 Oct');
   assertStringIncludes(w.sent[2].text, 'Blocked on our booking site: nights of Oct 21 and Oct 22.');
+  assertStringIncludes(w.sent[1].text, `SOCOTECO notice: ${resched}`, 'the old date links the poster that moved it');
+  assertStringIncludes(w.sent[2].text, `SOCOTECO notice: ${resched}`);
   assertEquals(live(w.db), ['2026-10-14', '2026-10-15', '2026-10-21', '2026-10-22']);
 });
 

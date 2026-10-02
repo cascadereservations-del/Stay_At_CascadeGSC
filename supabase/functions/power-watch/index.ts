@@ -108,6 +108,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
       send: async (c) => await tg(c.text, c.markup),
       mail: (subject, body) => mail(db, subject, body),
       log: (event, data) => console.log(event, JSON.stringify(data)),
+      posters: state.images,
     }, found);
     const pruned = await pruneStates(db, today);
     if (pruned) results.push(`pruned ${pruned} old notice states`);

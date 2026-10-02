@@ -2,7 +2,7 @@
 // ones it holds blocks for. IO goes through `Deps` (a database, a Telegram sender, a mailer), so watch.test.ts runs every
 // path against an in-memory database. Nothing here writes to Airbnb or sends anything to a guest.
 import { cancelBrownoutRows, brownoutUid, listNotices, patchNoticeState, putNoticeState, releasable, type NoticeState } from '../_shared/cascade-core/brownout.ts';
-import { alertText, dayLabel, FEEDER, type Notice } from './poster.ts';
+import { alertText, dayLabel, FEEDER, posterFor, type Notice } from './poster.ts';
 import { cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, reminderCard, reminderDue, seenCard, seenDue, touchedNights, windowLabel, type Built, type Row } from './plan.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -12,10 +12,11 @@ export type Deps = {
   send: (card: Built) => Promise<boolean>;
   mail: (subject: string, body: string) => Promise<boolean>;
   log: (event: string, data: unknown) => void;
+  posters?: string[]; // poster URLs already read (power_watch_state.images): the link for a notice that has none of its own
 };
 export type Found = Notice & { postId: number };
 type NoticeRow = { id: string; effective_date: string; effective_time: string | null; duration_hours: number | string | null };
-type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string };
+type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string; url: string };
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
 const num = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -60,7 +61,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     }
     const added = blocked.filter((n) => !(prev?.blocked ?? []).includes(n));
     const st: NoticeState = {
-      ...base, status: 'active', nights: touchedNights(base.date, base.time, base.hours).filter((n) => n >= today),
+      ...base, url: base.url || prev?.url || '', status: 'active', nights: touchedNights(base.date, base.time, base.hours).filter((n) => n >= today),
       blocked, already: cls.already, guests: cls.guests,
       card: { kind, ...(prev ? { prev: { time: prev.time, hours: prev.hours, blocked: prev.blocked } } : {}) },
       // A change that adds nights is a new job for Marifel; one that only moves the hours leaves what she did standing.
@@ -75,10 +76,10 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     return st;
   }
 
-  const baseFromRow = (r: NoticeRow): Base => ({ date: r.effective_date, noticeId: r.id, time: r.effective_time, hours: num(r.duration_hours), postId: 0, poster: '' });
+  const baseFromRow = (r: NoticeRow): Base => ({ date: r.effective_date, noticeId: r.id, time: r.effective_time, hours: num(r.duration_hours), postId: 0, poster: '', url: '' });
 
   /** SOCOTECO cancelled an outage, or moved it: ask before anything is released, because Airbnb is Marifel's to unblock. */
-  async function cancel(date: string, note: string) {
+  async function cancel(date: string, note: string, url: string) {
     const row = noticeRows.find((r) => r.effective_date === date);
     let st = states.get(date);
     if (st && (st.status !== 'active' || st.cancelAskedAt)) return;
@@ -86,7 +87,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     if (!st) {
       st = { ...baseFromRow(row!), status: 'active', nights: [], blocked: [], already: [], guests: [], card: null };
     }
-    st = { ...st, card: { kind: 'cancel', note } };
+    st = { ...st, url: url || st.url, card: { kind: 'cancel', note } }; // the card links the poster that cancelled or moved it
     await putNoticeState(db, st);
     states.set(date, st);
     res.push(`${date}: ${note}`);
@@ -97,11 +98,11 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   for (const n of found) if (!byDate.has(n.date) || n.postId > byDate.get(n.date)!.postId) byDate.set(n.date, n);
 
   for (const n of byDate.values()) {
-    if (n.status === 'cancelled') { await cancel(n.date, 'cancelled'); continue; }
-    if (n.originalDate) await cancel(n.originalDate, `moved to ${dayLabel(n.date)}`);
+    if (n.status === 'cancelled') { await cancel(n.date, 'cancelled', n.url); continue; }
+    if (n.originalDate) await cancel(n.originalDate, `moved to ${dayLabel(n.date)}`, n.url);
     let st = states.get(n.date);
     let row = noticeRows.find((r) => r.effective_date === n.date);
-    const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster };
+    const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster, url: n.url };
     if (st?.status === 'released') { st = undefined; row = undefined; base.noticeId = null; } // it was cancelled and now it is posted again
     const insert = async () => {
       const { data, error } = await db.from('ops_notices').insert({
@@ -137,7 +138,8 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   }
 
   // Cards that are waiting to go out, including any a failed Telegram send left behind last run.
-  for (const st of [...states.values()].filter((s) => s.card)) {
+  const linked = (s: NoticeState): NoticeState => (s.url ? s : { ...s, url: posterFor(s.date, d.posters ?? []) });
+  for (const st of [...states.values()].filter((s) => s.card).map(linked)) {
     const kind = st.card!.kind;
     const card = kind === 'new' ? newCard(st) : kind === 'changed' ? changedCard(st) : cancelCard(st);
     if (!(await d.send(card))) { d.log('power_watch_card_failed', { date: st.date, kind }); continue; }
@@ -151,7 +153,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     if (seenDue(st, rows)) {
       if (await d.send(seenCard(st))) { const n = await patchNoticeState(db, st.date, { seenAt: nowIso }); if (n) states.set(st.date, n); res.push(`${st.date}: airbnb block seen`); }
     } else if (reminderDue(st, rows, now, today)) {
-      if (await d.send(reminderCard(st))) { const n = await patchNoticeState(db, st.date, { remindedAt: nowIso }); if (n) states.set(st.date, n); res.push(`${st.date}: reminder`); }
+      if (await d.send(reminderCard(linked(st)))) { const n = await patchNoticeState(db, st.date, { remindedAt: nowIso }); if (n) states.set(st.date, n); res.push(`${st.date}: reminder`); }
     }
   }
   return res;
