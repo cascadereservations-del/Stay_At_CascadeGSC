@@ -101,3 +101,14 @@ Deno.test('an empty or unreadable free reply is a failure: the paid chain answer
     assertEquals([hits[0].body.max_tokens, hits[1].body.max_tokens], [1200, 20]);
   }
 });
+
+Deno.test('Groq JSON mode needs the word json: a routine JSON request without it gets "Reply in JSON." on the free try only', async () => {
+  withEnv(true); geminiBreaker.until = 0; const hits: Hit[] = []; stub({ omni: 200 }, hits);
+  try { await chatJson({ system: 'You are a health check.', history: [], question: 'Reply with exactly: {"status":"ok"}', tier: 'routine' }); }
+  finally { globalThis.fetch = realFetch; withEnv(false); }
+  const sys = (hits[0].body.messages as Array<{ role: string; content: string }>)[0].content;
+  assertEquals(sys, 'You are a health check.\nReply in JSON.');
+  hits.length = 0; withEnv(true); stub({ omni: 200 }, hits);
+  try { await chatJson({ system: 'Answer as JSON {"a":1}.', history: [], question: 'x', tier: 'routine' }); } finally { globalThis.fetch = realFetch; withEnv(false); }
+  assertEquals((hits[0].body.messages as Array<{ content: string }>)[0].content, 'Answer as JSON {"a":1}.', 'already says json: unchanged');
+});

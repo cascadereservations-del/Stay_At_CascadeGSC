@@ -119,7 +119,9 @@ async function routineFirst(q: ChatJsonRequest): Promise<string | null> {
   if (!url || !key) return null;
   try {
     // gpt-oss reasons before it answers and its reasoning counts against max_tokens: give the free try room (a ping asks for 20).
-    const out = await openaiChat({ ...q, maxTokens: Math.max(q.maxTokens ?? 700, 1200) }, { name: 'omniroute', url, key, model: { model: env('CASCADE_OMNIROUTE_ROUTINE_MODEL') || 'cascade-routine' } });
+    // Groq refuses json_object unless the word "json" is in the messages (live 2026-10-03 02:21Z: /ping fell to Cloudflare).
+    const system = q.plain || /json/i.test(`${q.system} ${q.question}`) ? q.system : `${q.system}\nReply in JSON.`;
+    const out = await openaiChat({ ...q, system, maxTokens: Math.max(q.maxTokens ?? 700, 1200) }, { name: 'omniroute', url, key, model: { model: env('CASCADE_OMNIROUTE_ROUTINE_MODEL') || 'cascade-routine' } });
     if (!out.trim()) throw new Error('omniroute_routine_empty');
     if (!q.plain) JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()); // an unreadable free reply goes to the paid chain
     return out;
