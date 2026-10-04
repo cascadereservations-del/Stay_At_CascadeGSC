@@ -99,9 +99,109 @@ function healthRows(check: string, d: Record<string, any>): string[] {
   }
 }
 
+
+// ── API governor cards (V14-V18, D-294) ────────────────────────────────────────────────────────────────────────────────
+// Lloyd: say the EXACT value and WHERE to change it; the system never changes an external cap itself. Every number
+// here arrives already rounded (governor.ts), so these only print.
+const GOVERNOR = new Set(['V14', 'V15', 'V16', 'V17', 'V18']);
+const amt = (unit: unknown, v: unknown) =>
+  unit === 'neurons' ? `${Math.round(Number(v)).toLocaleString('en-US')} neurons` : `USD ${Number(v).toFixed(2)}`;
+const PROVIDER_NAME: Record<string, string> = { openrouter: 'OpenRouter', gemini: 'Gemini', omniroute: 'OmniRoute' };
+const PROVIDER_FIX: Record<string, string> = {
+  openrouter: 'check status.openrouter.ai and the key at openrouter.ai/settings/keys.',
+  gemini: 'check the Gemini key and its quota at aistudio.google.com.',
+  omniroute: 'check OmniRoute on the alfred host (ssh -L 20129:localhost:20129 alfred), then its Cloudflare and Groq steps.',
+};
+
+function governorHeadline(f: Finding): string {
+  const d = (f.detail ?? {}) as Record<string, any>;
+  switch (f.check_id) {
+    case 'V14': {
+      const cap = amt(d.unit, d.cap);
+      const lead = d.projected
+        ? `${str(d.label, 'A model key')} is on course to pass its daily limit of ${cap}.`
+        : Number(d.pct) >= 100
+          ? `${str(d.label, 'A model key')} has reached its daily limit of ${cap}.`
+          : `${str(d.label, 'A model key')} has used at least ${Number(d.pct ?? 0)}% of its daily limit of ${cap}.`;
+      return `${lead} At the limit it stops answering until its next reset.`;
+    }
+    case 'V15':
+      return `${PROVIDER_NAME[str(d.provider)] ?? str(d.provider, 'A provider')} failed at least ${Number(d.fail_pct ?? 0)}% of its ${str(d.title, 'model')} calls over the last two days (${Number(d.calls_min ?? 0)}+ calls).`;
+    case 'V16': {
+      const per = Number(d.p95) > 0 ? Number(d.p95) : (d.unit === 'neurons' ? 100 : 0.01);
+      return d.direction === 'raise'
+        ? `${str(d.label)} allows ${amt(d.unit, d.current)} a day, and a busy day already uses ${amt(d.unit, d.p95)}, so a heavy day could hit the limit.`
+        : `${str(d.label)} allows ${amt(d.unit, d.current)} a day, about ${Math.max(1, Math.round(Number(d.current) / per))}x what its busiest normal day needs.`;
+    }
+    case 'V17':
+      return `The OpenRouter credit is down to about ${amt('usd', d.remaining)} and lasts about ${Number(d.days ?? 0)} days at ${amt('usd', d.avg_day)} a day.${f.severity === 'red' ? ' Guest replies stop when it runs out.' : ''}`;
+    case 'V18': {
+      const ratio = Number(d.baseline) > 0 ? ` (${(Number(d.d7) / Number(d.baseline)).toFixed(1)}x)` : '';
+      return `${str(d.title, 'A feature')}${d.probe ? ' test runs' : ''} cost ${amt('usd', d.d7)} in the last 7 days against about ${amt('usd', d.baseline)} expected${ratio}.`;
+    }
+    default:
+      return f.title;
+  }
+}
+
+function governorFacts(f: Finding): string[] {
+  const d = (f.detail ?? {}) as Record<string, any>;
+  switch (f.check_id) {
+    case 'V14':
+      return [
+        `About ${amt(d.unit, (Number(d.cap) * Number(d.pct)) / 100)} of ${amt(d.unit, d.cap)} used${d.projected ? ' so far, and the day is still climbing' : ''}.`,
+        d.approx ? 'Counted from token totals at list price, so it is an estimate.' : '',
+      ];
+    case 'V15':
+      return ['A free provider that fails while a paid one answers still counts: the paid one is covering for it.'];
+    case 'V16':
+      return [
+        `Busiest normal day (95th percentile over ${Number(d.days ?? 0)}+ days): ${amt(d.unit, d.p95)}.${d.includes_tests ? ' That includes test runs.' : ''}`,
+        'Advice only: nothing is failing.',
+      ];
+    case 'V17':
+      return [
+        `Spend has averaged up to ${amt('usd', d.avg_day)} a day.`,
+        d.source === 'estimate' ? 'The credit is an estimate: the total in app_settings api_caps minus what both keys have used.' : '',
+      ];
+    case 'V18':
+      return [
+        Number(d.probe_share) >= 50 ? `${Number(d.probe_share)}% or more of that feature's spend is test runs.` : '',
+        d.reasoning ? 'Reasoning-heavy image reads: hidden thinking tokens dominate the cost.' : '',
+      ];
+    default:
+      return [];
+  }
+}
+
+function governorAction(f: Finding): string {
+  const d = (f.detail ?? {}) as Record<string, any>;
+  switch (f.check_id) {
+    case 'V14':
+      return d.recommended == null
+        ? `cut the calls behind it, because the limit cannot be raised (${str(d.where)}).`
+        : `set the ${str(d.label)} limit from ${amt(d.unit, d.cap)} to ${amt(d.unit, d.recommended)} at ${str(d.where)}, or find what is calling it so much.`;
+    case 'V15':
+      return PROVIDER_FIX[str(d.provider)] ?? 'check the provider status page and the key.';
+    case 'V16':
+      return `set the ${str(d.label)} limit from ${amt(d.unit, d.current)} to ${amt(d.unit, d.recommended)} at ${str(d.where)}.`;
+    case 'V17':
+      return `top up about ${amt('usd', d.topup)} at openrouter.ai > Settings > Credits${d.source === 'estimate' ? ', then set credit.openrouter_usd in app_settings api_caps to the new total credit you have bought' : ''}.`;
+    case 'V18':
+      return d.reasoning
+        ? 'find which model reads the images and lower its reasoning effort, or move to a cheaper vision model.'
+        : Number(d.probe_share) >= 50
+          ? 'find the script or schedule that keeps running the test, and stop it.'
+          : 'open the llm_usage table in Supabase, group by title and day, and find the day it jumped.';
+    default:
+      return 'open the dashboard.';
+  }
+}
+
 /** The first line of a card: what happened, in a sentence. */
 function headline(f: Finding, now: Date): string {
   const d = (f.detail ?? {}) as Record<string, any>;
+  if (GOVERNOR.has(f.check_id)) return governorHeadline(f);
   switch (f.check_id) {
     case 'V1':
       return 'Two stays are booked over the same nights. One of them has to go before either guest travels.';
@@ -141,6 +241,7 @@ function headline(f: Finding, now: Date): string {
 /** The middle group: the facts a person needs in order to act. Ids last. */
 function facts(f: Finding): string[] {
   const d = (f.detail ?? {}) as Record<string, any>;
+  if (GOVERNOR.has(f.check_id)) return governorFacts(f);
   switch (f.check_id) {
     case 'V1': {
       const one = (x: any) => `${str(x?.guest, 'unnamed')} · ${str(x?.source, 'unknown source')} · ${dm(x?.from)} to ${dm(x?.to)}`;
@@ -184,6 +285,7 @@ function facts(f: Finding): string[] {
 
 /** The last group: the one thing to do. */
 function action(f: Finding): string {
+  if (GOVERNOR.has(f.check_id)) return governorAction(f);
   switch (f.check_id) {
     case 'V1': return 'open the calendar, decide which stay is real, and cancel the other.';
     case 'V2': return 'open the booking and put its block back on the calendar.';
@@ -265,7 +367,11 @@ export function redCard(f: Finding, now: Date): Card {
 export function yellowBullet(f: Finding, now: Date): string {
   // In a list of six V10 findings, 'System health:' on every line is six words
   // of nothing. The card's Do line already says where they came from.
-  return headline(f, now).replace(/^System health: /, '');
+  // A bullet in a shared card has no Do line of its own, so a governor bullet carries its exact change: that is the whole point of it.
+  const h = headline(f, now).replace(/^System health: /, '');
+  if (!GOVERNOR.has(f.check_id)) return h;
+  const a = action(f);
+  return `${h} ${a.charAt(0).toUpperCase()}${a.slice(1)}`;
 }
 
 /**
@@ -299,7 +405,11 @@ export function yellowCard(
   if (bullets.length) out.push('', ...bullets);
 
   if (findings.length === 1) out.push('', `Do: ${action(findings[0])}`);
-  else if (findings.length > 1) out.push('', 'Do: open Settings, System health, and take them in order.');
+  else if (findings.length > 1) {
+    out.push('', findings.every((f) => GOVERNOR.has(f.check_id))
+      ? 'Do: make each change named above, in the order listed.'
+      : 'Do: open Settings, System health, and take them in order.');
+  }
 
   if (resolved.length) {
     const names = resolved.slice(0, 3).map((r) => r.title + (r.auto ? ' (closed itself)' : ''));

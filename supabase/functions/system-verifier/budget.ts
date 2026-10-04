@@ -6,7 +6,9 @@
 // divided the key's LIFETIME usage by its limit. limit_remaining is the current period's remainder.
 import type { Finding } from './cards.ts';
 
-export type KeyRead = { status: number; limit: number | null; remaining: number | null };
+/** `usage` is the key's LIFETIME spend in USD (data.usage). The API governor (D-294) snapshots it hourly and differences it
+ *  per Manila day, because limit_remaining alone cannot say what a day cost once the period resets. */
+export type KeyRead = { status: number; limit: number | null; remaining: number | null; usage?: number | null };
 
 /** A red V13 when the key is refused or under 20% of its limit is left; otherwise null.
  *  The percentage is rounded down to 5% steps so an acknowledgement holds between runs (D-217.2).
@@ -32,5 +34,19 @@ export async function readKey(apiKey: string): Promise<KeyRead> {
   }).catch(() => null);
   const j = r?.ok ? await r.json().catch(() => null) : null;
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-  return { status: r?.status ?? 0, limit: num(j?.data?.limit), remaining: num(j?.data?.limit_remaining) };
+  return { status: r?.status ?? 0, limit: num(j?.data?.limit), remaining: num(j?.data?.limit_remaining), usage: num(j?.data?.usage) };
+}
+
+/** GET /api/v1/credits: the account's real remaining credit, or null. OpenRouter documents this route as management-key only,
+ *  so with the inference key the system runs on it today the answer is a 403 and the governor falls back to
+ *  credit.openrouter_usd minus lifetime usage. It is tried anyway: the day a management key is set it becomes exact.
+ *  Never throws, never logs the key. */
+export async function readCredits(apiKey: string): Promise<{ status: number; remaining: number | null }> {
+  const r = await fetch('https://openrouter.ai/api/v1/credits', {
+    headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(10_000),
+  }).catch(() => null);
+  const j = r?.ok ? await r.json().catch(() => null) : null;
+  const total = j?.data?.total_credits, used = j?.data?.total_usage;
+  const ok = typeof total === 'number' && typeof used === 'number' && Number.isFinite(total) && Number.isFinite(used);
+  return { status: r?.status ?? 0, remaining: ok ? total - used : null };
 }
