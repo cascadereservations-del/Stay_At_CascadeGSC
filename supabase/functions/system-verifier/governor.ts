@@ -147,7 +147,9 @@ function notional(r: UsageDay, caps: ApiCaps): { usd: number; cf: number; approx
   const avgIn = cf.length ? cf.reduce((s, q) => s + n0(q[0]), 0) / cf.length : 0;
   const avgOut = cf.length ? cf.reduce((s, q) => s + n0(q[1]), 0) / cf.length : 0;
   const usd = n0(r.cost_usd) > 0 ? n0(r.cost_usd) : tin * avgIn + tout * avgOut;
-  return { usd, cf: usd, approx: true };
+  // Fable verify 2026-10-04: an unpriced NON-Cloudflare model (a new Groq id) is not Cloudflare usage - only an unknown model
+  // is counted as Cloudflare (the upper bound), so a missing price row cannot raise a false free-allowance alarm.
+  return { usd, cf: !r.model || r.model.startsWith('@cf/') ? usd : 0, approx: true };
 }
 
 type Series = { byDay: Map<string, number>; seen: Set<string>; approx: boolean };
