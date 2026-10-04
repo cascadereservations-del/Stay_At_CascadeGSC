@@ -3,6 +3,7 @@
 // (D-090, D-222): VISION_PROVIDER first (default openrouter), the other provider when it refuses; VISION_MODEL
 // overrides the model for either; keys CASCADE_GEMINI_BOT_KEY / CASCADE_OPENROUTER_BOT_KEY only - the two model keys
 // this project uses (01-FACTS). Returns the raw model text; callers parse — their JSON shapes differ.
+import { recordUsage } from './usage.ts';
 const env = (k: string) => Deno.env.get(k) ?? '';
 export const VISION_PROVIDER = (env('VISION_PROVIDER') || 'openrouter').toLowerCase(); // D-222: OpenRouter primary
 // D-204.3: CASCADE_GEMINI_BOT_KEY only. The bare GEMINI_BOT_KEY / GEMINI_API_KEY no longer authenticate and the bare
@@ -52,28 +53,30 @@ export async function visionExtractText(prompt: string, image: Uint8Array | stri
 
 async function viaOpenRouter(prompt: string, b64: string, mime: string, title = 'Cascade Reader'): Promise<string> {
   if (!OPENROUTER_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set');
+  const row = { provider: 'openrouter' as const, model: OPENROUTER_MODEL, title, tier: 'vision' };
   const res = await visionFetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST', headers: { ...JSON_H, Authorization: `Bearer ${OPENROUTER_KEY}`, 'X-Title': title },
     body: JSON.stringify({ model: OPENROUTER_MODEL, temperature: 0, response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
     signal: AbortSignal.timeout(55_000),
-  });
-  const raw = await res.json();
-  if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
-  const u = raw?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'openrouter', model: raw?.model ?? OPENROUTER_MODEL, title, tier: 'vision', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
+  }).catch((e) => { recordUsage({ ...row, ok: false, error: `openrouter_${e?.name ?? 'fetch_error'}` }); throw e; });
+  const raw = await res.json().catch((e) => { recordUsage({ ...row, ok: false, error: `openrouter_${res.status}_unreadable` }); throw e; });
+  if (!res.ok) { recordUsage({ ...row, ok: false, error: `openrouter_${res.status}` }); throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`); }
+  const u = raw?.usage; recordUsage({ ...row, model: raw?.model ?? OPENROUTER_MODEL, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost });
   return raw?.choices?.[0]?.message?.content ?? '';
 }
 
 async function viaGemini(prompt: string, b64: string, mime: string, title = 'Cascade Reader'): Promise<string> {
   if (!GEMINI_KEY) throw new Error('CASCADE_GEMINI_BOT_KEY not set');
+  const row = { provider: 'gemini' as const, model: GEMINI_MODEL, title, tier: 'vision' };
   const res = await visionFetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`, {
     method: 'POST', headers: JSON_H,
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b64 } }] }], generationConfig: { temperature: 0, response_mime_type: 'application/json' } }),
     signal: AbortSignal.timeout(55_000),
-  });
-  const raw = await res.json();
-  if (!res.ok) throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`);
-  const u = raw?.usageMetadata; if (u) console.log('llm_usage', JSON.stringify({ provider: 'gemini', model: GEMINI_MODEL, title, tier: 'vision', input: u.promptTokenCount, output: u.candidatesTokenCount }));
+  }).catch((e) => { recordUsage({ ...row, ok: false, error: `gemini_${e?.name ?? 'fetch_error'}` }); throw e; });
+  const raw = await res.json().catch((e) => { recordUsage({ ...row, ok: false, error: `gemini_${res.status}_unreadable` }); throw e; });
+  if (!res.ok) { recordUsage({ ...row, ok: false, error: `gemini_${res.status}` }); throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 300)}`); }
+  const u = raw?.usageMetadata; recordUsage({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount });
   // deno-lint-ignore no-explicit-any
   return raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '';
 }

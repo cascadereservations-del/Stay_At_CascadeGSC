@@ -37,6 +37,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { heartbeat } from '../_shared/heartbeat.ts';
+import { recordUsage } from '../_shared/cascade-core/usage.ts';
 
 // Deliberately NOT importing ../_shared/observability.ts. Every other ops
 // function wraps itself in it for redacted logging, and that is right for
@@ -173,6 +174,7 @@ function parseModelJson(text: string): VisionResult {
 
 async function readWithGemini(b64: string, mime: string, which: Which): Promise<VisionResult> {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+  const row = { provider: 'gemini' as const, model: GEMINI_MODEL, title: 'Cascade Meter', tier: 'vision' };
   const res = await fetchRetry(endpoint, {
     method: 'POST', headers: JSON_HEADERS,
     body: JSON.stringify({
@@ -180,16 +182,17 @@ async function readWithGemini(b64: string, mime: string, which: Which): Promise<
       generationConfig: { temperature: 0, response_mime_type: 'application/json' },
     }),
     signal: AbortSignal.timeout(55_000),
-  });
-  const raw = await res.json();
+  }).catch((e) => { recordUsage({ ...row, ok: false, error: `gemini_${e?.name ?? 'fetch_error'}` }); throw e; });
+  const raw = await res.json().catch((e) => { recordUsage({ ...row, ok: false, error: `gemini_${res.status}_unreadable` }); throw e; });
   // Keep the body. v1 threw `gemini_400` and discarded the reason, which made
   // the first real failure in production undiagnosable from the stored row.
-  if (!res.ok) throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 400)}`);
-  const u = raw?.usageMetadata; if (u) console.log('llm_usage', JSON.stringify({ provider: 'gemini', model: GEMINI_MODEL, title: 'Cascade Meter', tier: 'vision', input: u.promptTokenCount, output: u.candidatesTokenCount })); // 2026-09-24: image cost was invisible
+  if (!res.ok) { recordUsage({ ...row, ok: false, error: `gemini_${res.status}` }); throw new Error(`gemini_${res.status}: ${JSON.stringify(raw).slice(0, 400)}`); }
+  const u = raw?.usageMetadata; recordUsage({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount }); // 2026-09-24: image cost was invisible
   return parseModelJson(raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '');
 }
 
 async function readWithOpenRouter(b64: string, mime: string, which: Which): Promise<VisionResult> {
+  const row = { provider: 'openrouter' as const, model: OPENROUTER_MODEL, title: 'Cascade Meter', tier: 'vision' };
   const res = await fetchRetry('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { ...JSON_HEADERS, Authorization: `Bearer ${OPENROUTER_KEY}`, 'X-Title': 'Cascade Meter' },
@@ -206,10 +209,10 @@ async function readWithOpenRouter(b64: string, mime: string, which: Which): Prom
       }],
     }),
     signal: AbortSignal.timeout(55_000),
-  });
-  const raw = await res.json();
-  if (!res.ok) throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 400)}`);
-  const u = raw?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'openrouter', model: raw?.model ?? OPENROUTER_MODEL, title: 'Cascade Meter', tier: 'vision', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
+  }).catch((e) => { recordUsage({ ...row, ok: false, error: `openrouter_${e?.name ?? 'fetch_error'}` }); throw e; });
+  const raw = await res.json().catch((e) => { recordUsage({ ...row, ok: false, error: `openrouter_${res.status}_unreadable` }); throw e; });
+  if (!res.ok) { recordUsage({ ...row, ok: false, error: `openrouter_${res.status}` }); throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 400)}`); }
+  const u = raw?.usage; recordUsage({ ...row, model: raw?.model ?? OPENROUTER_MODEL, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost });
   return parseModelJson(raw?.choices?.[0]?.message?.content ?? '');
 }
 

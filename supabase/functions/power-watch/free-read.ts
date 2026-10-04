@@ -5,6 +5,7 @@
 // cancelled, moved-from date). One failed, dateless or disagreeing read sends the poster to the paid reader, which decides
 // alone as before. Guest photos and receipts never come here.
 import { bytesToBase64, parseModelJson } from '../_shared/cascade-core/vision.ts';
+import { recordUsage } from '../_shared/cascade-core/usage.ts';
 import type { Notice } from './poster.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -14,16 +15,17 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 async function omniVision(model: string, prompt: string, b64: string, mime: string): Promise<string> {
   const url = env('CASCADE_OMNIROUTE_URL').replace(/\/+$/, ''), key = env('CASCADE_OMNIROUTE_KEY');
   if (!url || !key) throw new Error('omniroute_not_configured');
+  const row = { provider: 'omniroute' as const, model, title: 'Cascade Power Watch', tier: 'vision-free' };
   const r = await fetch(`${url}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'X-Title': 'Cascade Power Watch' },
     body: JSON.stringify({ model, temperature: 0, max_tokens: 1500,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
     signal: AbortSignal.timeout(30_000), // both run at once (full-size poster 2026-10-04: Scout 27 s, Mistral 14 s); index.ts caps the run's reads at 90 s
-  });
-  if (!r.ok) throw new Error(`omniroute_vision_${r.status}: ${(await r.text()).slice(0, 200)}`);
+  }).catch((e) => { recordUsage({ ...row, ok: false, error: `omniroute_vision_${e?.name ?? 'fetch_error'}` }); throw e; });
+  if (!r.ok) { recordUsage({ ...row, ok: false, error: `omniroute_vision_${r.status}` }); throw new Error(`omniroute_vision_${r.status}: ${(await r.text()).slice(0, 200)}`); }
   const j = await r.json();
-  const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'omniroute', model: j?.model ?? model, title: 'Cascade Power Watch', tier: 'vision-free', input: u.prompt_tokens, output: u.completion_tokens }));
+  const u = j?.usage; recordUsage({ ...row, model: j?.model ?? model, input: u?.prompt_tokens, output: u?.completion_tokens });
   return j?.choices?.[0]?.message?.content ?? '';
 }
 
