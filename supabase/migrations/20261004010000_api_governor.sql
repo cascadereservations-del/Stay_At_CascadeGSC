@@ -4,16 +4,16 @@
 -- in p_found, like V13.
 --   llm_usage              one row per model call (title, provider, model, tier, tokens, cost, ok, probe).
 --   api_budget_snapshots   one row per key per snapshot: GET /api/v1/key status, limit, remaining and LIFETIME usage.
---   api_usage_daily_v1     per Manila day, provider, title, tier, probe: calls, fails, tokens, cost. service_role only.
+--   api_usage_daily_v1     per Manila day, provider, title, tier, model, probe: calls, fails, tokens, cost. service_role only.
 --   api_budget_daily_v1    per Manila day and key: limit, lowest remaining, spent (max - min lifetime usage that day).
 --   prune_api_usage_v1     deletes rows older than p_keep_days (default 120), returns the count.
 --   app_settings.api_caps  the caps, credit, prices and thresholds the verifier reads (seeded once, never overwritten).
---   apply_verifier_run_v1  V14-V18 added to the DAILY scope array so a finding no longer raised resolves itself.
+--   apply_verifier_run_v1  V14-V18 added to the DAILY scope array and V14-V15 (cap pressure, outage: urgent) to the HOURLY one,
+--                          so a finding no longer raised resolves itself in the scope that raises it (orchestrator, Lloyd: "notify immediately").
 -- The apply_verifier_run_v1 body below is the live definition (md5(prosrc) 5c02101b0c2bd109389ce659702b2270, identical to
--- 20260925010000_verifier_v7_dates_mismatch.sql, read 2026-10-04) with the one scope array changed. verifier_findings has no
+-- 20260925010000_verifier_v7_dates_mismatch.sql, read 2026-10-04) with the two scope arrays changed. verifier_findings has no
 -- CHECK on check_id, so no catalog needs widening. V14-V18 were unused in production when this was written.
--- Both tables are service_role only, like concierge_turn_stats. ponytail: no cron for prune_api_usage_v1 here; the digest
--- or a weekly job calls it.
+-- Both tables are service_role only, like concierge_turn_stats. system-verifier calls prune_api_usage_v1 once a day.
 
 begin;
 
@@ -51,13 +51,14 @@ revoke all on table public.llm_usage from public, anon, authenticated;
 revoke all on table public.api_budget_snapshots from public, anon, authenticated;
 grant select, insert on table public.llm_usage to service_role;
 grant select, insert on table public.api_budget_snapshots to service_role;
+revoke all on sequence public.llm_usage_id_seq, public.api_budget_snapshots_id_seq from public, anon, authenticated; -- Supabase default grants
 
 create or replace function public.api_usage_daily_v1(p_days integer default 35)
-returns table(day date, provider text, title text, tier text, probe boolean,
+returns table(day date, provider text, title text, tier text, model text, probe boolean,
               calls integer, fails integer, input bigint, output bigint, cost_usd numeric)
 language sql stable security definer set search_path to '' as $$
   select (u.at at time zone 'Asia/Manila')::date,
-         u.provider, u.title, u.tier, u.probe,
+         u.provider, u.title, u.tier, u.model, u.probe,
          count(*)::integer,
          (count(*) filter (where not u.ok))::integer,
          coalesce(sum(u.input), 0)::bigint,
@@ -65,8 +66,8 @@ language sql stable security definer set search_path to '' as $$
          coalesce(sum(u.cost_usd), 0)::numeric
     from public.llm_usage u
    where u.at >= (((now() at time zone 'Asia/Manila')::date - p_days)::timestamp at time zone 'Asia/Manila')
-   group by 1, 2, 3, 4, 5
-   order by 1, 2, 3, 4, 5;
+   group by 1, 2, 3, 4, 5, 6
+   order by 1, 2, 3, 4, 5, 6;
 $$;
 
 create or replace function public.api_budget_daily_v1(p_days integer default 35)
@@ -113,7 +114,7 @@ grant execute on function public.api_budget_daily_v1(integer) to service_role;
 grant execute on function public.prune_api_usage_v1(integer) to service_role;
 
 comment on function public.api_usage_daily_v1(integer) is
-  'Session 69 (D-294): model calls per Manila day, provider, title, tier and probe flag (calls, fails, tokens, cost). service_role only.';
+  'Session 69 (D-294): model calls per Manila day, provider, title, tier, model and probe flag (calls, fails, tokens, cost). service_role only.';
 comment on function public.api_budget_daily_v1(integer) is
   'Session 69 (D-294): OpenRouter key snapshots per Manila day and key: latest limit, lowest remaining, spent = max - min lifetime usage that day (null under 2 snapshots). service_role only.';
 comment on function public.prune_api_usage_v1(integer) is
@@ -121,11 +122,11 @@ comment on function public.prune_api_usage_v1(integer) is
 
 -- app_settings is anon-readable except keys matching its policy (token, secret, ical, chat_id ...); api_caps holds no secret.
 insert into public.app_settings (key, value) values ('api_caps', $json$
-{"caps":[{"id":"openrouter-primary","label":"OpenRouter key cascade-production","kind":"usd_day","cap":1,"floor":0.5,"key_name":"primary","where":"openrouter.ai > Settings > Keys > cascade-production > Credit limit"},{"id":"openrouter-backup","label":"OpenRouter backup key","kind":"usd_day","cap":3,"floor":0.5,"key_name":"backup","where":"openrouter.ai > Settings > Keys > backup key > Credit limit"},{"id":"omniroute-key","label":"OmniRoute key 'cascade omniroute'","kind":"usd_day_notional","cap":0.5,"floor":0.1,"provider":"omniroute","where":"OmniRoute dashboard (ssh -L 20129:localhost:20129 alfred) > API Manager > cascade omniroute > Daily limit"},{"id":"cloudflare-free","label":"Cloudflare Workers AI free allowance","kind":"neurons_day","cap":10000,"fixed":true,"provider":"omniroute","where":"fixed by Cloudflare's free plan"}],"credit":{"openrouter_usd":10,"note":"Cascade OpenRouter account credit; update after a top-up"},"prices_usd_per_m":{"@cf/meta/llama-4-scout-17b-16e-instruct":[0.27,0.85],"@cf/mistralai/mistral-small-3.1-24b-instruct":[0.351,0.555],"@cf/meta/llama-3.3-70b-instruct-fp8-fast":[0.293,2.253],"@cf/aisingapore/gemma-sea-lion-v4-27b-it":[0.351,0.555],"openai/gpt-oss-120b":[0,0],"openai/gpt-oss-20b":[0,0]},"neuron_usd":0.000011,"rules":{"pressure_pct":70,"headroom_x":20,"target_x":5,"runway_days":30,"drift_x":2,"outage_fail_pct":50,"outage_min_calls":5}}
+{"caps":[{"id":"openrouter-primary","label":"OpenRouter key cascade-production","kind":"usd_day","cap":1,"floor":0.5,"key_name":"primary","where":"openrouter.ai > Settings > Keys > cascade-production > Credit limit"},{"id":"openrouter-backup","label":"OpenRouter backup key","kind":"usd_day","cap":3,"floor":0.5,"key_name":"backup","where":"openrouter.ai > Settings > Keys > backup key > Credit limit"},{"id":"omniroute-key","label":"OmniRoute key 'cascade omniroute'","kind":"usd_day_notional","cap":0.5,"floor":0.1,"provider":"omniroute","where":"OmniRoute dashboard > API Manager > cascade omniroute > Daily limit"},{"id":"cloudflare-free","label":"Cloudflare Workers AI free allowance","kind":"neurons_day","cap":10000,"fixed":true,"provider":"omniroute","where":"fixed by Cloudflare's free plan"}],"credit":{"openrouter_usd":10,"note":"Cascade OpenRouter account credit; update after a top-up"},"prices_usd_per_m":{"@cf/meta/llama-4-scout-17b-16e-instruct":[0.27,0.85],"@cf/mistralai/mistral-small-3.1-24b-instruct":[0.351,0.555],"@cf/meta/llama-3.3-70b-instruct-fp8-fast":[0.293,2.253],"@cf/aisingapore/gemma-sea-lion-v4-27b-it":[0.351,0.555],"openai/gpt-oss-120b":[0,0],"openai/gpt-oss-20b":[0,0]},"neuron_usd":0.000011,"rules":{"pressure_pct":70,"headroom_x":20,"target_x":5,"runway_days":30,"drift_x":2,"outage_fail_pct":50,"outage_min_calls":5}}
 $json$::jsonb)
 on conflict (key) do nothing;
 
--- apply_verifier_run_v1: the live body, with V14-V18 added to the daily scope array.
+-- apply_verifier_run_v1: the live body, with V14-V18 added to the daily scope array and V14-V15 to the hourly one.
 create or replace function public.apply_verifier_run_v1(
   p_scope text,
   p_found jsonb,
@@ -153,8 +154,8 @@ begin
 
   v_checks := case p_scope
     -- V13 (model budget) is raised by the system-verifier Edge Function in both scopes (D-227).
-    -- V14-V18 (API governor, D-294) are raised by the Edge Function in the daily scope only.
-    when 'hourly' then array['V1','V2','V3','V4','V5','V7','V7b','V11','V12','V13']
+    -- V14-V18 (API governor, D-294) are raised by the Edge Function in the daily scope; V14-V15 hourly too (urgent).
+    when 'hourly' then array['V1','V2','V3','V4','V5','V7','V7b','V11','V12','V13','V14','V15']
     else                array['V1','V2','V3','V4','V5','V6','V7','V7b','V10','V11','V12','V13','V14','V15','V16','V17','V18']
   end;
 

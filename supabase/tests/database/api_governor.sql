@@ -2,7 +2,7 @@
 -- setting, and V14-V18 in the daily scope of apply_verifier_run_v1. Synthetic rows carry a zz-gov- title or a 2030 timestamp so
 -- restored production rows never interfere; everything goes with the closing rollback.
 begin;
-select plan(35);
+select plan(37);
 
 select has_table('public', 'llm_usage', 'llm_usage exists');
 select has_table('public', 'api_budget_snapshots', 'api_budget_snapshots exists');
@@ -38,13 +38,14 @@ select ok((select bool_and(p.prosecdef and p.proconfig = array['search_path=""']
               and p.proname in ('api_usage_daily_v1', 'api_budget_daily_v1', 'prune_api_usage_v1', 'apply_verifier_run_v1')),
   'all four are security definer with an empty search_path');
 
--- The service role writes both tables.
-set local role service_role;
+-- Rows insert with the table's own shape (as owner: the rehearsal's service_role has no BYPASSRLS; the grant is checked above).
+-- The snapshot is stamped 2030 so it never shares today's Manila day with the pair below.
 select lives_ok($$insert into public.llm_usage(title, provider, model, tier, input, output, cost_usd, ok)
-  values ('zz-gov-svc', 'openrouter', 'm', 'staff', 1, 1, 0.000001, true)$$, 'service_role inserts a llm_usage row');
-select lives_ok($$insert into public.api_budget_snapshots(key_name, status, limit_usd, remaining_usd, usage_usd)
-  values ('primary', 200, 1, 1, 1)$$, 'service_role inserts a budget snapshot');
-reset role;
+  values ('zz-gov-svc', 'openrouter', 'm', 'staff', 1, 1, 0.000001, true)$$, 'a llm_usage row inserts');
+select lives_ok($$insert into public.api_budget_snapshots(at, key_name, status, limit_usd, remaining_usd, usage_usd)
+  values ('2030-01-01T00:00:00Z', 'primary', 200, 1, 1, 1)$$, 'a budget snapshot inserts');
+select ok(not has_sequence_privilege('anon', 'public.llm_usage_id_seq', 'usage') and not has_sequence_privilege('authenticated', 'public.api_budget_snapshots_id_seq', 'usage'),
+  'anon and authenticated have no sequence grants');
 
 -- Manila noon today, so the two rows of a pair always share one Manila day.
 create temp table zz_noon on commit drop as
@@ -63,6 +64,7 @@ select z.t + x.off, x.title, x.provider, 'm', x.tier, x.i, x.o, x.c, x.ok, x.err
 
 select is((select jsonb_build_array(calls, fails, input, output, cost_usd) from public.api_usage_daily_v1(35) where title = 'zz-gov-a'),
   '[2, 1, 150, 30, 0.001]'::jsonb, 'two calls, one failed: calls, fails, tokens and cost (null cost ignored)');
+select is((select model from public.api_usage_daily_v1(35) where title = 'zz-gov-a'), 'm', 'the model is its own column');
 select is((select day from public.api_usage_daily_v1(35) where title = 'zz-gov-a'), (now() at time zone 'Asia/Manila')::date,
   'day is the Manila date');
 select is((select probe from public.api_usage_daily_v1(35) where title = 'zz-gov-b'), true, 'a probe row is its own group, flagged');

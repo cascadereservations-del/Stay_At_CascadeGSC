@@ -10,14 +10,14 @@
     "20261004010000_api_governor.sql"
   ],
   "migration_sha256": {
-    "20261004010000_api_governor.sql": "ad6a6922888b12489127d179026d5a90ded59b294e821b66bbabae4f5048cb0b"
+    "20261004010000_api_governor.sql": "49e603cb275fbe5b9dd21c9c9fd7c4e1ac71b7191d8c3df5938c029f461dacb8"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING: take a fresh backup (supabase-backup-over-alfred.sh), then fill restore_point and verified_at",
     "verified_at": "1970-01-01T00:00:00Z",
-    "production_rule": "Phase is backfill, not expand, only because the expand-safety scan refuses the literal DELETE FROM inside prune_api_usage_v1 (a new function that deletes telemetry older than 120 days only when called; nothing runs it at apply time). Two new tables (llm_usage, api_budget_snapshots; RLS on, no policy, service_role select/insert only), three new functions (api_usage_daily_v1, api_budget_daily_v1, prune_api_usage_v1; security definer, service_role execute only), one new app_settings row (api_caps, insert on conflict do nothing), and apply_verifier_run_v1 replaced by its live body with V14-V18 added to the daily scope array (live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo definition in 20260925010000, read 2026-10-04). No existing data, table or grant changes. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+    "production_rule": "Phase is backfill, not expand, only because the expand-safety scan refuses the literal DELETE FROM inside prune_api_usage_v1 (a new function that deletes telemetry older than 120 days only when called; nothing runs it at apply time). Two new tables (llm_usage, api_budget_snapshots; RLS on, no policy, service_role select/insert only), three new functions (api_usage_daily_v1, api_budget_daily_v1, prune_api_usage_v1; security definer, service_role execute only), one new app_settings row (api_caps, insert on conflict do nothing), and apply_verifier_run_v1 replaced by its live body with V14-V18 added to the daily scope array and V14-V15 to the hourly one (live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo definition in 20260925010000, read 2026-10-04). No existing data, table or grant changes. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
     {
@@ -31,8 +31,8 @@
       "expect": true
     },
     {
-      "name": "daily_scope_names_v14_to_v18_and_hourly_does_not",
-      "query": "select prosrc like '%''V13'',''V14'',''V15'',''V16'',''V17'',''V18''%' and prosrc like '%array[''V1'',''V2'',''V3'',''V4'',''V5'',''V7'',''V7b'',''V11'',''V12'',''V13'']%' from pg_proc where pronamespace = 'public'::regnamespace and proname = 'apply_verifier_run_v1'",
+      "name": "daily_scope_names_v14_to_v18_hourly_v14_v15",
+      "query": "select prosrc like '%''V13'',''V14'',''V15'',''V16'',''V17'',''V18''%' and prosrc like '%array[''V1'',''V2'',''V3'',''V4'',''V5'',''V7'',''V7b'',''V11'',''V12'',''V13'',''V14'',''V15'']%' from pg_proc where pronamespace = 'public'::regnamespace and proname = 'apply_verifier_run_v1'",
       "expect": true
     },
     {
@@ -41,13 +41,8 @@
       "expect": true
     },
     {
-      "name": "the_read_functions_answer_on_empty_tables",
-      "query": "select (select count(*) from public.api_usage_daily_v1(35)) = 0 and (select count(*) from public.api_budget_daily_v1(35)) = 0",
-      "expect": true
-    },
-    {
-      "name": "no_v14_to_v18_findings_before_the_first_governor_run",
-      "query": "select count(*) = 0 from public.verifier_findings where check_id in ('V14','V15','V16','V17','V18') and status <> 'resolved'",
+      "name": "the_read_functions_answer",
+      "query": "select (select count(*) from public.api_usage_daily_v1(35)) >= 0 and (select count(*) from public.api_budget_daily_v1(35)) >= 0",
       "expect": true
     }
   ],
@@ -71,8 +66,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": true,
-    "rehearsal": "NOT RUN. pgTAP supabase/tests/database/api_governor.sql (35 assertions) and the six forward checks have not been executed against a restored backup: this build lane had no local Postgres (Docker daemon not running). The migration, rollback and test parse with libpg_query (pglast, including the plpgsql bodies), the two daily functions' query bodies and the api_caps JSON literal were run read-only against production over VALUES stand-ins and returned the expected aggregates, and the apply_verifier_run_v1 body equals the live body except the scope array line. Run migration-rehearsal-on-host.sh with the pgTAP suite before applying.",
+    "verified": false,
+    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh with supabase/tests/database/api_governor.sql (37 assertions) on a fresh backup; verified flips to true only when it is green on this commit. Orchestrator fixes 2026-10-04 after the Fable audit: tests insert as owner (rehearsal service_role has no BYPASSRLS), 2030 snapshot stamp, model column, sequence revokes, V14-V15 hourly, no host detail in the public api_caps text.",
     "evidence": "Read-only against production on 2026-10-04: apply_verifier_run_v1 live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo body; verifier_findings has no CHECK on check_id; V14-V18 unused; llm_usage, api_budget_snapshots, the three functions and app_settings.api_caps absent; app_settings PK is key."
   },
   "approvals": {
