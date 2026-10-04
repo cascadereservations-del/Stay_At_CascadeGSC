@@ -17,6 +17,8 @@
 // that, and this call is what stops it from ever needing to.
 //
 // V13 (D-227, session 49) is the one check raised here rather than in SQL: it needs a GET to OpenRouter.
+// V14-V18 (D-294, session 69) are the API governor, raised here too, in the daily scope only: governor.ts is pure, this file
+// reads the usage RPCs and api_caps, snapshots the OpenRouter keys every run, and hands the findings to apply_verifier_run_v1.
 //
 // ponytail: no queue and no per-finding state here. verifier_findings already
 // decides what is new, what is due a reminder and what has gone; this function
@@ -27,7 +29,8 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { ackHash, buildCards, type Applied, type Card, type Finding } from './cards.ts';
-import { budgetFinding, readKey } from './budget.ts';
+import { budgetFinding, readCredits, readKey, type KeyRead } from './budget.ts';
+import { evaluate, manilaClock, parseCaps } from './governor.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -55,6 +58,47 @@ async function tgSend(chat: string, text: string, extra: Array<Array<{ text: str
 
 const manilaToday = (now: Date) =>
   new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Manila', day: 'numeric', month: 'short' }).format(now);
+
+const isMissingRpc = (e: { code?: string; message?: string }) => e.code === 'PGRST202' || e.code === '42883' || /could not find the function|does not exist/i.test(e.message ?? '');
+
+/** The governor's findings, or null when it could not run (usage RPCs not applied yet, api_caps unreadable): logged, not thrown. */
+async function governorFindings(db: any, now: Date, kPrimary?: KeyRead, kBackup?: KeyRead, orKey?: string): Promise<Finding[] | null> {
+  const [u, b, c] = await Promise.all([
+    db.rpc('api_usage_daily_v1', { p_days: 35 }),
+    db.rpc('api_budget_daily_v1', { p_days: 35 }),
+    db.from('app_settings').select('value').eq('key', 'api_caps').maybeSingle(),
+  ]);
+  for (const r of [u, b]) {
+    if (r.error) {
+      if (isMissingRpc(r.error)) { console.log(JSON.stringify({ event: 'governor_skipped', reason: 'usage RPCs not applied yet' })); return null; }
+      throw new Error(r.error.message);
+    }
+  }
+  const caps = parseCaps(c.data?.value);
+  if (!caps) { console.log(JSON.stringify({ event: 'governor_skipped', reason: 'api_caps missing or unusable' })); return null; }
+  // Real credit from OpenRouter when it will say (management key only). Status only is logged, never the key.
+  let credits: { status: number; remaining: number | null } | null = null;
+  if (orKey) {
+    credits = await readCredits(orKey);
+    console.log(JSON.stringify({ event: 'openrouter_credits', status: credits.status, remaining: credits.remaining }));
+  }
+  const { today, hour } = manilaClock(now);
+  const found = evaluate({
+    usage: (u.data ?? []).map((r: any) => ({ ...r, calls: Number(r.calls), fails: Number(r.fails), input: Number(r.input), output: Number(r.output), cost_usd: Number(r.cost_usd), day: String(r.day).slice(0, 10) })),
+    budget: (b.data ?? []).map((r: any) => ({ ...r, day: String(r.day).slice(0, 10), limit_usd: r.limit_usd == null ? null : Number(r.limit_usd), min_remaining_usd: r.min_remaining_usd == null ? null : Number(r.min_remaining_usd), spent_usd: r.spent_usd == null ? null : Number(r.spent_usd) })),
+    latest: { primary: kPrimary, backup: kBackup }, caps, today, nowHourManila: hour, credits,
+  });
+  console.log(JSON.stringify({ event: 'governor', today, findings: found.map((f) => f.key) }));
+  return found;
+}
+
+/** Re-raise whatever V14-V18 findings are open or acknowledged, byte for byte, so a governor outage is not a resolution. */
+async function carryForwardGovernor(db: any, found: Finding[]): Promise<void> {
+  const { data, error } = await db.from('verifier_findings').select('key, check_id, severity, title, detail')
+    .in('check_id', ['V14', 'V15', 'V16', 'V17', 'V18']).in('status', ['open', 'acknowledged']);
+  if (error) { console.warn('governor carry-forward:', error.message); return; }
+  found.push(...(data ?? []) as Finding[]);
+}
 
 Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
@@ -91,8 +135,9 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
 
     // V13 model budget, every run in both scopes. The log line is the live proof of the field names.
     const orKey = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY');
+    let kPrimary: KeyRead | undefined;
     if (orKey) {
-      const k = await readKey(orKey);
+      const k = kPrimary = await readKey(orKey);
       console.log(JSON.stringify({ event: 'openrouter_budget', scope, ...k }));
       const v13 = budgetFinding(k);
       if (v13) found.push(v13);
@@ -100,7 +145,21 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
     // 2026-09-30 (Lloyd): the second Cascade OpenRouter key behind the guests' key - its budget logged the same way, so the
     // key is proven live the hour it is set and watched after.
     const orBackup = Deno.env.get('CASCADE_OPENROUTER_BACKUP_KEY');
-    if (orBackup) console.log(JSON.stringify({ event: 'openrouter_budget_backup', scope, ...(await readKey(orBackup)) }));
+    let kBackup: KeyRead | undefined;
+    if (orBackup) {
+      kBackup = await readKey(orBackup);
+      console.log(JSON.stringify({ event: 'openrouter_budget_backup', scope, ...kBackup }));
+    }
+    // D-294: one snapshot per key per run, hourly and daily, so api_budget_daily_v1 can say what a day cost (a key's remaining
+    // limit alone cannot once the period resets). A refused or failed read is stored too, with status and null amounts.
+    if (!dry) {
+      const snaps = [['primary', kPrimary], ['backup', kBackup]].filter(([, k]) => k)
+        .map(([name, k]) => ({ key_name: name, status: (k as KeyRead).status, limit_usd: (k as KeyRead).limit, remaining_usd: (k as KeyRead).remaining, usage_usd: (k as KeyRead).usage ?? null }));
+      if (snaps.length) {
+        const { error } = await db.from('api_budget_snapshots').insert(snaps);
+        if (error) console.warn('api_budget_snapshots:', error.message);
+      }
+    }
     // D-287: Cascade's own OmniRoute (the third rung). Probes never reach it, so this hourly call is its live proof: a tiny
     // chat through the combo must come back with content. A listed combo is not proof - on 2026-09-30 /models listed
     // cascade-guest while both of its Groq steps could not serve a guest prompt. ~40 tokens, a few Cloudflare neurons an
@@ -118,6 +177,23 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
       // is now a heartbeat (successes only, so one bad hour does not page); job-heartbeat-monitor sends one Finance alert when
       // 'omniroute-answer' has had no answer for 1.5 x its 2 h interval = 3 h.
       if (!dry && answered) await heartbeat(db, 'omniroute-answer')('succeeded');
+    }
+
+    // D-294 governor, daily scope only. NEVER fails the run (like the OmniRoute probe above). One trap: apply_verifier_run_v1
+    // resolves any V14-V18 finding this run does not raise, so when the governor cannot run (RPC error, settings unreadable) the
+    // open ones are carried forward unchanged instead of closing and re-announcing themselves tomorrow.
+    if (scope === 'daily') {
+      try {
+        const g = await governorFindings(db, now, kPrimary, kBackup, orKey);
+        if (g) found.push(...g); else await carryForwardGovernor(db, found);
+      } catch (e) {
+        console.warn('governor failed:', String(e).slice(0, 200));
+        await carryForwardGovernor(db, found);
+      }
+      if (!dry) {
+        const { error } = await db.rpc('prune_api_usage_v1', { p_keep_days: 120 });
+        if (error && !isMissingRpc(error)) console.warn('prune_api_usage_v1:', error.message);
+      }
     }
 
     if (dry) {
