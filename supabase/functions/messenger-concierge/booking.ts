@@ -203,9 +203,14 @@ export function parseName(text: string): string | null {
   const rest = text
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, ' ')
     .replace(/[+\d][\d\s().-]{4,}\d/g, ' ');
-  const toks = (rest.match(/[\p{L}][\p{L}'.-]*/gu) ?? [])
-    .map((w) => w.replace(/[^\p{L}'-]/gu, ''))
-    .filter((w) => w.length >= 2 && !NAME_STOP.test(w));
+  // The name ends at the first courtesy/slot word after it starts: live 2026-10-04 "Ma. Elizabeth Reyes. 0916... You can
+  // reach me at x@y.com" became "Ma Elizabeth Reyes Can" when every non-stop word anywhere counted.
+  const toks: string[] = [];
+  for (const raw of rest.match(/[\p{L}][\p{L}'.-]*/gu) ?? []) {
+    const w = raw.replace(/[^\p{L}'-]/gu, '');
+    if (NAME_STOP.test(w)) { if (toks.length) break; continue; }
+    if (w.length >= 2) toks.push(w);
+  }
   if (!toks.length) return null;
   return toks.slice(0, 4).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }

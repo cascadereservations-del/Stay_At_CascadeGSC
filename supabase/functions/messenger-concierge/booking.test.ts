@@ -31,6 +31,9 @@ Deno.test('parseName: the message minus phone and e-mail; courtesy words are not
   assertEquals(parseName('ben@example.com'), null);
   assertEquals(parseName('yes po'), null);
   assertEquals(parseName('skip'), null);
+  // live 2026-10-04: words after the name are not part of it
+  assertEquals(parseName('Ma. Elizabeth Reyes.  09165331514. You can reach me at ab@example.com'), 'Ma Elizabeth Reyes');
+  assertEquals(parseName('Juan Dela Cruz and my email is juan@example.com'), 'Juan Dela Cruz');
 });
 
 Deno.test('dmRange: one month reads once, two months read twice', () => {
