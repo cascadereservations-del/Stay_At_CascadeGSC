@@ -13,12 +13,14 @@ export function recordUsage(u: Usage): void {
   try {
     const ok = u.ok !== false;
     const line = { provider: u.provider, model: u.model, title: u.title, tier: u.tier, round: u.round, input: u.input, output: u.output, cost_usd: u.cost_usd };
-    if (ok) console.log('llm_usage', JSON.stringify(line));
+    if (ok) console.log('llm_usage', JSON.stringify(u.error ? { ...line, error: String(u.error).slice(0, 200) } : line));
     else console.warn('llm_call_failed', JSON.stringify({ ...line, error: String(u.error ?? '').slice(0, 200) }));
     const url = Deno.env.get('SUPABASE_URL'), key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     if (!url || !key) return;
     const row = { title: u.title ?? 'Cascade', provider: u.provider, model: u.model ?? null, tier: u.tier ?? null,
-      input: num(u.input), output: num(u.output), cost_usd: num(u.cost_usd), ok, error: ok ? null : String(u.error ?? 'error').slice(0, 200), probe: u.probe === true };
+      input: num(u.input), output: num(u.output), cost_usd: num(u.cost_usd), ok,
+      // An ok row may still name what happened (a truncated reply: the provider answered, we cut it at max_tokens).
+      error: u.error ? String(u.error).slice(0, 200) : ok ? null : 'error', probe: u.probe === true };
     const p = fetch(`${url.replace(/\/+$/, '')}/rest/v1/llm_usage`, {
       method: 'POST',
       headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },

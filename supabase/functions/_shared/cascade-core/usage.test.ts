@@ -74,3 +74,13 @@ Deno.test('usage: non-finite and missing numbers are null, never 0', () => {
   assertEquals([b.input, b.output, b.cost_usd], [0, null, 0]);
   assertEquals(a.title, 'Cascade');
 });
+
+Deno.test('usage: an ok row may name what happened (a truncated reply): ok stays true, the error is stored and printed', () => {
+  const h = harness(ENV);
+  try { recordUsage({ provider: 'omniroute', model: 'openai/gpt-oss-120b', title: 'T', input: 900, output: 1200, cost_usd: 0, error: 'omniroute_truncated' }); } finally { h.restore(); }
+  assertEquals(h.warns, [], 'a truncation is not a failed call');
+  assertEquals(h.logs.length, 1);
+  assert(h.logs[0].startsWith('llm_usage ') && h.logs[0].includes('"error":"omniroute_truncated"'), h.logs[0]);
+  const body = JSON.parse(String(h.calls[0].init.body));
+  assertEquals([body.ok, body.error, body.input, body.output], [true, 'omniroute_truncated', 900, 1200]);
+});

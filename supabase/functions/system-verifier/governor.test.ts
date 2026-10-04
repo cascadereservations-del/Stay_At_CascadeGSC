@@ -6,7 +6,7 @@
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { buildCards, redCard, yellowCard, type Finding } from './cards.ts';
 import { readCredits, readKey } from './budget.ts';
-import { addDays, evaluate, manilaClock, parseCaps, usageWeekLine, type ApiCaps, type BudgetDay, type GovInput, type UsageDay } from './governor.ts';
+import { addDays, carried, DEFAULT_RULES, evaluate, GOV_CHECKS, governor, manilaClock, parseCaps, recommend, usageWeekLine, type ApiCaps, type BudgetDay, type GovInput, type UsageDay } from './governor.ts';
 
 // The seed lane A writes to app_settings 'api_caps'.
 const CAPS = parseCaps({
@@ -84,23 +84,46 @@ Deno.test('V14 fires at 70% of a key cap, on the live read, and not at 60%', () 
   assertEquals(f[0].key, 'V14:openrouter-primary');
   assertEquals(f[0].severity, 'red');
   assertEquals((f[0].detail as any).pct, 70);
-  assertEquals((f[0].detail as any).recommended, 1.5, 'a raise to 1.5 x the larger of spend and cap');
+  assertEquals((f[0].detail as any).recommended, 3.5, 'recommend(): 5 x the 0.70 spent this period');
+  assertEquals((f[0].detail as any).cap, 1, 'measured against the limit the key reported');
 });
 
-Deno.test('V14 reads yesterday too: at 07:45 today is only hours old', () => {
-  const f = evaluate(input({ budget: [bud({ day: day(-1), spent_usd: 0.9 }), bud({ spent_usd: 0.02 })] }));
-  assertEquals(keys(only(f, 'V14')), ['V14:openrouter-primary']);
+Deno.test('V14 and V16 measure an OpenRouter key against its LIVE limit; api_caps.cap is only the fallback', () => {
+  // api_caps says 1, the key really allows 2: 1.5 used is 75% of the live limit.
+  const f = only(evaluate(input({ latest: { primary: { status: 200, limit: 2, remaining: 0.5, usage: 5 } } })), 'V14');
+  assertEquals((f[0].detail as any).cap, 2);
+  assertEquals((f[0].detail as any).pct, 70);
+  // V16: 20 quiet days. A live limit already at the advised 0.50 says nothing (the change is made, even with api_caps stale).
+  const quiet = history('primary', 20, 0.02);
+  assertEquals(only(evaluate(input({ budget: quiet, latest: { primary: { status: 200, limit: 0.5, remaining: 0.5, usage: 1 } } })), 'V16').length, 0);
+  const v = only(evaluate(input({ budget: quiet, latest: { primary: { status: 200, limit: 4, remaining: 4, usage: 1 } } })), 'V16');
+  assertEquals((v[0].detail as any).recommended, 0.5, 'the live 4.00 is far above need');
+  // A raise that the live limit already equals is not repeated either.
+  const busy = history('primary', 20, 0.6);
+  assertEquals(only(evaluate(input({ budget: busy, latest: { primary: { status: 200, limit: 3, remaining: 3, usage: 1 } } })), 'V16').length, 0);
 });
 
-Deno.test('V14 projects today to the end of the period, but only after 06:00 and from 0.05 USD', () => {
-  const tiny: ApiCaps = { ...CAPS, caps: [{ ...CAPS.caps[0], cap: 0.1 }] };
-  const run = (hour: number, spent: number) => only(evaluate(input({ caps: tiny, nowHourManila: hour, budget: [bud({ spent_usd: spent })] })), 'V14');
-  assertEquals(run(5, 0.06).length, 0, 'before 06:00 the projection is skipped');
-  assertEquals(run(12, 0.04).length, 0, 'under 0.05 USD there is nothing to project from');
-  const f = run(12, 0.06); // 0.06 by noon is 0.12 by midnight, over a 0.10 cap, while only 60% used today
+Deno.test('V14 for a key never sums Manila-day spend: only the live read of the current OpenRouter period', () => {
+  const f = evaluate(input({ budget: [bud({ day: day(-1), spent_usd: 0.9 }), bud({ spent_usd: 0.9 })], latest: { primary: { status: 200, limit: 1, remaining: 0.9, usage: 1 } } }));
+  assertEquals(only(f, 'V14').length, 0, 'yesterday and today in Manila straddle two periods; the key says 10% used');
+});
+
+Deno.test('V14 projects a key over the hours since 00:00 UTC (08:00 Manila), after 6 hours and from 0.05 USD', () => {
+  const run = (hour: number, remaining: number) => only(evaluate(input({ nowHourManila: hour, latest: { primary: { status: 200, limit: 1, remaining, usage: 1 } } })), 'V14');
+  assertEquals(run(13, 0.6).length, 0, '5 hours into the period: too early to project');
+  assertEquals(run(14, 0.75).length, 0, '0.25 in 6 hours is 1.00 by the reset: not over');
+  const f = run(14, 0.7); // 0.30 in 6 hours is 1.20 by the reset, while only 30% is used
   assertEquals(f.length, 1);
   assertEquals((f[0].detail as any).projected, true);
+  assertEquals('pct' in (f[0].detail as any), false, 'a projection carries no percent that would move');
   assertStringIncludes(redCard(f[0], NOW).text, 'on course to pass its daily limit');
+  // A provider cap projects over the Manila day instead, and says it is an estimate.
+  const tiny: ApiCaps = { ...CAPS, caps: [{ ...CAPS.caps[2], cap: 0.1 }] };
+  const omni = (hour: number) => only(evaluate(input({ caps: tiny, nowHourManila: hour, usage: [use({ provider: 'omniroute', model: '@cf/meta/llama-4-scout-17b-16e-instruct', input: 100_000, output: 40_000 })] })), 'V14');
+  assertEquals(omni(5).length, 0, 'before 06:00 Manila the projection is skipped');
+  const g = omni(12); // 0.061 by noon is 0.12 by midnight, over 0.10
+  assertEquals([(g[0].detail as any).projected, (g[0].detail as any).estimate], [true, true]);
+  assertStringIncludes(redCard(g[0], NOW).text, 'so it is an estimate');
 });
 
 Deno.test('V14 prices OmniRoute usage at list price and counts Cloudflare neurons from the @cf/ models only', () => {
@@ -113,23 +136,34 @@ Deno.test('V14 prices OmniRoute usage at list price and counts Cloudflare neuron
   assertEquals((omni.detail as any).pct, 100, '0.5183 of 0.50 is 103%, shown in 10% steps');
   const cf = only(f, 'V14').find((x) => x.key === 'V14:cloudflare-free')!;
   assertEquals((cf.detail as any).unit, 'neurons');
-  assertEquals((cf.detail as any).pct, 470, '0.5183 / 0.000011 = 47,118 neurons against 10,000');
+  assertEquals((cf.detail as any).pct, 100, '0.5183 / 0.000011 = 47,118 neurons against 10,000: the top band');
   assertEquals((cf.detail as any).recommended, null, 'a fixed allowance has nothing to raise');
   // a Groq-only day uses no Cloudflare neurons at all
   const groq = evaluate(input({ usage: [use({ provider: 'omniroute', model: 'openai/gpt-oss-120b', input: 9_000_000, output: 9_000_000 })] }));
   assertEquals(only(groq, 'V14').length, 0);
 });
 
-Deno.test('V14 without a model column is an estimate and says so', () => {
+Deno.test('V14 prices a model it has no list price for at the mean Cloudflare price, approx, never as free', () => {
   const f = only(evaluate(input({ usage: [use({ provider: 'omniroute', cost_usd: 0.4 })] })), 'V14');
   assert(f.length >= 1 && f.every((x) => (x.detail as any).approx === true));
   assertStringIncludes(redCard(f[0], NOW).text, 'estimate');
+  // A served model missing from prices_usd_per_m: 2M in + 0.2M out at the mean @cf price (0.2815, 1.5515) = 0.87 USD.
+  const g = only(evaluate(input({ usage: [use({ provider: 'omniroute', model: '@cf/qwen/new-model', input: 2_000_000, output: 200_000 })] })), 'V14')
+    .find((x) => x.key === 'V14:omniroute-key')!;
+  assertEquals([(g.detail as any).approx, (g.detail as any).pct], [true, 100]);
+  // A failed call with no tokens costs nothing and is not an estimate.
+  const fail = only(evaluate(input({ usage: [use({ provider: 'omniroute', model: null, calls: 3, fails: 3 })] })), 'V14');
+  assertEquals(fail.length, 0);
 });
 
 Deno.test('V14 detail is identical across small moves, so an acknowledgement holds', () => {
-  const at = (remaining: number) => only(evaluate(input({ latest: { primary: { status: 200, limit: 1, remaining, usage: 1 } } })), 'V14')[0];
-  assertEquals(JSON.stringify(at(0.19).detail), JSON.stringify(at(0.16).detail), '81% and 84% are the same 80% step');
-  assert(JSON.stringify(at(0.19).detail) !== JSON.stringify(at(0.09).detail), 'a real change does reopen it');
+  const at = (remaining: number, open: Finding[] = []) => only(evaluate(input({ open, latest: { primary: { status: 200, limit: 1, remaining, usage: 1 } } })), 'V14')[0];
+  const first = at(0.29);
+  // 71% then 84%: the same 70-89 band, and the value 4.20 is within 25% of the 3.55 already on the card, so it holds.
+  assertEquals(JSON.stringify(at(0.16, [first]).detail), JSON.stringify(first.detail), '71% and 84% are the same 70-89 band');
+  assertEquals((at(0.16).detail as any).recommended, 4.2, 'without the open card the value is computed afresh');
+  assert(JSON.stringify(at(0.09, [first]).detail) !== JSON.stringify(first.detail), 'crossing into 90-99 does reopen it');
+  assertEquals((at(0.0, [first]).detail as any).recommended, 5, '5.00 is 41% above 3.55: re-issued');
 });
 
 // ── V15 provider outage ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -142,8 +176,8 @@ Deno.test('V15 fires at 50% failing with at least 5 calls, per provider and feat
   assertEquals(f.length, 1, 'exactly 50% fires');
   assertEquals(f[0].key, 'V15:omniroute:Cascade Power Watch');
   assertEquals(f[0].severity, 'red');
-  assertEquals((f[0].detail as any).fail_pct, 50);
-  assertEquals((f[0].detail as any).calls_min, 5);
+  assertEquals(f[0].detail, { provider: 'omniroute', title: 'Cascade Power Watch', fail_band: '50-74' }, 'a band and no call count');
+  assertEquals((run(10, 8)[0].detail as any).fail_band, '75-100');
 });
 
 Deno.test('V15 ignores probe rows and rows older than yesterday, and sums today with yesterday', () => {
@@ -175,8 +209,9 @@ Deno.test('V16 recommends a lower cap, never below the floor', () => {
   assertEquals(f[0].key, 'V16:openrouter-primary');
   assertEquals(f[0].severity, 'yellow');
   const d = f[0].detail as any;
-  assertEquals([d.direction, d.current, d.recommended, d.p95], ['lower', 1, 0.5, 0.02], '5 x 0.02 = 0.10, but the floor is 0.50');
-  assertEquals(d.includes_tests, true, 'an OpenRouter key cannot split test runs out of its own spend');
+  assertEquals([d.direction, d.recommended], ['lower', 0.5], '5 x 0.02 = 0.10, but the floor is 0.50');
+  assertEquals(d.reads_live, true, 'an OpenRouter key: its own spend, test runs included');
+  assertEquals(Object.keys(d).sort(), ['cap_id', 'direction', 'label', 'reads_live', 'recommended', 'unit', 'where'], 'no p95, no days, no current');
   // with a quiet key and a high floor-free cap the 5 x p95 figure wins
   const open: ApiCaps = { ...CAPS, caps: [{ ...CAPS.caps[0], cap: 5, floor: 0.1 }] };
   const g = only(evaluate(input({ caps: open, budget: history('primary', 20, 0.1) })), 'V16')[0].detail as any;
@@ -188,7 +223,7 @@ Deno.test('V16 does not fire when the cap is under 20x the busiest day, and says
   const f = only(evaluate(input({ budget: history('primary', 20, 0.6) })), 'V16');
   assertEquals(f.length, 1);
   const d = f[0].detail as any;
-  assertEquals([d.direction, d.current, d.recommended], ['raise', 1, 3], '5 x 0.60 = 3.00');
+  assertEquals([d.direction, d.recommended], ['raise', 3], '5 x 0.60 = 3.00');
   assertEquals(f[0].severity, 'yellow', 'advice, not an alarm');
   assertEquals(f[0].key, 'V16:openrouter-primary', 'one key either way, so one acknowledgement covers both directions');
 });
@@ -199,7 +234,7 @@ Deno.test('V16 leaves a fixed cap alone and measures usage caps without probe ro
   const f = only(evaluate(input({ usage: [...quiet, ...probes] })), 'V16');
   assertEquals(keys(f), ['V16:omniroute-key'], 'the fixed Cloudflare allowance is never advised on');
   const d = f[0].detail as any;
-  assertEquals([d.direction, d.recommended, d.includes_tests], ['lower', 0.1, false], 'test runs did not inflate the percentile, and the floor held');
+  assertEquals([d.direction, d.recommended, d.reads_live], ['lower', 0.1, false], 'test runs did not inflate the percentile, and the floor held');
 });
 
 // ── V17 credit runway ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -211,10 +246,10 @@ Deno.test('V17 estimates credit from the stored total minus both keys lifetime u
   const f = run(8, 0.2); // 2 USD left at 0.2 a day = 10 days
   assertEquals(f.length, 1);
   assertEquals(f[0].severity, 'yellow');
-  const d = f[0].detail as any;
-  assertEquals([d.remaining, d.avg_day, d.days, d.source], [2, 0.2, 10, 'estimate']);
+  assertEquals(f[0].detail, { days: '7-13', source: 'estimate', topup: 20 }, 'a days band, no remaining and no average');
   assertEquals(run(2, 0.2).length, 0, '8 USD at 0.2 a day is 40 days: fine');
   assertEquals(run(9.5, 0.2)[0].severity, 'red', '0.5 USD at 0.2 a day is 2 days');
+  assertEquals((run(6, 0.2)[0].detail as any).days, '14-29', '4 USD at 0.2 a day is 20 days');
   assertEquals(run(8, 0.2, { budget: history('primary', 2, 0.2) }).length, 0, 'two recorded days are not a mean');
   assertEquals(run(8, 0).length, 0, 'no spend means no runway problem');
 });
@@ -239,7 +274,7 @@ Deno.test('V18 fires when a feature costs twice its own norm, with a 0.10 USD fl
   assertEquals(f.length, 1);
   assertEquals(f[0].key, 'V18:Receipt read');
   assertEquals(f[0].severity, 'yellow');
-  assertEquals((f[0].detail as any).d7, 1.4);
+  assertEquals(f[0].detail, { title: 'Receipt read', probe: false, direction: 'up', x: 2, cause: null }, 'no amounts');
   assertEquals(only(evaluate(input({ usage: drifted({}, 0.01, 0.2, 13) })), 'V18').length, 0, 'under 14 days every feature looks new');
   assertEquals(only(evaluate(input({ usage: drifted({}, 0.001, 0.01) })), 'V18').length, 0, '0.07 USD is under the 0.10 floor');
   assertEquals(only(evaluate(input({ usage: drifted({}, 0.05, 0.06) })), 'V18').length, 0, 'a steady feature is not drifting');
@@ -251,11 +286,10 @@ Deno.test('V18 keeps test runs apart and explains the likely cause', () => {
   const f = only(evaluate(input({ usage: [...real, ...tests] })), 'V18');
   assertEquals(keys(f), ['V18:Receipt read:test'], 'only the test runs drifted');
   const d = f[0].detail as any;
-  assertEquals(d.probe, true);
-  assert(d.probe_share >= 80, `most of the title's spend is test runs: ${d.probe_share}`);
+  assertEquals([d.probe, d.cause], [true, 'test_runs']);
   assertStringIncludes(redCard({ ...f[0], severity: 'red' }, NOW).text, 'find the script or schedule that keeps running the test');
   const vision = only(evaluate(input({ usage: drifted({ tier: 'vision', input: 1000, output: 5000 }) })), 'V18')[0];
-  assertEquals((vision.detail as any).reasoning, true);
+  assertEquals((vision.detail as any).cause, 'reasoning');
   assertStringIncludes(yellowCard([vision], [], 'finance', NOW, '10 Oct')!.text, 'hidden thinking tokens dominate the cost');
 });
 
@@ -264,9 +298,9 @@ Deno.test('a V16 card leads with what is wrong, then says the exact change and w
   const f = only(evaluate(input({ budget: history('primary', 20, 0.02) })), 'V16')[0];
   const t = yellowCard([f], [], 'finance', NOW, '10 Oct')!.text;
   const lines = t.split('\n').filter((l) => l.trim());
-  assertStringIncludes(lines[1], 'OpenRouter key cascade-production allows USD 1.00 a day');
-  assertStringIncludes(t, 'Do: set the OpenRouter key cascade-production limit from USD 1.00 to USD 0.50 at openrouter.ai > Settings > Keys > cascade-production > Credit limit.');
-  assertStringIncludes(t, 'Busiest normal day (95th percentile over 14+ days): USD 0.02.');
+  assertStringIncludes(lines[1], 'OpenRouter key cascade-production allows far more a day than its busiest normal day needs.');
+  assertStringIncludes(t, 'Do: set the OpenRouter key cascade-production limit to USD 0.50 at openrouter.ai > Settings > Keys > cascade-production > Credit limit, then also set "cap" for openrouter-primary to 0.5 in Supabase app_settings, key api_caps, so the fallback matches.');
+  assert(!/USD 0\.02|95th/.test(t), 'no evidence number: the card is built from the hashed detail');
   assertStringIncludes(t, 'Advice only');
   assertEquals(t.match(/^Do: /gm)?.length, 1);
 });
@@ -276,8 +310,8 @@ Deno.test('a shared yellow card carries each governor change in its own bullet',
   assertEquals(fs.length, 2);
   const t = yellowCard(fs, [], 'finance', NOW, '10 Oct')!.text;
   assertStringIncludes(t, '2 things are worth a look.');
-  assertStringIncludes(t, 'Set the OpenRouter key cascade-production limit from USD 1.00 to USD 0.50 at');
-  assertStringIncludes(t, 'Set the OpenRouter backup key limit from USD 3.00 to USD 0.50 at');
+  assertStringIncludes(t, 'Set the OpenRouter key cascade-production limit to USD 0.50 at');
+  assertStringIncludes(t, 'Set the OpenRouter backup key limit to USD 0.50 at');
   assertStringIncludes(t, 'Do: make each change named above, in the order listed.');
 });
 
@@ -289,8 +323,8 @@ Deno.test('V14, V15 and V17 are red cards with one Do, the exact value, and no s
   assertEquals(cards.length, 3, 'three reds are three cards');
   const [c14, c15, c17] = cards.map((c) => c.text);
   assertStringIncludes(c14, 'has used at least 90% of its daily limit of USD 1.00');
-  assertStringIncludes(c14, 'Do: set the OpenRouter key cascade-production limit from USD 1.00 to USD 1.50 at openrouter.ai > Settings > Keys > cascade-production > Credit limit');
-  assertStringIncludes(c15, 'OmniRoute failed at least 100% of its Cascade Power Watch calls over the last two days (10+ calls).');
+  assertStringIncludes(c14, 'Do: set the OpenRouter key cascade-production limit from USD 1.00 to USD 4.50 at openrouter.ai > Settings > Keys > cascade-production > Credit limit (or find what is calling it so much), then also set "cap" for openrouter-primary to 4.5 in Supabase app_settings, key api_caps');
+  assertStringIncludes(c15, 'OmniRoute failed 75-100% of its Cascade Power Watch calls over the last two days.');
   assertStringIncludes(c15, 'Do: check OmniRoute on the alfred host');
   assertStringIncludes(c17, 'Guest replies stop when it runs out.');
   assertStringIncludes(c17, 'Do: top up about USD 20.00 at openrouter.ai > Settings > Credits');
@@ -321,5 +355,119 @@ Deno.test('usageWeekLine is one plain sentence: real spend, top two features, te
   assertStringIncludes(line, 'test runs USD 0.08');
   assertStringIncludes(line, 'OpenRouter key cascade-production 4x');
   assert(!line.includes('\n'), 'one line');
-  assertStringIncludes(usageWeekLine([], [], CAPS, TODAY), 'USD 0.00 real spend');
+  assertEquals(usageWeekLine([], [], CAPS, TODAY), 'Model calls last 7 days: no usage data yet.', 'no rows is not a free week');
+  assertEquals(usageWeekLine([use({ day: day(-20), cost_usd: 1 })], [], CAPS, TODAY), 'Model calls last 7 days: no usage data yet.');
+});
+
+// ── audit 2026-10-04: ack stability across days, unknown inputs, one value per cap, scopes ─────────────────────────────
+/** A world on Manila day `t` (an offset from TODAY) where every number drifts a little each day. */
+function world(t: number, open: Finding[] = []): GovInput {
+  const today = day(t);
+  const budget: BudgetDay[] = [], usage: UsageDay[] = [];
+  for (let i = -40; i <= t; i++) {
+    const d = day(i), g = i + 40; // g grows by one a day
+    budget.push(bud({ day: d, key_name: 'primary', spent_usd: 0.02 + 0.0002 * g }));
+    budget.push(bud({ day: d, key_name: 'backup', spent_usd: 1.6 + 0.02 * g }));
+    // OmniRoute on Cloudflare Llama 3.3 every day, a little more each day: V16 raise and V14 on the Cloudflare allowance.
+    usage.push(use({ day: d, provider: 'omniroute', title: 'Cascade Power Watch', model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', input: 500_000 + 1000 * g, output: 50_000, calls: 20, fails: 0 }));
+    // Receipt reads: calm, then hot from a week before TODAY onwards.
+    usage.push(use({ day: d, title: 'Receipt read', cost_usd: i > -7 ? 0.2 + 0.002 * g : 0.01 }));
+  }
+  // The free rung failing for guests today and yesterday, a few more fails each day.
+  for (const i of [t - 1, t]) usage.push(use({ day: day(i), provider: 'omniroute', title: 'Concierge reply', calls: 10, fails: 8 + (i > 0 ? 1 : 0) }));
+  return {
+    usage, budget, caps: CAPS, today, nowHourManila: 7.75, open,
+    latest: {
+      primary: { status: 200, limit: 1, remaining: 0.25 - 0.02 * t, usage: 3 + 0.03 * t },
+      backup: { status: 200, limit: 3, remaining: 2, usage: 4 + 1.7 * t },
+    },
+    credits: { remaining: 40 - 2 * t },
+  };
+}
+const canon = (fs: Finding[]) => JSON.stringify([...fs].sort((a, b) => a.key.localeCompare(b.key)));
+
+Deno.test('two consecutive days of slowly changing data raise byte-identical findings, so every [Known] holds', () => {
+  const d1 = evaluate(world(0));
+  assertEquals(new Set(d1.map((f) => f.check_id)), new Set(['V14', 'V15', 'V16', 'V17', 'V18']), `every rule fires: ${keys(d1)}`);
+  const d2 = evaluate(world(1, d1));
+  assertEquals(canon(d2), canon(d1));
+  assert(canon(evaluate(world(1))) !== canon(d1), 'without the open cards the drift WOULD move a value: the test bites');
+  const d3 = evaluate(world(2, d2));
+  assertEquals(canon(d3), canon(d1), 'and the day after');
+});
+
+Deno.test('a failed key read makes its rules unknown (carried forward), never resolved and never recomputed', () => {
+  const g = governor(input({ budget: history('primary', 20, 0.02), latest: { primary: { status: 503, limit: null, remaining: null, usage: null } } }));
+  assertEquals(g.found.filter((f) => f.key.endsWith('openrouter-primary')), []);
+  assertEquals(g.unknown.sort(), ['V14:openrouter-primary', 'V16:openrouter-primary', 'V17']);
+  // V17 with one of two keys failing does not compute a runway even when the real credit is known.
+  const v17 = governor(input({ budget: history('primary', 5, 0.2), credits: { remaining: 1 }, latest: { primary: { status: 200, limit: 1, remaining: 1, usage: 1 }, backup: { status: 0, limit: null, remaining: null, usage: null } } }));
+  assertEquals([only(v17.found, 'V17').length, v17.unknown.includes('V17')], [0, true]);
+  // A key that is not configured at all is not unknown: there is nothing to measure.
+  assertEquals(governor(input()).unknown, []);
+});
+
+Deno.test('a day with no successful snapshot is null: left out of p95, and a missing yesterday is unknown', () => {
+  const nulls = Array.from({ length: 5 }, (_, i) => bud({ day: day(-(i + 14)), spent_usd: null }));
+  const known13 = history('primary', 13, 0.02);
+  assertEquals(only(evaluate(input({ budget: [...known13, ...nulls] })), 'V16').length, 0, '13 known days and 5 null ones are not 18 days of data');
+  const gap = history('primary', 20, 0.02).map((b) => (b.day === day(-1) ? { ...b, spent_usd: null } : b));
+  const g = governor(input({ budget: gap }));
+  assertEquals([only(g.found, 'V16').length, g.unknown], [0, ['V16:openrouter-primary']]);
+  // V17: a day where one existing key has no known spend is left out of the mean, never read as 0.
+  const both = [...history('primary', 5, 0.2), ...history('backup', 5, 0.2).map((b, i) => (i < 2 ? { ...b, spent_usd: null } : b))];
+  const r = only(evaluate(input({ budget: both, credits: { remaining: 5 } })), 'V17')[0];
+  assertEquals((r.detail as any).days, '7-13', '5 USD at 0.40 a day is 12.5 days; counting the backup gaps as nothing (0.20 days) would stretch it to 15.6');
+});
+
+Deno.test('carried() re-raises open findings of unknown rules in the scope, unless raised afresh', () => {
+  const f = (key: string): Finding => ({ key, check_id: key.split(':')[0], severity: 'red', title: key, detail: { k: key } });
+  const open = [f('V14:openrouter-primary'), f('V14:omniroute-key'), f('V15:omniroute:Concierge reply'), f('V16:openrouter-primary'), f('V17:openrouter-credit')];
+  assertEquals(carried(open, [], ['V14:openrouter-primary', 'V16:openrouter-primary', 'V17'], 'daily').map((x) => x.key),
+    ['V14:openrouter-primary', 'V16:openrouter-primary', 'V17:openrouter-credit'], 'per rule: the omniroute V14 and V15 were computed');
+  assertEquals(carried(open, [], ['V14:openrouter-primary', 'V16:openrouter-primary', 'V17'], 'hourly').map((x) => x.key), ['V14:openrouter-primary'], 'hourly carries only V14-V15');
+  assertEquals(carried(open, [f('V17:openrouter-credit')], ['V17'], 'daily'), [], 'a fresh finding wins');
+  assertEquals(carried(open, [], GOV_CHECKS.hourly, 'hourly').length, 3, 'the whole governor down: every hourly finding');
+});
+
+Deno.test('one value per cap: V14 defers to an active V16, and otherwise says recommend() for the same cap', () => {
+  // Busy normal days (V16 says raise) and today at 80% of the live limit: V14 states pressure only.
+  const both = evaluate(input({ budget: history('primary', 20, 0.6), latest: { primary: { status: 200, limit: 1, remaining: 0.2, usage: 1 } } }));
+  const v14 = only(both, 'V14')[0].detail as any, v16 = only(both, 'V16')[0].detail as any;
+  assertEquals([v14.recommended, v14.advice, v16.recommended], [null, 'V16', 3], 'one number on the cards, and it is V16 that says it');
+  const c14 = redCard(only(both, 'V14')[0], NOW).text;
+  assertStringIncludes(c14, 'the value to set is in the limit advice on the system check card');
+  assertEquals(c14.match(/USD \d/g)?.length, 1, 'only the current limit is printed');
+  const alone = only(evaluate(input({ latest: { primary: { status: 200, limit: 1, remaining: 0.2, usage: 1 } } })), 'V14')[0].detail as any;
+  assertEquals(alone.recommended, recommend(CAPS.caps[0], 0.8, DEFAULT_RULES), 'no V16 advice: V14 names recommend() itself');
+});
+
+Deno.test('V16 re-issues its value only when it moves 25% or more', () => {
+  const open: ApiCaps = { ...CAPS, caps: [{ ...CAPS.caps[0], cap: 10, floor: 0.1 }] };
+  const run = (spent: number, prev: Finding[] = []) => only(evaluate(input({ caps: open, budget: history('primary', 20, spent), open: prev })), 'V16')[0];
+  const a = run(0.1); // 5 x 0.10 = 0.50
+  assertEquals((a.detail as any).recommended, 0.5);
+  assertEquals((run(0.11, [a]).detail as any).recommended, 0.5, '0.55 is 10% away: the card holds');
+  assertEquals((run(0.14, [a]).detail as any).recommended, 0.7, '0.70 is 40% away: re-issued');
+});
+
+Deno.test('V17 at 7-9 days is a yellow that says one to two weeks', () => {
+  const f = only(evaluate(input({ budget: history('primary', 5, 0.2), credits: { remaining: 1.7 } })), 'V17')[0]; // 8.5 days
+  assertEquals([f.severity, (f.detail as any).days], ['yellow', '7-13']);
+  const t = yellowCard([f], [], 'finance', NOW, '10 Oct')!.text;
+  assertStringIncludes(t, 'The OpenRouter credit lasts one to two weeks at the recent rate of spend.');
+  assert(!/about \d+ days|Guest replies stop/.test(t), t);
+});
+
+Deno.test('the governor scopes: hourly V14-V15, daily V14-V18', () => {
+  assertEquals(GOV_CHECKS, { hourly: ['V14', 'V15'], daily: ['V14', 'V15', 'V16', 'V17', 'V18'] });
+});
+
+Deno.test('index.ts runs the governor in both scopes, carries forward per rule for 2 days, and beats api-governor', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertStringIncludes(src, "const checks = GOV_CHECKS[scope as 'hourly' | 'daily'];");
+  assertStringIncludes(src, 'const fresh = (g?.found ?? []).filter((f) => checks.includes(f.check_id));');
+  assertStringIncludes(src, "const keep = carried(open ?? [], fresh, g ? g.unknown : checks, scope as 'hourly' | 'daily');");
+  assertStringIncludes(src, 'const CARRY_MS = 2 * 86_400_000;');
+  assertStringIncludes(src, "if (scope === 'daily' && !dry && open && g && !g.unknown.length) await heartbeat(db, 'api-governor')('succeeded');");
 });

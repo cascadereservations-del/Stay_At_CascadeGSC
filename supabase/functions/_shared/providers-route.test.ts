@@ -64,3 +64,15 @@ Deno.test('text: a reply cut by max_tokens is never returned (live 2026-09-24: "
   globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{"reply":"Ben, yes po, legit dito sa Gen' } }], usage: { completion_tokens: 696 } }), { status: 200 }))) as typeof fetch;
   try { await assertRejects(() => chatJson(q), Error, 'openrouter_truncated'); } finally { globalThis.fetch = realFetch; geminiBreaker.until = 0; }
 });
+
+Deno.test('text: a truncated reply is recorded ok:true with <name>_truncated and its tokens, and still throws (D-294)', async () => {
+  geminiBreaker.until = Date.now() + 3600_000;
+  const logs: string[] = [], warns: string[] = [], real = { log: console.log, warn: console.warn };
+  console.log = (...a: unknown[]) => { logs.push(a.join(' ')); };
+  console.warn = (...a: unknown[]) => { warns.push(a.join(' ')); };
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ model: 'google/gemini-2.5-flash', choices: [{ finish_reason: 'length', message: { content: '{"reply":"cut' } }], usage: { prompt_tokens: 50, completion_tokens: 700, cost: 0.002 } }), { status: 200 }))) as typeof fetch;
+  try { await assertRejects(() => chatJson(q), Error, 'openrouter_truncated'); } finally { globalThis.fetch = realFetch; geminiBreaker.until = 0; console.log = real.log; console.warn = real.warn; }
+  const line = logs.find((l) => l.startsWith('llm_usage '));
+  assertEquals(JSON.parse(line!.slice('llm_usage '.length)), { provider: 'openrouter', model: 'google/gemini-2.5-flash', tier: 'full', input: 50, output: 700, cost_usd: 0.002, error: 'openrouter_truncated' });
+  assertEquals(warns.some((w) => w.startsWith('llm_call_failed')), false, 'not an outage row');
+});

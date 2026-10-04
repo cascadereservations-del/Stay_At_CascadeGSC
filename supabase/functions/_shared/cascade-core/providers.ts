@@ -80,9 +80,10 @@ async function openaiChat(q: ChatJsonRequest, p: { name: 'openrouter' | 'omnirou
   const j = await r.json();
   const u = j?.usage;
   // A reply cut by max_tokens reads as a sentence that stops mid-word (live 2026-09-24): make it visible, and let the
-  // caller fall back rather than send half a sentence. The cut call is one failed row that still carries the tokens it spent.
+  // caller fall back rather than send half a sentence. The provider DID answer, so the row is ok:true and names the cut in
+  // `error` (tokens and cost kept): a truncation is our max_tokens, not an outage, and must not count toward V15 (D-294).
   const cut = j?.choices?.[0]?.finish_reason === 'length';
-  recordUsage({ ...row, model: j?.model ?? row.model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, ...(cut ? { ok: false, error: `${p.name}_truncated` } : {}), probe: probing() });
+  recordUsage({ ...row, model: j?.model ?? row.model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, ...(cut ? { error: `${p.name}_truncated` } : {}), probe: probing() });
   if (cut) { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens })); throw new Error(`${p.name}_truncated`); }
   return j?.choices?.[0]?.message?.content ?? '';
 }

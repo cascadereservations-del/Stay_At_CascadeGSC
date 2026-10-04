@@ -113,6 +113,15 @@ const PROVIDER_FIX: Record<string, string> = {
   omniroute: 'check OmniRoute on the alfred host (ssh -L 20129:localhost:20129 alfred), then its Cloudflare and Groq steps.',
 };
 
+// Every governor detail holds bands and a recommended value, never an amount that moves (D-217.2, see governor.ts), so these
+// cards print no evidence numbers: an acknowledged card must read the same tomorrow.
+const V17_SPAN: Record<string, string> = { '<7': 'less than a week', '7-13': 'one to two weeks', '14-29': 'two to four weeks' };
+/** The last step of every value a governor card asks for: the same number into api_caps. For an OpenRouter key it keeps the
+ *  fallback true; for OmniRoute it is the only way the governor learns the new limit, because nothing reads it live. */
+const capsStep = (d: Record<string, any>) => d.reads_live
+  ? `then also set "cap" for ${str(d.cap_id)} to ${Number(d.recommended)} in Supabase app_settings, key api_caps, so the fallback matches.`
+  : `then set "cap" for ${str(d.cap_id)} to ${Number(d.recommended)} in Supabase app_settings, key api_caps: nothing reads this limit live, so the governor only knows it from there.`;
+
 function governorHeadline(f: Finding): string {
   const d = (f.detail ?? {}) as Record<string, any>;
   switch (f.check_id) {
@@ -126,19 +135,15 @@ function governorHeadline(f: Finding): string {
       return `${lead} At the limit it stops answering until its next reset.`;
     }
     case 'V15':
-      return `${PROVIDER_NAME[str(d.provider)] ?? str(d.provider, 'A provider')} failed at least ${Number(d.fail_pct ?? 0)}% of its ${str(d.title, 'model')} calls over the last two days (${Number(d.calls_min ?? 0)}+ calls).`;
-    case 'V16': {
-      const per = Number(d.p95) > 0 ? Number(d.p95) : (d.unit === 'neurons' ? 100 : 0.01);
+      return `${PROVIDER_NAME[str(d.provider)] ?? str(d.provider, 'A provider')} failed ${str(d.fail_band, 'most')}% of its ${str(d.title, 'model')} calls over the last two days.`;
+    case 'V16':
       return d.direction === 'raise'
-        ? `${str(d.label)} allows ${amt(d.unit, d.current)} a day, and a busy day already uses ${amt(d.unit, d.p95)}, so a heavy day could hit the limit.`
-        : `${str(d.label)} allows ${amt(d.unit, d.current)} a day, about ${Math.max(1, Math.round(Number(d.current) / per))}x what its busiest normal day needs.`;
-    }
+        ? `${str(d.label)} is set close to what a busy normal day needs, so a heavy day could hit the limit.`
+        : `${str(d.label)} allows far more a day than its busiest normal day needs.`;
     case 'V17':
-      return `The OpenRouter credit is down to about ${amt('usd', d.remaining)} and lasts about ${Number(d.days ?? 0)} days at ${amt('usd', d.avg_day)} a day.${f.severity === 'red' ? ' Guest replies stop when it runs out.' : ''}`;
-    case 'V18': {
-      const ratio = Number(d.baseline) > 0 ? ` (${(Number(d.d7) / Number(d.baseline)).toFixed(1)}x)` : '';
-      return `${str(d.title, 'A feature')}${d.probe ? ' test runs' : ''} cost ${amt('usd', d.d7)} in the last 7 days against about ${amt('usd', d.baseline)} expected${ratio}.`;
-    }
+      return `The OpenRouter credit lasts ${V17_SPAN[str(d.days)] ?? `about ${str(d.days)} days`} at the recent rate of spend.${f.severity === 'red' ? ' Guest replies stop when it runs out.' : ''}`;
+    case 'V18':
+      return `${str(d.title, 'A feature')}${d.probe ? ' test runs' : ''} cost more than ${Number(d.x ?? 2)}x their usual in the last 7 days.`;
     default:
       return f.title;
   }
@@ -149,25 +154,23 @@ function governorFacts(f: Finding): string[] {
   switch (f.check_id) {
     case 'V14':
       return [
-        `About ${amt(d.unit, (Number(d.cap) * Number(d.pct)) / 100)} of ${amt(d.unit, d.cap)} used${d.projected ? ' so far, and the day is still climbing' : ''}.`,
-        d.approx ? 'Counted from token totals at list price, so it is an estimate.' : '',
+        d.estimate ? 'Counted from token totals at list price over the Manila day, so it is an estimate.' : '',
+        d.approx ? 'Some calls used a model with no list price; they are counted at the average Cloudflare price.' : '',
+        d.advice === 'V16' ? 'The value to set is in the limit advice on the system check card.' : '',
       ];
     case 'V15':
       return ['A free provider that fails while a paid one answers still counts: the paid one is covering for it.'];
     case 'V16':
       return [
-        `Busiest normal day (95th percentile over ${Number(d.days ?? 0)}+ days): ${amt(d.unit, d.p95)}.${d.includes_tests ? ' That includes test runs.' : ''}`,
         'Advice only: nothing is failing.',
+        d.reads_live ? "Measured from the key's own spend, which includes test runs." : '',
       ];
     case 'V17':
-      return [
-        `Spend has averaged up to ${amt('usd', d.avg_day)} a day.`,
-        d.source === 'estimate' ? 'The credit is an estimate: the total in app_settings api_caps minus what both keys have used.' : '',
-      ];
+      return [d.source === 'estimate' ? 'The credit is an estimate: the total in app_settings api_caps minus what both keys have used.' : ''];
     case 'V18':
       return [
-        Number(d.probe_share) >= 50 ? `${Number(d.probe_share)}% or more of that feature's spend is test runs.` : '',
-        d.reasoning ? 'Reasoning-heavy image reads: hidden thinking tokens dominate the cost.' : '',
+        d.cause === 'test_runs' ? "Most of that feature's spend is test runs." : '',
+        d.cause === 'reasoning' ? 'Reasoning-heavy image reads: hidden thinking tokens dominate the cost.' : '',
       ];
     default:
       return [];
@@ -178,19 +181,19 @@ function governorAction(f: Finding): string {
   const d = (f.detail ?? {}) as Record<string, any>;
   switch (f.check_id) {
     case 'V14':
-      return d.recommended == null
-        ? `cut the calls behind it, because the limit cannot be raised (${str(d.where)}).`
-        : `set the ${str(d.label)} limit from ${amt(d.unit, d.cap)} to ${amt(d.unit, d.recommended)} at ${str(d.where)}, or find what is calling it so much.`;
+      if (d.fixed) return `cut the calls behind it, because the limit cannot be raised (${str(d.where)}).`;
+      if (d.recommended == null) return 'find what is calling it so much; the value to set is in the limit advice on the system check card.';
+      return `set the ${str(d.label)} limit from ${amt(d.unit, d.cap)} to ${amt(d.unit, d.recommended)} at ${str(d.where)} (or find what is calling it so much), ${capsStep(d)}`;
     case 'V15':
       return PROVIDER_FIX[str(d.provider)] ?? 'check the provider status page and the key.';
     case 'V16':
-      return `set the ${str(d.label)} limit from ${amt(d.unit, d.current)} to ${amt(d.unit, d.recommended)} at ${str(d.where)}.`;
+      return `set the ${str(d.label)} limit to ${amt(d.unit, d.recommended)} at ${str(d.where)}, ${capsStep(d)}`;
     case 'V17':
       return `top up about ${amt('usd', d.topup)} at openrouter.ai > Settings > Credits${d.source === 'estimate' ? ', then set credit.openrouter_usd in app_settings api_caps to the new total credit you have bought' : ''}.`;
     case 'V18':
-      return d.reasoning
+      return d.cause === 'reasoning'
         ? 'find which model reads the images and lower its reasoning effort, or move to a cheaper vision model.'
-        : Number(d.probe_share) >= 50
+        : d.cause === 'test_runs'
           ? 'find the script or schedule that keeps running the test, and stop it.'
           : 'open the llm_usage table in Supabase, group by title and day, and find the day it jumped.';
     default:

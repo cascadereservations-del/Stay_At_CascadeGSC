@@ -18,6 +18,7 @@ import { friendlyDate, opsReport, weeklyFinanceReport, weeklyOpsReport, type Cas
 import { overdue } from '../finance-watch/watch.ts';
 import { fetchChains, type Chain } from '../_shared/cascade-core/chains.ts';
 import { chainCard, detailsCard, midStayFor, stayOnFor, type Card, type DetailsStay } from './cards.ts';
+import { budgetRows, parseCaps, usageRows, usageWeekLine } from '../system-verifier/governor.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -328,6 +329,18 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
     decisions: (decided ?? []) as Array<{ reviewer: string; approved: number; rejected: number }>,
     cassy: cassyErr ? null : (cassy as CassyWeek | null),
   });
+  // D-294: the API governor's week in one line (real spend, top features, test runs, headroom). Advisory like the lines above:
+  // any read that fails skips the line, never the digest. p_days 8 covers the 7-day window on a Manila Monday.
+  try {
+    const [u, b, c] = await Promise.all([
+      db.rpc('api_usage_daily_v1', { p_days: 8 }),
+      db.rpc('api_budget_daily_v1', { p_days: 8 }),
+      db.from('app_settings').select('value').eq('key', 'api_caps').maybeSingle(),
+    ]);
+    const caps = parseCaps(c.data?.value);
+    if (u.error || b.error || c.error || !caps) console.warn('[daily-digest] api usage week', u.error?.message ?? b.error?.message ?? c.error?.message ?? 'api_caps unusable');
+    else weekly.lines.push('', usageWeekLine(usageRows(u.data), budgetRows(b.data), caps, today));
+  } catch (e) { console.warn('[daily-digest] api usage week', String(e).slice(0, 200)); }
   if (firstOfMonth) weekly.lines.unshift(`Monthly CSV: download Airbnb Transaction History and send the .csv to this chat (last export covered ${lastExport ?? 'unknown'}).`);
   return withHeader('weekly', `week of ${friendlyDate(today)}`, renderReport(weekly));
 }

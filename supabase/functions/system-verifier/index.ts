@@ -17,8 +17,9 @@
 // that, and this call is what stops it from ever needing to.
 //
 // V13 (D-227, session 49) is the one check raised here rather than in SQL: it needs a GET to OpenRouter.
-// V14-V18 (D-294, session 69) are the API governor, raised here too, in the daily scope only: governor.ts is pure, this file
-// reads the usage RPCs and api_caps, snapshots the OpenRouter keys every run, and hands the findings to apply_verifier_run_v1.
+// V14-V18 (D-294, session 69) are the API governor, raised here too: governor.ts is pure, this file reads the usage RPCs,
+// api_caps and the open governor findings, snapshots the OpenRouter keys every run, and hands the findings to
+// apply_verifier_run_v1. Hourly pushes V14-V15 only (urgent); daily pushes V14-V18.
 //
 // ponytail: no queue and no per-finding state here. verifier_findings already
 // decides what is new, what is due a reminder and what has gone; this function
@@ -30,7 +31,7 @@ import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { ackHash, buildCards, type Applied, type Card, type Finding } from './cards.ts';
 import { budgetFinding, readCredits, readKey, type KeyRead } from './budget.ts';
-import { evaluate, manilaClock, parseCaps } from './governor.ts';
+import { budgetRows, carried, GOV_CHECKS, governor, manilaClock, parseCaps, usageRows, type GovResult } from './governor.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -61,8 +62,14 @@ const manilaToday = (now: Date) =>
 
 const isMissingRpc = (e: { code?: string; message?: string }) => e.code === 'PGRST202' || e.code === '42883' || /could not find the function|does not exist/i.test(e.message ?? '');
 
-/** The governor's findings, or null when it could not run (usage RPCs not applied yet, api_caps unreadable): logged, not thrown. */
-async function governorFindings(db: any, now: Date, kPrimary?: KeyRead, kBackup?: KeyRead, orKey?: string): Promise<Finding[] | null> {
+const GOVERNOR_CHECKS = GOV_CHECKS.daily;
+/** How long a governor finding may be carried forward without a complete daily evaluation. After that the findings resolve, and
+ *  job-heartbeat-monitor has already said the governor stopped ('api-governor', expected every 2 days, alert at 1.5x). */
+const CARRY_MS = 2 * 86_400_000;
+
+/** The governor's result, or null when it could not run at all (usage RPCs not applied yet, api_caps unreadable): logged, not
+ *  thrown. `open` is what verifier_findings still holds, so a recommended value holds until it moves 25%. */
+async function governorFindings(db: any, now: Date, open: Finding[], kPrimary?: KeyRead, kBackup?: KeyRead, orKey?: string): Promise<GovResult | null> {
   const [u, b, c] = await Promise.all([
     db.rpc('api_usage_daily_v1', { p_days: 35 }),
     db.rpc('api_budget_daily_v1', { p_days: 35 }),
@@ -76,28 +83,37 @@ async function governorFindings(db: any, now: Date, kPrimary?: KeyRead, kBackup?
   }
   const caps = parseCaps(c.data?.value);
   if (!caps) { console.log(JSON.stringify({ event: 'governor_skipped', reason: 'api_caps missing or unusable' })); return null; }
-  // Real credit from OpenRouter when it will say (management key only). Status only is logged, never the key.
+  // Real credit from OpenRouter when it will say (management key only), daily only: V17 is a daily rule. Status only is logged.
   let credits: { status: number; remaining: number | null } | null = null;
   if (orKey) {
     credits = await readCredits(orKey);
     console.log(JSON.stringify({ event: 'openrouter_credits', status: credits.status, remaining: credits.remaining }));
   }
   const { today, hour } = manilaClock(now);
-  const found = evaluate({
-    usage: (u.data ?? []).map((r: any) => ({ ...r, calls: Number(r.calls), fails: Number(r.fails), input: Number(r.input), output: Number(r.output), cost_usd: Number(r.cost_usd), day: String(r.day).slice(0, 10) })),
-    budget: (b.data ?? []).map((r: any) => ({ ...r, day: String(r.day).slice(0, 10), limit_usd: r.limit_usd == null ? null : Number(r.limit_usd), min_remaining_usd: r.min_remaining_usd == null ? null : Number(r.min_remaining_usd), spent_usd: r.spent_usd == null ? null : Number(r.spent_usd) })),
-    latest: { primary: kPrimary, backup: kBackup }, caps, today, nowHourManila: hour, credits,
+  const g = governor({
+    usage: usageRows(u.data), budget: budgetRows(b.data),
+    latest: { primary: kPrimary, backup: kBackup }, caps, today, nowHourManila: hour, credits, open,
   });
-  console.log(JSON.stringify({ event: 'governor', today, findings: found.map((f) => f.key) }));
-  return found;
+  console.log(JSON.stringify({ event: 'governor', today, findings: g.found.map((f) => f.key), unknown: g.unknown }));
+  return g;
 }
 
-/** Re-raise whatever V14-V18 findings are open or acknowledged, byte for byte, so a governor outage is not a resolution. */
-async function carryForwardGovernor(db: any, found: Finding[]): Promise<void> {
+/** Every V14-V18 finding still open or acknowledged, or null when the read failed. */
+async function openGovernor(db: any): Promise<Finding[] | null> {
   const { data, error } = await db.from('verifier_findings').select('key, check_id, severity, title, detail')
-    .in('check_id', ['V14', 'V15', 'V16', 'V17', 'V18']).in('status', ['open', 'acknowledged']);
-  if (error) { console.warn('governor carry-forward:', error.message); return; }
-  found.push(...(data ?? []) as Finding[]);
+    .in('check_id', GOVERNOR_CHECKS).in('status', ['open', 'acknowledged']);
+  if (error) { console.warn('governor open findings:', error.message); return null; }
+  return (data ?? []) as Finding[];
+}
+
+/** Carry-forward is allowed while the last complete daily evaluation ('api-governor' heartbeat) is under 2 days old.
+ *  ponytail: an unreadable heartbeat row carries forward (a transient read error must not resolve and re-announce every card);
+ *  a missing row does not. */
+async function carryAllowed(db: any, now: Date): Promise<boolean> {
+  const { data, error } = await db.from('job_heartbeats').select('last_succeeded_at').eq('job_name', 'api-governor').maybeSingle();
+  if (error) { console.warn('api-governor heartbeat read:', error.message); return true; }
+  const t = Date.parse(String(data?.last_succeeded_at ?? ''));
+  return Number.isFinite(t) && now.getTime() - t < CARRY_MS;
 }
 
 Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, async (req: Request) => {
@@ -179,21 +195,34 @@ Deno.serve(withObservability({ functionName: 'system-verifier', route: 'ops' }, 
       if (!dry && answered) await heartbeat(db, 'omniroute-answer')('succeeded');
     }
 
-    // D-294 governor, daily scope only. NEVER fails the run (like the OmniRoute probe above). One trap: apply_verifier_run_v1
-    // resolves any V14-V18 finding this run does not raise, so when the governor cannot run (RPC error, settings unreadable) the
-    // open ones are carried forward unchanged instead of closing and re-announcing themselves tomorrow.
-    if (scope === 'daily') {
+    // D-294 governor, both scopes. NEVER fails the run (like the OmniRoute probe above). Hourly pushes only V14-V15: they are
+    // urgent and their inputs move within the hour; V16-V18 read whole days, and V17's remaining credit would move every hour.
+    // The trap: apply_verifier_run_v1 resolves any finding of a check the scope ran that this run did not raise. So a rule that
+    // could not be computed (a key read failed, a day of snapshots missing, the RPCs down) re-raises its open findings unchanged
+    // - per rule, not all or nothing - for at most 2 days (carryAllowed). A complete daily evaluation is the 'api-governor'
+    // heartbeat (successes only, like 'omniroute-answer').
+    {
+      const checks = GOV_CHECKS[scope as 'hourly' | 'daily'];
+      const open = await openGovernor(db);
+      let g: GovResult | null = null;
       try {
-        const g = await governorFindings(db, now, kPrimary, kBackup, orKey);
-        if (g) found.push(...g); else await carryForwardGovernor(db, found);
+        g = await governorFindings(db, now, open ?? [], kPrimary, kBackup, scope === 'daily' ? orKey : undefined);
       } catch (e) {
         console.warn('governor failed:', String(e).slice(0, 200));
-        await carryForwardGovernor(db, found);
       }
-      if (!dry) {
-        const { error } = await db.rpc('prune_api_usage_v1', { p_keep_days: 120 });
-        if (error && !isMissingRpc(error)) console.warn('prune_api_usage_v1:', error.message);
+      const fresh = (g?.found ?? []).filter((f) => checks.includes(f.check_id));
+      found.push(...fresh);
+      const keep = carried(open ?? [], fresh, g ? g.unknown : checks, scope as 'hourly' | 'daily');
+      if (keep.length) {
+        const ok = await carryAllowed(db, now);
+        if (ok) found.push(...keep);
+        console.log(JSON.stringify({ event: ok ? 'governor_carried' : 'governor_carry_expired', keys: keep.map((f) => f.key) }));
       }
+      if (scope === 'daily' && !dry && open && g && !g.unknown.length) await heartbeat(db, 'api-governor')('succeeded');
+    }
+    if (scope === 'daily' && !dry) {
+      const { error } = await db.rpc('prune_api_usage_v1', { p_keep_days: 120 });
+      if (error && !isMissingRpc(error)) console.warn('prune_api_usage_v1:', error.message);
     }
 
     if (dry) {

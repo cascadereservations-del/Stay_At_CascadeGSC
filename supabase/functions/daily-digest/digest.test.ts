@@ -191,3 +191,14 @@ Deno.test('D-285 5: OPS lists a waiting guest once, over 24 h only, and counts t
   assertEquals(old.lines.filter((l) => l.startsWith('💬')), ['💬 Still waiting over a day: Ana (question, 3 days), Ben (payment, 1 day)']);
   assertEquals(old.action, 'Reply to Ana first.');
 });
+
+Deno.test('D-294: the Monday Finance card carries the API usage line, and a failed read skips only that line', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  const fin = src.slice(src.indexOf('async function buildFinanceMessage'), src.indexOf('// ── Main handler'));
+  const at = (s: string) => { const i = fin.indexOf(s); if (i < 0) throw new Error(`missing: ${s}`); return i; };
+  // after the weekly report is built, before it is rendered; inside a try so it can never break the digest
+  const order = [at('const weekly = weeklyFinanceReport('), at('try {'), at("db.rpc('api_usage_daily_v1', { p_days: 8 })"), at("db.rpc('api_budget_daily_v1', { p_days: 8 })"),
+    at("weekly.lines.push('', usageWeekLine(usageRows(u.data), budgetRows(b.data), caps, today));"), at('} catch (e)'), at("renderReport(weekly)")];
+  assertEquals(order, [...order].sort((a, b) => a - b));
+  at('if (u.error || b.error || c.error || !caps)');
+});
