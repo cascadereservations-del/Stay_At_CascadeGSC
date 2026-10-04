@@ -19,7 +19,7 @@ async function omniVision(combo: string, prompt: string, b64: string, mime: stri
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'X-Title': 'Cascade Power Watch' },
     body: JSON.stringify({ model: combo, temperature: 0, max_tokens: 1500,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
-    signal: AbortSignal.timeout(40_000),
+    signal: AbortSignal.timeout(20_000), // both run at once; the run's wall clock also pays for the paid reader after them
   });
   if (!r.ok) throw new Error(`omniroute_vision_${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
@@ -34,14 +34,18 @@ export async function agreedRead(
   decide: (text: string) => string | null,
   paid: () => Promise<string>,
 ): Promise<{ text: string; via: 'free' | 'paid'; why?: string }> {
-  const got = await Promise.all(reads.map((r) => r().then((t) => ({ t, k: decide(t) }), () => ({ t: '', k: null as string | null }))));
+  const got = await Promise.all(reads.map((r) => r().then((t) => ({ t, k: decide(t) }), (e) => {
+    console.warn('power_watch_free_read_failed', String(e).slice(0, 200));
+    return { t: '', k: null as string | null };
+  })));
   const ok = got.length >= 2 && got.every((g) => g.k !== null && g.k === got[0].k);
   if (ok) return { text: got[0].t, via: 'free' };
   const why = got.length < 2 ? 'free_off' : got.some((g) => g.k === null) ? 'free_unusable' : 'free_disagree';
   return { text: await paid(), via: 'paid', why };
 }
 
-/** The free reads for one poster: one per combo in CASCADE_OMNIROUTE_VISION_MODELS (default the two single-model combos). */
+/** The free reads for one poster: one per combo in CASCADE_OMNIROUTE_VISION_MODELS (default the two single-model combos).
+ *  Each combo must hold ONE model and no fallback, or both reads could come from the same model and agreement proves nothing. */
 export function freeReads(prompt: string, bytes: Uint8Array, mime: string): Array<() => Promise<string>> {
   if (!env('CASCADE_OMNIROUTE_URL') || !env('CASCADE_OMNIROUTE_KEY')) return [];
   const combos = (env('CASCADE_OMNIROUTE_VISION_MODELS') || 'cascade-vision-scout,cascade-vision-mistral').split(',').map((s) => s.trim()).filter(Boolean);
@@ -49,13 +53,19 @@ export function freeReads(prompt: string, bytes: Uint8Array, mime: string): Arra
   return combos.map((c) => () => omniVision(c, prompt, b64, mime));
 }
 
-/** What two reads must agree on: not ours, or ours with the same date, start, hours, status and moved-from date.
- *  Title and purpose wording may differ between models; they never change a block or a card's timing. */
-export const decisionKey = (n: Notice | null) => n ? JSON.stringify([n.date, n.time, n.hours, n.status, n.originalDate]) : 'not ours';
+/** What two reads must agree on: ours with the same date, start, hours, status and moved-from date, or not ours with the
+ *  same date and start the poster gives (review 2026-10-04: two reads that differ on the date are not a trustworthy
+ *  "not ours"). Title and purpose wording may differ between models; they never change a block or a card's timing. */
+export const decisionKey = (n: Notice | null, o: { date?: string | null; start?: string | null }) =>
+  n ? JSON.stringify(['ours', n.date, n.time, n.hours, n.status, n.originalDate]) : JSON.stringify(['not ours', o.date ?? null, String(o.start ?? '').slice(0, 5)]);
 
-/** A read is usable only when it is JSON with a real date; the key is the notice decision the caller derives from it. */
-export function usable<T extends { date?: string | null }>(text: string, key: (o: T) => string): string | null {
+/** A read is usable only when it is JSON with a real date, and, when the filename carries MMDDYYYY, that date (or the
+ *  moved-from date) is the filename's: two small models can share the same wrong year (review 2026-10-04). A poster whose
+ *  filename and printed date differ goes to the paid reader. */
+export function usable<T extends { date?: string | null; original_date?: string | null }>(text: string, key: (o: T) => string, url = ''): string | null {
   const o = parseModelJson<T | null>(String(text).trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), null);
   if (!o || typeof o !== 'object' || !DATE.test(String(o.date ?? ''))) return null;
+  const fm = /(\d{2})(\d{2})(20\d{2})/.exec(decodeURIComponent(url.split('/').pop() ?? ''));
+  if (fm && ![o.date, o.original_date].includes(`${fm[3]}-${fm[1]}-${fm[2]}`)) return null;
   return key(o);
 }

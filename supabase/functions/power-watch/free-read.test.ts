@@ -4,7 +4,7 @@ import { noticeFrom, type Ocr } from './poster.ts';
 
 const URL_HIT = 'https://www.socoteco2.com/wp-content/uploads/2026/09/SPI-PMS-10082026-LEON-LLIDO-SS.jpg';
 const URL_READ = 'https://www.socoteco2.com/wp-content/uploads/2023/03/SPI-09192026-PORTION-OF-KATANGAWAN.jpg';
-const key = (url: string, hit: boolean) => (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, hit, url)));
+const key = (url: string, hit: boolean) => (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, hit, url), o), url);
 const PAID = '{"date":"2026-10-08","start":"06:00","hours":11}';
 const paid = () => Promise.resolve(PAID);
 const ok = (t: string) => () => Promise.resolve(t);
@@ -51,9 +51,27 @@ Deno.test('fewer than two free readers (OmniRoute not configured) is the paid re
   assertEquals((await agreedRead([ok(SCOUT)], key(URL_HIT, true), paid)).why, 'free_off');
 });
 
-Deno.test('two free reads that agree it is not ours are used', async () => {
-  const other = '{"date":"2026-09-25","start":"13:00","hours":4,"substation":null,"feeders":["12-3"],"areas":["Santiago Village"]}';
-  const r = await agreedRead([ok(other), ok('```json ' + other + ' ```')], key('https://x/SPI-09252026-PORTION-OF-F12-3-AREA.jpg', false), paid);
+const OTHER_URL = 'https://x/SPI-09252026-PORTION-OF-F12-3-AREA.jpg';
+const OTHER = '{"date":"2026-09-25","start":"13:00","hours":4,"substation":null,"feeders":["12-3"],"areas":["Santiago Village"]}';
+
+Deno.test('two free reads that agree it is not ours, on the same date and start, are used', async () => {
+  const r = await agreedRead([ok(OTHER), ok('```json ' + OTHER + ' ```')], key(OTHER_URL, false), paid);
   assertEquals(r.via, 'free');
-  assertEquals(noticeFrom(JSON.parse(other), false, 'x'), null);
+  assertEquals(noticeFrom(JSON.parse(OTHER), false, 'x'), null);
+});
+
+Deno.test('two "not ours" reads that differ on the start are not trusted (review 2026-10-04)', async () => {
+  const r = await agreedRead([ok(OTHER), ok(OTHER.replace('13:00', '08:00'))], key(OTHER_URL, false), paid);
+  assertEquals([r.via, r.why], ['paid', 'free_disagree']);
+});
+
+Deno.test('two reads that share a wrong year go to the paid reader; the filename carries the date (review 2026-10-04)', async () => {
+  const wrongYear = SCOUT.replace('2026-10-08', '2025-10-08');
+  assertEquals((await agreedRead([ok(wrongYear), ok(wrongYear)], key(URL_HIT, true), paid)).why, 'free_unusable');
+});
+
+Deno.test('a moved poster is usable when its moved-from date is the filename date', () => {
+  const moved = '{"date":"2026-10-12","original_date":"2026-10-08","start":"06:00","hours":11,"status":"ACTIVE"}';
+  assertEquals(usable<Ocr>(moved, () => 'k', URL_HIT), 'k');
+  assertEquals(usable<Ocr>(moved, () => 'k', 'https://x/no-date-in-name.jpg'), 'k');
 });

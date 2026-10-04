@@ -35,6 +35,7 @@ const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=10&orderby=
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; CascadeOpsWatch/1.0)' };
 const STATE_KEY = 'power_watch_state';
 const MAX_READS = 4;   // poster reads per run; the rest wait for the next run
+const READ_BUDGET_MS = 90_000; // no new read after this, so the run saves its state before the platform's wall clock ends it
 const KEEP = 300;
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } });
 // deno-lint-ignore no-explicit-any
@@ -77,6 +78,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
   const found: Found[] = [], log: string[] = [];
   let reads = 0;
+  const started = Date.now();
   for (const p of posts) {
     if (state.done.includes(p.id)) continue;
     let complete = true;
@@ -84,14 +86,14 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
       if (state.images.includes(url)) continue;
       const c = classifyFile(url);
       if (c === 'miss') { state.images.push(url); continue; }
-      if (reads >= MAX_READS) { complete = false; break; }
+      if (reads >= MAX_READS || Date.now() - started > READ_BUDGET_MS) { complete = false; break; }
       reads++;
       try {
         const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
         if (!img.ok) throw new Error(`poster_${img.status}`);
         const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
         // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
-        const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url)));
+        const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url), o), url);
         const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'));
         const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
         const n = noticeFrom(o, c === 'hit', url);
