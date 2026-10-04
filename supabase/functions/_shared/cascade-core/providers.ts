@@ -4,6 +4,7 @@
 // CASCADE_OPENROUTER_MODEL (default google/gemini-2.5-flash - it served every reply from ~09-13 to 09-24; 3.6-flash
 // spends max_tokens on hidden reasoning and cut a live reply mid-word at 696/700 on 2026-09-24),
 // CASCADE_GEMINI_BOT_KEY (the only Gemini key), CASCADE_GEMINI_MODEL (default gemini-3.6-flash).
+import { recordUsage } from './usage.ts';
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GEMINI_MODEL = env('CASCADE_GEMINI_MODEL') || 'gemini-3.6-flash';
 const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-2.5-flash';
@@ -37,8 +38,13 @@ export type ChatJsonRequest = {
 let keyOverride: string | null = null;
 export function setProviderKey(key: string | null): void { keyOverride = key || null; }
 const orKey = () => keyOverride ?? env('CASCADE_OPENROUTER_BOT_KEY');
+// D-294: a row written while keyOverride is set is a probe or golden run, so the governor can leave it out of guest demand.
+const probing = () => keyOverride !== null;
+// A thrown fetch (timeout, network) is a failed attempt too: record it with the error's name, then rethrow unchanged.
+const fetchFailed = (e: unknown, u: Parameters<typeof recordUsage>[0]): never => { recordUsage({ ...u, ok: false, error: `${u.provider}_${(e as Error)?.name ?? 'fetch_error'}`, probe: probing() }); throw e; };
 
 async function gemini(q: ChatJsonRequest): Promise<string> {
+  const row = { provider: 'gemini' as const, model: GEMINI_MODEL, title: q.title, tier: q.tier ?? 'full' };
   const contents = [
     ...q.history.map((h) => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.text }] })),
     { role: 'user', parts: [{ text: q.question }] },
@@ -47,15 +53,16 @@ async function gemini(q: ChatJsonRequest): Promise<string> {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ system_instruction: { parts: [{ text: q.system }] }, contents, generationConfig: { temperature: q.temperature ?? 0.4, maxOutputTokens: q.maxTokens ?? 700, ...(q.plain ? {} : { responseMimeType: 'application/json' }) } }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
-  });
-  if (!r.ok) throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`);
+  }).catch((e) => fetchFailed(e, row));
+  if (!r.ok) { recordUsage({ ...row, ok: false, error: `gemini_${r.status}`, probe: probing() }); throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`); }
   const j = await r.json();
-  const u = j?.usageMetadata; if (u) console.log('llm_usage', JSON.stringify({ provider: 'gemini', model: GEMINI_MODEL, title: q.title, tier: q.tier ?? 'full', input: u.promptTokenCount, output: u.candidatesTokenCount }));
+  const u = j?.usageMetadata; recordUsage({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount, probe: probing() });
   return j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
 /** An OpenAI-compatible chat call: OpenRouter (either Cascade key) or Cascade's own OmniRoute gateway. */
 async function openaiChat(q: ChatJsonRequest, p: { name: 'openrouter' | 'omniroute'; url: string; key: string; model: Record<string, unknown> }): Promise<string> {
+  const row = { provider: p.name, model: String(p.model.model ?? (p.model.models as string[] | undefined)?.[0] ?? ''), title: q.title, tier: q.tier ?? 'full' };
   const messages = [
     { role: 'system', content: q.system },
     ...q.history.map((h) => ({ role: h.role, content: h.text })),
@@ -66,13 +73,15 @@ async function openaiChat(q: ChatJsonRequest, p: { name: 'openrouter' | 'omnirou
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${p.key}`, 'X-Title': q.title ?? 'Cascade' },
     body: JSON.stringify({ ...p.model, messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, ...(q.plain ? {} : { response_format: { type: 'json_object' } }) }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
-  });
-  if (!r.ok) throw new Error(`${p.name}_${r.status}: ${(await r.text()).slice(0, 300)}`);
+  }).catch((e) => fetchFailed(e, row));
+  if (!r.ok) { recordUsage({ ...row, ok: false, error: `${p.name}_${r.status}`, probe: probing() }); throw new Error(`${p.name}_${r.status}: ${(await r.text()).slice(0, 300)}`); }
   const j = await r.json();
-  const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: p.name, model: j?.model, title: q.title, tier: q.tier ?? 'full', input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
+  const u = j?.usage;
   // A reply cut by max_tokens reads as a sentence that stops mid-word (live 2026-09-24): make it visible, and let the
-  // caller fall back rather than send half a sentence.
-  if (j?.choices?.[0]?.finish_reason === 'length') { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens })); throw new Error(`${p.name}_truncated`); }
+  // caller fall back rather than send half a sentence. The cut call is one failed row that still carries the tokens it spent.
+  const cut = j?.choices?.[0]?.finish_reason === 'length';
+  recordUsage({ ...row, model: j?.model ?? row.model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, ...(cut ? { ok: false, error: `${p.name}_truncated` } : {}), probe: probing() });
+  if (cut) { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens })); throw new Error(`${p.name}_truncated`); }
   return j?.choices?.[0]?.message?.content ?? '';
 }
 // Session 58: OpenRouter's own fallback list - a Google outage on the primary no longer leaves the guest without a
@@ -173,6 +182,7 @@ async function geminiTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
   ];
   const toolCalls: string[] = [];
   for (let round = 0; ; round++) {
+    const row = { provider: 'gemini' as const, model: GEMINI_MODEL, title: q.title, tier: 'full', round };
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey()}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -182,10 +192,10 @@ async function geminiTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
         generationConfig: { temperature: q.temperature ?? 0.3, maxOutputTokens: q.maxTokens ?? 700 },
       }),
       signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
-    });
-    if (!r.ok) throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`);
+    }).catch((e) => fetchFailed(e, row));
+    if (!r.ok) { recordUsage({ ...row, ok: false, error: `gemini_${r.status}`, probe: probing() }); throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`); }
     const j = await r.json();
-    const u = j?.usageMetadata; if (u) console.log('llm_usage', JSON.stringify({ provider: 'gemini', model: GEMINI_MODEL, title: q.title, tier: 'full', round, input: u.promptTokenCount, output: u.candidatesTokenCount }));
+    const u = j?.usageMetadata; recordUsage({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount, probe: probing() });
     const parts: any[] = j?.candidates?.[0]?.content?.parts ?? [];
     const calls = parts.filter((p) => p.functionCall);
     if (!calls.length) return { text: parts.map((p) => p.text ?? '').join('').trim(), provider: 'gemini', model: GEMINI_MODEL, toolCalls };
@@ -210,16 +220,17 @@ async function openrouterTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
   const toolCalls: string[] = [];
   let model = q.tier === 'deep' ? OPENROUTER_DEEP_MODEL : OPENROUTER_MODEL;
   for (let round = 0; ; round++) {
+    const row = { provider: 'openrouter' as const, model, title: q.title, tier: q.tier ?? 'full', round };
     const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env('CASCADE_OPENROUTER_BOT_KEY')}`, 'X-Title': q.title ?? 'Cascade' },
       body: JSON.stringify({ model: q.tier === 'deep' ? OPENROUTER_DEEP_MODEL : OPENROUTER_MODEL, messages, tools, tool_choice: round === 0 && q.forceTool ? { type: 'function', function: { name: q.forceTool } } : (round < (q.maxRounds ?? 3) ? 'auto' : 'none'), temperature: q.temperature ?? 0.3, max_tokens: q.maxTokens ?? 700 }),
       signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
-    });
-    if (!r.ok) throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`);
+    }).catch((e) => fetchFailed(e, row));
+    if (!r.ok) { recordUsage({ ...row, ok: false, error: `openrouter_${r.status}`, probe: probing() }); throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`); }
     const j = await r.json();
     model = j?.model ?? model;
-    const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'openrouter', model, title: q.title, tier: q.tier ?? 'full', round, input: u.prompt_tokens, output: u.completion_tokens, cost_usd: u.cost }));
+    const u = j?.usage; recordUsage({ ...row, model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, probe: probing() });
     const msg = j?.choices?.[0]?.message ?? {};
     const calls: any[] = msg.tool_calls ?? [];
     if (!calls.length) return { text: String(msg.content ?? '').trim(), provider: 'openrouter', model, toolCalls };
