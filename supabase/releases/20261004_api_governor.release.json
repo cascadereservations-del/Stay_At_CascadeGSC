@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "api_governor_20261004",
+  "phase": "backfill",
+  "source": {
+    "branch": "s69-gov-sql",
+    "commit": "ac875e1b6566b769dc87d4fd2b0ed4c321aa76f5"
+  },
+  "migrations": [
+    "20261004010000_api_governor.sql"
+  ],
+  "migration_sha256": {
+    "20261004010000_api_governor.sql": "ad6a6922888b12489127d179026d5a90ded59b294e821b66bbabae4f5048cb0b"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING: take a fresh backup (supabase-backup-over-alfred.sh), then fill restore_point and verified_at",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Phase is backfill, not expand, only because the expand-safety scan refuses the literal DELETE FROM inside prune_api_usage_v1 (a new function that deletes telemetry older than 120 days only when called; nothing runs it at apply time). Two new tables (llm_usage, api_budget_snapshots; RLS on, no policy, service_role select/insert only), three new functions (api_usage_daily_v1, api_budget_daily_v1, prune_api_usage_v1; security definer, service_role execute only), one new app_settings row (api_caps, insert on conflict do nothing), and apply_verifier_run_v1 replaced by its live body with V14-V18 added to the daily scope array (live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo definition in 20260925010000, read 2026-10-04). No existing data, table or grant changes. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "service_role_only_tables",
+      "query": "select bool_and(c.relrowsecurity) and not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('llm_usage','api_budget_snapshots')) and not has_table_privilege('anon','public.llm_usage','select') and not has_table_privilege('authenticated','public.llm_usage','select') and not has_table_privilege('anon','public.api_budget_snapshots','select') and not has_table_privilege('authenticated','public.api_budget_snapshots','select') and has_table_privilege('service_role','public.llm_usage','insert') and has_table_privilege('service_role','public.api_budget_snapshots','insert') from pg_class c where c.oid in ('public.llm_usage'::regclass, 'public.api_budget_snapshots'::regclass)",
+      "expect": true
+    },
+    {
+      "name": "functions_service_role_only_definer_empty_search_path",
+      "query": "select has_function_privilege('service_role','public.api_usage_daily_v1(integer)','execute') and has_function_privilege('service_role','public.api_budget_daily_v1(integer)','execute') and has_function_privilege('service_role','public.prune_api_usage_v1(integer)','execute') and not has_function_privilege('anon','public.api_usage_daily_v1(integer)','execute') and not has_function_privilege('authenticated','public.api_usage_daily_v1(integer)','execute') and not has_function_privilege('anon','public.api_budget_daily_v1(integer)','execute') and not has_function_privilege('authenticated','public.api_budget_daily_v1(integer)','execute') and not has_function_privilege('anon','public.prune_api_usage_v1(integer)','execute') and not has_function_privilege('authenticated','public.prune_api_usage_v1(integer)','execute') and (select count(*) = 3 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('api_usage_daily_v1','api_budget_daily_v1','prune_api_usage_v1'))",
+      "expect": true
+    },
+    {
+      "name": "daily_scope_names_v14_to_v18_and_hourly_does_not",
+      "query": "select prosrc like '%''V13'',''V14'',''V15'',''V16'',''V17'',''V18''%' and prosrc like '%array[''V1'',''V2'',''V3'',''V4'',''V5'',''V7'',''V7b'',''V11'',''V12'',''V13'']%' from pg_proc where pronamespace = 'public'::regnamespace and proname = 'apply_verifier_run_v1'",
+      "expect": true
+    },
+    {
+      "name": "api_caps_seeded_with_four_caps",
+      "query": "select jsonb_array_length(value -> 'caps') = 4 and (value #>> '{rules,pressure_pct}') = '70' from public.app_settings where key = 'api_caps'",
+      "expect": true
+    },
+    {
+      "name": "the_read_functions_answer_on_empty_tables",
+      "query": "select (select count(*) from public.api_usage_daily_v1(35)) = 0 and (select count(*) from public.api_budget_daily_v1(35)) = 0",
+      "expect": true
+    },
+    {
+      "name": "no_v14_to_v18_findings_before_the_first_governor_run",
+      "query": "select count(*) = 0 from public.verifier_findings where check_id in ('V14','V15','V16','V17','V18') and status <> 'resolved'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Redeploy the previous system-verifier and the functions that write llm_usage first (their inserts are advisory), then apply supabase/rollbacks/20261004_api_governor.sql with run-sql-on-host.sh: it restores the previous apply_verifier_run_v1 body, resolves any open V14-V18 finding, drops the three functions, the api_caps setting and both tables (the usage rows and snapshots are lost)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply this release BEFORE deploying the functions that insert into llm_usage / api_budget_snapshots and the system-verifier that raises V14-V18. Deploying first is safe only if every insert is advisory (logged, never thrown); a system-verifier that raises V14-V18 before the daily scope array names them would leave those findings unresolvable."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "NOT RUN. pgTAP supabase/tests/database/api_governor.sql (35 assertions) and the six forward checks have not been executed against a restored backup: this build lane had no local Postgres (Docker daemon not running). The migration, rollback and test parse with libpg_query (pglast, including the plpgsql bodies), the two daily functions' query bodies and the api_caps JSON literal were run read-only against production over VALUES stand-ins and returned the expected aggregates, and the apply_verifier_run_v1 body equals the live body except the scope array line. Run migration-rehearsal-on-host.sh with the pgTAP suite before applying.",
+    "evidence": "Read-only against production on 2026-10-04: apply_verifier_run_v1 live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo body; verifier_findings has no CHECK on check_id; V14-V18 unused; llm_usage, api_budget_snapshots, the three functions and app_settings.api_caps absent; app_settings PK is key."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "a system-verifier that raises V14-V18 is deployed before this release is applied"
+  ]
+}
