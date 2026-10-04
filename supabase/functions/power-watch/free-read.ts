@@ -10,20 +10,20 @@ import type { Notice } from './poster.ts';
 const env = (k: string) => Deno.env.get(k) ?? '';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** One image read through a Cascade OmniRoute combo; returns the model text. */
-async function omniVision(combo: string, prompt: string, b64: string, mime: string): Promise<string> {
+/** One image read by one model on Cascade OmniRoute; returns the model text. */
+async function omniVision(model: string, prompt: string, b64: string, mime: string): Promise<string> {
   const url = env('CASCADE_OMNIROUTE_URL').replace(/\/+$/, ''), key = env('CASCADE_OMNIROUTE_KEY');
   if (!url || !key) throw new Error('omniroute_not_configured');
   const r = await fetch(`${url}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'X-Title': 'Cascade Power Watch' },
-    body: JSON.stringify({ model: combo, temperature: 0, max_tokens: 1500,
+    body: JSON.stringify({ model, temperature: 0, max_tokens: 1500,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
     signal: AbortSignal.timeout(30_000), // both run at once (full-size poster 2026-10-04: Scout 27 s, Mistral 14 s); index.ts caps the run's reads at 90 s
   });
   if (!r.ok) throw new Error(`omniroute_vision_${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
-  const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'omniroute', model: j?.model ?? combo, title: 'Cascade Power Watch', tier: 'vision-free', input: u.prompt_tokens, output: u.completion_tokens }));
+  const u = j?.usage; if (u) console.log('llm_usage', JSON.stringify({ provider: 'omniroute', model: j?.model ?? model, title: 'Cascade Power Watch', tier: 'vision-free', input: u.prompt_tokens, output: u.completion_tokens }));
   return j?.choices?.[0]?.message?.content ?? '';
 }
 
@@ -44,13 +44,15 @@ export async function agreedRead(
   return { text: await paid(), via: 'paid', why };
 }
 
-/** The free reads for one poster: one per combo in CASCADE_OMNIROUTE_VISION_MODELS (default the two single-model combos).
- *  Each combo must hold ONE model and no fallback, or both reads could come from the same model and agreement proves nothing. */
+/** The free reads for one poster: one per model in CASCADE_OMNIROUTE_VISION_MODELS. Direct model ids, not combos: an OmniRoute
+ *  combo sends an image through its vision bridge (503 "Codex app-server transport is not configured", 2026-10-04) while a
+ *  direct model id reads it; a direct id also cannot fall back to the other model, so two reads are two models. */
 export function freeReads(prompt: string, bytes: Uint8Array, mime: string): Array<() => Promise<string>> {
   if (!env('CASCADE_OMNIROUTE_URL') || !env('CASCADE_OMNIROUTE_KEY')) return [];
-  const combos = (env('CASCADE_OMNIROUTE_VISION_MODELS') || 'cascade-vision-scout,cascade-vision-mistral').split(',').map((s) => s.trim()).filter(Boolean);
+  const models = (env('CASCADE_OMNIROUTE_VISION_MODELS') || 'cloudflare-ai/@cf/meta/llama-4-scout-17b-16e-instruct,cloudflare-ai/@cf/mistralai/mistral-small-3.1-24b-instruct')
+    .split(',').map((s) => s.trim()).filter(Boolean);
   const b64 = bytesToBase64(bytes);
-  return combos.map((c) => () => omniVision(c, prompt, b64, mime));
+  return models.map((m) => () => omniVision(m, prompt, b64, mime));
 }
 
 /** What two reads must agree on: ours with the same date, start, hours, status and moved-from date, or not ours with the
