@@ -25,6 +25,7 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { parseModelJson, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Ocr } from './poster.ts';
+import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
 import { touchedNights } from './plan.ts';
 import { pruneStates, reconcile, type Found } from './watch.ts';
 
@@ -88,9 +89,13 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
       try {
         const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
         if (!img.ok) throw new Error(`poster_${img.status}`);
-        const o = parseModelJson<Ocr>(await visionExtractText(OCR_PROMPT, new Uint8Array(await img.arrayBuffer()), img.headers.get('content-type') ?? 'image/jpeg', 'Cascade Power Watch'), {});
+        const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
+        // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
+        const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url)));
+        const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'));
+        const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
         const n = noticeFrom(o, c === 'hit', url);
-        log.push(`${url.split('/').pop()} ${c} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}`);
+        log.push(`${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}`);
         if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
         state.images.push(url);
       } catch (e) {
