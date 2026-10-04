@@ -2,7 +2,7 @@
 -- setting, and V14-V18 in the daily scope of apply_verifier_run_v1. Synthetic rows carry a zz-gov- title or a 2030 timestamp so
 -- restored production rows never interfere; everything goes with the closing rollback.
 begin;
-select plan(37);
+select plan(38);
 
 select has_table('public', 'llm_usage', 'llm_usage exists');
 select has_table('public', 'api_budget_snapshots', 'api_budget_snapshots exists');
@@ -97,6 +97,7 @@ reset role;
 select ok((select jsonb_array_length(value -> 'caps') = 4 from public.app_settings where key = 'api_caps'), 'api_caps is seeded with four caps');
 select is((select value #>> '{rules,pressure_pct}' from public.app_settings where key = 'api_caps'), '70', 'api_caps carries the rules');
 select is((select value #>> '{credit,openrouter_usd}' from public.app_settings where key = 'api_caps'), '10', 'api_caps carries the credit');
+select is((select expected_interval_seconds from public.job_heartbeats where job_name = 'api-governor'), 172800, 'the api-governor heartbeat is seeded at 2 days');
 
 -- apply_verifier_run_v1: V14-V18 are daily-scope checks, so a V16 is accepted, survives an hourly run, and resolves on the next
 -- daily run that no longer raises it.

@@ -213,6 +213,7 @@ drop function if exists public.prune_api_usage_v1(integer);
 drop function if exists public.api_budget_daily_v1(integer);
 drop function if exists public.api_usage_daily_v1(integer);
 delete from public.app_settings where key = 'api_caps';
+delete from public.job_heartbeats where job_name = 'api-governor';
 drop table if exists public.api_budget_snapshots;
 drop table if exists public.llm_usage;
 

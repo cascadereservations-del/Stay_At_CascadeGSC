@@ -10,7 +10,7 @@
     "20261004010000_api_governor.sql"
   ],
   "migration_sha256": {
-    "20261004010000_api_governor.sql": "49e603cb275fbe5b9dd21c9c9fd7c4e1ac71b7191d8c3df5938c029f461dacb8"
+    "20261004010000_api_governor.sql": "ca0dac9202f01c8c746b650b514e3fe9a8a1e1308a1b8060b1fb8ddfbd3d2598"
   },
   "backup": {
     "required": true,
@@ -44,6 +44,11 @@
       "name": "the_read_functions_answer",
       "query": "select (select count(*) from public.api_usage_daily_v1(35)) >= 0 and (select count(*) from public.api_budget_daily_v1(35)) >= 0",
       "expect": true
+    },
+    {
+      "name": "api_governor_heartbeat_seeded",
+      "query": "select count(*) = 1 from public.job_heartbeats where job_name = 'api-governor' and expected_interval_seconds = 172800",
+      "expect": true
     }
   ],
   "rollback": {
@@ -67,7 +72,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh with supabase/tests/database/api_governor.sql (37 assertions) on a fresh backup; verified flips to true only when it is green on this commit. Orchestrator fixes 2026-10-04 after the Fable audit: tests insert as owner (rehearsal service_role has no BYPASSRLS), 2030 snapshot stamp, model column, sequence revokes, V14-V15 hourly, no host detail in the public api_caps text.",
+    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh with supabase/tests/database/api_governor.sql (38 assertions) on a fresh backup; verified flips to true only when it is green on this commit. Orchestrator fixes 2026-10-04 after the Fable audit: tests insert as owner (rehearsal service_role has no BYPASSRLS), 2030 snapshot stamp, model column, sequence revokes, V14-V15 hourly, no host detail in the public api_caps text.",
     "evidence": "Read-only against production on 2026-10-04: apply_verifier_run_v1 live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo body; verifier_findings has no CHECK on check_id; V14-V18 unused; llm_usage, api_budget_snapshots, the three functions and app_settings.api_caps absent; app_settings PK is key."
   },
   "approvals": {

@@ -8,6 +8,7 @@
 --   api_budget_daily_v1    per Manila day and key: limit, lowest remaining, spent (max - min lifetime usage that day).
 --   prune_api_usage_v1     deletes rows older than p_keep_days (default 120), returns the count.
 --   app_settings.api_caps  the caps, credit, prices and thresholds the verifier reads (seeded once, never overwritten).
+--   job_heartbeats         'api-governor' (2 days) so a governor that stops running is reported.
 --   apply_verifier_run_v1  V14-V18 added to the DAILY scope array and V14-V15 (cap pressure, outage: urgent) to the HOURLY one,
 --                          so a finding no longer raised resolves itself in the scope that raises it (orchestrator, Lloyd: "notify immediately").
 -- The apply_verifier_run_v1 body below is the live definition (md5(prosrc) 5c02101b0c2bd109389ce659702b2270, identical to
@@ -125,6 +126,12 @@ insert into public.app_settings (key, value) values ('api_caps', $json$
 {"caps":[{"id":"openrouter-primary","label":"OpenRouter key cascade-production","kind":"usd_day","cap":1,"floor":0.5,"key_name":"primary","where":"openrouter.ai > Settings > Keys > cascade-production > Credit limit"},{"id":"openrouter-backup","label":"OpenRouter backup key","kind":"usd_day","cap":3,"floor":0.5,"key_name":"backup","where":"openrouter.ai > Settings > Keys > backup key > Credit limit"},{"id":"omniroute-key","label":"OmniRoute key 'cascade omniroute'","kind":"usd_day_notional","cap":0.5,"floor":0.1,"provider":"omniroute","where":"OmniRoute dashboard > API Manager > cascade omniroute > Daily limit"},{"id":"cloudflare-free","label":"Cloudflare Workers AI free allowance","kind":"neurons_day","cap":10000,"fixed":true,"provider":"omniroute","where":"fixed by Cloudflare's free plan"}],"credit":{"openrouter_usd":10,"note":"Cascade OpenRouter account credit; update after a top-up"},"prices_usd_per_m":{"@cf/meta/llama-4-scout-17b-16e-instruct":[0.27,0.85],"@cf/mistralai/mistral-small-3.1-24b-instruct":[0.351,0.555],"@cf/meta/llama-3.3-70b-instruct-fp8-fast":[0.293,2.253],"@cf/aisingapore/gemma-sea-lion-v4-27b-it":[0.351,0.555],"openai/gpt-oss-120b":[0,0],"openai/gpt-oss-20b":[0,0]},"neuron_usd":0.000011,"rules":{"pressure_pct":70,"headroom_x":20,"target_x":5,"runway_days":30,"drift_x":2,"outage_fail_pct":50,"outage_min_calls":5}}
 $json$::jsonb)
 on conflict (key) do nothing;
+
+-- The governor's own heartbeat: system-verifier records 'api-governor' after a daily evaluation that had all its inputs, so
+-- job-heartbeat-monitor sends one Finance alert when the governor has not run for 1.5 x 2 days (it would otherwise go quiet).
+insert into public.job_heartbeats (job_name, expected_interval_seconds, ops_risk, last_succeeded_at)
+values ('api-governor', 172800, false, now())
+on conflict (job_name) do nothing;
 
 -- apply_verifier_run_v1: the live body, with V14-V18 added to the daily scope array and V14-V15 to the hourly one.
 create or replace function public.apply_verifier_run_v1(
