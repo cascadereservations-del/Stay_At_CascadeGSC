@@ -19,7 +19,7 @@ async function omniVision(combo: string, prompt: string, b64: string, mime: stri
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, 'X-Title': 'Cascade Power Watch' },
     body: JSON.stringify({ model: combo, temperature: 0, max_tokens: 1500,
       messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
-    signal: AbortSignal.timeout(20_000), // both run at once; the run's wall clock also pays for the paid reader after them
+    signal: AbortSignal.timeout(30_000), // both run at once (full-size poster 2026-10-04: Scout 27 s, Mistral 14 s); index.ts caps the run's reads at 90 s
   });
   if (!r.ok) throw new Error(`omniroute_vision_${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
