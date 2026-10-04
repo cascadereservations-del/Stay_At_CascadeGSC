@@ -3,8 +3,8 @@
   "release_id": "api_governor_20261004",
   "phase": "backfill",
   "source": {
-    "branch": "s69-gov-sql",
-    "commit": "ac875e1b6566b769dc87d4fd2b0ed4c321aa76f5"
+    "branch": "main",
+    "commit": "39a8e084fe5964cf192964efc17b86b02deaccfb"
   },
   "migrations": [
     "20261004010000_api_governor.sql"
@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING: take a fresh backup (supabase-backup-over-alfred.sh), then fill restore_point and verified_at",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261004T090239Z",
+    "verified_at": "2026-10-04T09:02:39Z",
     "production_rule": "Phase is backfill, not expand, only because the expand-safety scan refuses the literal DELETE FROM inside prune_api_usage_v1 (a new function that deletes telemetry older than 120 days only when called; nothing runs it at apply time). Two new tables (llm_usage, api_budget_snapshots; RLS on, no policy, service_role select/insert only), three new functions (api_usage_daily_v1, api_budget_daily_v1, prune_api_usage_v1; security definer, service_role execute only), one new app_settings row (api_caps, insert on conflict do nothing), and apply_verifier_run_v1 replaced by its live body with V14-V18 added to the daily scope array and V14-V15 to the hourly one (live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo definition in 20260925010000, read 2026-10-04). No existing data, table or grant changes. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
@@ -71,8 +71,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh with supabase/tests/database/api_governor.sql (38 assertions) on a fresh backup; verified flips to true only when it is green on this commit. Orchestrator fixes 2026-10-04 after the Fable audit: tests insert as owner (rehearsal service_role has no BYPASSRLS), 2030 snapshot stamp, model column, sequence revokes, V14-V15 hourly, no host detail in the public api_caps text.",
+    "verified": true,
+    "rehearsal": "PASSED 2026-10-04 ~09:10Z on cascade-supabase-20261004T090239Z (migration-rehearsal-on-host.sh): migration applied 1/1, forward verification 6/6, pgTAP api_governor.sql 38/38, public tables 107 -> 109, cleanup 0 leftovers.",
     "evidence": "Read-only against production on 2026-10-04: apply_verifier_run_v1 live md5(prosrc) 5c02101b0c2bd109389ce659702b2270 equals the repo body; verifier_findings has no CHECK on check_id; V14-V18 unused; llm_usage, api_budget_snapshots, the three functions and app_settings.api_caps absent; app_settings PK is key."
   },
   "approvals": {
