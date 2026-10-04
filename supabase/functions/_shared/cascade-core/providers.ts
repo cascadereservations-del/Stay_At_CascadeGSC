@@ -39,6 +39,8 @@ let keyOverride: string | null = null;
 export function setProviderKey(key: string | null): void { keyOverride = key || null; }
 const orKey = () => keyOverride ?? env('CASCADE_OPENROUTER_BOT_KEY');
 // D-294: a row written while keyOverride is set is a probe or golden run, so the governor can leave it out of guest demand.
+// ponytail: the same module-level ceiling - that rare mid-probe guest turn is also tagged probe (audit 2026-10-04); scope the
+// override per request (AsyncLocalStorage) if probes ever overlap real guest traffic often enough to skew the governor.
 const probing = () => keyOverride !== null;
 // A thrown fetch (timeout, network) is a failed attempt too: record it with the error's name, then rethrow unchanged.
 const fetchFailed = (e: unknown, u: Parameters<typeof recordUsage>[0]): never => { recordUsage({ ...u, ok: false, error: `${u.provider}_${(e as Error)?.name ?? 'fetch_error'}`, probe: probing() }); throw e; };
@@ -131,8 +133,10 @@ async function routineFirst(q: ChatJsonRequest): Promise<string | null> {
     // Groq refuses json_object unless the word "json" is in the messages (live 2026-10-03 02:21Z: /ping fell to Cloudflare).
     const system = q.plain || /json/i.test(`${q.system} ${q.question}`) ? q.system : `${q.system}\nReply in JSON.`;
     const out = await openaiChat({ ...q, system, maxTokens: Math.max(q.maxTokens ?? 700, 1200) }, { name: 'omniroute', url, key, model: { model: env('CASCADE_OMNIROUTE_ROUTINE_MODEL') || 'cascade-routine' } });
-    if (!out.trim()) throw new Error('omniroute_routine_empty');
-    if (!q.plain) JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()); // an unreadable free reply goes to the paid chain
+    const unusable = !out.trim() ? 'omniroute_routine_empty'
+      : !q.plain && (() => { try { JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()); return false; } catch { return true; } })() ? 'omniroute_routine_unreadable' : '';
+    // D-294: openaiChat logged the call ok; a reply we throw away is the free provider failing, so the governor sees it as one.
+    if (unusable) { recordUsage({ provider: 'omniroute', title: q.title, tier: 'routine', ok: false, error: unusable }); throw new Error(unusable); }
     return out;
   }
   catch (e) { console.error('omniroute_routine_failed_trying_paid', String(e).slice(0, 300)); return null; }
