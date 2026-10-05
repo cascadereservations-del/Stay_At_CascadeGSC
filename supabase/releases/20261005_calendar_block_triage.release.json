@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "calendar_block_triage_20261005",
+  "phase": "expand",
+  "source": {
+    "branch": "s70/l5a-stay",
+    "commit": "b76146758395d8b4dadf5d343d956febfb85d5fb"
+  },
+  "migrations": [
+    "20261005140000_calendar_block_triage.sql"
+  ],
+  "migration_sha256": {
+    "20261005140000_calendar_block_triage.sql": "59ea01afdfa0a3b88d1afdb0669e7ec98f7824aa291193f411c30889b8408cfb"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER: take a fresh backup, then fill (C:/Cascade-Backups/cascade-supabase-<stamp>)",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Five additive nullable columns on calendar_events (block_reason, block_reason_source, block_note, block_answered_by, block_answered_at; CHECKs only on the first three) and one on ops_notices (source, backfilled from the title and who entered it, then CHECKed socoteco/ngcp/staff). Two new service_role-only functions (telegram_answer_calendar_block_v2, telegram_note_calendar_block_v1). telegram_answer_calendar_block_v1 becomes a wrapper over v2 (live md5(prosrc) 7f43ea5dda50f325487aaa9ca04e473c, read 2026-10-05, equals 20260925010000). get_hospitality_metrics_v1 is replaced by the production body (live md5(prosrc) 0c2bc9aea7cdb418fb646590a2434a76, read 2026-10-05, equals 20260913100000) with one added predicate in the v_blocked query; the migration stops itself if either live md5 differs. No data is deleted, no table or grant is removed. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "five_block_columns_on_calendar_events",
+      "query": "select count(*) = 5 from information_schema.columns where table_schema = 'public' and table_name = 'calendar_events' and column_name in ('block_reason','block_reason_source','block_note','block_answered_by','block_answered_at')",
+      "expect": true
+    },
+    {
+      "name": "v2_and_note_service_role_only",
+      "query": "select has_function_privilege('service_role','public.telegram_answer_calendar_block_v2(bigint,text,text)','execute') and has_function_privilege('service_role','public.telegram_note_calendar_block_v1(bigint,text,text)','execute') and not has_function_privilege('authenticated','public.telegram_answer_calendar_block_v2(bigint,text,text)','execute') and not has_function_privilege('anon','public.telegram_answer_calendar_block_v2(bigint,text,text)','execute') and not has_function_privilege('authenticated','public.telegram_note_calendar_block_v1(bigint,text,text)','execute') and not has_function_privilege('anon','public.telegram_note_calendar_block_v1(bigint,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "v1_is_a_wrapper_over_v2",
+      "query": "select pg_get_functiondef('public.telegram_answer_calendar_block_v1(bigint,text,text)'::regprocedure) like '%telegram_answer_calendar_block_v2%'",
+      "expect": true
+    },
+    {
+      "name": "metrics_count_only_pending_blocks_and_body_is_the_reviewed_one",
+      "query": "select pg_get_functiondef('public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure) like '%''pending'') = ''pending''%' and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure) = '36783f8532b14960e1563acba000d104'",
+      "expect": true
+    },
+    {
+      "name": "ops_notices_source_checked_and_no_brownout_notice_without_one",
+      "query": "select (select count(*) = 0 from public.ops_notices where notice_type = 'brownout' and source is null) and (select pg_get_constraintdef(oid) like '%socoteco%' and pg_get_constraintdef(oid) like '%ngcp%' and pg_get_constraintdef(oid) like '%staff%' from pg_constraint where conrelid = 'public.ops_notices'::regclass and conname = 'ops_notices_source_check')",
+      "expect": true
+    },
+    {
+      "name": "pending_kinds_unchanged_awaiting_reply_carries_the_block_flows",
+      "query": "select pg_get_constraintdef(oid) like '%awaiting_reply%' and pg_get_constraintdef(oid) like '%guest_save%' and pg_get_constraintdef(oid) not like '%block%' from pg_constraint where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Redeploy the previous calendar-sync and telegram-expense first (the cb:block tap calls v2 once this release is on), then apply supabase/rollbacks/20261005_calendar_block_triage.sql with run-sql-on-host.sh: it restores the pre-release bodies of telegram_answer_calendar_block_v1 and get_hospitality_metrics_v1 (asserting both md5s) and drops v2 and the note function. The columns stay: they are additive and hold the answers people gave."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply this release BEFORE deploying calendar-sync v16, telegram-expense (cb:block v2 and the two follow-up flows, pw:keep, noticeSource) and power-watch (source on its notice insert, auto-release). Deploying first is not safe: calendar-sync selects the new columns and telegram-expense calls the v2 rpc, both of which fail until it is applied. A brownout notice typed between the apply and the telegram-expense deploy has a null source: power-watch reads that as socoteco, and the null-source forward check (6) must be re-run after the deploys."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "NOT YET RUN. The rehearsal (migration-rehearsal-on-host.sh on a fresh backup) must apply the migration, pass the forward checks and pgTAP calendar_block_triage.sql (33) and admin_read_models_v1.sql (its blocked-nights assertion expects 2 and keeps passing because its fixture row defaults to recon_status pending) and verifier_v7_dates_mismatch.sql (v1 through the wrapper).",
+    "evidence": "Read-only against production on 2026-10-05: md5(prosrc) of get_hospitality_metrics_v1 0c2bc9aea7cdb418fb646590a2434a76 and of telegram_answer_calendar_block_v1 7f43ea5dda50f325487aaa9ca04e473c both equal the repository bodies; ops_notices has no source column; staff_access_profiles roles are owner, admin, finance, inspector, cleaner, maintenance; telegram_pending kinds are the seventeen of 20261003010000 (unchanged)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the migration raises STOP: a live md5(prosrc) differs from the one SPEC-41 vendored (production moved; re-read production and re-vendor, never copy the older repo file)",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still a placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit"
+  ]
+}
