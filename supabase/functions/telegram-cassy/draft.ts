@@ -10,10 +10,13 @@ import { loadCard } from '../_shared/cascade-core/pricing.ts'; // SPEC-34: draft
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
 import { isHard, jevRoute, routeRisk } from '../messenger-concierge/jev.ts'; // D-271
 import { CASSY_INTRO, detectLang } from '../messenger-concierge/booking.ts';
-import { leafAtClose, lintReply, thinPo } from '../messenger-concierge/voice.ts';
+import { leafAtClose, lintReply, thinPo, toneRules } from '../messenger-concierge/voice.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts';
 import { visionExtractText, parseModelJson, hasVisionKey } from '../_shared/cascade-core/vision.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
+import { threadForBooking } from '../_shared/cascade-core/messenger.ts'; // SPEC-38: the Messenger thread a request came from
+import { asLang, draftKeyboard, dueWhat, firstName, joinMessage, quotesReason, replyContext, siteNotes, stayShort, type InquiryView, type Lang } from '../_shared/cascade-core/inquiry.ts';
+import { hasMoney } from '../_shared/ops-money.ts';
 
 /** "cassy reply: …", "cassy draft …", "cassy, how should I answer: …" -> the guest text (may be empty when a photo carries it). */
 export function draftRequest(text: string): { draft: boolean; text: string } {
@@ -64,12 +67,12 @@ export function forHost(reply: string): string {
 
 type Brain = { reply: string; step: string | null; risk: string | null; effects: Array<{ fx: string }> };
 /** The deployed concierge, through its probe: the thread seeded, the newest guest message answered, nothing sent. */
-async function conciergeDraft(before: Line[], latest: string, name: string | null): Promise<Brain | null> {
+async function conciergeDraft(before: Line[], latest: string, name: string | null, flow?: Record<string, unknown>): Promise<Brain | null> {
   const secret = Deno.env.get('CASCADE_PROBE_SECRET') ?? '', base = Deno.env.get('SUPABASE_URL') ?? '';
   if (secret.length < 24 || !base) return null;
   const r = await fetch(`${base}/functions/v1/messenger-concierge`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-cascade-probe': secret },
-    body: JSON.stringify({ psid: `probe:cassy-${crypto.randomUUID()}`, name, history: before.map((l) => ({ role: l.from === 'guest' ? 'guest' : 'bot', text: l.text })), turns: [{ text: latest, advance_minutes: 1 }] }),
+    body: JSON.stringify({ psid: `probe:cassy-${crypto.randomUUID()}`, name, history: before.map((l) => ({ role: l.from === 'guest' ? 'guest' : 'bot', text: l.text })), turns: [{ text: latest, advance_minutes: 1 }], ...(flow ? { flow } : {}) }), // SPEC-38 s8: flow = the request's booking flow seed (probe path only)
     signal: AbortSignal.timeout(60_000),
   }).catch(() => null);
   const j = r?.ok ? await r.json().catch(() => null) : null;
@@ -90,15 +93,15 @@ async function rewrite(db: any, text: string, how: string): Promise<string> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean): Promise<string> {
+async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean, hint = ''): Promise<string> {
   const card = await loadCard(db); await loadContact(db);
   const channel = airbnb
     ? 'This guest writes on AIRBNB: never include links, phone numbers, e-mail, GCash, QR or any payment outside Airbnb, and never suggest booking elsewhere; for a booking, invite them to send a booking request on the Airbnb listing.'
     : 'Do not invent availability or prices beyond FACTS.';
   const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are drafting for the HOST to copy and send; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. ${channel} If dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
   const datesAsked = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}[\/-]\d{1,2}|\b(?:available|avail|vacant|bakante|free)\b/i.test(guestText);
-  const datesHint = datesAsked ? '[The guest mentions dates or availability. You cannot see the calendar: do NOT say the dates are available or taken; say you will check and confirm shortly.] ' : '';
-  const q = `${datesHint}${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
+  const datesHint = datesAsked && !hint ? '[The guest mentions dates or availability. You cannot see the calendar: do NOT say the dates are available or taken; say you will check and confirm shortly.] ' : '';
+  const q = `${hint}${datesHint}${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
   const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: 500, timeoutMs: 30_000 });
   return leafAtClose(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'));
 }
@@ -144,4 +147,84 @@ export async function reviseHostMessage(db: any, template: string, context: stri
   const reply = thinPo(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'), lang === 'bis' ? 0 : lang === 'tl' ? 2 : 1);
   const lint = lintReply(reply); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_revise', lint }));
   return ['✍️ Revised draft', '', reply, '', 'Do: copy and send from the Page or the app. Nothing was sent.', `📨 ${reply}`].join('\n');
+}
+
+// ---- SPEC-38 (session 70): Cassy's reply, and the "other" decline, for a request that has not paid yet ----
+// Never sends anything. The card it builds is a draft: the tap that sends lives in telegram-expense (iq:send:). Every text passes the
+// voice gate (lintReply + toneRules); a text that fails twice shows the failure and no Send button.
+
+export type InquiryDraft = { text: string; gate: string[]; source: 'concierge' | 'model'; lang: Lang; channel: 'Messenger' | 'e-mail' | 'no channel'; lastMessage: string | null; guestText: string };
+
+/** The two gates every guest-facing draft passes. `privateReason` (decline/other) must never be echoed back. */
+export function gateInquiry(text: string, guestText: string, lang: Lang, privateReason?: string): string[] {
+  const g: string[] = [...lintReply(text, guestText), ...toneRules(text, lang)];
+  if (privateReason && quotesReason(text, privateReason)) g.push('quotes_private_reason');
+  return g;
+}
+
+/** The decline/other instruction: the reason only chooses a gentle wording; it is never to be quoted, revealed or hinted at. */
+export function declineInstruction(dates: string, register: string, privateReason: string): string {
+  return `Write a short, polite message declining the guest's request for ${dates}, in ${register}, two or three sentences, no exclamation. The host's private reason, ONLY to choose a gentle wording - never quote, reveal or hint at it: """${privateReason.slice(0, 300)}""". Do not promise anything, do not mention money. Return ONLY JSON {"reply": "<the message>"}.`;
+}
+
+/** OPS may send only a draft with no money (D-297.2). A draft with an amount is sent from Finance, and OPS is told so. */
+export function routeDraft(surface: 'finance' | 'ops', text: string): { ops_ok: boolean; toFinance: boolean } {
+  const money = hasMoney(text);
+  return { ops_ok: surface === 'finance' || !money, toFinance: surface === 'ops' && money };
+}
+
+/** The draft card. A failed gate removes Send: the card says which rules failed and offers Draft again. */
+export function inquiryDraftCard(o: { view: InquiryView; purpose: 'reply' | 'decline'; pid: string; d: Pick<InquiryDraft, 'text' | 'gate' | 'source' | 'channel' | 'lastMessage'> }): { text: string; keyboard: { text: string; callback_data?: string }[][] } {
+  const first = firstName(o.view.guest_name) || 'the guest', ok = o.d.gate.length === 0;
+  const head = o.purpose === 'decline'
+    ? `❌ Decline ${first}'s request with this message?`
+    : `✍️ Reply for ${first} · ${o.d.channel}${o.d.source === 'concierge' ? ' · calendar and rate card checked' : ''}`;
+  const lines = [head, ...(o.purpose === 'reply' && o.d.lastMessage ? [`Guest wrote: "${o.d.lastMessage}"`] : []), '📨 ⤵', o.d.text,
+    ...(ok ? [] : [`⚠️ Voice check: ${o.d.gate.join(', ')}. Send is off; tap 🔄 Draft again.`])];
+  return { text: lines.join('\n'), keyboard: draftKeyboard({ purpose: o.purpose, pid: o.pid, bookingId: o.view.id, first: firstName(o.view.guest_name), sendOk: ok }) };
+}
+
+const REGISTER: Record<Lang, string> = { en: 'refined conversational English, no "po"', tl: 'natural Taglish, at most two "po"', bis: 'natural Bislish (Cebuano with English hospitality terms), never Tagalog words or "po"/"opo"' };
+
+/** Draft the reply (the concierge through its probe, or the model with a request hint) or the "other" decline for one request. */
+// deno-lint-ignore no-explicit-any
+export async function draftInquiry(db: any, view: InquiryView, purpose: 'reply' | 'decline', privateReason?: string): Promise<InquiryDraft> {
+  const t = await threadForBooking(db, view.id).catch(() => null);
+  const ctx = replyContext(t?.history, view.submitted_at);
+  const lastMessage = t ? joinMessage(ctx.latest) : siteNotes(view.notes);
+  const guestText = (t ? ctx.latest.join('\n') : '') || siteNotes(view.notes) || '';
+  const lang: Lang = asLang(t?.booking_flow?.lang ?? detectLang(guestText || 'hello'));
+  const channel: InquiryDraft['channel'] = t ? 'Messenger' : view.guest_email ? 'e-mail' : 'no channel';
+  let text = '', source: InquiryDraft['source'] = 'model';
+
+  if (purpose === 'reply') {
+    if (!guestText.trim()) throw new Error('nothing to answer yet');
+    const seed = {
+      step: view.has_receipt ? 'receipt_sent' : 'await_receipt', checkin: view.checkin_date, checkout: view.checkout_date, pax: view.pax ?? undefined, name: view.guest_name, lang, ref: view.ref,
+      deposit: view.deposit_amount ?? undefined, total: view.total_amount ?? undefined, pay_full: view.total_amount !== null && view.deposit_amount === view.total_amount,
+      hold: view.hold_expires_at !== null, hold_expires_at: view.hold_expires_at ?? undefined,
+    };
+    const brain = t && ctx.latest.length
+      ? await conciergeDraft(ctx.before.map((h) => ({ from: h.role === 'guest' ? 'guest' as const : 'host' as const, text: String(h.text ?? '') })), guestText, view.guest_name, seed).catch(() => null)
+      : null;
+    if (brain?.reply) { text = brain.reply; source = 'concierge'; }
+    else {
+      const due = dueWhat(view);
+      const hint = `[The guest submitted request ${view.ref} for ${stayShort(view)}${view.pax ? `, ${view.pax} guests` : ''}, and has not paid yet. ${due === 'payment' ? '' : `The amount due, stored when they asked, is ${due}. `}Answer only what they wrote in two or three warm sentences. Never say the booking is confirmed, never quote a figure that is not in this hint, never invite them to book again.] `;
+      text = await modelDraft(db, guestText, view.guest_name, [], false, hint);
+    }
+  } else {
+    const card = await loadCard(db); await loadContact(db);
+    const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are drafting for the HOST to send; the host will read it first. Write only the message to the guest.`;
+    const raw = await chatJson({ system, history: [], question: declineInstruction(stayShort(view), REGISTER[lang], String(privateReason ?? '')), title: 'Cascade Cassy inquiry decline', temperature: 0.4, maxTokens: 300, timeoutMs: 30_000 });
+    text = leafAtClose(thinPo(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'), lang === 'bis' ? 0 : lang === 'tl' ? 2 : 1));
+  }
+
+  let gate = gateInquiry(text, guestText, lang, privateReason);
+  if (gate.length) {
+    const fixed = await rewrite(db, text, 'Fix only these: ' + gate.join(', ') + '.').catch(() => '');
+    if (fixed) { text = fixed; gate = gateInquiry(fixed, guestText, lang, privateReason); }
+  }
+  if (gate.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_inquiry', purpose, brain: source === 'concierge', gate }));
+  return { text, gate, source, lang, channel, lastMessage, guestText };
 }

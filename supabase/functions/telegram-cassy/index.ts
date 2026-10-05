@@ -17,7 +17,8 @@ import { toneRules } from '../messenger-concierge/voice.ts';
 import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
-import { draftRequest, draftGuestReply, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
+import { draftRequest, draftGuestReply, draftInquiry, inquiryDraftCard, routeDraft, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
+import { OPS_MONEY_REFUSED, staleReason, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: Cassy reply and the Other decline for an unpaid request
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GATE_ENV = () => ({ financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), opsChat: env('TELEGRAM_CHAT_ID'), dmUserIds: env('CASSY_DM_USER_IDS').split(',').map((s) => s.trim()).filter(Boolean) });
@@ -177,6 +178,50 @@ async function revise(db: any, msg: any, raw: string): Promise<void> {
   catch (e) { console.error('cassy_revise_failed', String(e).slice(0, 300)); await tgSend(chatId, 'I could not revise that right now. Try again in a minute.', msg.message_id); }
 }
 
+// SPEC-38 s8: "inquiry: reply|decline <booking uuid> [||| private reason]" arrives from telegram-expense (the Cassy reply tap, or the
+// reason a Finance member typed for an "Other" decline). Cassy drafts, gates, stores an inquiry_reply row and posts the draft card.
+// The send itself is a tap handled in telegram-expense. A draft that mentions amounts, asked for in OPS, is posted in Finance instead.
+const INQUIRY_RE = /^\s*inquiry\s*:\s*(reply|decline)\s+([0-9a-f-]{36})(?:\s*\|\|\|\s*([\s\S]*))?$/i;
+
+async function inquiry(db: any, msg: any, surface: Surface, purpose: 'reply' | 'decline', bookingId: string, reason?: string): Promise<void> {
+  const chatId = String(msg.chat.id);
+  const t0 = Date.now();
+  try {
+    if (purpose === 'decline' && surface !== 'finance') { await tgSend(chatId, 'A decline is written from the Finance group. Nothing was drafted.', msg.message_id); return; }
+    const { data: rows, error } = await db.rpc('telegram_inquiry_view_v1', { p_booking_id: bookingId });
+    if (error) throw new Error(error.message);
+    const view = ((rows ?? [])[0] ?? null) as InquiryView | null;
+    const stale = staleReason(view);
+    if (stale || !view) { await tgSend(chatId, stale ?? 'That request no longer exists.', msg.message_id); return; }
+    const d = await draftInquiry(db, view, purpose, reason);
+    const route = routeDraft(surface, d.text);
+    let target = chatId;
+    if (route.toFinance) {
+      const fin = env('TELEGRAM_FINANCE_CHAT_ID');
+      await tgSend(chatId, OPS_MONEY_REFUSED, msg.message_id);
+      if (!fin) return;
+      target = fin;
+    }
+    let pid = '';
+    if (d.gate.length === 0) {
+      const payload = {
+        purpose, booking_id: view.id, channel_hint: d.channel, lang: d.lang, text: d.text, gate: d.gate, ops_ok: route.ops_ok,
+        drafted_by_tg: msg.from?.id ?? null, drafted_in_chat: chatId, card_mid: msg.message_id ?? null,
+        ...(purpose === 'decline' ? { reason_code: 'other', reason_private: String(reason ?? '').slice(0, 300) } : {}),
+      };
+      const { data: row, error: pe } = await db.from('telegram_pending').insert({ chat_id: Number(target), kind: 'inquiry_reply', payload, expires_at: new Date(Date.now() + 1440 * 60_000).toISOString() }).select('id').single();
+      if (pe || !row) { console.error('pending_insert_failed', JSON.stringify({ kind: 'inquiry_reply', error: String(pe?.message ?? pe ?? 'no row').slice(0, 200) })); await tgSend(chatId, 'I could not open that draft, so nothing was drafted. Try again in a minute.', msg.message_id); return; }
+      pid = row.id;
+    }
+    const card = inquiryDraftCard({ view, purpose, pid, d });
+    await tgSend(target, card.text, target === chatId ? msg.message_id : undefined, { text: card.text, keyboard: card.keyboard as Card['keyboard'] });
+    console.log('cassy_inquiry', JSON.stringify({ chat: chatId, from: msg.from?.id, purpose, source: d.source, gate: d.gate, to_finance: route.toFinance, ms: Date.now() - t0 }));
+  } catch (e) {
+    console.error('cassy_inquiry_failed', String(e).slice(0, 300));
+    await tgSend(chatId, 'I could not draft that right now. Nothing was drafted. Try again in a minute.', msg.message_id);
+  }
+}
+
 Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, async (req) => {
   if (req.method !== 'POST') return new Response('method_not_allowed', { status: 405 });
   const secret = env('TELEGRAM_WEBHOOK_SECRET');
@@ -193,8 +238,9 @@ Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, a
   const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
   // Session 28: "revise: <text> ||| <card context>" comes from the ✏️ Revise tap in telegram-expense.
   const rv = /^\s*revise\s*:\s*([\s\S]*)$/i.exec(question);
+  const iq = INQUIRY_RE.exec(question);
   const dr = draftRequest(question);
-  const work = rv ? revise(db, msg, rv[1]) : dr.draft ? draft(db, msg, dr.text) : answer(db, msg, g.surface, question);
+  const work = rv ? revise(db, msg, rv[1]) : iq ? inquiry(db, msg, g.surface, iq[1].toLowerCase() as 'reply' | 'decline', iq[2], iq[3]) : dr.draft ? draft(db, msg, dr.text) : answer(db, msg, g.surface, question);
   // @ts-ignore EdgeRuntime is provided by Supabase
   if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work); else await work;
   return Response.json({ ok: true, surface: g.surface });
