@@ -225,17 +225,18 @@ export const seriesKey = (url: string): string | null =>
  * `listed` = the dates of our posters; `covered(d)` = d lies inside some current post's span of poster dates, so a date outside every
  * post (its post scrolled out of the feed) can never be judged and is never released.
  */
-export function scheduleFrom(posts: Post[], ours: Record<string, string>, decided: (url: string) => boolean, today?: string): Schedule {
+export function scheduleFrom(posts: Post[], ours: Record<string, string>, decided: (url: string) => boolean): Schedule {
   const all = posts.flatMap((p) => p.posters);
   if (!all.length || all.some((u) => !decided(u))) return null;
   // Supersede (PMS only): a newer post carrying the same series key takes over an older poster, so 22013's Leon Llido Oct 15 replaces 21945's Oct 8.
-  // Only when its series date is within 14 days of the older one, or the older date is already past: next month's poster (Nov) must not
-  // drop an Oct 15 that is still ahead from the listed set while the October post is still in the feed.
+  // Only when BOTH series dates are known and within 14 days of each other: next month's poster (Nov) must not drop an Oct 15 that is still ahead
+  // while the October post is still in the feed. A missing date never supersedes (the block is held), and a passed date is not special-cased:
+  // the filename date can be a moved-FROM date whose read says a later date (D-295), and staleNotices only judges dates from today on anyway.
   // ponytail: supersede only for PMS series (one per substation per cycle); feeder posters (F14-3) can legitimately repeat on two dates in two posts.
   const days = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
   const supersedes = (newer: string, older: string) => {
     const dn = posterDate(newer), dold = posterDate(older);
-    return !dn || !dold || days(dn, dold) <= 14 || (!!today && dold < today);
+    return !!dn && !!dold && days(dn, dold) <= 14;
   };
   const superseded = (u: string, p: Post) => {
     const k = seriesKey(u);

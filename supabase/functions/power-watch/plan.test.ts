@@ -255,14 +255,21 @@ Deno.test('SPEC-41 3.4: the release card leads with the nights that are open aga
   assertStringIncludes(releasedCard(st({ date: '2026-10-08' }), ['2026-10-07']).text, 'unblock it there.');
 });
 
-Deno.test('audit L5a: the next month PMS post does not supersede an October poster whose date is still ahead; a re-post within 14 days still does; a passed date is superseded', () => {
+Deno.test('audit L5a: the next month PMS post does not supersede an October poster whose date is still ahead; a re-post within 14 days still does; a missing date never supersedes', () => {
   const oct = PU + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg', nov = PU + 'SPI-PMS-11122026-LEON-LLIDO-SS.jpg', repost = PU + 'SPI-PMS-10222026-LEON-LLIDO-SS.jpg';
-  const T = '2026-10-05';
-  const far = scheduleFrom([{ id: 30, posters: [nov] }, { id: 20, posters: [oct] }], {}, () => true, T)!;
-  assertEquals([...far.listed].sort(), ['2026-10-15'].concat(['2026-11-12']).sort(), 'Oct 15 is still ahead and stays listed beside the Nov poster');
+  const far = scheduleFrom([{ id: 30, posters: [nov] }, { id: 20, posters: [oct] }], {}, () => true)!;
+  assertEquals([...far.listed].sort(), ['2026-10-15', '2026-11-12'], 'Oct 15 is still ahead and stays listed beside the Nov poster');
   assertEquals(far.covered('2026-10-15'), true);
-  const near = scheduleFrom([{ id: 30, posters: [repost] }, { id: 20, posters: [oct] }], {}, () => true, T)!;
+  const near = scheduleFrom([{ id: 30, posters: [repost] }, { id: 20, posters: [oct] }], {}, () => true)!;
   assertEquals([...near.listed], ['2026-10-22'], 'seven days apart: the newer post owns the series');
-  const past = scheduleFrom([{ id: 30, posters: [nov] }, { id: 20, posters: [oct] }], {}, () => true, '2026-10-20')!;
-  assertEquals([...past.listed], ['2026-11-12'], 'the October date has passed: superseded');
+  const nodate = PU + 'SPI-PMS-LEON-LLIDO-SS.jpg'; // a PMS-keyed poster with no date in its filename
+  const nd = scheduleFrom([{ id: 30, posters: [nodate] }, { id: 20, posters: [oct] }], {}, () => true)!;
+  assert(nd.listed.has('2026-10-15'), 'a poster with no date does not supersede: the block is held');
+});
+
+Deno.test('audit L5a: a moved hit poster (filename Oct 8, read Oct 15) beside a newer Nov 12 post keeps Oct 15 listed on 2026-10-10', async () => {
+  const moved = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', nov = PU + 'SPI-PMS-11122026-LEON-LLIDO-SS.jpg';
+  const sc = scheduleFrom([{ id: 30, posters: [nov] }, { id: 20, posters: [moved] }], { [moved]: '2026-10-15' }, () => true)!;
+  assert(sc.listed.has('2026-10-15'), 'the read date stays listed');
+  assertEquals(staleNotices([st({ date: '2026-10-15', blocked: ['2026-10-14', '2026-10-15'], missRuns: 1 })], sc, [], '2026-10-10').release, [], 'not released');
 });

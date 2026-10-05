@@ -131,8 +131,8 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
       if (!st) { await announce('new', baseFromRow(row!), undefined, undefined); res.push(`${n.date}: adopted`); } else res.push(`${n.date}: known`);
       continue;
     }
-    // equal postId with a different poster URL = a corrected poster added to a post we already hold: newer, not ignored
-    if (st && (n.postId < st.postId || (n.postId === st.postId && n.url === st.url))) { res.push(`${n.date}: older poster ignored`); continue; }
+    // equal postId with a different poster URL = a corrected poster added to a post we already hold: newer, not ignored (a live state may carry no url: same poster)
+    if (st && (n.postId < st.postId || (n.postId === st.postId && (!st.url || n.url === st.url)))) { res.push(`${n.date}: older poster ignored`); continue; }
     if (row) await update(); else await insert();
     if (st) { await announce('changed', base, st); res.push(`${n.date}: changed`); }
     else { await announce('new', base, undefined, n); res.push(`${n.date}: adopted with the poster's times`); }

@@ -386,3 +386,12 @@ Deno.test('audit L5a: equal postId with a different poster URL (a corrected post
   assertStringIncludes(w.sent[1].text, `SOCOTECO notice: ${fixed}`);
   assertEquals(await w.run([found('2026-10-15', '13:00:00', 4, 100, { url: fixed })], '2026-10-02T03:00:00Z'), ['2026-10-15: older poster ignored'], 'same post, same poster, other times: not newer');
 });
+
+Deno.test('audit L5a: a live notice state with no url is the same poster: equal postId is ignored, a newer post still changes it', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  await patchNoticeState(w.db, '2026-10-15', { url: undefined });
+  assertEquals((await readNotice(w.db, '2026-10-15'))!.url ?? '', '', 'the state has no url');
+  assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 100, { url: P + 'SPI-OTHER.jpg' })], '2026-10-02T02:00:00Z'), ['2026-10-15: older poster ignored']);
+  assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 101, { url: P + 'SPI-OTHER.jpg' })], '2026-10-02T03:00:00Z'), ['2026-10-15: changed']);
+});

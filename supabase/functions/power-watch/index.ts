@@ -100,7 +100,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   // What SOCOTECO's current posts say; null (unknown) when a poster is still unread, so nothing is ever freed on a half-read feed.
   // A poster is decided only when it was actually read (state.images); a done post's unread poster is read above, or the schedule is null.
   const sched = posts.map((p) => ({ id: p.id, posters: posterUrls(p.content?.rendered ?? '') }));
-  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u), today);
+  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u));
   let results: string[] = [];
   if (!dry) {
     // Blocks and cards first; the poster state is saved only after them, so a failure re-reads the posters rather than losing a notice.
@@ -113,13 +113,15 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
       posters: state.images, schedule,
     }, found);
     // A poster that failed 8 runs in a row: ONE Follow-ups task (system_task_open_v1 is idempotent by kind + ref), since auto-release is silently off while it is unread.
-    await reportStuck(stuck, async (t) => {
-      const { error } = await db.rpc('system_task_open_v1', { p_property_id: PROPERTY_ID, p_source_kind: t.kind, p_source_ref: t.ref, p_title: t.title, p_detail: t.detail, p_priority: 'normal' });
-      if (error) console.warn('system_task_open_v1 power_poster_unread:', String(error.message).slice(0, 160));
-    });
+    try {
+      await reportStuck(stuck, async (t) => {
+        const { error } = await db.rpc('system_task_open_v1', { p_property_id: PROPERTY_ID, p_source_kind: t.kind, p_source_ref: t.ref, p_title: t.title, p_detail: t.detail, p_priority: 'normal' });
+        if (error) console.warn('system_task_open_v1 power_poster_unread:', String(error.message).slice(0, 160));
+      });
+    } catch (e) { console.warn('power_watch_stuck_task_failed', String(e).slice(0, 160)); } // log only: never skip the prune or the state save
     const pruned = await pruneStates(db, today);
     if (pruned) results.push(`pruned ${pruned} old notice states`);
-    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))), fails: Object.fromEntries(Object.entries(state.fails).filter(([u]) => !state.images.includes(u))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))), fails: Object.fromEntries(Object.entries(state.fails).filter(([u]) => !state.images.includes(u) && sched.some((p) => p.posters.includes(u)))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
   const out = {
     posts: posts.length, reads, dry, results, log, schedule: schedule ? { listed: [...schedule.listed].sort() } : null,
