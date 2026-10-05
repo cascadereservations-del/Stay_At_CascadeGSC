@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s72/l5-airbnb-messages",
-    "commit": "PENDING"
+    "commit": "b98015022a66158bd786e545b24d577b314e53e3"
   },
   "migrations": [
     "20261006120000_airbnb_message_events.sql"
