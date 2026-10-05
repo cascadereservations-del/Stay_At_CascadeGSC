@@ -239,12 +239,13 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
     for (const u of p.posters) {
       const c = classifyFile(u), file = posterDate(u), read = ours[u]; // the filename can carry the moved-FROM date (D-295); the read says what is in force
       const k = seriesKey(u), counts = !k || owner.get(k) === p.id;
-      // A hit poster lists the date its read names (a moved poster: the moved-TO date), the filename date only when no read is recorded
-      // (decided before `ours` existed). The filename date still widens the span, so a moved-FROM date is judged, not skipped.
-      // ponytail: a legacy moved poster with no recorded read still lists its filename date; it ages out of the feed.
-      for (const d of c === 'hit' ? [read, file] : c === 'read' ? [read ?? file] : [file]) if (d) dates.push(d);
-      const listing = c === 'hit' ? (read ?? file) : c === 'read' ? read : null;
-      if (listing && counts) listed.add(listing);
+      // A hit poster lists BOTH the date its read names (a moved poster: the moved-TO date) and its filename date, so one paid OCR read
+      // never frees a night by itself. A real move reaches watch.ts cancel(originalDate), which asks (cancelAskedAt) and staleNotices skips;
+      // a misread leaves the filename date held. A read-class poster lists its read only (no read recorded: its filename date, unread = unknown).
+      // ponytail: a moved-FROM date stays listed until the post leaves the feed; the cancel card, not auto-release, frees it.
+      const own = c === 'hit' ? [read, file] : c === 'read' ? [read ?? file] : [file];
+      for (const d of own) if (d) dates.push(d);
+      if (counts) for (const d of c === 'hit' ? [read, file] : c === 'read' ? [read] : []) if (d) listed.add(d);
     }
     if (dates.length) spans.push([dates.reduce((a, b) => (a < b ? a : b)), dates.reduce((a, b) => (a > b ? a : b))]);
   }
@@ -255,16 +256,18 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
  * Which held SOCOTECO notices SOCOTECO's schedule no longer backs. `miss` = one clean scrape without it (counted), `release` = the
  * second in a row, `ask` = the second but a guest now stays on a night we hold (never released without a tap), `hit` = listed.
  * Unknown (null) is never "gone"; only source-socoteco notices are checked; a date outside every post's span is skipped.
+ * `unknown` = a held notice this run could not judge (no schedule, or its date outside every span): watch.ts resets its missRuns, so release needs two CONSECUTIVE clean misses (SPEC-41 3.2).
  * Grace: two consecutive clean scrapes for every socoteco notice, poster or hand-entered (15 to 30 minutes at the 15-minute cadence).
  * // ponytail: one grace for all; per-source grace only if a real poster flickers longer.
  */
-export function staleNotices(states: NoticeState[], sched: Schedule, rows: Row[], today: string): { miss: string[]; hit: string[]; release: string[]; ask: string[] } {
-  const out = { miss: [] as string[], hit: [] as string[], release: [] as string[], ask: [] as string[] };
-  if (!sched) return out;
+export function staleNotices(states: NoticeState[], sched: Schedule, rows: Row[], today: string): { miss: string[]; hit: string[]; release: string[]; ask: string[]; unknown: string[] } {
+  const out = { miss: [] as string[], hit: [] as string[], release: [] as string[], ask: [] as string[], unknown: [] as string[] };
+  const eligible = (st: NoticeState) => holds(st) && st.date >= today && (st.source ?? 'socoteco') === 'socoteco' && !!st.blocked.length && !st.cancelAskedAt;
+  if (!sched) { for (const st of states) if (eligible(st)) out.unknown.push(st.date); return out; }
   for (const st of states) {
-    if (!holds(st) || st.date < today || (st.source ?? 'socoteco') !== 'socoteco' || !st.blocked.length || st.cancelAskedAt) continue;
+    if (!eligible(st)) continue;
     if (sched.listed.has(st.date)) { out.hit.push(st.date); continue; }
-    if (!sched.covered(st.date)) continue;
+    if (!sched.covered(st.date)) { out.unknown.push(st.date); continue; }
     if ((st.missRuns ?? 0) + 1 < 2) out.miss.push(st.date);
     else (classifyNights(st.blocked, rows, today).guests.length ? out.ask : out.release).push(st.date);
   }

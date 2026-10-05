@@ -128,3 +128,10 @@ Deno.test('SPEC-41 9: overdue = assumed and asked 8 days ago; staff, auto and fr
   const financeEra = oct(20, 22, { recon_alerted_at: '2026-10-01T17:45:00Z' });
   assertEquals(askN([financeEra]), ['ab20'], 'asked in Finance, never answered: asked once in OPS');
 });
+Deno.test('audit L5a: a pending block that overlaps a confirmed Airbnb stay is not triaged (no auto label), same as it is not asked', () => {
+  const stay = row({ uid: 'stay1', status: 'confirmed', checkin_date: '2026-10-15', checkout_date: '2026-10-17' });
+  const blk = row({ uid: 'blk1', checkin_date: '2026-10-14', checkout_date: '2026-10-16' });
+  assertEquals(blocksToTriage([blk, stay], '2026-10-02', null).map((r) => r.uid), [], 'a stay covers it');
+  assertEquals(blocksToTriage([blk], '2026-10-02', null).map((r) => r.uid), ['blk1'], 'no stay: still triaged');
+  assertEquals(blocksToTriage([blk, { ...stay, status: 'cancelled' }], '2026-10-02', null).map((r) => r.uid), ['blk1'], 'a cancelled stay covers nothing');
+});

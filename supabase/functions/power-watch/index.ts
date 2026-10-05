@@ -30,7 +30,8 @@ import { parseModelJson, visionExtractText } from '../_shared/cascade-core/visio
 import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterFor, posterUrls, type Ocr } from './poster.ts';
 import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
 import { scheduleFrom, touchedNights } from './plan.ts';
-import { pruneStates, reconcile, type Found } from './watch.ts';
+import { scanPosts } from './scan.ts';
+import { pruneStates, reconcile } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
@@ -84,42 +85,22 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     const { data: nq } = await db.from('ops_notices').select('effective_date').eq('property_id', PROPERTY_ID).eq('notice_type', 'brownout').eq('is_active', true).gte('effective_date', today);
     for (const n of (nq ?? []) as Array<{ effective_date: string }>) { const u = posterFor(n.effective_date, state.images); if (u && classifyFile(u) === 'read') state.ours[u] = n.effective_date; }
   }
-  const found: Found[] = [], log: string[] = [];
-  let reads = 0;
-  const started = Date.now();
-  for (const p of posts) {
-    if (state.done.includes(p.id)) continue;
-    let complete = true;
-    for (const url of posterUrls(p.content?.rendered ?? '')) {
-      if (state.images.includes(url)) continue;
-      const c = classifyFile(url);
-      if (c === 'miss') { state.images.push(url); continue; }
-      if (reads >= MAX_READS || Date.now() - started > READ_BUDGET_MS) { complete = false; break; }
-      reads++;
-      try {
-        const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
-        if (!img.ok) throw new Error(`poster_${img.status}`);
-        const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
-        // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
-        const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url), o), url);
-        const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'));
-        const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
-        const n = noticeFrom(o, c === 'hit', url);
-        log.push(`${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}`);
-        if (n) state.ours[url] = n.date; // hit posters too: a moved poster's filename carries the moved-FROM date (D-295)
-        if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
-        state.images.push(url);
-      } catch (e) {
-        complete = false; // read again next run
-        console.warn('power_watch_read_failed', url.split('/').pop(), String(e).slice(0, 200));
-      }
-    }
-    if (complete) state.done.push(p.id);
-  }
+  // Reads every poster not yet in state.images, in done posts too (scan.ts).
+  const { found, log, reads } = await scanPosts(posts, state, today, async (url, c) => {
+    const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
+    if (!img.ok) throw new Error(`poster_${img.status}`);
+    const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
+    // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
+    const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url), o), url);
+    const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'));
+    const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
+    const n = noticeFrom(o, c === 'hit', url);
+    return { notice: n, log: `${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}` };
+  }, { maxReads: MAX_READS, budgetMs: READ_BUDGET_MS }, (url, e) => console.warn('power_watch_read_failed', url.split('/').pop(), String(e).slice(0, 200)));
   // What SOCOTECO's current posts say; null (unknown) when a poster is still unread, so nothing is ever freed on a half-read feed.
-  // A poster is decided when it was read, or when its whole post is done (every poster of a done post was decided at the time).
+  // A poster is decided only when it was actually read (state.images); a done post's unread poster is read above, or the schedule is null.
   const sched = posts.map((p) => ({ id: p.id, posters: posterUrls(p.content?.rendered ?? '') }));
-  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u) || sched.some((p) => state.done.includes(p.id) && p.posters.includes(u)));
+  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u));
   let results: string[] = [];
   if (!dry) {
     // Blocks and cards first; the poster state is saved only after them, so a failure re-reads the posters rather than losing a notice.

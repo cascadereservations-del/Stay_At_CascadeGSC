@@ -85,7 +85,7 @@ const futureBlock = (r: CalRow, today: string, horizonGuard: string | null) => i
  * uid every day, calendar-sync v13).
  */
 export function blocksToTriage(rows: CalRow[], today: string, horizonGuard: string | null): CalRow[] {
-  return rows.filter((r) => futureBlock(r, today, horizonGuard) && r.block_reason_source !== 'staff' &&
+  return rows.filter((r) => futureBlock(r, today, horizonGuard) && r.block_reason_source !== 'staff' && !stayCovers(r, rows) &&
     (isPending(r) || r.block_reason_source === 'assumed' || r.block_reason_source === 'auto' || (r.recon_status === 'admin_block' && !r.block_reason)));
 }
 

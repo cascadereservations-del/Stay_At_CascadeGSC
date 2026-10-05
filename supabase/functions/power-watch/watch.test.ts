@@ -195,7 +195,7 @@ const MOVED = () => scheduleFrom([
 /** A typed notice: what Lloyd entered for Oct 8 (postId 0, no poster). */
 const hand = (date: string, o: Record<string, unknown> = {}) => ({
   id: `n-${date}`, property_id: PID, notice_type: 'brownout', is_active: true, effective_date: date, effective_time: '06:00:00', duration_hours: '11.0',
-  source: 'socoteco', posted_by_name: 'Loyd @Loyd1871', ...o,
+  source: 'socoteco', posted_by_name: 'Test Staff @test_staff', ...o,
 });
 /** Three quick runs, all inside the 3-hour reminder grace. */
 const at = (i: number) => `2026-10-02T01:${15 * (i + 1)}:00Z`;
@@ -233,7 +233,7 @@ Deno.test('SPEC-41 3.5-2: a typed notice that is not on the schedule: run 1 coun
   const w = world({ ops_notices: [hand('2026-10-08')] });
   await w.run([]);
   const st0 = (await readNotice(w.db, '2026-10-08'))!;
-  assertEquals([st0.postId, st0.poster, st0.source, st0.enteredBy], [0, '', 'socoteco', 'Loyd @Loyd1871']);
+  assertEquals([st0.postId, st0.poster, st0.source, st0.enteredBy], [0, '', 'socoteco', 'Test Staff @test_staff']);
   await w.run([], '2026-10-02T01:15:00Z', sched([]));
   assertEquals([(await readNotice(w.db, '2026-10-08'))!.missRuns, live(w.db).length], [1, 2]);
   assertEquals(await w.run([], '2026-10-02T01:30:00Z', sched(['2026-10-08'])), [], 'listed again');
@@ -338,18 +338,33 @@ Deno.test('SPEC-41 3.5: a release that frees nothing says nothing (every night i
   assertEquals((await readNotice(w.db, '2026-10-14'))!.status, 'released');
 });
 
-Deno.test('SPEC-41 3.5 (audit L5a): a moved poster (filename = moved-FROM date, read = moved-TO date) keeps the new date held and releases only the old one after 2 clean misses', async () => {
+Deno.test('SPEC-41 3.5 (audit L5a): a moved poster (filename = moved-FROM date, read = moved-TO date) lists both dates; the moved-TO date stays held and the old date is freed by the cancel card, not by two misses', async () => {
   const old = P + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg';
   const sc = scheduleFrom([{ id: 22013, posters: [P + 'SPI-PMS-10102026-DAMALERIO-SS.jpg', old, P + 'SPI-PMS-10252026-TUPI-B-SS.jpg'] }], { [old]: '2026-10-15' }, () => true)!;
-  assertEquals([...sc.listed], ['2026-10-15']);
+  assertEquals([...sc.listed].sort(), ['2026-10-08', '2026-10-15']);
   const w = world({ ops_notices: [hand('2026-10-08')] });
-  await w.run([found('2026-10-15', '06:00:00', 11, 22013, { url: old })]); // adopts Oct 8, announces Oct 15
+  await w.run([]); // adopts Oct 8 and blocks it
+  const r = await w.run([found('2026-10-15', '06:00:00', 11, 22013, { url: old, originalDate: '2026-10-08' })]); // a real move: the read names Oct 15, moved from Oct 8
+  assertStringIncludes(r.join('|'), '2026-10-08: moved to Thu 15 Oct');
   assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15']);
-  assertEquals(await w.run([], '2026-10-02T01:15:00Z', sc), ['2026-10-08: not on the SOCOTECO schedule (clean scrape 1 of 2)']);
-  assertEquals(await w.run([], '2026-10-02T01:30:00Z', sc), ['2026-10-08: released (not on SOCOTECO schedule)']);
-  assertEquals(live(w.db), ['2026-10-14', '2026-10-15'], 'the moved-TO date stays held');
-  assertEquals(await w.run([], '2026-10-02T01:45:00Z', sc), []);
+  assert(!!(await readNotice(w.db, '2026-10-08'))!.cancelAskedAt, 'the cancel card was sent: staleNotices skips it from now on');
+  for (let i = 0; i < 3; i++) assertEquals(await w.run([], at(i), sc), [], `run ${i + 1}`);
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15'], 'nothing is released by the scrape; the Unblock tap frees Oct 8');
   assertEquals((await readNotice(w.db, '2026-10-15'))!.status, 'active');
+  assertEquals((await releaseNotice(w.db, PID, '2026-10-08', 'unblock', 'test')).ok, true);
+  assertEquals(live(w.db), ['2026-10-14', '2026-10-15'], 'the moved-TO date stays held');
+});
+
+Deno.test('SPEC-41 3.2 (audit L5a): miss, unknown, miss does not release - release needs two CONSECUTIVE clean misses', async () => {
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([]);
+  const s = sched(['2026-10-15']); // Oct 8 covered, not listed
+  assertEquals(await w.run([], at(0), s), ['2026-10-08: not on the SOCOTECO schedule (clean scrape 1 of 2)']);
+  assertEquals((await readNotice(w.db, '2026-10-08'))!.missRuns, 1);
+  assertEquals(await w.run([], at(1), null), [], 'unknown run');
+  assertEquals((await readNotice(w.db, '2026-10-08'))!.missRuns ?? 0, 0, 'the unknown run broke the streak');
+  assertEquals(await w.run([], at(2), s), ['2026-10-08: not on the SOCOTECO schedule (clean scrape 1 of 2)'], 'counting starts over');
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08']);
 });
 
 Deno.test('SPEC-41 3.5 (audit L5a): a date a current poster read names is never released, even when its filename says another date', async () => {
