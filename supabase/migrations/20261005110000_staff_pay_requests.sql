@@ -91,7 +91,7 @@ alter table public.cleaning_expense_claims add column if not exists receipt_path
 -- The lock must only move inside the definer RPCs, which run as their owner.
 create or replace function public.cleaning_sessions_pay_request_guard() returns trigger language plpgsql set search_path = '' as $$
 begin
-  if current_user not in ('postgres', 'service_role', 'supabase_admin') then
+  if current_user in ('anon', 'authenticated') then -- only the API roles can write directly; the definer RPCs run as their owner
     if tg_op = 'INSERT' then
       if new.pay_request_id is not null then
         raise exception using errcode = '42501', message = 'pay_request_id moves only through the payment request RPCs';

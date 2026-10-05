@@ -135,8 +135,10 @@ select is(public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-
   'hold: b2 already has a receipt -> receipt_arrived (decide on the receipt card)');
 select is(public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-000000000004', 'hold') ->> 'reason', 'not_pending',
   'hold: b4 is cancelled -> not_pending');
+-- The call runs in its own statement first: one statement's snapshot does not see rows its own function call inserted.
+select set_config('cascade.s70_hold6', public.telegram_inquiry_decide_v1(907000099, 'c0de7001-0000-4000-8000-000000000006', 'hold', null, 500, 'Mia')::text, true);
 select ok((select (r ->> 'ok')::boolean and (r ->> 'expires_at')::timestamptz <= now() + interval '48 hours 1 minute' and r -> 'actor_user_id' = 'null'::jsonb
-             from (select public.telegram_inquiry_decide_v1(907000099, 'c0de7001-0000-4000-8000-000000000006', 'hold', null, 500, 'Mia') as r) q)
+             from (select current_setting('cascade.s70_hold6')::jsonb as r) q)
       and (select count(*) = 1 from public.booking_lifecycle_events
             where idempotency_key = 'tg-inquiry-hold:c0de7001-0000-4000-8000-000000000006' and actor_user_id is null
               and after_state ->> 'telegram_user_id' = '907000099'),

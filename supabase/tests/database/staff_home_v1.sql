@@ -22,6 +22,10 @@ select ok(not has_function_privilege('anon', 'public.staff_can_view_guest_id_obj
       and has_function_privilege('authenticated', 'public.staff_can_view_guest_id_object_v1(text)', 'execute'),
   'only authenticated reaches the storage-policy helper');
 
+-- The rehearsal restore is --no-acl; give authenticated the storage grants production has (rolled back with the suite).
+grant usage on schema storage to authenticated;
+grant select on storage.objects to authenticated;
+
 -- Fixtures: a synthetic property, a cleaner, an admin, a maintenance user, one user with no staff profile.
 insert into public.properties(id, name, is_active) values ('e3600000-0000-4000-8000-0000000000b0', 'Synthetic Staff Home L3', true);
 insert into auth.users(id) values ('e3600000-0000-4000-8000-000000000001'), ('e3600000-0000-4000-8000-000000000002'), ('e3600000-0000-4000-8000-000000000003');

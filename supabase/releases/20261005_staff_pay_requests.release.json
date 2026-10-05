@@ -10,7 +10,7 @@
     "20261005110000_staff_pay_requests.sql"
   ],
   "migration_sha256": {
-    "20261005110000_staff_pay_requests.sql": "805956f838fa21808a005e090b03d83e480b495b12a251696e71f709e0a97e2f"
+    "20261005110000_staff_pay_requests.sql": "4de40242ff86fc74026c30cada2b39aa9255d8e887ea87a42ff80e6d59ea0e02"
   },
   "backup": {
     "required": true,
