@@ -167,15 +167,22 @@ const LEAKS9: [string, string][] = [
   ['Maria 1780 ml', '1780'], ['Maria 1780 kg', '1780'], ['1780 sqm', '1780'], ['Maria 1780%', '1780'], ['1780 W for 2 nights', '1780'], ['300 W for 2 nights', '300'], ['Maria 1780 W', '1780'], ['1780 kWh', '1780'], ['Maria 1780 W total', '1780'],
   ['singko siyentos', 'siyentos'], ['sanlibo', 'sanlibo'], ['mil kwatro syentos', 'syentos'], ['mil kwatro syentos', 'mil'], ['sanlibong piso', 'sanlibo'], ['dos siyentos singkwenta', 'siyentos'], ['sandaan lang', 'sandaan'], ['kinyentos po', 'kinyentos'], ['tres mil', 'mil'],
   ['Maria #1780', '1780'], ['ref #1780', '1780'], ['Maria 01780', '1780'], ['ref 1780', '1780'], ['Ref no. 3560', '3560'], ['#3560', '3560'], ['Ana 0950', '0950'],
+  // the round-9 Opus audit: regressions (money, then a date, then a unit; HM codes with EXTRA) and the near variants
+  ['Paid: Oct 15, 950 pcs', '950'], ['Paid Oct 15, 300 W', '300'], ['Paid 15 Oct 300 W', '300'], ['Received Oct 15, 120 rolls', '120'], ['GCash Oct 15, 500 ml', '500'],
+  ['HMEXTRA780', '780'], ['HM780EXTRA', '780'], ['HMBAYAD780', '780'], ['HMUTANG780', '780'], ['AN178050', '178050'], ['MA1780PH', '1780'], ['X1780000', '1780000'],
+  ['Refund Oct 2030', '2030'], ['Revenue Oct 2030', '2030'], ['Sent Oct 2030', '2030'], ['Transferred Oct 15, 2030', '2030'], ['Kita Oct 2030', '2030'], ['Natanggap Oct 2030', '2030'], ['Oct 2030 sent', '2030'],
+  ['EcoFlow Maria 1780 W', '1780'], ['Solar Maria 1780 W', '1780'], ['battery Maria 3560 Wh', '3560'], ['Maria 1780 W, charge the EcoFlow', '1780'], ['EcoFlow rated 1780 W, Maria 3560 W', '3560'], ['EcoFlow 1780 W 2 nights', '1780'],
+  ['sang libo', 'libo'], ['quinientos', 'quinientos'], ['doscientos', 'doscientos'], ['dos cientos', 'cientos'], ['1 milyon', 'milyon'], ['nuebe mil', 'nuebe'], ['beinte mil', 'beinte'], ['dos syentos singkuwenta', 'singkuwenta'],
+  ['mil quinientos', 'quinientos'], ['2M', '2M'], ['1.5M this year', '1.5'], ['1 million', 'million'], ['isang milyon', 'milyon'],
 ];
 Deno.test('D-306 round 9: the round-9 audit leaks all mask', () => {
   for (const [t, leak] of LEAKS9) { const m = maskMoney(t); assert(hasMoney(t), `hasMoney ${t}`); assert(!m.includes(leak), `${t} -> ${m}`); }
-  for (const t of ['Laundry ₱500 MARIA1780', 'Cleaning ₱500 Paid Oct 2030', 'Laundry ₱500 Maria #1780', 'Supplies ₱300 sanlibo']) assert(maskTitle(t) === maskMoney(t), `${t} -> ${maskTitle(t)}`);
+  for (const t of ['Laundry ₱500 MARIA1780', 'Cleaning ₱500 Paid Oct 2030', 'Laundry ₱500 Maria #1780', 'Supplies ₱300 sanlibo', 'Supplies ₱300 cash Oct 15, 120 rolls', 'Laundry ₱500 received Oct 15, 950 pcs', 'Laundry ₱500 HMEXTRA780', 'Laundry ₱500 AN178050']) assert(maskTitle(t) === maskMoney(t), `${t} -> ${maskTitle(t)}`);
 });
 
 Deno.test('D-306 round 9 keep-list: every readability keep still reads whole', () => {
   for (const t of [
-    'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%', '300 W', '300W', 'Its output is 300 W in total.', 'EcoFlow 1800 W output', 'EcoFlow capacity 1024 Wh', '1.2 kWh', '500 ml shampoo', 'Laundry 1.2 kg',
+    'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%', '300 W', '300W', 'Its output is 300 W in total.', 'EcoFlow 1800 W output', 'EcoFlow capacity 1024 Wh', 'Max output 1800 W', 'Door code 4829 sent to Ana', 'Sent the towels', 'Consent form signed','Booking 4F123A9C confirmed', 'Restock 250 pcs, deposit the keys', 'kulang ng 120 rolls', '1.2 kWh', '500 ml shampoo', 'Laundry 1.2 kg',
     'Call 911 or 117', 'BFP 160', 'Tawag sa 160 kung sunog', 'Door code 4829 sent', 'Code is 4829', 'Wi-Fi password 12345678', 'Room 203', 'Room #203 extra towels', 'Send 120 rolls', '8 guests', 'Guest count 4, towels 8, 3 pax, 2 nights',
     'Oct 15, 2026', 'Check-in Oct 15, 2026', 'October 2026, 5 nights', '15 Oct 2026', 'Arrives 10:30am, back by 2pm', 'Call 0917 123 4567', 'Tel: 552-3162', '(083) 552-3162',
     'Booking HMYDBYKYPC / 00A49C5E', 'HMA1234567', 'Booking #12345 confirmed', 'ref 5012345', 'Work order #1a2b3c4d raised', 'D-306 and SPEC-38',
