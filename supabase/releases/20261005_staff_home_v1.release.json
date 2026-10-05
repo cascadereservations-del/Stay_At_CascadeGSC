@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T071619Z",
-    "verified_at": "2026-10-05T07:23:13.891Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T105322Z",
+    "verified_at": "2026-10-05T10:57:21.052Z",
     "production_rule": "Expand only: nine new functions (one RPC, one storage-policy helper, seven internal helpers) and one new storage.objects SELECT policy on the guest-id-photos bucket. No table, column, grant or data change; the three existing guest-id-photos policies (manage read, write, delete) are untouched. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [

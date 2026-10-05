@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T071619Z",
-    "verified_at": "2026-10-05T07:23:13.891Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T105322Z",
+    "verified_at": "2026-10-05T10:57:21.052Z",
     "production_rule": "Five additive nullable columns on calendar_events (block_reason, block_reason_source, block_note, block_answered_by, block_answered_at; CHECKs only on the first three) and one on ops_notices (source, backfilled from the title and who entered it, then CHECKed socoteco/ngcp/staff). Two new service_role-only functions (telegram_answer_calendar_block_v2, telegram_note_calendar_block_v1). telegram_answer_calendar_block_v1 becomes a wrapper over v2 (live md5(prosrc) 7f43ea5dda50f325487aaa9ca04e473c, read 2026-10-05, equals 20260925010000). get_hospitality_metrics_v1 is replaced by the production body (live md5(prosrc) 0c2bc9aea7cdb418fb646590a2434a76, read 2026-10-05, equals 20260913100000) with one added predicate in the v_blocked query; the migration stops itself if either live md5 differs. No data is deleted, no table or grant is removed. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
