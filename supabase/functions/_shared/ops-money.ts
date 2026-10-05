@@ -62,7 +62,7 @@ const ID_PAY = /\b(?:gcash|maya|bank|transfer|payment|paid|deposit|receipt)\b[^.
 const POST_CUE = /\b(?:zip|postal(?:\s+code)?|postcode)[:,]?\s*$/i;
 const HOT_CUE = /\b(?:call|pakicall|dial|tawag|hotline|bfp|pnp|police|fire|ambulance|emergency|red\s+cross|rescue)\b(?:[^\w\n]+\w+){0,3}?[^\w\n]*$/i;
 const MEASURE = /^\s?(?:%|(?:ml|kg|sqm|g|l)\b(?!\/))/i; // 500 ml, 100%: up to 3 digits ("Maria 1780 ml" is an amount)
-const WATT = /^ ?(?:kWh|Wh|kW|W)(?![A-Za-z/])(?!\s+(?!(?:in|at|of|and|or|when|on|to|max|continuous|output|peak)\b)[A-Za-z0-9])/; // 300 W, 300W (capital, not "1780 w breakfast", "300 W for 2 nights", "300 W 2 nights")
+const WATT = /^ ?(?:kWh|Wh|kW|W)(?![A-Za-z/◼])(?!\s+(?!(?:in|at|of|and|or|when|on|to|max|continuous|output|peak)\b)[A-Za-z0-9◼])/; // ◼ = an amount already hidden ("300 W mil") // 300 W, 300W (capital, not "1780 w breakfast", "300 W for 2 nights", "300 W 2 nights")
 // 4+ digit watts need a device word RIGHT before the number ("EcoFlow 1800 W", "max output 1800 W"; not "EcoFlow Maria 1780 W")
 const DEVICE = /\b(?:ecoflow|power\s*station|inverter|batter(?:y|ies)|generator|solar|aircon|fridge|refrigerator|heater|kettle|microwave|charger|appliance|capacity|rated|output|max)[^\w\n]*$/i;
 const COUNT = /^\s?(?:rolls|towels|sheets|hangers|pillows|pillowcases|blankets|bottles|packs|sachets|pcs?|pieces|bars|cans|boxes|kits|sets)\b/i; // 120 rolls (1-3 digits)

@@ -181,7 +181,7 @@ const LEAKS9: [string, string][] = [
   ['Call 911 Oct 15, 2026 Refund tonight', '911'], ['Room 950 Oct 15, 2026 Refund lang', '950'], ['100% na po Oct 15 Refund', '100'],
   // round 9g: a date is one protected word again (round 8 shape); money beside it hides only the year
   ['code 4829 Oct 15 - Oct 17, 2026 Refund lang', '4829'], ['Room 950 Oct 15 - Oct 17, 2026 Sent lang', '950'], ['100% Oct 15 - Oct 17, 2026 Sent Refund', '100'], ['refund po Oct 15, 2026 sent 100%', '100'],
-  ['Oct 2030 lang', '2030'], ['Oct 15, 2030/night', '2030'], ['Bayaran Oct 2030', '2030'], ['Gross Oct 2030', '2030'], ['Netted Oct 2030', '2030'], ['PAID May 2030', '2030'],
+  ['Oct 2030 lang', '2030'], ['Oct 15, 2030/night', '2030'], ['Bayaran Oct 2030', '2030'], ['Gross Oct 2030', '2030'], ['Netted Oct 2030', '2030'], ['PAID May 2030', '2030'], ['300 W mil', '300'], ['EcoFlow 1800 W isang milyon', '1800'], ['300W novecientos', '300'],
   ['Remitted Oct 2030', '2030'], ['Nagpadala Oct 2030', '2030'], ['Binayaran Oct 15, 2030', '2030'], ['Profit Oct 2030', '2030'], ['Sukli Oct 2030', '2030'], ['Remaining Oct 2030', '2030'],
 ];
 Deno.test('D-306 round 9: the round-9 audit leaks all mask', () => {
