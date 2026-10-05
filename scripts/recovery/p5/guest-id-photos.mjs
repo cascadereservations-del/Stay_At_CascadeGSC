@@ -347,9 +347,10 @@ async function writeSet(cfg, plan, now) {
 async function purge(all, backedUp) {
   const status = await rpc('guest_id_photo_purge_status_v1', {}, 'PURGE');
   const due = Array.isArray(status?.due) ? status.due : [];
-  const allowed = purgeAllowed(due, backedUp);
-  // A due path whose object is already gone only needs its queue row cleared (the RPC re-checks storage.objects itself).
-  const gone = due.filter((p) => !all.has(p) && !allowed.includes(p) && (PHOTO_RE.test(p) || PLACEHOLDER_RE.test(p)));
+  // A due path whose object is already gone only needs its queue row cleared (the RPC re-checks storage.objects itself);
+  // it never goes to the Storage DELETE, so a missing object cannot fail PURGE every day.
+  const gone = due.filter((p) => !all.has(p) && (PHOTO_RE.test(p) || PLACEHOLDER_RE.test(p)));
+  const allowed = purgeAllowed(due.filter((p) => all.has(p)), backedUp);
   let purged = 0;
   if (allowed.length) {
     const res = await api('DELETE', `/storage/v1/object/${BUCKET}`, { prefixes: allowed }, 'PURGE');
