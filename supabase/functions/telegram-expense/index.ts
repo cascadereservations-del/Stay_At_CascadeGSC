@@ -37,6 +37,7 @@ import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (
 import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
 import { liveSendIO } from './inquiry-send.ts';
 import { parseReason, noticeTitle } from './reply.ts'; // noticeTitle: D-306, OPS notice titles are masked
+import { parseDirRef, refundCard, refundGate, type Payer } from './refund.ts'; // SPEC-42 9a: a refund goes only to the account that paid
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
@@ -1103,6 +1104,8 @@ async function handleDocumentMessage(msg: any, db: any): Promise<void> {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleRefundCommand(db: any, chatId: any, from: any, args: string[]): Promise<void> {
+  // D-306: a refund is booking money. It is prepared and confirmed in the Finance group only, so nothing here can reach OPS.
+  if (!isFinanceChat(chatId)) { await tgSend(chatId, FINANCE_ONLY); return; }
   const fullText = args.join(' ').trim();
   let refundRail: 'offplatform' | 'resolution_center' = 'offplatform';
   let workText = fullText;
@@ -1134,7 +1137,24 @@ async function handleRefundCommand(db: any, chatId: any, from: any, args: string
     await tgSend(chatId, '\u26a0\ufe0f Recipient name is required after the amount.');
     return;
   }
-  const [{ data: resvRow }, { data: incomeRow }] = await Promise.all([
+  // SPEC-42 9a: a DIR-xxxxxxxx or 8-hex ref is a direct booking; it is checked against the account that paid (invariant I3).
+  // Anything else, and an 8-hex ref no direct booking owns, stays the Airbnb path it always was.
+  const dir = parseDirRef(refCode);
+  let direct: any = null;
+  if (dir) {
+    const [lo, hi] = refRange(dir.prefix);
+    const { data: found, error: dirErr } = await db.from('booking_inquiries')
+      .select('id,guest_name,paid_from_name,paid_from_channel')
+      .eq('property_id', PROPERTY_ID).gte('id', lo).lte('id', hi).limit(2);
+    if (dirErr) { await tgSend(chatId, NOTHING_CHANGED('look up that booking', errMsg(dirErr.message))); return; }
+    if ((found ?? []).length > 1) { await tgSend(chatId, `\u26a0\ufe0f More than one booking starts with \`${dir.prefix.toUpperCase()}\`, so nothing was prepared. Use the full DIR code.`); return; }
+    direct = found?.[0] ?? null;
+    if (!direct && dir.explicit) { await tgSend(chatId, `\u26a0\ufe0f No direct booking with code \`${refCode}\`, so nothing was prepared.`); return; }
+  }
+  const refKey = direct ? `DIR-${String(direct.id).slice(0, 8).toUpperCase()}` : refCode;
+  const payer: Payer | null = direct ? { name: direct.paid_from_name ?? null, channel: direct.paid_from_channel ?? null } : null;
+  const gate = payer ? refundGate(recipient, payer, notePipe) : { state: 'match' as const, canConfirm: true, warning: null };
+  const [{ data: resvRow }, { data: incomeRow }] = direct ? [{ data: null }, { data: null }] : await Promise.all([
     db.from('airbnb_reservations')
       .select('guest_name,host_payout,checkin_date,checkout_date')
       .eq('confirmation_code', refCode)
@@ -1147,41 +1167,40 @@ async function handleRefundCommand(db: any, chatId: any, from: any, args: string
       .eq('status', 'confirmed')
       .maybeSingle(),
   ]);
-  const guestName  = resvRow?.guest_name ?? null;
+  const guestName  = direct ? (direct.guest_name ?? null) : (resvRow?.guest_name ?? null);
   const origPayout = incomeRow
     ? Number(incomeRow.gross_amount)
     : (resvRow ? Number(resvRow.host_payout ?? 0) : null);
   const netAfter   = origPayout != null ? origPayout - amount : null;
-  const notFound   = !resvRow;
+  const notFound   = !direct && !resvRow;
   const notes = notePipe
     ? notePipe
-    : `Guest refund \u2014 ${refCode}${guestName ? ` (${guestName})` : ''}. Paid to ${recipient}.`;
-  const pid = await createPending(db, chatId, 'refund_confirm', {
-    refCode, amount, recipient,
-    refundRef, notes, refundRail,
-    loggedBy: whoFrom(from), notFound,
-  });
+    : `Guest refund \u2014 ${refKey}${guestName ? ` (${guestName})` : ''}. Paid to ${recipient}.`;
+  // Nothing is saved for a card that cannot be confirmed; for one that can, a failed save is told on the card (refundCard).
+  const pid = gate.canConfirm
+    ? await createPending(db, chatId, 'refund_confirm', {
+        refCode: refKey, amount, recipient,
+        refundRef, notes, refundRail,
+        loggedBy: whoFrom(from), notFound,
+      })
+    : '';
   const railLabel = refundRail === 'resolution_center'
     ? 'Resolution Center (Airbnb nets from next payout)'
     : 'Off-platform (GCash / bank transfer)';
   const lines: string[] = [
-    `\uD83D\uDCB8 *Refund Confirmation*`, ``,
-    `Booking:   \`${refCode}\`${guestName ? `  \u00b7  ${mdEsc(guestName)}` : ''}`,
+    `\ud83d\udcb8 *Refund Confirmation*`, ``,
+    `Booking:   \`${refKey}\`${guestName ? `  \u00b7  ${mdEsc(guestName)}` : ''}`,
     `Refund to: ${mdEsc(recipient)}`,
     `Amount:    \u20b1${peso(amount)}`,
-    origPayout != null ? `Orig payout: \u20b1${peso(origPayout)}` : `Orig payout: _not yet received_`,
-    netAfter   != null ? `Net after:   \u20b1${peso(netAfter)}`   : `Net after:   _pending payout_`,
+    direct ? '' : origPayout != null ? `Orig payout: \u20b1${peso(origPayout)}` : `Orig payout: _not yet received_`,
+    direct ? '' : netAfter   != null ? `Net after:   \u20b1${peso(netAfter)}`   : `Net after:   _pending payout_`,
     `Rail: ${mdEsc(railLabel)}`,
     refundRef  ? `Ref: ${mdEsc(refundRef)}` : `Ref: _none_`,
     notes      ? `Note: ${mdEsc(notes.slice(0, 120))}` : '',
     notFound   ? `\n\u26a0\ufe0f Booking not found in DB \u2014 refund will be logged; verify REFCODE manually.` : '',
   ].filter(l => l !== '');
-  await tgSend(chatId, lines.join('\n'), {
-    reply_markup: { inline_keyboard: [[
-      { text: '\u2705 Confirm Refund', callback_data: `refund_ok:${pid}` },
-      { text: '\u274c Cancel',         callback_data: `llm_cancel:${pid}` },
-    ]] },
-  });
+  const card = refundCard(lines, gate, pid, NOTHING_CHANGED, mdEsc, payer);
+  await tgSend(chatId, card.text, card.keyboard ? { reply_markup: { inline_keyboard: card.keyboard } } : {});
 }
 
 async function executeRefund(
@@ -1414,6 +1433,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
     await sendCountList(db,chatId,scope);return;
   }
   if(data.startsWith('refund_ok:')){
+    if(!isFinanceChat(chatId)){await tgSend(chatId,FINANCE_ONLY);return;} // D-306: refund money stays in Finance
     const payload=await consumePending(db,data.slice('refund_ok:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n\u23f0 _Expired._');return;}
     await tgEdit(chatId,msgId,firstLine+'\n_Logging refund\u2026_');
