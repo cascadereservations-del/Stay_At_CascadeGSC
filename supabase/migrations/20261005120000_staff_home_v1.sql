@@ -32,23 +32,27 @@ create or replace function public.staff_hide_money_v1(p text)
 returns text language sql immutable set search_path to '' as $$
   select regexp_replace(
            regexp_replace(
-             regexp_replace(p, '(₱|php\.?|usd|\$)\s*[0-9][0-9,]*(\.[0-9]+)?', '[hidden]', 'gi'),
-             '[0-9][0-9,]*(\.[0-9]+)?\s*(₱|php|pesos|piso)', '[hidden]', 'gi'),
-           '\mP\s*[0-9]+(,[0-9]{3})*(\.[0-9]+)?', '[hidden]', 'g');   -- PH shorthand: P500, P 1,000, P1,000.00 (capital P only)
+             regexp_replace(
+               regexp_replace(p, '(₱|€|£|\$|\m(php|usd|eur)\.?)\s*[0-9][0-9,]*(\.[0-9]+)?', '[hidden]', 'gi'),
+               '[0-9][0-9,]*(\.[0-9]+)?\s*k?\s*(₱|€|\$|php|usd|eur|pesos?|pisos?|dollars?)', '[hidden]', 'gi'),
+             '[0-9][0-9,]*(\.[0-9]+)?\s*k\M', '[hidden]', 'gi'),                     -- 1.5k, 2k
+           '\m(P\s*|p)[0-9]+(,[0-9]{3})*(\.[0-9]+)?', '[hidden]', 'g');             -- PH shorthand: P500, P 1,000, P1,000.00, p500
 $$;
 
--- Free text sent to staff: e-mail shapes, PH mobiles ((+63|0)9 + nine digits, spaces, dashes or dots allowed), other +country numbers
--- and any bare run of 10 or more digits are replaced by [hidden], then money (staff_hide_money_v1). Over-redaction is fine, a leak is not.
+-- Free text sent to staff. Order: full-width digits and signs to ASCII; e-mail shapes; then ANY run of 7 or more digits joined by spaces,
+-- brackets, dots, slashes, underscores, plus or minus signs (every phone layout: (0917) 123 4567, +63 917 123 4567, 0917/123/4567,
+-- 083-552-1234, +1 (415) 555-0100, spaced-out digits) with its leading + or (; then money (staff_hide_money_v1). ISO dates YYYY-MM-DD are
+-- fenced out of the digit run by the lookarounds (not preceded by a digit or by the start of a date, not starting a date); a colon is not a
+-- joiner, so a time like 14:00 or 14:00-15:00 stays. Over-redaction is fine, a leak is not.
 create or replace function public.staff_redact_v1(p text)
 returns text language sql immutable set search_path to '' as $$
   select public.staff_hide_money_v1(
            regexp_replace(
              regexp_replace(
-               regexp_replace(
-                 regexp_replace(p, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '[hidden]', 'g'),
-                 '(\+?63|0)9([ .-]*[0-9]){9}', '[hidden]', 'g'),
-               '\+[0-9]([ .-]*[0-9]){8,}', '[hidden]', 'g'),
-             '[0-9]{10,}', '[hidden]', 'g'));
+               translate(p, '０１２３４５６７８９＋（）－．／', '0123456789+()-./'),
+               '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '[hidden]', 'g'),
+             '[+(]*(?<![0-9])(?<![0-9]{4}-)(?<![0-9]{4}-[0-9]{2}-)(?![0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9]))[0-9]([[:space:]().\/_+-]*[0-9]){6,}',
+             '[hidden]', 'g'));
 $$;
 
 -- Roles that may see a guest's ID photo (D-299.9): everyone with read_operations except maintenance.
@@ -183,22 +187,22 @@ begin
     into v_next from public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'next';
 
   with w as (
-    select 'brownout' kind, 'alert' severity, public.staff_redact_v1(n.title),
+    select 'brownout' kind, 'alert' severity, public.staff_redact_v1(n.title) title,
            jsonb_build_object('date', n.effective_date, 'time', n.effective_time, 'hours', n.duration_hours,
-                              'grid_line', n.feeder, 'posted_by', n.posted_by_name) detail,
+                              'grid_line', public.staff_redact_v1(n.feeder), 'posted_by', public.staff_redact_v1(n.posted_by_name)) detail,
            n.effective_date::timestamptz at_ts
       from public.ops_notices n
      where n.property_id = p_property_id and n.is_active and n.notice_type = 'brownout'
        and coalesce(n.audience,'staff') in ('staff','all')
        and (n.expires_at is null or n.expires_at > now()) and n.effective_date >= v_today - 1
     union all
-    select 'verifier', case f.severity when 'red' then 'alert' else 'warn' end, public.staff_redact_v1(f.title),
+    select 'verifier', case f.severity when 'red' then 'alert' else 'warn' end, public.staff_redact_v1(f.title) title,
            jsonb_build_object('check_id', f.check_id, 'status', f.status), f.last_seen
       from public.verifier_findings f
      where f.status in ('open','acknowledged')
        and (v_role in ('owner','admin','finance') or f.check_id = any(v_ops_checks))
     union all
-    select 'inventory', 'warn', public.staff_redact_v1('Low stock: ' || i.name),
+    select 'inventory', 'warn', public.staff_redact_v1('Low stock: ' || i.name) title,
            jsonb_build_object('qty', i.qty_on_hand, 'unit', i.unit, 'reorder_below', i.reorder_below), i.updated_at
       from public.inventory_items i
      where i.property_id = p_property_id and i.is_active and i.qty_on_hand < i.reorder_below

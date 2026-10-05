@@ -10,7 +10,7 @@
     "20261005120000_staff_home_v1.sql"
   ],
   "migration_sha256": {
-    "20261005120000_staff_home_v1.sql": "3f0da098217bbac39d094a1f4730addc143b6ee00a0ebc6b9ee435df3c38bc39"
+    "20261005120000_staff_home_v1.sql": "78305c2809093ab7e3bbb84af5b0ecc4556ed5e9389c72bccffb7840ce6a0836"
   },
   "backup": {
     "required": true,
@@ -42,12 +42,12 @@
     },
     {
       "name": "money_redactor_hides_an_amount",
-      "query": "select public.staff_hide_money_v1('Was given a refund of PHP 500 and 1,000 pesos and P500 and P 1,000 and P1,000.00') = 'Was given a refund of [hidden] and [hidden] and [hidden] and [hidden] and [hidden]'",
+      "query": "select public.staff_hide_money_v1('Was given a refund of PHP 500 and 1,000 pesos and P500 and P 1,000 and P1,000.00') = 'Was given a refund of [hidden] and [hidden] and [hidden] and [hidden] and [hidden]' and (select bool_and(public.staff_hide_money_v1(t) = '[hidden]') from unnest(array['2k pesos','500 peso','p500','1.5k',U&'\\20AC50']) t)",
       "expect": true
     },
     {
-      "name": "contact_redactor_hides_phones_and_emails",
-      "query": "select public.staff_redact_v1('call 0917 123 4567 or +63 917-123-4567 or 09181234567 or x@y.com, room 12 on 2026-08-01') = 'call [hidden] or [hidden] or [hidden] or [hidden], room 12 on 2026-08-01'",
+      "name": "contact_redactor_hides_every_phone_layout_and_keeps_dates_and_times",
+      "query": "select (select bool_and(public.staff_redact_v1(t) = '[hidden]') from unnest(array['(0917) 123 4567', '+63 (917) 123 4567', '63 917 123 4567', '917 123 4567', '0917/123/4567', '0917_123_4567', '(083) 552 1234', '083-552-1234', '+1 (415) 555-0100', '0 9 1 7 1 2 3 4 5 6 7', '09181234567', 'x@y.com', U&'\\FF10\\FF19\\FF11\\FF17\\FF11\\FF12\\FF13\\FF14\\FF15\\FF16\\FF17\\FF18', U&'\\FF10\\FF19\\FF11\\FF17-\\FF11\\FF12\\FF13-\\FF14\\FF15\\FF16\\FF17']) t) and (select bool_and(public.staff_redact_v1(t) = t) from unnest(array['Check-in 2026-08-01 room 12, 2 pax', 'Oct 20 to 22', '3 nights, 2 guests', 'Check-in 14:00, out 11:00-12:00', '2026-08-01 - 2026-08-05', 'room 12, 2 pax']) t) and public.staff_redact_v1('call 0917 123 4567 or +63 917-123-4567 or 09181234567 or x@y.com, room 12 on 2026-08-01') = 'call [hidden] or [hidden] or [hidden] or [hidden], room 12 on 2026-08-01' and public.staff_redact_v1('2026-08-01 0917 123 4567') = '2026-08-01 [hidden]'",
       "expect": true
     },
     {

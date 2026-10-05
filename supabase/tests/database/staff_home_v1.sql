@@ -3,7 +3,7 @@
 -- suite is inside begin/rollback. Fixtures insert as the owner (service_role has no BYPASSRLS); the roles are impersonated with
 -- request.jwt.claims as staff_decide_direct_booking.sql does.
 begin;
-select plan(36);
+select plan(62);
 
 select ok((select bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -62,8 +62,8 @@ insert into storage.objects(bucket_id, name) values
   ('guest-id-photos', 'e3600000-0000-4000-8000-0000000000e2/11111111-0000-4000-8000-000000000002.jpg'),
   ('guest-id-photos', 'e3600000-0000-4000-8000-0000000000e3/11111111-0000-4000-8000-000000000003.jpg'),
   ('guest-id-photos', 'e3600000-0000-4000-8000-0000000000e4/11111111-0000-4000-8000-000000000004.jpg');
-insert into public.ops_notices(property_id, notice_type, title, effective_date, is_active, audience)
-  values ('e3600000-0000-4000-8000-0000000000b0', 'brownout', 'zz-l3 brownout', current_date + 3, true, 'staff');
+insert into public.ops_notices(property_id, notice_type, title, effective_date, is_active, audience, feeder, posted_by_name)
+  values ('e3600000-0000-4000-8000-0000000000b0', 'brownout', 'zz-l3 brownout', current_date + 3, true, 'staff', 'Feeder (0917) 123 4567', 'Ana x@y.com');
 insert into public.inventory_items(property_id, name, category, qty_on_hand, reorder_below, is_active)
   values ('e3600000-0000-4000-8000-0000000000b0', 'zz-l3 Low Item', 'zz', 1, 6, true);
 insert into public.verifier_findings(key, check_id, severity, title, status) values
@@ -72,10 +72,21 @@ insert into public.verifier_findings(key, check_id, severity, title, status) val
 -- The redactors and the unresolved-guest card, called as the owner (the helpers are not granted to a staff session).
 select is(public.staff_hide_money_v1('paid P500, P 1,000 and P1,000.00 ok'), 'paid [hidden], [hidden] and [hidden] ok',
   'the money filter hides PH shorthand P500, P 1,000 and P1,000.00');
+-- Phone layouts, e-mail and full-width digits: the whole string goes.
+select is(public.staff_redact_v1(t), '[hidden]', 'hidden: ' || t) from unnest(array[
+  '(0917) 123 4567', '+63 (917) 123 4567', '63 917 123 4567', '917 123 4567', '0917/123/4567', '0917_123_4567',
+  '(083) 552 1234', '083-552-1234', '+1 (415) 555-0100', '0 9 1 7 1 2 3 4 5 6 7',
+  '０９１７１２３４５６７８', '０９１７-１２３-４５６７', '09181234567', 'x@y.com']) t;
+-- Dates, times and small numbers stay as written.
+select is(public.staff_redact_v1(t), t, 'kept: ' || t) from unnest(array[
+  'Check-in 2026-08-01 room 12, 2 pax', 'Oct 20 to 22', '3 nights, 2 guests', 'Check-in 14:00, out 11:00-12:00',
+  '2026-08-01 - 2026-08-05', 'room 12, 2 pax']) t;
 select is(public.staff_redact_v1('call 0917 123 4567 ok'), 'call [hidden] ok', 'a 09 mobile with spaces is hidden');
 select is(public.staff_redact_v1('or +63 917-123-4567.'), 'or [hidden].', 'a +63 mobile with dashes is hidden');
 select is(public.staff_redact_v1('mail x@y.com now'), 'mail [hidden] now', 'an e-mail address is hidden');
-select is(public.staff_redact_v1('Check-in 2026-08-01, room 12, 2 pax'), 'Check-in 2026-08-01, room 12, 2 pax', 'dates and small numbers are left alone');
+select is(public.staff_redact_v1('2026-08-01 0917 123 4567'), '2026-08-01 [hidden]', 'a date is kept and the phone after it is hidden');
+-- Money: words, k, lowercase p and a euro sign.
+select is(public.staff_hide_money_v1(t), '[hidden]', 'money hidden: ' || t) from unnest(array['2k pesos', '500 peso', 'p500', '1.5k', '€50']) t;
 select is(public.staff_guest_card_v1('e3600000-0000-4000-8000-0000000000b0', null, current_date)->'earlier_stays', 'null'::jsonb,
   'earlier_stays is null, not [], when the guest is unresolved');
 
@@ -111,6 +122,9 @@ select ok(exists (select 1 from jsonb_array_elements(public.staff_home_v1('e3600
       and exists (select 1 from jsonb_array_elements(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'warnings') w
                    where w->>'kind' = 'inventory' and w->>'title' = 'Low stock: zz-l3 Low Item'),
   'the brownout notice and the low-stock item are warnings');
+select ok((select w->'detail'->>'grid_line' = 'Feeder [hidden]' and w->'detail'->>'posted_by' = 'Ana [hidden]'
+             from jsonb_array_elements(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'kind' = 'brownout'),
+  'the brownout feeder and poster name are redacted');
 select is((select count(*)::int from jsonb_object_keys(coalesce(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'weather'->'current', '{}'::jsonb)) k
             where k not in ('temp','emoji','description','rain_prob','today_high','today_low','humidity','uv_label')), 0,
   'the weather block holds the eight display fields and nothing else');
