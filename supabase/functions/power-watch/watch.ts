@@ -1,9 +1,9 @@
 // power-watch, the orchestration (D-290): what one run does with the notices it found, the ones already on the board, and the
 // ones it holds blocks for. IO goes through `Deps` (a database, a Telegram sender, a mailer), so watch.test.ts runs every
 // path against an in-memory database. Nothing here writes to Airbnb or sends anything to a guest.
-import { cancelBrownoutRows, brownoutUid, listNotices, patchNoticeState, putNoticeState, releasable, type NoticeState } from '../_shared/cascade-core/brownout.ts';
+import { cancelBrownoutRows, brownoutUid, listNotices, patchNoticeState, putNoticeState, readNotice, releasable, releaseNotice, type NoticeSource, type NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { alertText, dayLabel, FEEDER, posterFor, type Notice } from './poster.ts';
-import { cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, reminderCard, reminderDue, seenCard, seenDue, touchedNights, windowLabel, type Built, type Row } from './plan.ts';
+import { cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, windowLabel, type Built, type Row, type Schedule } from './plan.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -13,10 +13,14 @@ export type Deps = {
   mail: (subject: string, body: string) => Promise<boolean>;
   log: (event: string, data: unknown) => void;
   posters?: string[]; // poster URLs already read (power_watch_state.images): the link for a notice that has none of its own
+  schedule?: Schedule; // SPEC-41: what SOCOTECO's current posts say (plan.ts scheduleFrom); absent or null = unknown, nothing is ever released
+  sendFinance?: (card: Built) => Promise<boolean>; // the same card to the Finance chat (the auto-release card goes to OPS and Finance)
 };
 export type Found = Notice & { postId: number };
-type NoticeRow = { id: string; effective_date: string; effective_time: string | null; duration_hours: number | string | null };
-type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string; url: string };
+type NoticeRow = { id: string; effective_date: string; effective_time: string | null; duration_hours: number | string | null; source?: string | null; posted_by_name?: string | null };
+type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string; url: string; source?: NoticeSource; enteredBy?: string };
+/** A row with no source (written before the SPEC-41 release, or by an old writer) reads as SOCOTECO, like a state with none. */
+const srcOf = (r: { source?: string | null } | undefined): NoticeSource => (r?.source === 'ngcp' || r?.source === 'staff' ? r.source : 'socoteco');
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
 const num = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -34,7 +38,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   if (cal.error) throw new Error(`calendar_events: ${cal.error.message}`);
   const rows: Row[] = [...(cal.data ?? [])];
   const states = new Map<string, NoticeState>((await listNotices(db)).map((s) => [s.date, s]));
-  const nq = await db.from('ops_notices').select('id,effective_date,effective_time,duration_hours')
+  const nq = await db.from('ops_notices').select('id,effective_date,effective_time,duration_hours,source,posted_by_name')
     .eq('property_id', pid).eq('notice_type', 'brownout').eq('is_active', true).gte('effective_date', today).order('created_at');
   if (nq.error) throw new Error(`ops_notices: ${nq.error.message}`);
   const noticeRows: NoticeRow[] = nq.data ?? [];
@@ -61,7 +65,8 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     }
     const added = blocked.filter((n) => !(prev?.blocked ?? []).includes(n));
     const st: NoticeState = {
-      ...base, url: base.url || prev?.url || '', status: 'active', nights: touchedNights(base.date, base.time, base.hours).filter((n) => n >= today),
+      ...base, url: base.url || prev?.url || '', status: 'active', source: base.source ?? prev?.source ?? 'socoteco',
+      ...(base.enteredBy ?? prev?.enteredBy ? { enteredBy: base.enteredBy ?? prev?.enteredBy } : {}), nights: touchedNights(base.date, base.time, base.hours).filter((n) => n >= today),
       blocked, already: cls.already, guests: cls.guests,
       card: { kind, ...(prev ? { prev: { time: prev.time, hours: prev.hours, blocked: prev.blocked } } : {}) },
       // A change that adds nights is a new job for Marifel; one that only moves the hours leaves what she did standing.
@@ -76,7 +81,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     return st;
   }
 
-  const baseFromRow = (r: NoticeRow): Base => ({ date: r.effective_date, noticeId: r.id, time: r.effective_time, hours: num(r.duration_hours), postId: 0, poster: '', url: '' });
+  const baseFromRow = (r: NoticeRow): Base => ({ date: r.effective_date, noticeId: r.id, time: r.effective_time, hours: num(r.duration_hours), postId: 0, poster: '', url: '', source: srcOf(r), ...(r.posted_by_name ? { enteredBy: r.posted_by_name } : {}) });
 
   /** SOCOTECO cancelled an outage, or moved it: ask before anything is released, because Airbnb is Marifel's to unblock. */
   async function cancel(date: string, note: string, url: string) {
@@ -102,16 +107,16 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     if (n.originalDate) await cancel(n.originalDate, `moved to ${dayLabel(n.date)}`, n.url);
     let st = states.get(n.date);
     let row = noticeRows.find((r) => r.effective_date === n.date);
-    const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster, url: n.url };
+    const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster, url: n.url, source: st?.source ?? (row ? srcOf(row) : 'socoteco') };
     if (st?.status === 'released') { st = undefined; row = undefined; base.noticeId = null; } // it was cancelled and now it is posted again
     const insert = async () => {
       const { data, error } = await db.from('ops_notices').insert({
         property_id: pid, notice_type: 'brownout', title: n.title, description: `${n.purpose ? n.purpose + ' | ' : ''}poster ${n.poster}`,
-        effective_date: n.date, effective_time: n.time, duration_hours: n.hours, feeder: `Feeder ${FEEDER}`, posted_by_name: 'Power watch (socoteco2.com)',
+        effective_date: n.date, effective_time: n.time, duration_hours: n.hours, feeder: `Feeder ${FEEDER}`, posted_by_name: 'Power watch (socoteco2.com)', source: 'socoteco',
       }).select('id').single();
       if (error) throw new Error(`ops_notices: ${error.message}`);
       base.noticeId = data?.id ?? null;
-      noticeRows.push({ id: String(base.noticeId), effective_date: n.date, effective_time: n.time, duration_hours: n.hours });
+      noticeRows.push({ id: String(base.noticeId), effective_date: n.date, effective_time: n.time, duration_hours: n.hours, source: 'socoteco' });
     };
     const update = async () => {
       const { error } = await db.from('ops_notices').update({
@@ -135,6 +140,31 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   // Notices already on the board that this module has never seen (a photo saved in Telegram, the ones before v2).
   for (const r of noticeRows.filter((x) => !states.has(x.effective_date)).slice(0, 5)) {
     await announce('new', baseFromRow(r)); res.push(`${r.effective_date}: adopted`);
+  }
+
+  // SPEC-41 Part 3 (D-299.1): a brownout block stays only while SOCOTECO's current schedule still lists the outage. Runs before the cards
+  // go out, so a guest-night question (the cancel card) is asked in this run. Unknown or a failed scrape never reaches here as "gone".
+  const stale = staleNotices([...states.values()], d.schedule ?? null, rows, today);
+  for (const date of stale.hit) {
+    if ((states.get(date)?.missRuns ?? 0) > 0) { const n = await patchNoticeState(db, date, { missRuns: 0 }); if (n) states.set(date, n); }
+  }
+  for (const date of stale.miss) {
+    const n = await patchNoticeState(db, date, { missRuns: (states.get(date)?.missRuns ?? 0) + 1 });
+    if (n) states.set(date, n);
+    res.push(`${date}: not on the SOCOTECO schedule (clean scrape 1 of 2)`);
+  }
+  for (const date of stale.ask) await cancel(date, 'no longer lists', states.get(date)?.url ?? ''); // a guest is in: asked once, nothing released without a tap
+  for (const date of stale.release) {
+    const r = await releaseNotice(db, pid, date, 'unblock', 'auto: not on SOCOTECO schedule'); // respects releasable(): a night another active notice needs stays held
+    if (!r.ok) { d.log('power_watch_release_failed', { date, error: r.error }); continue; } // the miss count stays, so the next run tries again
+    const done = await readNotice(db, date);
+    if (done) states.set(date, done);
+    res.push(`${date}: released (not on SOCOTECO schedule)`);
+    if (r.nights.length && done) { // nothing freed (every night already free or needed elsewhere) = nothing to say
+      const card = releasedCard(done, r.nights);
+      if (!(await d.send(card))) d.log('power_watch_card_failed', { date, kind: 'released', chat: 'ops' });
+      if (d.sendFinance && !(await d.sendFinance(card))) d.log('power_watch_card_failed', { date, kind: 'released', chat: 'finance' });
+    }
   }
 
   // Cards that are waiting to go out, including any a failed Telegram send left behind last run.

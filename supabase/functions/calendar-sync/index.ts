@@ -3,10 +3,16 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { classifyMissingAirbnbRows } from './horizon.ts';
 import { confirmationCodeFrom, parseIcal, type ICalEvent } from './ical.ts';
-import { BLOCK_ANSWERS, blockCardText, blocksOverdue, blocksToAsk, type CalRow } from './blocks.ts';
+import { BLOCK_ANSWERS, blockCardText, blocksOverdue, blocksToAsk, blocksToTriage, explain, monthDay, partialLine, type CalRow, type DirectEvidence, type Notice } from './blocks.ts';
 import { ackHash } from '../_shared/ack-hash.ts';
 
-// calendar-sync v15 - Cascade Hideaway
+// calendar-sync v16 - Cascade Hideaway
+//
+// v16 (2026-10-05, SPEC-41, D-296.2): an Airbnb block with no booking behind it is explained BEFORE anyone is asked: an active brownout
+//   notice (any source) covering every night, else a direct booking, hold or inquiry -> labelled automatically on calendar_events
+//   (block_reason, block_reason_source 'auto'), no message. Nothing explains it -> saved as maintenance ('assumed') and ONE card in
+//   Telegram OPS (not Finance) with four taps: Brownout, Maintenance, Owner use, Something else. Chased once after 7 days (Follow-ups).
+//   Needs the SQL release calendar_block_triage_20261005 (the block_* columns) applied first.
 //
 // v15 (2026-09-25, SPEC-24, D-225/D-235/D-236): the feed is unfolded before parsing (ical.ts), so every
 //   Airbnb row keeps its confirmation code; each row is linked to airbnb_reservations by that code
@@ -326,41 +332,86 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // -- v15: a block with no booking behind it is asked about once (D-236) ----
-    let blocksAsked = 0;
+    // -- v16: explain a block before asking anyone; ask OPS once if nothing does (SPEC-41) ----
+    let blocksAsked = 0, blocksAuto = 0, blocksAssumed = 0;
     try {
       const { data: live, error: liveErr } = await supabase
         .from('calendar_events')
-        .select('uid,source,status,checkin_date,checkout_date,recon_status,recon_alerted_at,raw_description')
+        .select('uid,source,status,checkin_date,checkout_date,recon_status,recon_alerted_at,raw_description,block_reason,block_reason_source,block_note')
         .eq('property_id', propertyId).neq('status', 'cancelled').gt('checkout_date', today);
       if (liveErr) throw new Error(liveErr.message);
       const rows = (live ?? []) as CalRow[];
-      if (tgToken && tgFinanceId) {
-        for (const b of blocksToAsk(rows, today, horizonGuard)) {
-          const h = await ackHash(b.uid);
-          const keyboard = BLOCK_ANSWERS.map((a) => [{ text: a.label, callback_data: `cb:block:${h}:${a.code}` }]);
-          if (!(await tgAsk(tgToken, tgFinanceId, blockCardText(b), keyboard))) continue; // not stamped: asked again next run
-          await supabase.from('calendar_events').update({ recon_alerted_at: new Date().toISOString() }).eq('property_id', propertyId).eq('uid', b.uid);
-          blocksAsked++;
+      // The evidence. A failed read stops the step: a block must never be asked about because a table could not be read.
+      const { data: nq, error: nqErr } = await supabase.from('ops_notices').select('id,title,effective_date,effective_time,duration_hours,source')
+        .eq('property_id', propertyId).eq('notice_type', 'brownout').eq('is_active', true).gte('effective_date', today);
+      if (nqErr) throw new Error(`ops_notices: ${nqErr.message}`);
+      const notices = (nq ?? []) as Notice[];
+      const { data: hq, error: hqErr } = await supabase.from('booking_holds').select('id,status,checkin_date,checkout_date')
+        .eq('property_id', propertyId).eq('status', 'active').gt('expires_at', new Date().toISOString()).gt('checkout_date', today);
+      if (hqErr) throw new Error(`booking_holds: ${hqErr.message}`);
+      const { data: iq, error: iqErr } = await supabase.from('v_direct_bookings').select('ref,status,checkin_date,checkout_date')
+        .gt('checkout_date', today).not('status', 'in', '(cancelled,declined,expired)');
+      if (iqErr) throw new Error(`v_direct_bookings: ${iqErr.message}`);
+      const direct: DirectEvidence[] = [
+        ...((hq ?? []) as Array<{ id: string; checkin_date: string; checkout_date: string }>).map((h) => ({ ref: String(h.id).slice(0, 8).toUpperCase(), status: 'hold', checkin_date: h.checkin_date, checkout_date: h.checkout_date })),
+        ...((iq ?? []) as DirectEvidence[]),
+      ];
+
+      // 1. Label what the evidence explains; reset an automatic label whose evidence has gone. Silent: nobody is asked.
+      for (const b of blocksToTriage(rows, today, horizonGuard)) {
+        const e = explain(b, rows, notices, direct);
+        if (e) {
+          if (b.block_reason_source === 'auto' && b.block_reason === e.reason && (b.block_note ?? '') === e.note) continue; // already so
+          const patch = { recon_status: e.reason === 'brownout' ? 'admin_block' : 'skipped', block_reason: e.reason, block_reason_source: 'auto', block_note: e.note };
+          const { error } = await supabase.from('calendar_events').update(patch).eq('property_id', propertyId).eq('uid', b.uid)
+            .or('recon_status.eq.pending,block_reason_source.eq.assumed,block_reason.is.null,block_reason_source.eq.auto'); // a staff answer matches none of these
+          if (error) { console.warn('calendar-sync v16: label failed', b.uid.slice(-12), error.message); continue; }
+          Object.assign(b, patch);
+          blocksAuto++;
+        } else if (b.block_reason_source === 'auto') {
+          const patch = { recon_status: 'pending', block_reason: null, block_reason_source: null, block_note: null, recon_alerted_at: null };
+          const { error } = await supabase.from('calendar_events').update(patch).eq('property_id', propertyId).eq('uid', b.uid).eq('block_reason_source', 'auto');
+          if (error) { console.warn('calendar-sync v16: reset failed', b.uid.slice(-12), error.message); continue; }
+          Object.assign(b, patch);
         }
       }
-      // Unanswered for a week: one Follow-ups task each (D-218). An answer, or the block leaving the
-      // calendar, closes it on the next run.
-      const overdue = blocksOverdue(rows, today, new Date());
+
+      // 2. Nothing explains it: saved as maintenance for now, asked once in OPS. A failed send puts it back, so it is asked again next run.
+      if (tgToken && tgOpsId) {
+        for (const b of blocksToAsk(rows, today, horizonGuard, notices, direct)) {
+          const { data: took, error: tookErr } = await supabase.from('calendar_events')
+            .update({ recon_status: 'admin_block', block_reason: 'maintenance', block_reason_source: 'assumed', block_note: null })
+            .eq('property_id', propertyId).eq('uid', b.uid).eq('recon_status', 'pending').select('uid');
+          if (tookErr || !took?.length) continue; // answered a moment ago, or the write failed
+          const h = await ackHash(b.uid);
+          const keyboard = BLOCK_ANSWERS.map((a) => [{ text: a.label, callback_data: `cb:block:${h}:${a.code}` }]);
+          if (!(await tgAsk(tgToken, tgOpsId, blockCardText(b, partialLine(b, rows, notices)), keyboard))) {
+            await supabase.from('calendar_events').update({ recon_status: 'pending', block_reason: null, block_reason_source: null, block_note: null })
+              .eq('property_id', propertyId).eq('uid', b.uid).eq('block_reason_source', 'assumed'); // not stamped: asked again next run
+            continue;
+          }
+          const stamped = new Date().toISOString();
+          await supabase.from('calendar_events').update({ recon_alerted_at: stamped }).eq('property_id', propertyId).eq('uid', b.uid);
+          Object.assign(b, { recon_status: 'admin_block', block_reason: 'maintenance', block_reason_source: 'assumed', recon_alerted_at: stamped });
+          blocksAsked++; blocksAssumed++;
+        }
+      }
+      // Assumed and unanswered for a week: one Follow-ups task each (D-218). An answer, evidence, or the block leaving the calendar closes it.
+      const overdue = blocksOverdue(rows, today, new Date(), notices, direct);
       for (const b of overdue) {
         await supabase.rpc('system_task_open_v1', {
           p_property_id: propertyId, p_source_kind: 'calendar_block', p_source_ref: b.uid,
-          p_title: `Say what the Airbnb block ${b.checkin_date} to ${b.checkout_date} is`,
-          p_detail: 'It is blocked on Airbnb and Cascade has no booking for it. Answer the card in Finance: maintenance or owner use, a direct booking, or unblock it.',
+          p_title: `Confirm what the Airbnb block ${monthDay(b.checkin_date)} to ${monthDay(b.checkout_date)} is`,
+          p_detail: 'Saved as maintenance for now. Tap the answer on the OPS card, or tell Lloyd.',
           p_priority: 'normal',
         });
       }
       await supabase.rpc('system_task_close_missing_v1', {
         p_source_kind: 'calendar_block', p_still_open: overdue.map((b) => b.uid), p_since: null,
-        p_note: 'Closed automatically: the block was answered, booked or removed.',
+        p_note: 'Closed automatically: the block was answered, explained or removed.',
       });
     } catch (blockErr) {
-      console.warn('calendar-sync v15: block question step failed (non-fatal):', String(blockErr));
+      console.warn('calendar-sync v16: block triage step failed (non-fatal):', String(blockErr));
     }
 
     await hb('succeeded');
@@ -370,7 +421,7 @@ Deno.serve(async (req: Request) => {
         new_confirmed: newlyConfirmed.length,
         cancelled_reaped: reaped,
         guest_names_backfilled: guestNamesBackfilled,
-        linked, blocks_asked: blocksAsked,
+        linked, blocks_asked: blocksAsked, blocks_auto: blocksAuto, blocks_assumed: blocksAssumed,
       }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } },
     );

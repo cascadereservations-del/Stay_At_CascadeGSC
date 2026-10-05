@@ -16,6 +16,12 @@ export const brownoutUid = (night: string) => `brownout:${night}`;
 export const noticeKey = (date: string) => `${STATE_PREFIX}${date}`;
 
 export type Guest = { night: string; name: string };
+/** SPEC-41 Part 3: where a brownout notice came from decides whether power-watch checks it against SOCOTECO's current posts.
+ *  socoteco = a SOCOTECO II notice (checked); ngcp = a grid outage and staff = a scheduled job (neither is checked). */
+export type NoticeSource = 'socoteco' | 'ngcp' | 'staff';
+export const noticeSource = (text: string | null | undefined): NoticeSource => /\bNGCP\b/i.test(text ?? '') ? 'ngcp' : /SOCOTECO/i.test(text ?? '') ? 'socoteco' : 'staff';
+/** The word a card uses for who announced it ('Scheduled' for a staff-entered job). A state with no source reads as SOCOTECO. */
+export const sourceWord = (s: NoticeSource | undefined) => (s === 'ngcp' ? 'NGCP' : s === 'staff' ? 'Scheduled' : 'SOCOTECO');
 /** What power-watch has decided and done for one outage date. Every field after `status` is optional history. */
 export type NoticeState = {
   date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string;
@@ -28,6 +34,9 @@ export type NoticeState = {
   card: null | { kind: 'new' | 'changed' | 'cancel'; prev?: { time: string | null; hours: number | null; blocked: string[] }; note?: string };
   cardAt?: string; doneAt?: string; doneBy?: string; seenAt?: string; remindedAt?: string;
   releasedAt?: string; releasedBy?: string; cancelAskedAt?: string;
+  source?: NoticeSource;     // SPEC-41: absent reads as socoteco
+  enteredBy?: string;        // posted_by_name of a hand-entered notice (postId 0)
+  missRuns?: number;         // consecutive clean scrapes where SOCOTECO's current schedule no longer listed this date
 };
 
 // ── dates ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -37,6 +46,23 @@ export const validYmd = (s: unknown): s is string => {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 };
 export const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
+
+/**
+ * Nights (YYYY-MM-DD) an outage on `date` touches. Unknown start counts as the whole morning (from 00:00), unknown
+ * length as running to midnight, so a poster with no times blocks the night before and the night of: the safe side.
+ * (Moved here from power-watch/plan.ts in SPEC-41 so calendar-sync reads the same rule.)
+ */
+export function touchedNights(date: string, time: string | null, hours: number | null): string[] {
+  const s = time ? mins(time) : 0;
+  const e = hours && hours > 0 ? s + Math.round(hours * 60) : Math.max(s, 1440);
+  const out: string[] = [];
+  for (let k = -1; k <= Math.ceil(e / 1440); k++) {
+    const stayStart = k * 1440 + 14 * 60, stayEnd = (k + 1) * 1440 + 12 * 60;
+    if (s < stayEnd && e > stayStart) out.push(addDays(date, k));
+  }
+  return out;
+}
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const monthDay = (ymd: string) => `${MON[Number(ymd.slice(5, 7)) - 1]} ${Number(ymd.slice(8, 10))}`;
 /** 'Oct 14', 'Oct 14 and Oct 15', 'Oct 14, Oct 15 and Oct 16'. */
@@ -48,11 +74,11 @@ export function nightsList(nights: string[]): string {
 export const nightsPhrase = (nights: string[]) => `${nights.length === 1 ? 'night' : 'nights'} of ${nightsList(nights)}`;
 
 // ── callback payloads (Telegram caps callback_data at 64 bytes; every one here is under 60) ─────────────────────────
-export type PwTap = { kind: 'done' | 'undo' | 'unblock'; date: string };
+export type PwTap = { kind: 'done' | 'undo' | 'unblock' | 'keep'; date: string };
 export type TaskTap = { kind: 'stc' | 'crm'; date: string; ref: string; sourceKind: 'stay_continues' | 'guest_details'; sourceRef: string };
 
 export function parsePwTap(data: string): PwTap | null {
-  const m = /^pw:(done|undo|unblock):(\d{4}-\d{2}-\d{2})$/.exec(String(data ?? ''));
+  const m = /^pw:(done|undo|unblock|keep):(\d{4}-\d{2}-\d{2})$/.exec(String(data ?? ''));
   return m && validYmd(m[2]) ? { kind: m[1] as PwTap['kind'], date: m[2] } : null;
 }
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -132,4 +158,21 @@ export async function releaseNotice(db: Db, propertyId: string, date: string, mo
   const now = new Date().toISOString();
   await patchNoticeState(db, date, { status: mode === 'undo' ? 'undone' : 'released', blocked: [], releasedAt: now, releasedBy: by, card: null });
   return { ok: true, nights, already: false };
+}
+
+/**
+ * The Keep it blocked tap on the auto-release card (SPEC-41 3.4): a person says SOCOTECO told them the outage is still on.
+ * The notice goes back on the board as a staff notice (never checked against socoteco2.com again) and its state is deleted,
+ * so power-watch's "notice on the board with no state" path adopts it within 15 minutes and re-blocks the free nights.
+ */
+export async function keepNotice(db: Db, propertyId: string, date: string): Promise<{ ok: true; already: boolean } | { ok: false; error: string }> {
+  const st = await readNotice(db, date);
+  if (st && st.status !== 'released') return { ok: true, already: true }; // still active (or undone): nothing to bring back
+  const q = db.from('ops_notices').update({ is_active: true, source: 'staff', updated_at: new Date().toISOString() });
+  const { data, error } = await (st?.noticeId ? q.eq('id', st.noticeId) : q.eq('property_id', propertyId).eq('notice_type', 'brownout').eq('effective_date', date)).select('id');
+  if (error) return { ok: false, error: String(error.message ?? error).slice(0, 120) };
+  if (!data?.length) return { ok: false, error: 'There is no notice on record for that outage.' };
+  const { error: delErr } = await db.from('app_settings').delete().eq('key', noticeKey(date));
+  if (delErr) return { ok: false, error: String(delErr.message ?? delErr).slice(0, 120) };
+  return { ok: true, already: false };
 }

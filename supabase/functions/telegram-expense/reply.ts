@@ -5,7 +5,8 @@ import type { Change, CountItem } from './count.ts';
 
 export type Flow =
   | 'count_qty' | 'expense' | 'edit_amount' | 'payclean_amount'
-  | 'receipt_item_edit' | 'receipt_item_add' | 'manual_clean';
+  | 'receipt_item_edit' | 'receipt_item_add' | 'manual_clean'
+  | 'block_brownout' | 'block_other'; // SPEC-41: the follow-ups to the OPS blocked-date card
 
 export type Route =
   | { kind: 'flow' }         // the person is being asked something: this text is the answer
@@ -57,6 +58,8 @@ export function refusal(flow: Flow): string {
     receipt_item_edit: 'Type the new price, like 216, or name and price, like Mr Muscle 216. Nothing saved yet.',
     receipt_item_add: 'Type the item and its price, like Joy Dishwashing 89. Nothing saved yet.',
     manual_clean: 'Type: cleaner, date, amount, like Honey, 05-28, 500. Nothing saved yet.',
+    block_brownout: 'Say the day, start, hours and who announced it, like: 10-11 8am 8h NGCP. Nothing saved yet.',
+    block_other: 'Reply with a few words about what the block is. Nothing saved yet.',
   } as Record<Flow, string>)[flow];
 }
 

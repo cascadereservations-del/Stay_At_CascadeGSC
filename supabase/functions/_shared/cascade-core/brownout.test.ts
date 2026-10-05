@@ -1,6 +1,6 @@
 // deno test supabase/functions/_shared/cascade-core/brownout.test.ts - the callback payloads the brownout and task cards carry.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { brownoutUid, nightsList, nightsPhrase, parsePwTap, parseTaskTap, pwData, releasable, rpcMissing, validYmd, type NoticeState } from './brownout.ts';
+import { brownoutUid, nightsList, nightsPhrase, noticeSource, parsePwTap, parseTaskTap, pwData, releasable, rpcMissing, sourceWord, touchedNights, validYmd, type NoticeState } from './brownout.ts';
 
 Deno.test('pw taps: three actions on a real date, nothing else', () => {
   assertEquals(parsePwTap('pw:done:2026-10-15'), { kind: 'done', date: '2026-10-15' });
@@ -9,6 +9,26 @@ Deno.test('pw taps: three actions on a real date, nothing else', () => {
   for (const bad of ['pw:done:2026-13-45', 'pw:done:2026-02-30', 'pw:done:20261015', 'pw:remove:2026-10-15', 'pw:done:2026-10-15:x', 'pw:done:', 'pw:done:2026-10-15 ', 'xpw:done:2026-10-15', '', 'pw:DONE:2026-10-15'])
     assertEquals(parsePwTap(bad), null, bad);
   assertEquals(pwData('unblock', '2026-10-15'), 'pw:unblock:2026-10-15');
+  // SPEC-41: the auto-release card's fourth action
+  assertEquals(parsePwTap('pw:keep:2026-10-08'), { kind: 'keep', date: '2026-10-08' });
+  assertEquals(pwData('keep', '2026-10-08'), 'pw:keep:2026-10-08');
+  assertEquals(parsePwTap('pw:keep:2026-02-30'), null);
+  assert(new TextEncoder().encode('pw:keep:2026-10-08').length <= 64);
+});
+
+Deno.test('SPEC-41: noticeSource - NGCP, SOCOTECO, else staff; sourceWord is what a card calls it', () => {
+  assertEquals(noticeSource('NGCP grid interruption'), 'ngcp');
+  assertEquals(noticeSource('SOCOTECO II substation maintenance'), 'socoteco');
+  assertEquals(noticeSource('Water tank cleaning'), 'staff');
+  assertEquals(noticeSource('SOCOTECO relays an NGCP notice'), 'ngcp', 'NGCP wins: it is the grid');
+  assertEquals(noticeSource('SOCOTECO II power interruption'), 'socoteco', 'what a photo notice reads: payload.source + title');
+  assertEquals(noticeSource(null), 'staff');
+  assertEquals(noticeSource('NGCPX'), 'staff', 'a whole word only');
+  assertEquals([sourceWord('ngcp'), sourceWord('socoteco'), sourceWord('staff'), sourceWord(undefined)], ['NGCP', 'SOCOTECO', 'Scheduled', 'SOCOTECO']);
+});
+
+Deno.test('SPEC-41: touchedNights lives in brownout.ts (calendar-sync reads the same rule); power-watch re-exports it', () => {
+  assertEquals(touchedNights('2026-10-11', '08:00:00', 8), ['2026-10-10', '2026-10-11'], 'the NGCP Oct 11 08:00 for 8 h notice covers the Airbnb block Oct 10-12');
 });
 
 Deno.test('task taps: stc needs a 6-12 character A-Z0-9 code, crm needs a uuid, both a real date', () => {

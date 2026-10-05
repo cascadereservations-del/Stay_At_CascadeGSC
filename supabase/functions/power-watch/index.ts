@@ -18,20 +18,23 @@
 // Facebook only; paid scraping, free tier first) is missed; and one OCR misread is carried until a newer poster corrects it. Two
 // windows on one date are one notice: the newer poster replaces the older.
 // Not told: other guests, who hear about utilities only if they ask (Lloyd 2026-09-29). The staff house fact carries the 24/7 hotline.
+// Session 70 (SPEC-41 Part 3, D-299.1): a brownout block stays only while SOCOTECO's CURRENT posts still list the outage (plan.ts scheduleFrom / staleNotices).
+// Two clean scrapes in a row without it free its nights (watch.ts, one OPS + Finance card with Keep it blocked); never on an unknown or half-read feed,
+// never over a guest, and only for ops_notices.source = socoteco (an NGCP or staff notice ends by its date or an Unblock). The feed is 20 posts deep.
 // ?dry=1 decides and logs but writes, alerts and marks nothing.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { parseModelJson, visionExtractText } from '../_shared/cascade-core/vision.ts';
-import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Ocr } from './poster.ts';
+import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterFor, posterUrls, type Ocr } from './poster.ts';
 import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
-import { touchedNights } from './plan.ts';
+import { scheduleFrom, touchedNights } from './plan.ts';
 import { pruneStates, reconcile, type Found } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
-const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=10&orderby=date&_fields=id,date,link,title,content';
+const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=20&orderby=date&_fields=id,date,link,title,content';
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; CascadeOpsWatch/1.0)' };
 const STATE_KEY = 'power_watch_state';
 const MAX_READS = 4;   // poster reads per run; the rest wait for the next run
@@ -42,8 +45,8 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 type Db = any;
 
 /** A card to the OPS chat. Plain text (no parse_mode): the buttons are the card's own. */
-async function tg(text: string, markup?: unknown): Promise<boolean> {
-  const token = env('TELEGRAM_BOT_TOKEN'), chat = env('TELEGRAM_CHAT_ID');
+async function tg(text: string, markup?: unknown, chatEnv = 'TELEGRAM_CHAT_ID'): Promise<boolean> {
+  const token = env('TELEGRAM_BOT_TOKEN'), chat = env(chatEnv);
   if (!token || !chat) return false;
   const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -73,9 +76,14 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   // deno-lint-ignore no-explicit-any
   const posts = ((await res.json()) as any[]).filter(isPowerPost);
   const { data: st } = await db.from('app_settings').select('value').eq('key', STATE_KEY).maybeSingle();
-  const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[] };
+  // ours (SPEC-41): a read-class poster the OCR found to be ours -> its date, so scheduleFrom can tell which dates SOCOTECO still lists.
+  const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[], ours: { ...(st?.value?.ours ?? {}) } as Record<string, string> };
   const now = new Date();
   const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
+  if (!st?.value?.ours) { // first run after SPEC-41: seed it from the active notices whose poster was read before, so nothing already read looks unlisted
+    const { data: nq } = await db.from('ops_notices').select('effective_date').eq('property_id', PROPERTY_ID).eq('notice_type', 'brownout').eq('is_active', true).gte('effective_date', today);
+    for (const n of (nq ?? []) as Array<{ effective_date: string }>) { const u = posterFor(n.effective_date, state.images); if (u && classifyFile(u) === 'read') state.ours[u] = n.effective_date; }
+  }
   const found: Found[] = [], log: string[] = [];
   let reads = 0;
   const started = Date.now();
@@ -98,6 +106,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
         const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
         const n = noticeFrom(o, c === 'hit', url);
         log.push(`${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}`);
+        if (n && c === 'read') state.ours[url] = n.date;
         if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
         state.images.push(url);
       } catch (e) {
@@ -107,22 +116,27 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     }
     if (complete) state.done.push(p.id);
   }
+  // What SOCOTECO's current posts say; null (unknown) when a poster is still unread, so nothing is ever freed on a half-read feed.
+  // A poster is decided when it was read, or when its whole post is done (every poster of a done post was decided at the time).
+  const sched = posts.map((p) => ({ id: p.id, posters: posterUrls(p.content?.rendered ?? '') }));
+  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u) || sched.some((p) => state.done.includes(p.id) && p.posters.includes(u)));
   let results: string[] = [];
   if (!dry) {
     // Blocks and cards first; the poster state is saved only after them, so a failure re-reads the posters rather than losing a notice.
     results = await reconcile({
       db, propertyId: PROPERTY_ID, today, now,
       send: async (c) => await tg(c.text, c.markup),
+      sendFinance: async (c) => await tg(c.text, c.markup, 'TELEGRAM_FINANCE_CHAT_ID'),
       mail: (subject, body) => mail(db, subject, body),
       log: (event, data) => console.log(event, JSON.stringify(data)),
-      posters: state.images,
+      posters: state.images, schedule,
     }, found);
     const pruned = await pruneStates(db, today);
     if (pruned) results.push(`pruned ${pruned} old notice states`);
-    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
   const out = {
-    posts: posts.length, reads, dry, results, log,
+    posts: posts.length, reads, dry, results, log, schedule: schedule ? { listed: [...schedule.listed].sort() } : null,
     found: found.map((n) => `${n.date} ${n.time ?? ''} ${n.hours ?? ''}h ${n.status} nights ${touchedNights(n.date, n.time, n.hours).join('+')}`),
   };
   console.log('power_watch_run', JSON.stringify(out));

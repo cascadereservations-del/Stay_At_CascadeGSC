@@ -6,30 +6,16 @@
 //   06:00-17:00 -> D-1 and D     18:00-20:00 -> D     08:00-11:00 -> D-1     13:00-15:00 -> D
 // Nothing here writes to Airbnb. Marifel blocks Airbnb by hand; the cards exist to tell her at once.
 import { autoKeyboard, doSend, groups, withHeader, type Btn } from '../_shared/cascade-core/format.ts';
-import { addDays, brownoutUid, nightsList, nightsPhrase, pwData, type Guest, type NoticeState } from '../_shared/cascade-core/brownout.ts';
-import { clock, dayLabel, endOf, FEEDER } from './poster.ts';
+import { brownoutUid, holds, nightsList, nightsPhrase, pwData, sourceWord, type Guest, type NoticeState } from '../_shared/cascade-core/brownout.ts';
+import { classifyFile, clock, dayLabel, endOf, FEEDER } from './poster.ts';
+
+// SPEC-41: the night rule moved to _shared/cascade-core/brownout.ts so calendar-sync reads the same one; power-watch and its tests import it from here as before.
+export { touchedNights } from '../_shared/cascade-core/brownout.ts';
 
 // House facts, 2026-10-02 (topics ecoflow, power-outage): the EcoFlow RIVER 3 sits near the TV unit, the charged emergency
 // light is on top of the fridge, the router has backup power. The Airbnb template says "inside the cabinet near the TV": house_facts wins.
 export const ECOFLOW_PLACE = 'near the TV unit';
 export const LIGHT_PLACE = 'on top of the fridge';
-
-const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3, 5);
-
-/**
- * Nights (YYYY-MM-DD) an outage on `date` touches. Unknown start counts as the whole morning (from 00:00), unknown
- * length as running to midnight, so a poster with no times blocks the night before and the night of: the safe side.
- */
-export function touchedNights(date: string, time: string | null, hours: number | null): string[] {
-  const s = time ? mins(time) : 0;
-  const e = hours && hours > 0 ? s + Math.round(hours * 60) : Math.max(s, 1440);
-  const out: string[] = [];
-  for (let k = -1; k <= Math.ceil(e / 1440); k++) {
-    const stayStart = k * 1440 + 14 * 60, stayEnd = (k + 1) * 1440 + 12 * 60;
-    if (s < stayEnd && e > stayStart) out.push(addDays(date, k));
-  }
-  return out;
-}
 
 export type Row = { uid: string; source: string; status: string; checkin_date: string; checkout_date: string; guest_name?: string | null };
 const covers = (r: Row, night: string) => r.status !== 'cancelled' && r.checkin_date <= night && r.checkout_date > night;
@@ -86,11 +72,11 @@ export function guestWindow(date: string, time: string | null, hours: number | n
 
 /** The draft for a guest in the house: the window, what is ready and where, and that we are a message away. Cassy voice (D-167).
  *  One paragraph on purpose: the 📨 text of a card ends at the first blank line (templateOf), and the voice lint wants 320 characters or fewer. */
-export function guestDraft(name: string, date: string, time: string | null, hours: number | null, changed = false): string {
+export function guestDraft(name: string, date: string, time: string | null, hours: number | null, changed = false, by = 'Socoteco'): string {
   const first = name.split(/\s+/)[0];
   const hi = first ? `Hi ${first}, a quick heads-up:` : 'Hi, a quick heads-up:';
   const when = guestWindow(date, time, hours);
-  const what = changed ? `Socoteco has moved the power interruption to ${when}.` : `Socoteco has scheduled a power interruption on ${when}.`;
+  const what = changed ? `${by} has moved the power interruption to ${when}.` : `${by} has scheduled a power interruption on ${when}.`;
   return `${hi} ${what} The Wi-Fi router has backup power, the EcoFlow ${ECOFLOW_PLACE} is charged for phones and a fan, and a charged emergency light is ${LIGHT_PLACE}. We are a message away if you need anything. 🌿`;
 }
 
@@ -107,14 +93,18 @@ export function guestGroups(guests: Guest[]): Array<{ name: string; nights: stri
 }
 const who = (name: string) => name || 'A guest';
 const ifs = (c: unknown, text: string): string | false => (c ? text : false);
-/** Last line of every card that asks someone to act: the SOCOTECO poster itself (Telegram makes it a link). */
-const source = (st: NoticeState): Array<string | false> => [ifs(st.url, `SOCOTECO notice: ${st.url}`)];
+/** Who announced it: SOCOTECO for the posters (and a state with no source), NGCP for a grid outage, 'Scheduled' for a staff-entered job (SPEC-41). Feeder 14-3 is SOCOTECO's. */
+const prov = (st: NoticeState) => sourceWord(st.source);
+const feederOf = (st: NoticeState) => ((st.source ?? 'socoteco') === 'socoteco' ? ` (Feeder ${FEEDER})` : '');
+const draftBy = (st: NoticeState) => (st.source === 'ngcp' ? 'NGCP' : st.source === 'staff' ? 'The power company' : 'Socoteco');
+/** Last line of every card that asks someone to act: the notice poster itself (Telegram makes it a link). */
+const source = (st: NoticeState): Array<string | false> => [ifs(st.url, `${prov(st)} notice: ${st.url}`)];
 
 function guestLines(st: NoticeState, g: { name: string; nights: string[] }, changed: boolean): Array<string | false> {
   return [
     `${who(g.name)} is staying the ${nightsPhrase(g.nights)}.`,
     `Prep: EcoFlow at 100% the day before, emergency light ${LIGHT_PLACE}.`,
-    ...doSend(g.name || 'the guest', guestDraft(g.name, st.date, st.time, st.hours, changed)),
+    ...doSend(g.name || 'the guest', guestDraft(g.name, st.date, st.time, st.hours, changed, draftBy(st))),
   ];
 }
 
@@ -122,7 +112,7 @@ function guestLines(st: NoticeState, g: { name: string; nights: string[] }, chan
 export function newCard(st: NoticeState): Built {
   const gs = guestGroups(st.guests);
   const body = groups(
-    [`⚡ SOCOTECO power interruption ${windowLabel(st.date, st.time, st.hours)} (Feeder ${FEEDER}).`],
+    [`⚡ ${prov(st)} power interruption ${windowLabel(st.date, st.time, st.hours)}${feederOf(st)}.`],
     [
       ifs(st.blocked.length, `Blocked on our booking site: ${nightsPhrase(st.blocked)}.`),
       ifs(st.already.length, `Already blocked, so nothing was added: ${nightsPhrase(st.already)}.`),
@@ -153,7 +143,7 @@ export function changedCard(st: NoticeState): Built {
   const dropped = (prev?.blocked ?? []).filter((n) => !st.blocked.includes(n));
   const gs = guestGroups(st.guests);
   const body = groups(
-    [`⚡ SOCOTECO changed the power interruption on ${dayLabel(st.date)} (Feeder ${FEEDER}).`,
+    [`⚡ ${prov(st)} changed the power interruption on ${dayLabel(st.date)}${feederOf(st)}.`,
       `Now ${timeLabel(st.time, st.hours)}${was ? `, was ${was}` : ''}.`],
     [
       ifs(added.length, `Now blocked on our booking site: ${nightsPhrase(added)}.`),
@@ -178,7 +168,7 @@ export function cancelCard(st: NoticeState): Built {
   const note = st.card?.note ?? 'cancelled';
   const held = st.blocked;
   const body = groups(
-    [`⚡ SOCOTECO ${note} the power interruption on ${dayLabel(st.date)} (Feeder ${FEEDER}).`],
+    [`⚡ ${prov(st)} ${note} the power interruption on ${dayLabel(st.date)}${feederOf(st)}.`],
     [held.length
       ? `Unblock ${nightsPhrase(held)} on our booking site and in Airbnb?`
       : 'Nothing was blocked on our booking site for it. Tap Unblock to take it off the operations board.'],
@@ -191,7 +181,7 @@ export function cancelCard(st: NoticeState): Built {
 /** Three hours on, Airbnb still shows no block and nobody tapped Done. */
 export function reminderCard(st: NoticeState): Built {
   const body = groups(
-    [`⚡ Reminder: Airbnb is not blocked yet for the SOCOTECO interruption on ${windowLabel(st.date, st.time, st.hours)}.`],
+    [`⚡ Reminder: Airbnb is not blocked yet for the ${prov(st)} interruption on ${windowLabel(st.date, st.time, st.hours)}.`],
     [`Marifel: block ${nightsPhrase(st.blocked)} in Airbnb, then tap Blocked in Airbnb.`],
     source(st),
   );
@@ -201,7 +191,7 @@ export function reminderCard(st: NoticeState): Built {
 
 /** The iCal feed now shows Airbnb blocked on every night we hold. */
 export function seenCard(st: NoticeState): Built {
-  const text = header(subjectOf(st.date), `✅ Airbnb block seen for ${nightsPhrase(st.blocked)} (SOCOTECO interruption ${dayLabel(st.date)}).`);
+  const text = header(subjectOf(st.date), `✅ Airbnb block seen for ${nightsPhrase(st.blocked)} (${prov(st)} interruption ${dayLabel(st.date)}).`);
   return { text, markup: undefined };
 }
 
@@ -212,4 +202,79 @@ export function nightsLine(st: NoticeState): string {
     ifs(st.already.length, `Already blocked: ${nightsPhrase(st.already)}.`),
     ifs(st.guests.length, `A guest is in the house on ${nightsPhrase(st.guests.map((g) => g.night))}, so no block there.`),
   ].filter(Boolean).join(' ');
+}
+
+// ── SPEC-41 Part 3: a brownout block must be backed by a live notice ────────────────────────────────────────────────────────
+/** The nights SOCOTECO's current schedule says nothing about stay held; the ones it no longer lists are freed (watch.ts), never over a guest. */
+export type Post = { id: number; posters: string[] };                                             // current power posts
+export type Schedule = { listed: Set<string>; covered: (date: string) => boolean } | null;        // null = unknown this run
+
+const fileOf = (url: string) => decodeURIComponent(url.split('/').pop() ?? '');
+/** SPI-PMS-10152026-LEON-LLIDO-SS.jpg -> '2026-10-15'; the upload suffix (_20261003_160149_0000) is ignored. */
+export const posterDate = (url: string): string | null => {
+  const m = /SPI-(?:PMS-)?(\d{2})(\d{2})(\d{4})/i.exec(fileOf(url));
+  return m ? `${m[3]}-${m[1]}-${m[2]}` : null;
+};
+/** A PMS series key: the filename without its date and upload suffix ('SPI-PMS--LEON-LLIDO-SS'); null for anything that is not a PMS poster. */
+export const seriesKey = (url: string): string | null =>
+  /^SPI-PMS-/i.test(fileOf(url)) ? fileOf(url).replace(/(_\d{8}_\d{6}_\d{4})?\.[a-z]+$/i, '').replace(/\d{8}/, '') : null;
+
+/**
+ * What SOCOTECO's current posts say, or null (unknown) when they cannot be trusted this run: no posts or posters, or any poster not
+ * decided yet (a read failed, or the per-run read cap was hit). `ours` maps a read-class poster the OCR found to be ours to its date.
+ * `listed` = the dates of our posters; `covered(d)` = d lies inside some current post's span of poster dates, so a date outside every
+ * post (its post scrolled out of the feed) can never be judged and is never released.
+ */
+export function scheduleFrom(posts: Post[], ours: Record<string, string>, decided: (url: string) => boolean): Schedule {
+  const all = posts.flatMap((p) => p.posters);
+  if (!all.length || all.some((u) => !decided(u))) return null;
+  // Supersede (PMS only): the newest post carrying a series key owns it, so 22013's Leon Llido Oct 15 replaces 21945's Oct 8.
+  // ponytail: supersede only for PMS series (one per substation per cycle); feeder posters (F14-3) can legitimately repeat on two dates in two posts.
+  const owner = new Map<string, number>();
+  for (const p of [...posts].sort((a, b) => b.id - a.id)) for (const u of p.posters) { const k = seriesKey(u); if (k && !owner.has(k)) owner.set(k, p.id); }
+  const listed = new Set<string>();
+  const spans: Array<[string, string]> = [];
+  for (const p of posts) {
+    const dates: string[] = [];
+    for (const u of p.posters) {
+      const c = classifyFile(u);
+      const d = c === 'read' ? (ours[u] ?? posterDate(u)) : posterDate(u);
+      if (d) dates.push(d);
+      const k = seriesKey(u);
+      if (d && (c === 'hit' || (c === 'read' && ours[u])) && (!k || owner.get(k) === p.id)) listed.add(d);
+    }
+    if (dates.length) spans.push([dates.reduce((a, b) => (a < b ? a : b)), dates.reduce((a, b) => (a > b ? a : b))]);
+  }
+  return { listed, covered: (date) => spans.some(([a, b]) => a <= date && date <= b) };
+}
+
+/**
+ * Which held SOCOTECO notices SOCOTECO's schedule no longer backs. `miss` = one clean scrape without it (counted), `release` = the
+ * second in a row, `ask` = the second but a guest now stays on a night we hold (never released without a tap), `hit` = listed.
+ * Unknown (null) is never "gone"; only source-socoteco notices are checked; a date outside every post's span is skipped.
+ * Grace: two consecutive clean scrapes for every socoteco notice, poster or hand-entered (15 to 30 minutes at the 15-minute cadence).
+ * // ponytail: one grace for all; per-source grace only if a real poster flickers longer.
+ */
+export function staleNotices(states: NoticeState[], sched: Schedule, rows: Row[], today: string): { miss: string[]; hit: string[]; release: string[]; ask: string[] } {
+  const out = { miss: [] as string[], hit: [] as string[], release: [] as string[], ask: [] as string[] };
+  if (!sched) return out;
+  for (const st of states) {
+    if (!holds(st) || st.date < today || (st.source ?? 'socoteco') !== 'socoteco' || !st.blocked.length || st.cancelAskedAt) continue;
+    if (sched.listed.has(st.date)) { out.hit.push(st.date); continue; }
+    if (!sched.covered(st.date)) continue;
+    if ((st.missRuns ?? 0) + 1 < 2) out.miss.push(st.date);
+    else (classifyNights(st.blocked, rows, today).guests.length ? out.ask : out.release).push(st.date);
+  }
+  return out;
+}
+
+/** Sent to OPS and Finance when power-watch frees nights because SOCOTECO no longer lists the outage. One button: Keep it blocked (pw:keep). */
+export function releasedCard(st: NoticeState, nights: string[]): Built {
+  const body = groups(
+    [`✅ The ${nightsPhrase(nights)} ${nights.length === 1 ? 'is' : 'are'} open again on our booking site. SOCOTECO no longer lists the ${dayLabel(st.date)} power interruption for Feeder ${FEEDER} on its current schedule.`],
+    [`Marifel: if Airbnb is still blocked for ${nights.length === 1 ? 'that night' : 'those nights'}, unblock ${nights.length === 1 ? 'it' : 'them'} there.`],
+    ['If SOCOTECO told you directly that it is still on, tap Keep it blocked.'],
+  );
+  const text = header(subjectOf(st.date), body);
+  return { text, markup: autoKeyboard(text, [{ text: '🔒 Keep it blocked', callback_data: pwData('keep', st.date) }]) };
 }
