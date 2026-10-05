@@ -10,7 +10,7 @@
     "20261005160000_transactions_hide_archive.sql"
   ],
   "migration_sha256": {
-    "20261005160000_transactions_hide_archive.sql": "1be96dc7f2df274b2f4021e00013912e1c610d020cf16ec6ecf2b2bf44d7a847"
+    "20261005160000_transactions_hide_archive.sql": "8cb4a0db6362797ab164d02dac76d11543a913f259657a70bb10bd21cad1a2e9"
   },
   "backup": {
     "required": true,
