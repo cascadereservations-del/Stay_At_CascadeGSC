@@ -3,6 +3,7 @@
 // stay is verified) and telegram-cassy (every tier). Loaded whole and cached 10 min, like the landmarks block; a fact
 // taught in Telegram is live within 10 minutes. The Wi-Fi password and the on-ground contact stay in app_settings and
 // are filled in here, so the table never holds a second copy.
+import { phDisplay } from './contact.ts';
 export type Tier = 'public' | 'guest' | 'staff';
 export type HouseRow = { topic: string; title: string; body: string; keywords: string[]; tier: Tier };
 type Db = { from: (t: string) => any };
@@ -13,7 +14,7 @@ let cache: { at: number; rows: HouseRow[] } | null = null;
 /** Pure: {{WIFI_SSID}} {{WIFI_PASSWORD}} {{ONGROUND}} from app_settings rows; an unknown value reads as "ask us". */
 export function fillPlaceholders(body: string, settings: { key: string; value: unknown }[]): string {
   const get = (k: string) => { const v = settings.find((r) => r.key === k)?.value; return typeof v === 'string' ? v.trim() : ''; };
-  const name = get('onground_name'), phone = get('onground_phone');
+  const name = get('onground_name'), phone = phDisplay(get('onground_phone'));
   return body
     .replaceAll('{{WIFI_SSID}}', get('wifi_ssid') || 'on the card in the unit')
     .replaceAll('{{WIFI_PASSWORD}}', get('wifi_password') || 'on the card in the unit')

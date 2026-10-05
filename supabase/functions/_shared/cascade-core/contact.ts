@@ -4,7 +4,14 @@
 // and the scheduled guest messages all read it here. The old CASCADE_ONGROUND_* Edge secrets are only a fallback.
 // ponytail: 60 s per-instance cache like loadCard, so an edit reaches guests within a minute.
 export type Contact = { name: string; phone: string };
-export const DEFAULT_CONTACT: Contact = { name: 'Honey', phone: '0991 853 8269' };
+/** One tappable format (Lloyd 2026-10-04, D-296.3, SPEC-41 2c): a Philippine mobile number reads "+63 9XX XXX XXXX" (phones, Messenger
+ *  and Airbnb turn it into tap-to-call, and it dials from a foreign SIM). Anything else (a landline, a typo) is left as typed.
+ *  Payment numbers (GCash, Maya) are NOT run through this: wallet apps take the 11-digit local form. */
+export function phDisplay(raw: string): string {
+  const d = raw.replace(/\D/g, '').replace(/^63(?=9\d{9}$)/, '0');
+  return /^09\d{9}$/.test(d) ? `+63 ${d.slice(1, 4)} ${d.slice(4, 7)} ${d.slice(7)}` : raw.trim();
+}
+export const DEFAULT_CONTACT: Contact = { name: 'Honey', phone: '+63 991 853 8269' };
 type Db = { from: (t: string) => any };
 
 let current: Contact = DEFAULT_CONTACT;
@@ -18,7 +25,7 @@ export function contactFrom(rows: { key: string; value: unknown }[] | null, env:
   const get = (k: string) => { const v = (rows ?? []).find((r) => r.key === k)?.value; return typeof v === 'string' ? v.trim() : ''; };
   return {
     name: get('onground_name') || env('CASCADE_ONGROUND_NAME')?.trim() || DEFAULT_CONTACT.name,
-    phone: get('onground_phone') || env('CASCADE_ONGROUND_PHONE')?.trim() || DEFAULT_CONTACT.phone,
+    phone: phDisplay(get('onground_phone') || env('CASCADE_ONGROUND_PHONE')?.trim() || DEFAULT_CONTACT.phone),
   };
 }
 

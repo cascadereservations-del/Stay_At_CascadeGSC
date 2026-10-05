@@ -110,7 +110,7 @@ Deno.test('message 3 is a Finance card: the PIN slot stays literal, no digit run
 Deno.test('messages 4, 5.1, 5.2 open with the first name and carry the relay subjects', () => {
   assert(render('mid_stay', ben, 'messenger').startsWith('Good afternoon, Ben 🌿'));
   assert(render('mid_stay', ben, 'messenger').includes('a free mid-stay refresh tomorrow'));
-  assert(render('checkout_reminder', ben, 'email').startsWith('Good morning, Ben 🌿') && render('checkout_reminder', ben, 'email').includes('12:00 noon'));
+  assert(render('checkout_reminder', ben, 'email').startsWith('Good morning, Ben 🌿') && render('checkout_reminder', ben, 'email').includes('12:00 noon') && render('checkout_reminder', ben, 'email').includes('leave the key card with the remotes'));
   assert(render('after_departure', ben, 'email').startsWith('Hi Ben,'));
   assertEquals([SUBJECT.mid_stay, SUBJECT.checkout_reminder, SUBJECT.after_departure], ["A mid-stay refresh, if you'd like one", 'Your check-out today', 'Thank you for staying with us']);
 });
