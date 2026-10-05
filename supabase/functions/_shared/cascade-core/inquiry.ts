@@ -1,6 +1,6 @@
 // SPEC-38 (session 70, D-297 item 2): decide a direct-booking request before payment, from Telegram.
 // An INQUIRY is a booking_inquiries row with source 'direct', status 'pending' and no receipt yet: the guest submitted the
-// request and has not sent a receipt. Finance (a mapped owner or admin) may hold the dates 24 h or decline with a reason;
+// request and has not sent a receipt. Finance (anyone in the group, D-302.2) may hold the dates 24 h or decline with a reason;
 // Finance and OPS may send a Cassy-drafted reply. OPS never sees guest money. Pure: no env, no I/O, tested in inquiry.test.ts.
 // The cards are written for people: what happened and who acts first, plain sentences, ids last.
 // Guest-facing lines are unsigned and pass lintReply + toneRules in all three registers (inquiry.test.ts).
@@ -248,7 +248,6 @@ export const sentLine = (first: string, channel: 'messenger' | 'email' | 'card_o
   `📤 Sent to ${first || 'the guest'} on ${channelName(channel)} by ${by} at ${at}.`;
 export const ALREADY_SENT = 'That reply was already sent or has expired. Nothing was sent twice.';
 export const OPS_MONEY_REFUSED = 'This reply mentions amounts, so it is sent from Finance. Nothing was sent.';
-export const NOT_ALLOWED_TO_DECIDE = 'Only a mapped owner or admin can hold or decline a request. Nothing changed.';
 export const NO_REQUESTS = 'No booking requests are waiting for payment.';
 export const REASON_PROMPT = 'In a few words, why? Only Cassy reads this; the guest never sees your words.';
 

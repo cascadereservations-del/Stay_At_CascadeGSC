@@ -86,7 +86,7 @@ Deno.test('Hold and send: one named RPC call, the held line to Messenger, an aud
   const { d, r } = setup({ views: [view({ held_at: '2026-10-05T01:15:00Z', held_by: 'Lloyd', hold_expires_at: new Date(NOW + 86_400_000).toISOString() })] });
   await onIqTap(d, cq(IQ.holdok(ID)));
   const dec = r.rpcs.find((x) => x.fn === 'telegram_inquiry_decide_v1')!;
-  assertEquals(dec.args, { p_telegram_user_id: 907000001, p_booking_id: ID, p_action: 'hold', p_reason_code: null, p_hold_hours: 24 });
+  assertEquals(dec.args, { p_telegram_user_id: 907000001, p_booking_id: ID, p_action: 'hold', p_reason_code: null, p_hold_hours: 24, p_actor_name: 'Lloyd' });
   assertEquals(r.fb.length, 1);
   assertEquals(r.fb[0].psid, '555');
   assertEquals(r.fb[0].ha, false); // the guest wrote an hour ago: plain RESPONSE
@@ -137,8 +137,8 @@ Deno.test('Hold: Messenger refused with an e-mail on file falls back to the rela
   assertStringIncludes(r.edits.at(-1)!.text, 'Sent to Ana on e-mail.');
 });
 
-Deno.test('an unmapped or unauthorized tapper is refused, the buttons stay, nothing is sent', async () => {
-  for (const reason of ['unmapped_telegram_user', 'not_authorized', 'conflict']) {
+Deno.test('a refused tap (no tapper id, or a conflict) keeps the buttons and sends nothing', async () => {
+  for (const reason of ['no_tapper', 'conflict']) {
     const { d, r } = setup({ decide: () => ({ ok: false, reason }) });
     await onIqTap(d, cq(IQ.holdok(ID)));
     assertEquals(r.fb.length + r.relay.length + r.sent.length, 0, reason);
@@ -299,14 +299,15 @@ Deno.test('Send a drafted decline: the RPC declines with Other first and the mes
   await onIqTap(p.d, cq(IQ.send(PID), {}, "❌ Decline Ana's request with this message?"));
   const dec = p.r.rpcs.find((x) => x.fn === 'telegram_inquiry_decide_v1')!;
   assertEquals([dec.args.p_action, dec.args.p_reason_code], ['decline', 'other']);
+  assertEquals(dec.args.p_actor_name, 'Lloyd', 'the tapper is named on the audit row (D-302.2)');
   assertEquals(p.r.fb.length, 1);
   assertStringIncludes(p.r.edits.at(-1)!.text, 'Declined by Lloyd');
   assert(!JSON.stringify(p.r.rpcs).includes('party'), 'the private reason never reaches an RPC');
-  const q = setup({ decide: () => ({ ok: false, reason: 'unmapped_telegram_user' }) }); seedReply(q, { purpose: 'decline', text: 'Ana, thank you for your request.' });
+  const q = setup({ decide: () => ({ ok: false, reason: 'no_tapper' }) }); seedReply(q, { purpose: 'decline', text: 'Ana, thank you for your request.' });
   await onIqTap(q.d, cq(IQ.send(PID), {}, "❌ Decline Ana's request with this message?"));
   assertEquals(q.r.fb.length, 0);
-  assertEquals(q.pending.length, 1, 'restored for a mapped tapper');
-  assertStringIncludes(q.r.edits.at(-1)!.text, 'not mapped');
+  assertEquals(q.pending.length, 1, 'restored for another try');
+  assertStringIncludes(q.r.edits.at(-1)!.text, 'tap again');
 });
 
 Deno.test('Discard deletes the draft; Back redraws the card from the original text and the live view', async () => {

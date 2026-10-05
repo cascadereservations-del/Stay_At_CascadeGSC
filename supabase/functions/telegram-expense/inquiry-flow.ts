@@ -1,7 +1,7 @@
-// SPEC-38 (session 70, D-297 item 2): Telegram taps on a direct request that has not paid yet. Finance (a mapped owner or admin) holds
+// SPEC-38 (session 70, D-297 item 2): Telegram taps on a direct request that has not paid yet. Finance (anyone in the group, D-302.2) holds
 // the dates 24 h or declines with a reason; Finance and OPS may send a Cassy-drafted reply. Two taps for anything that writes or sends:
-// the first shows exactly what the guest would receive, the second does it. The decision lives in telegram_inquiry_decide_v1 (named
-// actor, advisory lock, idempotent); this file only renders, routes and calls inquiry-send. Plain text, never Markdown: guest words
+// the first shows exactly what the guest would receive, the second does it. The decision lives in telegram_inquiry_decide_v1 (the
+// tapper's Telegram id and name, advisory lock, idempotent); this file only renders, routes and calls inquiry-send. Plain text, never Markdown: guest words
 // are in these cards. Every Telegram and database call is injected (Deps) so the whole flow runs in inquiry-flow.test.ts.
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import {
@@ -60,13 +60,12 @@ async function planFor(d: Deps, v: InquiryView) {
   return { lang: asLang(t?.booking_flow?.lang), plan: channelPlan({ hasThread: !!t, lastGuestAt: lastGuestAt(t?.history), hasEmail: !!v.guest_email, now: d.now() }) };
 }
 
-/** The refusal an RPC answer maps to, as one plain sentence. `keep`: the buttons stay for someone who is mapped or for another try. */
+/** The refusal an RPC answer maps to, as one plain sentence. `keep`: the buttons stay for another try. */
 // deno-lint-ignore no-explicit-any
 function refusal(r: any, by: string): { line: string; keep: boolean; stale: boolean } {
   const k = String(r?.reason ?? r?.outcome ?? '');
   const map: Record<string, string> = {
-    unmapped_telegram_user: `⛔ ${by}, your Telegram account is not mapped to a staff profile. Ask Lloyd to map it. Nothing changed.`,
-    not_authorized: `⛔ ${by} is not allowed to hold or decline requests (a mapped owner or admin can). Nothing changed.`,
+    no_tapper: `⛔ Telegram did not say who tapped, ${by}. Please tap again. Nothing changed.`,
     conflict: '⚠️ Those dates are no longer free (another booking or hold overlaps), so nothing was held.',
   };
   if (map[k]) return { line: map[k], keep: true, stale: false };
@@ -140,7 +139,7 @@ export async function onIqTap(d: Deps, cq: any): Promise<void> {
   if (tap.kind === 'holdok') { await onHoldOk(d, cq, v, text, by); return; }
   if (tap.kind === 'dx') {
     if (tap.code === 'other') { await d.edit(chatId, mid, withPreview(text, 'Tap Other and type the reason first.'), { inline_keyboard: declineKeyboard(v.id) }); return; }
-    const { data: r, error } = await d.db.rpc('telegram_inquiry_decide_v1', { p_telegram_user_id: cq.from?.id ?? null, p_booking_id: v.id, p_action: 'decline', p_reason_code: tap.code, p_hold_hours: HOLD_HOURS });
+    const { data: r, error } = await d.db.rpc('telegram_inquiry_decide_v1', { p_telegram_user_id: cq.from?.id ?? null, p_booking_id: v.id, p_action: 'decline', p_reason_code: tap.code, p_hold_hours: HOLD_HOURS, p_actor_name: by });
     if (error) { await d.edit(chatId, mid, `${text}\n\n${missing(error) ? NOT_ON : `⚠️ ${String(error.message).slice(0, 140)}. Nothing was changed.`}`, cq.message?.reply_markup); return; }
     if (!r?.ok) {
       const f = refusal(r, by);
@@ -154,7 +153,7 @@ export async function onIqTap(d: Deps, cq: any): Promise<void> {
 
 async function onHoldOk(d: Deps, cq: any, v: InquiryView, text: string, by: string): Promise<void> {
   const chatId = cq.message.chat.id, mid = cq.message.message_id, orig = stripPreview(text);
-  const { data: r, error } = await d.db.rpc('telegram_inquiry_decide_v1', { p_telegram_user_id: cq.from?.id ?? null, p_booking_id: v.id, p_action: 'hold', p_reason_code: null, p_hold_hours: HOLD_HOURS });
+  const { data: r, error } = await d.db.rpc('telegram_inquiry_decide_v1', { p_telegram_user_id: cq.from?.id ?? null, p_booking_id: v.id, p_action: 'hold', p_reason_code: null, p_hold_hours: HOLD_HOURS, p_actor_name: by });
   if (error) { await d.edit(chatId, mid, `${text}\n\n${missing(error) ? NOT_ON : `⚠️ ${String(error.message).slice(0, 140)}. Nothing was changed.`}`, cq.message?.reply_markup); return; }
   if (!r?.ok) {
     const f = refusal(r, by);
@@ -240,7 +239,7 @@ async function onSend(d: Deps, cq: any, pid: string, by: string, isFin: boolean)
 
   if (p.purpose === 'decline') {
     // The RPC decides first; the message goes only when this tap is the one that declined. A refused tap puts the draft back.
-    const { data: r, error } = isFin ? await d.db.rpc('telegram_inquiry_decide_v1', { p_telegram_user_id: cq.from?.id ?? null, p_booking_id: v.id, p_action: 'decline', p_reason_code: 'other', p_hold_hours: HOLD_HOURS }) : { data: null, error: null };
+    const { data: r, error } = isFin ? await d.db.rpc('telegram_inquiry_decide_v1', { p_telegram_user_id: cq.from?.id ?? null, p_booking_id: v.id, p_action: 'decline', p_reason_code: 'other', p_hold_hours: HOLD_HOURS, p_actor_name: by }) : { data: null, error: null };
     const refused = !isFin || !!error || !r?.ok;
     if (refused) {
       const f = !isFin ? { line: 'A decline is sent from the Finance group. Nothing was sent.', keep: true, stale: false } : error ? { line: missing(error) ? NOT_ON : `⚠️ ${String(error.message).slice(0, 140)}. Nothing was changed.`, keep: true, stale: false } : refusal(r, by);
