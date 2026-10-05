@@ -254,3 +254,15 @@ Deno.test('SPEC-41 3.4: the release card leads with the nights that are open aga
   assertStringIncludes(releasedCard(st({ date: '2026-10-08' }), ['2026-10-07']).text, 'The night of Oct 7 is open again');
   assertStringIncludes(releasedCard(st({ date: '2026-10-08' }), ['2026-10-07']).text, 'unblock it there.');
 });
+
+Deno.test('audit L5a: the next month PMS post does not supersede an October poster whose date is still ahead; a re-post within 14 days still does; a passed date is superseded', () => {
+  const oct = PU + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg', nov = PU + 'SPI-PMS-11122026-LEON-LLIDO-SS.jpg', repost = PU + 'SPI-PMS-10222026-LEON-LLIDO-SS.jpg';
+  const T = '2026-10-05';
+  const far = scheduleFrom([{ id: 30, posters: [nov] }, { id: 20, posters: [oct] }], {}, () => true, T)!;
+  assertEquals([...far.listed].sort(), ['2026-10-15'].concat(['2026-11-12']).sort(), 'Oct 15 is still ahead and stays listed beside the Nov poster');
+  assertEquals(far.covered('2026-10-15'), true);
+  const near = scheduleFrom([{ id: 30, posters: [repost] }, { id: 20, posters: [oct] }], {}, () => true, T)!;
+  assertEquals([...near.listed], ['2026-10-22'], 'seven days apart: the newer post owns the series');
+  const past = scheduleFrom([{ id: 30, posters: [nov] }, { id: 20, posters: [oct] }], {}, () => true, '2026-10-20')!;
+  assertEquals([...past.listed], ['2026-11-12'], 'the October date has passed: superseded');
+});

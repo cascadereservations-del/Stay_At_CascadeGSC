@@ -30,7 +30,7 @@ import { parseModelJson, visionExtractText } from '../_shared/cascade-core/visio
 import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterFor, posterUrls, type Ocr } from './poster.ts';
 import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
 import { scheduleFrom, touchedNights } from './plan.ts';
-import { scanPosts } from './scan.ts';
+import { reportStuck, scanPosts } from './scan.ts';
 import { pruneStates, reconcile } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -78,7 +78,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   const posts = ((await res.json()) as any[]).filter(isPowerPost);
   const { data: st } = await db.from('app_settings').select('value').eq('key', STATE_KEY).maybeSingle();
   // ours (SPEC-41): a poster the OCR found to be ours -> the date it read, so scheduleFrom can tell which dates SOCOTECO still lists.
-  const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[], ours: { ...(st?.value?.ours ?? {}) } as Record<string, string> };
+  const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[], ours: { ...(st?.value?.ours ?? {}) } as Record<string, string>, fails: { ...(st?.value?.fails ?? {}) } as Record<string, number> };
   const now = new Date();
   const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
   if (!st?.value?.ours) { // first run after SPEC-41: seed it from the active notices whose poster was read before, so nothing already read looks unlisted
@@ -86,7 +86,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     for (const n of (nq ?? []) as Array<{ effective_date: string }>) { const u = posterFor(n.effective_date, state.images); if (u && classifyFile(u) === 'read') state.ours[u] = n.effective_date; }
   }
   // Reads every poster not yet in state.images, in done posts too (scan.ts).
-  const { found, log, reads } = await scanPosts(posts, state, today, async (url, c) => {
+  const { found, log, reads, stuck } = await scanPosts(posts, state, today, async (url, c) => {
     const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
     if (!img.ok) throw new Error(`poster_${img.status}`);
     const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
@@ -100,7 +100,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   // What SOCOTECO's current posts say; null (unknown) when a poster is still unread, so nothing is ever freed on a half-read feed.
   // A poster is decided only when it was actually read (state.images); a done post's unread poster is read above, or the schedule is null.
   const sched = posts.map((p) => ({ id: p.id, posters: posterUrls(p.content?.rendered ?? '') }));
-  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u));
+  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u), today);
   let results: string[] = [];
   if (!dry) {
     // Blocks and cards first; the poster state is saved only after them, so a failure re-reads the posters rather than losing a notice.
@@ -112,9 +112,14 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
       log: (event, data) => console.log(event, JSON.stringify(data)),
       posters: state.images, schedule,
     }, found);
+    // A poster that failed 8 runs in a row: ONE Follow-ups task (system_task_open_v1 is idempotent by kind + ref), since auto-release is silently off while it is unread.
+    await reportStuck(stuck, async (t) => {
+      const { error } = await db.rpc('system_task_open_v1', { p_property_id: PROPERTY_ID, p_source_kind: t.kind, p_source_ref: t.ref, p_title: t.title, p_detail: t.detail, p_priority: 'normal' });
+      if (error) console.warn('system_task_open_v1 power_poster_unread:', String(error.message).slice(0, 160));
+    });
     const pruned = await pruneStates(db, today);
     if (pruned) results.push(`pruned ${pruned} old notice states`);
-    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))), fails: Object.fromEntries(Object.entries(state.fails).filter(([u]) => !state.images.includes(u))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
   const out = {
     posts: posts.length, reads, dry, results, log, schedule: schedule ? { listed: [...schedule.listed].sort() } : null,

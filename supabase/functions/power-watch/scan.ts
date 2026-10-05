@@ -5,15 +5,18 @@
 import { classifyFile, posterUrls, type Notice } from './poster.ts';
 import type { Found } from './watch.ts';
 
-export type ScanState = { done: number[]; images: string[]; ours: Record<string, string> };
+/** `fails` = consecutive runs a poster could not be read, per URL (power_watch_state.fails; absent = 0). */
+export type ScanState = { done: number[]; images: string[]; ours: Record<string, string>; fails?: Record<string, number> };
+export const STUCK_AFTER = 8; // consecutive failed runs before a poster that never reads becomes a Follow-ups task
 /** Reads one poster ('hit' or 'read' class): the notice it carries (null = not ours) and a log line. Throws when it cannot be read. */
 export type ReadOne = (url: string, cls: 'hit' | 'read') => Promise<{ notice: Notice | null; log: string }>;
 
 export async function scanPosts(
   posts: Array<{ id: number; content?: { rendered?: string } }>, state: ScanState, today: string, readOne: ReadOne,
   limits: { maxReads: number; budgetMs: number }, warn: (url: string, e: unknown) => void = () => {},
-): Promise<{ found: Found[]; log: string[]; reads: number }> {
-  const found: Found[] = [], log: string[] = [];
+): Promise<{ found: Found[]; log: string[]; reads: number; stuck: string[] }> {
+  const found: Found[] = [], log: string[] = [], stuck: string[] = [];
+  const fails = (state.fails ??= {});
   let reads = 0;
   const started = Date.now();
   for (const p of posts) {
@@ -30,12 +33,28 @@ export async function scanPosts(
         if (n) state.ours[url] = n.date; // hit posters too: a moved poster's filename carries the moved-FROM date (D-295)
         if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
         state.images.push(url);
+        delete fails[url];
       } catch (e) {
         complete = false; // read again next run
+        fails[url] = (fails[url] ?? 0) + 1;
+        if (fails[url] >= STUCK_AFTER) stuck.push(url);
         warn(url, e);
       }
     }
     if (complete && !state.done.includes(p.id)) state.done.push(p.id);
   }
-  return { found, log, reads };
+  return { found, log, reads, stuck };
+}
+
+/** A poster that never reads keeps the schedule null (nothing is ever freed) - safe, but it silently pauses brownout auto-release. ONE task says so. */
+export type OpenTask = (t: { kind: string; ref: string; title: string; detail: string }) => Promise<unknown>;
+export async function reportStuck(stuck: string[], open: OpenTask): Promise<void> {
+  for (const url of stuck) {
+    const file = decodeURIComponent(url.split('/').pop() ?? url).slice(0, 100);
+    await open({
+      kind: 'power_poster_unread', ref: file,
+      title: 'One SOCOTECO poster cannot be read, so brownout auto-release is paused',
+      detail: `Power watch has failed to read this SOCOTECO poster on ${STUCK_AFTER} runs in a row: ${url}. Until it reads, no brownout block is freed automatically (blocks are still added). Open the poster and check it, or tell Lloyd.`,
+    });
+  }
 }

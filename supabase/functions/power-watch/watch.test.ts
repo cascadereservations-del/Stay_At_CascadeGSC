@@ -376,3 +376,13 @@ Deno.test('SPEC-41 3.5 (audit L5a): a date a current poster read names is never 
   assertEquals((await readNotice(w.db, '2026-10-09'))!.status, 'active');
   assertEquals((await readNotice(w.db, '2026-10-09'))!.missRuns ?? 0, 0);
 });
+
+Deno.test('audit L5a: equal postId with a different poster URL (a corrected poster added to a post we hold) is newer, not ignored; the same poster again is still ignored', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  const fixed = P + 'SPI-PMS-10152026-LEON-LLIDO-SS_20261003_160149_0000.jpg';
+  assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 100, { url: fixed })], '2026-10-02T02:00:00Z'), ['2026-10-15: changed']);
+  assertEquals([w.db.tables.ops_notices[0].effective_time, w.db.tables.ops_notices[0].duration_hours], ['08:00:00', 3]);
+  assertStringIncludes(w.sent[1].text, `SOCOTECO notice: ${fixed}`);
+  assertEquals(await w.run([found('2026-10-15', '13:00:00', 4, 100, { url: fixed })], '2026-10-02T03:00:00Z'), ['2026-10-15: older poster ignored'], 'same post, same poster, other times: not newer');
+});

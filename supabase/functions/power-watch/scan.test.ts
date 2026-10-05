@@ -3,7 +3,7 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import type { NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { posterUrls, type Notice } from './poster.ts';
 import { scheduleFrom, staleNotices } from './plan.ts';
-import { scanPosts, type ScanState } from './scan.ts';
+import { reportStuck, scanPosts, STUCK_AFTER, type ScanState } from './scan.ts';
 
 const P = 'https://www.socoteco2.com/wp-content/uploads/2026/10/';
 const post = (id: number, ...files: string[]) => ({ id, content: { rendered: files.map((f) => `<img src="${P}${f}">`).join('') } });
@@ -42,4 +42,30 @@ Deno.test('audit L5a: a moved hit poster re-uploaded under a new URL is read, an
   const s = sched(posts, st)!;
   assert(s.listed.has('2026-10-15'), 'the moved-TO date is listed from the new read');
   assert(s.listed.has('2026-10-08'), 'and the filename date too');
+});
+
+Deno.test('audit L5a: a poster that fails 8 runs in a row is reported once per run from the 8th (one task by a stable key); a good read resets the count; absent state = 0', async () => {
+  const f = 'SPI-10042026-BATULAKI-GLAN.jpg', posts = [post(7, f)];
+  const st: ScanState = { done: [], images: [], ours: {} }; // no `fails` key: backward compatible
+  const fail = () => Promise.reject(new Error('poster_503'));
+  for (let i = 1; i < STUCK_AFTER; i++) assertEquals((await scanPosts(posts, st, '2026-10-02', fail, LIMITS)).stuck, [], `run ${i}`);
+  assertEquals(st.fails![P + f], STUCK_AFTER - 1);
+  const r = await scanPosts(posts, st, '2026-10-02', fail, LIMITS);
+  assertEquals(r.stuck, [P + f]);
+  const opened: Array<{ kind: string; ref: string; title: string; detail: string }> = [];
+  await reportStuck(r.stuck, (t) => { opened.push(t); return Promise.resolve(); });
+  assertEquals(opened.length, 1);
+  assertEquals([opened[0].kind, opened[0].ref], ['power_poster_unread', f]);
+  assert(opened[0].title.includes('cannot be read') && opened[0].title.includes('auto-release is paused'), opened[0].title);
+  assert(opened[0].detail.includes(P + f), 'the task carries the poster link');
+  await reportStuck([], (t) => { opened.push(t); return Promise.resolve(); });
+  assertEquals(opened.length, 1, 'nothing stuck, nothing opened');
+  // a good read resets
+  await scanPosts(posts, st, '2026-10-02', (url) => Promise.resolve({ notice: null, log: url }), LIMITS);
+  assertEquals(st.fails![P + f], undefined);
+  assertEquals(st.images.includes(P + f), true);
+  // a capped run does not count as a failure
+  const st2: ScanState = { done: [], images: [], ours: {}, fails: { [P + f]: 3 } };
+  await scanPosts(posts, st2, '2026-10-02', fail, { maxReads: 0, budgetMs: 90_000 });
+  assertEquals(st2.fails![P + f], 3);
 });

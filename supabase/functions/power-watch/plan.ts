@@ -225,20 +225,29 @@ export const seriesKey = (url: string): string | null =>
  * `listed` = the dates of our posters; `covered(d)` = d lies inside some current post's span of poster dates, so a date outside every
  * post (its post scrolled out of the feed) can never be judged and is never released.
  */
-export function scheduleFrom(posts: Post[], ours: Record<string, string>, decided: (url: string) => boolean): Schedule {
+export function scheduleFrom(posts: Post[], ours: Record<string, string>, decided: (url: string) => boolean, today?: string): Schedule {
   const all = posts.flatMap((p) => p.posters);
   if (!all.length || all.some((u) => !decided(u))) return null;
-  // Supersede (PMS only): the newest post carrying a series key owns it, so 22013's Leon Llido Oct 15 replaces 21945's Oct 8.
+  // Supersede (PMS only): a newer post carrying the same series key takes over an older poster, so 22013's Leon Llido Oct 15 replaces 21945's Oct 8.
+  // Only when its series date is within 14 days of the older one, or the older date is already past: next month's poster (Nov) must not
+  // drop an Oct 15 that is still ahead from the listed set while the October post is still in the feed.
   // ponytail: supersede only for PMS series (one per substation per cycle); feeder posters (F14-3) can legitimately repeat on two dates in two posts.
-  const owner = new Map<string, number>();
-  for (const p of [...posts].sort((a, b) => b.id - a.id)) for (const u of p.posters) { const k = seriesKey(u); if (k && !owner.has(k)) owner.set(k, p.id); }
+  const days = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
+  const supersedes = (newer: string, older: string) => {
+    const dn = posterDate(newer), dold = posterDate(older);
+    return !dn || !dold || days(dn, dold) <= 14 || (!!today && dold < today);
+  };
+  const superseded = (u: string, p: Post) => {
+    const k = seriesKey(u);
+    return !!k && posts.some((q) => q.id > p.id && q.posters.some((v) => seriesKey(v) === k && supersedes(v, u)));
+  };
   const listed = new Set<string>();
   const spans: Array<[string, string]> = [];
   for (const p of posts) {
     const dates: string[] = [];
     for (const u of p.posters) {
       const c = classifyFile(u), file = posterDate(u), read = ours[u]; // the filename can carry the moved-FROM date (D-295); the read says what is in force
-      const k = seriesKey(u), counts = !k || owner.get(k) === p.id;
+      const counts = !superseded(u, p);
       // A hit poster lists BOTH the date its read names (a moved poster: the moved-TO date) and its filename date, so one paid OCR read
       // never frees a night by itself. A real move reaches watch.ts cancel(originalDate), which asks (cancelAskedAt) and staleNotices skips;
       // a misread leaves the filename date held. A read-class poster lists its read only (no read recorded: its filename date, unread = unknown).
