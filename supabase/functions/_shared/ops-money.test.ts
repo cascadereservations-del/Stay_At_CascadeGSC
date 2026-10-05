@@ -56,9 +56,9 @@ Deno.test('D-306 round 5 keep-list: measures, counts, codes, hotlines, phones, r
   for (const t of [
     'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%', '300 W', '300 Wh', '1.2 kWh', 'Send 120 Rolls', 'Send 120 rolls', 'kulang ng 120 rolls', 'lahat ng 150 hangers', 'each 500 ML', '500 ml shampoo',
     'Restock 250 pcs, deposit the keys', 'Tissue 120 sheets per night', 'Room 203 extra towels', 'Room 203, 2 extra towels each', 'Door code 4829 sent', 'Door code 482913 sent to Ana', 'PIN 1234 sent', 'unit 101 is ready',
-    'Police hotline 0998-598-7207; Bureau of Fire Protection 160. The nearest 24-hour emergency room is St. Elizabeth Hospital, (083) 552-3162.', 'BFP 160', 'Call 911 or 117', 'ID 1a2b3c4d, HMYDBYKYPC, 00A49C5E, HMA1234567, Booking #12345 paid',
+    'Police hotline 0998-598-7207; Bureau of Fire Protection 160. The nearest 24-hour emergency room is St. Elizabeth Hospital, (083) 552-3162.', 'BFP 160', 'Call 911 or 117', 'ID 1a2b3c4d, HMYDBYKYPC, 00A49C5E, HMA1234567, Booking #12345 confirmed',
     'Call 0917 123 4567 about the paid parking', 'Number +63 917 123 4567 sent for the night shift', 'Call 09171234567 tonight', 'Mail ana@example.com or see https://cascade.ph/b/1780?x=3560',
-    'ref 3f2a9c1e-5b7d-4e21-9a0c-1d2e3f4a5b6c paid', 'Check-in 2026-10-05, 14:00, 2 pax, room 12', 'Oct 15, 2026', '15 Oct 2026', 'October 2026, 5 nights', '10/15', 'Arrives 2:30pm, leaves 1030am, back by 2pm', 'D-306 and SPEC-38',
+    'ref 3f2a9c1e-5b7d-4e21-9a0c-1d2e3f4a5b6c paid', 'Check-in 2026-10-05, 14:00, 2 pax, room 12', 'Oct 15, 2026', '15 Oct 2026', 'October 2026, 5 nights', '10/15', 'Arrives 2:30pm, leaves 10:30am, back by 2pm', 'D-306 and SPEC-38',
     'Weather: showers 25-30C, 60% rain', 'Tue, Oct 20 → Thu, Oct 22 · 2 guests',
   ]) assertEquals(maskMoney(t), t, t);
 });
@@ -71,4 +71,91 @@ Deno.test('D-306 round 5: maskTitle keeps one staff or expense amount whole and 
     ['Cleaning ₱500 Oct 15 at 1400', '1400'], ['Late checkout 1500 fee for Maria', '1500'], ['Laundry deposit refund PHP 1,780', '1,780'], ['Pay Honey ₱3,560 balance', '3,560']]) assert(!maskTitle(t).includes(leak), `${t} -> ${maskTitle(t)}`);
   assert(!maskTitle('Pay Honey ₱500 to 0956 011 5744').includes('5744'));
   assertEquals(maskTitle('Property inspection 2026-10-05, call 0917 123 4567'), 'Property inspection 2026-10-05, call 0917 123 4567');
+});
+
+// D-306 round 6: the audit's leak list (month words that are not dates, ids that are prices, room/unit with a price, hotlines, currency then a dash, number words) must mask.
+const LEAKS6: [string, string][] = [
+  ['Oct 15, 3560', '3560'], ['Oct 15 1780', '1780'], ['15 Oct 3560', '3560'], ['Sept 1780', '1780'], ['Sept 1780 Maria', '1780'], ['may 1780 pa siya', '1780'], ['May 1780 pa po', '1780'], ['Ana Oct 3560', '3560'],
+  ['2 nights x1780', '1780'], ['x1780 per night', '1780'], ['1780x 2 nights', '1780'], ['1780lang po', '1780'], ['1780only', '1780'], ['1780po', '1780'], ['1780p per night', '1780'], ['1780nyt', '1780'], ['1780-only', '1780'], ['1780-isang gabi', '1780'],
+  ['Room 1780 per night', '1780'], ['Room 1,780/night, extra bed 500', '1,780'], ['unit 1780 kada gabi', '1780'], ['Room: 1780 a night', '1780'], ['order 1780 from Maria', '1780'], ['Room 203 per night', '203'],
+  ['call Maria re 890 balance', '890'], ['Will call her, 890 pa kulang', '890'], ['Ana will call, 500 extra guest', '500'], ['rate 160 per night', '160'],
+  ['1780 includes breakfast', '1780'], ['1780 covers 2 nights', '1780'], ['Maria sent 1780 bucks', '1780'], ['1780 proceeds', '1780'], ['1780 dues', '1780'], ['500 extras', '500'], ['Maria: 3560 remains', '3560'],
+  ['PHP-1780', '1780'], ['P-1780 per night', '1780'], ['DP-890', '890'], ['Php-1,780', '1,780'], ['#1780 per night', '1780'], ['+500 for 2 nights', '500'], ['1780 am', '1780'], ['1780 pm', '1780'], ['1780pm', '1780'],
+  ['usa ka libo', 'libo'], ['duha ka libo', 'libo'], ['lima ka gatos', 'gatos'], ['5 gatos', 'gatos'], ['one thousand seven hundred eighty', 'thousand'], ['one thousand seven hundred pesos', 'thousand'], ['isang libo pitong daan walumpu', 'daan'],
+  ['tag-1780', '1780'], ['TAG-1780', '1780'], ['RATE-1780', '1780'], ['rate 1780 pax', '1780'], ['1780 per 2 nights', '1780'], ['1780 nights', '1780'], ['1780 guests', '1780'], ['2026 per night', '2026'], ['price 2026', '2026'], ['Maria 2026', '2026'],
+];
+Deno.test('D-306 round 6: the round-6 audit leaks all mask', () => {
+  for (const [t, leak] of LEAKS6) { const m = maskMoney(t); assert(hasMoney(t), `hasMoney ${t}`); assert(!m.includes(leak), `${t} -> ${m}`); }
+});
+
+Deno.test('D-306 round 6 keep-list: codes, passwords, hotlines, postcode, dates, valid clock times and supply counts stay readable', () => {
+  for (const t of [
+    'Code is 4829', 'Ang code ay 4829', 'Door code: 482913', 'New code 4829 for Ana', 'Lockbox 4829', 'Smart lock 4829', 'Gate code 1234', 'passcode 4829', 'Wi-Fi password 12345678', 'ref 5012345', 'Meralco reading 4523',
+    'Call 911 or 117', 'BFP 160', 'Red Cross 143', 'Police 166', 'Tawag sa 160 kung sunog', 'Pakicall ang 911', 'Gensan CDRRMO 552-1234', 'zip 9500',
+    'Oct 15', 'May 15', 'October 2026, 5 nights', '15 Oct 2026', 'Arrives 10:30am, back by 2pm and 2:30 pm', 'Room 203', 'Room 203, 2 extra towels each', 'Block 47 Lot 39', 'Booking #12345', 'Guest count 4, towels 8, 3 pax, 2 nights',
+    '120 rolls', '300 W', 'Laundry 1.2 kg', 'Order 500 ml shampoo', '50 pillowcases and 40 blankets', '8 guests', '24-hour desk',
+  ]) assertEquals(maskMoney(t), t, t);
+});
+
+Deno.test('D-306 round 6: maskTitle keeps only a cleaning-pay-scale amount; a bigger one, a guest word or another number masks', () => {
+  for (const t of ['Pay Honey ₱500', 'Pay Honey ₱500.', 'Cleaning fee ₱1,500', 'Laundry ₱320 for 120 towels', 'Bili ng supplies ₱320, 150 hangers', 'Bayad kay Honey ₱500']) assertEquals(maskTitle(t), t, t);
+  for (const [t, leak] of [['Pay Maria ₱3,560', '3,560'], ['Pay Maria ₱1,780 tomorrow', '1,780'], ['Linis ₱3,560 for Maria 2 gabi', '3,560'], ['Laundry ₱3,560 Maria 2 gabi', '3,560'], ['Expense ₱3,560 from Maria', '3,560'], ['Gastos ₱3,560 Maria checkout', '3,560'],
+    ['Pay Ana ₱890 DP', '890'], ['Pay Honey ₱500 for 2 nights', '500'], ['Pay Honey ₱500 Room 1780 per night', '1780'], ['Cleaning ₱500 Oct 15 1780', '1780'], ['Linis ₱500, Maria x1780', '1780']]) assert(!maskTitle(t).includes(leak), `${t} -> ${maskTitle(t)}`);
+});
+
+// D-306 round 7: every keep needs a positive cue AND no money context.
+const LEAKS7: [string, string][] = [
+  ['₱950-1200 per night', '1200'], ['Rates 950-1500 per night', '1500'], ['Extra guest 500-1000', '1000'], ['Maria 890-1780', '1780'], ['Ana: 552-3162 per night', '3162'],
+  ['Cebu City 1780 balance', '1780'], ['Maria, Cebu City, 3560', '3560'], ['City 3560 paid', '3560'], ['zip 9500 balance', '9500'], ['General Santos City 3560 paid', '3560'], ['postal code 3560 for 2 nights', '3560'],
+  ['The room is 950 for tonight', '950'], ['Fee for the room is 500', '500'], ['Ang room ay 950 lang', '950'], ['Room 950 lang po', '950'], ['Room: 950', '950'], ['Unit 999 lang', '999'], ['Room 950 only', '950'], ['Order 950 from Maria', '950'],
+  ['1780 w/ breakfast', '1780'], ['3560 w/ DP', '3560'], ['Maria 1780 w/o breakfast', '1780'], ['Ana 1780 sets', '1780'], ['Maria 1780 g', '1780'], ['Maria 3560 l', '3560'],
+  ['Paid by Maria 160', '160'], ['Maria sent 143', '143'], ['Extra pillow 160', '160'], ['Breakfast add-on 166', '166'], ['call 911 rate', '911'], ['rate 911', '911'], ['hotline 160 balance', '160'],
+  ['rate code 1780', '1780'], ['Refund ref 1780', '1780'], ['Balance ref 1780', '1780'], ['code 1780, kulang pa', '1780'], ['Promo code 1780 off', '1780'], ['GCash code 1780', '1780'], ['Wi-Fi password 1780 per night', '1780'],
+  ['Oct 2000 per night', '2000'], ['Maria May 2000', '2000'], ['Sept 2000 Maria', '2000'], ['Maria Oct 15, 2050', '2050'], ['For 950 pax', '950'], ['950 guests', '950'],
+  ['#1780 balance', '1780'], ['#1780 for 2 nights', '1780'], ['1780ONLY', '1780'], ['total3560', '3560'], ['bal1780', '1780'], ['1780Nights', '1780'], ['2nights3560', '3560'], ['RATE-950', '950'], ['TOTAL-950', '950'], ['DP-950', '950'],
+  ['rate 1030am', '1030'], ['Maria 1130pm', '1130'], ['1000 pm monthly', '1000'], ['Maria 950pm', '950'], ['Maria 1030am', '1030'],
+];
+Deno.test('D-306 round 7: the round-7 audit leaks all mask', () => {
+  for (const [t, leak] of LEAKS7) { const m = maskMoney(t); assert(hasMoney(t), `hasMoney ${t}`); assert(!m.includes(leak), `${t} -> ${m}`); }
+});
+
+Deno.test('D-306 round 7 keep-list: a cue and no money word keeps hotlines, phones, postcode, codes and rooms', () => {
+  for (const t of [
+    'Bureau of Fire Protection 160', 'PNP 117', 'Red Cross 143', 'Ambulance 911', 'Tawag sa 911', 'Call 911 or 117', 'Tel: 552-3162', 'Call 552-3162 for the front desk', 'Hospital 552-3162', 'zip 9500', 'postal code 9500',
+    'Code is 4829', 'Room 203 extra towels', 'Room 203', 'Room 203, 2 extra towels each', 'Door code 4829 sent', 'Booking #12345 confirmed', 'Arrives 10:30am, back by 2pm', 'Charge the EcoFlow to 100%', '300 W', '1200 ml', 'Send 120 rolls', 'HMA1234567', '00A49C5E',
+  ]) assertEquals(maskMoney(t), t, t);
+});
+
+Deno.test('D-306 round 7: maskTitle masks collect, charged, from, pet, late, early, checkout and extra; plain staff pay stays', () => {
+  for (const [t, leak] of [['Collect ₱500 cleaning fee from Maria', '500'], ['Pet cleaning fee ₱500', '500'], ['Late checkout cleaning ₱500', '500'], ['Cleaning ₱1,200 from Ana', '1,200'], ['Laundry ₱500 charged to Maria', '500'],
+    ['Linis fee ₱800 from Maria', '800'], ['Singil kay Maria ₱500 linis', '500'], ['Early check-in cleaning ₱500', '500'], ['Extra bed cleaning ₱500', '500']]) assert(!maskTitle(t).includes(leak), `${t} -> ${maskTitle(t)}`);
+  for (const t of ['Pay Honey ₱500', 'Bili ng supplies ₱320', 'Laundry ₱320 for 120 towels']) assertEquals(maskTitle(t), t, t);
+});
+
+// D-306 round 8: postcode only after zip/postal, phone range with money near, W only as a capital unit, 3.560 is thousands, tokens and #ids with money, number words.
+const LEAKS8: [string, string][] = [
+  ['GenSan 9500 DP', '9500'], ['General Santos City 9500 bayad na', '9500'], ['Guest from GenSan, 9500 GCash', '9500'], ['General Santos City 9500', '9500'], ['zip 9500 cash', '9500'], ['zip 9500 collected', '9500'],
+  ['Call Maria, 890-1780 balance', '1780'], ['Ana will call, 500-1000 extra guest', '1000'], ['Office rate 950-1500', '1500'], ['number 890-1780 total', '1780'], ['Call Maria re 950-1200 rate', '1200'], ['Hotline 950-1200 DP', '1200'],
+  ['Room 1780 w breakfast', '1780'], ['Maria 3560 w DP', '3560'], ['1780 W breakfast', '1780'], ['1780 w bfast', '1780'], ['1780 W/ breakfast', '1780'],
+  ['Maria1780', '1780'], ['balance1780', '1780'], ['gcash1780', '1780'], ['1780balance', '1780'], ['1780pernight', '1780'], ['3560deposit', '3560'], ['1780ONLY', '1780'], ['2NIGHTS3560', '3560'],
+  ['Balance #1780', '1780'], ['Paid #1780', '1780'], ['#1780 DP', '1780'], ['#3560 GCash', '3560'], ['Maria #1780 lang', '1780'], ['#1780 kulang', '1780'], ['Booking #1780 cash', '1780'],
+  ['uno mil', 'mil'], ['dos mil', 'mil'], ['singko mil', 'mil'], ['2.5 thousand', 'thousand'], ['3 thousand', 'thousand'],
+  ['PAY-950', '950'], ['PAID-950', '950'], ['BALANCE-950', '950'], ['GCASH-950', '950'], ['MARIA-950', '950'], ['RM-950', '950'],
+  ['Ana Oct 15, 2030 balance', '2030'], ['Maria 15 Oct 2030 paid', '2030'], ['Oct 2025 total', '2025'], ['Sept 2,000 Maria', '2,000'], ['balance 1:780', '780'], ['01780 balance', '1780'], ['03560 total', '3560'], ['Maria 0950 balance', '0950'],
+  ['Maria DP ref 1780', '1780'], ['downpayment ref 1780', '1780'], ['Maria ref 3560 bayad na', '3560'], ['wifi 1780', '1780'], ['+500 1780 3560', '3560'], ['code is 950 plus 500', '500'],
+];
+Deno.test('D-306 round 8: the round-8 audit leaks all mask', () => {
+  for (const [t, leak] of LEAKS8) { const m = maskMoney(t); assert(hasMoney(t), `hasMoney ${t}`); assert(!m.includes(leak), `${t} -> ${m}`); }
+});
+
+Deno.test('D-306 round 8 keep-list: zip, a phone with a cue, a capital W unit, ids and dates with no money near stay', () => {
+  for (const t of [
+    'zip 9500', 'postal code 9500', 'Tel: 552-3162', 'Call 552-3162 for the front desk', '300 W', '300W', 'Its output is 300 W in total.', 'Run it at 300 W; charge to 100%', 'Booking #12345 confirmed', 'HMA1234567', '00A49C5E', 'D-306 and SPEC-38',
+    'Door code 4829 sent', 'Code is 4829', 'Wi-Fi password 12345678', 'Lockbox 4829', 'Oct 15, 2026', 'October 2026, 5 nights', 'Arrives 10:30am', 'Room 203 extra towels',
+  ]) assertEquals(maskMoney(t), t, t);
+});
+
+Deno.test('D-306 round 8: "3.560" is thousands in a title, so it passes the cleaning-pay cap only as 3,560 (and masks)', () => {
+  for (const t of ['Pay Maria ₱3.560', 'Cleaning ₱3.560', 'Pay Maria P3.560']) assert(!maskTitle(t).includes('3.560'), `${t} -> ${maskTitle(t)}`);
+  assertEquals(maskTitle('Pay Honey ₱500'), 'Pay Honey ₱500');
 });
