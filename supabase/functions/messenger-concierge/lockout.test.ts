@@ -23,3 +23,8 @@ Deno.test('the follow-up line promises nothing the code does not do: no dates, n
     assertEquals(/dates|https?:|book|site/i.test(m), false, m);
   }
 });
+
+Deno.test('safety: "sparks" is a safety message (the regex once held a literal backspace instead of \b)', () => {
+  assertEquals(classify('there are sparks coming from the socket'), 'safety');
+  assertEquals(classify('may spark sa outlet'), 'safety');
+});
