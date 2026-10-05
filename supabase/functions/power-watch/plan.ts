@@ -51,8 +51,12 @@ export function reminderDue(st: NoticeState, rows: Row[], now: Date, today: stri
   if (airbnbCovers(st.blocked, rows)) return false;
   return now.getTime() - Date.parse(st.cardAt) >= THREE_HOURS_MS;
 }
+/** Proof that Marifel blocked Airbnb: an Airbnb "Not available" row (status blocked) on every night. A guest's reservation is NOT a block (audit 656fee7). */
+export function airbnbBlocks(nights: string[], rows: Row[]): boolean {
+  return nights.length > 0 && nights.every((n) => rows.some((r) => r.source === 'airbnb' && r.status === 'blocked' && covers(r, n)));
+}
 export const seenDue = (st: NoticeState, rows: Row[]) =>
-  st.status === 'active' && !st.card && !st.cancelAskedAt && !!st.cardAt && !st.seenAt && st.blocked.length > 0 && airbnbCovers(st.blocked, rows);
+  st.status === 'active' && !st.card && !st.cancelAskedAt && !!st.cardAt && !st.seenAt && st.blocked.length > 0 && airbnbBlocks(st.blocked, rows);
 
 /** Who closed the job when the Airbnb calendar (the iCal feed) itself shows the block: no tap needed. */
 export const AIRBNB_CAL = 'Airbnb calendar';

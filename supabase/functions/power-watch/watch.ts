@@ -3,7 +3,7 @@
 // path against an in-memory database. Nothing here writes to Airbnb or sends anything to a guest.
 import { cancelBrownoutRows, brownoutUid, listNotices, patchNoticeState, putNoticeState, readNotice, releasable, releaseNotice, type NoticeSource, type NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { alertText, dayLabel, FEEDER, posterFor, type Notice } from './poster.ts';
-import { AIRBNB_CAL, airbnbCovers, cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, undoOnly, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule } from './plan.ts';
+import { AIRBNB_CAL, airbnbBlocks, cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule } from './plan.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -73,7 +73,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
       blocked, already: cls.already, guests: cls.guests,
       card: { kind, ...(prev ? { prev: { time: prev.time, hours: prev.hours, blocked: prev.blocked } } : {}) },
       // A change that adds nights is a new job for Marifel; one that only moves the hours leaves what she did standing.
-      ...(prev && !added.length ? { cardAt: prev.cardAt, doneAt: prev.doneAt, doneBy: prev.doneBy, seenAt: prev.seenAt, remindedAt: prev.remindedAt } : {}),
+      ...(prev && !added.length ? { cardAt: prev.cardAt, doneAt: prev.doneAt, doneBy: prev.doneBy, seenAt: prev.seenAt, remindedAt: prev.remindedAt, cardMsgId: prev.cardMsgId, remindMsgId: prev.remindMsgId, unverifiedAt: prev.unverifiedAt } : {}),
     };
     await putNoticeState(db, st);
     states.set(st.date, st);
@@ -184,7 +184,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   for (const s of [...states.values()].filter((x) => x.card).map(linked)) {
     const kind = s.card!.kind;
     // 2026-10-05 (Lloyd): if the Airbnb calendar already shows every night we hold, the job is done before it is asked: the card says so, no Done button, no reminder.
-    const auto = kind !== 'cancel' && !s.doneAt && s.blocked.length > 0 && airbnbCovers(s.blocked, rows);
+    const auto = kind !== 'cancel' && !s.doneAt && s.blocked.length > 0 && airbnbBlocks(s.blocked, rows);
     const st: NoticeState = auto ? { ...s, doneAt: nowIso, doneBy: AIRBNB_CAL, seenAt: nowIso } : s;
     const card = kind === 'new' ? newCard(st) : kind === 'changed' ? changedCard(st) : cancelCard(st);
     const sent = await d.send(card);
@@ -205,7 +205,9 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
       if (await d.send(seenCard(st))) {
         const n = await patchNoticeState(db, st.date, { seenAt: nowIso, ...(st.doneAt ? {} : { doneAt: nowIso, doneBy: AIRBNB_CAL }) });
         if (n) states.set(st.date, n);
-        if (d.edit && st.cardMsgId && !(await d.edit(st.cardMsgId, undoOnly(st.date)))) d.log('power_watch_edit_failed', { date: st.date, what: 'card' });
+        // the card's own keyboard rebuilt with Done gone, so a 📨 guest-draft row stays (audit 656fee7)
+        const kept = newCard({ ...st, doneBy: AIRBNB_CAL }).markup ?? { inline_keyboard: [] };
+        if (d.edit && st.cardMsgId && !(await d.edit(st.cardMsgId, kept))) d.log('power_watch_edit_failed', { date: st.date, what: 'card' });
         if (d.edit && st.remindMsgId && !(await d.edit(st.remindMsgId, { inline_keyboard: [] }))) d.log('power_watch_edit_failed', { date: st.date, what: 'reminder' });
         res.push(`${st.date}: airbnb block seen`);
       }

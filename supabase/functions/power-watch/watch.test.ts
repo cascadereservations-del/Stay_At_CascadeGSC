@@ -163,6 +163,16 @@ Deno.test('2026-10-05: the card goes out first, Marifel blocks Airbnb later: don
   assertEquals(await run([], '2026-10-02T09:00:00Z'), [], 'nothing more');
 });
 
+Deno.test('audit 656fee7: a guest reservation on a held night is not an Airbnb block - never "seen", never closed by the calendar', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  w.db.tables.calendar_events.push({ uid: 'res1', source: 'airbnb', status: 'confirmed', checkin_date: '2026-10-14', checkout_date: '2026-10-16', guest_name: 'Reserved', property_id: PID });
+  const r = await w.run([], '2026-10-02T01:15:00Z');
+  assert(!r.includes('2026-10-15: airbnb block seen'), 'a reservation is not a block');
+  const st = (await readNotice(w.db, '2026-10-15'))!;
+  assertEquals([st.doneAt, st.seenAt], [undefined, undefined]);
+});
+
 Deno.test('a newer poster with new times updates the notice and the blocks, and an older poster does not undo it', async () => {
   const w = world();
   await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
