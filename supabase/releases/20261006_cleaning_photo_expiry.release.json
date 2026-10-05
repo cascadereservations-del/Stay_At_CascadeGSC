@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "cleaning_photo_expiry_20261006",
+  "phase": "expand",
+  "source": {
+    "branch": "s72/l9-photo-expiry",
+    "commit": "64f328446dfbff743e5dca0568bead741fedd260"
+  },
+  "migrations": [
+    "20261006160000_cleaning_photo_expiry.sql"
+  ],
+  "migration_sha256": {
+    "20261006160000_cleaning_photo_expiry.sql": "554045bdabd8ffbd69b1c72e3ee24e7ed22b611173035efc0bed38f85e12115e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "No table or column change: one job_heartbeats row (expire-cleaning-photos-weekly) and one pg_cron job. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Deploy the Edge Function expire-cleaning-photos from waves BEFORE applying: the cron's first call is the following Sunday 22:00 UTC, and until then it only ever finds sessions older than 90 days with their own storage folder (none before 2026-12-12)."
+  },
+  "forward_verification": [
+    {
+      "name": "heartbeat_row_seeded_eight_day_interval",
+      "query": "select count(*) = 1 and bool_and(expected_interval_seconds = 691200 and ops_risk = false) from public.job_heartbeats where job_name = 'expire-cleaning-photos-weekly'",
+      "expect": true
+    },
+    {
+      "name": "cron_job_scheduled_sunday_2200_utc_with_delete_flag",
+      "query": "select count(*) = 1 and bool_and(active and schedule = '0 22 * * 0' and command like '%/functions/v1/expire-cleaning-photos?delete=1%') from cron.job where jobname = 'expire-cleaning-photos-weekly'",
+      "expect": true
+    },
+    {
+      "name": "cron_reads_the_secret_from_vault_never_embeds_it",
+      "query": "select count(*) = 1 and bool_and(command like '%cascade_cron_shared_secret%' and command !~ 'x-cascade-cron-secret''\\s*,\\s*''[^(]') from cron.job where jobname = 'expire-cleaning-photos-weekly'",
+      "expect": true
+    },
+    {
+      "name": "no_cleaning_photo_object_removed_by_the_release",
+      "query": "select count(*) >= 300 from storage.objects where bucket_id = 'cleaning-photos'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261006_cleaning_photo_expiry.sql with run-sql-on-host.sh: it unschedules the weekly job and removes its heartbeat row. To stop a run in flight, unschedule first. Photos the function already removed from Storage are in Drive (it removes only a copy Drive holds) and are not restored by this."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "function_then_sql",
+      "required_state": "Deploy expire-cleaning-photos (no JWT verification, like power-watch) before this release; the function deletes only with ?delete=1 and a call without the flag is a dry run that deletes and tells nobody. Redeploy verify-meter-photo, resend-cleaning-report and submit-cleaning from the same waves commit."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "NOT RUN (session 72 lane L9 has no Postgres here). Orchestrator: restore the newest backup into a rehearsal copy, apply the migration (1/1; the cron block skips there because pg_cron is absent), run pgTAP cleaning_photo_expiry (10 tests; the last 3 skip without pg_cron).",
+    "evidence": "Production read-only 2026-10-06: job_heartbeats has no expire-cleaning-photos-weekly row; record_job_heartbeat refuses unknown names and the error-code check allows REMOVE_FAILED and RUN_FAILED; cleaning-photos holds 380 objects under property/user/submission folders (2026-09-12 onward) and about 335 in legacy YYYY-MM-DD folders that the function never touches; 39 of 48 sessions have a complete Drive archive; none of the 39 with a per-session folder is older than 90 days, so the first real run that can delete anything is Monday 2026-12-14."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the expire-cleaning-photos function is not deployed yet"
+  ]
+}
