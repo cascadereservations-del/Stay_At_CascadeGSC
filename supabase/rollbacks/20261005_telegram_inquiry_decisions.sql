@@ -7,7 +7,7 @@
 begin;
 
 drop function if exists public.telegram_inquiry_message_logged_v1(uuid, bigint, text, text, text, boolean, text, text);
-drop function if exists public.telegram_inquiry_decide_v1(bigint, uuid, text, text, integer);
+drop function if exists public.telegram_inquiry_decide_v1(bigint, uuid, text, text, integer, text);
 drop function if exists public.telegram_inquiry_view_v1(uuid);
 
 delete from public.telegram_pending where kind in ('inquiry_reply', 'refund_confirm', 'lock_code');

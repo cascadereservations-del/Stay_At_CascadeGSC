@@ -10,7 +10,7 @@
     "20261005100000_telegram_inquiry_decisions.sql"
   ],
   "migration_sha256": {
-    "20261005100000_telegram_inquiry_decisions.sql": "f50fb9bef0b99be9f4090e9a9edb1405310630eead98f37d36a199fc9ca0636e"
+    "20261005100000_telegram_inquiry_decisions.sql": "9973c5584c8e8b107e90e5c31e04a3625db6d73bb3d4c6fdaa28fc1ba238fca4"
   },
   "backup": {
     "required": true,
@@ -32,7 +32,7 @@
     },
     {
       "name": "functions_service_role_only",
-      "query": "select has_function_privilege('service_role','public.telegram_inquiry_view_v1(uuid)','execute') and has_function_privilege('service_role','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)','execute') and has_function_privilege('service_role','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute') and not has_function_privilege('anon','public.telegram_inquiry_view_v1(uuid)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_view_v1(uuid)','execute') and not has_function_privilege('anon','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)','execute') and not has_function_privilege('anon','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute')",
+      "query": "select has_function_privilege('service_role','public.telegram_inquiry_view_v1(uuid)','execute') and has_function_privilege('service_role','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer,text)','execute') and has_function_privilege('service_role','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute') and not has_function_privilege('anon','public.telegram_inquiry_view_v1(uuid)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_view_v1(uuid)','execute') and not has_function_privilege('anon','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer,text)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer,text)','execute') and not has_function_privilege('anon','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute')",
       "expect": true
     },
     {
@@ -41,8 +41,8 @@
       "expect": true
     },
     {
-      "name": "unmapped_telegram_user_is_refused_and_writes_nothing",
-      "query": "select (public.telegram_inquiry_decide_v1(-1, '00000000-0000-0000-0000-000000000000', 'hold') ->> 'reason') = 'unmapped_telegram_user' and (public.telegram_inquiry_decide_v1(-1, '00000000-0000-0000-0000-000000000000', 'decline', 'taken') ->> 'reason') = 'unmapped_telegram_user'",
+      "name": "a_tap_without_a_telegram_id_is_refused_and_writes_nothing",
+      "query": "select (public.telegram_inquiry_decide_v1(null, '00000000-0000-0000-0000-000000000000', 'hold') ->> 'reason') = 'no_tapper' and (public.telegram_inquiry_decide_v1(-1, '00000000-0000-0000-0000-000000000000', 'decline', 'taken') ->> 'reason') = 'not_found'",
       "expect": true
     },
     {

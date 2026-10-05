@@ -9,7 +9,8 @@
 --      telegram_inquiry_view_v1          read: the open (unpaid) requests, or one request whatever its status
 --      telegram_inquiry_decide_v1        hold the dates 24 h, or decline with a reason code; one named actor, idempotent
 --      telegram_inquiry_message_logged_v1 audit row for a guest message (hold line, decline line, Cassy reply)
--- Who may decide = the B80 rule: a mapped staff profile with approve_payment and property access (owners need none).
+-- Who may decide (D-302.2): anyone in the Finance group - the Edge function only calls decide from the Finance chat. No staff-profile
+-- mapping is needed; the tapper's Telegram id is recorded on every audit row, and actor_user_id is filled when that id is mapped.
 -- No table, column or grant change on existing objects. Nothing is dropped.
 begin;
 
@@ -69,17 +70,18 @@ returns jsonb language sql stable security definer set search_path to '' as $$
            limit 5) b
     left join lateral (select max(k.expires_at) as expires_at from public.booking_holds k
                         where k.booking_id = b.id and k.status = 'active') h on true
-    left join lateral (select e.created_at, p.note
+    left join lateral (select e.created_at, coalesce(p.note, e.after_state ->> 'actor_name') as note
                          from public.booking_lifecycle_events e
                          left join public.staff_access_profiles p on p.user_id = e.actor_user_id
                         where e.idempotency_key = 'tg-inquiry-hold:' || b.id::text
                         limit 1) hb on true;
 $$;
 
--- 4.2 Hold the dates, or decline. One named actor (the mapped tapper), the property advisory lock the decide_* functions and the
+-- 4.2 Hold the dates, or decline. One actor (the Finance tapper, by Telegram id), the property advisory lock the decide_* functions and the
 -- guard trigger use, and an idempotency key per effect: a re-tap or a Telegram re-delivery changes nothing.
 create or replace function public.telegram_inquiry_decide_v1(
-  p_telegram_user_id bigint, p_booking_id uuid, p_action text, p_reason_code text default null, p_hold_hours integer default 24)
+  p_telegram_user_id bigint, p_booking_id uuid, p_action text, p_reason_code text default null, p_hold_hours integer default 24,
+  p_actor_name text default null)
 returns jsonb language plpgsql security definer set search_path to '' as $$
 declare
   p public.staff_access_profiles%rowtype;
@@ -99,17 +101,11 @@ begin
   if p_action = 'decline' and (p_reason_code is null or p_reason_code not in ('taken', 'guests', 'house', 'owner', 'dup', 'other')) then
     return jsonb_build_object('ok', false, 'reason', 'bad_reason');
   end if;
-  if p_telegram_user_id is null then return jsonb_build_object('ok', false, 'reason', 'unmapped_telegram_user'); end if;
-  select * into p from public.staff_access_profiles where telegram_user_id = p_telegram_user_id;
-  if not found then return jsonb_build_object('ok', false, 'reason', 'unmapped_telegram_user'); end if;
+  if p_telegram_user_id is null then return jsonb_build_object('ok', false, 'reason', 'no_tapper'); end if;
+  select * into p from public.staff_access_profiles where telegram_user_id = p_telegram_user_id; -- optional (D-302.2)
 
   select * into b from public.booking_inquiries where id = p_booking_id and source = 'direct' for update;
   if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
-  if not public.staff_access_allowed(p.role, 'approve_payment', p.disabled_at, null)
-     or not (p.role = 'owner' or exists (
-       select 1 from public.staff_property_access s where s.user_id = p.user_id and s.property_id = b.property_id)) then
-    return jsonb_build_object('ok', false, 'reason', 'not_authorized');
-  end if;
   perform pg_advisory_xact_lock(hashtextextended('cascade-booking-property:' || b.property_id::text, 0));
 
   if p_action = 'hold' then
@@ -158,7 +154,8 @@ begin
     values (b.property_id, b.id, 'hold_created', p.user_id, 'Held in Telegram for ' || v_hours || ' h',
             'tg-inquiry-hold:' || b.id::text,
             jsonb_build_object('hold_expires_at_before', v_before),
-            jsonb_build_object('hold_id', v_hold_id, 'expires_at', v_until, 'telegram_user_id', p_telegram_user_id));
+            jsonb_build_object('hold_id', v_hold_id, 'expires_at', v_until, 'telegram_user_id', p_telegram_user_id,
+                               'actor_name', left(nullif(btrim(p_actor_name), ''), 80)));
     return jsonb_build_object('ok', true, 'outcome', 'held', 'already_processed', false, 'extended', v_extended,
       'expires_at', v_until, 'actor_user_id', p.user_id, 'actor_role', p.role);
   end if;
@@ -178,7 +175,8 @@ begin
   insert into public.booking_lifecycle_events(property_id, booking_id, event_type, actor_user_id, reason, idempotency_key, after_state)
   values (b.property_id, b.id, 'cancelled', p.user_id, 'Declined in Telegram: ' || p_reason_code,
           'tg-inquiry-decline-audit:' || b.id::text,
-          jsonb_build_object('reason_code', p_reason_code, 'telegram_user_id', p_telegram_user_id))
+          jsonb_build_object('reason_code', p_reason_code, 'telegram_user_id', p_telegram_user_id,
+                             'actor_name', left(nullif(btrim(p_actor_name), ''), 80)))
   on conflict (idempotency_key) do nothing;
   return v_res || jsonb_build_object('actor_user_id', p.user_id, 'actor_role', p.role, 'reason_code', p_reason_code);
 end $$;
@@ -216,8 +214,8 @@ end $$;
 
 revoke all on function public.telegram_inquiry_view_v1(uuid) from public, anon, authenticated;
 grant execute on function public.telegram_inquiry_view_v1(uuid) to service_role;
-revoke all on function public.telegram_inquiry_decide_v1(bigint, uuid, text, text, integer) from public, anon, authenticated;
-grant execute on function public.telegram_inquiry_decide_v1(bigint, uuid, text, text, integer) to service_role;
+revoke all on function public.telegram_inquiry_decide_v1(bigint, uuid, text, text, integer, text) from public, anon, authenticated;
+grant execute on function public.telegram_inquiry_decide_v1(bigint, uuid, text, text, integer, text) to service_role;
 revoke all on function public.telegram_inquiry_message_logged_v1(uuid, bigint, text, text, text, boolean, text, text) from public, anon, authenticated;
 grant execute on function public.telegram_inquiry_message_logged_v1(uuid, bigint, text, text, text, boolean, text, text) to service_role;
 

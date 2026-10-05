@@ -2,30 +2,29 @@
 -- hold the dates 24 h or decline with a reason code. Also the widened telegram_pending kinds (refund_confirm, inquiry_reply,
 -- lock_code) and the guest_replied lifecycle event. Synthetic fixtures only (public repo); rows are inserted as the owner because
 -- service_role has no BYPASSRLS in the rehearsal, and they go with the closing rollback. Property P is private to this suite.
---   admin A (tg 907000001, note 'Admin A') admin with property access  -> may decide
---   admin B (tg 907000002) admin WITHOUT property access                -> refused
---   cleaner C (tg 907000003) role without approve_payment               -> refused
---   admin D (tg 907000004) disabled                                     -> refused
---   owner O (tg 907000005) owner, no property row (owners need none)    -> may decide
---   tg 907000099 is mapped to nobody
+--   D-302.2: anyone in the Finance group may decide (the Edge function calls decide from the Finance chat only); the RPC needs a
+--   Telegram id and records it, and fills actor_user_id when the id is mapped.
+--   admin A (tg 907000001, note 'Admin A') mapped admin   -> decides, actor_user_id = A
+--   tg 907000099 is mapped to nobody                        -> decides, actor_user_id null, Telegram id recorded
+--   (B, C, D and owner O stay as fixtures for the view and message-log assertions.)
 --   b1 pending, calendar block, pending income row.   b2 pending with a receipt.   b3 pending, overlaps a confirmed Airbnb stay.
 --   b4 cancelled.   b5 pending with a 2 h hold from open_booking_hold_v1.   b6 pending, no hold.
 -- submitted_at is far in the past so the fixtures sort first in telegram_inquiry_view_v1(null), whatever else a restore holds.
 begin;
-select plan(55);
+select plan(52);
 
 -- shape and grants
 select has_function('public', 'telegram_inquiry_view_v1', array['uuid'], 'view RPC exists');
-select has_function('public', 'telegram_inquiry_decide_v1', array['bigint', 'uuid', 'text', 'text', 'integer'], 'decide RPC exists');
+select has_function('public', 'telegram_inquiry_decide_v1', array['bigint', 'uuid', 'text', 'text', 'integer', 'text'], 'decide RPC exists');
 select has_function('public', 'telegram_inquiry_message_logged_v1', array['uuid', 'bigint', 'text', 'text', 'text', 'boolean', 'text', 'text'], 'message-logged RPC exists');
 select ok(has_function_privilege('service_role', 'public.telegram_inquiry_view_v1(uuid)', 'execute')
-      and has_function_privilege('service_role', 'public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)', 'execute')
+      and has_function_privilege('service_role', 'public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer,text)', 'execute')
       and has_function_privilege('service_role', 'public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)', 'execute'),
   'service_role can execute all three');
 select ok(not has_function_privilege('anon', 'public.telegram_inquiry_view_v1(uuid)', 'execute')
       and not has_function_privilege('authenticated', 'public.telegram_inquiry_view_v1(uuid)', 'execute')
-      and not has_function_privilege('anon', 'public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)', 'execute')
-      and not has_function_privilege('authenticated', 'public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)', 'execute')
+      and not has_function_privilege('anon', 'public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer,text)', 'execute')
+      and not has_function_privilege('authenticated', 'public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer,text)', 'execute')
       and not has_function_privilege('anon', 'public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)', 'execute')
       and not has_function_privilege('authenticated', 'public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)', 'execute'),
   'anon and authenticated can execute none');
@@ -95,18 +94,12 @@ values ('e3000000-0000-4000-8000-000000000070', 'income', 'direct_booking', 'dir
         'c0de7001-0000-4000-8000-000000000001', 'c0de7001-0000-4000-8000-000000000001');
 select public.open_booking_hold_v1('c0de7001-0000-4000-8000-000000000005', 2);
 
--- who may hold: nobody who is unmapped, not an approver, disabled, or without the property; and nothing is written
-select is(public.telegram_inquiry_decide_v1(907000099, 'c0de7001-0000-4000-8000-000000000001', 'hold'),
-  '{"ok": false, "reason": "unmapped_telegram_user"}'::jsonb, 'hold: an unmapped Telegram user is refused');
-select is(public.telegram_inquiry_decide_v1(907000003, 'c0de7001-0000-4000-8000-000000000001', 'hold'),
-  '{"ok": false, "reason": "not_authorized"}'::jsonb, 'hold: a cleaner (no approve_payment) is refused');
-select is(public.telegram_inquiry_decide_v1(907000004, 'c0de7001-0000-4000-8000-000000000001', 'hold'),
-  '{"ok": false, "reason": "not_authorized"}'::jsonb, 'hold: a disabled admin is refused');
-select is(public.telegram_inquiry_decide_v1(907000002, 'c0de7001-0000-4000-8000-000000000001', 'hold'),
-  '{"ok": false, "reason": "not_authorized"}'::jsonb, 'hold: an admin without the property is refused');
+-- a tap with no Telegram id is refused and writes nothing
+select is(public.telegram_inquiry_decide_v1(null, 'c0de7001-0000-4000-8000-000000000001', 'hold'),
+  '{"ok": false, "reason": "no_tapper"}'::jsonb, 'hold: a tap with no Telegram id is refused');
 select is((select (select count(*) from public.booking_holds where booking_id = 'c0de7001-0000-4000-8000-000000000001')
                 + (select count(*) from public.booking_lifecycle_events where idempotency_key = 'tg-inquiry-hold:c0de7001-0000-4000-8000-000000000001'))::int,
-  0, 'hold: the refusals left no hold and no hold audit row');
+  0, 'hold: the refusal left no hold and no hold audit row');
 
 -- hold b1 by admin A
 select set_config('cascade.s70_hold1', public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-000000000001', 'hold')::text, true);
@@ -142,16 +135,19 @@ select is(public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-
   'hold: b2 already has a receipt -> receipt_arrived (decide on the receipt card)');
 select is(public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-000000000004', 'hold') ->> 'reason', 'not_pending',
   'hold: b4 is cancelled -> not_pending');
-select ok((select (r ->> 'ok')::boolean and (r ->> 'expires_at')::timestamptz <= now() + interval '48 hours 1 minute' and (r ->> 'actor_role') = 'owner'
-             from (select public.telegram_inquiry_decide_v1(907000005, 'c0de7001-0000-4000-8000-000000000006', 'hold', null, 500) as r) q),
-  'hold: an owner needs no property row, and 500 h is clamped to 48 h');
+select ok((select (r ->> 'ok')::boolean and (r ->> 'expires_at')::timestamptz <= now() + interval '48 hours 1 minute' and r -> 'actor_user_id' = 'null'::jsonb
+             from (select public.telegram_inquiry_decide_v1(907000099, 'c0de7001-0000-4000-8000-000000000006', 'hold', null, 500, 'Mia') as r) q)
+      and (select count(*) = 1 from public.booking_lifecycle_events
+            where idempotency_key = 'tg-inquiry-hold:c0de7001-0000-4000-8000-000000000006' and actor_user_id is null
+              and after_state ->> 'telegram_user_id' = '907000099'),
+  'hold: an unmapped Finance member holds b6 (D-302.2), the audit row carries the Telegram id, and 500 h is clamped to 48 h');
 
 -- decline
 select is(public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-000000000001', 'decline', 'zzz') ->> 'reason', 'bad_reason',
   'decline: an unknown reason code is refused');
 select is((select status from public.booking_inquiries where id = 'c0de7001-0000-4000-8000-000000000001'), 'pending', 'decline: a refused code leaves b1 pending');
-select is(public.telegram_inquiry_decide_v1(907000003, 'c0de7001-0000-4000-8000-000000000001', 'decline', 'taken') ->> 'reason', 'not_authorized',
-  'decline: a cleaner cannot decline');
+select is(public.telegram_inquiry_decide_v1(null, 'c0de7001-0000-4000-8000-000000000001', 'decline', 'taken') ->> 'reason', 'no_tapper',
+  'decline: a tap with no Telegram id is refused');
 select is(public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-000000000001', 'cancel_it') ->> 'reason', 'bad_action',
   'decline: an unknown action is refused');
 select is(public.telegram_inquiry_decide_v1(907000001, 'c0de7001-0000-4000-8000-000000000002', 'decline', 'taken') ->> 'reason', 'receipt_arrived',
@@ -191,7 +187,7 @@ select is(public.telegram_inquiry_view_v1('c0de7001-0000-4000-8000-000000000001'
 select is(public.telegram_inquiry_view_v1('c0de7001-0000-4000-8000-000000000003') -> 0 ->> 'conflict', 'true', 'view: b3 reports conflict');
 select is((public.telegram_inquiry_view_v1('c0de7001-0000-4000-8000-000000000006') -> 0 ->> 'held_by')
           || '/' || ((public.telegram_inquiry_view_v1('c0de7001-0000-4000-8000-000000000006') -> 0 ->> 'hold_expires_at') is not null)::text,
-  'Owner O/true', 'view: b6 shows who held it and when the hold ends');
+  'Mia/true', 'view: b6 shows who held it (the unmapped tapper''s Telegram name) and when the hold ends');
 
 -- the message audit row
 select is(public.telegram_inquiry_message_logged_v1('c0de7001-0000-4000-8000-000000000005', 907000001, 'Lloyd', 'reply', 'messenger', true, 'synthetic reply text', 'tg-inquiry-msg:synthetic-s70-key-1'),
