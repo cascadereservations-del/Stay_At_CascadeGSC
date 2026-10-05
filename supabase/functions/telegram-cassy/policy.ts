@@ -1,4 +1,5 @@
 // telegram-cassy policy (2026-09-13, D-104). Pure functions, code-owned, proven in policy.test.ts.
+import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
 export type Surface = 'finance' | 'ops';
 export type GateEnv = { financeChat: string; opsChat: string; dmUserIds: string[] };
 export type Gate = { allowed: false; reason: string } | { allowed: true; surface: Surface };
@@ -57,7 +58,7 @@ export function honestAboutCard(r: { decision: string; lines: string[]; action: 
   return { decision: r.decision.replace(/\bcard\b/gi, 'entry'), lines, action };
 }
 
-const MONEY_KEY = /amount|payout|revenue|cost|total|price|earn|fee|php|peso|balance/i;
+const MONEY_KEY = /amount|payout|revenue|cost|total|price|earn|fee|php|peso|balance|(?<!turnover_)(?<![a-z])rate|deposit|refund|quote|income|paid/i; // D-306 (not generated_at, not the stock turnover_rate)
 /** Ops surface never sees money: delete money-named keys anywhere in a tool result (code, not prompt). */
 export function stripMoney(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(stripMoney);
@@ -89,4 +90,37 @@ export function memoOf(r: { decision: string; lines: string[]; action: string })
 export const HISTORY_WINDOW_MS = 30 * 60_000;
 export function recentTurns<T extends { created_at: string }>(rows: T[], nowMs: number, maxAgeMs = HISTORY_WINDOW_MS): T[] {
   return rows.filter((r) => nowMs - Date.parse(r.created_at) <= maxAgeMs);
+}
+
+/** D-306: OPS never shows booking income. period_metrics (occupancy, nights sold, revenue) is a Finance tool. */
+export const opsToolsOnly = <T extends { name: string }>(decls: T[], surface: Surface): T[] => surface === 'ops' ? decls.filter((t) => t.name !== 'period_metrics') : decls;
+
+/** D-306 belt and braces: the rendered Cassy answer in OPS is masked whatever the model wrote. */
+export function maskReport<T extends { decision: string; lines: string[]; action: string }>(r: T, surface: Surface): T {
+  return surface === 'finance' ? r : { ...r, decision: maskMoney(r.decision), lines: r.lines.map(maskMoney), action: maskMoney(r.action) };
+}
+
+export const FINANCE_UNSET = 'Draft withheld - the Finance chat is not configured.';
+export const FINANCE_UNREACHED = 'Draft withheld - the Finance chat could not be reached.';
+/** D-306: post a drafted guest reply. In OPS a draft with an amount is not shown: Finance gets the whole draft first (headed "Asked in OPS by <name>"),
+ *  then OPS gets the refusal line (the same pattern as inquiry()). If Finance cannot take it, OPS is told it was withheld, never left to think it was sent.
+ *  Finance, and an OPS draft with no money, post as is. send returns false when Telegram refused the message. */
+export async function postDraft(send: (chat: string, text: string, replyTo?: number) => Promise<boolean | void>, o: { surface: Surface; chatId: string; financeChat: string; refused: string; parts: string[]; replyTo?: number; asker?: string }): Promise<{ toFinance: boolean; delivered: boolean }> {
+  const toFinance = o.surface === 'ops' && o.parts.some(hasMoney);
+  if (!toFinance) { for (const p of o.parts) await send(o.chatId, p, o.replyTo); return { toFinance, delivered: true }; }
+  if (!o.financeChat) { await send(o.chatId, FINANCE_UNSET, o.replyTo); return { toFinance, delivered: false }; }
+  let delivered = true;
+  for (const [i, p] of o.parts.entries()) {
+    if (await send(o.financeChat, i === 0 ? `Asked in OPS by ${o.asker || 'a team member'}\n${p}` : p) === false) { delivered = false; console.error('finance_copy_failed', JSON.stringify({ part: i, of: o.parts.length })); break; }
+  }
+  await send(o.chatId, delivered ? o.refused : FINANCE_UNREACHED, o.replyTo);
+  return { toFinance, delivered };
+}
+
+/** D-306: in OPS a house fact is masked before the model sees it (a fact may quote a rate or a deposit); the fact itself, an EcoFlow or turnover SOP included, is kept. */
+export function maskFacts(h: unknown): unknown {
+  const o = h as { facts?: { title?: unknown; body?: unknown }[]; topics?: unknown[] } | null;
+  if (!o || typeof o !== 'object') return h;
+  if (Array.isArray(o.facts)) return { ...o, facts: o.facts.map((f) => ({ ...f, title: maskMoney(String(f?.title ?? '')), body: maskMoney(String(f?.body ?? '')) })) };
+  return Array.isArray(o.topics) ? { ...o, topics: o.topics.map((t) => maskMoney(String(t))) } : h;
 }

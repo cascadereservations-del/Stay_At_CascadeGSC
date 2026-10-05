@@ -16,7 +16,7 @@ import { visionExtractText, parseModelJson, hasVisionKey } from '../_shared/casc
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 import { threadForBooking } from '../_shared/cascade-core/messenger.ts'; // SPEC-38: the Messenger thread a request came from
 import { asLang, draftKeyboard, dueWhat, firstName, joinMessage, quotesReason, replyContext, siteNotes, stayShort, type InquiryView, type Lang } from '../_shared/cascade-core/inquiry.ts';
-import { hasMoney } from '../_shared/ops-money.ts';
+import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
 
 /** "cassy reply: …", "cassy draft …", "cassy, how should I answer: …" -> the guest text (may be empty when a photo carries it). */
 export function draftRequest(text: string): { draft: boolean; text: string } {
@@ -173,15 +173,16 @@ export function routeDraft(surface: 'finance' | 'ops', text: string): { ops_ok: 
   return { ops_ok: surface === 'finance' || !money, toFinance: surface === 'ops' && money };
 }
 
-/** The draft card. A failed gate removes Send: the card says which rules failed and offers Draft again. */
-export function inquiryDraftCard(o: { view: InquiryView; purpose: 'reply' | 'decline'; pid: string; d: Pick<InquiryDraft, 'text' | 'gate' | 'source' | 'channel' | 'lastMessage'> }): { text: string; keyboard: { text: string; callback_data?: string }[][] } {
+/** The draft card. A failed gate removes Send: the card says which rules failed and offers Draft again.
+ *  D-306: `forOps` (the card is posted in OPS) masks the whole text, the guest's own words included; the stored payload stays whole. */
+export function inquiryDraftCard(o: { view: InquiryView; purpose: 'reply' | 'decline'; pid: string; forOps?: boolean; d: Pick<InquiryDraft, 'text' | 'gate' | 'source' | 'channel' | 'lastMessage'> }): { text: string; keyboard: { text: string; callback_data?: string }[][] } {
   const first = firstName(o.view.guest_name) || 'the guest', ok = o.d.gate.length === 0;
   const head = o.purpose === 'decline'
     ? `❌ Decline ${first}'s request with this message?`
     : `✍️ Reply for ${first} · ${o.d.channel}${o.d.source === 'concierge' ? ' · calendar and rate card checked' : ''}`;
   const lines = [head, ...(o.purpose === 'reply' && o.d.lastMessage ? [`Guest wrote: "${o.d.lastMessage}"`] : []), '📨 ⤵', o.d.text,
     ...(ok ? [] : [`⚠️ Voice check: ${o.d.gate.join(', ')}. Send is off; tap 🔄 Draft again.`])];
-  return { text: lines.join('\n'), keyboard: draftKeyboard({ purpose: o.purpose, pid: o.pid, bookingId: o.view.id, first: firstName(o.view.guest_name), sendOk: ok }) };
+  return { text: o.forOps ? maskMoney(lines.join('\n')) : lines.join('\n'), keyboard: draftKeyboard({ purpose: o.purpose, pid: o.pid, bookingId: o.view.id, first: firstName(o.view.guest_name), sendOk: ok }) };
 }
 
 const REGISTER: Record<Lang, string> = { en: 'refined conversational English, no "po"', tl: 'natural Taglish, at most two "po"', bis: 'natural Bislish (Cebuano with English hospitality terms), never Tagalog words or "po"/"opo"' };

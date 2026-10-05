@@ -2,6 +2,10 @@
 // for what in telegram_pending (kind 'awaiting_reply'); it never reads state back out of message text,
 // which Telegram is free to reformat (D-195). No I/O, unit-tested in reply.test.ts. index.ts owns the calls.
 import type { Change, CountItem } from './count.ts';
+import { maskTitle } from '../_shared/ops-money.ts';
+
+/** D-306: a notice title as shown in a chat. Finance can type an amount into a title, so OPS (any chat that is not Finance) sees it masked, except a title about cleaning pay or an expense. */
+export const noticeTitle = (title: unknown, isFinance: boolean, esc: (s: unknown) => string): string => esc(isFinance ? title : maskTitle(title));
 
 export type Flow =
   | 'count_qty' | 'expense' | 'edit_amount' | 'payclean_amount'

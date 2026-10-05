@@ -202,3 +202,20 @@ Deno.test('D-294: the Monday Finance card carries the API usage line, and a fail
   assertEquals(order, [...order].sort((a, b) => a - b));
   at('if (u.error || b.error || c.error || !caps)');
 });
+
+Deno.test('D-306: a notice or work-order title with an amount is masked in the OPS morning digest and the weekly report', () => {
+  const r = opsReport({ ...base, notices: [{ notice_type: 'reminder', title: 'Pay Honey ₱3,560 balance', effective_date: '2026-09-14' }] })!;
+  const text = renderReport(r);
+  assert(!/3,560/.test(text), text);
+  assert(text.includes('Pay Honey [amount hidden]'), text);
+  const w = weeklyOpsReport({ today: '2026-09-21', lowStock: [], workOrders: [{ title: 'Refund PHP 1,780 to guest', priority: 'high' }], handoffs: [], arrivals: [] });
+  const wt = renderReport(w);
+  assert(!/1,780/.test(wt), wt);
+});
+
+Deno.test('D-306: the OPS digest keeps a cleaning-pay or expense title whole and masks a booking-income one', () => {
+  const keep = renderReport(opsReport({ ...base, notices: [{ notice_type: 'reminder', title: 'Pay Honey ₱500', effective_date: '2026-09-14' }, { notice_type: 'reminder', title: 'Bili ng supplies ₱320', effective_date: '2026-09-14' }] })!);
+  assert(keep.includes('Pay Honey ₱500') && keep.includes('Bili ng supplies ₱320'), keep);
+  const hide = renderReport(opsReport({ ...base, notices: [{ notice_type: 'reminder', title: 'Collect ₱3,000 balance from guest', effective_date: '2026-09-14' }] })!);
+  assert(!hide.includes('3,000'), hide);
+});

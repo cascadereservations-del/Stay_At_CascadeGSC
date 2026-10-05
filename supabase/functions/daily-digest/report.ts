@@ -2,6 +2,7 @@
 // Shape is owned by cascade-core/format.ts: one decision, at most five lines, one action. Plain text.
 import type { HeaderKind, Report } from '../_shared/cascade-core/format.ts';
 import { problemSentence } from '../_shared/cascade-core/health-labels.ts';
+import { maskTitle } from '../_shared/ops-money.ts'; // D-306: every report here is posted in OPS; Finance can type money into a notice or work-order title
 
 export type CalRow = { guest_name?: string | null; raw_summary?: string | null; checkin_time?: string | null; checkout_time?: string | null; nights?: number | null };
 export type ResRow = { guest_name: string | null; checkin_date: string | null; checkout_date: string | null };
@@ -74,7 +75,7 @@ function noticeText(n: Notice): string {
   const time = n.effective_time ? ` at ${formatTime12(n.effective_time)}` : '';
   const dur = n.duration_hours ? ` for ${n.duration_hours}h` : '';
   const feeder = n.feeder ? ` (${n.feeder})` : '';
-  return `${NOTICE_ICON[n.notice_type] ?? '📌'} ${n.title}${time}${dur}${feeder}`;
+  return `${NOTICE_ICON[n.notice_type] ?? '📌'} ${maskTitle(n.title)}${time}${dur}${feeder}`;
 }
 export function weatherLine(w: Weather | null): string {
   if (!w) return '';
@@ -139,7 +140,7 @@ export function opsReport(i: OpsInput): OpsReport | null {
     : idMissing.length ? `Ask ${idMissing[0].guest} for the guests' IDs, so the door-code card can go out.`
     : midStay.length ? `send ${midStay[0].guest} this (Show as text to long-press it, or Revise with Cassy):\n📨 Hi ${midStay[0].guest}, quick check from Cascade Hideaway - is everything okay with the unit? If you need fresh towels, drinking water or anything else, just say the word. 🌿`
     : i.tmrArrivals.length ? `Prepare the unit for ${names(i.tmrArrivals, i.resRows, i.tomorrow, 'arrival')} tomorrow.`
-    : todayNotices.length ? `Note ${todayNotices[0].title}.`
+    : todayNotices.length ? `Note ${maskTitle(todayNotices[0].title)}.`
     : '';
   const kind: HeaderKind = brownout || outOfStock.length ? 'attention' : 'daily';
   return { decision, lines, action, kind };
@@ -179,14 +180,14 @@ export function weeklyOpsReport(i: WeeklyOpsInput): Report {
   if (i.arrivals.length) lines.push(`📥 This week: ${i.arrivals.map((x) => `${x.guest} ${friendlyDate(x.date)}${x.nights ? ` (${plural(Number(x.nights), 'night')})` : ''}`).join(', ')}`);
   else lines.push('📥 This week: no arrivals booked yet');
   if (i.lowStock.length) { brk(); lines.push(`📦 Low stock: ${i.lowStock.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''}`).join(', ')}`); }
-  if (i.workOrders.length) { brk(); lines.push(`🔧 Open work orders: ${i.workOrders.map((w) => w.title + (w.priority ? ` (${w.priority})` : '')).join('; ')}`); }
+  if (i.workOrders.length) { brk(); lines.push(`🔧 Open work orders: ${i.workOrders.map((w) => maskTitle(w.title) + (w.priority ? ` (${w.priority})` : '')).join('; ')}`); }
   const waiting = waitingGuests(i.handoffs), week = riskCounts(i.weekRisks ?? []);
   const ho = [week && `Handed to you this week: ${week}`, waiting.length && `Still waiting over a day: ${waiting.map((w) => `${w.guest} (${riskWords(w.risk)}, ${plural(w.days, 'day')})`).join(', ')}`].filter(Boolean).join('. ');
   if (ho) { brk(); lines.push(`💬 ${ho}`); }
   const decision = `Week of ${friendlyDate(i.today)}: ${plural(i.arrivals.length, 'arrival')}, ${plural(i.lowStock.length, 'low-stock item')}, ${plural(i.workOrders.length, 'open work order')}, ${plural(waiting.length, 'unanswered guest')}.`;
   const action = waiting.length ? `Reply to ${waiting[0].guest} first.`
     : i.lowStock.length ? `Restock ${i.lowStock.slice(0, 3).map((s) => s.name).join(', ')} this week.`
-    : i.workOrders.length ? `Close out ${i.workOrders[0].title}.`
+    : i.workOrders.length ? `Close out ${maskTitle(i.workOrders[0].title)}.`
     : i.arrivals.length ? `Prepare for ${i.arrivals[0].guest} on ${friendlyDate(i.arrivals[0].date)}.` : '';
   return { decision, lines, action };
 }

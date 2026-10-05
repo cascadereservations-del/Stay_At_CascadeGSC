@@ -47,6 +47,7 @@ import { withHeader, groups, doSend, autoKeyboard, BTN } from '../_shared/cascad
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 import { welcomeBack } from '../messenger-concierge/persona.ts';
 import { dmRange } from '../messenger-concierge/booking.ts';
+import { maskMoney } from '../_shared/ops-money.ts'; // D-306: OPS never shows booking money, guest-history free text included
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -322,7 +323,7 @@ async function handleBooking(
     : [`Do: prepare for check-in${event.checkin_date ? ` on ${event.checkin_date}` : ''}.`];
 
   // OPS: operational data only — no financial figures (cleaners present)
-  const opsCard = withHeader('booking', `Airbnb ${event.confirmation_code}`, groups([badge, guestLine, dateLine], ctxLines, doLines));
+  const opsCard = withHeader('booking', `Airbnb ${event.confirmation_code}`, groups([badge, guestLine, dateLine], ctxLines.map(maskMoney), doLines)); // D-306: a note or VIP reason can carry an amount
   await sendTelegram(TELEGRAM_OPS_CHAT_ID, opsCard, autoKeyboard(opsCard));
 
   // Finance: same card plus the payout line
@@ -439,13 +440,10 @@ async function handleCancellation(
   if (res?.guest_id) await refreshGuestStats(supabase, res.guest_id);
 
   const guestLabel  = event.guest_first_name ? ` by ${event.guest_first_name}` : '';
-  const refundLabel = event.refund_type === 'complete' ? 'Full refund issued' :
-                      event.refund_type === 'partial'  ? 'Partial refund issued' : 'Refund per policy';
-
-  // OPS: no financial data
+  // OPS: no financial data (D-306: not the refund either)
   await sendTelegram(TELEGRAM_OPS_CHAT_ID, withHeader('attention', `cancelled ${event.cancelled_code}`, groups(
     [`❌ <b>Booking Cancelled${esc(guestLabel)}</b>`, `🔑 Code: ${event.cancelled_code}`],
-    [`📅 ${esc(event.cancelled_dates??'')}`, `💸 ${refundLabel}`],
+    [`📅 ${esc(event.cancelled_dates??'')}`], // D-306: no refund line in OPS
     ['Do: nothing - the dates are open again for rebooking.'],
   )));
 }
