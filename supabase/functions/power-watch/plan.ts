@@ -229,18 +229,19 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
   const all = posts.flatMap((p) => p.posters);
   if (!all.length || all.some((u) => !decided(u))) return null;
   // Supersede (PMS only): a newer post carrying the same series key takes over an older poster, so 22013's Leon Llido Oct 15 replaces 21945's Oct 8.
-  // Only when BOTH series dates are known and within 14 days of each other: next month's poster (Nov) must not drop an Oct 15 that is still ahead
-  // while the October post is still in the feed. A missing date never supersedes (the block is held), and a passed date is not special-cased:
-  // the filename date can be a moved-FROM date whose read says a later date (D-295), and staleNotices only judges dates from today on anyway.
+  // Compared on EFFECTIVE dates, eff(u) = the date the read says (ours[u]) else the filename date, because a moved poster's filename is the moved-FROM
+  // date (D-295). Only when both are known and within 14 days of each other: next month's poster (Nov) must not drop an Oct 15 that is still ahead.
+  // A superseded poster drops only the dates that lie within 14 days of the superseding poster's effective date; any other date it lists stays held.
+  // A missing date never supersedes (the block is held); a passed date is not special-cased (staleNotices only judges dates from today on anyway).
   // ponytail: supersede only for PMS series (one per substation per cycle); feeder posters (F14-3) can legitimately repeat on two dates in two posts.
   const days = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
-  const supersedes = (newer: string, older: string) => {
-    const dn = posterDate(newer), dold = posterDate(older);
-    return !!dn && !!dold && days(dn, dold) <= 14;
-  };
-  const superseded = (u: string, p: Post) => {
-    const k = seriesKey(u);
-    return !!k && posts.some((q) => q.id > p.id && q.posters.some((v) => seriesKey(v) === k && supersedes(v, u)));
+  const eff = (u: string) => ours[u] ?? posterDate(u);
+  /** The effective dates of newer same-series posters that take this poster over. */
+  const takenOverBy = (u: string, p: Post): string[] => {
+    const k = seriesKey(u), old = eff(u);
+    if (!k || !old) return [];
+    return posts.filter((q) => q.id > p.id).flatMap((q) => q.posters.filter((v) => seriesKey(v) === k).map(eff))
+      .filter((d): d is string => !!d && days(d, old) <= 14);
   };
   const listed = new Set<string>();
   const spans: Array<[string, string]> = [];
@@ -248,14 +249,14 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
     const dates: string[] = [];
     for (const u of p.posters) {
       const c = classifyFile(u), file = posterDate(u), read = ours[u]; // the filename can carry the moved-FROM date (D-295); the read says what is in force
-      const counts = !superseded(u, p);
+      const over = takenOverBy(u, p), counts = (d: string) => !over.some((n) => days(n, d) <= 14);
       // A hit poster lists BOTH the date its read names (a moved poster: the moved-TO date) and its filename date, so one paid OCR read
       // never frees a night by itself. A real move reaches watch.ts cancel(originalDate), which asks (cancelAskedAt) and staleNotices skips;
       // a misread leaves the filename date held. A read-class poster lists its read only (no read recorded: its filename date, unread = unknown).
       // ponytail: a moved-FROM date stays listed until the post leaves the feed; the cancel card, not auto-release, frees it.
       const own = c === 'hit' ? [read, file] : c === 'read' ? [read ?? file] : [file];
       for (const d of own) if (d) dates.push(d);
-      if (counts) for (const d of c === 'hit' ? [read, file] : c === 'read' ? [read] : []) if (d) listed.add(d);
+      for (const d of c === 'hit' ? [read, file] : c === 'read' ? [read] : []) if (d && counts(d)) listed.add(d);
     }
     if (dates.length) spans.push([dates.reduce((a, b) => (a < b ? a : b)), dates.reduce((a, b) => (a > b ? a : b))]);
   }

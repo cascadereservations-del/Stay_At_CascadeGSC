@@ -27,10 +27,10 @@ import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { parseModelJson, visionExtractText } from '../_shared/cascade-core/vision.ts';
-import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterFor, posterUrls, type Ocr } from './poster.ts';
+import { isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Ocr } from './poster.ts';
 import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
 import { scheduleFrom, touchedNights } from './plan.ts';
-import { reportStuck, scanPosts } from './scan.ts';
+import { forgetReads, reportStuck, scanPosts } from './scan.ts';
 import { pruneStates, reconcile } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -81,10 +81,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[], ours: { ...(st?.value?.ours ?? {}) } as Record<string, string>, fails: { ...(st?.value?.fails ?? {}) } as Record<string, number> };
   const now = new Date();
   const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
-  if (!st?.value?.ours) { // first run after SPEC-41: seed it from the active notices whose poster was read before, so nothing already read looks unlisted
-    const { data: nq } = await db.from('ops_notices').select('effective_date').eq('property_id', PROPERTY_ID).eq('notice_type', 'brownout').eq('is_active', true).gte('effective_date', today);
-    for (const n of (nq ?? []) as Array<{ effective_date: string }>) { const u = posterFor(n.effective_date, state.images); if (u && classifyFile(u) === 'read') state.ours[u] = n.effective_date; }
-  }
+  if (!st?.value?.ours) forgetReads(posts, state); // first run of this code: re-read the current hit/read posters so `ours` is filled from their reads (scan.ts)
   // Reads every poster not yet in state.images, in done posts too (scan.ts).
   const { found, log, reads, stuck } = await scanPosts(posts, state, today, async (url, c) => {
     const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });

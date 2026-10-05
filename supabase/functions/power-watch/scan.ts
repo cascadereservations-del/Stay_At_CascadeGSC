@@ -46,6 +46,16 @@ export async function scanPosts(
   return { found, log, reads, stuck };
 }
 
+/**
+ * First run of this code (power_watch_state has no `ours` key): the hit- and read-class posters of the current posts were decided under the old
+ * code, which did not record what each read said, so a moved poster would list only its moved-FROM date. Forget them so they are read again (the
+ * read cap still applies; scheduleFrom answers null until every one is back). Nothing is seeded from filename dates.
+ */
+export function forgetReads(posts: Array<{ content?: { rendered?: string } }>, state: ScanState): void {
+  const again = new Set(posts.flatMap((p) => posterUrls(p.content?.rendered ?? '')).filter((u) => classifyFile(u) !== 'miss'));
+  state.images = state.images.filter((u) => !again.has(u));
+}
+
 /** A poster that never reads keeps the schedule null (nothing is ever freed) - safe, but it silently pauses brownout auto-release. ONE task says so. */
 export type OpenTask = (t: { kind: string; ref: string; title: string; detail: string }) => Promise<unknown>;
 export async function reportStuck(stuck: string[], open: OpenTask): Promise<void> {

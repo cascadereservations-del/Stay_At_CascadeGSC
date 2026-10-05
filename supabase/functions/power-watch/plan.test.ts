@@ -273,3 +273,16 @@ Deno.test('audit L5a: a moved hit poster (filename Oct 8, read Oct 15) beside a 
   assert(sc.listed.has('2026-10-15'), 'the read date stays listed');
   assertEquals(staleNotices([st({ date: '2026-10-15', blocked: ['2026-10-14', '2026-10-15'], missRuns: 1 })], sc, [], '2026-10-10').release, [], 'not released');
 });
+
+Deno.test('audit L5a: supersede compares EFFECTIVE dates (the read, else the filename); a moved poster read as Nov 5 is not dropped by an Oct 20 post or by a re-upload of its Oct 8 filename', () => {
+  const moved = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', oct20 = PU + 'SPI-PMS-10202026-LEON-LLIDO-SS.jpg';
+  const a = scheduleFrom([{ id: 30, posters: [oct20] }, { id: 20, posters: [moved] }], { [moved]: '2026-11-05' }, () => true)!;
+  assert(a.listed.has('2026-11-05'), 'filename Oct 8 is 12 days from Oct 20, but the read Nov 5 is 16: not taken over');
+  const reup = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS_20261010_090000_0000.jpg';
+  const b = scheduleFrom([{ id: 30, posters: [reup] }, { id: 20, posters: [moved] }], { [moved]: '2026-11-05', [reup]: '2026-10-08' }, () => true)!;
+  assert(b.listed.has('2026-11-05'), 'a re-upload that reads Oct 8 does not take over a poster that reads Nov 5');
+  // the supersede case still works: Oct 8 -> Oct 15 (reads or filenames)
+  const old = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', next = PU + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg';
+  assertEquals([...scheduleFrom([{ id: 30, posters: [next] }, { id: 20, posters: [old] }], {}, () => true)!.listed], ['2026-10-15']);
+  assertEquals([...scheduleFrom([{ id: 30, posters: [next] }, { id: 20, posters: [old] }], { [old]: '2026-10-08', [next]: '2026-10-15' }, () => true)!.listed], ['2026-10-15']);
+});

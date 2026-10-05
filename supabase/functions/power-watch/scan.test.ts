@@ -3,7 +3,7 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import type { NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { posterUrls, type Notice } from './poster.ts';
 import { scheduleFrom, staleNotices } from './plan.ts';
-import { reportStuck, scanPosts, STUCK_AFTER, type ScanState } from './scan.ts';
+import { forgetReads, reportStuck, scanPosts, STUCK_AFTER, type ScanState } from './scan.ts';
 
 const P = 'https://www.socoteco2.com/wp-content/uploads/2026/10/';
 const post = (id: number, ...files: string[]) => ({ id, content: { rendered: files.map((f) => `<img src="${P}${f}">`).join('') } });
@@ -68,4 +68,21 @@ Deno.test('audit L5a: a poster that fails 8 runs in a row is reported once per r
   const st2: ScanState = { done: [], images: [], ours: {}, fails: { [P + f]: 3 } };
   await scanPosts(posts, st2, '2026-10-02', fail, { maxReads: 0, budgetMs: 90_000 });
   assertEquals(st2.fails![P + f], 3);
+});
+
+Deno.test('audit L5a: a state with no `ours` (first run of this code) forgets the hit and read posters so they are read again; the schedule is null until all are back', async () => {
+  const hit = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', read = 'SPI-10042026-BATULAKI-GLAN.jpg', miss = 'SPI-PMS-10102026-DAMALERIO-SS.jpg';
+  const posts = [post(7, hit, read, miss)];
+  const st: ScanState = { done: [7], images: [P + hit, P + read, P + miss], ours: {} }; // index.ts passes an empty ours when the stored state has none
+  forgetReads(posts, st);
+  assertEquals(st.images, [P + miss], 'only the miss-class poster stays decided');
+  assertEquals(sched(posts, st), null, 'unknown until the posters are read again');
+  const tried: string[] = [];
+  const one = (url: string) => { tried.push(url); return Promise.resolve({ notice: url.includes('LEON') ? notice('2026-10-15', url) : null, log: url }); };
+  await scanPosts(posts, st, '2026-10-02', one, { maxReads: 1, budgetMs: 90_000 });
+  assertEquals(tried.length, 1);
+  assertEquals(sched(posts, st), null, 'the read cap leaves one unread: still unknown');
+  await scanPosts(posts, st, '2026-10-02', one, LIMITS);
+  const s = sched(posts, st)!;
+  assert(s.listed.has('2026-10-15'), 'the moved-TO date comes from the read');
 });
