@@ -111,7 +111,12 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     let st = states.get(n.date);
     let row = noticeRows.find((r) => r.effective_date === n.date);
     const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster, url: n.url, source: st?.source ?? (row ? srcOf(row) : 'socoteco') };
-    if (st?.status === 'released') { st = undefined; row = undefined; base.noticeId = null; } // it was cancelled and now it is posted again
+    if (st?.status === 'released') {
+      // 2026-10-05 (Lloyd, D-299): a released outage stays released when the SAME poster is read again (a deploy re-read the Oct 8 poster
+      // and re-blocked Oct 7-8 after it had moved). Only a different poster for the date is "posted again".
+      if (n.url && st.url === n.url) { res.push(`${n.date}: released, same poster ignored`); continue; }
+      st = undefined; row = undefined; base.noticeId = null; // it was cancelled and now it is posted again
+    }
     const insert = async () => {
       const { data, error } = await db.from('ops_notices').insert({
         property_id: pid, notice_type: 'brownout', title: n.title, description: `${n.purpose ? n.purpose + ' | ' : ''}poster ${n.poster}`,

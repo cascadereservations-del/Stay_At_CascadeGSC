@@ -163,6 +163,19 @@ Deno.test('2026-10-05: the card goes out first, Marifel blocks Airbnb later: don
   assertEquals(await run([], '2026-10-02T09:00:00Z'), [], 'nothing more');
 });
 
+Deno.test('2026-10-05 (D-299): a released outage is not re-announced when the same poster is read again; a different poster still is', async () => {
+  const w = world();
+  await w.run([found('2026-10-08', '06:00:00', 11, 100)]);
+  const r = await releaseNotice(w.db, PID, '2026-10-08', 'unblock', 'Lloyd');
+  assert(r.ok);
+  assertEquals(live(w.db), []);
+  assertEquals(await w.run([found('2026-10-08', '06:00:00', 11, 100)]), ['2026-10-08: released, same poster ignored']);
+  assertEquals([live(w.db), w.sent.length], [[], 1], 'no block, no new card');
+  const other = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-PMS-10082026-LEON-LLIDO-SS-2.jpg';
+  assertEquals(await w.run([found('2026-10-08', '06:00:00', 11, 120, { url: other, poster: 'SPI-PMS-10082026-LEON-LLIDO-SS-2.jpg' })]), ['2026-10-08: new']);
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08']);
+});
+
 Deno.test('audit 656fee7: a guest reservation on a held night is not an Airbnb block - never "seen", never closed by the calendar', async () => {
   const w = world();
   await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
