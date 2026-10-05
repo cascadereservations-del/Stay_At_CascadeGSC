@@ -90,7 +90,7 @@ const poss = (n: string) => (/s$/i.test(n) ? `${n}'` : `${n}'s`);
 /** What Save will do, decided once at the confirm card and replayed at the tap. */
 export type Plan =
   | { kind: 'id'; guestId: string; guestName: string; name: string; idType: IdType; own: boolean; existing: boolean; companionName: string }
-  | { kind: 'chat'; guestId: string; guestName: string; phone: string | null; replacesPhone: boolean; newNames: string[]; knownNames: string[] };
+  | { kind: 'chat'; guestId: string; guestName: string; phone: string | null; replacesPhone: boolean; newNames: string[]; knownNames: string[]; via?: 'airbnb' }; // via: set by airbnb-email-sync (session 72); absent = a chat screenshot
 
 /** The decision from a read and the guest it is for; null when there is nothing to save. */
 export function planFor(read: GuestRead, g: Candidate): Plan | null {
@@ -122,7 +122,7 @@ export function confirmBody(p: Plan, esc: (s: string) => string = (s) => s): str
   if (p.phone) lines.push(`• Phone ${p.phone}${p.replacesPhone ? ' (replaces the number on file)' : ''}`);
   if (p.newNames.length) lines.push(`• Add as companions: ${p.newNames.map(esc).join(', ')}`);
   if (p.knownNames.length) lines.push(`• Already on the record, left as they are: ${p.knownNames.map(esc).join(', ')}`);
-  return [`Nothing is saved yet. Save these for ${esc(p.guestName)} from the chat screenshot?`, '', ...lines, '', 'Do: tap Save if this is right.'];
+  return [`Nothing is saved yet. Save these for ${esc(p.guestName)} from the ${p.via === 'airbnb' ? 'Airbnb message' : 'chat screenshot'}?`, '', ...lines, '', 'Do: tap Save if this is right.'];
 }
 
 /** One line per label for the picker button: name and the stay it belongs to. */

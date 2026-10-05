@@ -48,6 +48,7 @@ import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.t
 import { welcomeBack } from '../messenger-concierge/persona.ts';
 import { dmRange } from '../messenger-concierge/booking.ts';
 import { maskMoney } from '../_shared/ops-money.ts'; // D-306: OPS never shows booking money, guest-history free text included
+import { handleMessage, type MessageEvent } from './message.ts'; // session 72: guest-message e-mails -> one /guest review card in OPS
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -109,7 +110,7 @@ Deno.serve(withObservability({ functionName: 'airbnb-email-sync', route: 'ops' }
 // ── Types ──────────────────────────────────────────────────────────────────
 interface EmailEvent {
   gmail_message_id:  string;
-  email_type:        'booking'|'payout'|'cancellation';
+  email_type:        'booking'|'payout'|'cancellation'|'message';
   email_date:        string;
   subject:           string;
   guest_name?:       string;
@@ -128,6 +129,7 @@ interface EmailEvent {
   cancelled_dates?:  string;
   guest_first_name?: string;
   refund_type?:      string;
+  text?:             string; // message events only: the guest's words. Read in memory, never stored or logged.
 }
 interface PayoutDetail {
   guest_name:        string;
@@ -175,13 +177,16 @@ async function processEvent(
   event: EmailEvent,
   results: { inserted: number; skipped: number; errors: string[] }
 ): Promise<void> {
+  // Session 72: a message event logs only who it names (first name, code); the counts are added after it is read. The text is never stored.
+  const isMessage = event.email_type === 'message';
+  if (isMessage && typeof event.text !== 'string') { results.skipped++; return; }
   const { error: logErr } = await supabase.from('airbnb_email_events').insert({
     property_id:      PROPERTY_ID,
     gmail_message_id: event.gmail_message_id,
     email_type:       event.email_type,
     email_date:       event.email_date,
-    subject:          event.subject,
-    raw_payload:      event,
+    subject:          isMessage ? null : event.subject,
+    raw_payload:      isMessage ? { guest_first_name: event.guest_first_name ?? null, confirmation_code: event.confirmation_code ?? null } : event,
   });
   if (logErr) {
     if (logErr.code === '23505') { results.skipped++; return; }
@@ -191,8 +196,30 @@ async function processEvent(
     case 'booking':      await handleBooking(supabase, event);      break;
     case 'payout':       await handlePayout(supabase, event);       break;
     case 'cancellation': await handleCancellation(supabase, event); break;
+    case 'message':      await processMessage(supabase, event);     break;
   }
   results.inserted++;
+}
+
+// ── Message handler (session 72, SPEC-42 section 2) ────────────────────────
+async function processMessage(supabase: LegacyDatabaseClient, event: EmailEvent): Promise<void> {
+  const opsChat = Number(TELEGRAM_OPS_CHAT_ID);
+  const log = await handleMessage({
+    db: supabase, propertyId: PROPERTY_ID, opsChatId: TELEGRAM_OPS_CHAT_ID && Number.isFinite(opsChat) ? opsChat : null, esc,
+    today: new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10), // Manila date
+    post: async (chatId, text, reply_markup) => {
+      if (!TELEGRAM_BOT_TOKEN) return false;
+      try {
+        const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup }),
+        });
+        return r.ok;
+      } catch (_) { return false; }
+    },
+  }, event as MessageEvent);
+  await supabase.from('airbnb_email_events').update({ raw_payload: log }).eq('gmail_message_id', event.gmail_message_id);
+  console.log(`airbnb-email-sync message matched=${log.matched} phone=${log.has_phone} names=${log.names_count} carded=${log.carded}`); // counts only: no name, number or text
 }
 
 // ── Booking handler ────────────────────────────────────────────────────────

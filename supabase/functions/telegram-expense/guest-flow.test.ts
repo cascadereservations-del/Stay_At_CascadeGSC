@@ -216,3 +216,38 @@ Deno.test('"Other guest": the name reply finds guests and the new card keeps wor
   assertEquals(f.rows.length, 1, 'still one pending row for the same photo');
   assertEquals(await onGuestNameReply(d, { chat: { id: -100123 }, from: { id: 1 }, message_id: 81, text: 'x', reply_to_message: { message_id: 9, from: { is_bot: true }, text: 'something else' } }), false);
 });
+
+// Session 72: a card posted by airbnb-email-sync has no owner (from_id null). Any tapper reaches the RPC, and the RPC alone decides who may save.
+const airbnbCard = async (f: ReturnType<typeof fakeDb>) => (await f.db.from('telegram_pending').insert({
+  chat_id: -100123, kind: 'guest_save', expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+  payload: { from_id: null, from_name: 'Airbnb e-mail', file_id: '', plan: { kind: 'chat', guestId: GUEST.guest_id, guestName: GUEST.name, phone: '09171230000', replacesPhone: false, newNames: ['Ben Test'], knownNames: [], via: 'airbnb' } },
+}).select('id').single()).data.id as string;
+
+Deno.test('an Airbnb e-mail card: any tapper can Save, the actor sent to the RPC is the tapper, and the companion note says Airbnb', async () => {
+  const f = fakeDb(); const { d, edits } = deps(f, ID_READ);
+  const pid = await airbnbCard(f);
+  await onGuestTap(d, tap(`gst:save:${pid}`, 111));
+  const saves = f.calls.filter((c) => c.fn.startsWith('telegram_save'));
+  assertEquals(saves.map((c) => [c.fn, c.args.p_actor_telegram_id]), [['telegram_save_guest_details_v1', 111], ['telegram_save_guest_companion_v1', 111]]);
+  assertEquals(saves[0].args.p_patch, { contact_number: '09171230000' });
+  assertEquals(saves[1].args.p_notes, 'Added from the Airbnb message');
+  assert(edits[edits.length - 1].text.includes('Saved for Jonas Example: phone 09171230000, companion Ben Test'));
+  assertEquals(f.rows.length, 0, 'the tap consumed the card');
+});
+
+Deno.test('an Airbnb e-mail card: a Telegram user who is not owner/admin staff is refused by the RPC and nothing is written', async () => {
+  const f = fakeDb({ rpc: () => ({ data: { ok: false, reason: 'unmapped_telegram_user' } }) }); const { d, edits } = deps(f, ID_READ);
+  const pid = await airbnbCard(f);
+  await onGuestTap(d, tap(`gst:save:${pid}`, 222));
+  assert(edits[edits.length - 1].text.includes('not linked to a staff login'));
+  assert(edits[edits.length - 1].text.includes('Nothing was saved.'));
+});
+
+Deno.test('an Airbnb e-mail card: Cancel by anyone writes nothing and removes the card', async () => {
+  const f = fakeDb(); const { d, edits } = deps(f, ID_READ);
+  const pid = await airbnbCard(f);
+  await onGuestTap(d, tap(`gst:cancel:${pid}`, 333));
+  assertEquals(edits[0].text, '❌ Cancelled. Nothing saved.');
+  assertEquals(f.calls.filter((c) => c.fn.startsWith('telegram_save')).length, 0);
+  assertEquals(f.rows.length, 0);
+});

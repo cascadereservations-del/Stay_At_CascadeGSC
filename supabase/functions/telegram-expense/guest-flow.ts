@@ -104,7 +104,8 @@ export async function onGuestTap(d: Deps, cq: any): Promise<void> {
   if (!tap) { await d.answer(cq.id, 'That button is not valid. Nothing changed.'); return; }
   const peek = await take(d, tap.pid, false);
   if (!peek) { await d.answer(cq.id); await d.edit(chatId, mid, EXPIRED); return; }
-  if (String(peek.payload.from_id) !== String(cq.from?.id)) { await d.answer(cq.id, `That card is ${String(peek.payload.from_name ?? 'someone else')}'s. Nothing changed.`); return; }
+  if (peek.payload.from_id != null && String(peek.payload.from_id) !== String(cq.from?.id)) { // from_id null = a card posted by airbnb-email-sync for any owner/admin; the save RPCs still refuse an unmapped Telegram user
+    await d.answer(cq.id, `That card is ${String(peek.payload.from_name ?? 'someone else')}'s. Nothing changed.`); return; }
 
   if (tap.act === 'cancel') { await take(d, tap.pid, true); await d.answer(cq.id); await d.edit(chatId, mid, CANCELLED); return; }
 
@@ -170,7 +171,7 @@ async function savePlan(d: Deps, p: Plan, from: any, fileId: string): Promise<Ou
       if (p.phone) { await details({ contact_number: p.phone }); done.push(`phone ${p.phone}`); }
     } catch (e) { return fail('Saving the phone number', e); }
     for (const n of p.newNames) {
-      try { await companion(n, null, null, 'Added from the guest chat screenshot'); done.push(`companion ${d.esc(n)}`); }
+      try { await companion(n, null, null, p.via === 'airbnb' ? 'Added from the Airbnb message' : 'Added from the guest chat screenshot'); done.push(`companion ${d.esc(n)}`); }
       catch (e) { return fail(`Adding ${d.esc(n)}`, e); }
     }
     return { ok: true, lines: [`Saved for ${d.esc(p.guestName)}: ${done.join(', ')}. The dashboard shows them now.`] };

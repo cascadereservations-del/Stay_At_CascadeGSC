@@ -116,3 +116,9 @@ Deno.test('callback data: valid taps parse, malformed ones do not, and every one
   assertEquals(parseGuestTap(`crm:done:2026-10-02:${pid}`), null);
   assert(new TextEncoder().encode(`gst:pick:${pid}:11`).length <= 64);
 });
+
+Deno.test('session 72: confirmBody names the Airbnb message when the plan came from the e-mail, the screenshot otherwise', () => {
+  const p = { kind: 'chat' as const, guestId: 'g', guestName: 'Jonas Example', phone: '09171230000', replacesPhone: false, newNames: [], knownNames: [] };
+  assertEquals(confirmBody(p)[0].includes('from the chat screenshot'), true);
+  assertEquals(confirmBody({ ...p, via: 'airbnb' })[0], 'Nothing is saved yet. Save these for Jonas Example from the Airbnb message?');
+});
