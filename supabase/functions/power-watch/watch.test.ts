@@ -337,3 +337,27 @@ Deno.test('SPEC-41 3.5: a release that frees nothing says nothing (every night i
   assertEquals([w.sent.length - cards[0], w.fin.length - cards[1]], [0, 0], 'nothing was freed, so no card');
   assertEquals((await readNotice(w.db, '2026-10-14'))!.status, 'released');
 });
+
+Deno.test('SPEC-41 3.5 (audit L5a): a moved poster (filename = moved-FROM date, read = moved-TO date) keeps the new date held and releases only the old one after 2 clean misses', async () => {
+  const old = P + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg';
+  const sc = scheduleFrom([{ id: 22013, posters: [P + 'SPI-PMS-10102026-DAMALERIO-SS.jpg', old, P + 'SPI-PMS-10252026-TUPI-B-SS.jpg'] }], { [old]: '2026-10-15' }, () => true)!;
+  assertEquals([...sc.listed], ['2026-10-15']);
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([found('2026-10-15', '06:00:00', 11, 22013, { url: old })]); // adopts Oct 8, announces Oct 15
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15']);
+  assertEquals(await w.run([], '2026-10-02T01:15:00Z', sc), ['2026-10-08: not on the SOCOTECO schedule (clean scrape 1 of 2)']);
+  assertEquals(await w.run([], '2026-10-02T01:30:00Z', sc), ['2026-10-08: released (not on SOCOTECO schedule)']);
+  assertEquals(live(w.db), ['2026-10-14', '2026-10-15'], 'the moved-TO date stays held');
+  assertEquals(await w.run([], '2026-10-02T01:45:00Z', sc), []);
+  assertEquals((await readNotice(w.db, '2026-10-15'))!.status, 'active');
+});
+
+Deno.test('SPEC-41 3.5 (audit L5a): a date a current poster read names is never released, even when its filename says another date', async () => {
+  const f = P + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg';
+  const sc = scheduleFrom([{ id: 5, posters: [f, P + 'SPI-PMS-10252026-TUPI-B-SS.jpg'] }], { [f]: '2026-10-09' }, () => true)!;
+  const w = world({ ops_notices: [hand('2026-10-09')] });
+  await w.run([]);
+  for (let i = 0; i < 3; i++) assertEquals(await w.run([], at(i), sc), [], `run ${i + 1}`);
+  assertEquals((await readNotice(w.db, '2026-10-09'))!.status, 'active');
+  assertEquals((await readNotice(w.db, '2026-10-09'))!.missRuns ?? 0, 0);
+});

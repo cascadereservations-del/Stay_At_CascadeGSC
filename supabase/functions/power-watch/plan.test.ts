@@ -188,6 +188,18 @@ Deno.test('SPEC-41 3.2: feeder posters are never superseded (one can repeat on t
   assertEquals(unread.listed.size, 0, 'a read-class poster that was not found to be ours lists nothing');
 });
 
+Deno.test('SPEC-41 3.2 (audit L5a): a hit poster lists the date its read names, not its filename; the filename date only widens the span; with no read it falls back to the filename', () => {
+  const old = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', far = PU + 'SPI-PMS-10252026-TUPI-B-SS.jpg';
+  const moved = scheduleFrom([{ id: 9, posters: [old, far] }], { [old]: '2026-10-15' }, () => true)!;
+  assertEquals([...moved.listed], ['2026-10-15'], 'moved-TO listed, moved-FROM (filename) not');
+  assertEquals([moved.covered('2026-10-08'), moved.covered('2026-10-15')], [true, true], 'the old date is judged, not skipped');
+  assertEquals([...scheduleFrom([{ id: 9, posters: [old] }], {}, () => true)!.listed], ['2026-10-08'], 'no read recorded: filename date (decided before ours existed)');
+  const same = scheduleFrom([{ id: 9, posters: [old] }], { [old]: '2026-10-08' }, () => true)!;
+  assertEquals([...same.listed], ['2026-10-08'], 'a read that confirms the filename lists it');
+  const cross = scheduleFrom([{ id: 9, posters: [PU + 'SPI-10082026-PORTION-OF-F14-3.jpg'] }, { id: 8, posters: [PU + 'SPI-10092026-PORTION-OF-F14-3.jpg'] }], { [PU + 'SPI-10082026-PORTION-OF-F14-3.jpg']: '2026-10-09' }, () => true)!;
+  assertEquals([...cross.listed].sort(), ['2026-10-09'], 'the mismatching read names Oct 9; a different poster listing it too changes nothing');
+});
+
 Deno.test('SPEC-41 3.2: staleNotices - miss, release, ask, hit; unknown, a source that is not checked, a past date and a pending question are skipped', () => {
   const sc = { listed: new Set(['2026-10-15']), covered: (d: string) => d >= '2026-10-03' && d <= '2026-10-25' };
   const s = (o: Partial<NoticeState>) => st({ date: '2026-10-08', blocked: ['2026-10-07', '2026-10-08'], nights: ['2026-10-07', '2026-10-08'], ...o });

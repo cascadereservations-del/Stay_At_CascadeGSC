@@ -237,11 +237,14 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
   for (const p of posts) {
     const dates: string[] = [];
     for (const u of p.posters) {
-      const c = classifyFile(u);
-      const d = c === 'read' ? (ours[u] ?? posterDate(u)) : posterDate(u);
-      if (d) dates.push(d);
-      const k = seriesKey(u);
-      if (d && (c === 'hit' || (c === 'read' && ours[u])) && (!k || owner.get(k) === p.id)) listed.add(d);
+      const c = classifyFile(u), file = posterDate(u), read = ours[u]; // the filename can carry the moved-FROM date (D-295); the read says what is in force
+      const k = seriesKey(u), counts = !k || owner.get(k) === p.id;
+      // A hit poster lists the date its read names (a moved poster: the moved-TO date), the filename date only when no read is recorded
+      // (decided before `ours` existed). The filename date still widens the span, so a moved-FROM date is judged, not skipped.
+      // ponytail: a legacy moved poster with no recorded read still lists its filename date; it ages out of the feed.
+      for (const d of c === 'hit' ? [read, file] : c === 'read' ? [read ?? file] : [file]) if (d) dates.push(d);
+      const listing = c === 'hit' ? (read ?? file) : c === 'read' ? read : null;
+      if (listing && counts) listed.add(listing);
     }
     if (dates.length) spans.push([dates.reduce((a, b) => (a < b ? a : b)), dates.reduce((a, b) => (a > b ? a : b))]);
   }

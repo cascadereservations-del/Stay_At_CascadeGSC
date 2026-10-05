@@ -76,7 +76,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   // deno-lint-ignore no-explicit-any
   const posts = ((await res.json()) as any[]).filter(isPowerPost);
   const { data: st } = await db.from('app_settings').select('value').eq('key', STATE_KEY).maybeSingle();
-  // ours (SPEC-41): a read-class poster the OCR found to be ours -> its date, so scheduleFrom can tell which dates SOCOTECO still lists.
+  // ours (SPEC-41): a poster the OCR found to be ours -> the date it read, so scheduleFrom can tell which dates SOCOTECO still lists.
   const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[], ours: { ...(st?.value?.ours ?? {}) } as Record<string, string> };
   const now = new Date();
   const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
@@ -106,7 +106,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
         const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
         const n = noticeFrom(o, c === 'hit', url);
         log.push(`${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}`);
-        if (n && c === 'read') state.ours[url] = n.date;
+        if (n) state.ours[url] = n.date; // hit posters too: a moved poster's filename carries the moved-FROM date (D-295)
         if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
         state.images.push(url);
       } catch (e) {
