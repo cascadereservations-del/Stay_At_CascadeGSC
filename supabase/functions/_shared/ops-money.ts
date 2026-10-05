@@ -69,11 +69,13 @@ const COUNT = /^\s?(?:rolls|towels|sheets|hangers|pillows|pillowcases|blankets|b
 const PEOPLE = /^\s?(?:guests|pax|persons|people)\b/i; // a head count, never 3+ digits
 const MONEY_W = String.raw`rates?|totals?|price|paid|pay\w*|fees?|costs?|amount|balance|deposits?|bayad|refunds?|payouts?|revenue|nightly|dp|downpayment|gcash|cash|collected|received|owed?|utang|bal`;
 const MONEY_BEFORE = new RegExp(String.raw`\b(?:${MONEY_W})\b[^\w\n]*(?:\w+[^\w\n]+)?$`, 'i'); // "rate 1780 pax", "DP ref 1780"
-const MONEY_NEAR = new RegExp(String.raw`\b(?:${MONEY_W})\b[^\w\n]*(?:\w+[^\w\n]+){0,4}$`, 'i'); // units: a whole date + 1 word back ("Received Oct 15, 2026 950 pcs")
+// units and hotlines: a whole date + 1 word back ("Received Oct 15, 2026 950 pcs"), never across a full stop ("Bring cash. Charge it to 100%"); "Oct. 15" is not a stop
+const NB = String.raw`(?:[^\w\n.!?]|[.!?](?!\s+[A-Za-z]))`; // a stop is . ! ? before a new word
+const MONEY_NEAR = new RegExp(String.raw`\b(?:${MONEY_W})\b${NB}*(?:\w+${NB}+){0,4}$`, 'i');
 const keepNumber = (num: string, pre: string, post: string) => {
   const d = num.replace(/\D/g, '').length, paid = ID_PAY.test(pre) || MONEY_BEFORE.test(pre), money = ID_MONEY.test(post) || paid;
   return (!money && (ID_ANY.test(pre) || (d >= 6 && ID_REF.test(pre)))) || (d <= 3 && !paid && !ID_MONEY_SMALL.test(post) && ID_SMALL.test(pre))
-    || (/^(?:911|117|143|160|166)$/.test(num) && !money && HOT_CUE.test(pre)) || (d === 4 && !money && POST_CUE.test(pre))
+    || (/^(?:911|117|143|160|166)$/.test(num) && !money && !MONEY_NEAR.test(pre) && HOT_CUE.test(pre)) || (d === 4 && !money && POST_CUE.test(pre))
     || (!paid && !MONEY_NEAR.test(pre) && ((WATT.test(post) && (d <= 3 || DEVICE.test(pre))) || (d <= 3 && (MEASURE.test(post) || COUNT.test(post) || (d <= 2 && PEOPLE.test(post))))));
 };
 
