@@ -277,9 +277,16 @@ Deno.test('audit L5a (D-move): a moved poster (filename Oct 8, read Oct 15) list
   assertEquals([r.release, r.miss, r.hit], [[], [], ['2026-10-08']]);
 });
 
-Deno.test('audit L5a (staff): a date that also has a notice from another source is never released by a scrape', () => {
+Deno.test('audit L5a (staff): a date whose notice power-watch did not insert counts misses but goes to ask, never release', () => {
   const sc = { listed: new Set<string>(), covered: () => true };
-  const s = st({ date: '2026-10-08', blocked: ['2026-10-07', '2026-10-08'], nights: ['2026-10-07', '2026-10-08'], missRuns: 1 });
-  assertEquals(staleNotices([s], sc, [], '2026-10-02').release, ['2026-10-08'], 'baseline: it would release');
-  assertEquals(staleNotices([s], sc, [], '2026-10-02', new Set(['2026-10-08'])), { miss: [], hit: [], release: [], ask: [], unknown: [] });
+  const s = (o: Partial<NoticeState> = {}) => st({ date: '2026-10-08', blocked: ['2026-10-07', '2026-10-08'], nights: ['2026-10-07', '2026-10-08'], ...o });
+  const prot = new Set(['2026-10-08']);
+  const run = (state: NoticeState) => { const { unknown: _u, ...r } = staleNotices([state], sc, [], '2026-10-02', prot); return r; };
+  assertEquals(staleNotices([s({ missRuns: 1 })], sc, [], '2026-10-02').release, ['2026-10-08'], 'baseline: power-watch notice releases');
+  assertEquals(run(s()), { miss: ['2026-10-08'], hit: [], release: [], ask: [] }, 'first miss is counted');
+  assertEquals(run(s({ missRuns: 1 })), { miss: [], hit: [], release: [], ask: ['2026-10-08'] }, 'second miss: ask');
+  assertEquals(run(s({ missRuns: 1, cancelAskedAt: 'x' })), { miss: [], hit: [], release: [], ask: [] }, 'asked once');
+  assertEquals(run(s({ missRuns: 1, card: { kind: 'cancel', note: 'no longer lists' } })), { miss: [], hit: [], release: [], ask: [] }, 'a queued ask is not repeated');
+  const listed = { listed: new Set(['2026-10-08']), covered: () => true };
+  assertEquals(staleNotices([s({ missRuns: 1 })], listed, [], '2026-10-02', prot).hit, ['2026-10-08'], 'listed: nothing to ask');
 });

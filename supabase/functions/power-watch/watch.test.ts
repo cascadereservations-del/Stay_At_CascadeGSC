@@ -396,7 +396,7 @@ Deno.test('audit L5a: a live notice state with no url is the same poster: equal 
   assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 101, { url: P + 'SPI-OTHER.jpg' })], '2026-10-02T03:00:00Z'), ['2026-10-15: changed']);
 });
 
-Deno.test('round 6: only a notice power-watch inserted is auto-released; a dashboard row (no source), a staff photo marked socoteco, and a staff-typed row are not', async () => {
+Deno.test('round 6: only a notice power-watch inserted is auto-released; a dashboard row (no source), a staff photo marked socoteco, and a staff-typed row are asked once after two misses (one Unblock card), never released', async () => {
   const typed = { posted_by_name: 'Test Staff @test_staff' };
   const sc = sched([]); // nothing listed, every date covered
   for (const [name, row] of [['dashboard row, no source', hand('2026-10-08', { source: null, posted_by_name: 'Admin dashboard' })],
@@ -404,9 +404,18 @@ Deno.test('round 6: only a notice power-watch inserted is auto-released; a dashb
     ['a second row on the date typed by staff beside the power-watch one', null]] as const) {
     const w = world({ ops_notices: row ? [row] : [hand('2026-10-08'), hand('2026-10-08', { id: 'n-b', ...typed })] });
     await w.run([]);
-    for (let i = 0; i < 3; i++) assertEquals(await w.run([], at(i), sc), [], `${name} run ${i + 1}`);
-    assertEquals(live(w.db), ['2026-10-07', '2026-10-08'], name);
-    assertEquals((await readNotice(w.db, '2026-10-08'))!.status, 'active', name);
+    const cards = w.sent.length;
+    assertEquals(await w.run([], at(0), sc), ['2026-10-08: not on the SOCOTECO schedule (clean scrape 1 of 2)'], `${name} run 1`);
+    assertEquals(await w.run([], at(1), sc), ['2026-10-08: no longer lists'], `${name} run 2: one ask`);
+    assertEquals(w.sent.length - cards, 1, `${name}: one card`);
+    const card = w.sent[w.sent.length - 1];
+    assertStringIncludes(card.text, 'no longer lists the power interruption on Thu 8 Oct');
+    assertEquals(card.markup?.inline_keyboard[0][0].callback_data, 'pw:unblock:2026-10-08', 'the Unblock tap');
+    assertEquals(await w.run([], at(2), sc), [], `${name} run 3: no second card`);
+    assertEquals(w.sent.length - cards, 1, `${name}: still one card`);
+    assertEquals(live(w.db), ['2026-10-07', '2026-10-08'], `${name}: nothing released`);
+    const s = (await readNotice(w.db, '2026-10-08'))!;
+    assertEquals([s.status, !!s.cancelAskedAt], ['active', true], name);
   }
   // the power-watch-inserted row is released after two clean misses
   const w = world({ ops_notices: [hand('2026-10-08')] });

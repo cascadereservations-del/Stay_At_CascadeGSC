@@ -148,7 +148,8 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   // SPEC-41 Part 3 (D-299.1): a brownout block stays only while SOCOTECO's current schedule still lists the outage. Runs before the cards
   // go out, so a guest-night question (the cancel card) is asked in this run. Unknown or a failed scrape never reaches here as "gone".
   // Auto-release is for the notices power-watch inserted itself (POWER_WATCH_NAME, a SOCOTECO source). Every other notice (a dashboard entry with no source,
-  // a staff photo or text, NGCP, Cassy) is never released by a scrape and protects its date, whatever the state says about its source.
+  // a staff photo or text, Cassy) is never released by a scrape: after two clean misses it is ASKED once instead (the cancel card, one Unblock tap), so a stale
+  // hand entry is still re-checked (D-299.1) without a false release. An NGCP or staff-source notice is not checked against SOCOTECO at all (plan.ts).
   const ours = (r: NoticeRow) => r.posted_by_name === POWER_WATCH_NAME && srcOf(r) === 'socoteco';
   const autoDates = new Set(noticeRows.filter(ours).map((r) => r.effective_date));
   for (const r of noticeRows) if (!ours(r)) autoDates.delete(r.effective_date);
