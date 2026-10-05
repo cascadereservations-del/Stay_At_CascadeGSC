@@ -34,22 +34,21 @@ const KEEP1 = [/\b(?:https?:\/\/|www\.)[^\s<>"')]+/gi, /[\w.+-]+@[\w-]+(?:\.[\w-
 // ids with no 3-digit run, an Airbnb HM code (HMA1234567) or a direct-booking ref (8 hex, no 3-letter run: 4F123A9C); anything else mixing letters and 3+ digits
 // (Maria1780, MARIA1780, ANA1780PHP, 1780balance) goes to the number rules
 const DAY = String.raw`(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?`, YR = String.raw`20[2-3]\d`;
-const DATE_MW = String.raw`totals?|rates?|fees?|prices?|balance|deposits?|paid|pay\w*|due|payments?|cash|gcash|dp|downpayment|bayad|collected|received|owed?|utang|kulang|bal|cost|amount|sales|per|a\s+night|nyt|gabi|refunds?|revenue|sent|transfer\w*|kita|natanggap|payouts?|income|earn\w*|benta|remit\w*|settled|nagpadala|padala|binayaran|deposited|charged|billed|collect|owes|profit|net|sukli|singil|presyo|halaga|remaining`
-  .replace(/(?<!\\)[a-z]/g, (c) => `[${c}${c.toUpperCase()}]`); // any case, so the capital-only May rule still reads "Paid"
-const DATE_PRE = String.raw`(?<!\b(?:${DATE_MW})\b(?:[^\w\n]+\w+){0,3}?[^\w\n]+)`; // "Paid Oct 2030", "Received Oct 15, 2030" are amounts
-const DATE_END = String.raw`\b(?![,.]\d)(?!(?:[^\w\n]+\w+){0,3}?[^\w\n]+(?:${DATE_MW})\b)`;
-const dates = (mon: string, flags: string) => [new RegExp(String.raw`${DATE_PRE}\b${mon}\.?\s+${DAY}(?:,?\s+${YR})?${DATE_END}`, flags), new RegExp(String.raw`${DATE_PRE}\b${DAY}\s+${mon}\.?(?:,?\s+${YR})?${DATE_END}`, flags), new RegExp(String.raw`${DATE_PRE}\b${mon}\.?\s+${YR}${DATE_END}`, flags),
-  // with money before, the day and month still read as one word (so "Paid Oct 15, 950 pcs" stays money context) and the year goes to the number rules
-  new RegExp(String.raw`\b${mon}\.?\s+${DAY}(?!\d)${DATE_END}`, flags), new RegExp(String.raw`\b${DAY}\s+${mon}\b\.?${DATE_END}`, flags)];
-const KEEP2 = [/\b\d{4}-\d{2}-\d{2}\b/g, /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g,
-  ...dates('(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)', 'gi'), ...dates('May', 'g'),
-  /\b\d{1,2}:\d{2}(?!\d)(?::\d{2})?(?:\s?[ap]\.?m\b\.?)?/gi, /\b(?:1[0-2]|0?[1-9])\s?[ap]\.?m\b/gi, /\b\d{1,2}-[a-z]+\b/gi, /\b(?:[A-Z]-\d{1,3}|[A-Z]{2,8}-\d{1,2})\b/g,
+// a date is protected exactly as round 8 protected it, so every word-counting rule still reads it as ONE word; a money word (any case) within 3 words
+// before or after hides only its year: "Paid Oct 2030", "Received Oct 15, 2030", "Oct 2030 sent" -> the year is [amount hidden], the day and month stay
+const DATE_END = String.raw`\b(?![,.]\d)(?!(?:[^\w\n]+\w+){0,3}?[^\w\n]+(?:totals?|rates?|fees?|prices?|balance|deposits?|paid|pay\w*|due|payments?|cash|gcash|dp|downpayment|bayad|collected|received|owed?|utang|kulang|bal|cost|amount|sales|per|a\s+night|nyt|gabi)\b)`;
+const dates = (mon: string, flags: string) => [new RegExp(String.raw`\b${mon}\.?\s+${DAY}(?:,?\s+${YR})?${DATE_END}`, flags), new RegExp(String.raw`\b${DAY}\s+${mon}\.?(?:,?\s+${YR})?${DATE_END}`, flags), new RegExp(String.raw`\b${mon}\.?\s+${YR}${DATE_END}`, flags)];
+const DATE_MW = String.raw`totals?|rates?|fees?|prices?|balance|deposits?|paid|pay\w*|due|payments?|cash|gcash|dp|downpayment|bayad|collected|received|owed?|utang|kulang|bal|cost|amount|sales|per|a\s+night|nyt|gabi|refunds?|revenue|sent|transfer\w*|kita|natanggap|payouts?|income|earn\w*|benta|remit\w*|settled|nagpadala|padala|binayaran|bayaran|deposited|charged|billed|collect|owes|profit|net\w*|gross|sukli|singil|presyo|halaga|remaining|lang`;
+const DATE_MONEY_PRE = new RegExp(String.raw`\b(?:${DATE_MW})\b(?:[^\w\n]+\w+){0,3}?[^\w\n]+$`, 'i'), DATE_MONEY_POST = new RegExp(String.raw`^(?:[^\w\n]+\w+){0,3}?[^\w\n]+(?:${DATE_MW})\b|^\s*\/`, 'i');
+const DATES = [...dates('(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)', 'gi'), ...dates('May', 'g')];
+const YEAR = new RegExp(String.raw`${YR}(?!\d)`);
+const KEEP2 = [/\b\d{4}-\d{2}-\d{2}\b/g, /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g];
+const KEEP3 = [/\b\d{1,2}:\d{2}(?!\d)(?::\d{2})?(?:\s?[ap]\.?m\b\.?)?/gi, /\b(?:1[0-2]|0?[1-9])\s?[ap]\.?m\b/gi, /\b\d{1,2}-[a-z]+\b/gi, /\b(?:[A-Z]-\d{1,3}|[A-Z]{2,8}-\d{1,2})\b/g,
   /\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])(?:(?![A-Za-z0-9]*\d{3})[A-Za-z0-9]{3,}|HM(?![A-Z0-9]*(?:PHP|TOTAL|BAL|RATE|PRICE|FEE|PAY|PAID|DP|NIGHT|ONLY|LANG|LAMANG|GCASH|CASH|DEPOSIT|PER|KADA|GABI|NYT|EACH|EXTRA|DUE|BAYAD|UTANG|KULANG|SINGIL|SALES|KITA|BENTA|COST|SENT))[A-Z0-9]{8}|(?![A-F0-9]*[A-F]{3})[A-F0-9]{8})\b/g];
 const GAP = String.raw`(?:[^\w\n]+\w+){0,3}?[^\w\n]+`;
-const GAP5 = String.raw`(?:[^\w\n]+\w+){0,5}?[^\w\n]+`; // forward looks: a date before a money word is up to 3 words now, where round 8 saw 1
 const PCT_WORD = String.raw`\b(?:refund|occupancy|discount|deposit|payout|revenue|rate)\w*`; // a percent beside these is money; any other percent is a measure
 const PCT = String.raw`\d{1,3}(?:\.\d+)?\s?(?:%|percent\b|pct\b)`;
-const PCT_AFTER = new RegExp(String.raw`(${PCT_WORD})((?:[^\w\n]+\w+){0,4}?[^\w\n]+)(${PCT})`, 'gi'), /* 4 words: a year after a date is its own word now */ PCT_BEFORE = new RegExp(String.raw`(${PCT})(?=${GAP5}${PCT_WORD})`, 'gi');
+const PCT_AFTER = new RegExp(String.raw`(${PCT_WORD})(${GAP})(${PCT})`, 'gi'), PCT_BEFORE = new RegExp(String.raw`(${PCT})(?=${GAP}${PCT_WORD})`, 'gi');
 const NUMBER = /(?<!\d)(?<!\d[.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?: \d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+|\d{3,}(?:\.\d+)?)(?!\d)/g;
 // a remaining number is kept only with a positive cue AND no money context: after code/pin/ref/password... (any digits), after room/unit/lot/block (1-3 digits),
 // as a hotline after a rescue word, as a 4-digit postcode after zip/postal, or before a measure / small supply count (a leading zero is no cue)
@@ -57,8 +56,8 @@ const CUE = String.raw`(?:\s+(?:no\.?|number|is|ay))?\s*[:#-]?\s*$`; // code is 
 const ID_ANY = new RegExp(String.raw`\b(?:code|pin|passcode|lockbox|lock|password|pw|reading|meter)${CUE}`, 'i');
 const ID_REF = new RegExp(String.raw`\bref${CUE}`, 'i'); // a ref keeps 6+ digits only: "ref 5012345" stays, "ref 1780" and "ref #1780" are amounts
 const ID_SMALL = /\b(?:room|unit|lot|block)(?:\s+(?:no\.?|number))?\s*#?\s*$/i; // no "is" / ":" for these: "the room is 950", "Room: 950" are prices
-const ID_MONEY = new RegExp(String.raw`^${GAP5}${MONEY_POST}|^[^\w\n]*each\b`, 'i');
-const ID_MONEY_SMALL = new RegExp(String.raw`^${GAP5}(?:${MWL}|lang|only|lamang|tonight|for)\b|^[^\w\n]*each\b`, 'i');
+const ID_MONEY = new RegExp(String.raw`^(?:[^\w\n]+\w+){0,3}?[^\w\n]+${MONEY_POST}|^[^\w\n]*each\b`, 'i');
+const ID_MONEY_SMALL = new RegExp(String.raw`^(?:[^\w\n]+\w+){0,3}?[^\w\n]+(?:${MWL}|lang|only|lamang|tonight|for)\b|^[^\w\n]*each\b`, 'i');
 const ID_PAY = /\b(?:gcash|maya|bank|transfer|payment|paid|deposit|receipt)\b[^.\n]*$/i; // "GCash ref 1780" is an amount, "Door code 4829 sent" is a code
 const POST_CUE = /\b(?:zip|postal(?:\s+code)?|postcode)[:,]?\s*$/i;
 const HOT_CUE = /\b(?:call|pakicall|dial|tawag|hotline|bfp|pnp|police|fire|ambulance|emergency|red\s+cross|rescue)\b(?:[^\w\n]+\w+){0,3}?[^\w\n]*$/i;
@@ -68,25 +67,26 @@ const WATT = /^ ?(?:kWh|Wh|kW|W)(?![A-Za-z/])(?!\s+(?!(?:in|at|of|and|or|when|on
 const DEVICE = /\b(?:ecoflow|power\s*station|inverter|batter(?:y|ies)|generator|solar|aircon|fridge|refrigerator|heater|kettle|microwave|charger|appliance|capacity|rated|output|max)[^\w\n]*$/i;
 const COUNT = /^\s?(?:rolls|towels|sheets|hangers|pillows|pillowcases|blankets|bottles|packs|sachets|pcs?|pieces|bars|cans|boxes|kits|sets)\b/i; // 120 rolls (1-3 digits)
 const PEOPLE = /^\s?(?:guests|pax|persons|people)\b/i; // a head count, never 3+ digits
-const MONEY_W = String.raw`rates?|totals?|price|paid|pay\w*|fees?|costs?|amount|balance|deposits?|bayad|refunds?|payouts?|revenue|nightly|dp|downpayment|gcash|cash|collected|received|owed?|utang|bal`;
-const MONEY_BEFORE = new RegExp(String.raw`\b(?:${MONEY_W})\b[^\w\n]*(?:\w+[^\w\n]+)?$`, 'i'); // "rate 1780 pax", "DP ref 1780"
-// units and hotlines: a whole date + 1 word back ("Received Oct 15, 2026 950 pcs"), never across a full stop ("Bring cash. Charge it to 100%"); "Oct. 15" is not a stop
-const NB = String.raw`(?:[^\w\n.!?]|[.!?](?!\s+(?!(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))[A-Za-z]))`; // a stop is . ! ? before a new word that is not a month ("Bal. Oct 2026" reads on)
-const MONEY_NEAR = new RegExp(String.raw`\b(?:${MONEY_W})\b${NB}*(?:\w+${NB}+){0,4}$`, 'i');
+const MONEY_BEFORE = /\b(?:rates?|totals?|price|paid|pay\w*|fees?|costs?|amount|balance|deposits?|bayad|refunds?|payouts?|revenue|nightly|dp|downpayment|gcash|cash|collected|received|owed?|utang|bal)\b[^\w\n]*(?:\w+[^\w\n]+)?$/i; // "rate 1780 pax", "DP ref 1780"
 const keepNumber = (num: string, pre: string, post: string) => {
   const d = num.replace(/\D/g, '').length, paid = ID_PAY.test(pre) || MONEY_BEFORE.test(pre), money = ID_MONEY.test(post) || paid;
   return (!money && (ID_ANY.test(pre) || (d >= 6 && ID_REF.test(pre)))) || (d <= 3 && !paid && !ID_MONEY_SMALL.test(post) && ID_SMALL.test(pre))
-    || (/^(?:911|117|143|160|166)$/.test(num) && !money && !MONEY_NEAR.test(pre) && HOT_CUE.test(pre)) || (d === 4 && !money && POST_CUE.test(pre))
-    || (!paid && !MONEY_NEAR.test(pre) && ((WATT.test(post) && (d <= 3 || DEVICE.test(pre))) || (d <= 3 && (MEASURE.test(post) || COUNT.test(post) || (d <= 2 && PEOPLE.test(post))))));
+    || (/^(?:911|117|143|160|166)$/.test(num) && !money && HOT_CUE.test(pre)) || (d === 4 && !money && POST_CUE.test(pre))
+    || (!paid && ((WATT.test(post) && (d <= 3 || DEVICE.test(pre))) || (d <= 3 && (MEASURE.test(post) || COUNT.test(post) || (d <= 2 && PEOPLE.test(post))))));
 };
 
 export function maskMoney(text: string): string {
   const kept = new Map<string, string>(); // protected span -> its original text
-  const keep = (t: string, re: RegExp) => t.replace(re, (m) => { const k = S0 + 'x'.repeat(kept.size + 1) + S1; kept.set(k, m); return k; });
+  const stash = (m: string) => { const k = S0 + 'x'.repeat(kept.size + 1) + S1; kept.set(k, m); return k; };
+  const keep = (t: string, re: RegExp) => t.replace(re, stash);
+  const keepDate = (t: string, re: RegExp) => t.replace(re, (m: string, off: number, s: string) =>
+    stash(YEAR.test(m) && (DATE_MONEY_PRE.test(s.slice(0, off)) || DATE_MONEY_POST.test(s.slice(off + m.length))) ? m.replace(YEAR, PH) : m));
   let t = String(text ?? '').replace(/\[amount hidden\]/g, PH).replace(PAY_NO, '[number hidden]').replace(ACCOUNT_NO, '$1$2[number hidden]');
   for (const re of KEEP1) t = keep(t, re);
   t = t.replace(AMOUNT, PH).replace(MILLION, PH);
   for (const re of KEEP2) t = keep(t, re);
+  for (const re of DATES) t = keepDate(t, re);
+  for (const re of KEEP3) t = keep(t, re);
   t = t.replace(PCT_AFTER, (_m: string, kw: string, gap: string) => kw + gap + PH).replace(PCT_BEFORE, PH)
     .replace(NUMBER, (m: string, off: number, s: string) => (keepNumber(m, s.slice(0, off), s.slice(off + m.length)) ? m : PH));
   return t.replace(new RegExp(S0 + 'x+' + S1, 'g'), (k) => kept.get(k) ?? k).replaceAll(PH, '[amount hidden]');

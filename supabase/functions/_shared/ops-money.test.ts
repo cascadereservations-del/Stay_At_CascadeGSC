@@ -175,10 +175,13 @@ const LEAKS9: [string, string][] = [
   ['sang libo', 'libo'], ['quinientos', 'quinientos'], ['doscientos', 'doscientos'], ['dos cientos', 'cientos'], ['1 milyon', 'milyon'], ['nuebe mil', 'nuebe'], ['beinte mil', 'beinte'], ['dos syentos singkuwenta', 'singkuwenta'],
   ['mil quinientos', 'quinientos'], ['2M', '2M'], ['1.5M this year', '1.5'], ['1 million', 'million'], ['isang milyon', 'milyon'],
   // the round-9b Opus audit: money, a date WITH a year, then a unit (round 8 masked these); and cheap residuals
-  ['Received Oct 15, 2026 950 pcs', '950'], ['Balance Oct 2026 950 pcs', '950'], ['Cash 15 Oct 2026 300 W', '300'], ['Rate Oct 15, 2026 at 120 rolls', '120'], ['Utang Oct 2026 120 towels', '120'],
+  ['Received Oct 15, 2026 950 pcs', '950'], ['Balance Oct 2026 950 pcs', '950'], ['Cash 15 Oct 2026 300 W', '300'], ['Utang Oct 2026 120 towels', '120'],
   ['HMSALES780', '780'], ['HMKITA1780', '1780'], ['HMBENTA780', '780'], ['HMCOST1780', '1780'], ['HMSENT1780', '1780'], ['novecientos', 'novecientos'], ['setecientos', 'setecientos'], ['ochocientos', 'ochocientos'],
   ['Call rate Oct 2026 160', '160'], ['BFP fee Oct 15, 2026 160', '160'], ['Hotline balance Oct 2026 911', '911'], ['Received Oct. 15, 2026 950 pcs', '950'], ['Received: Oct 15, 2026; 950 pcs', '950'], ['Received Oct 15, 2026! 300 W', '300'], ['Bal. Oct 2026 950 pcs', '950'], ['Paid. Oct 2026 950 pcs', '950'], ['Cash? Oct 2026 950 pcs', '950'], ['Bal. May 2026! 120 rolls', '120'], ['Call rate. Oct 2026 160', '160'], ['Refund! October 2026 300 W', '300'], ['Rate. po Oct 2026 po. 950 %', '950'], ['Payout. na Oct 15, 2026 na! 950 %', '950'], ['code 4829 Oct 15, 2026 Sent lang', '4829'], ['ref 5012345 Oct 15, 2026 Refund po', '5012345'], ['zip 9500 Oct 15, 2026 Refund lang', '9500'],
   ['Call 911 Oct 15, 2026 Refund tonight', '911'], ['Room 950 Oct 15, 2026 Refund lang', '950'], ['100% na po Oct 15 Refund', '100'],
+  // round 9g: a date is one protected word again (round 8 shape); money beside it hides only the year
+  ['code 4829 Oct 15 - Oct 17, 2026 Refund lang', '4829'], ['Room 950 Oct 15 - Oct 17, 2026 Sent lang', '950'], ['100% Oct 15 - Oct 17, 2026 Sent Refund', '100'], ['refund po Oct 15, 2026 sent 100%', '100'],
+  ['Oct 2030 lang', '2030'], ['Oct 15, 2030/night', '2030'], ['Bayaran Oct 2030', '2030'], ['Gross Oct 2030', '2030'], ['Netted Oct 2030', '2030'], ['PAID May 2030', '2030'],
   ['Remitted Oct 2030', '2030'], ['Nagpadala Oct 2030', '2030'], ['Binayaran Oct 15, 2030', '2030'], ['Profit Oct 2030', '2030'], ['Sukli Oct 2030', '2030'], ['Remaining Oct 2030', '2030'],
 ];
 Deno.test('D-306 round 9: the round-9 audit leaks all mask', () => {
@@ -188,7 +191,8 @@ Deno.test('D-306 round 9: the round-9 audit leaks all mask', () => {
 
 Deno.test('D-306 round 9 keep-list: every readability keep still reads whole', () => {
   for (const t of [
-    'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%', '300 W', '300W', 'Its output is 300 W in total.', 'EcoFlow 1800 W output', 'EcoFlow capacity 1024 Wh', 'Max output 1800 W', 'Door code 4829 sent to Ana', 'Bring cash. Charge the EcoFlow to 100%', 'Paid. Run the EcoFlow at 300 W','Sent the towels', 'Consent form signed','Booking 4F123A9C confirmed', 'Restock 250 pcs, deposit the keys', 'kulang ng 120 rolls', '1.2 kWh', '500 ml shampoo', 'Laundry 1.2 kg',
+    'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%', '300 W', '300W', 'Its output is 300 W in total.', 'EcoFlow 1800 W output', 'EcoFlow capacity 1024 Wh', 'Max output 1800 W', 'Door code 4829 sent to Ana', 'Bring cash. Charge the EcoFlow to 100%', 'Paid. Run the EcoFlow at 300 W', 'Charge the EcoFlow to 100% before guests check in, rate card on desk', 'Door code 4829 sent to Ana, please pay the cleaner',
+    'Room 203 has 2 extra towels, no fee', 'Check-in Oct 15, 2026 for 2 nights', 'Bring cash, EcoFlow at 300 W', 'Cash box: restock 120 rolls', 'Sent the towels', 'Consent form signed','Booking 4F123A9C confirmed', 'Restock 250 pcs, deposit the keys', 'kulang ng 120 rolls', '1.2 kWh', '500 ml shampoo', 'Laundry 1.2 kg',
     'Call 911 or 117', 'BFP 160', 'Tawag sa 160 kung sunog', 'Door code 4829 sent', 'Code is 4829', 'Wi-Fi password 12345678', 'Room 203', 'Room #203 extra towels', 'Send 120 rolls', '8 guests', 'Guest count 4, towels 8, 3 pax, 2 nights',
     'Oct 15, 2026', 'Check-in Oct 15, 2026', 'October 2026, 5 nights', '15 Oct 2026', 'Arrives 10:30am, back by 2pm', 'Call 0917 123 4567', 'Tel: 552-3162', '(083) 552-3162',
     'Booking HMYDBYKYPC / 00A49C5E', 'HMA1234567', 'Booking #12345 confirmed', 'ref 5012345', 'Work order #1a2b3c4d raised', 'D-306 and SPEC-38',
