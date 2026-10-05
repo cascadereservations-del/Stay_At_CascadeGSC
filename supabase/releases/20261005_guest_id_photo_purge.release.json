@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "release_id": "guest_id_photo_purge_20261005",
+  "phase": "backfill",
+  "source": {
+    "branch": "s70/l4-stay",
+    "commit": "82f3ff28e91c6ffc6481650845cb9fabf0aa7c80"
+  },
+  "migrations": [
+    "20261005130000_guest_id_photo_purge.sql"
+  ],
+  "migration_sha256": {
+    "20261005130000_guest_id_photo_purge.sql": "919e3e01f667bd282894cc6c449e76e4ee109b88d4025923612382a77403b885"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING: take a fresh backup, then fill restore_point and verified_at",
+    "verified_at": "2026-10-05T00:00:00Z",
+    "production_rule": "Phase is backfill, not expand, only because the expand-safety scan refuses the literal DELETE FROM inside guest_id_photo_purge_done_v1 (a new function that clears queue rows only when called, and only for paths whose storage object is gone; nothing runs it at apply time). One new table (guest_id_photo_purge_queue: RLS on, no policy, no grant for anon, authenticated or service_role), one new AFTER UPDATE OF id_photo_path OR DELETE row trigger on guest_companions (security definer, never blocks the staff action, never raises), two new service_role-only functions (guest_id_photo_purge_status_v1, guest_id_photo_purge_done_v1) and two new job_heartbeats rows (guest-id-photos-backup 2 days, guest-id-photos-drill monthly, last_succeeded_at = now() so no alert before the first run). No existing data, table, column or grant changes. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "trigger_after_row_on_delete_and_update_of_photo_path",
+      "query": "select exists (select 1 from pg_trigger t where t.tgrelid = 'public.guest_companions'::regclass and t.tgname = 'guest_companions_release_photo' and (t.tgtype & 1) = 1 and (t.tgtype & 2) = 0 and (t.tgtype & 4) = 0 and (t.tgtype & 8) = 8 and (t.tgtype & 16) = 16 and pg_get_triggerdef(t.oid) like '%UPDATE OF id_photo_path%')",
+      "expect": true
+    },
+    {
+      "name": "queue_rls_on_and_no_grants_for_anyone",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.guest_id_photo_purge_queue'::regclass) and not has_table_privilege('anon','public.guest_id_photo_purge_queue','select') and not has_table_privilege('authenticated','public.guest_id_photo_purge_queue','select') and not has_table_privilege('service_role','public.guest_id_photo_purge_queue','select') and not has_table_privilege('service_role','public.guest_id_photo_purge_queue','insert') and not has_table_privilege('service_role','public.guest_id_photo_purge_queue','update') and not has_table_privilege('service_role','public.guest_id_photo_purge_queue','delete')",
+      "expect": true
+    },
+    {
+      "name": "rpcs_service_role_only",
+      "query": "select has_function_privilege('service_role','public.guest_id_photo_purge_status_v1(interval)','execute') and has_function_privilege('service_role','public.guest_id_photo_purge_done_v1(text[])','execute') and not has_function_privilege('anon','public.guest_id_photo_purge_status_v1(interval)','execute') and not has_function_privilege('authenticated','public.guest_id_photo_purge_status_v1(interval)','execute') and not has_function_privilege('anon','public.guest_id_photo_purge_done_v1(text[])','execute') and not has_function_privilege('authenticated','public.guest_id_photo_purge_done_v1(text[])','execute')",
+      "expect": true
+    },
+    {
+      "name": "three_functions_definer_empty_search_path",
+      "query": "select count(*) = 3 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('guest_companions_release_photo','guest_id_photo_purge_status_v1','guest_id_photo_purge_done_v1')",
+      "expect": true
+    },
+    {
+      "name": "both_heartbeat_rows_seeded",
+      "query": "select count(*) = 2 from public.job_heartbeats where (job_name = 'guest-id-photos-backup' and expected_interval_seconds = 172800) or (job_name = 'guest-id-photos-drill' and expected_interval_seconds = 2678400)",
+      "expect": true
+    },
+    {
+      "name": "status_rpc_answers_with_a_numeric_queue_count",
+      "query": "select jsonb_typeof(public.guest_id_photo_purge_status_v1() -> 'queued') = 'number'",
+      "expect": true
+    },
+    {
+      "name": "bucket_is_still_private",
+      "query": "select count(*) = 1 and bool_and(not b.public) from storage.buckets b where b.id = 'guest-id-photos'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Disable the Task Scheduler tasks Cascade Guest ID Photos Daily Backup and Cascade Guest ID Photos Monthly Drill first (the heartbeat rows stay and job-heartbeat-monitor would alert when they go stale), then apply supabase/rollbacks/20261005_guest_id_photo_purge.sql with run-sql-on-host.sh: it drops the trigger, both RPCs, the trigger function and the queue. Paths still queued then appear in the orphan sweep (supabase/sql/2026-10-05-s70-guest-id-photo-orphan-sweep.sql)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_backup_script",
+      "required_state": "Apply this release BEFORE the first run of guest-id-photos.mjs backup: the script calls guest_id_photo_purge_status_v1 and guest_id_photo_purge_done_v1 and records the two heartbeats. Run before the release it stops at once with HEARTBEAT, because record_job_heartbeat refuses the unseeded job name."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh on a fresh backup with supabase/tests/database/guest_id_photo_purge.sql (33 pgTAP assertions) and record the result here.",
+    "evidence": "Spec reading 2026-10-04 (SPEC-40 section 1): guest-id-photos 92 objects, 91 guest_companions rows with a photo path, 0 orphans, the .emptyFolderPlaceholder of a deleted companion folder is the only leftover; direct deletes on storage.objects are blocked by protect_objects_delete. The trigger only reads guest_companions and writes the new queue."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the rehearsal shows the trigger firing on an admin_soft_delete_v1 or audit-row trigger path in a way the pgTAP suite did not predict"
+  ]
+}
