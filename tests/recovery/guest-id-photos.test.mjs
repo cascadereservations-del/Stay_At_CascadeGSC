@@ -220,7 +220,7 @@ test('source scan: encryption settings, ordering, repo guard, key hygiene, singl
 
   const deletes = text.match(/'DELETE'/g) ?? [];
   assert.equal(deletes.length, 1, 'the Storage delete is the only DELETE');
-  assert.ok(text.indexOf('purgeAllowed(due, backedUp)') > 0 && text.indexOf('purgeAllowed(due, backedUp)') < text.indexOf("'DELETE'"),
+  assert.ok(text.indexOf('purgeAllowed(due.filter((p) => all.has(p)), backedUp)') > 0 && text.indexOf('purgeAllowed(due.filter((p) => all.has(p)), backedUp)') < text.indexOf("'DELETE'"),
     'the chain filter runs before the delete');
   assert.ok(!/\bdelete\s+from\b/i.test(text), 'no SQL delete from this script');
   assert.ok(/guest_id_photo_purge_done_v1/.test(text) && /guest-id-photos-backup/.test(text) && /guest-id-photos-drill/.test(text));
