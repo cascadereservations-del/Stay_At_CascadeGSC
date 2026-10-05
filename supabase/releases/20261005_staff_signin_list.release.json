@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "1aba81d41896cb3ed961eb2a2b6c25a4f12ea379"
+    "commit": "95e403c9a4f0224edf93eb36cff86389352ce87c"
   },
   "migrations": [
     "20261005150000_staff_signin_list.sql"
@@ -61,8 +61,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING - rehearse on a fresh restore with the pgTAP suite staff_signin_list.sql (16 assertions) before apply",
+    "verified": true,
+    "rehearsal": "PASSED 2026-10-05 (session 71) on cascade-supabase-20261005T033535Z together with the five wave 1 releases in timestamp order: 6/6 migrations, 39/39 forward checks, pgTAP 10 suites 334/334 (staff_signin_list 16/16).",
     "evidence": "Label source read from the repo, not production: supabase/functions/staff-users/index.ts (action list) names each account with auth.users app_metadata.display_name, falling back to the e-mail local part; the same function sets user_metadata.display_name on rename and bans the Auth user on disable. No production read was made."
   },
   "approvals": {
