@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet('Backup', 'Restore')]
+  [ValidateSet('Backup', 'Restore', 'Photos', 'PhotosDrill')]
   [string]$Mode = 'Backup',
   [switch]$MonthlyGate
 )
@@ -27,7 +27,9 @@ $env:CASCADE_BACKUP_DIR = '/c/Cascade-Backups'
 $env:CASCADE_SUPABASE_URL_FILE = '/c/Users/Lloyd/Cascade-Secrets/supabase-production-db-url.txt'
 $env:CASCADE_SUPABASE_PASSPHRASE_FILE = '/c/Users/Lloyd/Cascade-Secrets/supabase-backup-passphrase.txt'
 
-foreach ($name in @('supabase-production-db-url.txt', 'supabase-backup-passphrase.txt')) {
+# The photo modes only need the passphrase file: the service-role key is read into memory by the script, never stored.
+$required = if ($Mode -in @('Photos', 'PhotosDrill')) { @('supabase-backup-passphrase.txt') } else { @('supabase-production-db-url.txt', 'supabase-backup-passphrase.txt') }
+foreach ($name in $required) {
   $path = Join-Path $secretRoot $name
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required owner-only file is missing: $name" }
 }
@@ -37,7 +39,12 @@ $stdout = Join-Path $logRoot "$($Mode.ToLowerInvariant())-$stamp.log"
 $stderr = Join-Path $logRoot "$($Mode.ToLowerInvariant())-$stamp.err.log"
 $arguments = @('--noprofile', '--norc')
 
-if ($Mode -eq 'Backup') {
+if ($Mode -in @('Photos', 'PhotosDrill')) {
+  # Login shell so openssl, tar and sha256sum from Git's /usr/bin are on PATH (SPEC-40).
+  $verb = if ($Mode -eq 'Photos') { 'backup' } else { 'drill' }
+  $repoPosix = '/' + $repoRoot.Substring(0, 1).ToLowerInvariant() + $repoRoot.Substring(2).Replace('\', '/')
+  $arguments = @('-lc', ('"cd {0} && node scripts/recovery/p5/guest-id-photos.mjs {1}"' -f $repoPosix, $verb))
+} elseif ($Mode -eq 'Backup') {
   $script = Join-Path $repoRoot 'scripts\recovery\p5\supabase-backup-over-alfred.sh'
   $arguments += $script.Replace('\', '/')
 } else {

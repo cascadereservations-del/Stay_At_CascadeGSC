@@ -24,5 +24,21 @@ $restore = New-ScheduledTask -Action $restoreAction -Trigger $restoreTrigger -Se
   -Description 'First-Sunday disposable restore drill of the latest COMPLETE Cascade backup via Alfred.'
 Register-ScheduledTask -TaskName 'Cascade Supabase Monthly Restore Drill' -InputObject $restore -Force | Out-Null
 
-Get-ScheduledTask -TaskName 'Cascade Supabase Weekly Backup', 'Cascade Supabase Monthly Restore Drill' |
+# SPEC-40: guest ID photo backup (daily, encrypted, incremental) and its monthly restore drill. Heartbeats
+# guest-id-photos-backup / guest-id-photos-drill are watched by job-heartbeat-monitor.
+$photosAction = New-ScheduledTaskAction -Execute $powershell `
+  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Mode Photos"
+$photosTrigger = New-ScheduledTaskTrigger -Daily -At '08:20'
+$photos = New-ScheduledTask -Action $photosAction -Trigger $photosTrigger -Settings $settings -Principal $principal `
+  -Description 'Encrypted incremental backup of the guest-id-photos bucket (monthly full set), mirrored to Alfred, plus the queued orphan purge. Runs as Lloyd while logged on.'
+Register-ScheduledTask -TaskName 'Cascade Guest ID Photos Daily Backup' -InputObject $photos -Force | Out-Null
+
+$photosDrillAction = New-ScheduledTaskAction -Execute $powershell `
+  -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runner`" -Mode PhotosDrill -MonthlyGate"
+$photosDrillTrigger = New-ScheduledTaskTrigger -Weekly -WeeksInterval 1 -DaysOfWeek Sunday -At '09:30'
+$photosDrill = New-ScheduledTask -Action $photosDrillAction -Trigger $photosDrillTrigger -Settings $settings -Principal $principal `
+  -Description 'First-Sunday in-memory restore drill of the newest guest ID photo chain: decrypt, coverage of the live bucket, Alfred copy.'
+Register-ScheduledTask -TaskName 'Cascade Guest ID Photos Monthly Drill' -InputObject $photosDrill -Force | Out-Null
+
+Get-ScheduledTask -TaskName 'Cascade Supabase Weekly Backup', 'Cascade Supabase Monthly Restore Drill', 'Cascade Guest ID Photos Daily Backup', 'Cascade Guest ID Photos Monthly Drill' |
   Select-Object TaskName, State

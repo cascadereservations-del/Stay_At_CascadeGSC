@@ -41,3 +41,17 @@ test("installer registers weekly backup and first-Sunday monthly restore", async
   assert.match(text, /StartWhenAvailable/);
   assert.match(text, /LogonType Interactive/);
 });
+
+test("runner and installer carry the guest ID photo modes and no key literal", async () => {
+  const runner = await source("scripts/recovery/p5/Invoke-CascadeRecoverySchedule.ps1");
+  assert.match(runner, /ValidateSet\('Backup', 'Restore', 'Photos', 'PhotosDrill'\)/);
+  assert.match(runner, /guest-id-photos\.mjs/);
+  assert.match(runner, /'-lc'/);
+  assert.doesNotMatch(runner, /eyJ[\w-]{10,}|service_role|sb_secret_/);
+  const installer = await source("scripts/recovery/p5/Install-CascadeRecoverySchedule.ps1");
+  assert.match(installer, /Cascade Guest ID Photos Daily Backup/);
+  assert.match(installer, /Cascade Guest ID Photos Monthly Drill/);
+  assert.match(installer, /-Daily -At '08:20'/);
+  assert.match(installer, /-Mode PhotosDrill -MonthlyGate/);
+  assert.match(installer, /-At '09:30'/);
+});
