@@ -153,3 +153,18 @@ Deno.test('D-269: a reply to the Guest reply prompt is a draft request - text as
   assertEquals(draftAsk('hello', DRAFT_PROMPT, false), null);
   assertEquals(draftAsk('hello', '🤖 Ask Cassy: reply to this message with your question.', true), null);
 });
+
+// ---- SPEC-38 (session 70): the "Other" decline reason ----
+import { parseReason } from './reply.ts';
+
+Deno.test('inquiry_reason: a person being asked is answering, so their text is the flow answer', () => {
+  assertEquals(routeText({ awaiting: true, replyToCountCard: false, replyToBot: false, text: 'guest wants a party' }), { kind: 'flow' });
+});
+
+Deno.test('inquiry_reason: a few words are a reason; empty, emoji-only or digit-only text gets the refusal (the question stays open)', () => {
+  assertEquals(parseReason('guest asked for a party'), 'guest asked for a party');
+  assertEquals(parseReason('  no   pets   allowed '), 'no pets allowed');
+  assertEquals(parseReason('x'.repeat(500))!.length, 300);
+  for (const bad of ['', '   ', '👍', '🙏🙏🙏', '12345', 'ok', '??']) assertEquals(parseReason(bad), null, JSON.stringify(bad));
+  assertEquals(refusal('inquiry_reason'), 'A few words are enough, like "guest asked for a party". Nothing was saved.');
+});

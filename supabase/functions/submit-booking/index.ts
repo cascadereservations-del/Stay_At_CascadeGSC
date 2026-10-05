@@ -15,7 +15,7 @@ import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { normalizeEmail, normalizePhilippinePhone } from '../_shared/guest-identity.ts';
 // v13 (session 26, 2026-09-16, Telegram plan §1/§5): Finance card opens with the shared header
 // and carries guest_context_v1 lines for a returning direct guest (empty for a first-timer).
-import { withHeader, groups, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
+import { cardMarkup, financeCard, opsCard, siteNotes, viaOf, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: the request card with its decision buttons
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 // v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored (it only
 // chooses fee or full: pay_full); the server stores and returns its own total and deposit.
@@ -31,9 +31,6 @@ const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS });
-}
-function manilaDatetime(): string {
-  return new Date().toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false });
 }
 async function hmacHex(key: string, msg: string): Promise<string> {
   const enc = new TextEncoder();
@@ -229,34 +226,46 @@ Deno.serve(async (req) => {
   // ── Background notifications (Telegram + email relay) ──
   const tgToken     = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const tgFinanceId = Deno.env.get('TELEGRAM_FINANCE_CHAT_ID');
+  const tgOpsId     = Deno.env.get('TELEGRAM_CHAT_ID');
   const relayUrl    = Deno.env.get('EMAIL_RELAY_URL');
   const relayToken  = Deno.env.get('EMAIL_RELAY_TOKEN');
 
   async function notifyTelegram(receiptSignedUrl: string | null): Promise<void> {
     if (!tgToken || !tgFinanceId) return;
-    const depLabel = payFull ? 'Full payment' : `Deposit (${depositPct}%)`;
     const ctxLines = guestContextLines(await guestContext(db, { guestId: resolvedGuestId, name: guestName }));
-    // Session 28: one idea per group (who / history / when / money / what happens next / Do).
-    const msg = withHeader('booking', `Direct ${ref}${isHold ? ' · HOLD' : ''}`, groups(
-      [`📬 New direct request${notes?.includes('via Messenger') ? ' via Messenger' : ''} · ${manilaDatetime()}`],
-      [`👤 ${guestName}`, `📞 ${guestPhone}`, guestEmail && `📧 ${guestEmail}`, contactType === 'whatsapp' && `💬 WhatsApp preferred`],
-      ctxLines,
-      [`📅 ${checkinStr} → ${checkoutStr}`, `🌙 ${nights} night${nights === 1 ? '' : 's'} · 👥 ${pax} guest${pax === 1 ? '' : 's'}`],
-      [`💰 Total ₱${totalAmount.toLocaleString()}`, q.promo_nights > 0 && `🏷️ ${q.promo_name}: ${q.promo_nights} night${q.promo_nights === 1 ? '' : 's'} at ₱${Number(q.promo_rate).toLocaleString()}`,
-       `💳 ${depLabel} ₱${depositAmount.toLocaleString()}`, `📒 Ledger: pending review (confirms on approval)`],
-      [isHold ? `🗓️ HOLD ${HOLD_HOURS} h while the guest pays${holdExpiresAt ? ` (until ${new Date(holdExpiresAt).toLocaleString('en-PH', { timeZone: 'Asia/Manila', hour12: false })})` : ' (hold row not opened — RPC missing?)'}; released automatically if no receipt arrives`
-              : `🗓️ Dates held pending your review · 📎 receipt pending or not provided`,
-       isHold && `🧾 The receipt arrives here as its own card when the guest uploads it`],
-      notes ? [`📝 ${notes}`] : [],
-      [`Do: wait for the receipt card, then tap Confirm there.`, `🔖 Ref ${ref} · 🔗 https://cascadereservations-del.github.io/cascade-admin-dashboard/#/bookings/direct/${inquiryId}`],
-    ));
+    // SPEC-38 (session 70): the request card now carries the decision buttons. The view is built here from the values already in
+    // scope (no extra RPC on the submit path); telegram_inquiry_view_v1 gives the same shape to /requests and to a later tap.
+    const view: InquiryView = {
+      id: inquiryId, ref, guest_name: guestName, guest_email: guestEmail, guest_phone: guestPhone, checkin_date: checkinStr, checkout_date: checkoutStr,
+      nights, pax, total_amount: totalAmount, deposit_amount: depositAmount, notes, submitted_at: new Date().toISOString(), status: 'pending', has_receipt: false,
+      hold_expires_at: holdExpiresAt, held_by: null, held_at: null, conflict: false,
+    };
+    const extra = {
+      lastMessage: siteNotes(notes), via: viaOf(notes), context: ctxLines,
+      moneyNotes: [q.promo_nights > 0 && `🏷️ ${q.promo_name}: ${q.promo_nights} night${q.promo_nights === 1 ? '' : 's'} at ₱${Number(q.promo_rate).toLocaleString()}`,
+        isHold && !holdExpiresAt && '⚠️ The 24 h hold could not be opened (hold row missing?). Nothing releases these dates until you hold or decline.'],
+      contactNotes: [contactType === 'whatsapp' && '💬 WhatsApp preferred'],
+    };
+    const msg = financeCard(view, extra);
+    const markup = cardMarkup(view, 'finance', msg);
 
     await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: tgFinanceId, text: msg, disable_web_page_preview: true, reply_markup: autoKeyboard(msg, BTN.expense) }),
+      body: JSON.stringify({ chat_id: tgFinanceId, text: msg, disable_web_page_preview: true, reply_markup: markup }),
       signal: AbortSignal.timeout(15_000),
     }).catch(() => {});
+
+    // OPS sees the same request with no money, phone or e-mail, and may answer the guest's message with a Cassy reply (D-297.2).
+    if (tgOpsId) {
+      const opsText = opsCard(view, extra);
+      await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: tgOpsId, text: opsText, disable_web_page_preview: true, reply_markup: cardMarkup(view, 'ops', opsText) }),
+        signal: AbortSignal.timeout(15_000),
+      }).catch(() => {});
+    }
 
     if (receiptSignedUrl) {
       await tgSendFile(tgToken, tgFinanceId, receiptSignedUrl, `📎 Deposit receipt — ${guestName} · Ref ${ref}`);

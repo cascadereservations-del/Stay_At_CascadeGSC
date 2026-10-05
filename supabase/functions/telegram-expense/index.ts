@@ -23,12 +23,17 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts'; // /ping tests the real route (2026-09-24)
-import { notifyMessengerBookingDeclined } from '../_shared/cascade-core/messenger.ts';
+import { fbSendText, notifyMessengerBookingDeclined } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
 import { applyHouseFact, houseTapLine, mayTeach } from '../_shared/cascade-core/house.ts'; // D-282: Cassy's teach card
 import { nightsPhrase, parsePwTap, parseTaskTap, patchNoticeState, readNotice, releaseNotice, rpcMissing } from '../_shared/cascade-core/brownout.ts'; // D-290: brownout card taps, stay/guest-details task taps
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
+import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
+import { liveSendIO } from './inquiry-send.ts';
+import { parseReason } from './reply.ts';
+import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
+import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
 import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
@@ -197,6 +202,18 @@ function largestPhotoId(msg:any):string|null{const p=Array.isArray(msg.photo)?ms
 async function fetchPhotoBytes(msg:any):Promise<{bytes:Uint8Array;mime:string}|null>{const id=largestPhotoId(msg);return id?fetchPhotoBytesByFileId(id):null;}
 // session 67b: the /guest flow gets Telegram, the shared vision helper and the database through this one object (guest-flow.ts holds no globals).
 const guestDeps=(db:any)=>({db,propertyId:PROPERTY_ID,send:(c:any,t:string,x:Record<string,unknown>={})=>tgSend(c,t,x.reply_to_message_id?{...x,allow_sending_without_reply:true}:x),edit:tgEdit,answer:tgAnswerCB,photo:fetchPhotoBytesByFileId,read:(prompt:string,bytes:Uint8Array,mime:string)=>visionExtractText(prompt,bytes,mime,'Cascade Guest Intake'),visionReady:hasVisionKey,esc:mdEsc,today:toManilaDate});
+// SPEC-38: the request cards are plain text (guest words are in them), so they send and edit without Markdown.
+const iqDeps=(db:any):IqDeps=>({
+  db,financeChat:FINANCE_CHAT,opsChat:OPS_CHAT,
+  send:(c,t,x={})=>tgCall('sendMessage',{chat_id:c,text:t,disable_web_page_preview:true,...x}),
+  edit:(c,mid,t,rm)=>tgCall('editMessageText',{chat_id:c,message_id:mid,text:t.length>4000?t.slice(0,3999)+'\u2026':t,disable_web_page_preview:true,reply_markup:rm??{inline_keyboard:[]}}),
+  answer:tgAnswerCB,
+  forward:async(u)=>{const r=await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(u),signal:AbortSignal.timeout(20_000)}).catch(e=>{console.error('cassy inquiry forward failed:',String(e));return null;});return !!r&&r.ok;},
+  ask:(chatId,fromId,flow,refs,text)=>ask(db,chatId,fromId,flow,refs,text),
+  io:liveSendIO(db,fbSendText,(k:string)=>Deno.env.get(k)??'',issueReceiptUploadToken),
+  now:()=>Date.now(),
+  rateToday:async(v)=>{const q=quote(await loadCard(db),v.checkin_date,v.checkout_date);return Number.isFinite(q.total)?q.total:null;},
+});
 async function handleStockQuery(db:any,chatId:any,surface:'ops'|'finance',params:any){
   const filter=String(params?.filter??'low');const item=params?.item?String(params.item).trim().toLowerCase():null;const isFin=surface==='finance';
   const{data,error:invErr}=await db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit,is_consumable,consumption_per_booking,unit_cost,sort_order').eq('property_id',PROPERTY_ID).eq('is_active',true).order('sort_order');
@@ -510,8 +527,8 @@ const MENU_TIPS:Record<string,string>={
 };
 const TIP_BACK:Record<string,string>={fastentry:'log',ocr:'inventory',void:'commands',cassy:'cassy',draft:'cassy'};
 
-function mainMenuKb() { return {inline_keyboard:[[{text:'💰 Log Expense',callback_data:'menu:log'},{text:'🧹 Cleaning Fees',callback_data:'menu:cleaning'}],[{text:'📊 Reports',callback_data:'menu:commands'},{text:'📌 OPS Notices',callback_data:'menu:notices'}],[{text:'📦 Inventory',callback_data:'menu:inventory'},{text:'🤖 Cassy',callback_data:'menu:cassy'}]]}; }
-function opsMenuKb() { return {inline_keyboard:[[{text:'⚡ Brownout',callback_data:'menu:do:nt:brownout'},{text:'📅 Calendar',callback_data:'menu:do:cal'}],[{text:'🌦 Weather now',callback_data:'menu:do:weather'},{text:'🔄 Turnover',callback_data:'menu:do:schedule'}],[{text:'📦 Stock check',callback_data:'menu:do:stock'},{text:'📋 Full inventory',callback_data:'menu:do:inventory'}],[{text:'🤖 Ask Cassy',callback_data:'menu:tip:cassy'},{text:'✍️ Draft a reply',callback_data:'menu:tip:draft'}],[{text:'📋 View all notices',callback_data:'menu:do:notices'}]]}; }
+function mainMenuKb() { return {inline_keyboard:[[{text:'💰 Log Expense',callback_data:'menu:log'},{text:'🧹 Cleaning Fees',callback_data:'menu:cleaning'}],[{text:'📊 Reports',callback_data:'menu:commands'},{text:'📌 OPS Notices',callback_data:'menu:notices'}],[{text:'📦 Inventory',callback_data:'menu:inventory'},{text:'🤖 Cassy',callback_data:'menu:cassy'}],[{text:'📬 Requests',callback_data:'menu:do:requests'}]]}; }
+function opsMenuKb() { return {inline_keyboard:[[{text:'⚡ Brownout',callback_data:'menu:do:nt:brownout'},{text:'📅 Calendar',callback_data:'menu:do:cal'}],[{text:'🌦 Weather now',callback_data:'menu:do:weather'},{text:'🔄 Turnover',callback_data:'menu:do:schedule'}],[{text:'📦 Stock check',callback_data:'menu:do:stock'},{text:'📋 Full inventory',callback_data:'menu:do:inventory'}],[{text:'🤖 Ask Cassy',callback_data:'menu:tip:cassy'},{text:'✍️ Draft a reply',callback_data:'menu:tip:draft'}],[{text:'📋 View all notices',callback_data:'menu:do:notices'},{text:'📬 Requests',callback_data:'menu:do:requests'}]]}; }
 
 // Lloyd, 2026-09-22: "instead of the / button it should be like a symbol or something that will
 // show the full buttons". A persistent reply keyboard sits above the message box and Telegram gives
@@ -701,7 +718,7 @@ async function getCategories(db:any):Promise<Category[]>{
   return cats;
 }
 async function getCategoryLabel(db:any,slug:string){const cats=await getCategories(db);return cats.find(c=>c.slug===slug)?.label??slug;}
-async function createPending(db:any,chatId:any,kind:string,payload:Record<string,unknown>,ttlMinutes?:number){const row:Record<string,unknown>={chat_id:chatId,kind,payload};if(ttlMinutes)row.expires_at=new Date(Date.now()+ttlMinutes*60_000).toISOString();const{data}=await db.from('telegram_pending').insert(row).select('id').single();return data?.id??'';}
+async function createPending(db:any,chatId:any,kind:string,payload:Record<string,unknown>,ttlMinutes?:number){const row:Record<string,unknown>={chat_id:chatId,kind,payload};if(ttlMinutes)row.expires_at=new Date(Date.now()+ttlMinutes*60_000).toISOString();const{data,error}=await db.from('telegram_pending').insert(row).select('id').single();if(error||!data)console.error('createPending failed',JSON.stringify({kind,error:String(error?.message??error??'no row returned').slice(0,200)}));return data?.id??'';}
 // SPEC-16: one open question per person per chat. A fresh tap deletes that person's previous question first.
 async function awaiting(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>){
   await db.from('telegram_pending').delete().eq('chat_id',chatId).eq('kind','awaiting_reply').eq('payload->>from_id',String(fromId));
@@ -1240,7 +1257,7 @@ async function handleCallbackQuery(cq:any,db:any){
 async function handleCallbackQueryInner(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
   // SPEC-16: these taps answer for themselves, so a refused tap can explain itself in the toast.
-  if(!/^(inv:item:|inv:qty:|x:|pw:|stc:|crm:|gst:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
+  if(!/^(inv:item:|inv:qty:|x:|pw:|stc:|crm:|gst:|iq:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
 
   if(data==='xx'){await tgEdit(chatId,msgId,CANCELLED);return;}
   if(data.startsWith('gst:')){await onGuestTap(guestDeps(db),cq);return;} // session 67b: /guest pick, Other, Save, Cancel (they answer the tap themselves)
@@ -1252,6 +1269,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
     await db.from('telegram_pending').delete().eq('id',pid);
     await tgAnswerCB(cq.id);await tgEdit(chatId,msgId,CANCELLED);return;
   }
+  if(data.startsWith('iq:')){await onIqTap(iqDeps(db),cq);return;} // SPEC-38: hold / decline / Cassy reply on a request that has not paid yet (they answer the tap themselves)
   if(data.startsWith('inv:item:')){
     const[,,pid,ns]=data.split(':');const n=Number(ns);
     const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',pid).maybeSingle();
@@ -1596,6 +1614,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
         case 'notifyclean': if(isF)await notifyCleanAcks(db,chatId);else await tgSend(chatId,FINANCE_ONLY);break;
         case 'summary':     if(isF)await runSummary(db,chatId);else await tgSend(chatId,FINANCE_ONLY);break;
         case 'notices':     await handleNoticesList(chatId,db);break;
+        case 'requests':    await sendRequests(iqDeps(db),chatId);break; // SPEC-38
         case 'cal':         await handleCalendarNotices(chatId,db);break;
         case 'weather':     await sendWeather(chatId);break;
         case 'schedule':    await sendSchedule(chatId,db);break;
@@ -1685,6 +1704,10 @@ async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any}
       const m=parseManualClean(text);if(!m){await bad();return;}
       await done();await handleManualCleanAnswer(db,chatId,msg,m);return;
     }
+    case 'inquiry_reason':{
+      const reason=parseReason(text);if(reason===null){await bad();return;}
+      await done();await onInquiryReason(iqDeps(db),msg,p,reason);return;
+    }
     default: await done(); await tgReply(chatId,msg.message_id,NOT_WAITING);
   }
 }
@@ -1723,6 +1746,7 @@ async function handleTextMessage(msg:any,db:any){
     if(cmd==='/inventory'){await handleStockQuery(db,chatId,isFinanceChat(chatId)?'finance':'ops',{filter:'all'});return;}
     if(cmd==='/guest'){const rp=msg.reply_to_message;await startGuestIntake(guestDeps(db),{...msg,photo:undefined},largestPhotoId(rp??{}));return;} // session 67b: reply /guest to a photo; a bare /guest explains itself
     if(cmd==='/count'){if(!isFinanceChat(chatId)){await tgSend(chatId,'Counts are updated from the Finance group.');return;}await promptCountScope(db,chatId);return;}
+    if(cmd==='/requests'){await sendRequests(iqDeps(db),chatId);return;} // SPEC-38: booking requests waiting for payment, both chats
     if(cmd==='/menu'||cmd==='/help'||cmd==='/start'){await showMenu(chatId);return;}
     if(!isFinanceChat(chatId))return;
     if(cmd==='/purchase')    {await tgSend(chatId,'📸 Send me the receipt photo and I\'ll read it, then offer to update stock for any matched items.');return;}
@@ -1934,8 +1958,8 @@ async function handlePing(chatId: any) {
 }
 
 // Session 28: every feature has a command, so the ☰ menu button (setChatMenuButton, commands) lists them all.
-const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'cassy',description:'Ask Cassy: /cassy who arrives this week?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'guest',description:'Save a guest ID or chat photo: send it captioned /guest'},{command:'notices',description:'Active brownouts, holidays, events, reminders'},{command:'brownout',description:'Add a brownout: /brownout <date> <time> <hours>'},{command:'deep',description:'Ask Cassy with the deeper model'}];
-const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'log',description:'Log an expense (guided)'},{command:'cassy',description:'Ask Cassy: /cassy what did we spend this month?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'payclean',description:'Mark a cleaning fee paid'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'count',description:'Update stock counts by group'},{command:'guest',description:'Save a guest ID or chat photo: send it captioned /guest'},{command:'notices',description:'Active OPS notices'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'void',description:'Void entry: /void REFCODE'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'deep',description:'Ask Cassy with the deeper model'},{command:'ping',description:'Diagnostic: test the model + env vars'}];
+const OPS_CMDS=[{command:'menu',description:'Open the OPS menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'cassy',description:'Ask Cassy: /cassy who arrives this week?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'guest',description:'Save a guest ID or chat photo: send it captioned /guest'},{command:'notices',description:'Active brownouts, holidays, events, reminders'},{command:'requests',description:'Booking requests waiting for payment'},{command:'brownout',description:'Add a brownout: /brownout <date> <time> <hours>'},{command:'deep',description:'Ask Cassy with the deeper model'}];
+const FIN_CMDS=[{command:'menu',description:'Open the Finance menu'},{command:'keyboard',description:'Show the always-on button grid'},{command:'log',description:'Log an expense (guided)'},{command:'cassy',description:'Ask Cassy: /cassy what did we spend this month?'},{command:'draft',description:'Draft a guest reply: /draft <what they wrote>'},{command:'purchase',description:'Log a purchase from a receipt photo'},{command:'payclean',description:'Mark a cleaning fee paid'},{command:'summary',description:'Monthly finance summary'},{command:'stock',description:'Low-stock check'},{command:'inventory',description:'Full stock report'},{command:'count',description:'Update stock counts by group'},{command:'guest',description:'Save a guest ID or chat photo: send it captioned /guest'},{command:'notices',description:'Active OPS notices'},{command:'requests',description:'Booking requests waiting for payment'},{command:'refund',description:'Log guest refund: /refund REFCODE AMT RECIPIENT | REF | NOTE'},{command:'void',description:'Void entry: /void REFCODE'},{command:'status',description:'Bot & property status'},{command:'datahealth',description:'Data reconciliation health check'},{command:'deep',description:'Ask Cassy with the deeper model'},{command:'ping',description:'Diagnostic: test the model + env vars'}];
 
 Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' }, async(req)=>{
   const url=new URL(req.url);

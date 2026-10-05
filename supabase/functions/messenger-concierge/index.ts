@@ -15,6 +15,7 @@ import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, 
 import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
 import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
+import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOT_REPLY, CANCEL_RE, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
 import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge } from './voice.ts';
@@ -1252,7 +1253,7 @@ async function messengerProfile(set: boolean): Promise<Response> {
  *  body: { psid: "probe:<uuid>", name?: string, now?: iso, turns: Array<string | { text?: string, image?: true, advance_minutes?: number }> } */
 async function runProbe(body: string): Promise<Response> {
   const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
-  let p: { psid?: string; name?: string; now?: string; golden?: boolean; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }>; history?: Array<{ role?: string; text?: string }> };
+  let p: { psid?: string; name?: string; now?: string; golden?: boolean; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }>; history?: Array<{ role?: string; text?: string }>; flow?: unknown };
   try { p = JSON.parse(body); } catch { return json({ ok: false, error: 'bad_json' }, 400); }
   const psid = String(p.psid ?? '');
   if (!/^probe:[A-Za-z0-9-]{8,64}$/.test(psid) || !Array.isArray(p.turns) || !p.turns.length || p.turns.length > 12) return json({ ok: false, error: 'probe_psid_and_1_to_12_turns_required' }, 400);
@@ -1267,7 +1268,10 @@ async function runProbe(body: string): Promise<Response> {
     // D-269: Cassy's reply helper seeds the conversation a host pasted (guest and host lines, oldest first), so the brain
     // answers the newest guest message with the thread behind it - two minutes apart, ending three minutes ago.
     const seed = (p.history ?? []).filter((h) => h?.text && (h.role === 'guest' || h.role === 'bot')).slice(-HISTORY_KEEP * 2);
-    if (seed.length) await db.from('concierge_threads').upsert({ psid, guest_name: p.name ?? null, bot_turns: seed.filter((h) => h.role === 'bot').length, updated_at: now.toISOString(),
+    // SPEC-38 s8: a Cassy reply for a request already submitted seeds the booking flow too (validated; probe path only).
+    const flowSeed = seedFlow(p.flow);
+    if (seed.length || flowSeed) await db.from('concierge_threads').upsert({ psid, guest_name: p.name ?? null, bot_turns: seed.filter((h) => h.role === 'bot').length, updated_at: now.toISOString(),
+      ...(flowSeed ? { booking_flow: { ...flowSeed, booking_id: 'probe', started_at: now.toISOString(), updated_at: now.toISOString() } } : {}),
       history: seed.map((h, i) => ({ role: h.role, text: String(h.text).slice(0, 1500), at: new Date(now.getTime() - (3 + 2 * (seed.length - 1 - i)) * 60_000).toISOString() })) });
     for (const [i, t] of p.turns.entries()) {
       const turn = typeof t === 'string' ? { text: t } : t;
