@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "booking_status_tokens_20261006",
+  "phase": "expand",
+  "source": {
+    "branch": "s72/l8-booking-status",
+    "commit": "f7800c5a27dd8a56406f7602b49a451d2cff683d"
+  },
+  "migrations": [
+    "20261006150000_booking_status_tokens.sql"
+  ],
+  "migration_sha256": {
+    "20261006150000_booking_status_tokens.sql": "0c61fdd030c157a28e8500856e0e8f679bf8ddd2886bb2dd7f93f4e4d150dd6c"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Expand only: one new function public.guest_booking_status_v1(text) (security definer, empty search_path, execute for service_role only) and one index on guest_access_tokens(booking_id). No data change; guest_access_tokens has 0 rows today. restore_point and verified_at (epoch) are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "function_exists_definer_empty_search_path",
+      "query": "select count(*) = 1 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'guest_booking_status_v1'",
+      "expect": true
+    },
+    {
+      "name": "grants_service_role_only_anon_authenticated_and_public_none",
+      "query": "select has_function_privilege('service_role','public.guest_booking_status_v1(text)','execute') and not has_function_privilege('anon','public.guest_booking_status_v1(text)','execute') and not has_function_privilege('authenticated','public.guest_booking_status_v1(text)','execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.guest_booking_status_v1(text)'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "booking_id_index_exists",
+      "query": "select count(*) = 1 from pg_indexes where schemaname = 'public' and tablename = 'guest_access_tokens' and indexname = 'guest_access_tokens_booking_id_idx'",
+      "expect": true
+    },
+    {
+      "name": "unknown_token_hash_returns_null_and_writes_nothing",
+      "query": "select public.guest_booking_status_v1(repeat('0', 64)) is null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261006_booking_status_tokens.sql with run-sql-on-host.sh: it drops the function and the index. Issued tokens stay in guest_access_tokens. Roll back the stay-site (stay.html and the Track your booking link) and the guest-access and submit-booking functions too."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions_then_site",
+      "required_state": "Apply this release BEFORE deploying guest-access (its view=status branch calls the RPC), then submit-booking (mints the token and returns status_url), then publish stay-site. The old guest-access ignores view=status and keeps answering the guide request, so an out-of-order deploy fails safe: the page shows the neutral not-found message."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING - run pgTAP booking_status_tokens (24 tests) and the rollback body on a restored backup before apply.",
+    "evidence": "Production read-only (2026-10-06): booking_inquiries.status holds pending, confirmed, cancelled (no CHECK) and expire_booking_holds_v1 writes expired; service_role has no grant on booking_holds, which is why the hold deadline is read through a definer function; guest_access_tokens has only its pkey and token_hash unique index, RLS on, service_role grants only. Old guest-access and submit-booking callers are unaffected: the function and index are new."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "guest-access is deployed before this release is applied"
+  ]
+}
