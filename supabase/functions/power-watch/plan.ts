@@ -215,48 +215,27 @@ export const posterDate = (url: string): string | null => {
   const m = /SPI-(?:PMS-)?(\d{2})(\d{2})(\d{4})/i.exec(fileOf(url));
   return m ? `${m[3]}-${m[1]}-${m[2]}` : null;
 };
-/** A PMS series key: the filename without its date and upload suffix ('SPI-PMS--LEON-LLIDO-SS'); null for anything that is not a PMS poster. */
-export const seriesKey = (url: string): string | null =>
-  /^SPI-PMS-/i.test(fileOf(url)) ? fileOf(url).replace(/(_\d{8}_\d{6}_\d{4})?\.[a-z]+$/i, '').replace(/\d{8}/, '') : null;
-
 /**
  * What SOCOTECO's current posts say, or null (unknown) when they cannot be trusted this run: no posts or posters, or any poster not
- * decided yet (a read failed, or the per-run read cap was hit). `ours` maps a read-class poster the OCR found to be ours to its date.
- * `listed` = the dates of our posters; `covered(d)` = d lies inside some current post's span of poster dates, so a date outside every
- * post (its post scrolled out of the feed) can never be judged and is never released.
+ * decided yet (a read failed, or the per-run read cap was hit). `ours` maps a poster to the date its read names ('' = read, not ours).
+ * `listed` = EVERY date any current hit- or read-class poster names: its filename date AND its read date. There is no supersede rule on purpose:
+ * a moved poster (filename = moved-FROM date, read = moved-TO date, D-295) keeps its moved-FROM date listed while that poster is in the feed,
+ * and a misread read date never drops the filename date. The old date is freed only through watch.ts cancel(originalDate), the ask card with an
+ * Unblock tap; one tap is cheaper than a false release that sells a night with a brownout.
+ * `covered(d)` = d lies inside some current post's span of poster dates, so a date outside every post (its post scrolled out of the feed)
+ * can never be judged and is never released.
  */
 export function scheduleFrom(posts: Post[], ours: Record<string, string>, decided: (url: string) => boolean): Schedule {
   const all = posts.flatMap((p) => p.posters);
   if (!all.length || all.some((u) => !decided(u))) return null;
-  // Supersede (PMS only): a newer post carrying the same series key takes over an older poster, so 22013's Leon Llido Oct 15 replaces 21945's Oct 8.
-  // Compared on EFFECTIVE dates, eff(u) = the date the read says (ours[u]) else the filename date, because a moved poster's filename is the moved-FROM
-  // date (D-295). Only when both are known and within 14 days of each other: next month's poster (Nov) must not drop an Oct 15 that is still ahead.
-  // A superseded poster drops only the dates that lie within 14 days of the superseding poster's effective date; any other date it lists stays held.
-  // A missing date never supersedes (the block is held); a passed date is not special-cased (staleNotices only judges dates from today on anyway).
-  // ponytail: supersede only for PMS series (one per substation per cycle); feeder posters (F14-3) can legitimately repeat on two dates in two posts.
-  const days = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
-  const eff = (u: string) => ours[u] ?? posterDate(u);
-  /** The effective dates of newer same-series posters that take this poster over. */
-  const takenOverBy = (u: string, p: Post): string[] => {
-    const k = seriesKey(u), old = eff(u);
-    if (!k || !old) return [];
-    return posts.filter((q) => q.id > p.id).flatMap((q) => q.posters.filter((v) => seriesKey(v) === k).map(eff))
-      .filter((d): d is string => !!d && days(d, old) <= 14);
-  };
   const listed = new Set<string>();
   const spans: Array<[string, string]> = [];
   for (const p of posts) {
     const dates: string[] = [];
     for (const u of p.posters) {
-      const c = classifyFile(u), file = posterDate(u), read = ours[u]; // the filename can carry the moved-FROM date (D-295); the read says what is in force
-      const over = takenOverBy(u, p), counts = (d: string) => !over.some((n) => days(n, d) <= 14);
-      // A hit poster lists BOTH the date its read names (a moved poster: the moved-TO date) and its filename date, so one paid OCR read
-      // never frees a night by itself. A real move reaches watch.ts cancel(originalDate), which asks (cancelAskedAt) and staleNotices skips;
-      // a misread leaves the filename date held. A read-class poster lists its read only (no read recorded: its filename date, unread = unknown).
-      // ponytail: a moved-FROM date stays listed until the post leaves the feed; the cancel card, not auto-release, frees it.
-      const own = c === 'hit' ? [read, file] : c === 'read' ? [read ?? file] : [file];
-      for (const d of own) if (d) dates.push(d);
-      for (const d of c === 'hit' ? [read, file] : c === 'read' ? [read] : []) if (d && counts(d)) listed.add(d);
+      const named = [posterDate(u), ours[u]].filter((d): d is string => !!d);
+      dates.push(...named); // a poster of another substation or feeder only widens the span
+      if (classifyFile(u) !== 'miss') for (const d of named) listed.add(d);
     }
     if (dates.length) spans.push([dates.reduce((a, b) => (a < b ? a : b)), dates.reduce((a, b) => (a > b ? a : b))]);
   }
@@ -268,12 +247,13 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
  * second in a row, `ask` = the second but a guest now stays on a night we hold (never released without a tap), `hit` = listed.
  * Unknown (null) is never "gone"; only source-socoteco notices are checked; a date outside every post's span is skipped.
  * `unknown` = a held notice this run could not judge (no schedule, or its date outside every span): watch.ts resets its missRuns, so release needs two CONSECUTIVE clean misses (SPEC-41 3.2).
+ * `protectedDates` = dates that also have an active notice from another source (staff, ngcp, a hand entry): never released by a scrape.
  * Grace: two consecutive clean scrapes for every socoteco notice, poster or hand-entered (15 to 30 minutes at the 15-minute cadence).
  * // ponytail: one grace for all; per-source grace only if a real poster flickers longer.
  */
-export function staleNotices(states: NoticeState[], sched: Schedule, rows: Row[], today: string): { miss: string[]; hit: string[]; release: string[]; ask: string[]; unknown: string[] } {
+export function staleNotices(states: NoticeState[], sched: Schedule, rows: Row[], today: string, protectedDates: ReadonlySet<string> = new Set()): { miss: string[]; hit: string[]; release: string[]; ask: string[]; unknown: string[] } {
   const out = { miss: [] as string[], hit: [] as string[], release: [] as string[], ask: [] as string[], unknown: [] as string[] };
-  const eligible = (st: NoticeState) => holds(st) && st.date >= today && (st.source ?? 'socoteco') === 'socoteco' && !!st.blocked.length && !st.cancelAskedAt;
+  const eligible = (st: NoticeState) => holds(st) && st.date >= today && (st.source ?? 'socoteco') === 'socoteco' && !!st.blocked.length && !st.cancelAskedAt && !protectedDates.has(st.date);
   if (!sched) { for (const st of states) if (eligible(st)) out.unknown.push(st.date); return out; }
   for (const st of states) {
     if (!eligible(st)) continue;

@@ -145,7 +145,9 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
 
   // SPEC-41 Part 3 (D-299.1): a brownout block stays only while SOCOTECO's current schedule still lists the outage. Runs before the cards
   // go out, so a guest-night question (the cancel card) is asked in this run. Unknown or a failed scrape never reaches here as "gone".
-  const stale = staleNotices([...states.values()], d.schedule ?? null, rows, today);
+  // A date that also carries an active staff / NGCP / hand-entered notice is never released by a scrape, whatever the SOCOTECO state says.
+  const protectedDates = new Set(noticeRows.filter((r) => srcOf(r) !== 'socoteco').map((r) => r.effective_date));
+  const stale = staleNotices([...states.values()], d.schedule ?? null, rows, today, protectedDates);
   for (const date of [...stale.hit, ...stale.unknown]) { // a listed or an unjudgeable run breaks the streak: release needs two CONSECUTIVE clean misses
     if ((states.get(date)?.missRuns ?? 0) > 0) { const n = await patchNoticeState(db, date, { missRuns: 0 }); if (n) states.set(date, n); }
   }

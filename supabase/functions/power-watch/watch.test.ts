@@ -201,31 +201,31 @@ const hand = (date: string, o: Record<string, unknown> = {}) => ({
 const at = (i: number) => `2026-10-02T01:${15 * (i + 1)}:00Z`;
 const sched = (listed: string[], from = '2026-10-01', to = '2026-10-31'): Schedule => ({ listed: new Set(listed), covered: (d) => d >= from && d <= to });
 
-Deno.test('SPEC-41 3.5-1: the moved series. Oct 8 is a miss, then released on the second run; Oct 15 is a hit and untouched; one card to OPS and one to Finance', async () => {
+Deno.test('SPEC-41 3.5-1: the moved series. Oct 12 is a miss, then released on the second run; Oct 15 is a hit and untouched; one card to OPS and one to Finance', async () => {
   const sc = MOVED()!;
-  assertEquals([...sc.listed], ['2026-10-15'], 'Leon Llido Oct 8 is superseded by the newer post');
-  assertEquals([sc.covered('2026-10-08'), sc.covered('2026-10-15'), sc.covered('2026-11-20')], [true, true, false]);
-  const w = world({ ops_notices: [hand('2026-10-08')] });
+  assertEquals([...sc.listed].sort(), ['2026-10-08', '2026-10-15'], 'no supersede: the older post is still in the feed, so Oct 8 stays listed');
+  assertEquals([sc.covered('2026-10-12'), sc.covered('2026-10-15'), sc.covered('2026-11-20')], [true, true, false]);
+  const w = world({ ops_notices: [hand('2026-10-12')] });
   await w.run([found('2026-10-15', '06:00:00', 11, 22013, { url: P + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg' })]); // adopts Oct 8, announces Oct 15
-  assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15']);
+  assertEquals(live(w.db), ['2026-10-11', '2026-10-12', '2026-10-14', '2026-10-15']);
   const cards = w.sent.length;
-  assertEquals(await w.run([], '2026-10-02T01:15:00Z', sc), ['2026-10-08: not on the SOCOTECO schedule (clean scrape 1 of 2)']);
-  assertEquals((await readNotice(w.db, '2026-10-08'))!.missRuns, 1);
-  assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15'], 'nothing released on the first miss');
-  assertEquals(await w.run([], '2026-10-02T01:30:00Z', sc), ['2026-10-08: released (not on SOCOTECO schedule)']);
+  assertEquals(await w.run([], '2026-10-02T01:15:00Z', sc), ['2026-10-12: not on the SOCOTECO schedule (clean scrape 1 of 2)']);
+  assertEquals((await readNotice(w.db, '2026-10-12'))!.missRuns, 1);
+  assertEquals(live(w.db), ['2026-10-11', '2026-10-12', '2026-10-14', '2026-10-15'], 'nothing released on the first miss');
+  assertEquals(await w.run([], '2026-10-02T01:30:00Z', sc), ['2026-10-12: released (not on SOCOTECO schedule)']);
   assertEquals(live(w.db), ['2026-10-14', '2026-10-15']);
-  const st = (await readNotice(w.db, '2026-10-08'))!;
+  const st = (await readNotice(w.db, '2026-10-12'))!;
   assertEquals([st.status, st.releasedBy, st.blocked], ['released', 'auto: not on SOCOTECO schedule', []]);
-  assertEquals(w.db.tables.ops_notices.find((r) => r.effective_date === '2026-10-08')!.is_active, false);
+  assertEquals(w.db.tables.ops_notices.find((r) => r.effective_date === '2026-10-12')!.is_active, false);
   assertEquals(w.db.tables.ops_notices.find((r) => r.effective_date === '2026-10-15')!.is_active, true);
   assertEquals((await readNotice(w.db, '2026-10-15'))!.status, 'active', 'Oct 15 is a hit');
   assertEquals([w.sent.length - cards, w.fin.length], [1, 1], 'one card to OPS and one to Finance');
   assertEquals(w.sent[w.sent.length - 1], w.fin[0]);
   const t = w.fin[0].text;
-  assertStringIncludes(t, 'The nights of Oct 7 and Oct 8 are open again on our booking site. SOCOTECO no longer lists the Thu 8 Oct power interruption for Feeder 14-3 on its current schedule.');
+  assertStringIncludes(t, 'The nights of Oct 11 and Oct 12 are open again on our booking site. SOCOTECO no longer lists the Mon 12 Oct power interruption for Feeder 14-3 on its current schedule.');
   assertStringIncludes(t, 'Marifel: if Airbnb is still blocked for those nights, unblock them there.');
   assertStringIncludes(t, 'If SOCOTECO told you directly that it is still on, tap Keep it blocked.');
-  assertEquals(w.fin[0].markup?.inline_keyboard, [[{ text: '🔒 Keep it blocked', callback_data: 'pw:keep:2026-10-08' }]]);
+  assertEquals(w.fin[0].markup?.inline_keyboard, [[{ text: '🔒 Keep it blocked', callback_data: 'pw:keep:2026-10-12' }]]);
   assertEquals(await w.run([], '2026-10-02T01:45:00Z', sc), [], 'a released notice is not chased again');
 });
 

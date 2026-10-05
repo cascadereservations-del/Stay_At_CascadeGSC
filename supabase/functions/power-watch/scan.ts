@@ -15,6 +15,7 @@ export async function scanPosts(
   posts: Array<{ id: number; content?: { rendered?: string } }>, state: ScanState, today: string, readOne: ReadOne,
   limits: { maxReads: number; budgetMs: number }, warn: (url: string, e: unknown) => void = () => {},
 ): Promise<{ found: Found[]; log: string[]; reads: number; stuck: string[] }> {
+  forgetReads(posts, state);
   const found: Found[] = [], log: string[] = [], stuck: string[] = [];
   const fails = (state.fails ??= {});
   let reads = 0;
@@ -30,7 +31,7 @@ export async function scanPosts(
       try {
         const { notice: n, log: line } = await readOne(url, c);
         log.push(line);
-        if (n) state.ours[url] = n.date; // hit posters too: a moved poster's filename carries the moved-FROM date (D-295)
+        state.ours[url] = n?.date ?? ''; // what the read said, hit posters too (a moved poster's filename carries the moved-FROM date, D-295); '' = read, not ours
         if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
         state.images.push(url);
         delete fails[url];
@@ -47,12 +48,13 @@ export async function scanPosts(
 }
 
 /**
- * First run of this code (power_watch_state has no `ours` key): the hit- and read-class posters of the current posts were decided under the old
- * code, which did not record what each read said, so a moved poster would list only its moved-FROM date. Forget them so they are read again (the
- * read cap still applies; scheduleFrom answers null until every one is back). Nothing is seeded from filename dates.
+ * A hit- or read-class poster of the current posts that is in state.images but has no `ours` entry was decided without its read being recorded
+ * (the code before SPEC-41 did not keep it, so a moved poster would list only its moved-FROM date). It is not decided: forget it so it is read again
+ * (the read cap still applies; scheduleFrom answers null until every one is back). A poster read and found not ours is recorded as ours[url] = '',
+ * so it is not read again every run. Miss-class posters (another substation or feeder) need no read.
  */
 export function forgetReads(posts: Array<{ content?: { rendered?: string } }>, state: ScanState): void {
-  const again = new Set(posts.flatMap((p) => posterUrls(p.content?.rendered ?? '')).filter((u) => classifyFile(u) !== 'miss'));
+  const again = new Set(posts.flatMap((p) => posterUrls(p.content?.rendered ?? '')).filter((u) => classifyFile(u) !== 'miss' && !(u in state.ours)));
   state.images = state.images.filter((u) => !again.has(u));
 }
 

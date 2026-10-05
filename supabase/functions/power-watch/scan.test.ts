@@ -70,7 +70,7 @@ Deno.test('audit L5a: a poster that fails 8 runs in a row is reported once per r
   assertEquals(st2.fails![P + f], 3);
 });
 
-Deno.test('audit L5a: a state with no `ours` (first run of this code) forgets the hit and read posters so they are read again; the schedule is null until all are back', async () => {
+Deno.test('audit L5a: a state with no `ours` forgets the hit and read posters so they are read again; the schedule is null until all are back', async () => {
   const hit = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', read = 'SPI-10042026-BATULAKI-GLAN.jpg', miss = 'SPI-PMS-10102026-DAMALERIO-SS.jpg';
   const posts = [post(7, hit, read, miss)];
   const st: ScanState = { done: [7], images: [P + hit, P + read, P + miss], ours: {} }; // index.ts passes an empty ours when the stored state has none
@@ -85,4 +85,23 @@ Deno.test('audit L5a: a state with no `ours` (first run of this code) forgets th
   await scanPosts(posts, st, '2026-10-02', one, LIMITS);
   const s = sched(posts, st)!;
   assert(s.listed.has('2026-10-15'), 'the moved-TO date comes from the read');
+});
+
+Deno.test('audit L5a (C): on ANY run a hit or read poster in images with no ours entry is forgotten and re-read; a poster read and found not ours is recorded and not read again', async () => {
+  const hit = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', area = 'SPI-10042026-BATULAKI-GLAN.jpg', other = 'SPI-10152026-BRIA-HOMES.jpg';
+  const posts = [post(7, hit, area, other)];
+  // not a first run: ours exists, but the hit poster was decided by the old code (no entry), the area poster was read and recorded
+  const st: ScanState = { done: [7], images: [P + hit, P + area, P + other], ours: { [P + area]: '', [P + other]: '2026-10-16' } };
+  assertEquals(sched(posts, st)!.listed.has('2026-10-08'), true, 'before the pass the hit poster looks decided');
+  const tried: string[] = [];
+  const one = (url: string) => { tried.push(url); return Promise.resolve({ notice: url.includes('LEON') ? notice('2026-10-15', url, { originalDate: '2026-10-08' }) : null, log: url }); };
+  const r = await scanPosts(posts, st, '2026-10-02', one, { maxReads: 0, budgetMs: 90_000 });
+  assertEquals([r.reads, st.images.includes(P + hit)], [0, false], 'forgotten, and not read this run because of the cap');
+  assertEquals(sched(posts, st), null, 'the schedule is null until it is read');
+  await scanPosts(posts, st, '2026-10-02', one, LIMITS);
+  assertEquals(tried, [P + hit], 'only the poster with no ours entry is read; the recorded ones are not');
+  assertEquals(st.ours[P + hit], '2026-10-15');
+  assertEquals([...sched(posts, st)!.listed].sort(), ['2026-10-04', '2026-10-08', '2026-10-15', '2026-10-16']);
+  await scanPosts(posts, st, '2026-10-02', one, LIMITS);
+  assertEquals(tried.length, 1, 'nothing is read again once every entry is recorded');
 });
