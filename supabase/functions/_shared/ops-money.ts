@@ -9,7 +9,7 @@ const NUM = String.raw`\d{1,3}(?:[ ,]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
 const TAG = String.raw`(?:isa|dalawa|tatlo|apat|lima|anim|pito|walo|siyam|sampu)(?:ng|\sna)?(?:\s?ng)?`; // isang, dalawang, apat na ... libo / daan
 const BIS = String.raw`(?:usa|duha|tulo|upat|lima|unom|pito|walo|siyam|napulo)\s+ka`; // Bisaya: usa ka libo, pito ka gatos
 const SPN = 'uno|dos|tres|kwatro|kuwatro|kuatro|singko|sinko|sais|siyete|syete|otso|nuwebe|nuebe|diyes|dyes|onse|dose|trese|katorse|kinse|beinte|bente|trenta|traynta|kwarenta|singkwenta|singkuwenta|sisenta|setenta|otsenta|nobenta';
-const BIG = String.raw`mil|milyon|million|(?:dos|tres|kwatro|kuwatro|kuatro|singko|sais|siyete|syete|otso|nuwebe|nuebe)?\s*(?:si?y?entos?|cientos?)|[kq]u?ini?y?entos`; // mil, siyentos, doscientos, quinientos
+const BIG = String.raw`mil|milyon|million|(?:dos|tres|kwatro|kuwatro|kuatro|singko|sais|siyete|syete|otso|nuwebe|nuebe)?\s*(?:si?y?entos?|cientos?)|[a-z]*cientos|[kq]u?ini?y?entos`; // mil, siyentos, doscientos, quinientos
 const SPANISH = String.raw`\b(?:(?:${SPN})[\s-]+)*(?:${BIG})(?:[\s-]+(?:${SPN}|${BIG}))*\b`; // the whole phrase: beinte mil, mil kwatro syentos, dos syentos singkuwenta
 const ONES = 'one|two|three|four|five|six|seven|eight|nine', TENS = 'twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety';
 const ENG = String.raw`(?:a|${ONES}|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|(?:${TENS})(?:[- ](?:${ONES}))?)`; // English: one thousand, seventy hundred
@@ -34,7 +34,7 @@ const KEEP1 = [/\b(?:https?:\/\/|www\.)[^\s<>"')]+/gi, /[\w.+-]+@[\w-]+(?:\.[\w-
 // ids with no 3-digit run, an Airbnb HM code (HMA1234567) or a direct-booking ref (8 hex, no 3-letter run: 4F123A9C); anything else mixing letters and 3+ digits
 // (Maria1780, MARIA1780, ANA1780PHP, 1780balance) goes to the number rules
 const DAY = String.raw`(?:0?[1-9]|[12]\d|3[01])(?:st|nd|rd|th)?`, YR = String.raw`20[2-3]\d`;
-const DATE_MW = String.raw`totals?|rates?|fees?|prices?|balance|deposits?|paid|pay\w*|due|payments?|cash|gcash|dp|downpayment|bayad|collected|received|owed?|utang|kulang|bal|cost|amount|sales|per|a\s+night|nyt|gabi|refunds?|revenue|sent|transfer\w*|kita|natanggap|payouts?|income|earn\w*|benta`
+const DATE_MW = String.raw`totals?|rates?|fees?|prices?|balance|deposits?|paid|pay\w*|due|payments?|cash|gcash|dp|downpayment|bayad|collected|received|owed?|utang|kulang|bal|cost|amount|sales|per|a\s+night|nyt|gabi|refunds?|revenue|sent|transfer\w*|kita|natanggap|payouts?|income|earn\w*|benta|remit\w*|settled|nagpadala|padala|binayaran|deposited|charged|billed|collect|owes|profit|net|sukli|singil|presyo|halaga|remaining`
   .replace(/(?<!\\)[a-z]/g, (c) => `[${c}${c.toUpperCase()}]`); // any case, so the capital-only May rule still reads "Paid"
 const DATE_PRE = String.raw`(?<!\b(?:${DATE_MW})\b(?:[^\w\n]+\w+){0,3}?[^\w\n]+)`; // "Paid Oct 2030", "Received Oct 15, 2030" are amounts
 const DATE_END = String.raw`\b(?![,.]\d)(?!(?:[^\w\n]+\w+){0,3}?[^\w\n]+(?:${DATE_MW})\b)`;
@@ -44,7 +44,7 @@ const dates = (mon: string, flags: string) => [new RegExp(String.raw`${DATE_PRE}
 const KEEP2 = [/\b\d{4}-\d{2}-\d{2}\b/g, /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g,
   ...dates('(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)', 'gi'), ...dates('May', 'g'),
   /\b\d{1,2}:\d{2}(?!\d)(?::\d{2})?(?:\s?[ap]\.?m\b\.?)?/gi, /\b(?:1[0-2]|0?[1-9])\s?[ap]\.?m\b/gi, /\b\d{1,2}-[a-z]+\b/gi, /\b(?:[A-Z]-\d{1,3}|[A-Z]{2,8}-\d{1,2})\b/g,
-  /\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])(?:(?![A-Za-z0-9]*\d{3})[A-Za-z0-9]{3,}|HM(?![A-Z0-9]*(?:PHP|TOTAL|BAL|RATE|PRICE|FEE|PAY|PAID|DP|NIGHT|ONLY|LANG|LAMANG|GCASH|CASH|DEPOSIT|PER|KADA|GABI|NYT|EACH|EXTRA|DUE|BAYAD|UTANG|KULANG|SINGIL))[A-Z0-9]{8}|(?![A-F0-9]*[A-F]{3})[A-F0-9]{8})\b/g];
+  /\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])(?:(?![A-Za-z0-9]*\d{3})[A-Za-z0-9]{3,}|HM(?![A-Z0-9]*(?:PHP|TOTAL|BAL|RATE|PRICE|FEE|PAY|PAID|DP|NIGHT|ONLY|LANG|LAMANG|GCASH|CASH|DEPOSIT|PER|KADA|GABI|NYT|EACH|EXTRA|DUE|BAYAD|UTANG|KULANG|SINGIL|SALES|KITA|BENTA|COST|SENT))[A-Z0-9]{8}|(?![A-F0-9]*[A-F]{3})[A-F0-9]{8})\b/g];
 const GAP = String.raw`(?:[^\w\n]+\w+){0,3}?[^\w\n]+`;
 const PCT_WORD = String.raw`\b(?:refund|occupancy|discount|deposit|payout|revenue|rate)\w*`; // a percent beside these is money; any other percent is a measure
 const PCT = String.raw`\d{1,3}(?:\.\d+)?\s?(?:%|percent\b|pct\b)`;
@@ -67,12 +67,14 @@ const WATT = /^ ?(?:kWh|Wh|kW|W)(?![A-Za-z/])(?!\s+(?!(?:in|at|of|and|or|when|on
 const DEVICE = /\b(?:ecoflow|power\s*station|inverter|batter(?:y|ies)|generator|solar|aircon|fridge|refrigerator|heater|kettle|microwave|charger|appliance|capacity|rated|output|max)[^\w\n]*$/i;
 const COUNT = /^\s?(?:rolls|towels|sheets|hangers|pillows|pillowcases|blankets|bottles|packs|sachets|pcs?|pieces|bars|cans|boxes|kits|sets)\b/i; // 120 rolls (1-3 digits)
 const PEOPLE = /^\s?(?:guests|pax|persons|people)\b/i; // a head count, never 3+ digits
-const MONEY_BEFORE = /\b(?:rates?|totals?|price|paid|pay\w*|fees?|costs?|amount|balance|deposits?|bayad|refunds?|payouts?|revenue|nightly|dp|downpayment|gcash|cash|collected|received|owed?|utang|bal)\b[^\w\n]*(?:\w+[^\w\n]+)?$/i; // "rate 1780 pax", "DP ref 1780"
+const MONEY_W = String.raw`rates?|totals?|price|paid|pay\w*|fees?|costs?|amount|balance|deposits?|bayad|refunds?|payouts?|revenue|nightly|dp|downpayment|gcash|cash|collected|received|owed?|utang|bal`;
+const MONEY_BEFORE = new RegExp(String.raw`\b(?:${MONEY_W})\b[^\w\n]*(?:\w+[^\w\n]+)?$`, 'i'); // "rate 1780 pax", "DP ref 1780"
+const MONEY_NEAR = new RegExp(String.raw`\b(?:${MONEY_W})\b[^\w\n]*(?:\w+[^\w\n]+){0,4}$`, 'i'); // units: a whole date + 1 word back ("Received Oct 15, 2026 950 pcs")
 const keepNumber = (num: string, pre: string, post: string) => {
   const d = num.replace(/\D/g, '').length, paid = ID_PAY.test(pre) || MONEY_BEFORE.test(pre), money = ID_MONEY.test(post) || paid;
   return (!money && (ID_ANY.test(pre) || (d >= 6 && ID_REF.test(pre)))) || (d <= 3 && !paid && !ID_MONEY_SMALL.test(post) && ID_SMALL.test(pre))
     || (/^(?:911|117|143|160|166)$/.test(num) && !money && HOT_CUE.test(pre)) || (d === 4 && !money && POST_CUE.test(pre))
-    || (!paid && ((WATT.test(post) && (d <= 3 || DEVICE.test(pre))) || (d <= 3 && (MEASURE.test(post) || COUNT.test(post) || (d <= 2 && PEOPLE.test(post))))));
+    || (!paid && !MONEY_NEAR.test(pre) && ((WATT.test(post) && (d <= 3 || DEVICE.test(pre))) || (d <= 3 && (MEASURE.test(post) || COUNT.test(post) || (d <= 2 && PEOPLE.test(post))))));
 };
 
 export function maskMoney(text: string): string {

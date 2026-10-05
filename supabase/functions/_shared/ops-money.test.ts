@@ -174,6 +174,10 @@ const LEAKS9: [string, string][] = [
   ['EcoFlow Maria 1780 W', '1780'], ['Solar Maria 1780 W', '1780'], ['battery Maria 3560 Wh', '3560'], ['Maria 1780 W, charge the EcoFlow', '1780'], ['EcoFlow rated 1780 W, Maria 3560 W', '3560'], ['EcoFlow 1780 W 2 nights', '1780'],
   ['sang libo', 'libo'], ['quinientos', 'quinientos'], ['doscientos', 'doscientos'], ['dos cientos', 'cientos'], ['1 milyon', 'milyon'], ['nuebe mil', 'nuebe'], ['beinte mil', 'beinte'], ['dos syentos singkuwenta', 'singkuwenta'],
   ['mil quinientos', 'quinientos'], ['2M', '2M'], ['1.5M this year', '1.5'], ['1 million', 'million'], ['isang milyon', 'milyon'],
+  // the round-9b Opus audit: money, a date WITH a year, then a unit (round 8 masked these); and cheap residuals
+  ['Received Oct 15, 2026 950 pcs', '950'], ['Balance Oct 2026 950 pcs', '950'], ['Cash 15 Oct 2026 300 W', '300'], ['Rate Oct 15, 2026 at 120 rolls', '120'], ['Utang Oct 2026 120 towels', '120'],
+  ['HMSALES780', '780'], ['HMKITA1780', '1780'], ['HMBENTA780', '780'], ['HMCOST1780', '1780'], ['HMSENT1780', '1780'], ['novecientos', 'novecientos'], ['setecientos', 'setecientos'], ['ochocientos', 'ochocientos'],
+  ['Remitted Oct 2030', '2030'], ['Nagpadala Oct 2030', '2030'], ['Binayaran Oct 15, 2030', '2030'], ['Profit Oct 2030', '2030'], ['Sukli Oct 2030', '2030'], ['Remaining Oct 2030', '2030'],
 ];
 Deno.test('D-306 round 9: the round-9 audit leaks all mask', () => {
   for (const [t, leak] of LEAKS9) { const m = maskMoney(t); assert(hasMoney(t), `hasMoney ${t}`); assert(!m.includes(leak), `${t} -> ${m}`); }
