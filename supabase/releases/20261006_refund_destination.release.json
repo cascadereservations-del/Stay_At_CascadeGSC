@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "refund_destination_20261006",
+  "phase": "expand",
+  "source": {
+    "branch": "s72/l3-refund",
+    "commit": "3c6b5d7508e61c3c152a70b8a5844bb5a2a64ebf"
+  },
+  "migrations": [
+    "20261006100000_refund_destination.sql"
+  ],
+  "migration_sha256": {
+    "20261006100000_refund_destination.sql": "6a77461cc7b9973ef3d3e4fc1b10f521b6f387ea8439881c4572524bba773a25"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Expand only: two nullable text columns on public.booking_inquiries (paid_from_name, paid_from_channel) and two length checks that every existing row satisfies (all null). No data change, no grant change. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "payer_columns_exist_text_nullable_no_default",
+      "query": "select count(*) = 2 and bool_and(data_type = 'text' and is_nullable = 'YES' and column_default is null) from information_schema.columns where table_schema = 'public' and table_name = 'booking_inquiries' and column_name in ('paid_from_name','paid_from_channel')",
+      "expect": true
+    },
+    {
+      "name": "length_checks_present_and_validated",
+      "query": "select count(*) = 2 and bool_and(convalidated) from pg_constraint where conrelid = 'public.booking_inquiries'::regclass and conname in ('booking_inquiries_paid_from_name_len_check','booking_inquiries_paid_from_channel_len_check')",
+      "expect": true
+    },
+    {
+      "name": "no_existing_booking_has_a_payer_yet",
+      "query": "select count(*) = 0 from public.booking_inquiries where paid_from_name is not null or paid_from_channel is not null",
+      "expect": true
+    },
+    {
+      "name": "refund_confirm_kind_already_allowed",
+      "query": "select pg_get_constraintdef(oid) like '%refund_confirm%' from pg_constraint where conname = 'telegram_pending_kind_check'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Roll telegram-expense and upload-booking-receipt back first (the new code selects and writes the columns), then apply supabase/rollbacks/20261006_refund_destination.sql with run-sql-on-host.sh: it drops the two checks and the two columns. Take a backup first; dropping the columns loses the stored payer names."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply this release BEFORE deploying telegram-expense and upload-booking-receipt: /refund on a DIR code selects paid_from_name and paid_from_channel, and the receipt upload writes them. A function deployed first would fail the direct-booking lookup (refund cards for DIR codes say nothing was prepared) and log a payer-not-stored error on each receipt."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "NOT RUN YET (session 72 lane L3): the orchestrator rehearses on a restored backup and runs pgTAP refund_destination 14/14 before apply.",
+    "evidence": "Production read-only (2026-10-06): booking_inquiries has 18 columns and no payer column; telegram_pending_kind_check already lists refund_confirm (release 20261005100000). Old writers never set the new columns; they are nullable with no default."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "telegram-expense or upload-booking-receipt is deployed before this release is applied"
+  ]
+}
