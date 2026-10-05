@@ -3,7 +3,7 @@
 -- suite is inside begin/rollback. Fixtures insert as the owner (service_role has no BYPASSRLS); the roles are impersonated with
 -- request.jwt.claims as staff_decide_direct_booking.sql does.
 begin;
-select plan(29);
+select plan(36);
 
 select ok((select bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -14,7 +14,9 @@ select ok(not has_function_privilege('anon', 'public.staff_home_v1(uuid)', 'exec
 select ok(has_function_privilege('authenticated', 'public.staff_home_v1(uuid)', 'execute'), 'authenticated can call staff_home_v1');
 select ok(not has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute')
       and not has_function_privilege('authenticated', 'public.staff_current_next_stays_v1(uuid)', 'execute')
-      and not has_function_privilege('authenticated', 'public.staff_primary_id_path_v1(uuid)', 'execute'),
+      and not has_function_privilege('authenticated', 'public.staff_primary_id_path_v1(uuid)', 'execute')
+      and not has_function_privilege('authenticated', 'public.staff_redact_v1(text)', 'execute')
+      and not has_function_privilege('authenticated', 'public.staff_hide_money_v1(text)', 'execute'),
   'the internal helpers are not callable by a staff session');
 select ok(not has_function_privilege('anon', 'public.staff_can_view_guest_id_object_v1(text)', 'execute')
       and has_function_privilege('authenticated', 'public.staff_can_view_guest_id_object_v1(text)', 'execute'),
@@ -31,10 +33,10 @@ insert into public.staff_property_access(user_id, property_id) values
   ('e3600000-0000-4000-8000-000000000003', 'e3600000-0000-4000-8000-0000000000b0');
 
 -- G1 is the guest in the house (returning: one earlier stay), G2 arrives next (first stay), G3 is neither.
-insert into public.guests(id, property_id, name) values
-  ('e3600000-0000-4000-8000-0000000000c1', 'e3600000-0000-4000-8000-0000000000b0', 'Zz L3 Current'),
-  ('e3600000-0000-4000-8000-0000000000c2', 'e3600000-0000-4000-8000-0000000000b0', 'Zz L3 Next'),
-  ('e3600000-0000-4000-8000-0000000000c3', 'e3600000-0000-4000-8000-0000000000b0', 'Zz L3 Other');
+insert into public.guests(id, property_id, name, notes) values
+  ('e3600000-0000-4000-8000-0000000000c1', 'e3600000-0000-4000-8000-0000000000b0', 'Zz L3 Current', 'ring 09171234567 or write a.b@c.org'),
+  ('e3600000-0000-4000-8000-0000000000c2', 'e3600000-0000-4000-8000-0000000000b0', 'Zz L3 Next', null),
+  ('e3600000-0000-4000-8000-0000000000c3', 'e3600000-0000-4000-8000-0000000000b0', 'Zz L3 Other', null);
 insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_id, guest_name, checkin_date, checkout_date) values
   ('e3600000-0000-4000-8000-0000000000d1', 'e3600000-0000-4000-8000-0000000000b0', 'ZZL3OLD', 'completed', 'e3600000-0000-4000-8000-0000000000c1', 'Zz L3 Current', current_date - 60, current_date - 57),
   ('e3600000-0000-4000-8000-0000000000d2', 'e3600000-0000-4000-8000-0000000000b0', 'ZZL3CUR', 'confirmed', 'e3600000-0000-4000-8000-0000000000c1', 'Zz L3 Current', current_date - 1, current_date + 2),
@@ -44,8 +46,11 @@ insert into public.calendar_events(property_id, uid, source, status, guest_name,
   ('e3600000-0000-4000-8000-0000000000b0', 'zz-l3-nxt', 'airbnb', 'confirmed', 'Zz L3 Next', null, current_date + 3, current_date + 5, null),
   ('e3600000-0000-4000-8000-0000000000b0', 'zz-l3-blk', 'airbnb', 'blocked', 'Owner note', null, current_date + 8, current_date + 10, null),
   ('e3600000-0000-4000-8000-0000000000b0', 'zz-l3-can', 'airbnb', 'cancelled', 'Gone Guest', null, current_date + 12, current_date + 13, null);
-insert into public.guest_profile_details(guest_id, property_id, stay_preferences) values
-  ('e3600000-0000-4000-8000-0000000000c1', 'e3600000-0000-4000-8000-0000000000b0', '2026-08-01: Likes extra towels | Was given a refund of PHP 500 last time');
+-- Free text with money and contact shapes on purpose (D-289): the bare and P-shorthand amounts, three PH mobile spellings, an e-mail.
+insert into public.guest_profile_details(guest_id, property_id, stay_preferences, vip_reason) values
+  ('e3600000-0000-4000-8000-0000000000c1', 'e3600000-0000-4000-8000-0000000000b0',
+   '2026-08-01: Likes extra towels | Was given a refund of PHP 500 last time | paid P500 then P 1,000 then P1,000.00 | reach 0917 123 4567 or +63 917-123-4567 or x@y.com',
+   'cousin of the owner, 0918-555-1234');
 -- Companions and ID photos: G1 has its own row (named like the guest) and a second companion; G2 and G3 have one each.
 insert into public.guest_companions(id, guest_id, property_id, name, id_photo_path) values
   ('e3600000-0000-4000-8000-0000000000e1', 'e3600000-0000-4000-8000-0000000000c1', 'e3600000-0000-4000-8000-0000000000b0', 'Zz L3 Current', 'e3600000-0000-4000-8000-0000000000e1/11111111-0000-4000-8000-000000000001.jpg'),
@@ -64,6 +69,16 @@ insert into public.inventory_items(property_id, name, category, qty_on_hand, reo
 insert into public.verifier_findings(key, check_id, severity, title, status) values
   ('zz-l3-v6', 'V6', 'yellow', 'zz-l3 ops finding', 'open'), ('zz-l3-v1', 'V1', 'red', 'zz-l3 finance finding', 'open');
 
+-- The redactors and the unresolved-guest card, called as the owner (the helpers are not granted to a staff session).
+select is(public.staff_hide_money_v1('paid P500, P 1,000 and P1,000.00 ok'), 'paid [hidden], [hidden] and [hidden] ok',
+  'the money filter hides PH shorthand P500, P 1,000 and P1,000.00');
+select is(public.staff_redact_v1('call 0917 123 4567 ok'), 'call [hidden] ok', 'a 09 mobile with spaces is hidden');
+select is(public.staff_redact_v1('or +63 917-123-4567.'), 'or [hidden].', 'a +63 mobile with dashes is hidden');
+select is(public.staff_redact_v1('mail x@y.com now'), 'mail [hidden] now', 'an e-mail address is hidden');
+select is(public.staff_redact_v1('Check-in 2026-08-01, room 12, 2 pax'), 'Check-in 2026-08-01, room 12, 2 pax', 'dates and small numbers are left alone');
+select is(public.staff_guest_card_v1('e3600000-0000-4000-8000-0000000000b0', null, current_date)->'earlier_stays', 'null'::jsonb,
+  'earlier_stays is null, not [], when the guest is unresolved');
+
 -- The cleaner.
 select set_config('request.jwt.claims', json_build_object('sub','e3600000-0000-4000-8000-000000000001','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select set_config('role', 'authenticated', true);
@@ -80,8 +95,11 @@ select ok(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'current
       and public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'current_guest'->>'notes' like '%[hidden]%'
       and public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'current_guest'->>'notes' not like '%PHP%',
   'notes from earlier stays reach staff with the amount replaced');
-select ok(not (public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')::text ~* '(amount|deposit|total|phone|email|\+639)'),
-  'no money, no phone, no e-mail anywhere in the payload (the phone is seeded on the current guest on purpose)');
+-- uid, property_id and id_photo_path are identifiers, not free text (an Airbnb uid is shaped like an e-mail address), so they are cut out first.
+select ok(not (regexp_replace(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')::text, '"(uid|property_id|id_photo_path)": "[^"]*"', '', 'g') ~* '(amount|deposit|total|phone|email|\+639|[0-9]{10}|(\+?63|0)9([ .-]*[0-9]){9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}|\mP\s*[0-9]|php|pesos|piso)'),
+  'no money, no phone shape, no e-mail shape anywhere in the payload (a phone column, notes, vip_reason and guests.notes are seeded on the current guest on purpose)');
+select ok(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'current_guest'->>'notes' like '%Likes extra towels%[hidden]%',
+  'the notes keep the harmless text and show [hidden] where a number or address was');
 select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'calendar')), 3,
   'the confirmed, confirmed and blocked rows are sent and the cancelled one is not');
 select is((select x->>'guest_name' from jsonb_array_elements(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'calendar') x where x->>'uid' = 'zz-l3-blk'), null,

@@ -10,5 +10,6 @@ drop function if exists public.staff_primary_id_path_v1(uuid);
 drop function if exists public.staff_current_next_stays_v1(uuid);
 drop function if exists public.staff_stay_guest_id_v1(uuid, text, uuid, date, date);
 drop function if exists public.staff_may_see_guest_id_v1(uuid);
+drop function if exists public.staff_redact_v1(text);
 drop function if exists public.staff_hide_money_v1(text);
 commit;

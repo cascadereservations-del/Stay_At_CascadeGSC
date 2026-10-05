@@ -7,7 +7,8 @@
 --                        in the house or arrives next, so the app can sign a short-lived URL for it with the user's own JWT. The
 --                        existing manage_operations policies are untouched; cleaners have read_operations only.
 --   internal helpers     staff_stay_guest_id_v1, staff_current_next_stays_v1, staff_primary_id_path_v1, staff_hide_money_v1,
---                        staff_guest_card_v1, staff_may_see_guest_id_v1: security definer, no grant to anon or authenticated.
+--                        staff_guest_card_v1, staff_may_see_guest_id_v1, staff_redact_v1: security definer or immutable, no grant to anon
+--                        or authenticated.
 --                        staff_can_view_guest_id_object_v1 is the one helper the storage policy calls, so authenticated may execute it.
 -- Where "notes from previous stays" live (read-only SQL on production 2026-10-05): guest_profile_details.stay_preferences, one text
 -- column "YYYY-MM-DD: point | point || YYYY-MM-DD: point" (the dashboard's ImportantNotes card parses it), plus guest_profile_details.vip_reason
@@ -19,7 +20,10 @@
 -- Stay count is counted from the stays themselves, not guests.total_stays: earlier stays = distinct (check-in, check-out) of this guest's
 -- non-cancelled Airbnb reservations and confirmed direct bookings that ended on or before this stay's check-in; stay_count = earlier + 1;
 -- returning = earlier >= 1. Unknown guest = null, never 0.
--- Notes are free text a person typed; amounts in them are best-effort replaced by [hidden] (staff_hide_money_v1). Staff never see money.
+-- Notes are free text a person typed; amounts, phone numbers and e-mail addresses in them are best-effort replaced by [hidden]
+-- (staff_redact_v1: contact shapes, then staff_hide_money_v1) BEFORE they leave the function, and the same redaction runs on every other
+-- free-text field sent to staff (guest names, warning titles). Production holds a guest whose stay_preferences has a 09-mobile number
+-- (D-289 audit, 2026-10-05). Staff never see money or contact details.
 -- verifier_findings has no property_id; OPS_CHECKS below mirrors waves system-verifier/cards.ts (today {'V6'}): change both together.
 
 begin;
@@ -27,8 +31,24 @@ begin;
 create or replace function public.staff_hide_money_v1(p text)
 returns text language sql immutable set search_path to '' as $$
   select regexp_replace(
-           regexp_replace(p, '(₱|php\.?|usd|\$)\s*[0-9][0-9,]*(\.[0-9]+)?', '[hidden]', 'gi'),
-           '[0-9][0-9,]*(\.[0-9]+)?\s*(₱|php|pesos|piso)', '[hidden]', 'gi');
+           regexp_replace(
+             regexp_replace(p, '(₱|php\.?|usd|\$)\s*[0-9][0-9,]*(\.[0-9]+)?', '[hidden]', 'gi'),
+             '[0-9][0-9,]*(\.[0-9]+)?\s*(₱|php|pesos|piso)', '[hidden]', 'gi'),
+           '\mP\s*[0-9]+(,[0-9]{3})*(\.[0-9]+)?', '[hidden]', 'g');   -- PH shorthand: P500, P 1,000, P1,000.00 (capital P only)
+$$;
+
+-- Free text sent to staff: e-mail shapes, PH mobiles ((+63|0)9 + nine digits, spaces, dashes or dots allowed), other +country numbers
+-- and any bare run of 10 or more digits are replaced by [hidden], then money (staff_hide_money_v1). Over-redaction is fine, a leak is not.
+create or replace function public.staff_redact_v1(p text)
+returns text language sql immutable set search_path to '' as $$
+  select public.staff_hide_money_v1(
+           regexp_replace(
+             regexp_replace(
+               regexp_replace(
+                 regexp_replace(p, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '[hidden]', 'g'),
+                 '(\+?63|0)9([ .-]*[0-9]){9}', '[hidden]', 'g'),
+               '\+[0-9]([ .-]*[0-9]){8,}', '[hidden]', 'g'),
+             '[0-9]{10,}', '[hidden]', 'g'));
 $$;
 
 -- Roles that may see a guest's ID photo (D-299.9): everyone with read_operations except maintenance.
@@ -98,9 +118,10 @@ returns jsonb language sql stable security definer set search_path to '' as $$
   select jsonb_build_object(
     'repeat',        case when p_guest_id is null then null else (select count(*) from earlier) >= 1 end,
     'stay_count',    case when p_guest_id is null then null else (select count(*) from earlier) + 1 end,
-    'earlier_stays', coalesce((select jsonb_agg(jsonb_build_object('month', to_char(l.checkout_date, 'YYYY-MM'), 'nights', l.nights)
-                                                order by l.checkout_date desc) from last3 l), '[]'::jsonb),
-    'notes',         public.staff_hide_money_v1(nullif(btrim(concat_ws(' || ',
+    'earlier_stays', case when p_guest_id is null then null
+                          else coalesce((select jsonb_agg(jsonb_build_object('month', to_char(l.checkout_date, 'YYYY-MM'), 'nights', l.nights)
+                                                          order by l.checkout_date desc) from last3 l), '[]'::jsonb) end,
+    'notes',         public.staff_redact_v1(nullif(btrim(concat_ws(' || ',
                         nullif(btrim(d.stay_preferences), ''),
                         case when nullif(btrim(d.vip_reason), '') is not null then 'VIP - ' || btrim(d.vip_reason) end,
                         nullif(btrim(g.notes), ''))), '')),
@@ -140,7 +161,7 @@ begin
 
   -- calendar: names and dates only; contact columns, the raw feed text and the reconciliation fields are never selected.
   select coalesce(jsonb_agg(jsonb_build_object(
-           'uid', e.uid, 'guest_name', case when e.status = 'blocked' then null else e.guest_name end,
+           'uid', e.uid, 'guest_name', case when e.status = 'blocked' then null else public.staff_redact_v1(e.guest_name) end,
            'checkin_date', e.checkin_date, 'checkout_date', e.checkout_date, 'nights', e.nights,
            'status', e.status, 'source', e.source,
            'checkin_time', e.checkin_time, 'checkout_time', e.checkout_time) order by e.checkin_date, e.uid), '[]'::jsonb)
@@ -150,19 +171,19 @@ begin
     and e.checkout_date >= v_today - 7 and e.checkin_date <= v_today + 60;
 
   -- current and next guest: the calendar fields plus the guest card (D-299.7, D-299.9).
-  select jsonb_build_object('uid', s.uid, 'guest_name', s.guest_name, 'source', s.source,
+  select jsonb_build_object('uid', s.uid, 'guest_name', public.staff_redact_v1(s.guest_name), 'source', s.source,
            'checkin_date', s.checkin_date, 'checkout_date', s.checkout_date, 'nights', s.nights,
            'checkin_time', s.checkin_time, 'checkout_time', s.checkout_time)
          || public.staff_guest_card_v1(p_property_id, s.guest_id, s.checkin_date)
     into v_cur from public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'current';
-  select jsonb_build_object('uid', s.uid, 'guest_name', s.guest_name, 'source', s.source,
+  select jsonb_build_object('uid', s.uid, 'guest_name', public.staff_redact_v1(s.guest_name), 'source', s.source,
            'checkin_date', s.checkin_date, 'checkout_date', s.checkout_date, 'nights', s.nights,
            'checkin_time', s.checkin_time, 'checkout_time', s.checkout_time)
          || public.staff_guest_card_v1(p_property_id, s.guest_id, s.checkin_date)
     into v_next from public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'next';
 
   with w as (
-    select 'brownout' kind, 'alert' severity, n.title,
+    select 'brownout' kind, 'alert' severity, public.staff_redact_v1(n.title),
            jsonb_build_object('date', n.effective_date, 'time', n.effective_time, 'hours', n.duration_hours,
                               'grid_line', n.feeder, 'posted_by', n.posted_by_name) detail,
            n.effective_date::timestamptz at_ts
@@ -171,13 +192,13 @@ begin
        and coalesce(n.audience,'staff') in ('staff','all')
        and (n.expires_at is null or n.expires_at > now()) and n.effective_date >= v_today - 1
     union all
-    select 'verifier', case f.severity when 'red' then 'alert' else 'warn' end, f.title,
+    select 'verifier', case f.severity when 'red' then 'alert' else 'warn' end, public.staff_redact_v1(f.title),
            jsonb_build_object('check_id', f.check_id, 'status', f.status), f.last_seen
       from public.verifier_findings f
      where f.status in ('open','acknowledged')
        and (v_role in ('owner','admin','finance') or f.check_id = any(v_ops_checks))
     union all
-    select 'inventory', 'warn', 'Low stock: ' || i.name,
+    select 'inventory', 'warn', public.staff_redact_v1('Low stock: ' || i.name),
            jsonb_build_object('qty', i.qty_on_hand, 'unit', i.unit, 'reorder_below', i.reorder_below), i.updated_at
       from public.inventory_items i
      where i.property_id = p_property_id and i.is_active and i.qty_on_hand < i.reorder_below
@@ -204,6 +225,7 @@ end $$;
 
 -- Grants: the helpers are internal; only the RPC and the storage helper reach authenticated.
 revoke all on function public.staff_hide_money_v1(text) from public, anon, authenticated;
+revoke all on function public.staff_redact_v1(text) from public, anon, authenticated;
 revoke all on function public.staff_may_see_guest_id_v1(uuid) from public, anon, authenticated;
 revoke all on function public.staff_stay_guest_id_v1(uuid, text, uuid, date, date) from public, anon, authenticated;
 revoke all on function public.staff_current_next_stays_v1(uuid) from public, anon, authenticated;

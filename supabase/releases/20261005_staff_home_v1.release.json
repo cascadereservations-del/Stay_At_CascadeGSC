@@ -10,24 +10,24 @@
     "20261005120000_staff_home_v1.sql"
   ],
   "migration_sha256": {
-    "20261005120000_staff_home_v1.sql": "70c8e1d810e87c9dba34854c1eb93f358b961370758a40afee5c5cf1062b0dbf"
+    "20261005120000_staff_home_v1.sql": "3f0da098217bbac39d094a1f4730addc143b6ee00a0ebc6b9ee435df3c38bc39"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING - name the backup set taken immediately before this apply",
     "verified_at": "PENDING",
-    "production_rule": "Expand only: eight new functions (one RPC, one storage-policy helper, six internal helpers) and one new storage.objects SELECT policy on the guest-id-photos bucket. No table, column, grant or data change; the three existing guest-id-photos policies (manage read, write, delete) are untouched. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+    "production_rule": "Expand only: nine new functions (one RPC, one storage-policy helper, seven internal helpers) and one new storage.objects SELECT policy on the guest-id-photos bucket. No table, column, grant or data change; the three existing guest-id-photos policies (manage read, write, delete) are untouched. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
     {
       "name": "functions_exist_definer_empty_search_path",
-      "query": "select count(*) = 8 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('staff_home_v1','staff_guest_card_v1','staff_current_next_stays_v1','staff_stay_guest_id_v1','staff_primary_id_path_v1','staff_may_see_guest_id_v1','staff_can_view_guest_id_object_v1','staff_hide_money_v1')",
+      "query": "select count(*) = 9 and bool_and((p.prosecdef or p.proname in ('staff_hide_money_v1','staff_redact_v1')) and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('staff_home_v1','staff_guest_card_v1','staff_current_next_stays_v1','staff_stay_guest_id_v1','staff_primary_id_path_v1','staff_may_see_guest_id_v1','staff_can_view_guest_id_object_v1','staff_hide_money_v1','staff_redact_v1')",
       "expect": true
     },
     {
       "name": "grants_anon_none_authenticated_only_the_rpc_and_the_policy_helper",
-      "query": "select not has_function_privilege('anon','public.staff_home_v1(uuid)','execute') and has_function_privilege('authenticated','public.staff_home_v1(uuid)','execute') and not has_function_privilege('anon','public.staff_can_view_guest_id_object_v1(text)','execute') and has_function_privilege('authenticated','public.staff_can_view_guest_id_object_v1(text)','execute') and not has_function_privilege('authenticated','public.staff_guest_card_v1(uuid,uuid,date)','execute') and not has_function_privilege('authenticated','public.staff_current_next_stays_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_primary_id_path_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)','execute') and not has_function_privilege('authenticated','public.staff_may_see_guest_id_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_hide_money_v1(text)','execute')",
+      "query": "select not has_function_privilege('anon','public.staff_home_v1(uuid)','execute') and has_function_privilege('authenticated','public.staff_home_v1(uuid)','execute') and not has_function_privilege('anon','public.staff_can_view_guest_id_object_v1(text)','execute') and has_function_privilege('authenticated','public.staff_can_view_guest_id_object_v1(text)','execute') and not has_function_privilege('authenticated','public.staff_guest_card_v1(uuid,uuid,date)','execute') and not has_function_privilege('authenticated','public.staff_current_next_stays_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_primary_id_path_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)','execute') and not has_function_privilege('authenticated','public.staff_may_see_guest_id_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_hide_money_v1(text)','execute') and not has_function_privilege('authenticated','public.staff_redact_v1(text)','execute')",
       "expect": true
     },
     {
@@ -42,7 +42,17 @@
     },
     {
       "name": "money_redactor_hides_an_amount",
-      "query": "select public.staff_hide_money_v1('Was given a refund of PHP 500 and 1,000 pesos') = 'Was given a refund of [hidden] and [hidden]'",
+      "query": "select public.staff_hide_money_v1('Was given a refund of PHP 500 and 1,000 pesos and P500 and P 1,000 and P1,000.00') = 'Was given a refund of [hidden] and [hidden] and [hidden] and [hidden] and [hidden]'",
+      "expect": true
+    },
+    {
+      "name": "contact_redactor_hides_phones_and_emails",
+      "query": "select public.staff_redact_v1('call 0917 123 4567 or +63 917-123-4567 or 09181234567 or x@y.com, room 12 on 2026-08-01') = 'call [hidden] or [hidden] or [hidden] or [hidden], room 12 on 2026-08-01'",
+      "expect": true
+    },
+    {
+      "name": "cleaner_payload_has_no_money_phone_or_email_shape",
+      "query": "with c as (select set_config('request.jwt.claims', json_build_object('sub', (select p.user_id::text from public.staff_access_profiles p join public.staff_property_access a on a.user_id = p.user_id and a.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' where p.role = 'cleaner' and p.disabled_at is null order by p.user_id limit 1), 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true) cfg) select coalesce(regexp_replace(public.staff_home_v1(case when length(c.cfg) > 0 then '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid end)::text, '\"(uid|property_id|id_photo_path)\": \"[^\"]*\"', '', 'g') !~* '(amount|deposit|total|phone|email|\\+639|[0-9]{10}|(\\+?63|0)9([ .-]*[0-9]){9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\\.[A-Za-z]{2,}|\\mP\\s*[0-9]|php|pesos|piso)', false) from c",
       "expect": true
     }
   ],
@@ -52,7 +62,7 @@
     "steps": [
       {
         "name": "run_compensating_script",
-        "action": "Apply supabase/rollbacks/20261005_staff_home_v1.sql with run-sql-on-host.sh: it drops the storage policy, the RPC and the seven helpers. Nothing else changed. Roll the Cascade Staff app back or take it offline first, or its home shows an error banner."
+        "action": "Apply supabase/rollbacks/20261005_staff_home_v1.sql with run-sql-on-host.sh: it drops the storage policy, the RPC and the eight helpers. Nothing else changed. Roll the Cascade Staff app back or take it offline first, or its home shows an error banner."
       }
     ]
   },
@@ -67,7 +77,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "NOT RUN - the orchestrator rehearses this release (migration-rehearsal-on-host.sh) and runs pgTAP staff_home_v1.sql (29 tests) before filling this field.",
+    "rehearsal": "NOT RUN - the orchestrator rehearses this release (migration-rehearsal-on-host.sh) and runs pgTAP staff_home_v1.sql (36 tests) before filling this field.",
     "evidence": "Read-only against production on 2026-10-05: staff_home_v1 and the seven helpers absent; current_staff_authorized and staff_access_allowed live bodies read (cleaner has read_operations and submit_cleaning, maintenance has read_operations); guest-id-photos policies are manage_operations only; 40 of 41 confirmed stays since 2026-05-01 resolve to a guest by link, by direct inquiry or by unique dates; guest_profile_details.stay_preferences is the notes column; guest_companions.id_photo_path holds <companion id>/<uuid>.jpg."
   },
   "approvals": {
