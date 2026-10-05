@@ -91,7 +91,7 @@ Deno.test('D-306 round 6: the round-6 audit leaks all mask', () => {
 Deno.test('D-306 round 6 keep-list: codes, passwords, hotlines, postcode, dates, valid clock times and supply counts stay readable', () => {
   for (const t of [
     'Code is 4829', 'Ang code ay 4829', 'Door code: 482913', 'New code 4829 for Ana', 'Lockbox 4829', 'Smart lock 4829', 'Gate code 1234', 'passcode 4829', 'Wi-Fi password 12345678', 'ref 5012345', 'Meralco reading 4523',
-    'Call 911 or 117', 'BFP 160', 'Red Cross 143', 'Police 166', 'Tawag sa 160 kung sunog', 'Pakicall ang 911', 'Gensan CDRRMO 552-1234', 'General Santos City 9500', 'zip 9500',
+    'Call 911 or 117', 'BFP 160', 'Red Cross 143', 'Police 166', 'Tawag sa 160 kung sunog', 'Pakicall ang 911', 'Gensan CDRRMO 552-1234', 'zip 9500',
     'Oct 15', 'May 15', 'October 2026, 5 nights', '15 Oct 2026', 'Arrives 10:30am, back by 2pm and 2:30 pm', 'Room 203', 'Room 203, 2 extra towels each', 'Block 47 Lot 39', 'Booking #12345', 'Guest count 4, towels 8, 3 pax, 2 nights',
     '120 rolls', '300 W', 'Laundry 1.2 kg', 'Order 500 ml shampoo', '50 pillowcases and 40 blankets', '8 guests', '24-hour desk',
   ]) assertEquals(maskMoney(t), t, t);
@@ -121,7 +121,7 @@ Deno.test('D-306 round 7: the round-7 audit leaks all mask', () => {
 
 Deno.test('D-306 round 7 keep-list: a cue and no money word keeps hotlines, phones, postcode, codes and rooms', () => {
   for (const t of [
-    'Bureau of Fire Protection 160', 'PNP 117', 'Red Cross 143', 'Ambulance 911', 'Tawag sa 911', 'Call 911 or 117', 'Tel: 552-3162', 'Call 552-3162 for the front desk', 'Hospital 552-3162', 'zip 9500', 'postal code 9500', 'General Santos City 9500', 'GenSan 9500',
+    'Bureau of Fire Protection 160', 'PNP 117', 'Red Cross 143', 'Ambulance 911', 'Tawag sa 911', 'Call 911 or 117', 'Tel: 552-3162', 'Call 552-3162 for the front desk', 'Hospital 552-3162', 'zip 9500', 'postal code 9500',
     'Code is 4829', 'Room 203 extra towels', 'Room 203', 'Room 203, 2 extra towels each', 'Door code 4829 sent', 'Booking #12345 confirmed', 'Arrives 10:30am, back by 2pm', 'Charge the EcoFlow to 100%', '300 W', '1200 ml', 'Send 120 rolls', 'HMA1234567', '00A49C5E',
   ]) assertEquals(maskMoney(t), t, t);
 });
@@ -130,4 +130,32 @@ Deno.test('D-306 round 7: maskTitle masks collect, charged, from, pet, late, ear
   for (const [t, leak] of [['Collect ₱500 cleaning fee from Maria', '500'], ['Pet cleaning fee ₱500', '500'], ['Late checkout cleaning ₱500', '500'], ['Cleaning ₱1,200 from Ana', '1,200'], ['Laundry ₱500 charged to Maria', '500'],
     ['Linis fee ₱800 from Maria', '800'], ['Singil kay Maria ₱500 linis', '500'], ['Early check-in cleaning ₱500', '500'], ['Extra bed cleaning ₱500', '500']]) assert(!maskTitle(t).includes(leak), `${t} -> ${maskTitle(t)}`);
   for (const t of ['Pay Honey ₱500', 'Bili ng supplies ₱320', 'Laundry ₱320 for 120 towels']) assertEquals(maskTitle(t), t, t);
+});
+
+// D-306 round 8: postcode only after zip/postal, phone range with money near, W only as a capital unit, 3.560 is thousands, tokens and #ids with money, number words.
+const LEAKS8: [string, string][] = [
+  ['GenSan 9500 DP', '9500'], ['General Santos City 9500 bayad na', '9500'], ['Guest from GenSan, 9500 GCash', '9500'], ['General Santos City 9500', '9500'], ['zip 9500 cash', '9500'], ['zip 9500 collected', '9500'],
+  ['Call Maria, 890-1780 balance', '1780'], ['Ana will call, 500-1000 extra guest', '1000'], ['Office rate 950-1500', '1500'], ['number 890-1780 total', '1780'], ['Call Maria re 950-1200 rate', '1200'], ['Hotline 950-1200 DP', '1200'],
+  ['Room 1780 w breakfast', '1780'], ['Maria 3560 w DP', '3560'], ['1780 W breakfast', '1780'], ['1780 w bfast', '1780'], ['1780 W/ breakfast', '1780'],
+  ['Maria1780', '1780'], ['balance1780', '1780'], ['gcash1780', '1780'], ['1780balance', '1780'], ['1780pernight', '1780'], ['3560deposit', '3560'], ['1780ONLY', '1780'], ['2NIGHTS3560', '3560'],
+  ['Balance #1780', '1780'], ['Paid #1780', '1780'], ['#1780 DP', '1780'], ['#3560 GCash', '3560'], ['Maria #1780 lang', '1780'], ['#1780 kulang', '1780'], ['Booking #1780 cash', '1780'],
+  ['uno mil', 'mil'], ['dos mil', 'mil'], ['singko mil', 'mil'], ['2.5 thousand', 'thousand'], ['3 thousand', 'thousand'],
+  ['PAY-950', '950'], ['PAID-950', '950'], ['BALANCE-950', '950'], ['GCASH-950', '950'], ['MARIA-950', '950'], ['RM-950', '950'],
+  ['Ana Oct 15, 2030 balance', '2030'], ['Maria 15 Oct 2030 paid', '2030'], ['Oct 2025 total', '2025'], ['Sept 2,000 Maria', '2,000'], ['balance 1:780', '780'], ['01780 balance', '1780'], ['03560 total', '3560'], ['Maria 0950 balance', '0950'],
+  ['Maria DP ref 1780', '1780'], ['downpayment ref 1780', '1780'], ['Maria ref 3560 bayad na', '3560'], ['wifi 1780', '1780'], ['+500 1780 3560', '3560'], ['code is 950 plus 500', '500'],
+];
+Deno.test('D-306 round 8: the round-8 audit leaks all mask', () => {
+  for (const [t, leak] of LEAKS8) { const m = maskMoney(t); assert(hasMoney(t), `hasMoney ${t}`); assert(!m.includes(leak), `${t} -> ${m}`); }
+});
+
+Deno.test('D-306 round 8 keep-list: zip, a phone with a cue, a capital W unit, ids and dates with no money near stay', () => {
+  for (const t of [
+    'zip 9500', 'postal code 9500', 'Tel: 552-3162', 'Call 552-3162 for the front desk', '300 W', '300W', 'Its output is 300 W in total.', 'Run it at 300 W; charge to 100%', 'Booking #12345 confirmed', 'HMA1234567', '00A49C5E', 'D-306 and SPEC-38',
+    'Door code 4829 sent', 'Code is 4829', 'Wi-Fi password 12345678', 'Lockbox 4829', 'Oct 15, 2026', 'October 2026, 5 nights', 'Arrives 10:30am', 'Room 203 extra towels',
+  ]) assertEquals(maskMoney(t), t, t);
+});
+
+Deno.test('D-306 round 8: "3.560" is thousands in a title, so it passes the cleaning-pay cap only as 3,560 (and masks)', () => {
+  for (const t of ['Pay Maria ₱3.560', 'Cleaning ₱3.560', 'Pay Maria P3.560']) assert(!maskTitle(t).includes('3.560'), `${t} -> ${maskTitle(t)}`);
+  assertEquals(maskTitle('Pay Honey ₱500'), 'Pay Honey ₱500');
 });
