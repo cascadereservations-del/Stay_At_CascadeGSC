@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "telegram_inquiry_decisions_20261005",
+  "phase": "expand",
+  "source": {
+    "branch": "s70/l1-sql",
+    "commit": "FILL_AT_MERGE"
+  },
+  "migrations": [
+    "20261005100000_telegram_inquiry_decisions.sql"
+  ],
+  "migration_sha256": {
+    "20261005100000_telegram_inquiry_decisions.sql": "f50fb9bef0b99be9f4090e9a9edb1405310630eead98f37d36a199fc9ca0636e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "telegram_pending_kind_check re-created with the 17 production values (read from pg_constraint 2026-10-05) plus refund_confirm, inquiry_reply and lock_code; booking_lifecycle_events_event_type_check widened by guest_replied; three new service_role-only definer functions (telegram_inquiry_view_v1, telegram_inquiry_decide_v1, telegram_inquiry_message_logged_v1). No table, column, policy, grant-on-existing-object or data change; nothing is dropped. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "pending_check_names_the_new_kinds_and_keeps_the_old",
+      "query": "select pg_get_constraintdef(oid) like '%refund_confirm%' and pg_get_constraintdef(oid) like '%inquiry_reply%' and pg_get_constraintdef(oid) like '%lock_code%' and pg_get_constraintdef(oid) like '%guest_save%' and pg_get_constraintdef(oid) like '%llm_house%' and pg_get_constraintdef(oid) like '%awaiting_reply%' from pg_constraint where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    },
+    {
+      "name": "lifecycle_check_names_guest_replied_and_keeps_the_old",
+      "query": "select pg_get_constraintdef(oid) like '%guest_replied%' and pg_get_constraintdef(oid) like '%rate_promotion_ended%' and pg_get_constraintdef(oid) like '%hold_created%' from pg_constraint where conrelid = 'public.booking_lifecycle_events'::regclass and conname = 'booking_lifecycle_events_event_type_check'",
+      "expect": true
+    },
+    {
+      "name": "functions_service_role_only",
+      "query": "select has_function_privilege('service_role','public.telegram_inquiry_view_v1(uuid)','execute') and has_function_privilege('service_role','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)','execute') and has_function_privilege('service_role','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute') and not has_function_privilege('anon','public.telegram_inquiry_view_v1(uuid)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_view_v1(uuid)','execute') and not has_function_privilege('anon','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_decide_v1(bigint,uuid,text,text,integer)','execute') and not has_function_privilege('anon','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute') and not has_function_privilege('authenticated','public.telegram_inquiry_message_logged_v1(uuid,bigint,text,text,text,boolean,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "definer_with_empty_search_path",
+      "query": "select count(*) = 3 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('telegram_inquiry_view_v1','telegram_inquiry_decide_v1','telegram_inquiry_message_logged_v1')",
+      "expect": true
+    },
+    {
+      "name": "unmapped_telegram_user_is_refused_and_writes_nothing",
+      "query": "select (public.telegram_inquiry_decide_v1(-1, '00000000-0000-0000-0000-000000000000', 'hold') ->> 'reason') = 'unmapped_telegram_user' and (public.telegram_inquiry_decide_v1(-1, '00000000-0000-0000-0000-000000000000', 'decline', 'taken') ->> 'reason') = 'unmapped_telegram_user'",
+      "expect": true
+    },
+    {
+      "name": "the_view_answers",
+      "query": "select jsonb_typeof(public.telegram_inquiry_view_v1(null)) = 'array'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Redeploy the previous submit-booking, telegram-expense and telegram-cassy first (they stop calling the RPCs and writing inquiry_reply / refund_confirm cards), then apply supabase/rollbacks/20261005_telegram_inquiry_decisions.sql with run-sql-on-host.sh: it drops the three functions, deletes unconfirmed inquiry_reply / refund_confirm / lock_code cards and narrows the pending CHECK to the 17 old kinds. The lifecycle CHECK stays widened (additive; guest_replied audit rows are kept). /refund fails closed again after the rollback."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply this release BEFORE deploying submit-booking, telegram-expense and telegram-cassy together (they bundle _shared/cascade-core/inquiry.ts; telegram-expense also bundles persona.ts for CAPACITY). The new buttons and /refund both fail closed against the old CHECK."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING: rehearse on a fresh backup with migration-rehearsal-on-host.sh, pgTAP telegram_inquiry_decisions.sql expects 55 checks.",
+    "evidence": "Read-only against production on 2026-10-05: the live pending CHECK has exactly the 17 values listed; the live lifecycle CHECK has the 10 values listed; decide_direct_booking_without_finance_review md5(prosrc) 8f9384913791779afd0cd38ed5152220; staff_access_allowed has no AAL rule (p_aal ignored); booking_decisions.idempotency_key is unique."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "source.commit is still FILL_AT_MERGE"
+  ]
+}
