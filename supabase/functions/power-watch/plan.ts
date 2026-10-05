@@ -271,6 +271,8 @@ export function supersededBy(posts: Post[], ours: Record<string, string>): Super
     const best = top.find((o) => posterDate(o.url) === [...topDates].sort().pop()) ?? top[0]; // ponytail: several posters in the newest post -> the latest date
     const to = ours[best.url] || posterDate(best.url);
     if (!to) continue;
+    // audit b6cc3e8: a move goes FORWARD. A newer post for an earlier date (short notice, or a past one still in the feed) is another job, never a move.
+    if (named(i.url).some((d) => d >= to)) continue;
     out.urls.set(i.url, { to, url: best.url });
     supUrls.add(i.url);
   }

@@ -21,6 +21,8 @@ export type Deps = {
 export type Found = Notice & { postId: number; postedAt?: string | null }; // postedAt: when its SOCOTECO post was published
 /** The posted_by_name power-watch writes on the notices it inserts itself. Only those are ever auto-released (a dashboard entry, a staff photo, an NGCP or Cassy notice never is). */
 export const POWER_WATCH_NAME = 'Power watch (socoteco2.com)';
+/** A newer same-substation post that moves an outage by more than this is asked about (one Unblock tap), not auto-released. */
+export const MAX_AUTO_MOVE_DAYS = 21;
 type NoticeRow = { id: string; effective_date: string; effective_time: string | null; duration_hours: number | string | null; source?: string | null; posted_by_name?: string | null };
 type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string; url: string; source?: NoticeSource; enteredBy?: string; postedAt?: string };
 /** A row with no source (written before the SPEC-41 release, or by an old writer) reads as SOCOTECO, like a state with none. For DISPLAY only: release is decided by POWER_WATCH_NAME. */
@@ -176,7 +178,9 @@ export async function reconcile(d: Deps, foundAll: Found[]): Promise<string[]> {
   if (d.schedule) for (const [date, mv] of sup.dates) {
     const st = states.get(date);
     if (!st || !holds(st) || date < today || (st.source ?? 'socoteco') !== 'socoteco' || st.cancelAskedAt || st.card?.kind === 'cancel') continue;
-    if (protectedDates.has(date) || classifyNights(st.blocked, rows, today).guests.length) { await cancel(date, `moved to ${dayLabel(mv.to)}`, mv.url, Number.MAX_SAFE_INTEGER); continue; }
+    // audit b6cc3e8: a filename cannot tell a move from a second job weeks later, so only a move of 21 days or less is released without a tap.
+    const far = (Date.parse(`${mv.to}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000 > MAX_AUTO_MOVE_DAYS;
+    if (far || protectedDates.has(date) || classifyNights(st.blocked, rows, today).guests.length) { await cancel(date, `moved to ${dayLabel(mv.to)}`, mv.url, Number.MAX_SAFE_INTEGER); continue; }
     const r = await releaseNotice(db, pid, date, 'unblock', `auto: moved to ${mv.to} (newer SOCOTECO post)`);
     if (!r.ok) { d.log('power_watch_release_failed', { date, error: r.error }); continue; } // the next run tries again
     const done = await readNotice(db, date);

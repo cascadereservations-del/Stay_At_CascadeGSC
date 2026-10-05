@@ -285,6 +285,13 @@ Deno.test('Lloyd 2026-10-05: supersededBy - the live Oct 8 -> Oct 15 case, and e
   assertEquals([...live.urls.keys()], [o8]);
   // read order and filename-only (no read recorded yet) give the same answer
   assertEquals([...sup([{ id: 1, posters: [o8], postedAt: SEP }, { id: 2, posters: [o15], postedAt: OCT }], {}).dates.keys()], ['2026-10-08']);
+  // audit b6cc3e8: a move goes forward. A newer post for an EARLIER date (short notice Oct 7, or a past Oct 4 still in the feed) is another job.
+  const NOV = '2026-10-10T01:00:00.000Z';
+  const o7 = PU + 'SPI-PMS-10072026-LEON-LLIDO-SS.jpg', o4 = PU + 'SPI-PMS-10042026-LEON-LLIDO-SS.jpg', o1119 = PU + 'SPI-PMS-11192026-LEON-LLIDO-SS.jpg';
+  assertEquals(sup([{ id: 3, posters: [o7], postedAt: NOV }, { id: 2, posters: [o15], postedAt: OCT }], { [o7]: '2026-10-07', [o15]: '2026-10-15' }).dates.size, 0, 'earlier date is not a move');
+  assertEquals(sup([{ id: 3, posters: [o4], postedAt: NOV }, { id: 2, posters: [o15], postedAt: OCT }], { [o4]: '2026-10-04', [o15]: '2026-10-15' }).dates.size, 0, 'past date is not a move');
+  // a far-later newer post IS a candidate here; watch.ts asks (one Unblock tap) instead of releasing when the move is over 21 days
+  assertEquals(sup([{ id: 3, posters: [o1119], postedAt: NOV }, { id: 2, posters: [o15], postedAt: OCT }], { [o1119]: '2026-11-19', [o15]: '2026-10-15' }).dates.get('2026-10-15')?.to, '2026-11-19');
   // a different substation's newer post (a miss-class poster) never supersedes
   const maasim = PU + 'SPI-PMS-10152026-MAASIM-A-SS.jpg';
   assertEquals(sup([{ id: 2, posters: [maasim], postedAt: OCT }, { id: 1, posters: [o8], postedAt: SEP }]).dates.size, 0);
@@ -295,8 +302,8 @@ Deno.test('Lloyd 2026-10-05: supersededBy - the live Oct 8 -> Oct 15 case, and e
   assertEquals(sup([{ id: 2, posters: [o15] }, { id: 1, posters: [o8], postedAt: SEP }]).dates.size, 0);
   assertEquals(sup([{ id: 2, posters: [o15], postedAt: OCT }, { id: 1, posters: [o8] }]).dates.size, 0);
   assertEquals(sup([{ id: 2, posters: [o15], postedAt: SEP }, { id: 1, posters: [o8], postedAt: SEP }]).dates.size, 0);
-  // the rule follows publish time, not the date: a newer post for an EARLIER date moves the older post's later date
-  assertEquals([...sup([{ id: 2, posters: [o8], postedAt: OCT }, { id: 1, posters: [o15], postedAt: SEP }]).dates.keys()], ['2026-10-15']);
+  // audit b6cc3e8 (was the opposite): a newer post for an EARLIER date is another job, never a move of the later one
+  assertEquals([...sup([{ id: 2, posters: [o8], postedAt: OCT }, { id: 1, posters: [o15], postedAt: SEP }]).dates.keys()], []);
   // the same date again (a corrected or moved poster of the same date) is not "another date"
   const fix = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS_20261003_160149_0000.jpg';
   assertEquals(sup([{ id: 2, posters: [fix], postedAt: OCT }, { id: 1, posters: [o8], postedAt: SEP }], { ...ours, [fix]: '2026-10-08' }).dates.size, 0);
