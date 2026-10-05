@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T153146Z",
+    "verified_at": "2026-10-05T15:34:33.531Z",
     "production_rule": "Expand only: five nullable columns on public.transactions (hidden_at, hidden_by, archived_at, archived_by, archived_prev_status), one check constraint (archived_at implies status void; every existing row has archived_at null so it holds), one function public.admin_transactions_bulk_v1(), granted to authenticated only. No data change. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
