@@ -33,6 +33,8 @@ export type NoticeState = {
   guests: Guest[];           // nights with a guest in the house: never blocked
   card: null | { kind: 'new' | 'changed' | 'cancel'; prev?: { time: string | null; hours: number | null; blocked: string[] }; note?: string };
   cardAt?: string; doneAt?: string; doneBy?: string; seenAt?: string; remindedAt?: string;
+  cardMsgId?: number; remindMsgId?: number; // OPS message ids, so the Done button can be taken off once the Airbnb calendar shows the block
+  unverifiedAt?: string;     // Done was tapped but the Airbnb calendar still showed the nights open 3 hours later: warned once
   releasedAt?: string; releasedBy?: string; cancelAskedAt?: string;
   source?: NoticeSource;     // SPEC-41: absent reads as socoteco
   enteredBy?: string;        // posted_by_name of a hand-entered notice (postId 0)

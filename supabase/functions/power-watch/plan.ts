@@ -54,6 +54,18 @@ export function reminderDue(st: NoticeState, rows: Row[], now: Date, today: stri
 export const seenDue = (st: NoticeState, rows: Row[]) =>
   st.status === 'active' && !st.card && !st.cancelAskedAt && !!st.cardAt && !st.seenAt && st.blocked.length > 0 && airbnbCovers(st.blocked, rows);
 
+/** Who closed the job when the Airbnb calendar (the iCal feed) itself shows the block: no tap needed. */
+export const AIRBNB_CAL = 'Airbnb calendar';
+const autoSeen = (st: NoticeState) => st.doneBy === AIRBNB_CAL;
+/** Done was tapped by a person, yet 3 hours on the Airbnb calendar still shows a held night open: say so once (2026-10-05: Oct 7-8 were tapped Done on Oct 2 and never blocked). */
+export function unverifiedDue(st: NoticeState, rows: Row[], now: Date, today: string): boolean {
+  if (st.status !== 'active' || st.card || st.cancelAskedAt || !st.doneAt || autoSeen(st) || st.seenAt || st.unverifiedAt || !st.blocked.length) return false;
+  if (st.blocked[st.blocked.length - 1] < today || airbnbCovers(st.blocked, rows)) return false;
+  return now.getTime() - Date.parse(st.doneAt) >= THREE_HOURS_MS;
+}
+/** The keyboard a card keeps once Airbnb is blocked: Undo only (it frees our own site, never Airbnb). */
+export const undoOnly = (date: string) => ({ inline_keyboard: [[{ text: '↩ Undo block', callback_data: pwData('undo', date) }]] });
+
 // ── wording ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** '06:00-17:00' (24-hour, as the poster prints it). */
 export function timeLabel(time: string | null, hours: number | null): string {
@@ -119,12 +131,12 @@ export function newCard(st: NoticeState): Built {
       ifs(st.guests.length, `Not blocked, a guest is in the house: ${nightsPhrase(st.guests.map((g) => g.night))}.`),
       ifs(!st.nights.length, 'No night is touched from today on.'),
     ],
-    [ifs(st.blocked.length, `Marifel: block the same ${st.blocked.length === 1 ? 'night' : 'nights'} in Airbnb now.`)],
+    [ifs(st.blocked.length, autoSeen(st) ? 'Airbnb already shows these nights blocked (seen in the Airbnb calendar), so nothing to do there.' : `Marifel: block the same ${st.blocked.length === 1 ? 'night' : 'nights'} in Airbnb now.`)],
     gs.length ? guestLines(st, gs[0], false) : [],
     source(st),
   );
   const text = header(subjectOf(st.date), body);
-  return { text, markup: autoKeyboard(text, st.blocked.length ? doneUndo(st.date) : []) };
+  return { text, markup: autoKeyboard(text, st.blocked.length ? (autoSeen(st) ? undoOnly(st.date).inline_keyboard[0] : doneUndo(st.date)) : []) };
 }
 
 /** Each further guest beyond the first gets a card of their own (a card carries one 📨 draft). */
@@ -153,14 +165,14 @@ export function changedCard(st: NoticeState): Built {
       ifs(st.guests.length, `Not blocked, a guest is in the house: ${nightsPhrase(st.guests.map((g) => g.night))}.`),
     ],
     [
-      ifs(added.length, `Marifel: block ${nightsPhrase(added)} in Airbnb now.`),
+      ifs(added.length, autoSeen(st) ? `Airbnb already shows ${nightsPhrase(added)} blocked (seen in the Airbnb calendar).` : `Marifel: block ${nightsPhrase(added)} in Airbnb now.`),
       ifs(dropped.length, `Marifel: unblock ${nightsPhrase(dropped)} in Airbnb if you blocked ${dropped.length === 1 ? 'it' : 'them'}.`),
     ],
     gs.length ? guestLines(st, gs[0], true) : [],
     source(st),
   );
   const text = header(subjectOf(st.date), body);
-  return { text, markup: autoKeyboard(text, added.length ? doneUndo(st.date) : []) };
+  return { text, markup: autoKeyboard(text, added.length ? (autoSeen(st) ? undoOnly(st.date).inline_keyboard[0] : doneUndo(st.date)) : []) };
 }
 
 /** SOCOTECO cancelled or moved an outage we blocked: ask before anything is released, because Airbnb is Marifel's. */
@@ -191,8 +203,19 @@ export function reminderCard(st: NoticeState): Built {
 
 /** The iCal feed now shows Airbnb blocked on every night we hold. */
 export function seenCard(st: NoticeState): Built {
-  const text = header(subjectOf(st.date), `✅ Airbnb block seen for ${nightsPhrase(st.blocked)} (${prov(st)} interruption ${dayLabel(st.date)}).`);
+  const text = header(subjectOf(st.date), `✅ Airbnb block seen for ${nightsPhrase(st.blocked)} (${prov(st)} interruption ${dayLabel(st.date)}). Marked done; nothing more to do in Airbnb.`);
   return { text, markup: undefined };
+}
+
+/** Done was tapped, but the Airbnb calendar still shows the nights open 3 hours later. */
+export function unverifiedCard(st: NoticeState): Built {
+  const body = groups(
+    [`⚠ Airbnb still shows ${nightsPhrase(st.blocked)} open for the ${prov(st)} interruption on ${windowLabel(st.date, st.time, st.hours)}.`],
+    [`It was marked blocked by ${st.doneBy || 'someone'}, but the Airbnb calendar does not show the block.`, 'Marifel: block them in Airbnb now. This card closes by itself once Airbnb shows the block.'],
+    source(st),
+  );
+  const text = header(subjectOf(st.date), body);
+  return { text, markup: autoKeyboard(text) };
 }
 
 /** The line the host e-mail carries about the blocking. */

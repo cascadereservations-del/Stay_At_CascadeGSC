@@ -3,18 +3,19 @@
 // path against an in-memory database. Nothing here writes to Airbnb or sends anything to a guest.
 import { cancelBrownoutRows, brownoutUid, listNotices, patchNoticeState, putNoticeState, readNotice, releasable, releaseNotice, type NoticeSource, type NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { alertText, dayLabel, FEEDER, posterFor, type Notice } from './poster.ts';
-import { cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, windowLabel, type Built, type Row, type Schedule } from './plan.ts';
+import { AIRBNB_CAL, airbnbCovers, cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, undoOnly, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule } from './plan.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
 export type Deps = {
   db: Db; propertyId: string; today: string; now: Date;
-  send: (card: Built) => Promise<boolean>;
+  send: (card: Built) => Promise<boolean | number>; // a number = the OPS message id (kept so the Done button can be taken off later)
+  edit?: (messageId: number, markup: unknown) => Promise<boolean>; // replace the buttons on a card already in OPS
   mail: (subject: string, body: string) => Promise<boolean>;
   log: (event: string, data: unknown) => void;
   posters?: string[]; // poster URLs already read (power_watch_state.images): the link for a notice that has none of its own
   schedule?: Schedule; // SPEC-41: what SOCOTECO's current posts say (plan.ts scheduleFrom); absent or null = unknown, nothing is ever released
-  sendFinance?: (card: Built) => Promise<boolean>; // the same card to the Finance chat (the auto-release card goes to OPS and Finance)
+  sendFinance?: (card: Built) => Promise<boolean | number>; // the same card to the Finance chat (the auto-release card goes to OPS and Finance)
 };
 export type Found = Notice & { postId: number };
 /** The posted_by_name power-watch writes on the notices it inserts itself. Only those are ever auto-released (a dashboard entry, a staff photo, an NGCP or Cassy notice never is). */
@@ -179,21 +180,40 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
 
   // Cards that are waiting to go out, including any a failed Telegram send left behind last run.
   const linked = (s: NoticeState): NoticeState => (s.url ? s : { ...s, url: posterFor(s.date, d.posters ?? []) });
-  for (const st of [...states.values()].filter((s) => s.card).map(linked)) {
-    const kind = st.card!.kind;
+  const msgId = (r: boolean | number) => (typeof r === 'number' && r > 0 ? r : undefined);
+  for (const s of [...states.values()].filter((x) => x.card).map(linked)) {
+    const kind = s.card!.kind;
+    // 2026-10-05 (Lloyd): if the Airbnb calendar already shows every night we hold, the job is done before it is asked: the card says so, no Done button, no reminder.
+    const auto = kind !== 'cancel' && !s.doneAt && s.blocked.length > 0 && airbnbCovers(s.blocked, rows);
+    const st: NoticeState = auto ? { ...s, doneAt: nowIso, doneBy: AIRBNB_CAL, seenAt: nowIso } : s;
     const card = kind === 'new' ? newCard(st) : kind === 'changed' ? changedCard(st) : cancelCard(st);
-    if (!(await d.send(card))) { d.log('power_watch_card_failed', { date: st.date, kind }); continue; }
-    const next = await patchNoticeState(db, st.date, { card: null, ...(kind === 'cancel' ? { cancelAskedAt: nowIso } : { cardAt: nowIso }) });
+    const sent = await d.send(card);
+    if (!sent) { d.log('power_watch_card_failed', { date: st.date, kind }); continue; }
+    const next = await patchNoticeState(db, st.date, {
+      card: null, ...(kind === 'cancel' ? { cancelAskedAt: nowIso } : { cardAt: nowIso, cardMsgId: msgId(sent) }),
+      ...(auto ? { doneAt: nowIso, doneBy: AIRBNB_CAL, seenAt: nowIso } : {}),
+    });
     if (next) states.set(st.date, next);
+    if (auto) res.push(`${st.date}: airbnb already blocked, closed`);
     if (kind !== 'cancel') for (const extra of extraGuestCards(st, kind === 'changed')) await d.send(extra);
   }
 
   // Follow-ups on what we hold.
   for (const st of [...states.values()].filter((x) => noticeRows.some((r) => r.effective_date === x.date))) { // a notice taken off the board is not chased
     if (seenDue(st, rows)) {
-      if (await d.send(seenCard(st))) { const n = await patchNoticeState(db, st.date, { seenAt: nowIso }); if (n) states.set(st.date, n); res.push(`${st.date}: airbnb block seen`); }
+      // The Airbnb calendar now shows the block: mark it done (a tap is no longer needed) and take the Done button off the card and the reminder.
+      if (await d.send(seenCard(st))) {
+        const n = await patchNoticeState(db, st.date, { seenAt: nowIso, ...(st.doneAt ? {} : { doneAt: nowIso, doneBy: AIRBNB_CAL }) });
+        if (n) states.set(st.date, n);
+        if (d.edit && st.cardMsgId && !(await d.edit(st.cardMsgId, undoOnly(st.date)))) d.log('power_watch_edit_failed', { date: st.date, what: 'card' });
+        if (d.edit && st.remindMsgId && !(await d.edit(st.remindMsgId, { inline_keyboard: [] }))) d.log('power_watch_edit_failed', { date: st.date, what: 'reminder' });
+        res.push(`${st.date}: airbnb block seen`);
+      }
     } else if (reminderDue(st, rows, now, today)) {
-      if (await d.send(reminderCard(linked(st)))) { const n = await patchNoticeState(db, st.date, { remindedAt: nowIso }); if (n) states.set(st.date, n); res.push(`${st.date}: reminder`); }
+      const sent = await d.send(reminderCard(linked(st)));
+      if (sent) { const n = await patchNoticeState(db, st.date, { remindedAt: nowIso, remindMsgId: msgId(sent) }); if (n) states.set(st.date, n); res.push(`${st.date}: reminder`); }
+    } else if (unverifiedDue(st, rows, now, today)) {
+      if (await d.send(unverifiedCard(linked(st)))) { const n = await patchNoticeState(db, st.date, { unverifiedAt: nowIso }); if (n) states.set(st.date, n); res.push(`${st.date}: done tapped, airbnb still open`); }
     }
   }
   return res;

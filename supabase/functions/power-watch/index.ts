@@ -46,7 +46,7 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 type Db = any;
 
 /** A card to the OPS chat. Plain text (no parse_mode): the buttons are the card's own. */
-async function tg(text: string, markup?: unknown, chatEnv = 'TELEGRAM_CHAT_ID'): Promise<boolean> {
+async function tg(text: string, markup?: unknown, chatEnv = 'TELEGRAM_CHAT_ID'): Promise<boolean | number> {
   const token = env('TELEGRAM_BOT_TOKEN'), chat = env(chatEnv);
   if (!token || !chat) return false;
   const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -57,7 +57,21 @@ async function tg(text: string, markup?: unknown, chatEnv = 'TELEGRAM_CHAT_ID'):
   const body = r ? await r.json().catch(() => null) : null;
   console.log('power_watch_tg', JSON.stringify({ http: r?.status ?? null, ok: body?.ok ?? null, message_id: body?.result?.message_id ?? null,
     chat_type: body?.result?.chat?.type ?? null, chat_tail: String(body?.result?.chat?.id ?? '').slice(-4), error: body?.description ?? null }));
-  return !!r?.ok && body?.ok === true;
+  if (!r?.ok || body?.ok !== true) return false;
+  return Number(body?.result?.message_id) || true; // the message id lets a later run take the Done button off this card
+}
+
+/** Replace the buttons on an OPS card already sent (Airbnb now shows the block, so Done is no longer asked). */
+async function tgEditMarkup(messageId: number, markup: unknown): Promise<boolean> {
+  const token = env('TELEGRAM_BOT_TOKEN'), chat = env('TELEGRAM_CHAT_ID');
+  if (!token || !chat) return false;
+  const r = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chat, message_id: messageId, reply_markup: markup }), signal: AbortSignal.timeout(10_000),
+  }).catch(() => null);
+  const body = r ? await r.json().catch(() => null) : null;
+  // "message is not modified" means the buttons are already right: that is success.
+  return (!!r?.ok && body?.ok === true) || /not modified/i.test(String(body?.description ?? ''));
 }
 
 /** The host inbox through the e-mail relay, the same route as the urgent guest alerts. */
@@ -103,6 +117,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     results = await reconcile({
       db, propertyId: PROPERTY_ID, today, now,
       send: async (c) => await tg(c.text, c.markup),
+      edit: (id, markup) => tgEditMarkup(id, markup),
       sendFinance: async (c) => await tg(c.text, c.markup, 'TELEGRAM_FINANCE_CHAT_ID'),
       mail: (subject, body) => mail(db, subject, body),
       log: (event, data) => console.log(event, JSON.stringify(data)),

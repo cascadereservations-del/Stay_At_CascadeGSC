@@ -107,8 +107,60 @@ Deno.test('follow-ups: Airbnb block seen is said once; with no block one reminde
   const done = world();
   await done.run([found('2026-10-15', '06:00:00', 11, 100)]);
   await patchNoticeState(done.db, '2026-10-15', { doneAt: '2026-10-02T01:30:00Z', doneBy: 'Marifel' });
-  assertEquals(await done.run([], '2026-10-02T05:00:00Z'), []);
+  assertEquals(await done.run([], '2026-10-02T04:00:00Z'), [], 'Done silences the reminder');
   assertEquals(done.sent.length, 1);
+  // 2026-10-05: a Done tap is not proof. Three hours on, the Airbnb calendar still shows the nights open: one warning, never two.
+  assertEquals(await done.run([], '2026-10-02T04:30:00Z'), ['2026-10-15: done tapped, airbnb still open']);
+  assertStringIncludes(done.sent[1].text, '⚠ Airbnb still shows nights of Oct 14 and Oct 15 open');
+  assertStringIncludes(done.sent[1].text, 'marked blocked by Marifel');
+  assertEquals(await done.run([], '2026-10-02T09:00:00Z'), [], 'warned once');
+  // then the block shows up in the feed: seen, and nothing more
+  done.db.tables.calendar_events.push({ uid: 'ab7', source: 'airbnb', status: 'blocked', checkin_date: '2026-10-14', checkout_date: '2026-10-16', property_id: PID });
+  assertEquals(await done.run([], '2026-10-02T09:15:00Z'), ['2026-10-15: airbnb block seen']);
+  assertEquals((await readNotice(done.db, '2026-10-15'))!.doneBy, 'Marifel', 'a person who tapped stays on record');
+});
+
+Deno.test('2026-10-05: Airbnb already blocked when the card goes out: the card says so, no Done button, done by the Airbnb calendar, no reminder or seen card', async () => {
+  const w = world();
+  // our site holds the nights (a re-posted outage), and Marifel's Airbnb block is already in the feed
+  w.db.tables.calendar_events.push({ uid: 'ab2', source: 'airbnb', status: 'blocked', checkin_date: '2026-10-14', checkout_date: '2026-10-16', property_id: PID });
+  w.db.tables.calendar_events.push({ uid: 'brownout:2026-10-14', source: 'manual', status: 'blocked', checkin_date: '2026-10-14', checkout_date: '2026-10-15', property_id: PID });
+  w.db.tables.calendar_events.push({ uid: 'brownout:2026-10-15', source: 'manual', status: 'blocked', checkin_date: '2026-10-15', checkout_date: '2026-10-16', property_id: PID });
+  const r = await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(r, ['2026-10-15: new', '2026-10-15: airbnb already blocked, closed']);
+  const t = w.sent[0].text;
+  assertStringIncludes(t, 'Airbnb already shows these nights blocked (seen in the Airbnb calendar)');
+  assert(!t.includes('Marifel: block'), 'no job for Marifel');
+  const buttons = JSON.stringify(w.sent[0].markup);
+  assert(!buttons.includes('pw:done'), 'no Done button');
+  assertStringIncludes(buttons, 'pw:undo');
+  const st = (await readNotice(w.db, '2026-10-15'))!;
+  assertEquals([st.doneBy, !!st.doneAt, !!st.seenAt], ['Airbnb calendar', true, true]);
+  assertEquals(await w.run([], '2026-10-02T09:00:00Z'), [], 'no reminder, no seen card, no warning');
+  assertEquals(w.sent.length, 1);
+});
+
+Deno.test('2026-10-05: the card goes out first, Marifel blocks Airbnb later: done by the Airbnb calendar and the Done button comes off the card and the reminder', async () => {
+  const db = new FakeDb({ calendar_events: [], ops_notices: [], app_settings: [] });
+  const sent: Built[] = [], edits: Array<[number, string]> = [];
+  let id = 500;
+  const run = (f: Found[], nowIso: string) => reconcile({
+    db, propertyId: PID, today: '2026-10-02', now: new Date(nowIso),
+    send: async (c) => { sent.push(c); return ++id; }, edit: async (m, mk) => { edits.push([m, JSON.stringify(mk)]); return true; },
+    mail: async () => true, log: () => {},
+  }, f);
+  await run([found('2026-10-15', '06:00:00', 11, 100)], '2026-10-02T01:00:00Z');
+  assertEquals(await run([], '2026-10-02T04:00:00Z'), ['2026-10-15: reminder']);
+  const before = (await readNotice(db, '2026-10-15'))!;
+  assertEquals([before.cardMsgId, before.remindMsgId], [501, 502]);
+  db.tables.calendar_events.push({ uid: 'ab3', source: 'airbnb', status: 'blocked', checkin_date: '2026-10-14', checkout_date: '2026-10-16', property_id: PID });
+  assertEquals(await run([], '2026-10-02T04:15:00Z'), ['2026-10-15: airbnb block seen']);
+  const after = (await readNotice(db, '2026-10-15'))!;
+  assertEquals([after.doneBy, !!after.doneAt, !!after.seenAt], ['Airbnb calendar', true, true]);
+  assertEquals(edits.map(([m]) => m), [501, 502]);
+  assert(!edits[0][1].includes('pw:done') && edits[0][1].includes('pw:undo'), 'the card keeps Undo only');
+  assertEquals(edits[1][1], '{"inline_keyboard":[]}', 'the reminder loses its button');
+  assertEquals(await run([], '2026-10-02T09:00:00Z'), [], 'nothing more');
 });
 
 Deno.test('a newer poster with new times updates the notice and the blocks, and an older poster does not undo it', async () => {
