@@ -49,7 +49,7 @@ returns text language sql immutable set search_path to '' as $$
   select public.staff_hide_money_v1(
            regexp_replace(
              regexp_replace(
-               translate(p, '０１２３４５６７８９＋（）－．／', '0123456789+()-./'),
+               translate(p, '０１２３４５６７８９＋（）－．／＠‐‑‒–—―−', '0123456789+()-./@-------'),
                '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '[hidden]', 'g'),
              '[+(]*(?<![0-9])(?<![0-9]{4}-)(?<![0-9]{4}-[0-9]{2}-)(?![0-9]{4}-[0-9]{2}-[0-9]{2}(?![0-9]))[0-9]([[:space:]().\/_+-]*[0-9]){6,}',
              '[hidden]', 'g'));

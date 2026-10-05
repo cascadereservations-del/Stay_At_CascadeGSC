@@ -3,7 +3,7 @@
 -- suite is inside begin/rollback. Fixtures insert as the owner (service_role has no BYPASSRLS); the roles are impersonated with
 -- request.jwt.claims as staff_decide_direct_booking.sql does.
 begin;
-select plan(62);
+select plan(65);
 
 select ok((select bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -76,7 +76,7 @@ select is(public.staff_hide_money_v1('paid P500, P 1,000 and P1,000.00 ok'), 'pa
 select is(public.staff_redact_v1(t), '[hidden]', 'hidden: ' || t) from unnest(array[
   '(0917) 123 4567', '+63 (917) 123 4567', '63 917 123 4567', '917 123 4567', '0917/123/4567', '0917_123_4567',
   '(083) 552 1234', '083-552-1234', '+1 (415) 555-0100', '0 9 1 7 1 2 3 4 5 6 7',
-  '０９１７１２３４５６７８', '０９１７-１２３-４５６７', '09181234567', 'x@y.com']) t;
+  '０９１７１２３４５６７８', '０９１７-１２３-４５６７', '09181234567', 'x@y.com', '0917–123–4567', 'x＠y.com']) t;
 -- Dates, times and small numbers stay as written.
 select is(public.staff_redact_v1(t), t, 'kept: ' || t) from unnest(array[
   'Check-in 2026-08-01 room 12, 2 pax', 'Oct 20 to 22', '3 nights, 2 guests', 'Check-in 14:00, out 11:00-12:00',
@@ -150,6 +150,13 @@ select set_config('request.jwt.claims', json_build_object('sub','e3600000-0000-4
 select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'warnings') w
             where w->>'kind' = 'verifier' and w->>'title' like 'zz-l3%'), 2, 'an admin sees both findings');
 select is(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->>'role', 'admin', 'the payload names the caller''s role');
+
+-- A disabled staff account: forbidden, and no ID photo.
+reset role;
+update public.staff_access_profiles set disabled_at = now() where user_id = 'e3600000-0000-4000-8000-000000000003';
+select set_config('request.jwt.claims', json_build_object('sub','e3600000-0000-4000-8000-000000000003','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
+select set_config('role', 'authenticated', true);
+select throws_ok($$select public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')$$, '42501', 'forbidden', 'a disabled account is forbidden');
 
 -- A user with no staff profile.
 select set_config('request.jwt.claims', json_build_object('sub','e3600000-0000-4000-8000-0000000000ff','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);

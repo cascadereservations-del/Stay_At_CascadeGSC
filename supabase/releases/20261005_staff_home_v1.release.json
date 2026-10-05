@@ -10,7 +10,7 @@
     "20261005120000_staff_home_v1.sql"
   ],
   "migration_sha256": {
-    "20261005120000_staff_home_v1.sql": "c2785e56a3f918a43e4a5f198837c796cfc423a2ac6bc6ca902eb4cd49fbe0fd"
+    "20261005120000_staff_home_v1.sql": "4fcf3f5178e40f465051a9586bdf332df73b5c35b42d01ec8807b7ffde8ddaf2"
   },
   "backup": {
     "required": true,
@@ -77,7 +77,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "NOT RUN - the orchestrator rehearses this release (migration-rehearsal-on-host.sh) and runs pgTAP staff_home_v1.sql (36 tests) before filling this field.",
+    "rehearsal": "NOT RUN - the orchestrator rehearses this release (migration-rehearsal-on-host.sh) and runs pgTAP staff_home_v1.sql (65 tests) before filling this field.",
     "evidence": "Read-only against production on 2026-10-05: staff_home_v1 and the seven helpers absent; current_staff_authorized and staff_access_allowed live bodies read (cleaner has read_operations and submit_cleaning, maintenance has read_operations); guest-id-photos policies are manage_operations only; 40 of 41 confirmed stays since 2026-05-01 resolve to a guest by link, by direct inquiry or by unique dates; guest_profile_details.stay_preferences is the notes column; guest_companions.id_photo_path holds <companion id>/<uuid>.jpg."
   },
   "approvals": {
