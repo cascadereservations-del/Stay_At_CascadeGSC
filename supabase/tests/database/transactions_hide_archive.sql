@@ -2,7 +2,7 @@
 -- Synthetic property, owner (aal2) and cleaner; inside begin/rollback. The money check uses the real run_health_checks_v1
 -- ledger_position (confirmed, non-mirror rows: the same rule the dashboard totals use), so "out of the totals" is measured, not assumed.
 begin;
-select plan(36);
+select plan(43);
 
 select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_proc p where p.oid = 'public.admin_transactions_bulk_v1(uuid,uuid[],text,text)'::regprocedure),
   'the RPC is security definer with an empty search_path');
@@ -80,6 +80,10 @@ select throws_ok($$select public.admin_transactions_bulk_v1('e7100000-0000-4000-
 select throws_ok($$select public.admin_transactions_bulk_v1('e7100000-0000-4000-8000-0000000000a2', array['e7300000-0000-4000-8000-0000000000a1']::uuid[], 'hide', null)$$, 'P0002', 'one or more transactions were not found for this property', 'a row from another property is refused, not touched');
 select throws_ok($$select public.admin_transactions_bulk_v1('e7100000-0000-4000-8000-0000000000a1', '{}'::uuid[], 'hide', null)$$, '22023', 'select at least one transaction', 'an empty selection is refused');
 
+select is((public.admin_transactions_bulk_v1('e7100000-0000-4000-8000-0000000000a1', array['e7300000-0000-4000-8000-0000000000a2', 'e7300000-0000-4000-8000-0000000000a3']::uuid[], 'hide', null)->'ids'), '["e7300000-0000-4000-8000-0000000000a2", "e7300000-0000-4000-8000-0000000000a3"]'::jsonb, 'the result lists the ids it changed, so an undo can invert exactly those');
+select is((public.admin_transactions_bulk_v1('e7100000-0000-4000-8000-0000000000a1', array['e7300000-0000-4000-8000-0000000000a2', 'e7300000-0000-4000-8000-0000000000a3']::uuid[], 'hide', null)->'ids'), '[]'::jsonb, 'a row already in the target state is not listed');
+select is((public.admin_transactions_bulk_v1('e7100000-0000-4000-8000-0000000000a1', array['e7300000-0000-4000-8000-0000000000a2', 'e7300000-0000-4000-8000-0000000000a3']::uuid[], 'unhide', null)->>'changed')::int, 2, 'the inverse action with those ids puts both back in one call');
+
 -- Undo from Settings > Audit history reverses an archive in full.
 select public.admin_transactions_bulk_v1('e7100000-0000-4000-8000-0000000000a1', array['e7300000-0000-4000-8000-0000000000a3']::uuid[], 'archive', 'archive then undo');
 select is((public.admin_undo_v1((select id from public.admin_audit_log where entity_table = 'transactions' and entity_id = 'e7300000-0000-4000-8000-0000000000a3' and action = 'soft_delete' and reason = 'archive then undo'), 'undo archive')->>'ok')::boolean, true, 'undo of an archive succeeds');
@@ -90,6 +94,20 @@ select throws_ok($$select public.admin_transactions_bulk_v1('e7100000-0000-4000-
 
 reset role;
 select is((select count(*)::int from public.transactions where id = 'e7300000-0000-4000-8000-0000000000a1' and status = 'confirmed' and archived_at is null), 1, 'the refused call changed nothing');
+
+-- The compensating rollback must work once a row is archived: archive T3, run the rollback body (same statements, same order), check the row.
+update public.transactions set archived_at = now(), archived_prev_status = status, status = 'void' where id = 'e7300000-0000-4000-8000-0000000000a3';
+select lives_ok($$
+  update public.transactions set status = coalesce(archived_prev_status, 'void'), archived_at = null, archived_by = null, archived_prev_status = null where archived_at is not null;
+  drop function if exists public.admin_transactions_bulk_v1(uuid, uuid[], text, text);
+  alter table public.transactions drop constraint if exists transactions_archived_is_void_check;
+  alter table public.transactions
+    drop column if exists hidden_at, drop column if exists hidden_by,
+    drop column if exists archived_at, drop column if exists archived_by, drop column if exists archived_prev_status;
+$$, 'the rollback body runs cleanly with an archived row present');
+select is((select status from public.transactions where id = 'e7300000-0000-4000-8000-0000000000a3'), 'confirmed', 'rollback put the archived row back to confirmed');
+select is((select count(*)::int from information_schema.columns where table_schema = 'public' and table_name = 'transactions' and column_name in ('hidden_at', 'archived_at')), 0, 'rollback dropped the columns');
+select is((select count(*)::int from pg_proc where proname = 'admin_transactions_bulk_v1' and pronamespace = 'public'::regnamespace), 0, 'rollback dropped the function');
 
 select * from finish();
 rollback;

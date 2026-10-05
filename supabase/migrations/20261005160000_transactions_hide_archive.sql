@@ -33,7 +33,7 @@ create or replace function public.admin_transactions_bulk_v1(p_property_id uuid,
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_ids uuid[]; v_reason text := btrim(coalesce(p_reason, '')); r public.transactions%rowtype;
-  v_changed int := 0; v_skipped int := 0; v_amount numeric := 0; v_audit uuid[] := '{}'; v_aid uuid;
+  v_changed int := 0; v_skipped int := 0; v_amount numeric := 0; v_audit uuid[] := '{}'; v_aid uuid; v_done uuid[] := '{}';
 begin
   perform public.admin_require('approve_payment', p_property_id);
   if p_action is null or p_action not in ('hide', 'unhide', 'archive', 'restore') then
@@ -69,12 +69,13 @@ begin
       update public.transactions set status = coalesce(archived_prev_status, 'void'), archived_at = null, archived_by = null, archived_prev_status = null, updated_at = now() where id = r.id;
     end if;
     v_changed := v_changed + 1;
+    v_done := v_done || r.id;
     v_amount := v_amount + r.gross_amount;
     select a.id into v_aid from public.admin_audit_log a where a.entity_table = 'transactions' and a.entity_id = r.id order by a.created_at desc, a.id limit 1;
     if v_aid is not null then v_audit := v_audit || v_aid; end if;
   end loop;
 
-  return jsonb_build_object('ok', true, 'action', p_action, 'changed', v_changed, 'skipped', v_skipped, 'amount', v_amount, 'auditIds', to_jsonb(v_audit));
+  return jsonb_build_object('ok', true, 'action', p_action, 'changed', v_changed, 'skipped', v_skipped, 'amount', v_amount, 'auditIds', to_jsonb(v_audit), 'ids', to_jsonb(v_done));
 end;
 $$;
 revoke all on function public.admin_transactions_bulk_v1(uuid, uuid[], text, text) from public, anon, service_role;
