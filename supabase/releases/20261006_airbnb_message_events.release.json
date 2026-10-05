@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "airbnb_message_events_20261006",
+  "phase": "expand",
+  "source": {
+    "branch": "s72/l5-airbnb-messages",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20261006120000_airbnb_message_events.sql"
+  ],
+  "migration_sha256": {
+    "20261006120000_airbnb_message_events.sql": "36ba8ad85c75817f57bfe14de7f82d326688a3f39ed855148a684f25da024ec5"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Expand only: the airbnb_email_events_email_type_check constraint is dropped and re-added with one more allowed value ('message'). No column, no data change; every existing row already satisfies the wider check. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "email_type_check_allows_message_and_the_three_old_types",
+      "query": "select count(*) = 1 and bool_and(convalidated) and bool_and(pg_get_constraintdef(oid) like '%message%' and pg_get_constraintdef(oid) like '%payout%' and pg_get_constraintdef(oid) like '%booking%' and pg_get_constraintdef(oid) like '%cancellation%') from pg_constraint where conrelid = 'public.airbnb_email_events'::regclass and conname = 'airbnb_email_events_email_type_check'",
+      "expect": true
+    },
+    {
+      "name": "every_existing_event_has_one_of_the_four_types",
+      "query": "select count(*) = 0 from public.airbnb_email_events where email_type not in ('payout', 'booking', 'cancellation', 'message')",
+      "expect": true
+    },
+    {
+      "name": "event_table_columns_unchanged",
+      "query": "select string_agg(column_name, ',' order by ordinal_position) = 'id,property_id,gmail_message_id,email_type,email_date,subject,raw_payload,processed_at,created_at' from information_schema.columns where table_schema = 'public' and table_name = 'airbnb_email_events'",
+      "expect": true
+    },
+    {
+      "name": "guest_save_is_still_an_allowed_pending_kind",
+      "query": "select count(*) = 1 from pg_constraint where conrelid = 'public.telegram_pending'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%guest_save%'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Redeploy the previous airbnb-email-sync first (it is the only writer of 'message' rows), then apply supabase/rollbacks/20261006_airbnb_message_events.sql with run-sql-on-host.sh: it deletes the message log rows (counts only, no text) and restores the three-type check."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_function_then_apps_script",
+      "required_state": "Apply this release BEFORE the new airbnb-email-sync is deployed (a message event would fail the old CHECK), and deploy the Apps Script patch (docs/gas/AirbnbEmailSync-message.patch.gs) LAST, after the function is live. Until Lloyd pastes the patch nothing sends a message event, so the release is dormant."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING: run the pgTAP suite airbnb_message_events (11 tests) and the 4 forward checks on a restored backup of the final commit.",
+    "evidence": "Production read-only (2026-10-06): airbnb_email_events_email_type_check is CHECK (email_type = ANY (ARRAY['payout','booking','cancellation'])); columns id, property_id, gmail_message_id, email_type, email_date, subject, raw_payload, processed_at, created_at; telegram_pending_kind_check already lists guest_save, so no new pending kind is needed. Old writers send only the three old types."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the new airbnb-email-sync is deployed before this release is applied"
+  ]
+}
