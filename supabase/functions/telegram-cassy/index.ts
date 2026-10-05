@@ -14,11 +14,11 @@ import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaTo
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { HOUSE_READ_DECL, HOUSE_TEACH_DECL, houseInfo, teachCard } from '../_shared/cascade-core/house.ts'; // D-282
 import { toneRules } from '../messenger-concierge/voice.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, opsToolsOnly, maskReport, postDraft, maskFacts, type Surface } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, opsToolsOnly, maskReport, postDraft, maskFacts, maskNoticeCard, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
 import { draftRequest, draftGuestReply, draftInquiry, inquiryDraftCard, routeDraft, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
-import { maskMoney, maskTitle } from '../_shared/ops-money.ts'; // D-306
+import { maskMoney } from '../_shared/ops-money.ts'; // D-306
 import { OPS_MONEY_REFUSED, staleReason, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: Cassy reply and the Other decline for an unpaid request
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -116,7 +116,7 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
         }
         if (isWriteTool(name)) {
           const w = await writeTool(db, ctx, name, args).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: `${name} unavailable` } }; });
-          if (w.card) { await tgSend(chatId, surface === 'ops' ? maskTitle(w.card.text) : w.card.text, msg.message_id, w.card); cardSent = true; } // D-306: the OPS notice card masks the title like the saved notice does
+          if (w.card) { await tgSend(chatId, surface === 'ops' ? maskNoticeCard(w.card.text, args.title) : w.card.text, msg.message_id, w.card); cardSent = true; } // D-306: the OPS notice card masks the title like the saved notice does
           return w.result;
         }
         const r = await runTool(db, name, args).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: `${name} unavailable` }; });

@@ -211,7 +211,7 @@ Deno.test('D-306: in OPS a house fact is masked, not dropped: the EcoFlow and tu
 });
 
 Deno.test('D-306: the OPS notice confirm card masks its title the way the saved notice does', async () => {
-  const { maskTitle } = await import('../_shared/ops-money.ts');
-  assertEquals(maskTitle('🔔 Save reminder on 2026-10-05 at 08:00 — Pay Honey ₱500?'), '🔔 Save reminder on 2026-10-05 at 08:00 — Pay Honey ₱500?');
-  assert(!maskTitle('🔔 Save reminder on 2026-10-05 — Collect ₱3,000 balance from guest?').includes('3,000'));
+  const { maskNoticeCard } = await import('./policy.ts');
+  assertEquals(maskNoticeCard('🔔 Save reminder on 2026-10-05 at 08:00 — Pay Honey ₱500?', 'Pay Honey ₱500'), '🔔 Save reminder on 2026-10-05 at 08:00 — Pay Honey ₱500?');
+  assert(!maskNoticeCard('🔔 Save reminder on 2026-10-05 — Collect ₱3,000 balance from guest?', 'Collect ₱3,000 balance from guest').includes('3,000'));
 });

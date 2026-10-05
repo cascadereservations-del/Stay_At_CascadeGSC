@@ -1,5 +1,5 @@
 // telegram-cassy policy (2026-09-13, D-104). Pure functions, code-owned, proven in policy.test.ts.
-import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
+import { hasMoney, maskMoney, maskTitle } from '../_shared/ops-money.ts';
 export type Surface = 'finance' | 'ops';
 export type GateEnv = { financeChat: string; opsChat: string; dmUserIds: string[] };
 export type Gate = { allowed: false; reason: string } | { allowed: true; surface: Surface };
@@ -123,4 +123,10 @@ export function maskFacts(h: unknown): unknown {
   if (!o || typeof o !== 'object') return h;
   if (Array.isArray(o.facts)) return { ...o, facts: o.facts.map((f) => ({ ...f, title: maskMoney(String(f?.title ?? '')), body: maskMoney(String(f?.body ?? '')) })) };
   return Array.isArray(o.topics) ? { ...o, topics: o.topics.map((t) => maskMoney(String(t))) } : h;
+}
+
+/** D-306: the OPS notice confirm card. The title goes through maskTitle (as the saved notice does), the rest of the card through maskMoney. */
+export function maskNoticeCard(text: string, title: unknown): string {
+  const ti = String(title ?? '').trim(), at = ti ? text.indexOf(ti) : -1;
+  return at < 0 ? maskMoney(text) : maskMoney(text.slice(0, at)) + maskTitle(ti) + maskMoney(text.slice(at + ti.length));
 }
