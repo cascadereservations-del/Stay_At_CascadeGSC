@@ -122,7 +122,7 @@ Deno.test('D-306 round 7: the round-7 audit leaks all mask', () => {
 Deno.test('D-306 round 7 keep-list: a cue and no money word keeps hotlines, phones, postcode, codes and rooms', () => {
   for (const t of [
     'Bureau of Fire Protection 160', 'PNP 117', 'Red Cross 143', 'Ambulance 911', 'Tawag sa 911', 'Call 911 or 117', 'Tel: 552-3162', 'Call 552-3162 for the front desk', 'Hospital 552-3162', 'zip 9500', 'postal code 9500',
-    'Code is 4829', 'Room 203 extra towels', 'Room 203', 'Room 203, 2 extra towels each', 'Door code 4829 sent', 'Booking #12345 confirmed', 'Arrives 10:30am, back by 2pm', 'Charge the EcoFlow to 100%', '300 W', '1200 ml', 'Send 120 rolls', 'HMA1234567', '00A49C5E',
+    'Code is 4829', 'Room 203 extra towels', 'Room 203', 'Room 203, 2 extra towels each', 'Door code 4829 sent', 'Booking #12345 confirmed', 'Arrives 10:30am, back by 2pm', 'Charge the EcoFlow to 100%', '300 W', '500 ml', 'Send 120 rolls', 'HMA1234567', '00A49C5E',
   ]) assertEquals(maskMoney(t), t, t);
 });
 
@@ -158,4 +158,27 @@ Deno.test('D-306 round 8 keep-list: zip, a phone with a cue, a capital W unit, i
 Deno.test('D-306 round 8: "3.560" is thousands in a title, so it passes the cleaning-pay cap only as 3,560 (and masks)', () => {
   for (const t of ['Pay Maria ₱3.560', 'Cleaning ₱3.560', 'Pay Maria P3.560']) assert(!maskTitle(t).includes('3.560'), `${t} -> ${maskTitle(t)}`);
   assertEquals(maskTitle('Pay Honey ₱500'), 'Pay Honey ₱500');
+});
+
+// D-306 round 9: caps refs need no name-like word, money before a date cancels it, measures cap at 3 digits, Spanish-Tagalog number words, #ids and refs need a cue.
+const LEAKS9: [string, string][] = [
+  ['MARIA1780', '1780'], ['GUEST3560', '3560'], ['ANA1780PHP', '1780'], ['JOY17805', '17805'], ['Maria: MARIA1780 sent', '1780'],
+  ['Paid Oct 2030', '2030'], ['Received Oct 15, 2030', '2030'], ['Balance: 15 Oct 2030', '2030'], ['Paid May 2030', '2030'], ['Maria paid on Oct 2030', '2030'], ['May 2030 Paid', '2030'], ['GCASH Oct 15, 2030', '2030'],
+  ['Maria 1780 ml', '1780'], ['Maria 1780 kg', '1780'], ['1780 sqm', '1780'], ['Maria 1780%', '1780'], ['1780 W for 2 nights', '1780'], ['300 W for 2 nights', '300'], ['Maria 1780 W', '1780'], ['1780 kWh', '1780'], ['Maria 1780 W total', '1780'],
+  ['singko siyentos', 'siyentos'], ['sanlibo', 'sanlibo'], ['mil kwatro syentos', 'syentos'], ['mil kwatro syentos', 'mil'], ['sanlibong piso', 'sanlibo'], ['dos siyentos singkwenta', 'siyentos'], ['sandaan lang', 'sandaan'], ['kinyentos po', 'kinyentos'], ['tres mil', 'mil'],
+  ['Maria #1780', '1780'], ['ref #1780', '1780'], ['Maria 01780', '1780'], ['ref 1780', '1780'], ['Ref no. 3560', '3560'], ['#3560', '3560'], ['Ana 0950', '0950'],
+];
+Deno.test('D-306 round 9: the round-9 audit leaks all mask', () => {
+  for (const [t, leak] of LEAKS9) { const m = maskMoney(t); assert(hasMoney(t), `hasMoney ${t}`); assert(!m.includes(leak), `${t} -> ${m}`); }
+  for (const t of ['Laundry ₱500 MARIA1780', 'Cleaning ₱500 Paid Oct 2030', 'Laundry ₱500 Maria #1780', 'Supplies ₱300 sanlibo']) assert(maskTitle(t) === maskMoney(t), `${t} -> ${maskTitle(t)}`);
+});
+
+Deno.test('D-306 round 9 keep-list: every readability keep still reads whole', () => {
+  for (const t of [
+    'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%', '300 W', '300W', 'Its output is 300 W in total.', 'EcoFlow 1800 W output', 'EcoFlow capacity 1024 Wh', '1.2 kWh', '500 ml shampoo', 'Laundry 1.2 kg',
+    'Call 911 or 117', 'BFP 160', 'Tawag sa 160 kung sunog', 'Door code 4829 sent', 'Code is 4829', 'Wi-Fi password 12345678', 'Room 203', 'Room #203 extra towels', 'Send 120 rolls', '8 guests', 'Guest count 4, towels 8, 3 pax, 2 nights',
+    'Oct 15, 2026', 'Check-in Oct 15, 2026', 'October 2026, 5 nights', '15 Oct 2026', 'Arrives 10:30am, back by 2pm', 'Call 0917 123 4567', 'Tel: 552-3162', '(083) 552-3162',
+    'Booking HMYDBYKYPC / 00A49C5E', 'HMA1234567', 'Booking #12345 confirmed', 'ref 5012345', 'Work order #1a2b3c4d raised', 'D-306 and SPEC-38',
+  ]) assertEquals(maskMoney(t), t, t);
+  for (const t of ['Pay Honey ₱500', 'Laundry ₱320 for 120 towels', 'Cleaning fee ₱1,500']) assertEquals(maskTitle(t), t, t);
 });
