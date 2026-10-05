@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "release_id": "staff_home_v1_20261005",
+  "phase": "expand",
+  "source": {
+    "branch": "s70/l3-staff-home",
+    "commit": "PENDING - the orchestrator fills the merge commit"
+  },
+  "migrations": [
+    "20261005120000_staff_home_v1.sql"
+  ],
+  "migration_sha256": {
+    "20261005120000_staff_home_v1.sql": "70c8e1d810e87c9dba34854c1eb93f358b961370758a40afee5c5cf1062b0dbf"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "PENDING",
+    "production_rule": "Expand only: eight new functions (one RPC, one storage-policy helper, six internal helpers) and one new storage.objects SELECT policy on the guest-id-photos bucket. No table, column, grant or data change; the three existing guest-id-photos policies (manage read, write, delete) are untouched. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "functions_exist_definer_empty_search_path",
+      "query": "select count(*) = 8 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('staff_home_v1','staff_guest_card_v1','staff_current_next_stays_v1','staff_stay_guest_id_v1','staff_primary_id_path_v1','staff_may_see_guest_id_v1','staff_can_view_guest_id_object_v1','staff_hide_money_v1')",
+      "expect": true
+    },
+    {
+      "name": "grants_anon_none_authenticated_only_the_rpc_and_the_policy_helper",
+      "query": "select not has_function_privilege('anon','public.staff_home_v1(uuid)','execute') and has_function_privilege('authenticated','public.staff_home_v1(uuid)','execute') and not has_function_privilege('anon','public.staff_can_view_guest_id_object_v1(text)','execute') and has_function_privilege('authenticated','public.staff_can_view_guest_id_object_v1(text)','execute') and not has_function_privilege('authenticated','public.staff_guest_card_v1(uuid,uuid,date)','execute') and not has_function_privilege('authenticated','public.staff_current_next_stays_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_primary_id_path_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)','execute') and not has_function_privilege('authenticated','public.staff_may_see_guest_id_v1(uuid)','execute') and not has_function_privilege('authenticated','public.staff_hide_money_v1(text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "id_photo_policies_staff_current_plus_the_three_existing_ones",
+      "query": "select count(*) filter (where policyname = 'guest id photos staff current read' and cmd = 'SELECT') = 1 and count(*) filter (where policyname in ('guest id photos manage read','guest id photos manage write','guest id photos manage delete')) = 3 from pg_policies where schemaname = 'storage' and tablename = 'objects'",
+      "expect": true
+    },
+    {
+      "name": "payload_code_never_selects_money_or_contact_columns",
+      "query": "select not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('staff_home_v1','staff_guest_card_v1','staff_current_next_stays_v1') and p.prosrc ~* '(guest_phone|guest_email|phone_e164|email_normalized|total_amount|deposit_amount|guest_paid|host_payout|payout_amount|raw_description|raw_summary|id_number|birthday|address)')",
+      "expect": true
+    },
+    {
+      "name": "money_redactor_hides_an_amount",
+      "query": "select public.staff_hide_money_v1('Was given a refund of PHP 500 and 1,000 pesos') = 'Was given a refund of [hidden] and [hidden]'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261005_staff_home_v1.sql with run-sql-on-host.sh: it drops the storage policy, the RPC and the seven helpers. Nothing else changed. Roll the Cascade Staff app back or take it offline first, or its home shows an error banner."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_app",
+      "required_state": "Apply this release BEFORE the Cascade Staff repo is pushed to GitHub Pages: the app calls staff_home_v1 on every open and shows an error banner until the function exists."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "NOT RUN - the orchestrator rehearses this release (migration-rehearsal-on-host.sh) and runs pgTAP staff_home_v1.sql (29 tests) before filling this field.",
+    "evidence": "Read-only against production on 2026-10-05: staff_home_v1 and the seven helpers absent; current_staff_authorized and staff_access_allowed live bodies read (cleaner has read_operations and submit_cleaning, maintenance has read_operations); guest-id-photos policies are manage_operations only; 40 of 41 confirmed stays since 2026-05-01 resolve to a guest by link, by direct inquiry or by unique dates; guest_profile_details.stay_preferences is the notes column; guest_companions.id_photo_path holds <companion id>/<uuid>.jpg."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the Cascade Staff repo is pushed before this release is applied"
+  ]
+}
