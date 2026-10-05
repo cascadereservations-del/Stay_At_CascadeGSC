@@ -13,6 +13,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { normalizeEmail, normalizePhilippinePhone } from '../_shared/guest-identity.ts';
+import { mintStatusToken } from '../_shared/guest-access-token.ts';
 // v13 (session 26, 2026-09-16, Telegram plan §1/§5): Finance card opens with the shared header
 // and carries guest_context_v1 lines for a returning direct guest (empty for a first-timer).
 import { cardMarkup, financeCard, opsCard, siteNotes, viaOf, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: the request card with its decision buttons
@@ -28,6 +29,8 @@ const CORS = {
 };
 
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
+// SPEC-42 s6: the status link keeps its token in the fragment, which a browser never sends to a server or a referrer.
+const STATUS_PAGE = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/stay.html#t=';
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS });
@@ -159,6 +162,9 @@ Deno.serve(async (req) => {
   });
   if (identityError) console.error('[submit-booking] guest identity resolution failed:', identityError.code);
   const resolvedGuestId: string | null = (Array.isArray(identity) ? identity[0]?.guest_id : (identity as any)?.guest_id) ?? null;
+
+  // SPEC-42 s6: the capability link for the booking status page. Only its hash is stored; a failure only means no link.
+  const statusToken = await mintStatusToken(db.from('guest_access_tokens'), { propertyId: PROPERTY_ID, bookingId: inquiry.id, checkoutDate: checkoutStr }).catch(() => null);
 
   const inquiryId = inquiry.id;
   const ref = inquiry.id.slice(0, 8).toUpperCase();
@@ -328,6 +334,7 @@ Deno.serve(async (req) => {
     receipt_upload_expires_at: receiptUploadToken ? new Date(receiptUploadExpiresAt).toISOString() : null,
     hold: isHold,
     hold_expires_at: holdExpiresAt,
+    status_url:     statusToken ? STATUS_PAGE + statusToken : null,
     message:        'Booking request received. We will confirm via Messenger or phone within 2 hours.',
   });
 });
