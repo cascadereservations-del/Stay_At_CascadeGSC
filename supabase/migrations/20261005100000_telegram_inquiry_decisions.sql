@@ -7,7 +7,7 @@
 -- 2. booking_lifecycle_events_event_type_check gains guest_replied (the audit row for a message sent to a guest from Telegram).
 -- 3. Three service_role-only definer RPCs, built like telegram_finance_decide_booking_v1:
 --      telegram_inquiry_view_v1          read: the open (unpaid) requests, or one request whatever its status
---      telegram_inquiry_decide_v1        hold the dates 24 h, or decline with a reason code; one named actor, idempotent
+--      telegram_inquiry_decide_v1        hold the dates 24 h, or decline with a reason code; the Finance tapper by Telegram id, idempotent
 --      telegram_inquiry_message_logged_v1 audit row for a guest message (hold line, decline line, Cassy reply)
 -- Who may decide (D-302.2): anyone in the Finance group - the Edge function only calls decide from the Finance chat. No staff-profile
 -- mapping is needed; the tapper's Telegram id is recorded on every audit row, and actor_user_id is filled when that id is mapped.

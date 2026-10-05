@@ -6,7 +6,7 @@
 --   Telegram id and records it, and fills actor_user_id when the id is mapped.
 --   admin A (tg 907000001, note 'Admin A') mapped admin   -> decides, actor_user_id = A
 --   tg 907000099 is mapped to nobody                        -> decides, actor_user_id null, Telegram id recorded
---   (B, C, D and owner O stay as fixtures for the view and message-log assertions.)
+--   (B, C, D and owner O are unused since D-302.2; kept as harmless fixtures, rolled back with the suite.)
 --   b1 pending, calendar block, pending income row.   b2 pending with a receipt.   b3 pending, overlaps a confirmed Airbnb stay.
 --   b4 cancelled.   b5 pending with a 2 h hold from open_booking_hold_v1.   b6 pending, no hold.
 -- submitted_at is far in the past so the fixtures sort first in telegram_inquiry_view_v1(null), whatever else a restore holds.

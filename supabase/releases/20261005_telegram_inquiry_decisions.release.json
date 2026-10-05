@@ -10,7 +10,7 @@
     "20261005100000_telegram_inquiry_decisions.sql"
   ],
   "migration_sha256": {
-    "20261005100000_telegram_inquiry_decisions.sql": "9973c5584c8e8b107e90e5c31e04a3625db6d73bb3d4c6fdaa28fc1ba238fca4"
+    "20261005100000_telegram_inquiry_decisions.sql": "e62c504d1a714019fd002646b87809cea41daa0d6b734a6e46212e65fb00d9d8"
   },
   "backup": {
     "required": true,
@@ -72,7 +72,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "PENDING: rehearse on a fresh backup with migration-rehearsal-on-host.sh, pgTAP telegram_inquiry_decisions.sql expects 55 checks.",
+    "rehearsal": "PENDING: rehearse on a fresh backup with migration-rehearsal-on-host.sh, pgTAP telegram_inquiry_decisions.sql expects 52 checks.",
     "evidence": "Read-only against production on 2026-10-05: the live pending CHECK has exactly the 17 values listed; the live lifecycle CHECK has the 10 values listed; decide_direct_booking_without_finance_review md5(prosrc) 8f9384913791779afd0cd38ed5152220; staff_access_allowed has no AAL rule (p_aal ignored); booking_decisions.idempotency_key is unique."
   },
   "approvals": {
