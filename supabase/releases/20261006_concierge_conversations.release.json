@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "concierge_conversations_20261006",
+  "phase": "expand",
+  "source": {
+    "branch": "s72/l6-conversations",
+    "commit": "a35f54bfee4c6fbfafb7aa43418a9b402e07b1e1"
+  },
+  "migrations": [
+    "20261006130000_concierge_conversations.sql"
+  ],
+  "migration_sha256": {
+    "20261006130000_concierge_conversations.sql": "f6e3d46554dd8c014ba4a5cbf332f985657d820f599a9eb7d21febb0f71a7f95"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": null,
+    "production_rule": "Expand only: two new read functions, public.concierge_conversations_v1(int) and public.concierge_thread_v1(text), both security definer with an empty search_path, granted to authenticated only and refusing anyone who is not an active owner or admin. No table, column, policy or data change; concierge_threads stays closed to every client role. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "both_functions_exist_definer_empty_search_path",
+      "query": "select count(*) = 2 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('concierge_conversations_v1','concierge_thread_v1')",
+      "expect": true
+    },
+    {
+      "name": "grants_authenticated_only_anon_and_public_none",
+      "query": "select has_function_privilege('authenticated','public.concierge_conversations_v1(int)','execute') and has_function_privilege('authenticated','public.concierge_thread_v1(text)','execute') and not has_function_privilege('anon','public.concierge_conversations_v1(int)','execute') and not has_function_privilege('anon','public.concierge_thread_v1(text)','execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid in ('public.concierge_conversations_v1(int)'::regprocedure,'public.concierge_thread_v1(text)'::regprocedure) and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "threads_and_handoffs_tables_still_closed_to_clients",
+      "query": "select not has_table_privilege('authenticated','public.concierge_threads','select') and not has_table_privilege('anon','public.concierge_threads','select')",
+      "expect": true
+    },
+    {
+      "name": "list_result_shape",
+      "query": "select pg_get_function_result('public.concierge_conversations_v1(int)'::regprocedure) = 'TABLE(psid text, psid_short text, guest_name text, updated_at timestamp with time zone, last_role text, last_text text, last_guest_at timestamp with time zone, open_handoffs integer, human_until timestamp with time zone, last_risk text)'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261006_concierge_conversations.sql with run-sql-on-host.sh: it drops the two functions. Nothing else changed. The Conversations page then shows its error state; roll the admin dashboard back too. The host-reply Edge Function can stay deployed: it only sends when a signed-in owner or admin taps Send."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_function_then_app",
+      "required_state": "Apply this release first, deploy the host-reply Edge Function second, publish the admin dashboard build with the Conversations page last: the page calls both RPCs on open and shows an error state until they exist, and its Send button posts to host-reply."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING - run on a restored backup together with the pgTAP suite concierge_conversations (22 assertions).",
+    "evidence": "Production read-only (2026-10-06): concierge_threads has columns psid, guest_name, human_until, bot_turns, history, last_risk, updated_at, booking_flow, last_mid, verified_until; concierge_handoffs has id, psid, guest_name, guest_text, risk, options, status, tg_message_id, resolved_by, resolved_at, sent_text, created_at. The list query body ran against production as a read-only SELECT (8 threads, 7 with a guest turn, every history an array, every entry role guest or bot). current_staff_active(text[]) exists and is the gate the concierge_handoffs read policy already uses."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the admin dashboard build is published before this release is applied"
+  ]
+}
