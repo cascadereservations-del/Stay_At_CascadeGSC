@@ -4,8 +4,8 @@ import { lintReply, toneRules } from '../messenger-concierge/voice.ts';
 import { templateOf } from '../_shared/cascade-core/format.ts';
 import type { NoticeState } from '../_shared/cascade-core/brownout.ts';
 import {
-  airbnbCovers, cancelCard, changedCard, classifyNights, extraGuestCards, guestDraft, newCard, nightsLine, reminderCard, reminderDue,
-  seenCard, seenDue, touchedNights, windowLabel, type Row,
+  airbnbCovers, cancelCard, changedCard, classifyNights, extraGuestCards, guestDraft, newCard, nightsLine, posterDate, releasedCard, reminderCard, reminderDue,
+  scheduleFrom, seenCard, seenDue, staleNotices, touchedNights, windowLabel, type Row,
 } from './plan.ts';
 
 Deno.test('D-290 night math: block every night the outage touches (night N = check in N, out N+1; 12:00 out, 14:00 in)', () => {
@@ -162,4 +162,131 @@ Deno.test('wording helpers', () => {
   assertEquals(windowLabel('2026-10-15', null, null), 'Thu 15 Oct (times not shown on the poster)');
   assertEquals(windowLabel('2026-10-15', '06:00:00', null), 'Thu 15 Oct, 06:00 onward');
   assertStringIncludes(nightsLine(st({ already: ['2026-10-13'] })), 'Marifel blocks the same nights in Airbnb by hand.');
+});
+
+// ---- SPEC-41 Part 3 ----------------------------------------------------------------------------------------------------------
+const PU = 'https://www.socoteco2.com/wp-content/uploads/2026/10/';
+
+Deno.test('SPEC-41 3.5-7: posterDate reads the filename date, never the upload suffix', () => {
+  assertEquals(posterDate(PU + 'SPI-10092026-BATULAKI-GLAN-2_20261003_160149_0002.jpg'), '2026-10-09', 'not 2026-10-03');
+  assertEquals(posterDate(PU + 'SPI-09252026-F13-3.jpg'), '2026-09-25');
+  assertEquals(posterDate(PU + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg'), '2026-10-15');
+  assertEquals(posterDate(PU + 'logo.png'), null);
+});
+
+Deno.test('SPEC-41 3.2: there is no supersede (a feeder poster can repeat on two dates in two posts); a read-class poster lists its filename date and the date the OCR found', () => {
+  const sc = scheduleFrom([
+    { id: 2, posters: [PU + 'SPI-10122026-PORTION-OF-F14-3.jpg', PU + 'SPI-10042026-BATULAKI-GLAN.jpg'] },
+    { id: 1, posters: [PU + 'SPI-10052026-PORTION-OF-F14-3.jpg'] },
+  ], { [PU + 'SPI-10042026-BATULAKI-GLAN.jpg']: '2026-10-06' }, () => true)!;
+  assertEquals([...sc.listed].sort(), ['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-12']);
+  const unread = scheduleFrom([{ id: 2, posters: [PU + 'SPI-10042026-BATULAKI-GLAN.jpg'] }], {}, () => true)!;
+  assertEquals([...unread.listed], ['2026-10-04'], 'a read-class poster with no read lists its filename date: more held, never less');
+  const notOurs = scheduleFrom([{ id: 2, posters: [PU + 'SPI-10042026-BATULAKI-GLAN.jpg'] }], { [PU + 'SPI-10042026-BATULAKI-GLAN.jpg']: '' }, () => true)!;
+  assertEquals([...notOurs.listed], ['2026-10-04'], "'' = read and not ours: the filename date only");
+});
+
+Deno.test('SPEC-41 3.2 (audit L5a): a hit poster lists BOTH the date its read names and its filename date; with no read it lists the filename', () => {
+  const old = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', far = PU + 'SPI-PMS-10252026-TUPI-B-SS.jpg';
+  const moved = scheduleFrom([{ id: 9, posters: [old, far] }], { [old]: '2026-10-15' }, () => true)!;
+  assertEquals([...moved.listed].sort(), ['2026-10-08', '2026-10-15'], 'moved-TO and moved-FROM both listed: one paid read never frees a night; the cancel card frees the old date');
+  assertEquals([moved.covered('2026-10-08'), moved.covered('2026-10-15')], [true, true], 'the old date is judged, not skipped');
+  assertEquals([...scheduleFrom([{ id: 9, posters: [old] }], {}, () => true)!.listed], ['2026-10-08'], 'no read recorded: filename date (decided before ours existed)');
+  const same = scheduleFrom([{ id: 9, posters: [old] }], { [old]: '2026-10-08' }, () => true)!;
+  assertEquals([...same.listed], ['2026-10-08'], 'a read that confirms the filename lists it');
+  const cross = scheduleFrom([{ id: 9, posters: [PU + 'SPI-10082026-PORTION-OF-F14-3.jpg'] }, { id: 8, posters: [PU + 'SPI-10092026-PORTION-OF-F14-3.jpg'] }], { [PU + 'SPI-10082026-PORTION-OF-F14-3.jpg']: '2026-10-09' }, () => true)!;
+  assertEquals([...cross.listed].sort(), ['2026-10-08', '2026-10-09'], 'a mismatching read lists its own date and the filename date');
+});
+
+Deno.test('SPEC-41 3.2: staleNotices - miss, release, ask, hit; unknown, a source that is not checked, a past date and a pending question are skipped', () => {
+  const sc = { listed: new Set(['2026-10-15']), covered: (d: string) => d >= '2026-10-03' && d <= '2026-10-25' };
+  const s = (o: Partial<NoticeState>) => st({ date: '2026-10-08', blocked: ['2026-10-07', '2026-10-08'], nights: ['2026-10-07', '2026-10-08'], ...o });
+  const runU = (states: NoticeState[], sched: typeof sc | null = sc, rows: Row[] = []) => staleNotices(states, sched, rows, T);
+  const run = (states: NoticeState[], sched: typeof sc | null = sc, rows: Row[] = []) => { const { unknown: _u, ...r } = runU(states, sched, rows); return r; };
+  assertEquals(run([s({})]), { miss: ['2026-10-08'], hit: [], release: [], ask: [] });
+  assertEquals(run([s({ missRuns: 1 })]), { miss: [], hit: [], release: ['2026-10-08'], ask: [] });
+  assertEquals(run([s({ date: '2026-10-15', missRuns: 1 })]), { miss: [], hit: ['2026-10-15'], release: [], ask: [] });
+  assertEquals(run([s({ missRuns: 1 })], null), { miss: [], hit: [], release: [], ask: [] }, 'unknown');
+  assertEquals(run([s({ missRuns: 1, source: 'ngcp' }), s({ missRuns: 1, source: 'staff' })]), { miss: [], hit: [], release: [], ask: [] });
+  assertEquals(run([s({ missRuns: 1, source: 'socoteco' })]).release, ['2026-10-08']);
+  assertEquals(run([s({ date: '2026-11-20', missRuns: 1 })]), { miss: [], hit: [], release: [], ask: [] }, 'outside every post');
+  assertEquals(run([s({ missRuns: 1, status: 'released' }), s({ missRuns: 1, blocked: [] }), s({ missRuns: 1, cancelAskedAt: 'x' })]), { miss: [], hit: [], release: [], ask: [] });
+  assertEquals(run([s({ date: '2026-10-01', missRuns: 1 })]).release, [], 'a date already past');
+  const guest: Row = { uid: 'ab', source: 'airbnb', status: 'confirmed', checkin_date: '2026-10-06', checkout_date: '2026-10-08', guest_name: 'Test Guest' };
+  assertEquals(run([s({ missRuns: 1 })], sc, [guest]), { miss: [], hit: [], release: [], ask: ['2026-10-08'] }, 'a guest on a held night: ask, never release');
+  // audit L5a: an unknown run (no schedule, or the date outside every span) is reported so watch.ts resets missRuns: miss, unknown, miss never releases.
+  assertEquals(runU([s({ missRuns: 1 })], null).unknown, ['2026-10-08'], 'no schedule');
+  assertEquals(runU([s({ date: '2026-11-20', missRuns: 1 })]).unknown, ['2026-11-20'], 'outside every span');
+  assertEquals(runU([s({ missRuns: 1, source: 'ngcp' })], null).unknown, [], 'a source that is not checked is not tracked');
+});
+
+Deno.test('SPEC-41: an NGCP or staff notice is worded as what it is, with no feeder; the draft for a guest names the right provider and passes the voice rules', () => {
+  const n = newCard(st({ source: 'ngcp' }));
+  assertStringIncludes(n.text, '⚡ NGCP power interruption Thu 15 Oct, 06:00-17:00.');
+  assertEquals(/Feeder|SOCOTECO/.test(n.text), false, n.text);
+  assertStringIncludes(newCard(st({ source: 'staff' })).text, '⚡ Scheduled power interruption Thu 15 Oct');
+  assertStringIncludes(newCard(st({ source: 'socoteco' })).text, '⚡ SOCOTECO power interruption Thu 15 Oct, 06:00-17:00 (Feeder 14-3).');
+  assertStringIncludes(newCard(st({ url: 'https://example.com/p.jpg' })).text, 'SOCOTECO notice: https://example.com/p.jpg');
+  assertStringIncludes(cancelCard(st({ source: 'ngcp', card: { kind: 'cancel', note: 'cancelled' } })).text, '⚡ NGCP cancelled the power interruption on Thu 15 Oct.');
+  assertStringIncludes(changedCard(st({ source: 'ngcp', card: { kind: 'changed' } })).text, '⚡ NGCP changed the power interruption on Thu 15 Oct.');
+  assertStringIncludes(reminderCard(st({ source: 'ngcp' })).text, 'for the NGCP interruption');
+  assertStringIncludes(seenCard(st({ source: 'staff' })).text, '(Scheduled interruption Thu 15 Oct)');
+  const g = newCard(st({ source: 'ngcp', blocked: [], guests: [{ night: '2026-10-14', name: 'Test Guest' }] }));
+  assert(templateOf(g.text).startsWith('Hi Test, a quick heads-up: NGCP has scheduled a power interruption on'), templateOf(g.text));
+  for (const by of ['Socoteco', 'NGCP', 'The power company']) {
+    const d = guestDraft('Test Guest', '2026-10-15', '06:00:00', 11, false, by);
+    assertEquals(lintReply(d), [], d); assertEquals(toneRules(d), [], d); assert(d.length <= 320, `${d.length}`);
+  }
+});
+
+Deno.test('SPEC-41 3.4: the release card leads with the nights that are open again, tells Marifel what to do, and has one button', () => {
+  const c = releasedCard(st({ date: '2026-10-08' }), ['2026-10-07', '2026-10-08']);
+  assertEquals(c.text, [
+    '🟡 ATTENTION · brownout Thu 8 Oct', '',
+    '✅ The nights of Oct 7 and Oct 8 are open again on our booking site. SOCOTECO no longer lists the Thu 8 Oct power interruption for Feeder 14-3 on its current schedule.', '',
+    'Marifel: if Airbnb is still blocked for those nights, unblock them there.', '',
+    'If SOCOTECO told you directly that it is still on, tap Keep it blocked.',
+  ].join('\n'));
+  assertEquals(c.markup?.inline_keyboard, [[{ text: '🔒 Keep it blocked', callback_data: 'pw:keep:2026-10-08' }]]);
+  assert(!/!/.test(c.text));
+  assertStringIncludes(releasedCard(st({ date: '2026-10-08' }), ['2026-10-07']).text, 'The night of Oct 7 is open again');
+  assertStringIncludes(releasedCard(st({ date: '2026-10-08' }), ['2026-10-07']).text, 'unblock it there.');
+});
+
+
+Deno.test('audit L5a (E): two separate Leon Llido posters, Oct 15 and Oct 22, both stay listed (no supersede); nothing is released', () => {
+  const sc = scheduleFrom([{ id: 30, posters: [PU + 'SPI-PMS-10222026-LEON-LLIDO-SS.jpg'] }, { id: 20, posters: [PU + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg'] }],
+    { [PU + 'SPI-PMS-10222026-LEON-LLIDO-SS.jpg']: '2026-10-22', [PU + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg']: '2026-10-15' }, () => true)!;
+  assertEquals([...sc.listed].sort(), ['2026-10-15', '2026-10-22']);
+  const held = (date: string) => st({ date, blocked: [date], nights: [date], missRuns: 1 });
+  assertEquals(staleNotices([held('2026-10-15'), held('2026-10-22')], sc, [], '2026-10-10').release, []);
+});
+
+Deno.test('audit L5a (F): a read-class poster named for Oct 15 but misread as Oct 16 lists both dates', () => {
+  const u = PU + 'SPI-10152026-BRIA-HOMES.jpg';
+  const sc = scheduleFrom([{ id: 5, posters: [u] }], { [u]: '2026-10-16' }, () => true)!;
+  assertEquals([...sc.listed].sort(), ['2026-10-15', '2026-10-16']);
+});
+
+Deno.test('audit L5a (D-move): a moved poster (filename Oct 8, read Oct 15) lists both dates, so the Oct 8 block is never auto-released; it goes through the cancel ask', () => {
+  const u = PU + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg';
+  const sc = scheduleFrom([{ id: 9, posters: [u] }], { [u]: '2026-10-15' }, () => true)!;
+  assertEquals([...sc.listed].sort(), ['2026-10-08', '2026-10-15']);
+  const oct8 = st({ date: '2026-10-08', blocked: ['2026-10-07', '2026-10-08'], nights: ['2026-10-07', '2026-10-08'], missRuns: 5 });
+  const r = staleNotices([oct8], sc, [], '2026-10-05');
+  assertEquals([r.release, r.miss, r.hit], [[], [], ['2026-10-08']]);
+});
+
+Deno.test('audit L5a (staff): a date whose notice power-watch did not insert counts misses but goes to ask, never release', () => {
+  const sc = { listed: new Set<string>(), covered: () => true };
+  const s = (o: Partial<NoticeState> = {}) => st({ date: '2026-10-08', blocked: ['2026-10-07', '2026-10-08'], nights: ['2026-10-07', '2026-10-08'], ...o });
+  const prot = new Set(['2026-10-08']);
+  const run = (state: NoticeState) => { const { unknown: _u, ...r } = staleNotices([state], sc, [], '2026-10-02', prot); return r; };
+  assertEquals(staleNotices([s({ missRuns: 1 })], sc, [], '2026-10-02').release, ['2026-10-08'], 'baseline: power-watch notice releases');
+  assertEquals(run(s()), { miss: ['2026-10-08'], hit: [], release: [], ask: [] }, 'first miss is counted');
+  assertEquals(run(s({ missRuns: 1 })), { miss: [], hit: [], release: [], ask: ['2026-10-08'] }, 'second miss: ask');
+  assertEquals(run(s({ missRuns: 1, cancelAskedAt: 'x' })), { miss: [], hit: [], release: [], ask: [] }, 'asked once');
+  assertEquals(run(s({ missRuns: 1, card: { kind: 'cancel', note: 'no longer lists' } })), { miss: [], hit: [], release: [], ask: [] }, 'a queued ask is not repeated');
+  const listed = { listed: new Set(['2026-10-08']), covered: () => true };
+  assertEquals(staleNotices([s({ missRuns: 1 })], listed, [], '2026-10-02', prot).hit, ['2026-10-08'], 'listed: nothing to ask');
 });

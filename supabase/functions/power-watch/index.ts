@@ -18,20 +18,24 @@
 // Facebook only; paid scraping, free tier first) is missed; and one OCR misread is carried until a newer poster corrects it. Two
 // windows on one date are one notice: the newer poster replaces the older.
 // Not told: other guests, who hear about utilities only if they ask (Lloyd 2026-09-29). The staff house fact carries the 24/7 hotline.
+// Session 70 (SPEC-41 Part 3, D-299.1): a brownout block stays only while SOCOTECO's CURRENT posts still list the outage (plan.ts scheduleFrom / staleNotices).
+// Two clean scrapes in a row without it free its nights (watch.ts, one OPS + Finance card with Keep it blocked); never on an unknown or half-read feed,
+// never over a guest, and only for ops_notices.source = socoteco (an NGCP or staff notice ends by its date or an Unblock). The feed is 20 posts deep.
 // ?dry=1 decides and logs but writes, alerts and marks nothing.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { parseModelJson, visionExtractText } from '../_shared/cascade-core/vision.ts';
-import { classifyFile, isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Ocr } from './poster.ts';
+import { isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Ocr } from './poster.ts';
 import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
-import { touchedNights } from './plan.ts';
-import { pruneStates, reconcile, type Found } from './watch.ts';
+import { scheduleFrom, touchedNights } from './plan.ts';
+import { reportStuck, scanPosts } from './scan.ts';
+import { pruneStates, reconcile } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
-const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=10&orderby=date&_fields=id,date,link,title,content';
+const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=20&orderby=date&_fields=id,date,link,title,content';
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; CascadeOpsWatch/1.0)' };
 const STATE_KEY = 'power_watch_state';
 const MAX_READS = 4;   // poster reads per run; the rest wait for the next run
@@ -42,8 +46,8 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 type Db = any;
 
 /** A card to the OPS chat. Plain text (no parse_mode): the buttons are the card's own. */
-async function tg(text: string, markup?: unknown): Promise<boolean> {
-  const token = env('TELEGRAM_BOT_TOKEN'), chat = env('TELEGRAM_CHAT_ID');
+async function tg(text: string, markup?: unknown, chatEnv = 'TELEGRAM_CHAT_ID'): Promise<boolean> {
+  const token = env('TELEGRAM_BOT_TOKEN'), chat = env(chatEnv);
   if (!token || !chat) return false;
   const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -73,56 +77,50 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   // deno-lint-ignore no-explicit-any
   const posts = ((await res.json()) as any[]).filter(isPowerPost);
   const { data: st } = await db.from('app_settings').select('value').eq('key', STATE_KEY).maybeSingle();
-  const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[] };
+  // ours (SPEC-41): a poster the OCR found to be ours -> the date it read, so scheduleFrom can tell which dates SOCOTECO still lists.
+  const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[], ours: { ...(st?.value?.ours ?? {}) } as Record<string, string>, fails: { ...(st?.value?.fails ?? {}) } as Record<string, number> };
   const now = new Date();
   const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
-  const found: Found[] = [], log: string[] = [];
-  let reads = 0;
-  const started = Date.now();
-  for (const p of posts) {
-    if (state.done.includes(p.id)) continue;
-    let complete = true;
-    for (const url of posterUrls(p.content?.rendered ?? '')) {
-      if (state.images.includes(url)) continue;
-      const c = classifyFile(url);
-      if (c === 'miss') { state.images.push(url); continue; }
-      if (reads >= MAX_READS || Date.now() - started > READ_BUDGET_MS) { complete = false; break; }
-      reads++;
-      try {
-        const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
-        if (!img.ok) throw new Error(`poster_${img.status}`);
-        const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
-        // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
-        const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url), o), url);
-        const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'));
-        const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
-        const n = noticeFrom(o, c === 'hit', url);
-        log.push(`${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}`);
-        if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id });
-        state.images.push(url);
-      } catch (e) {
-        complete = false; // read again next run
-        console.warn('power_watch_read_failed', url.split('/').pop(), String(e).slice(0, 200));
-      }
-    }
-    if (complete) state.done.push(p.id);
-  }
+  // Reads every poster not yet in state.images, in done posts too (scan.ts).
+  const { found, log, reads, stuck } = await scanPosts(posts, state, today, async (url, c) => {
+    const img = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
+    if (!img.ok) throw new Error(`poster_${img.status}`);
+    const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
+    // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
+    const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url), o), url);
+    const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'));
+    const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
+    const n = noticeFrom(o, c === 'hit', url);
+    return { notice: n, log: `${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}` };
+  }, { maxReads: MAX_READS, budgetMs: READ_BUDGET_MS }, (url, e) => console.warn('power_watch_read_failed', url.split('/').pop(), String(e).slice(0, 200)));
+  // What SOCOTECO's current posts say; null (unknown) when a poster is still unread, so nothing is ever freed on a half-read feed.
+  // A poster is decided only when it was actually read (state.images); a done post's unread poster is read above, or the schedule is null.
+  const sched = posts.map((p) => ({ id: p.id, posters: posterUrls(p.content?.rendered ?? '') }));
+  const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u));
   let results: string[] = [];
   if (!dry) {
     // Blocks and cards first; the poster state is saved only after them, so a failure re-reads the posters rather than losing a notice.
     results = await reconcile({
       db, propertyId: PROPERTY_ID, today, now,
       send: async (c) => await tg(c.text, c.markup),
+      sendFinance: async (c) => await tg(c.text, c.markup, 'TELEGRAM_FINANCE_CHAT_ID'),
       mail: (subject, body) => mail(db, subject, body),
       log: (event, data) => console.log(event, JSON.stringify(data)),
-      posters: state.images,
+      posters: state.images, schedule,
     }, found);
+    // A poster that failed 8 runs in a row: ONE Follow-ups task (system_task_open_v1 is idempotent by kind + ref), since auto-release is silently off while it is unread.
+    try {
+      await reportStuck(stuck, async (t) => {
+        const { error } = await db.rpc('system_task_open_v1', { p_property_id: PROPERTY_ID, p_source_kind: t.kind, p_source_ref: t.ref, p_title: t.title, p_detail: t.detail, p_priority: 'normal' });
+        if (error) console.warn('system_task_open_v1 power_poster_unread:', String(error.message).slice(0, 160));
+      });
+    } catch (e) { console.warn('power_watch_stuck_task_failed', String(e).slice(0, 160)); } // log only: never skip the prune or the state save
     const pruned = await pruneStates(db, today);
     if (pruned) results.push(`pruned ${pruned} old notice states`);
-    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))), fails: Object.fromEntries(Object.entries(state.fails).filter(([u]) => !state.images.includes(u) && sched.some((p) => p.posters.includes(u)))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
   const out = {
-    posts: posts.length, reads, dry, results, log,
+    posts: posts.length, reads, dry, results, log, schedule: schedule ? { listed: [...schedule.listed].sort() } : null,
     found: found.map((n) => `${n.date} ${n.time ?? ''} ${n.hours ?? ''}h ${n.status} nights ${touchedNights(n.date, n.time, n.hours).join('+')}`),
   };
   console.log('power_watch_run', JSON.stringify(out));

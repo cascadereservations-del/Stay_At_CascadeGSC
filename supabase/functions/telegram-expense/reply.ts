@@ -5,7 +5,8 @@ import type { Change, CountItem } from './count.ts';
 
 export type Flow =
   | 'count_qty' | 'expense' | 'edit_amount' | 'payclean_amount'
-  | 'receipt_item_edit' | 'receipt_item_add' | 'manual_clean' | 'payreq_proof' | 'inquiry_reason'; // SPEC-37 + SPEC-38 ("Other" decline reason)
+  | 'receipt_item_edit' | 'receipt_item_add' | 'manual_clean' | 'payreq_proof' | 'inquiry_reason' // SPEC-37 + SPEC-38 ("Other" decline reason)
+  | 'block_brownout' | 'block_other'; // SPEC-41: the follow-ups to the OPS blocked-date card
 
 export type Route =
   | { kind: 'flow' }         // the person is being asked something: this text is the answer
@@ -59,6 +60,8 @@ export function refusal(flow: Flow): string {
     manual_clean: 'Type: cleaner, date, amount, like Honey, 05-28, 500. Nothing saved yet.',
     payreq_proof: 'Send the transfer screenshot as a photo. Nothing is marked paid yet.',
     inquiry_reason: 'A few words are enough, like "guest asked for a party". Nothing was saved.',
+    block_brownout: 'Say the day, start, hours and who announced it, like: 10-11 8am 8h NGCP. Nothing saved yet.',
+    block_other: 'Reply with a few words about what the block is. Nothing saved yet.',
   } as Record<Flow, string>)[flow];
 }
 

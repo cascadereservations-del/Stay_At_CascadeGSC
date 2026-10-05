@@ -28,8 +28,10 @@ import { chatJson } from '../_shared/cascade-core/providers.ts'; // /ping tests 
 import { fbSendText, notifyMessengerBookingDeclined } from '../_shared/cascade-core/messenger.ts';
 import { templateOf, autoKeyboard } from '../_shared/cascade-core/format.ts'; // session 28: 📨 Copy/Revise taps
 import { applyHouseFact, houseTapLine, mayTeach } from '../_shared/cascade-core/house.ts'; // D-282: Cassy's teach card
-import { nightsPhrase, parsePwTap, parseTaskTap, patchNoticeState, readNotice, releaseNotice, rpcMissing } from '../_shared/cascade-core/brownout.ts'; // D-290: brownout card taps, stay/guest-details task taps
+import { keepNotice, monthDay, nightsPhrase, noticeSource, parsePwTap, parseTaskTap, patchNoticeState, readNotice, releaseNotice, rpcMissing } from '../_shared/cascade-core/brownout.ts'; // D-290: brownout card taps, stay/guest-details task taps
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
+import { blockNoted, blockRecorded, blockRefusal, BLOCK_PROMPTS } from './block.ts'; // SPEC-41: the OPS blocked-date card's answers and follow-ups
+import { feederFor, parseBrownoutReply, parseNoticeArgs, resolveDateOn } from './notice-args.ts'; // SPEC-41: the /brownout parser, shared with the Brownout follow-up
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
 import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
 import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
@@ -612,41 +614,14 @@ async function showMenu(chatId:any,msgId?:number) {
   if(msgId)await tgEdit(chatId,msgId,text,kb);else await tgSend(chatId,text,{reply_markup:kb});
 }
 
-function isDateLike(t:string) { return ['today','tomorrow','yesterday'].includes(t.toLowerCase())||/^\d{4}-\d{2}-\d{2}$/.test(t)||/^\d{1,2}-\d{1,2}$/.test(t); }
-function resolveDate(token?:string) {
-  const today=toManilaDate();if(!token)return today;
-  const t=token.toLowerCase();
-  if(t==='today')return today;
-  if(t==='yesterday'){const d=new Date(today+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-1);return d.toISOString().slice(0,10);}
-  if(t==='tomorrow'){const d=new Date(today+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+1);return d.toISOString().slice(0,10);}
-  if(/^\d{4}-\d{2}-\d{2}$/.test(token))return token;
-  const m=token.match(/^(\d{1,2})-(\d{1,2})$/);
-  if(m)return`${today.slice(0,4)}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-  return today;
-}
-function resolveTime(token?:string):string|null {
-  if(!token)return null;const t=token.toLowerCase();
-  const ampm=t.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/);
-  if(ampm){let h=Number(ampm[1]);const min=Number(ampm[2]??0);if(ampm[3]==='pm'&&h<12)h+=12;if(ampm[3]==='am'&&h===12)h=0;return`${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}:00`;}
-  const hm=t.match(/^(\d{1,2}):(\d{2})$/);
-  if(hm){const h=Number(hm[1]),min=Number(hm[2]);if(h<=23&&min<=59)return`${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}:00`;}
-  return null;
-}
-function resolveDuration(token?:string):number|null { if(!token)return null;const m=token.match(/^(\d+(?:\.\d+)?)h?$/i);if(m){const n=Number(m[1]);return isFinite(n)&&n>0?n:null;}return null; }
+const resolveDate=(token?:string)=>resolveDateOn(token,toManilaDate()); // SPEC-41: the date, time and duration parsing lives in notice-args.ts
 const NOTICE_ICON:Record<string,string>={brownout:'⚡',holiday:'🏖',event:'📅',reminder:'🔔'};
 
 async function handleOpsNoticeCommand(noticeType:string,args:string[],chatId:any,from:any,db:any) {
-  let idx=0,effectiveDate=toManilaDate(),effectiveTime:string|null=null,durationHours:number|null=null;
-  if(args[idx]&&isDateLike(args[idx]))effectiveDate=resolveDate(args[idx++]);
-  if(noticeType==='brownout'){
-    if(args[idx]&&!resolveTime(args[idx])&&args[idx+1]&&['am','pm'].includes(args[idx+1].toLowerCase())){args.splice(idx,2,args[idx]+args[idx+1]);}
-    if(args[idx]){const t=resolveTime(args[idx]);if(t){effectiveTime=t;idx++;}}
-    if(args[idx]){const d=resolveDuration(args[idx]);if(d!==null){durationHours=d;idx++;}}
-  }
-  const title=args.slice(idx).join(' ').trim();
+  const{effectiveDate,effectiveTime,durationHours,title}=parseNoticeArgs(noticeType,args,toManilaDate());
   if(!title){const eg=noticeType==='brownout'?`/${noticeType} tomorrow 8am 4h SOCOTECO maintenance`:`/${noticeType} tomorrow Eid al-Adha`;await tgSend(chatId,`⚠️ Need a title.\n_e.g. ${eg}_`);return;}
   const postedBy=[from.first_name,from.username?`@${from.username}`:null].filter(Boolean).join(' ');
-  const {error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:noticeType,title,effective_date:effectiveDate,effective_time:effectiveTime,duration_hours:durationHours,feeder:noticeType==='brownout'?'Feeder 14-3':null,posted_by_chat_id:from.id??null,posted_by_name:postedBy});
+  const {error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:noticeType,title,effective_date:effectiveDate,effective_time:effectiveTime,duration_hours:durationHours,feeder:noticeType==='brownout'?feederFor(title):null,source:noticeType==='brownout'?noticeSource(title):null,posted_by_chat_id:from.id??null,posted_by_name:postedBy});
   if(error){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error.message)}`);return;}
   const icon=NOTICE_ICON[noticeType]??'📌';
   await tgSend(chatId,`${icon} *Notice saved*\nDate: ${effectiveDate}${effectiveTime?` at ${effectiveTime.slice(0,5)}`:''}${durationHours?` for ${durationHours}h`:''}\n${mdEsc(title)}\n_Will appear in tomorrow's digest._`);
@@ -1368,13 +1343,14 @@ async function handleCallbackQueryInner(cq:any,db:any){
     if(bErr)throw new Error('Could not read the calendar: '+bErr.message);
     let uid='';for(const r of (rows??[]) as Array<{uid:string}>){if(await ackHash(r.uid)===want){uid=r.uid;break;}}
     if(!uid){await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n✅ That block has already left the Airbnb calendar. Nothing to answer.`);return;}
-    const{data:r,error}=await db.rpc('telegram_answer_calendar_block_v1',{p_telegram_user_id:cq.from?.id,p_uid:uid,p_answer:answer});
+    const{data:r,error}=await db.rpc('telegram_answer_calendar_block_v2',{p_telegram_user_id:cq.from?.id,p_uid:uid,p_answer:answer});
     if(error)throw new Error(error.message);
     let line:string,keep=false;
-    if(!r?.ok){const k=String(r?.reason??'');keep=['unmapped_telegram_user','not_authorized'].includes(k);
-      line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a staff profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not allowed to answer for the calendar.`,not_pending:'ℹ️ Already answered.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
-    else line=`Recorded: ${({maint:'maintenance or owner use',direct:'a direct booking is coming',unblock:'to be unblocked on Airbnb'} as Record<string,string>)[answer]??answer}, by ${who}.`;
+    if(!r?.ok){const x=blockRefusal(String(r?.reason??''),who);line=x.line;keep=x.keep;}
+    else line=blockRecorded(answer,who);
     await tgEdit(chatId,msgId,`${cq.message?.text??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
+    // SPEC-41: Brownout and Something else ask one follow-up; the answer is recorded already, so the question may be skipped.
+    if(r?.ok&&BLOCK_PROMPTS[answer])await ask(db,chatId,cq.from?.id,answer==='brownout'?'block_brownout':'block_other',{uid},BLOCK_PROMPTS[answer]);
     return;
   }
 
@@ -1462,7 +1438,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
     for(const o of occ){
       let dur=o.duration_hours;
       if(dur==null&&o.start_time&&o.end_time){const sh=Number(String(o.start_time).slice(0,2))+Number(String(o.start_time).slice(3,5))/60;const eh=Number(String(o.end_time).slice(0,2))+Number(String(o.end_time).slice(3,5))/60;dur=eh>sh?eh-sh:null;}
-      const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:'brownout',title:`${payload.source} power interruption`,description:payload.purpose||null,effective_date:o.date,effective_time:o.start_time??null,duration_hours:(dur!=null&&isFinite(dur))?Number(Number(dur).toFixed(1)):null,feeder:`Feeder ${CASCADE_FEEDER}`,posted_by_chat_id:payload.from?.id??null,posted_by_name:postedBy});
+      const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:'brownout',title:`${payload.source} power interruption`,description:payload.purpose||null,effective_date:o.date,effective_time:o.start_time??null,duration_hours:(dur!=null&&isFinite(dur))?Number(Number(dur).toFixed(1)):null,feeder:`Feeder ${CASCADE_FEEDER}`,source:noticeSource(`${payload.source??''} power interruption`),posted_by_chat_id:payload.from?.id??null,posted_by_name:postedBy});
       if(!error)saved++;
     }
     await tgEdit(chatId,msgId,firstLine+`\n⚡ *Saved ${saved} brownout notice${saved!==1?'s':''}.*`);return;
@@ -1552,6 +1528,14 @@ async function handleCallbackQueryInner(cq:any,db:any){
       await tgAnswerCB(cq.id);
       if(err){await tgEdit(chatId,msgId,text+'\n'+NOTHING_CHANGED('record that Airbnb is blocked',err),cq.message?.reply_markup);return;}
       await tgEdit(chatId,msgId,`${text}\n\n✅ Blocked in Airbnb, marked by ${who} at ${mt}`,keep(/^pw:done:/));return;
+    }
+    if(tap.kind==='keep'){ // SPEC-41 3.4: SOCOTECO told someone it is still on. Any mapped staff may bring the notice back, as a staff notice.
+      const mp=await db.from('staff_access_profiles').select('user_id').eq('telegram_user_id',cq.from?.id??0).is('disabled_at',null).maybeSingle();
+      if(!mp?.data){await tgAnswerCB(cq.id,'Your Telegram account is not mapped to a staff profile. Ask Lloyd to map it. Nothing changed.');return;}
+      const k=await keepNotice(db,PROPERTY_ID,tap.date);
+      await tgAnswerCB(cq.id);
+      if(!k.ok){await tgEdit(chatId,msgId,text+'\n'+NOTHING_CHANGED('keep the block',k.error),cq.message?.reply_markup);return;}
+      await tgEdit(chatId,msgId,k.already?`${text}\n\n🔒 Already kept blocked.`:`${text}\n\n🔒 Kept blocked by ${who}; it stays until ${monthDay(tap.date)} or an Unblock.`,keep(/^pw:/));return;
     }
     const r=await releaseNotice(db,PROPERTY_ID,tap.date,tap.kind==='undo'?'undo':'unblock',who);
     await tgAnswerCB(cq.id);
@@ -1647,7 +1631,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
 async function executeNoticeFromLLM(db:any,params:any,chatId:any,from:any){
   if(!params?.notice_type||!params?.title||!params?.effective_date){await tgSend(chatId,'⚠️ Notice data incomplete.');return;}
   const postedBy=[from?.first_name,from?.username?`@${from.username}`:null].filter(Boolean).join(' ');
-  const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:params.notice_type,title:params.title,effective_date:params.effective_date,effective_time:params.effective_time??null,duration_hours:params.duration_hours??null,feeder:params.notice_type==='brownout'?'Feeder 14-3':null,posted_by_chat_id:from?.id??null,posted_by_name:postedBy});
+  const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:params.notice_type,title:params.title,effective_date:params.effective_date,effective_time:params.effective_time??null,duration_hours:params.duration_hours??null,feeder:params.notice_type==='brownout'?feederFor(String(params.title)):null,source:params.notice_type==='brownout'?noticeSource(String(params.title)):null,posted_by_chat_id:from?.id??null,posted_by_name:postedBy});
   const icon=NOTICE_ICON[params.notice_type]??'📌';
   if(error){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error.message)}`);return;}
   await tgSend(chatId,`${icon} *Notice saved* — ${mdEsc(params.title)} on ${params.effective_date}`);
@@ -1705,8 +1689,20 @@ async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any}
       const reason=parseReason(text);if(reason===null){await bad();return;}
       await done();await onInquiryReason(iqDeps(db),msg,p,reason);return;
     }
+    case 'block_brownout': case 'block_other': await handleBlockAnswer(db,chatId,msg,aw,text);return; // SPEC-41
     default: await done(); await tgReply(chatId,msg.message_id,NOT_WAITING);
   }
+}
+
+/** SPEC-41: the answer to a blocked-date follow-up. Brownout: the reply is read like /brownout (same parser) and saved as a notice, then kept as the block's note;
+ *  Something else: the words are the note. A reply that is not an answer keeps the question open. The block itself was recorded at the tap. */
+async function handleBlockAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any},text:string){
+  const p=aw.payload??{};const flow=p.flow as Flow;const from=msg.from??{};
+  if(flow==='block_brownout'&&!parseBrownoutReply(text,toManilaDate())){await tgReply(chatId,msg.message_id,refusal(flow),{reply_markup:cancelKb(aw.id)});return;}
+  await db.from('telegram_pending').delete().eq('id',aw.id);
+  if(flow==='block_brownout')await handleOpsNoticeCommand('brownout',text.trim().split(/\s+/),chatId,from,db);
+  const{data:r}=await db.rpc('telegram_note_calendar_block_v1',{p_telegram_user_id:from.id,p_uid:String(p.uid),p_note:text});
+  if(flow==='block_other')await tgReply(chatId,msg.message_id,r?.ok?blockNoted(text,from.first_name??'team'):'That block was answered by someone else, so the note was not saved.');
 }
 
 async function handleTextMessage(msg:any,db:any){
@@ -1714,6 +1710,7 @@ async function handleTextMessage(msg:any,db:any){
   const loggedBy=whoFrom(from);
   // SPEC-16 (D-196): in Finance the answer is routed by WHO typed it, so this runs before the @mention gate
   // and Reply is optional. Step 3 is the D-195 guard: a reply to a bot card that asked nothing never books.
+  if(!isFinanceChat(chatId)&&!String(msg.text??'').trimStart().startsWith('/')){const ob=await findAwaiting(db,chatId,from.id);if(ob&&String(ob.payload?.flow??'').startsWith('block_')){const bt=stripBotMention(String(msg.text??'').trim());if(bt){await handleBlockAnswer(db,chatId,msg,ob,bt);return;}}} // SPEC-41: the OPS blocked-date card's follow-up answers
   if(isFinanceChat(chatId)){
     const text=stripBotMention(String(msg.text??'').trim());if(!text)return;
     const aw=await findAwaiting(db,chatId,from.id);

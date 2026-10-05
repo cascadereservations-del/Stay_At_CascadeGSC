@@ -49,7 +49,9 @@ const row = (o: Partial<CalRow>): CalRow => ({
 
 Deno.test('D-236: an unexplained future block is asked about once', () => {
   assertEquals(blocksToAsk([row({})], '2026-09-25', '2027-09-22').map((r) => r.uid), ['b1']);
-  assertEquals(blocksToAsk([row({ recon_alerted_at: '2026-09-25T00:00:00Z' })], '2026-09-25', null), [], 'already asked');
+  // SPEC-41: asked in OPS once = saved as assumed maintenance; a card asked in Finance before and never answered is asked once more, in OPS
+  assertEquals(blocksToAsk([row({ recon_alerted_at: '2026-09-25T00:00:00Z' })], '2026-09-25', null).length, 1, 'a Finance-era question is asked once in OPS');
+  assertEquals(blocksToAsk([row({ recon_status: 'admin_block', block_reason: 'maintenance', block_reason_source: 'assumed', recon_alerted_at: '2026-09-25T00:00:00Z' })], '2026-09-25', null), [], 'already asked in OPS');
   assertEquals(blocksToAsk([row({ recon_status: 'admin_block' })], '2026-09-25', null), [], 'already answered');
   assertEquals(blocksToAsk([row({ checkout_date: '2026-09-25' })], '2026-09-25', null), [], 'no night ahead');
   assertEquals(blocksToAsk([row({ checkin_date: '2027-09-23', checkout_date: '2027-09-24' })], '2026-09-25', '2027-09-23'), [], 'horizon tail');
@@ -71,14 +73,17 @@ Deno.test('D-236: at most five per run, oldest first', () => {
 
 Deno.test('D-236: a question unanswered for seven days becomes a task; a fresh one does not', () => {
   const now = new Date('2026-10-03T00:00:00Z');
-  assertEquals(blocksOverdue([row({ recon_alerted_at: '2026-09-25T00:00:00Z' })], '2026-10-03', now).length, 1);
-  assertEquals(blocksOverdue([row({ recon_alerted_at: '2026-09-30T00:00:00Z' })], '2026-10-03', now).length, 0);
+  const assumed = (o: Partial<CalRow>) => row({ recon_status: 'admin_block', block_reason: 'maintenance', block_reason_source: 'assumed', ...o });
+  assertEquals(blocksOverdue([assumed({ recon_alerted_at: '2026-09-25T00:00:00Z' })], '2026-10-03', now).length, 1);
+  assertEquals(blocksOverdue([assumed({ recon_alerted_at: '2026-09-30T00:00:00Z' })], '2026-10-03', now).length, 0);
   assertEquals(blocksOverdue([row({ recon_alerted_at: '2026-09-25T00:00:00Z', recon_status: 'skipped' })], '2026-10-03', now).length, 0);
+  assertEquals(blocksOverdue([assumed({ recon_alerted_at: '2026-09-25T00:00:00Z', block_reason_source: 'staff' })], '2026-10-03', now).length, 0, 'a staff answer is not chased');
 });
 
 Deno.test('D-236: the card names the dates in words and quotes a note when there is one', () => {
   const t = blockCardText(row({ checkin_date: '2026-09-30', checkout_date: '2026-10-02' }));
-  assertEquals(t.includes('Sep 30 to Oct 2 is blocked on Airbnb and Cascade has no booking for it. What is it?'), true, t);
+  assertEquals(t.includes('Airbnb shows Sep 30 to Oct 2 as blocked (the nights of Sep 30 and Oct 1).'), true, t);
+  assertEquals(t.includes('so it is saved as maintenance for now.'), true, t);
   assertEquals(t.includes("Airbnb's note"), false);
   assertEquals(blockCardText(row({ raw_description: 'Aircon repair' })).includes('Airbnb\'s note: "Aircon repair"'), true);
 });
