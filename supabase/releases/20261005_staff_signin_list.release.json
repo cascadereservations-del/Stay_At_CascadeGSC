@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "release_id": "staff_signin_list_20261005",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "1aba81d41896cb3ed961eb2a2b6c25a4f12ea379"
+  },
+  "migrations": [
+    "20261005150000_staff_signin_list.sql"
+  ],
+  "migration_sha256": {
+    "20261005150000_staff_signin_list.sql": "2f60947bbc035411664ba189f282146de6d570c01cf413e51e08b0d0212646cd"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "PENDING",
+    "production_rule": "Expand only: one new function, public.staff_signin_list_v1(), granted to anon and authenticated. No table, column, grant on an existing object or data change. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "function_exists_definer_empty_search_path",
+      "query": "select count(*) = 1 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'staff_signin_list_v1'",
+      "expect": true
+    },
+    {
+      "name": "grants_anon_and_authenticated_only",
+      "query": "select has_function_privilege('anon','public.staff_signin_list_v1()','execute') and has_function_privilege('authenticated','public.staff_signin_list_v1()','execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_signin_list_v1()'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "result_shape_is_label_handle_kind",
+      "query": "select pg_get_function_result('public.staff_signin_list_v1()'::regprocedure) = 'TABLE(label text, handle text, kind text)'",
+      "expect": true
+    },
+    {
+      "name": "every_listed_account_is_active_and_kind_matches_the_domain",
+      "query": "select not exists (select 1 from public.staff_signin_list_v1() l where l.kind <> case when l.handle like '%@staff.cascade.invalid' then 'pin' else 'password' end or coalesce(l.label,'') = '') and (select count(*) from public.staff_signin_list_v1()) = (select count(*) from public.staff_access_profiles p join auth.users u on u.id = p.user_id where p.disabled_at is null and u.deleted_at is null and (u.banned_until is null or u.banned_until <= now()) and coalesce(u.email,'') <> '')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261005_staff_signin_list.sql with run-sql-on-host.sh: it drops the one function. Nothing else changed. The Cascade Staff sign-in screen then cannot fill its name list; roll the app back too."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_app",
+      "required_state": "Apply this release BEFORE the Cascade Staff repo with the redesigned sign-in is pushed to GitHub Pages: the new screen calls staff_signin_list_v1 on every open and falls back to a typed name or e-mail until the function exists."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING - rehearse on a fresh restore with the pgTAP suite staff_signin_list.sql (16 assertions) before apply",
+    "evidence": "Label source read from the repo, not production: supabase/functions/staff-users/index.ts (action list) names each account with auth.users app_metadata.display_name, falling back to the e-mail local part; the same function sets user_metadata.display_name on rename and bans the Auth user on disable. No production read was made."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the Cascade Staff repo is pushed before this release is applied"
+  ]
+}
