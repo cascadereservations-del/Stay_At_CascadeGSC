@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "release_id": "staff_pay_requests_20261005",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "69c4348f5ee2c1698f5ff2809445fddf97067000"
+  },
+  "migrations": [
+    "20261005110000_staff_pay_requests.sql"
+  ],
+  "migration_sha256": {
+    "20261005110000_staff_pay_requests.sql": "805956f838fa21808a005e090b03d83e480b495b12a251696e71f709e0a97e2f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING: take a fresh backup (supabase-backup-over-alfred.sh), then fill restore_point and verified_at",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Additive. One new table (staff_pay_requests: RLS on, no policy, service_role only), five new columns (cleaner_rate_schedule.transport_rate, staff_details.payout_qrph, cleaning_sessions.pay_request_id, cleaning_expense_claims.pay_request_id and receipt_path), one new cleaner_rate_schedule row (2026-09-30: 500 / 1000 / 150), a guard trigger on cleaning_sessions (pay_request_id moves only through the definer RPCs), five new functions (staff_pay_candidates_v1 and staff_pay_request_create_v1 for authenticated; telegram_staff_pay_step_v1 for service_role; staff_pay_rate_v1 and staff_pay_settle_v1 internal, no grant), one column grant (staff_details user_id + payout_qrph to service_role, which had none), and save_staff_details_v1 replaced by its live body (md5(prosrc) aff77cec89cc6b9130a6e41c0014819a, read 2026-10-05) plus the payout_qrph patch key and a masked history snapshot. Side effect by design: /payclean and the airbnb_cleans estimate use 500 for cleans from 2026-09-30. The payout QR value is NOT in this release: it is written afterwards through the dashboard or the one-off SQL. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time. Run supabase/sql/2026-10-05-d298-cleaner-pay-backfill.sql after this release and before the staff page goes live."
+  },
+  "forward_verification": [
+    {
+      "name": "request_table_rls_on_and_closed_to_the_api_roles",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.staff_pay_requests'::regclass) and not has_table_privilege('anon','public.staff_pay_requests','select') and not has_table_privilege('authenticated','public.staff_pay_requests','select') and has_table_privilege('service_role','public.staff_pay_requests','select')",
+      "expect": true
+    },
+    {
+      "name": "paid_needs_a_stored_screenshot_constraint",
+      "query": "select count(*) = 1 from pg_constraint where conrelid = 'public.staff_pay_requests'::regclass and conname = 'staff_pay_paid_needs_proof'",
+      "expect": true
+    },
+    {
+      "name": "anon_cannot_execute_create_or_candidates_authenticated_can",
+      "query": "select not has_function_privilege('anon','public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)','execute') and not has_function_privilege('anon','public.staff_pay_candidates_v1()','execute') and has_function_privilege('authenticated','public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)','execute') and has_function_privilege('authenticated','public.staff_pay_candidates_v1()','execute')",
+      "expect": true
+    },
+    {
+      "name": "authenticated_cannot_execute_the_telegram_step_or_the_helpers",
+      "query": "select not has_function_privilege('authenticated','public.telegram_staff_pay_step_v1(uuid,text,bigint,text,jsonb)','execute') and not has_function_privilege('anon','public.telegram_staff_pay_step_v1(uuid,text,bigint,text,jsonb)','execute') and has_function_privilege('service_role','public.telegram_staff_pay_step_v1(uuid,text,bigint,text,jsonb)','execute') and not has_function_privilege('authenticated','public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)','execute') and not has_function_privilege('authenticated','public.staff_pay_rate_v1(date)','execute')",
+      "expect": true
+    },
+    {
+      "name": "guard_trigger_present_on_cleaning_sessions",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.cleaning_sessions'::regclass and tgname = 'cleaning_sessions_pay_request_guard' and not tgisinternal",
+      "expect": true
+    },
+    {
+      "name": "the_2026_09_30_rate_row_is_500_1000_150_and_the_650_era_has_no_transport",
+      "query": "select (select count(*) from public.cleaner_rate_schedule where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and effective_from = date '2026-09-30' and regular_rate = 500 and general_rate = 1000 and transport_rate = 150) = 1 and (select count(*) from public.cleaner_rate_schedule where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and effective_from = date '2026-05-07' and transport_rate is null) = 1",
+      "expect": true
+    },
+    {
+      "name": "the_five_new_columns_exist",
+      "query": "select count(*) = 5 from information_schema.columns where table_schema = 'public' and ((table_name = 'cleaner_rate_schedule' and column_name = 'transport_rate') or (table_name = 'staff_details' and column_name = 'payout_qrph') or (table_name = 'cleaning_sessions' and column_name = 'pay_request_id') or (table_name = 'cleaning_expense_claims' and column_name in ('pay_request_id','receipt_path')))",
+      "expect": true
+    },
+    {
+      "name": "save_staff_details_takes_payout_qrph_and_service_role_reads_only_that_column",
+      "query": "select (select prosrc like '%payout_qrph%' from pg_proc where pronamespace = 'public'::regnamespace and proname = 'save_staff_details_v1') and has_column_privilege('service_role','public.staff_details','payout_qrph','select') and not has_column_privilege('service_role','public.staff_details','id_number','select')",
+      "expect": true
+    },
+    {
+      "name": "the_telegram_pending_kind_check_is_untouched_and_names_awaiting_reply",
+      "query": "select pg_get_constraintdef(oid) like '%awaiting_reply%' and pg_get_constraintdef(oid) like '%guest_save%' from pg_constraint where conrelid = 'public.telegram_pending'::regclass and conname = 'telegram_pending_kind_check'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "the first staff pay request is paying or paid; after that, roll forward",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Redeploy the previous notify-cleaner-payment and telegram-expense first (the new telegram-expense selects pay_request_id and the poster calls the create RPC), then apply supabase/rollbacks/20261005_staff_pay_requests.sql with run-sql-on-host.sh: it refuses while a request is paying or paid, drops the guard trigger, the five functions, the two pay_request_id columns, receipt_path, the table, staff_details.payout_qrph (the stored QR is lost; decode it again from Drive), the 2026-09-30 schedule row and transport_rate, and restores the previous save_staff_details_v1 body. Ledger rows written by the backfill file stay (void them by logged_by = backfill D-298 if that too is reversed)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_functions",
+      "required_state": "Apply this release BEFORE deploying the new telegram-expense (bookCleaningFee selects cleaning_sessions.pay_request_id and payCleanList filters on it; both fail without the column) and notify-cleaner-payment. Then the backfill file, then the one-off payout QR SQL, then the staff pay page last."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh on a fresh backup with this release (forward checks, pgTAP staff_pay_requests.sql + telegram_pending_guest_kinds.sql + money_checks_from_accounting_start.sql, then the D-298 backfill file inside the restore: Block A asserts 1,340, Block B 4,550), then set verified true.",
+    "evidence": "Read-only against production on 2026-10-05: save_staff_details_v1 live md5(prosrc) aff77cec89cc6b9130a6e41c0014819a equals the repo body; staff_details grants are authenticated select only (service_role none), so the column grant is needed; cleaner_rate_schedule has rows 1900-01-01 250, 2026-01-02 500/1000, 2026-05-07 650/1000 and no transport_rate; cleaning_sessions and cleaning_expense_claims have no pay_request_id; telegram_pending_kind_check names awaiting_reply; the nine September sessions and the PHP 40 claim 6a13890a are unpaid and have no cleanfee: or claim: ledger row; one other claim (5c64d9d6, PHP 20, 2026-10-04) and one unpaid Oct 4 session exist and are NOT in the backfill."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "telegram-expense or notify-cleaner-payment from this session is deployed before this release is applied",
+    "the staff pay page is published before the D-298 backfill has run (the September cleans would be offered for payment again)"
+  ]
+}
