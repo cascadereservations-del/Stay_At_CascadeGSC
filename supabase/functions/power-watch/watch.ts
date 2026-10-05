@@ -122,7 +122,8 @@ export async function reconcile(d: Deps, foundAll: Found[]): Promise<string[]> {
     if (st?.status === 'released') {
       // 2026-10-05 (Lloyd, D-299): a released outage stays released when the SAME poster is read again (a deploy re-read the Oct 8 poster
       // and re-blocked Oct 7-8 after it had moved). Only a different poster for the date is "posted again".
-      if (n.url && st.url === n.url) { res.push(`${n.date}: released, same poster ignored`); continue; }
+      // Audit 4fb64e0: cancel() overwrites st.url with the poster that moved it, so also ignore any poster from the same or an older post.
+      if ((n.url && st.url === n.url) || (st.postId > 0 && n.postId <= st.postId)) { res.push(`${n.date}: released, same poster ignored`); continue; }
       st = undefined; row = undefined; base.noticeId = null; // it was cancelled and now it is posted again
     }
     const insert = async () => {

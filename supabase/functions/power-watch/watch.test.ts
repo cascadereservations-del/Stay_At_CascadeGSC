@@ -176,6 +176,17 @@ Deno.test('2026-10-05 (D-299): a released outage is not re-announced when the sa
   assertEquals(live(w.db), ['2026-10-07', '2026-10-08']);
 });
 
+Deno.test('audit 4fb64e0: moved by another poster then unblocked - the original poster read again does not re-block', async () => {
+  const w = world();
+  await w.run([found('2026-10-08', '06:00:00', 11, 100)]);
+  const mover = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-MOVE.jpg';
+  await w.run([found('2026-10-15', '06:00:00', 11, 130, { url: mover, poster: 'SPI-MOVE.jpg', originalDate: '2026-10-08' })]);
+  const r = await releaseNotice(w.db, PID, '2026-10-08', 'unblock', 'Lloyd');
+  assert(r.ok);
+  assertEquals(await w.run([found('2026-10-08', '06:00:00', 11, 100)]), ['2026-10-08: released, same poster ignored']);
+  assert(!live(w.db).includes('2026-10-07'), 'Oct 7 stays free');
+});
+
 Deno.test('audit 656fee7: a guest reservation on a held night is not an Airbnb block - never "seen", never closed by the calendar', async () => {
   const w = world();
   await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
