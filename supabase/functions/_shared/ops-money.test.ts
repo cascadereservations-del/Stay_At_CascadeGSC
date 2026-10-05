@@ -68,3 +68,24 @@ Deno.test('D-306 audit: a title about cleaning pay or an expense stays whole in 
   assertEquals(maskTitle('Laundry deposit refund PHP 1,780'), 'Laundry deposit refund [amount hidden]');
   assert(!maskTitle('Pay Honey ₱500 to 0956 011 5744').includes('5744'));
 });
+
+Deno.test('D-306 round 3 keep-list: counts, measures, times and codes next to a Taglish or English money word are not money', () => {
+  for (const t of [
+    'Oct 15 gabi 1900', 'Room 203 extra towels', 'Send 120 rolls', 'kulang ng 120 rolls', 'lahat ng 150 hangers', 'checkout due 1100', 'each 500 ml', 'towels x 120',
+    'Door code 4829 sent', 'Check-in 1400 for 2 nights', 'bagong code 4829 po, 2 gabi', 'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%',
+    'Send 120 rolls of towels x 120', 'Restock 250 pcs, deposit the keys',
+  ]) assertEquals(maskMoney(t), t, t);
+});
+
+Deno.test('D-306 round 3: sales, kita, benta, earned, transfer and per-hour amounts mask; a time or code does not hide a price beside it', () => {
+  for (const [t, leak] of [
+    ['200/hour', '200'], ['sales 3200', '3200'], ['kita 3200', '3200'], ['benta 4500', '4500'], ['earned 1780', '1780'], ['transfer 2500', '2500'], ['1500 sent', '1500'],
+    ['Check-in rate 1400', '1400'], ['code 4829, rate 1780', '1780'], ['x 1780 per night', '1780'], ['extra 500 for early check-in', '500'], ['3560 lahat', '3560'],
+    ['refund 100%', '100%'], ['100% refund', '100%'], ['Charge 1780 per night', '1780'],
+  ]) { const m = maskMoney(t); assert(hasMoney(t) && !m.includes(leak), `${t} -> ${m}`); }
+});
+
+Deno.test('D-306 round 3: a staff-pay title with a second amount, a guest-looking bare amount or an income word is masked; Taglish pay stays whole', () => {
+  for (const t of ['Pay Ana 1780', 'Pay Honey 500; Ana paid 1780', 'Linis 500, kita 3200', 'supplies 320, sales 3200', 'Pay Honey ₱500 and Ana ₱1,780']) assert(!/\d{3}/.test(maskTitle(t)), `${t} -> ${maskTitle(t)}`);
+  for (const t of ['Pay Honey ₱500 for 2 nights', 'Bayad kay Honey ₱500', 'Sweldo ni Honey ₱500', 'Sahod ₱500 Honey', 'Bili ng supplies ₱320', 'Pay Honey ₱500']) assertEquals(maskTitle(t), t, t);
+});

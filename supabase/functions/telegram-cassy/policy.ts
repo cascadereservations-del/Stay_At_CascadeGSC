@@ -117,13 +117,10 @@ export async function postDraft(send: (chat: string, text: string, replyTo?: num
   return { toFinance, delivered };
 }
 
-/** D-306: in OPS a house fact whose text carries money never reaches the model (a fact may quote a rate or a deposit). */
-export function dropMoneyFacts(h: unknown): unknown {
+/** D-306: in OPS a house fact is masked before the model sees it (a fact may quote a rate or a deposit); the fact itself, an EcoFlow or turnover SOP included, is kept. */
+export function maskFacts(h: unknown): unknown {
   const o = h as { facts?: { title?: unknown; body?: unknown }[]; topics?: unknown[] } | null;
   if (!o || typeof o !== 'object') return h;
-  if (Array.isArray(o.facts)) {
-    const facts = o.facts.filter((f) => !hasMoney(String(f?.body ?? '')) && !hasMoney(String(f?.title ?? '')));
-    return facts.length ? { ...o, facts } : { note: 'nothing on that topic can be shown here' };
-  }
-  return Array.isArray(o.topics) ? { ...o, topics: o.topics.filter((t) => !hasMoney(String(t))) } : h;
+  if (Array.isArray(o.facts)) return { ...o, facts: o.facts.map((f) => ({ ...f, title: maskMoney(String(f?.title ?? '')), body: maskMoney(String(f?.body ?? '')) })) };
+  return Array.isArray(o.topics) ? { ...o, topics: o.topics.map((t) => maskMoney(String(t))) } : h;
 }

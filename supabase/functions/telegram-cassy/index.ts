@@ -14,11 +14,11 @@ import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaTo
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { HOUSE_READ_DECL, HOUSE_TEACH_DECL, houseInfo, teachCard } from '../_shared/cascade-core/house.ts'; // D-282
 import { toneRules } from '../messenger-concierge/voice.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, opsToolsOnly, maskReport, postDraft, dropMoneyFacts, type Surface } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, opsToolsOnly, maskReport, postDraft, maskFacts, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
 import { draftRequest, draftGuestReply, draftInquiry, inquiryDraftCard, routeDraft, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
-import { maskMoney } from '../_shared/ops-money.ts'; // D-306
+import { maskMoney, maskTitle } from '../_shared/ops-money.ts'; // D-306
 import { OPS_MONEY_REFUSED, staleReason, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: Cassy reply and the Other decline for an unpaid request
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -104,7 +104,7 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
       system: VOICE(surface, today), history: await history(db, chatId), question, tools, title: 'Cascade Cassy', tier, maxRounds: tier === 'deep' ? 5 : 3, maxTokens: tier === 'deep' ? 1200 : 700,
       forceTool: houseAsk ? 'house_info' : wantsExpense(question, surface) ? 'log_expense' : surface === 'finance' && /^\s*(teach|edit|retire)\b/i.test(question) ? 'teach_house_fact' : undefined,
       run: async (name, args) => {
-        if (name === 'house_info') { const h = await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; }); return surface === 'ops' ? stripMoney(dropMoneyFacts(h)) : h; } // D-306: OPS never sees a fact that carries money
+        if (name === 'house_info') { const h = await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; }); return surface === 'ops' ? stripMoney(maskFacts(h)) : h; } // D-306: OPS sees house facts masked
         if (name === 'teach_house_fact') {
           if (surface !== 'finance') return { error: 'house facts are taught in the finance chat' };
           const w = await teachCard(db, chatId, args, [msg.from?.first_name, msg.from?.id].filter(Boolean).join(' ')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: 'teach_house_fact unavailable' } }; });
@@ -116,7 +116,7 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
         }
         if (isWriteTool(name)) {
           const w = await writeTool(db, ctx, name, args).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: `${name} unavailable` } }; });
-          if (w.card) { await tgSend(chatId, surface === 'ops' ? maskMoney(w.card.text) : w.card.text, msg.message_id, w.card); cardSent = true; } // D-306: the OPS notice card is masked
+          if (w.card) { await tgSend(chatId, surface === 'ops' ? maskTitle(w.card.text) : w.card.text, msg.message_id, w.card); cardSent = true; } // D-306: the OPS notice card masks the title like the saved notice does
           return w.result;
         }
         const r = await runTool(db, name, args).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: `${name} unavailable` }; });

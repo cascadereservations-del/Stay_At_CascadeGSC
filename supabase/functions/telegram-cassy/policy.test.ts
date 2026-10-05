@@ -1,6 +1,6 @@
 // deno test telegram-cassy/policy.test.ts  (run from supabase/functions)
 import { assertEquals, assert } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, HISTORY_WINDOW_MS, opsToolsOnly, maskReport, postDraft, dropMoneyFacts, FINANCE_UNSET, FINANCE_UNREACHED } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, HISTORY_WINDOW_MS, opsToolsOnly, maskReport, postDraft, maskFacts, FINANCE_UNSET, FINANCE_UNREACHED } from './policy.ts';
 import { hasMoney } from '../_shared/ops-money.ts';
 import { OPS_MONEY_REFUSED } from '../_shared/cascade-core/inquiry.ts';
 
@@ -200,10 +200,18 @@ Deno.test('D-306: the Finance copy names who asked in OPS; a Finance send that f
   assertEquals(sent.filter((m) => m.chat === 'FIN').length, 1); // stopped at the first refusal
 });
 
-Deno.test('D-306: in OPS a house fact whose body carries money is dropped before the model; clean facts pass', () => {
-  const mixed = { facts: [{ topic: 'wifi', title: 'Wi-Fi', body: 'Network Cascade, password on the fridge.' }, { topic: 'rates', title: 'Rates', body: 'Weekend rate is 1,780 a night, deposit PHP 1,000.' }] };
-  assertEquals((dropMoneyFacts(mixed) as typeof mixed).facts.map((f) => f.topic), ['wifi']);
-  assertEquals(dropMoneyFacts({ facts: [mixed.facts[1]] }), { note: 'nothing on that topic can be shown here' });
-  assertEquals(dropMoneyFacts({ topics: ['wifi (staff): Wi-Fi', 'rates (staff): Rate 1,780 a night'] }), { topics: ['wifi (staff): Wi-Fi'] });
-  assertEquals(dropMoneyFacts({ error: 'x' }), { error: 'x' });
+Deno.test('D-306: in OPS a house fact is masked, not dropped: the EcoFlow and turnover SOP survive, a quoted rate does not', () => {
+  const sop = { topic: 'ecoflow', title: 'EcoFlow', body: 'Charge the EcoFlow to 100%. It runs the aircon at 300 W; restock 120 rolls and 150 hangers at turnover. Door code 4829 sent to the guest.' };
+  const rates = { topic: 'rates', title: 'Rates', body: 'Weekend rate is 1,780 a night, deposit PHP 1,000.' };
+  const out = (maskFacts({ facts: [sop, rates] }) as { facts: typeof sop[] }).facts;
+  assertEquals(out[0], sop);
+  assert(!/1,780|1,000/.test(out[1].body) && out[1].body.includes('Weekend rate is'), out[1].body);
+  assertEquals(maskFacts({ topics: ['wifi (staff): Wi-Fi', 'rates (staff): Rate 1,780 a night'] }), { topics: ['wifi (staff): Wi-Fi', 'rates (staff): Rate [amount hidden] a night'] });
+  assertEquals(maskFacts({ error: 'x' }), { error: 'x' });
+});
+
+Deno.test('D-306: the OPS notice confirm card masks its title the way the saved notice does', async () => {
+  const { maskTitle } = await import('../_shared/ops-money.ts');
+  assertEquals(maskTitle('🔔 Save reminder on 2026-10-05 at 08:00 — Pay Honey ₱500?'), '🔔 Save reminder on 2026-10-05 at 08:00 — Pay Honey ₱500?');
+  assert(!maskTitle('🔔 Save reminder on 2026-10-05 — Collect ₱3,000 balance from guest?').includes('3,000'));
 });
