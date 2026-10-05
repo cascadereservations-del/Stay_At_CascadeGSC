@@ -2,7 +2,7 @@
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { keepNotice, listNotices, patchNoticeState, readNotice, releaseNotice } from '../_shared/cascade-core/brownout.ts';
 import { FakeDb } from './fake-db.ts';
-import { scheduleFrom, type Built, type Schedule } from './plan.ts';
+import { scheduleFrom, supersededBy, type Built, type Schedule, type Superseded } from './plan.ts';
 import { POWER_WATCH_NAME, pruneStates, reconcile, type Found } from './watch.ts';
 
 const PID = 'prop-1', URL0 = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-TEST.jpg';
@@ -14,10 +14,10 @@ function world(tables: Record<string, Record<string, unknown>[]> = {}, posters: 
   const db = new FakeDb({ calendar_events: [], ops_notices: [], app_settings: [], ...tables });
   const sent: Built[] = [], fin: Built[] = [], mails: string[] = [], logs: string[] = [];
   let up = true;
-  const run = (f: Found[], nowIso = '2026-10-02T01:00:00Z', schedule?: Schedule) => reconcile({
+  const run = (f: Found[], nowIso = '2026-10-02T01:00:00Z', schedule?: Schedule, superseded?: Superseded) => reconcile({
     db, propertyId: PID, today: '2026-10-02', now: new Date(nowIso),
     send: async (c) => { if (up) sent.push(c); return up; }, sendFinance: async (c) => { fin.push(c); return true; },
-    mail: async (s) => { mails.push(s); return true; }, log: (e) => logs.push(e), posters, schedule,
+    mail: async (s) => { mails.push(s); return true; }, log: (e) => logs.push(e), posters, schedule, superseded,
   }, f);
   return { db, sent, fin, mails, logs, run, telegram: (ok: boolean) => { up = ok; } };
 }
@@ -262,7 +262,8 @@ Deno.test('undo / unblock on a notice with no state, and old states are pruned',
 
 // ---- SPEC-41 Part 3: a brownout block must be backed by a live notice ---------------------------------------------------------
 const P = 'https://www.socoteco2.com/wp-content/uploads/2026/10/';
-/** The live shape of 2026-10-05: post 22013 (Oct 10-25) carries the same substation posters as 21945 (Oct 3-18), shifted a week. */
+/** The live shape of 2026-10-05: post 22013 (Oct 10-25) carries the same substation posters as 21945 (Oct 3-18), shifted a week.
+ *  These posts carry no publish time on purpose, so the Lloyd 2026-10-05 supersede rule (needs publish times) stays out of these SPEC-41 tests; it has its own tests at the end. */
 const MOVED = () => scheduleFrom([
   { id: 22013, posters: [P + 'SPI-PMS-10102026-DAMALERIO-SS.jpg', P + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg', P + 'SPI-PMS-10252026-TUPI-B-SS.jpg'] },
   { id: 21945, posters: [P + 'SPI-PMS-10032026-PENTAGON-SS.jpg', P + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', P + 'SPI-PMS-10182026-TUPI-B-SS.jpg'] },
@@ -278,7 +279,7 @@ const sched = (listed: string[], from = '2026-10-01', to = '2026-10-31'): Schedu
 
 Deno.test('SPEC-41 3.5-1: the moved series. Oct 12 is a miss, then released on the second run; Oct 15 is a hit and untouched; one card to OPS and one to Finance', async () => {
   const sc = MOVED()!;
-  assertEquals([...sc.listed].sort(), ['2026-10-08', '2026-10-15'], 'no supersede: the older post is still in the feed, so Oct 8 stays listed');
+  assertEquals([...sc.listed].sort(), ['2026-10-08', '2026-10-15'], 'no publish times here, so no supersede: the older post is still in the feed and Oct 8 stays listed');
   assertEquals([sc.covered('2026-10-12'), sc.covered('2026-10-15'), sc.covered('2026-11-20')], [true, true, false]);
   const w = world({ ops_notices: [hand('2026-10-12')] });
   await w.run([found('2026-10-15', '06:00:00', 11, 22013, { url: P + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg' })]); // adopts Oct 8, announces Oct 15
@@ -519,4 +520,127 @@ Deno.test('round 6: an old cancelled or moved poster read again does not ask to 
   const r = await w.run([found('2026-10-20', '06:00:00', 11, 100, { originalDate: '2026-10-15' })], '2026-10-02T03:00:00Z');
   assertEquals(r.some((x) => x.includes('2026-10-15: moved')), false, 'an older moved poster does not ask for Oct 15');
   assertEquals(await w.run([found('2026-10-15', '06:00:00', 11, 300, { status: 'cancelled' })], '2026-10-02T04:00:00Z'), ['2026-10-15: cancelled'], 'a newer cancelled poster still asks');
+});
+
+// ---- Lloyd 2026-10-05: a NEWER SOCOTECO post for the same substation and kind moves the older date --------------------------------
+const OLD8 = P + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', NEW15 = P + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg';
+const SEP = '2026-09-28T01:00:00.000Z', OCT = '2026-10-02T00:30:00.000Z';
+const livePosts = [{ id: 22013, posters: [NEW15], postedAt: OCT }, { id: 21945, posters: [OLD8], postedAt: SEP }];
+const liveOurs = { [OLD8]: '2026-10-08', [NEW15]: '2026-10-15' };
+const sup0 = () => supersededBy(livePosts, liveOurs);
+const sc0 = () => scheduleFrom(livePosts, liveOurs, () => true);
+const f15 = () => found('2026-10-15', '06:00:00', 11, 22013, { url: NEW15, postedAt: OCT });
+const f8 = () => found('2026-10-08', '06:00:00', 11, 21945, { url: OLD8, postedAt: SEP });
+
+Deno.test('Lloyd 2026-10-05 (a): Oct 8 held, the newer Oct 15 Leon Llido PMS post arrives: Oct 7-8 released at once with the moved card to OPS and Finance, Oct 15 announced and kept', async () => {
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([]); // adopts Oct 8: blocks Oct 7-8
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08']);
+  const cards = w.sent.length;
+  const r = await w.run([f15(), f8()], '2026-10-02T01:15:00Z', sc0(), sup0());
+  assertEquals(r, [
+    '2026-10-08: superseded by the newer SOCOTECO post for 2026-10-15, not announced',
+    '2026-10-15: new',
+    '2026-10-08: released (moved to Thu 15 Oct by a newer SOCOTECO post)',
+  ]);
+  assertEquals(live(w.db), ['2026-10-14', '2026-10-15'], 'Oct 7-8 free, Oct 14-15 held');
+  const old = (await readNotice(w.db, '2026-10-08'))!, now15 = (await readNotice(w.db, '2026-10-15'))!;
+  assertEquals([old.status, old.releasedBy, old.blocked], ['released', 'auto: moved to 2026-10-15 (newer SOCOTECO post)', []]);
+  assertEquals([now15.status, now15.postedAt, now15.blocked], ['active', OCT, ['2026-10-14', '2026-10-15']], 'the notice knows when it was announced');
+  assertEquals(w.db.tables.ops_notices.find((x) => x.effective_date === '2026-10-08')!.is_active, false);
+  assertEquals(w.db.tables.ops_notices.find((x) => x.effective_date === '2026-10-15')!.is_active, true);
+  const released = w.sent.find((c) => c.text.includes('A newer SOCOTECO post moved'))!;
+  assertEquals(w.sent.length - cards, 2, 'the moved card and the new Oct 15 card');
+  assertEquals(released, w.fin[0], 'the same card to Finance');
+  assertStringIncludes(released.text, 'The nights of Oct 7 and Oct 8 are open again on our booking site. A newer SOCOTECO post moved the Thu 8 Oct power interruption for Feeder 14-3 to Thu 15 Oct.');
+  assertStringIncludes(released.text, `Newer SOCOTECO notice: ${NEW15}`);
+  assertEquals(released.markup?.inline_keyboard, [[{ text: '🔒 Keep it blocked', callback_data: 'pw:keep:2026-10-08' }]]);
+  // the next runs, with both posters read again: nothing re-announced, nothing re-blocked, no second card
+  const after = [w.sent.length, w.fin.length];
+  assertEquals(await w.run([f15(), f8()], '2026-10-02T01:30:00Z', sc0(), sup0()), ['2026-10-08: superseded by the newer SOCOTECO post for 2026-10-15, not announced', '2026-10-15: known']);
+  assertEquals([w.sent.length, w.fin.length, live(w.db)], [...after, ['2026-10-14', '2026-10-15']]);
+  // a genuine double outage: one tap on Keep it blocked brings Oct 8 back as a staff notice that no later run releases
+  assert((await keepNotice(w.db, PID, '2026-10-08')).ok);
+  assertEquals(await w.run([], '2026-10-02T01:45:00Z', sc0(), sup0()), ['2026-10-08: adopted']);
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15']);
+  for (let i = 0; i < 3; i++) assertEquals(await w.run([], at(i).replace('01:', '02:'), sc0(), sup0()), []);
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15'], 'Keep it blocked is final');
+});
+
+Deno.test('Lloyd 2026-10-05 (a2): a fresh state (the deploy re-read both posters): only the newer Oct 15 outage is announced; Oct 7-8 is never blocked', async () => {
+  const w = world();
+  assertEquals(await w.run([f15(), f8()], '2026-10-02T01:00:00Z', sc0(), sup0()), ['2026-10-08: superseded by the newer SOCOTECO post for 2026-10-15, not announced', '2026-10-15: new']);
+  assertEquals([live(w.db), w.sent.length, w.db.tables.ops_notices.length], [['2026-10-14', '2026-10-15'], 1, 1]);
+});
+
+Deno.test('Lloyd 2026-10-05 (b): a guest on a held night, or a hand-entered notice: asked once with Unblock, nothing released', async () => {
+  for (const [name, row, guest] of [['a guest stays', hand('2026-10-08'), true], ['hand-entered', hand('2026-10-08', { posted_by_name: 'Admin dashboard', source: null }), false]] as const) {
+    const w = world({ ops_notices: [row] });
+    await w.run([]);
+    if (guest) w.db.tables.calendar_events.push({ uid: 'ab-stay', source: 'airbnb', status: 'confirmed', checkin_date: '2026-10-06', checkout_date: '2026-10-08', guest_name: 'Test Guest', property_id: PID });
+    const cards = w.sent.length;
+    assertEquals(await w.run([f15()], '2026-10-02T01:15:00Z', sc0(), sup0()), ['2026-10-15: new', '2026-10-08: moved to Thu 15 Oct'], name);
+    assertEquals(live(w.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15'], `${name}: nothing released`);
+    const ask = w.sent.find((c) => c.text.includes('moved to Thu 15 Oct the power interruption'))!;
+    assertStringIncludes(ask.text, 'SOCOTECO moved to Thu 15 Oct the power interruption on Thu 8 Oct');
+    assertStringIncludes(ask.text, `SOCOTECO notice: ${NEW15}`);
+    assertEquals(ask.markup?.inline_keyboard[0][0].callback_data, 'pw:unblock:2026-10-08', name);
+    assertEquals([w.sent.length - cards, w.fin.length], [2, 0], `${name}: one ask and the Oct 15 card, OPS only`);
+    assertEquals(await w.run([f15()], '2026-10-02T01:30:00Z', sc0(), sup0()), ['2026-10-15: known'], `${name}: asked once`);
+    assertEquals(w.sent.length - cards, 2);
+    assertEquals((await readNotice(w.db, '2026-10-08'))!.status, 'active', name);
+  }
+});
+
+Deno.test('Lloyd 2026-10-05 (c): a different substation newer post, a post with no publish time, or an unknown schedule releases nothing', async () => {
+  const maasim = P + 'SPI-PMS-10152026-MAASIM-A-SS.jpg';
+  const other = [{ id: 22013, posters: [maasim], postedAt: OCT }, { id: 21945, posters: [OLD8], postedAt: SEP }];
+  const undated = [{ id: 22013, posters: [NEW15] }, { id: 21945, posters: [OLD8] }];
+  for (const [name, posts, ours] of [['another substation', other, { [OLD8]: '2026-10-08', [maasim]: '' }], ['no publish time', undated, liveOurs]] as const) {
+    const w = world({ ops_notices: [hand('2026-10-08')] });
+    await w.run([]);
+    const sup = supersededBy(posts, ours);
+    assertEquals(sup.dates.size, 0, name);
+    for (let i = 0; i < 3; i++) assertEquals(await w.run([], at(i), scheduleFrom(posts, ours, () => true), sup), [], `${name} run ${i + 1}`);
+    assertEquals(live(w.db), ['2026-10-07', '2026-10-08'], `${name}: Oct 8 stays held`);
+  }
+  // the right posts but the schedule is unknown (a poster unread): nothing is released
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([]);
+  assertEquals(await w.run([], at(0), null, sup0()), []);
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08']);
+});
+
+Deno.test('Lloyd 2026-10-05 (d): the older poster read again after it was superseded and released is not re-announced and re-blocks nothing', async () => {
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([]);
+  await w.run([f15()], '2026-10-02T01:15:00Z', sc0(), sup0()); // Oct 8 released
+  assertEquals(live(w.db), ['2026-10-14', '2026-10-15']);
+  const cards = [w.sent.length, w.fin.length];
+  // a different URL for the older date (a re-upload) that is also superseded: still not announced
+  const again = P + 'SPI-PMS-10082026-LEON-LLIDO-SS_20260920_101010_0000.jpg';
+  const posts = [{ id: 22013, posters: [NEW15], postedAt: OCT }, { id: 21945, posters: [OLD8, again], postedAt: SEP }];
+  const ours = { ...liveOurs, [again]: '2026-10-08' };
+  const r = await w.run([found('2026-10-08', '06:00:00', 11, 21945, { url: again, postedAt: SEP })], '2026-10-02T01:30:00Z', scheduleFrom(posts, ours, () => true), supersededBy(posts, ours));
+  assertEquals(r, ['2026-10-08: superseded by the newer SOCOTECO post for 2026-10-15, not announced']);
+  assertEquals([w.sent.length, w.fin.length, live(w.db), (await readNotice(w.db, '2026-10-08'))!.status], [...cards, ['2026-10-14', '2026-10-15'], 'released']);
+});
+
+Deno.test('Lloyd 2026-10-05 (e): an explicit cancel poster for the date still asks (it is the same date, so not a supersede); a poster that moves it with originalDate still works', async () => {
+  const cancelUrl = P + 'SPI-PMS-10082026-LEON-LLIDO-SS-CANCELLED.jpg';
+  const posts = [{ id: 22013, posters: [cancelUrl], postedAt: OCT }, { id: 21945, posters: [OLD8], postedAt: SEP }];
+  const ours = { [OLD8]: '2026-10-08', [cancelUrl]: '2026-10-08' };
+  const sup = supersededBy(posts, ours);
+  assertEquals(sup.dates.size, 0);
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([]);
+  assertEquals(await w.run([found('2026-10-08', null, null, 22013, { status: 'cancelled', url: cancelUrl, postedAt: OCT })], '2026-10-02T01:15:00Z', scheduleFrom(posts, ours, () => true), sup), ['2026-10-08: cancelled']);
+  assertStringIncludes(w.sent[w.sent.length - 1].text, 'SOCOTECO cancelled the power interruption on Thu 8 Oct');
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08'], 'asked, nothing released before the tap');
+  // a moved poster: the newer post names Oct 15 and says moved from Oct 8 (the explicit path asks to unblock Oct 8)
+  const w2 = world({ ops_notices: [hand('2026-10-08')] });
+  await w2.run([]);
+  const r = await w2.run([found('2026-10-15', '06:00:00', 11, 22013, { url: NEW15, originalDate: '2026-10-08', postedAt: OCT })], '2026-10-02T01:15:00Z');
+  assertStringIncludes(r.join('|'), '2026-10-08: moved to Thu 15 Oct');
+  assertEquals(live(w2.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15']);
 });

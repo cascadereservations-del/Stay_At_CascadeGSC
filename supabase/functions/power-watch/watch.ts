@@ -1,9 +1,9 @@
 // power-watch, the orchestration (D-290): what one run does with the notices it found, the ones already on the board, and the
 // ones it holds blocks for. IO goes through `Deps` (a database, a Telegram sender, a mailer), so watch.test.ts runs every
 // path against an in-memory database. Nothing here writes to Airbnb or sends anything to a guest.
-import { cancelBrownoutRows, brownoutUid, listNotices, patchNoticeState, putNoticeState, readNotice, releasable, releaseNotice, type NoticeSource, type NoticeState } from '../_shared/cascade-core/brownout.ts';
+import { cancelBrownoutRows, brownoutUid, holds, listNotices, patchNoticeState, putNoticeState, readNotice, releasable, releaseNotice, type NoticeSource, type NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { alertText, dayLabel, FEEDER, posterFor, type Notice } from './poster.ts';
-import { AIRBNB_CAL, airbnbBlocks, cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule } from './plan.ts';
+import { AIRBNB_CAL, airbnbBlocks, cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, noSupersede, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule, type Superseded } from './plan.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -16,12 +16,13 @@ export type Deps = {
   posters?: string[]; // poster URLs already read (power_watch_state.images): the link for a notice that has none of its own
   schedule?: Schedule; // SPEC-41: what SOCOTECO's current posts say (plan.ts scheduleFrom); absent or null = unknown, nothing is ever released
   sendFinance?: (card: Built) => Promise<boolean | number>; // the same card to the Finance chat (the auto-release card goes to OPS and Finance)
+  superseded?: Superseded; // Lloyd 2026-10-05 (plan.ts supersededBy): dates and posters a newer same-substation, same-kind post moved; absent = none
 };
-export type Found = Notice & { postId: number };
+export type Found = Notice & { postId: number; postedAt?: string | null }; // postedAt: when its SOCOTECO post was published
 /** The posted_by_name power-watch writes on the notices it inserts itself. Only those are ever auto-released (a dashboard entry, a staff photo, an NGCP or Cassy notice never is). */
 export const POWER_WATCH_NAME = 'Power watch (socoteco2.com)';
 type NoticeRow = { id: string; effective_date: string; effective_time: string | null; duration_hours: number | string | null; source?: string | null; posted_by_name?: string | null };
-type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string; url: string; source?: NoticeSource; enteredBy?: string };
+type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string; url: string; source?: NoticeSource; enteredBy?: string; postedAt?: string };
 /** A row with no source (written before the SPEC-41 release, or by an old writer) reads as SOCOTECO, like a state with none. For DISPLAY only: release is decided by POWER_WATCH_NAME. */
 const srcOf = (r: { source?: string | null } | undefined): NoticeSource => (r?.source === 'ngcp' || r?.source === 'staff' ? r.source : 'socoteco');
 
@@ -31,10 +32,17 @@ const num = (v: unknown) => (v === null || v === undefined || v === '' || !Numbe
 const sameWindow = (a: { time: string | null; hours: number | null }, b: { time: string | null; hours: number | null }) =>
   !a.time || !b.time || (hhmm(a.time) === hhmm(b.time) && (a.hours === null || b.hours === null || Math.abs(a.hours - b.hours) < 0.01));
 
-export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
+export async function reconcile(d: Deps, foundAll: Found[]): Promise<string[]> {
   const { db, propertyId: pid, today, now } = d;
   const nowIso = now.toISOString();
   const res: string[] = [];
+  const sup = d.superseded ?? noSupersede();
+  // Lloyd 2026-10-05: a poster a newer post of the same substation and kind has replaced (the Oct 8 one, after the Oct 15 one) is never announced again.
+  const found = foundAll.filter((n) => {
+    const mv = sup.urls.get(n.url);
+    if (mv) res.push(`${n.date}: superseded by the newer SOCOTECO post for ${mv.to}, not announced`);
+    return !mv;
+  });
 
   const cal = await db.from('calendar_events').select('uid,source,status,checkin_date,checkout_date,guest_name')
     .eq('property_id', pid).neq('status', 'cancelled').gt('checkout_date', today).limit(1000);
@@ -110,7 +118,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     if (n.originalDate) await cancel(n.originalDate, `moved to ${dayLabel(n.date)}`, n.url, n.postId);
     let st = states.get(n.date);
     let row = noticeRows.find((r) => r.effective_date === n.date);
-    const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster, url: n.url, source: st?.source ?? (row ? srcOf(row) : 'socoteco') };
+    const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster, url: n.url, source: st?.source ?? (row ? srcOf(row) : 'socoteco'), ...(n.postedAt ? { postedAt: n.postedAt } : {}) };
     if (st?.status === 'released') {
       // 2026-10-05 (Lloyd, D-299): a released outage stays released when the SAME poster is read again (a deploy re-read the Oct 8 poster
       // and re-blocked Oct 7-8 after it had moved). Only a different poster for the date is "posted again".
@@ -160,6 +168,25 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   const autoDates = new Set(noticeRows.filter(ours).map((r) => r.effective_date));
   for (const r of noticeRows) if (!ours(r)) autoDates.delete(r.effective_date);
   const protectedDates = new Set([...states.keys()].filter((date) => !autoDates.has(date)));
+  // Lloyd 2026-10-05 (overrides the audit-L5a "no supersede" rule): a newer SOCOTECO post of the same substation and kind for ANOTHER date moved the older
+  // one. Judged only on a known schedule (every poster decided), never over a guest, and only for SOCOTECO-source notices (NGCP/staff are never checked, and
+  // Keep it blocked makes a notice staff, so a tap is final). A notice power-watch inserted and no guest stays on is released with the existing card
+  // (Keep it blocked is the way back); a hand-entered one, or one with a guest on a held night, is asked once (the cancel card, one Unblock tap).
+  if (d.schedule) for (const [date, mv] of sup.dates) {
+    const st = states.get(date);
+    if (!st || !holds(st) || date < today || (st.source ?? 'socoteco') !== 'socoteco' || st.cancelAskedAt || st.card?.kind === 'cancel') continue;
+    if (protectedDates.has(date) || classifyNights(st.blocked, rows, today).guests.length) { await cancel(date, `moved to ${dayLabel(mv.to)}`, mv.url, Number.MAX_SAFE_INTEGER); continue; }
+    const r = await releaseNotice(db, pid, date, 'unblock', `auto: moved to ${mv.to} (newer SOCOTECO post)`);
+    if (!r.ok) { d.log('power_watch_release_failed', { date, error: r.error }); continue; } // the next run tries again
+    const done = await readNotice(db, date);
+    if (done) states.set(date, done);
+    res.push(`${date}: released (moved to ${dayLabel(mv.to)} by a newer SOCOTECO post)`);
+    if (r.nights.length && done) {
+      const card = releasedCard(done, r.nights, mv);
+      if (!(await d.send(card))) d.log('power_watch_card_failed', { date, kind: 'released', chat: 'ops' });
+      if (d.sendFinance && !(await d.sendFinance(card))) d.log('power_watch_card_failed', { date, kind: 'released', chat: 'finance' });
+    }
+  }
   const stale = staleNotices([...states.values()], d.schedule ?? null, rows, today, protectedDates);
   for (const date of [...stale.hit, ...stale.unknown]) { // a listed or an unjudgeable run breaks the streak: release needs two CONSECUTIVE clean misses
     if ((states.get(date)?.missRuns ?? 0) > 0) { const n = await patchNoticeState(db, date, { missRuns: 0 }); if (n) states.set(date, n); }

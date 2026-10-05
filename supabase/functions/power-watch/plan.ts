@@ -7,7 +7,7 @@
 // Nothing here writes to Airbnb. Marifel blocks Airbnb by hand; the cards exist to tell her at once.
 import { autoKeyboard, doSend, groups, withHeader, type Btn } from '../_shared/cascade-core/format.ts';
 import { brownoutUid, holds, nightsList, nightsPhrase, pwData, sourceWord, type Guest, type NoticeState } from '../_shared/cascade-core/brownout.ts';
-import { classifyFile, clock, dayLabel, endOf, FEEDER } from './poster.ts';
+import { classifyFile, clock, dayLabel, endOf, FEEDER, posterKey } from './poster.ts';
 
 // SPEC-41: the night rule moved to _shared/cascade-core/brownout.ts so calendar-sync reads the same one; power-watch and its tests import it from here as before.
 export { touchedNights } from '../_shared/cascade-core/brownout.ts';
@@ -233,7 +233,7 @@ export function nightsLine(st: NoticeState): string {
 
 // ── SPEC-41 Part 3: a brownout block must be backed by a live notice ────────────────────────────────────────────────────────
 /** The nights SOCOTECO's current schedule says nothing about stay held; the ones it no longer lists are freed (watch.ts), never over a guest. */
-export type Post = { id: number; posters: string[] };                                             // current power posts
+export type Post = { id: number; posters: string[]; postedAt?: string | null };                  // current power posts; postedAt = when the post was published (ISO)
 export type Schedule = { listed: Set<string>; covered: (date: string) => boolean } | null;        // null = unknown this run
 
 const fileOf = (url: string) => decodeURIComponent(url.split('/').pop() ?? '');
@@ -242,12 +242,50 @@ export const posterDate = (url: string): string | null => {
   const m = /SPI-(?:PMS-)?(\d{2})(\d{2})(\d{4})/i.exec(fileOf(url));
   return m ? `${m[3]}-${m[1]}-${m[2]}` : null;
 };
+/** An older outage date a newer post moved: `to` = the date the newer same-substation, same-kind post names, `url` = that poster. */
+export type Moved = { to: string; url: string };
+export type Superseded = { dates: Map<string, Moved>; urls: Map<string, Moved> }; // dates = the older DATES; urls = the older POSTERS (never to be announced again)
+export const noSupersede = (): Superseded => ({ dates: new Map(), urls: new Map() });
+
+/**
+ * Lloyd 2026-10-05 ("is there a newer poster or announcement that says it has been moved or cancelled"): SOCOTECO re-uses the same substation
+ * poster for a new date and leaves the old post in the feed (Oct 8 Leon Llido PMS, posted in September, moved to Oct 15, posted in October).
+ * An ours-class poster is SUPERSEDED when a LATER post (publish time strictly later) carries a poster of the same substation (or feeder)
+ * and the same kind (posterKey: the filename slug, PMS) that names none of its dates. Its dates then count as moved to the newest one's date.
+ * Both posters must come from a post with a known publish time; two posters in one post never supersede each other (a genuine double outage).
+ * A date also named by any poster that is not superseded stays listed. An explicit moved or cancelled poster is not this rule (watch.ts cancel()).
+ */
+export function supersededBy(posts: Post[], ours: Record<string, string>): Superseded {
+  const out = noSupersede();
+  const named = (u: string) => [posterDate(u), ours[u]].filter((d): d is string => !!d);
+  const items = posts.flatMap((p) => p.posters.map((url) => ({ url, at: p.postedAt ? Date.parse(p.postedAt) : NaN, key: posterKey(url) })))
+    .filter((i) => i.key && !Number.isNaN(i.at));
+  const supUrls = new Set<string>();
+  for (const i of items) {
+    const group = items.filter((o) => o.key!.kind === i.key!.kind && o.key!.where === i.key!.where);
+    const newest = Math.max(...group.map((o) => o.at));
+    if (i.at >= newest) continue;
+    const top = group.filter((o) => o.at === newest);
+    const topDates = top.flatMap((o) => named(o.url));
+    if (!topDates.length || named(i.url).some((d) => topDates.includes(d))) continue; // same date again (a corrected or moved poster) is not "another date"
+    const best = top.find((o) => posterDate(o.url) === [...topDates].sort().pop()) ?? top[0]; // ponytail: several posters in the newest post -> the latest date
+    const to = ours[best.url] || posterDate(best.url);
+    if (!to) continue;
+    out.urls.set(i.url, { to, url: best.url });
+    supUrls.add(i.url);
+  }
+  const keep = new Set(posts.flatMap((p) => p.posters).filter((u) => !supUrls.has(u) && classifyFile(u) !== 'miss').flatMap(named));
+  for (const u of supUrls) for (const d of named(u)) if (!keep.has(d)) out.dates.set(d, out.urls.get(u)!);
+  return out;
+}
+
 /**
  * What SOCOTECO's current posts say, or null (unknown) when they cannot be trusted this run: no posts or posters, or any poster not
  * decided yet (a read failed, or the per-run read cap was hit). `ours` maps a poster to the date its read names ('' = read, not ours).
- * `listed` = EVERY date any current hit- or read-class poster names: its filename date AND its read date. There is no supersede rule on purpose:
- * a moved poster (filename = moved-FROM date, read = moved-TO date, D-295) keeps its moved-FROM date listed while that poster is in the feed,
- * and a misread read date never drops the filename date. The old date is freed only through watch.ts cancel(originalDate), the ask card with an
+ * `listed` = EVERY date any current hit- or read-class poster names: its filename date AND its read date, EXCEPT a date a newer post of the
+ * same substation and kind moved to another date (supersededBy, Lloyd 2026-10-05; that date is handled by watch.ts, not counted as a miss).
+ * A moved poster (filename = moved-FROM date, read = moved-TO date, D-295) keeps its moved-FROM date listed while that poster is in the feed,
+ * and a misread read date never drops the filename date. That old date is freed through watch.ts cancel(originalDate), the ask card with an
  * Unblock tap; one tap is cheaper than a false release that sells a night with a brownout.
  * `covered(d)` = d lies inside some current post's span of poster dates, so a date outside every post (its post scrolled out of the feed)
  * can never be judged and is never released.
@@ -255,6 +293,7 @@ export const posterDate = (url: string): string | null => {
 export function scheduleFrom(posts: Post[], ours: Record<string, string>, decided: (url: string) => boolean): Schedule {
   const all = posts.flatMap((p) => p.posters);
   if (!all.length || all.some((u) => !decided(u))) return null;
+  const moved = supersededBy(posts, ours).dates;
   const listed = new Set<string>();
   const spans: Array<[string, string]> = [];
   for (const p of posts) {
@@ -262,7 +301,7 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
     for (const u of p.posters) {
       const named = [posterDate(u), ours[u]].filter((d): d is string => !!d);
       dates.push(...named); // a poster of another substation or feeder only widens the span
-      if (classifyFile(u) !== 'miss') for (const d of named) listed.add(d);
+      if (classifyFile(u) !== 'miss') for (const d of named) if (!moved.has(d)) listed.add(d);
     }
     if (dates.length) spans.push([dates.reduce((a, b) => (a < b ? a : b)), dates.reduce((a, b) => (a > b ? a : b))]);
   }
@@ -293,12 +332,18 @@ export function staleNotices(states: NoticeState[], sched: Schedule, rows: Row[]
   return out;
 }
 
-/** Sent to OPS and Finance when power-watch frees nights because SOCOTECO no longer lists the outage. One button: Keep it blocked (pw:keep). */
-export function releasedCard(st: NoticeState, nights: string[]): Built {
+/** Sent to OPS and Finance when power-watch frees nights because SOCOTECO no longer lists the outage, or because a newer SOCOTECO post moved it to
+ *  another date (`moved`, Lloyd 2026-10-05). One button: Keep it blocked (pw:keep). */
+export function releasedCard(st: NoticeState, nights: string[], moved?: Moved): Built {
+  const open = `✅ The ${nightsPhrase(nights)} ${nights.length === 1 ? 'is' : 'are'} open again on our booking site.`;
+  const why = moved
+    ? `A newer SOCOTECO post moved the ${dayLabel(st.date)} power interruption for Feeder ${FEEDER} to ${dayLabel(moved.to)}.`
+    : `SOCOTECO no longer lists the ${dayLabel(st.date)} power interruption for Feeder ${FEEDER} on its current schedule.`;
   const body = groups(
-    [`✅ The ${nightsPhrase(nights)} ${nights.length === 1 ? 'is' : 'are'} open again on our booking site. SOCOTECO no longer lists the ${dayLabel(st.date)} power interruption for Feeder ${FEEDER} on its current schedule.`],
+    [`${open} ${why}`],
     [`Marifel: if Airbnb is still blocked for ${nights.length === 1 ? 'that night' : 'those nights'}, unblock ${nights.length === 1 ? 'it' : 'them'} there.`],
     ['If SOCOTECO told you directly that it is still on, tap Keep it blocked.'],
+    [ifs(moved?.url, `Newer SOCOTECO notice: ${moved?.url}`)],
   );
   const text = header(subjectOf(st.date), body);
   return { text, markup: autoKeyboard(text, [{ text: '🔒 Keep it blocked', callback_data: pwData('keep', st.date) }]) };

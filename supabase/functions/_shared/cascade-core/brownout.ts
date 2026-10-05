@@ -26,6 +26,7 @@ export const sourceWord = (s: NoticeSource | undefined) => (s === 'ngcp' ? 'NGCP
 export type NoticeState = {
   date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string;
   url?: string;              // the SOCOTECO poster behind the latest card: the first one, or the one that changed, moved or cancelled it
+  postedAt?: string;         // when the SOCOTECO post behind this notice was published (ISO UTC; Lloyd 2026-10-05: a newer post can move it)
   status: 'active' | 'undone' | 'released';
   nights: string[];          // every night the outage touches, today or later
   blocked: string[];         // nights we hold with brownout rows (the ones Marifel must block in Airbnb)

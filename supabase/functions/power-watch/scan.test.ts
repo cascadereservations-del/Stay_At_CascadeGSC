@@ -105,3 +105,11 @@ Deno.test('audit L5a (C): on ANY run a hit or read poster in images with no ours
   await scanPosts(posts, st, '2026-10-02', one, LIMITS);
   assertEquals(tried.length, 1, 'nothing is read again once every entry is recorded');
 });
+
+Deno.test('Lloyd 2026-10-05: every notice a post yields carries that post publish time (date_gmt first, else date as UTC+8)', async () => {
+  const a = 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg', b = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', c = 'SPI-PMS-10222026-LEON-LLIDO-SS.jpg';
+  const posts = [{ ...post(22013, a), date_gmt: '2026-10-02T00:30:00', date: '2026-10-02T08:30:00' }, { ...post(21945, b), date: '2026-09-28T09:00:00' }, post(5, c)];
+  const st: ScanState = { done: [], images: [], ours: {} };
+  const r = await scanPosts(posts, st, '2026-10-02', (url) => Promise.resolve({ notice: notice(url.includes('1015') ? '2026-10-15' : url.includes('1008') ? '2026-10-08' : '2026-10-22', url), log: url }), LIMITS);
+  assertEquals(r.found.map((n) => [n.postId, n.postedAt]), [[22013, '2026-10-02T00:30:00.000Z'], [21945, '2026-09-28T01:00:00.000Z'], [5, null]]);
+});

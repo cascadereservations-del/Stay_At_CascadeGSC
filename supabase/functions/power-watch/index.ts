@@ -21,21 +21,23 @@
 // Session 70 (SPEC-41 Part 3, D-299.1): a brownout block stays only while SOCOTECO's CURRENT posts still list the outage (plan.ts scheduleFrom / staleNotices).
 // Two clean scrapes in a row without it free its nights (watch.ts, one OPS + Finance card with Keep it blocked); never on an unknown or half-read feed,
 // never over a guest, and only for ops_notices.source = socoteco (an NGCP or staff notice ends by its date or an Unblock). The feed is 20 posts deep.
+// Session 71 (Lloyd 2026-10-05): each post's publish time (date_gmt) rides with its posters. A NEWER post with a poster of the same substation and kind (filename PMS) for another date
+// supersedes the older date (plan.ts supersededBy): the older poster is never announced again, and a hold power-watch inserted is released with the Keep it blocked card (watch.ts).
 // ?dry=1 decides and logs but writes, alerts and marks nothing.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { parseModelJson, visionExtractText } from '../_shared/cascade-core/vision.ts';
-import { isPowerPost, noticeFrom, OCR_PROMPT, posterUrls, type Ocr } from './poster.ts';
+import { isPowerPost, noticeFrom, OCR_PROMPT, postedAt, posterUrls, type Ocr } from './poster.ts';
 import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
-import { scheduleFrom, touchedNights } from './plan.ts';
+import { scheduleFrom, supersededBy, touchedNights } from './plan.ts';
 import { reportStuck, scanPosts } from './scan.ts';
 import { pruneStates, reconcile } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const PROPERTY_ID = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
-const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=20&orderby=date&_fields=id,date,link,title,content';
+const FEED = 'https://www.socoteco2.com/wp-json/wp/v2/posts?per_page=20&orderby=date&_fields=id,date,date_gmt,link,title,content';
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; CascadeOpsWatch/1.0)' };
 const STATE_KEY = 'power_watch_state';
 const MAX_READS = 4;   // poster reads per run; the rest wait for the next run
@@ -109,8 +111,10 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   }, { maxReads: MAX_READS, budgetMs: READ_BUDGET_MS }, (url, e) => console.warn('power_watch_read_failed', url.split('/').pop(), String(e).slice(0, 200)));
   // What SOCOTECO's current posts say; null (unknown) when a poster is still unread, so nothing is ever freed on a half-read feed.
   // A poster is decided only when it was actually read (state.images); a done post's unread poster is read above, or the schedule is null.
-  const sched = posts.map((p) => ({ id: p.id, posters: posterUrls(p.content?.rendered ?? '') }));
+  const sched = posts.map((p) => ({ id: p.id, posters: posterUrls(p.content?.rendered ?? ''), postedAt: postedAt(p) }));
   const schedule = scheduleFrom(sched, state.ours, (u) => state.images.includes(u));
+  // Lloyd 2026-10-05: a newer post of the same substation and kind for another date has moved the older one (plan.ts supersededBy). Known even on a half-read feed (filenames), but only a full schedule releases anything.
+  const superseded = supersededBy(sched, state.ours);
   let results: string[] = [];
   if (!dry) {
     // Blocks and cards first; the poster state is saved only after them, so a failure re-reads the posters rather than losing a notice.
@@ -121,7 +125,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
       sendFinance: async (c) => await tg(c.text, c.markup, 'TELEGRAM_FINANCE_CHAT_ID'),
       mail: (subject, body) => mail(db, subject, body),
       log: (event, data) => console.log(event, JSON.stringify(data)),
-      posters: state.images, schedule,
+      posters: state.images, schedule, superseded,
     }, found);
     // A poster that failed 8 runs in a row: ONE Follow-ups task (system_task_open_v1 is idempotent by kind + ref), since auto-release is silently off while it is unread.
     try {
@@ -135,7 +139,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))), fails: Object.fromEntries(Object.entries(state.fails).filter(([u]) => !state.images.includes(u) && sched.some((p) => p.posters.includes(u)))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
   const out = {
-    posts: posts.length, reads, dry, results, log, schedule: schedule ? { listed: [...schedule.listed].sort() } : null,
+    posts: posts.length, reads, dry, results, log, superseded: [...superseded.dates].map(([d, m]) => `${d}->${m.to}`), schedule: schedule ? { listed: [...schedule.listed].sort() } : null,
     found: found.map((n) => `${n.date} ${n.time ?? ''} ${n.hours ?? ''}h ${n.status} nights ${touchedNights(n.date, n.time, n.hours).join('+')}`),
   };
   console.log('power_watch_run', JSON.stringify(out));

@@ -32,6 +32,25 @@ export function classifyFile(url: string): 'hit' | 'miss' | 'read' {
   return 'read';
 }
 
+/** When a feed post was published, as an ISO UTC string (Lloyd 2026-10-05: a newer post can move or cancel an older one). WordPress gives
+ *  date_gmt (UTC) when asked for it, else date (the site's local time, UTC+8 in the Philippines). null = unknown, and unknown never supersedes. */
+export function postedAt(p: { date_gmt?: string | null; date?: string | null }): string | null {
+  const t = p.date_gmt ? Date.parse(`${p.date_gmt}Z`) : p.date ? Date.parse(`${p.date}+08:00`) : NaN;
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
+}
+
+/** What a poster is about, from its filename alone: SPI-PMS-10082026-LEON-LLIDO-SS.jpg -> { kind: 'PMS', where: 'LEON-LLIDO' }.
+ *  Only ours-class posters (classifyFile 'hit') with a kind token we trust to be one planned job per place; anything else is null and is never
+ *  superseded or used to supersede. The upload suffix (_20261003_160149_0000), -2 and -REVISED endings do not matter. */
+const SUPERSEDE_KINDS = /^(PMS)$/; // ponytail: PMS only (substation maintenance); add a kind when a real series of posters shows up
+export function posterKey(url: string): { kind: string; where: string } | null {
+  if (classifyFile(url) !== 'hit') return null;
+  const f = decodeURIComponent(url.split('/').pop() ?? '').replace(/_/g, '-');
+  const kind = /^SPI-([A-Z]+)-\d{8}-/i.exec(f)?.[1]?.toUpperCase();
+  if (!kind || !SUPERSEDE_KINDS.test(kind)) return null;
+  return { kind, where: OUR_SUBSTATION.test(f) ? 'LEON-LLIDO' : `F${FEEDER}` };
+}
+
 /** The SOCOTECO poster for a date among the ones already read (power_watch_state.images): its filename carries MMDDYYYY
  *  (SPI-PMS-10082026-LEON-LLIDO-SS.jpg). Another substation's or feeder's poster is never it; the newest wins. Lloyd 2026-10-03:
  *  every card links the actual notice so staff can open it and check. Notices seeded from the board have no poster of their own. */
