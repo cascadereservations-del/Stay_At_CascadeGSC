@@ -14,7 +14,7 @@ import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaTo
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { HOUSE_READ_DECL, HOUSE_TEACH_DECL, houseInfo, teachCard } from '../_shared/cascade-core/house.ts'; // D-282
 import { toneRules } from '../messenger-concierge/voice.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, opsToolsOnly, maskReport, postDraft, type Surface } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, opsToolsOnly, maskReport, postDraft, dropMoneyFacts, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
 import { draftRequest, draftGuestReply, draftInquiry, inquiryDraftCard, routeDraft, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
@@ -35,17 +35,19 @@ Call only the tools the question needs.
 Earlier turns are context only. Answer the CURRENT question from THIS turn's tool results; never repeat an earlier answer.
 House how-tos (aircon, Wi-Fi, door, EcoFlow, turnover steps, suppliers): call house_info and answer from it; never invent a step.
 Write tools (log_expense, create_notice, teach_house_fact) only send a confirmation card; after one, your decision line says what the card holds and the action is "Tap ✅ on the card". Nothing is saved until the tap.
-${surface === 'ops' ? 'SURFACE OPS: staff and cleaners read this. Money fields are removed from your tools; never mention amounts.' : 'SURFACE FINANCE: admins read this; figures are allowed.'}
+${surface === 'ops' ? 'SURFACE OPS: staff and cleaners read this. Money fields are removed from your tools; never mention amounts, and give no occupancy, revenue or booking figures.' : 'SURFACE FINANCE: admins read this; figures are allowed.'}
 Reply in the language of the question (English, Tagalog, Bisaya or Taglish), warm and direct.
 FINAL ANSWER FORMAT: return only JSON {"decision": "<one line: what needs a decision, or that nothing does>", "lines": ["<at most 5 short lines, each with its number and why it matters>"], "action": "<one action doable in under two minutes, or empty>"}.`;
 
-async function tgSend(chatId: unknown, text: string, replyTo?: number, card?: Card): Promise<void> {
-  const token = env('TELEGRAM_BOT_TOKEN'); if (!token) return;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+async function tgSend(chatId: unknown, text: string, replyTo?: number, card?: Card): Promise<boolean> {
+  const token = env('TELEGRAM_BOT_TOKEN'); if (!token) return false;
+  const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true, ...(replyTo ? { reply_parameters: { message_id: replyTo } } : {}), ...(card ? { reply_markup: { inline_keyboard: card.keyboard } } : {}) }),
     signal: AbortSignal.timeout(10_000),
-  }).catch((e) => console.error('tg_send_failed', String(e).slice(0, 200)));
+  }).catch((e) => { console.error('tg_send_failed', String(e).slice(0, 200)); return null; });
+  if (r && !r.ok) console.error('tg_send_refused', JSON.stringify({ status: r.status }));
+  return !!r?.ok;
 }
 
 async function history(db: any, chatId: string): Promise<ChatTurn[]> {
@@ -102,7 +104,7 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
       system: VOICE(surface, today), history: await history(db, chatId), question, tools, title: 'Cascade Cassy', tier, maxRounds: tier === 'deep' ? 5 : 3, maxTokens: tier === 'deep' ? 1200 : 700,
       forceTool: houseAsk ? 'house_info' : wantsExpense(question, surface) ? 'log_expense' : surface === 'finance' && /^\s*(teach|edit|retire)\b/i.test(question) ? 'teach_house_fact' : undefined,
       run: async (name, args) => {
-        if (name === 'house_info') { const h = await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; }); return surface === 'ops' ? stripMoney(h) : h; } // D-306
+        if (name === 'house_info') { const h = await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; }); return surface === 'ops' ? stripMoney(dropMoneyFacts(h)) : h; } // D-306: OPS never sees a fact that carries money
         if (name === 'teach_house_fact') {
           if (surface !== 'finance') return { error: 'house facts are taught in the finance chat' };
           const w = await teachCard(db, chatId, args, [msg.from?.first_name, msg.from?.id].filter(Boolean).join(' ')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: 'teach_house_fact unavailable' } }; });
@@ -114,7 +116,7 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
         }
         if (isWriteTool(name)) {
           const w = await writeTool(db, ctx, name, args).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: `${name} unavailable` } }; });
-          if (w.card) { await tgSend(chatId, w.card.text, msg.message_id, w.card); cardSent = true; }
+          if (w.card) { await tgSend(chatId, surface === 'ops' ? maskMoney(w.card.text) : w.card.text, msg.message_id, w.card); cardSent = true; } // D-306: the OPS notice card is masked
           return w.result;
         }
         const r = await runTool(db, name, args).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: `${name} unavailable` }; });
@@ -144,6 +146,8 @@ async function photoBytes(msg: any): Promise<{ bytes: Uint8Array; mime: string }
   return { bytes: new Uint8Array(await r.arrayBuffer()), mime: /\.png$/i.test(path) ? 'image/png' : 'image/jpeg' };
 }
 
+const askerOf = (msg: any): string => String(msg?.from?.first_name ?? '').trim().split(/\s+/)[0];
+
 async function draft(db: any, msg: any, pasted: string, surface: Surface): Promise<void> {
   const chatId = String(msg.chat.id);
   const t0 = Date.now();
@@ -164,7 +168,7 @@ async function draft(db: any, msg: any, pasted: string, surface: Surface): Promi
     if (!guestText.trim()) { await tgSend(chatId, 'I could not find a guest message there. Tap ✍️ Guest reply and paste what they wrote, or send a screenshot of the chat.', msg.message_id); return; }
     const out = await draftGuestReply(db, guestText, guestName, thread);
     // header, then each option alone: a long-press copies only the reply. D-306: a draft with an amount is posted in Finance, not OPS.
-    await postDraft(tgSend, { surface, chatId, financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), refused: OPS_MONEY_REFUSED, parts: out, replyTo: msg.message_id });
+    await postDraft(tgSend, { surface, chatId, financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), refused: OPS_MONEY_REFUSED, parts: out, replyTo: msg.message_id, asker: askerOf(msg) });
     console.log('cassy_draft', JSON.stringify({ chat: chatId, from: msg.from?.id, photo: !!msg.photo, chars: guestText.length, ms: Date.now() - t0 }));
   } catch (e) {
     console.error('cassy_draft_failed', String(e).slice(0, 300));
@@ -176,7 +180,7 @@ async function revise(db: any, msg: any, raw: string, surface: Surface): Promise
   const chatId = String(msg.chat.id);
   const [template, context = ''] = raw.split('|||').map((x) => x.trim());
   if (!template) { await tgSend(chatId, 'Nothing to revise on that card.', msg.message_id); return; }
-  try { await postDraft(tgSend, { surface, chatId, financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), refused: OPS_MONEY_REFUSED, parts: [await reviseHostMessage(db, template, context)], replyTo: msg.message_id }); } // D-306
+  try { await postDraft(tgSend, { surface, chatId, financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), refused: OPS_MONEY_REFUSED, parts: [await reviseHostMessage(db, template, context)], replyTo: msg.message_id, asker: askerOf(msg) }); } // D-306
   catch (e) { console.error('cassy_revise_failed', String(e).slice(0, 300)); await tgSend(chatId, 'I could not revise that right now. Try again in a minute.', msg.message_id); }
 }
 

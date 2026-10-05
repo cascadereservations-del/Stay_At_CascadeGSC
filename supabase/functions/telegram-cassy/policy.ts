@@ -100,11 +100,30 @@ export function maskReport<T extends { decision: string; lines: string[]; action
   return surface === 'finance' ? r : { ...r, decision: maskMoney(r.decision), lines: r.lines.map(maskMoney), action: maskMoney(r.action) };
 }
 
-/** D-306: post a drafted guest reply. In OPS a draft with an amount is not shown: OPS gets the refusal line and Finance the whole draft
- *  (the same pattern as inquiry()). Finance, and an OPS draft with no money, post as is. */
-export async function postDraft(send: (chat: string, text: string, replyTo?: number) => Promise<void>, o: { surface: Surface; chatId: string; financeChat: string; refused: string; parts: string[]; replyTo?: number }): Promise<{ toFinance: boolean }> {
+export const FINANCE_UNSET = 'Draft withheld - the Finance chat is not configured.';
+export const FINANCE_UNREACHED = 'Draft withheld - the Finance chat could not be reached.';
+/** D-306: post a drafted guest reply. In OPS a draft with an amount is not shown: Finance gets the whole draft first (headed "Asked in OPS by <name>"),
+ *  then OPS gets the refusal line (the same pattern as inquiry()). If Finance cannot take it, OPS is told it was withheld, never left to think it was sent.
+ *  Finance, and an OPS draft with no money, post as is. send returns false when Telegram refused the message. */
+export async function postDraft(send: (chat: string, text: string, replyTo?: number) => Promise<boolean | void>, o: { surface: Surface; chatId: string; financeChat: string; refused: string; parts: string[]; replyTo?: number; asker?: string }): Promise<{ toFinance: boolean; delivered: boolean }> {
   const toFinance = o.surface === 'ops' && o.parts.some(hasMoney);
-  if (toFinance) { await send(o.chatId, o.refused, o.replyTo); if (o.financeChat) for (const p of o.parts) await send(o.financeChat, p); return { toFinance }; }
-  for (const p of o.parts) await send(o.chatId, p, o.replyTo);
-  return { toFinance };
+  if (!toFinance) { for (const p of o.parts) await send(o.chatId, p, o.replyTo); return { toFinance, delivered: true }; }
+  if (!o.financeChat) { await send(o.chatId, FINANCE_UNSET, o.replyTo); return { toFinance, delivered: false }; }
+  let delivered = true;
+  for (const [i, p] of o.parts.entries()) {
+    if (await send(o.financeChat, i === 0 ? `Asked in OPS by ${o.asker || 'a team member'}\n${p}` : p) === false) { delivered = false; console.error('finance_copy_failed', JSON.stringify({ part: i, of: o.parts.length })); break; }
+  }
+  await send(o.chatId, delivered ? o.refused : FINANCE_UNREACHED, o.replyTo);
+  return { toFinance, delivered };
+}
+
+/** D-306: in OPS a house fact whose text carries money never reaches the model (a fact may quote a rate or a deposit). */
+export function dropMoneyFacts(h: unknown): unknown {
+  const o = h as { facts?: { title?: unknown; body?: unknown }[]; topics?: unknown[] } | null;
+  if (!o || typeof o !== 'object') return h;
+  if (Array.isArray(o.facts)) {
+    const facts = o.facts.filter((f) => !hasMoney(String(f?.body ?? '')) && !hasMoney(String(f?.title ?? '')));
+    return facts.length ? { ...o, facts } : { note: 'nothing on that topic can be shown here' };
+  }
+  return Array.isArray(o.topics) ? { ...o, topics: o.topics.filter((t) => !hasMoney(String(t))) } : h;
 }

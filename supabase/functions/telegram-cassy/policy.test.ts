@@ -1,6 +1,6 @@
 // deno test telegram-cassy/policy.test.ts  (run from supabase/functions)
 import { assertEquals, assert } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, HISTORY_WINDOW_MS, opsToolsOnly, maskReport, postDraft } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, HISTORY_WINDOW_MS, opsToolsOnly, maskReport, postDraft, dropMoneyFacts, FINANCE_UNSET, FINANCE_UNREACHED } from './policy.ts';
 import { hasMoney } from '../_shared/ops-money.ts';
 import { OPS_MONEY_REFUSED } from '../_shared/cascade-core/inquiry.ts';
 
@@ -161,7 +161,7 @@ Deno.test('D-306: stripMoney also drops rate, deposit, refund, quote, income and
 Deno.test('D-306: a stubbed model reply with revenue and a rate comes out of OPS masked, and unmasked in Finance', () => {
   const raw = JSON.stringify({ decision: 'Revenue ₱50,000 and the rate is 1,780 a night', lines: ['Balance 3560 due', '2 nights from Oct 15'], action: 'Send P 1,780' });
   const ops = renderReport(maskReport(parseReport(raw), 'ops'), 'm');
-  assert(!/50,000|1,780|3560|1780/.test(ops), ops);
+  assert(!/50,000|1,780|3560|\b1780\b/.test(ops), ops);
   assert(ops.includes('2 nights') && ops.includes('Oct 15'), ops);
   assertEquals(renderReport(maskReport(parseReport(raw), 'finance'), 'm'), renderReport(parseReport(raw), 'm'));
 });
@@ -174,9 +174,10 @@ Deno.test('D-306: a draft or revision with an amount is refused in OPS and sent 
   assertEquals(r.toFinance, true);
   assertEquals(sent.filter((m) => m.chat === 'OPS').map((m) => m.text), [OPS_MONEY_REFUSED]);
   assert(!sent.filter((m) => m.chat === 'OPS').some((m) => hasMoney(m.text)));
-  assertEquals(sent.filter((m) => m.chat === 'FIN').map((m) => m.text), parts);
+  assertEquals(sent.filter((m) => m.chat === 'FIN').map((m) => m.text), ['Asked in OPS by a team member\n' + parts[0], parts[1]]);
+  assertEquals(sent[0].chat, 'FIN'); // Finance first, then the OPS line
 
-  sent.length = 0; // Finance posts as is; so does an OPS draft with no money; no Finance chat configured posts nothing but the refusal
+  sent.length = 0; // Finance posts as is; so does an OPS draft with no money; no Finance chat configured: OPS is told the draft was withheld
   assertEquals((await postDraft(send, { surface: 'finance', chatId: 'FIN', financeChat: 'FIN', refused: OPS_MONEY_REFUSED, parts })).toFinance, false);
   assertEquals(sent.map((m) => m.chat), ['FIN', 'FIN']);
   sent.length = 0;
@@ -184,5 +185,25 @@ Deno.test('D-306: a draft or revision with an amount is refused in OPS and sent 
   assertEquals(sent, [{ chat: 'OPS', text: 'Hi Ben, check-in is from 2:00 PM.' }]);
   sent.length = 0;
   await postDraft(send, { surface: 'ops', chatId: 'OPS', financeChat: '', refused: OPS_MONEY_REFUSED, parts });
-  assertEquals(sent, [{ chat: 'OPS', text: OPS_MONEY_REFUSED }]);
+  assertEquals(sent, [{ chat: 'OPS', text: FINANCE_UNSET }]);
+});
+
+Deno.test('D-306: the Finance copy names who asked in OPS; a Finance send that fails is logged and OPS is told nothing was sent', async () => {
+  const sent: { chat: string; text: string }[] = [];
+  const parts = ['Header', 'Hi Ben, PHP 3,560 total.'];
+  await postDraft(async (chat, text) => { sent.push({ chat, text }); }, { surface: 'ops', chatId: 'OPS', financeChat: 'FIN', refused: OPS_MONEY_REFUSED, parts, asker: 'Ana' });
+  assertEquals(sent[0], { chat: 'FIN', text: 'Asked in OPS by Ana\nHeader' });
+  sent.length = 0;
+  const r = await postDraft(async (chat, text) => { sent.push({ chat, text }); return chat !== 'FIN'; }, { surface: 'ops', chatId: 'OPS', financeChat: 'FIN', refused: OPS_MONEY_REFUSED, parts, asker: 'Ana' });
+  assertEquals(r.delivered, false);
+  assertEquals(sent.filter((m) => m.chat === 'OPS').map((m) => m.text), [FINANCE_UNREACHED]);
+  assertEquals(sent.filter((m) => m.chat === 'FIN').length, 1); // stopped at the first refusal
+});
+
+Deno.test('D-306: in OPS a house fact whose body carries money is dropped before the model; clean facts pass', () => {
+  const mixed = { facts: [{ topic: 'wifi', title: 'Wi-Fi', body: 'Network Cascade, password on the fridge.' }, { topic: 'rates', title: 'Rates', body: 'Weekend rate is 1,780 a night, deposit PHP 1,000.' }] };
+  assertEquals((dropMoneyFacts(mixed) as typeof mixed).facts.map((f) => f.topic), ['wifi']);
+  assertEquals(dropMoneyFacts({ facts: [mixed.facts[1]] }), { note: 'nothing on that topic can be shown here' });
+  assertEquals(dropMoneyFacts({ topics: ['wifi (staff): Wi-Fi', 'rates (staff): Rate 1,780 a night'] }), { topics: ['wifi (staff): Wi-Fi'] });
+  assertEquals(dropMoneyFacts({ error: 'x' }), { error: 'x' });
 });

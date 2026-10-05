@@ -179,3 +179,10 @@ Deno.test('D-306: a notice title with an amount is masked for OPS and whole for 
   assertEquals(noticeTitle('Pay Honey ₱3,560 balance', true, esc), 'Pay Honey ₱3,560 balance');
   assertEquals(noticeTitle('Property inspection 2026-10-05', false, esc), 'Property inspection 2026-10-05');
 });
+
+Deno.test('D-306: OPS still sees cleaning pay and expense titles whole; booking income in a title is masked', () => {
+  const esc = (s: unknown) => String(s ?? '');
+  assertEquals(noticeTitle('Pay Honey ₱500', false, esc), 'Pay Honey ₱500');
+  assertEquals(noticeTitle('Bili ng supplies ₱320', false, esc), 'Bili ng supplies ₱320');
+  assertEquals(noticeTitle('Collect ₱3,000 balance from guest', false, esc), 'Collect [amount hidden] balance from guest');
+});
