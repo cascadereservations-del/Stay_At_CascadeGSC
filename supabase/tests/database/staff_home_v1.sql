@@ -139,10 +139,11 @@ select is((select count(*)::int from storage.objects where bucket_id = 'guest-id
                          'e3600000-0000-4000-8000-0000000000e4/11111111-0000-4000-8000-000000000004.jpg')), 0,
   'a companion''s photo and another guest''s photo stay closed to a cleaner');
 
--- Maintenance reads operations but is not shown ID photos.
+-- Maintenance is staff too (D-302.1): the current and next guest's ID photos, and still nothing else.
 select set_config('request.jwt.claims', json_build_object('sub','e3600000-0000-4000-8000-000000000003','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
-select is(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'current_guest'->>'id_photo_path', null, 'maintenance gets no ID photo path');
-select is((select count(*)::int from storage.objects where bucket_id = 'guest-id-photos'), 0, 'maintenance cannot read any ID photo');
+select is(public.staff_home_v1('e3600000-0000-4000-8000-0000000000b0')->'current_guest'->>'id_photo_path',
+          'e3600000-0000-4000-8000-0000000000e1/11111111-0000-4000-8000-000000000001.jpg', 'maintenance gets the current guest''s ID photo path (D-302.1)');
+select is((select count(*)::int from storage.objects where bucket_id = 'guest-id-photos'), 2, 'maintenance reads only the current and next guest''s ID photos');
 
 -- The admin sees every open finding.
 select set_config('request.jwt.claims', json_build_object('sub','e3600000-0000-4000-8000-000000000002','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);

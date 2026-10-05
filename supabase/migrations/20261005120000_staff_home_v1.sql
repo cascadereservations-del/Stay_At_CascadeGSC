@@ -55,12 +55,10 @@ returns text language sql immutable set search_path to '' as $$
              '[hidden]', 'g'));
 $$;
 
--- Roles that may see a guest's ID photo (D-299.9): everyone with read_operations except maintenance.
+-- Who may see a guest's ID photo (D-299.9, D-302.1): every active staff account with read_operations on the property, no role cut.
 create or replace function public.staff_may_see_guest_id_v1(p_property_id uuid)
 returns boolean language sql stable security definer set search_path to '' as $$
-  select public.current_staff_authorized('read_operations', p_property_id)
-     and exists (select 1 from public.staff_access_profiles p
-                  where p.user_id = auth.uid() and p.role in ('owner','admin','finance','cleaner','inspector'));
+  select public.current_staff_authorized('read_operations', p_property_id);
 $$;
 
 create or replace function public.staff_stay_guest_id_v1(p_property_id uuid, p_uid text, p_linked uuid, p_checkin date, p_checkout date)

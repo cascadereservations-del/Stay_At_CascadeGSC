@@ -10,7 +10,7 @@
     "20261005120000_staff_home_v1.sql"
   ],
   "migration_sha256": {
-    "20261005120000_staff_home_v1.sql": "78305c2809093ab7e3bbb84af5b0ecc4556ed5e9389c72bccffb7840ce6a0836"
+    "20261005120000_staff_home_v1.sql": "c2785e56a3f918a43e4a5f198837c796cfc423a2ac6bc6ca902eb4cd49fbe0fd"
   },
   "backup": {
     "required": true,
