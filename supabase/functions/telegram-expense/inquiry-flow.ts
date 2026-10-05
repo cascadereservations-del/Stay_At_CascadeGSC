@@ -118,7 +118,7 @@ export async function onIqTap(d: Deps, cq: any): Promise<void> {
   if (tap.kind === 'back') { await d.edit(chatId, mid, orig, rm(v, orig, heldState(v))); return; }
   if (tap.kind === 'hold') {
     const { lang, plan } = await planFor(d, v);
-    const until = new Date(d.now() + HOLD_HOURS * 3_600_000).toISOString();
+    const until = new Date(Math.max(d.now() + HOLD_HOURS * 3_600_000, Date.parse(v.hold_expires_at ?? '') || 0)).toISOString(); // the RPC keeps a later site hold, so the preview must name the same time
     const note = v.hold_expires_at ? '' : `\nThis request has no timer today. After this it is released if no receipt arrives within ${HOLD_HOURS} h.`;
     await d.edit(chatId, mid, withPreview(text, holdPreview(v, heldLine(v, lang, until), until, channelName(plan.channel)) + note), { inline_keyboard: holdPreviewKeyboard(v.id) });
     return;
@@ -257,7 +257,13 @@ async function onSend(d: Deps, cq: any, pid: string, by: string, isFin: boolean)
   const del = await sendAndLog(d.io, v, msgText, { purpose: 'reply', tgUserId: cq.from?.id, actorName: by, key: `tg-inquiry-msg:${pid}` });
   const head = sentLine(first, del.channel, by, fmtClock(d.now()));
   if (del.delivered) await d.edit(chatId, mid, `${head}\n\n${msgText}`);
-  else await d.edit(chatId, mid, `⚠️ ${sentText(del, first, msgText, v)}`, autoKeyboard('📨 ⤵'));
+  else if (isFin) await d.edit(chatId, mid, `⚠️ ${sentText(del, first, msgText, v)}`, autoKeyboard('📨 ⤵'));
+  else {
+    // OPS never sees the guest's phone, e-mail or the channel detail (SPEC-38 s2): the SMS fallback goes to Finance as its own card.
+    const fallback = d.financeChat ? await d.send(d.financeChat, `⚠️ ${sentText(del, first, msgText, v)}
+(Tapped Send in the OPS group: ${by}.)`, { reply_markup: autoKeyboard('📨 ⤵') }).then((r) => r?.ok !== false, () => false) : false;
+    await d.edit(chatId, mid, `⚠️ The message did not reach ${first}. ${fallback ? 'Finance has been sent the text to pass on by hand.' : 'Tell Finance, who can send it by hand.'}`);
+  }
 }
 
 // ---- /requests ----

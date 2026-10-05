@@ -248,6 +248,52 @@ Deno.test('Send from OPS: a draft with money is refused and kept; a money-free d
   assertEquals(q.r.fb.length, 1);
 });
 
+const OPS_CHAT_MSG = { chat: { id: Number(OPS) }, message_id: 901, text: 'draft' };
+const SHAPES = /\d{4}[ -]?\d{3}|\d{7,}|@[\w-]+\.|ana@/; // a phone-like digit run or an e-mail
+
+Deno.test('Send from OPS when delivery fails: the OPS card has no phone, e-mail or detail, and Finance gets the SMS fallback card', async () => {
+  const p = setup({ fb: false, relay: false });
+  seedReply(p, {}, OPS);
+  await onIqTap(p.d, cq(IQ.send(PID), { message: OPS_CHAT_MSG }));
+  const ops = p.r.edits.at(-1)!;
+  assertStringIncludes(ops.text, 'did not reach Ana');
+  assertStringIncludes(ops.text, 'Finance has been sent the text');
+  assert(!SHAPES.test(ops.text), ops.text);
+  assert(!ops.text.includes('early check-in is welcome'), 'OPS card does not repeat the draft');
+  assertEquals(ops.rm, undefined);
+  const fin = p.r.sent.find((s) => String(s.chatId) === FIN)!;
+  assertStringIncludes(fin.text, 'Send it by SMS to 0917 123 4567:');
+  assertStringIncludes(fin.text, 'early check-in is welcome');
+  assertStringIncludes(fin.text, 'Tapped Send in the OPS group: Lloyd');
+  assertEquals(p.r.sent.filter((s) => String(s.chatId) === OPS).length, 0);
+});
+
+Deno.test('Send from OPS when delivery fails and Finance cannot be reached: OPS is told to tell Finance, still no phone', async () => {
+  const p = setup({ fb: false, relay: false });
+  p.d.send = async () => { throw new Error('telegram down'); };
+  seedReply(p, {}, OPS);
+  await onIqTap(p.d, cq(IQ.send(PID), { message: OPS_CHAT_MSG }));
+  const t = p.r.edits.at(-1)!.text;
+  assertStringIncludes(t, 'Tell Finance');
+  assert(!SHAPES.test(t), t);
+});
+
+Deno.test('Send from Finance when delivery fails: the card keeps the SMS fallback with the phone', async () => {
+  const p = setup({ fb: false, relay: false });
+  seedReply(p);
+  await onIqTap(p.d, cq(IQ.send(PID), {}, '✍️ Reply for Ana'));
+  const t = p.r.edits.at(-1)!.text;
+  assertStringIncludes(t, 'Send it by SMS to 0917 123 4567:');
+  assertStringIncludes(t, 'early check-in is welcome');
+});
+
+Deno.test('Hold preview names the later of now+24h and an existing site hold, as the RPC does', async () => {
+  const later = new Date(NOW + 48 * 3_600_000).toISOString();
+  const { d, r } = setup({ views: [view({ hold_expires_at: later })] });
+  await onIqTap(d, cq(IQ.hold(ID)));
+  assertStringIncludes(r.edits[0].text, '✅ Hold for Ana until Wed 7 Oct, 9:15 am?');
+});
+
 Deno.test('Send a drafted decline: the RPC declines with Other first and the message goes only then; a refused tap puts the draft back', async () => {
   const p = setup(); seedReply(p, { purpose: 'decline', reason_code: 'other', reason_private: 'party', text: 'Ana, thank you for your request. We are unable to accept this stay.' });
   await onIqTap(p.d, cq(IQ.send(PID), {}, "❌ Decline Ana's request with this message?"));
