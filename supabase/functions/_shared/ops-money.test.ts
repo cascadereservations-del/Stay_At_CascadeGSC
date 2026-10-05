@@ -177,7 +177,7 @@ const LEAKS9: [string, string][] = [
   // the round-9b Opus audit: money, a date WITH a year, then a unit (round 8 masked these); and cheap residuals
   ['Received Oct 15, 2026 950 pcs', '950'], ['Balance Oct 2026 950 pcs', '950'], ['Cash 15 Oct 2026 300 W', '300'], ['Rate Oct 15, 2026 at 120 rolls', '120'], ['Utang Oct 2026 120 towels', '120'],
   ['HMSALES780', '780'], ['HMKITA1780', '1780'], ['HMBENTA780', '780'], ['HMCOST1780', '1780'], ['HMSENT1780', '1780'], ['novecientos', 'novecientos'], ['setecientos', 'setecientos'], ['ochocientos', 'ochocientos'],
-  ['Call rate Oct 2026 160', '160'], ['BFP fee Oct 15, 2026 160', '160'], ['Hotline balance Oct 2026 911', '911'], ['Received Oct. 15, 2026 950 pcs', '950'], ['Received: Oct 15, 2026; 950 pcs', '950'], ['Received Oct 15, 2026! 300 W', '300'],
+  ['Call rate Oct 2026 160', '160'], ['BFP fee Oct 15, 2026 160', '160'], ['Hotline balance Oct 2026 911', '911'], ['Received Oct. 15, 2026 950 pcs', '950'], ['Received: Oct 15, 2026; 950 pcs', '950'], ['Received Oct 15, 2026! 300 W', '300'], ['Bal. Oct 2026 950 pcs', '950'], ['Paid. Oct 2026 950 pcs', '950'], ['Cash? Oct 2026 950 pcs', '950'], ['Bal. May 2026! 120 rolls', '120'], ['Call rate. Oct 2026 160', '160'], ['Refund! October 2026 300 W', '300'], ['Rate. po Oct 2026 po. 950 %', '950'], ['Payout. na Oct 15, 2026 na! 950 %', '950'],
   ['Remitted Oct 2030', '2030'], ['Nagpadala Oct 2030', '2030'], ['Binayaran Oct 15, 2030', '2030'], ['Profit Oct 2030', '2030'], ['Sukli Oct 2030', '2030'], ['Remaining Oct 2030', '2030'],
 ];
 Deno.test('D-306 round 9: the round-9 audit leaks all mask', () => {

@@ -48,7 +48,7 @@ const KEEP2 = [/\b\d{4}-\d{2}-\d{2}\b/g, /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g,
 const GAP = String.raw`(?:[^\w\n]+\w+){0,3}?[^\w\n]+`;
 const PCT_WORD = String.raw`\b(?:refund|occupancy|discount|deposit|payout|revenue|rate)\w*`; // a percent beside these is money; any other percent is a measure
 const PCT = String.raw`\d{1,3}(?:\.\d+)?\s?(?:%|percent\b|pct\b)`;
-const PCT_AFTER = new RegExp(String.raw`(${PCT_WORD})(${GAP})(${PCT})`, 'gi'), PCT_BEFORE = new RegExp(String.raw`(${PCT})(?=${GAP}${PCT_WORD})`, 'gi');
+const PCT_AFTER = new RegExp(String.raw`(${PCT_WORD})((?:[^\w\n]+\w+){0,4}?[^\w\n]+)(${PCT})`, 'gi'), /* 4 words: a year after a date is its own word now */ PCT_BEFORE = new RegExp(String.raw`(${PCT})(?=${GAP}${PCT_WORD})`, 'gi');
 const NUMBER = /(?<!\d)(?<!\d[.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?: \d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+|\d{3,}(?:\.\d+)?)(?!\d)/g;
 // a remaining number is kept only with a positive cue AND no money context: after code/pin/ref/password... (any digits), after room/unit/lot/block (1-3 digits),
 // as a hotline after a rescue word, as a 4-digit postcode after zip/postal, or before a measure / small supply count (a leading zero is no cue)
@@ -70,7 +70,7 @@ const PEOPLE = /^\s?(?:guests|pax|persons|people)\b/i; // a head count, never 3+
 const MONEY_W = String.raw`rates?|totals?|price|paid|pay\w*|fees?|costs?|amount|balance|deposits?|bayad|refunds?|payouts?|revenue|nightly|dp|downpayment|gcash|cash|collected|received|owed?|utang|bal`;
 const MONEY_BEFORE = new RegExp(String.raw`\b(?:${MONEY_W})\b[^\w\n]*(?:\w+[^\w\n]+)?$`, 'i'); // "rate 1780 pax", "DP ref 1780"
 // units and hotlines: a whole date + 1 word back ("Received Oct 15, 2026 950 pcs"), never across a full stop ("Bring cash. Charge it to 100%"); "Oct. 15" is not a stop
-const NB = String.raw`(?:[^\w\n.!?]|[.!?](?!\s+[A-Za-z]))`; // a stop is . ! ? before a new word
+const NB = String.raw`(?:[^\w\n.!?]|[.!?](?!\s+(?!(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))[A-Za-z]))`; // a stop is . ! ? before a new word that is not a month ("Bal. Oct 2026" reads on)
 const MONEY_NEAR = new RegExp(String.raw`\b(?:${MONEY_W})\b${NB}*(?:\w+${NB}+){0,4}$`, 'i');
 const keepNumber = (num: string, pre: string, post: string) => {
   const d = num.replace(/\D/g, '').length, paid = ID_PAY.test(pre) || MONEY_BEFORE.test(pre), money = ID_MONEY.test(post) || paid;
