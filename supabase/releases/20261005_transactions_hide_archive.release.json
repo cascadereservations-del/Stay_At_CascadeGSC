@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "transactions_hide_archive_20261005",
+  "phase": "expand",
+  "source": {
+    "branch": "s71/txn-actions",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20261005160000_transactions_hide_archive.sql"
+  ],
+  "migration_sha256": {
+    "20261005160000_transactions_hide_archive.sql": "ffc0b7c189903fc1f87bdf7f1278224ea147709d957fc65673269be950a61df1"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Expand only: five nullable columns on public.transactions (hidden_at, hidden_by, archived_at, archived_by, archived_prev_status), one check constraint (archived_at implies status void; every existing row has archived_at null so it holds), one function public.admin_transactions_bulk_v1(), granted to authenticated only. No data change. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "columns_exist_and_nullable",
+      "query": "select count(*) = 5 and bool_and(is_nullable = 'YES') from information_schema.columns where table_schema = 'public' and table_name = 'transactions' and column_name in ('hidden_at','hidden_by','archived_at','archived_by','archived_prev_status')",
+      "expect": true
+    },
+    {
+      "name": "archived_is_void_constraint_present_and_validated",
+      "query": "select count(*) = 1 and bool_and(convalidated) from pg_constraint where conrelid = 'public.transactions'::regclass and conname = 'transactions_archived_is_void_check'",
+      "expect": true
+    },
+    {
+      "name": "no_existing_row_is_hidden_or_archived",
+      "query": "select count(*) = 0 from public.transactions where hidden_at is not null or archived_at is not null",
+      "expect": true
+    },
+    {
+      "name": "function_exists_definer_empty_search_path",
+      "query": "select count(*) = 1 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'admin_transactions_bulk_v1'",
+      "expect": true
+    },
+    {
+      "name": "grants_authenticated_only_anon_and_public_none",
+      "query": "select has_function_privilege('authenticated','public.admin_transactions_bulk_v1(uuid,uuid[],text,text)','execute') and not has_function_privilege('anon','public.admin_transactions_bulk_v1(uuid,uuid[],text,text)','execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.admin_transactions_bulk_v1(uuid,uuid[],text,text)'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "void_and_confirmed_counts_unchanged_by_the_release",
+      "query": "select count(*) filter (where status = 'void') >= 1 and count(*) filter (where status = 'void' and archived_at is not null) = 0 from public.transactions",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261005_transactions_hide_archive.sql with run-sql-on-host.sh: it puts any archived row back to the status it had, then drops the function, the constraint and the five columns. Take a backup first; dropping the columns loses who hid or archived what. Roll the admin dashboard back too."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_app",
+      "required_state": "Apply this release BEFORE the admin dashboard build that selects hidden_at and archived_at is published: its list query reads both columns and the action bar calls admin_transactions_bulk_v1, so the Transactions page errors until they exist."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh on this contract and the pgTAP suite supabase/tests/database/transactions_hide_archive.sql, then record the numbers here.",
+    "evidence": "Production read-only (2026-10-05): transactions has no hidden or archived column; status check allows pending_review, confirmed, void; trigger trg_direct_booking_cascade cancels the guest booking when a direct_booking row becomes void, so the RPC refuses to archive a live direct booking payment. Old writers (Telegram bot, ingestion, admin_save_transaction_v1) never set the new columns; they are nullable with no default."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the admin dashboard build is published before this release is applied"
+  ]
+}
