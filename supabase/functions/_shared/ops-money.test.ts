@@ -71,8 +71,8 @@ Deno.test('D-306 audit: a title about cleaning pay or an expense stays whole in 
 
 Deno.test('D-306 round 3 keep-list: counts, measures, times and codes next to a Taglish or English money word are not money', () => {
   for (const t of [
-    'Oct 15 gabi 1900', 'Room 203 extra towels', 'Send 120 rolls', 'kulang ng 120 rolls', 'lahat ng 150 hangers', 'checkout due 1100', 'each 500 ml', 'towels x 120',
-    'Door code 4829 sent', 'Check-in 1400 for 2 nights', 'bagong code 4829 po, 2 gabi', 'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%',
+    'Oct 15 gabi 1900', 'Room 203 extra towels', 'Send 120 rolls', 'kulang ng 120 rolls', 'lahat ng 150 hangers', 'each 500 ml', 'towels x 120',
+    'Door code 4829 sent', 'bagong code 4829 po, 2 gabi', 'Charge the EcoFlow to 100%', 'Run the EcoFlow at 300 W, charge it to 100%',
     'Send 120 rolls of towels x 120', 'Restock 250 pcs, deposit the keys',
   ]) assertEquals(maskMoney(t), t, t);
 });
@@ -88,4 +88,32 @@ Deno.test('D-306 round 3: sales, kita, benta, earned, transfer and per-hour amou
 Deno.test('D-306 round 3: a staff-pay title with a second amount, a guest-looking bare amount or an income word is masked; Taglish pay stays whole', () => {
   for (const t of ['Pay Ana 1780', 'Pay Honey 500; Ana paid 1780', 'Linis 500, kita 3200', 'supplies 320, sales 3200', 'Pay Honey ₱500 and Ana ₱1,780']) assert(!/\d{3}/.test(maskTitle(t)), `${t} -> ${maskTitle(t)}`);
   for (const t of ['Pay Honey ₱500 for 2 nights', 'Bayad kay Honey ₱500', 'Sweldo ni Honey ₱500', 'Sahod ₱500 Honey', 'Bili ng supplies ₱320', 'Pay Honey ₱500']) assertEquals(maskTitle(t), t, t);
+});
+
+Deno.test('D-306 round 4: a 4-digit number is never a time; the orchestrator probes all mask', () => {
+  for (const [t, leak] of [
+    ['Check-in 1400 for 2 nights', '1400'], ['checkout due 1100', '1100'], ['late checkout 1500 extra', '1500'], ['late checkout 1500 fee', '1500'], ['early check-in 1000 bayad', '1000'],
+    ['check-in 1000 deposit', '1000'], ['Check-in tomorrow, 1500 balance pa', '1500'], ['checkout 1100, 2000 balance', '2000'], ['ETA 1400 paid', '1400'],
+    ['kada gabi 1780', '1780'], ['per gabi 1780', '1780'], ['each 1780', '1780'], ['nyt 1780', '1780'], ['3 nights each 1780', '1780'],
+    ['kulang pa 1780', '1780'], ['kulang pa siya ng 1780', '1780'], ['kulang daw 1780', '1780'],
+    ['unit 1780 rate', '1780'], ['order 3560 total', '3560'], ['Code 1780, total', '1780'], ['room 1780, deposit', '1780'],
+    ['rate 1780 pax', '1780'], ['rate 1780 pcs', '1780'], ['rate 1780 rolls', '1780'], ['total 3560 mins', '3560'], ['rate 1,780 W', '1,780'], ['guests x 1780', '1780'], ['pax x 1780', '1780'],
+    ['rate 1 780', '780'], ['rate 1.780', '780'], ['nightly 1780', '1780'], ['owes 3560', '3560'], ['utang 3560', '3560'], ['booking 5200', '5200'], ['stay 3560', '3560'], ['RevPAR 1300', '1300'],
+  ]) { const m = maskMoney(t); assert(hasMoney(t) && !m.includes(leak), `${t} -> ${m}`); }
+});
+
+Deno.test('D-306 round 4: the placeholder never makes a count look like money, and a count beside a masked amount stays', () => {
+  assertEquals(maskMoney('Laundry ₱320 for 120 towels'), 'Laundry [amount hidden] for 120 towels');
+  assertEquals(maskMoney('Bili ng supplies ₱320, 150 hangers'), 'Bili ng supplies [amount hidden], 150 hangers');
+  assertEquals(maskTitle('Laundry ₱320 for 120 towels'), 'Laundry ₱320 for 120 towels');
+  assertEquals(maskTitle('Bili ng supplies ₱320, 150 hangers'), 'Bili ng supplies ₱320, 150 hangers');
+  assertEquals(maskMoney('Door code 4829 sent'), 'Door code 4829 sent');
+  assertEquals(maskMoney('already [amount hidden] for 120 towels'), 'already [amount hidden] for 120 towels'); // idempotent
+  assertEquals(maskMoney(maskMoney('rate 1780 a night')), maskMoney('rate 1780 a night'));
+});
+
+Deno.test('D-306 round 4: stay and cancel in a title, a second bare amount beside a staff amount, and the audit title probes', () => {
+  for (const [t, leak] of [['Pay Honey ₱500 stay 2 nights', '500'], ['Cleaning ₱500 cancelled booking', '500'], ['Linis ₱500 and Maria 3560', '3560'], ['Cleaning ₱500 + 1780', '1780'],
+    ['Transport ₱150 Maria 3560', '3560'], ['Pay Maria ₱3,560 back', '3,560'], ['Sweldo ₱500 utang 3560', '3560']]) assert(!maskTitle(t).includes(leak), `${t} -> ${maskTitle(t)}`);
+  assertEquals(maskTitle('Cleaning fee ₱1,500'), 'Cleaning fee ₱1,500');
 });
