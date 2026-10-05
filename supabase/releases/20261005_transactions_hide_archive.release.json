@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s71/txn-actions",
-    "commit": "PENDING"
+    "commit": "b7d56333dea0a143f5fc1fa1b4ff9fc9ce057ccc"
   },
   "migrations": [
     "20261005160000_transactions_hide_archive.sql"
@@ -72,7 +72,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh on this contract and the pgTAP suite supabase/tests/database/transactions_hide_archive.sql, then record the numbers here.",
+    "rehearsal": "PASSED 2026-10-05 (session 71) on cascade-supabase-20261005T105322Z: 1/1 migration, 6/6 forward checks, pgTAP transactions_hide_archive 36/36. Re-run on the final commit before apply.",
     "evidence": "Production read-only (2026-10-05): transactions has no hidden or archived column; status check allows pending_review, confirmed, void; trigger trg_direct_booking_cascade cancels the guest booking when a direct_booking row becomes void, so the RPC refuses to archive a live direct booking payment. Old writers (Telegram bot, ingestion, admin_save_transaction_v1) never set the new columns; they are nullable with no default."
   },
   "approvals": {
