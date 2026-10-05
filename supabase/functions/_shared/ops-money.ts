@@ -46,9 +46,10 @@ const KEEP2 = [/\b\d{4}-\d{2}-\d{2}\b/g, /\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g,
   /\b\d{1,2}:\d{2}(?!\d)(?::\d{2})?(?:\s?[ap]\.?m\b\.?)?/gi, /\b(?:1[0-2]|0?[1-9])\s?[ap]\.?m\b/gi, /\b\d{1,2}-[a-z]+\b/gi, /\b(?:[A-Z]-\d{1,3}|[A-Z]{2,8}-\d{1,2})\b/g,
   /\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])(?:(?![A-Za-z0-9]*\d{3})[A-Za-z0-9]{3,}|HM(?![A-Z0-9]*(?:PHP|TOTAL|BAL|RATE|PRICE|FEE|PAY|PAID|DP|NIGHT|ONLY|LANG|LAMANG|GCASH|CASH|DEPOSIT|PER|KADA|GABI|NYT|EACH|EXTRA|DUE|BAYAD|UTANG|KULANG|SINGIL|SALES|KITA|BENTA|COST|SENT))[A-Z0-9]{8}|(?![A-F0-9]*[A-F]{3})[A-F0-9]{8})\b/g];
 const GAP = String.raw`(?:[^\w\n]+\w+){0,3}?[^\w\n]+`;
+const GAP5 = String.raw`(?:[^\w\n]+\w+){0,5}?[^\w\n]+`; // forward looks: a date before a money word is up to 3 words now, where round 8 saw 1
 const PCT_WORD = String.raw`\b(?:refund|occupancy|discount|deposit|payout|revenue|rate)\w*`; // a percent beside these is money; any other percent is a measure
 const PCT = String.raw`\d{1,3}(?:\.\d+)?\s?(?:%|percent\b|pct\b)`;
-const PCT_AFTER = new RegExp(String.raw`(${PCT_WORD})((?:[^\w\n]+\w+){0,4}?[^\w\n]+)(${PCT})`, 'gi'), /* 4 words: a year after a date is its own word now */ PCT_BEFORE = new RegExp(String.raw`(${PCT})(?=${GAP}${PCT_WORD})`, 'gi');
+const PCT_AFTER = new RegExp(String.raw`(${PCT_WORD})((?:[^\w\n]+\w+){0,4}?[^\w\n]+)(${PCT})`, 'gi'), /* 4 words: a year after a date is its own word now */ PCT_BEFORE = new RegExp(String.raw`(${PCT})(?=${GAP5}${PCT_WORD})`, 'gi');
 const NUMBER = /(?<!\d)(?<!\d[.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?: \d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+|\d{3,}(?:\.\d+)?)(?!\d)/g;
 // a remaining number is kept only with a positive cue AND no money context: after code/pin/ref/password... (any digits), after room/unit/lot/block (1-3 digits),
 // as a hotline after a rescue word, as a 4-digit postcode after zip/postal, or before a measure / small supply count (a leading zero is no cue)
@@ -56,8 +57,8 @@ const CUE = String.raw`(?:\s+(?:no\.?|number|is|ay))?\s*[:#-]?\s*$`; // code is 
 const ID_ANY = new RegExp(String.raw`\b(?:code|pin|passcode|lockbox|lock|password|pw|reading|meter)${CUE}`, 'i');
 const ID_REF = new RegExp(String.raw`\bref${CUE}`, 'i'); // a ref keeps 6+ digits only: "ref 5012345" stays, "ref 1780" and "ref #1780" are amounts
 const ID_SMALL = /\b(?:room|unit|lot|block)(?:\s+(?:no\.?|number))?\s*#?\s*$/i; // no "is" / ":" for these: "the room is 950", "Room: 950" are prices
-const ID_MONEY = new RegExp(String.raw`^(?:[^\w\n]+\w+){0,3}?[^\w\n]+${MONEY_POST}|^[^\w\n]*each\b`, 'i');
-const ID_MONEY_SMALL = new RegExp(String.raw`^(?:[^\w\n]+\w+){0,3}?[^\w\n]+(?:${MWL}|lang|only|lamang|tonight|for)\b|^[^\w\n]*each\b`, 'i');
+const ID_MONEY = new RegExp(String.raw`^${GAP5}${MONEY_POST}|^[^\w\n]*each\b`, 'i');
+const ID_MONEY_SMALL = new RegExp(String.raw`^${GAP5}(?:${MWL}|lang|only|lamang|tonight|for)\b|^[^\w\n]*each\b`, 'i');
 const ID_PAY = /\b(?:gcash|maya|bank|transfer|payment|paid|deposit|receipt)\b[^.\n]*$/i; // "GCash ref 1780" is an amount, "Door code 4829 sent" is a code
 const POST_CUE = /\b(?:zip|postal(?:\s+code)?|postcode)[:,]?\s*$/i;
 const HOT_CUE = /\b(?:call|pakicall|dial|tawag|hotline|bfp|pnp|police|fire|ambulance|emergency|red\s+cross|rescue)\b(?:[^\w\n]+\w+){0,3}?[^\w\n]*$/i;
