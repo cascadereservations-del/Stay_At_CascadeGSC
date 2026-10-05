@@ -247,13 +247,13 @@ export function scheduleFrom(posts: Post[], ours: Record<string, string>, decide
  * second in a row, `ask` = the second but a guest now stays on a night we hold (never released without a tap), `hit` = listed.
  * Unknown (null) is never "gone"; only source-socoteco notices are checked; a date outside every post's span is skipped.
  * `unknown` = a held notice this run could not judge (no schedule, or its date outside every span): watch.ts resets its missRuns, so release needs two CONSECUTIVE clean misses (SPEC-41 3.2).
- * `protectedDates` = dates that also have an active notice from another source (staff, ngcp, a hand entry): never released by a scrape.
+ * `protectedDates` = dates whose notice power-watch did not insert itself (dashboard, staff, ngcp, Cassy): never released by a scrape.
  * Grace: two consecutive clean scrapes for every socoteco notice, poster or hand-entered (15 to 30 minutes at the 15-minute cadence).
  * // ponytail: one grace for all; per-source grace only if a real poster flickers longer.
  */
 export function staleNotices(states: NoticeState[], sched: Schedule, rows: Row[], today: string, protectedDates: ReadonlySet<string> = new Set()): { miss: string[]; hit: string[]; release: string[]; ask: string[]; unknown: string[] } {
   const out = { miss: [] as string[], hit: [] as string[], release: [] as string[], ask: [] as string[], unknown: [] as string[] };
-  const eligible = (st: NoticeState) => holds(st) && st.date >= today && (st.source ?? 'socoteco') === 'socoteco' && !!st.blocked.length && !st.cancelAskedAt && !protectedDates.has(st.date);
+  const eligible = (st: NoticeState) => holds(st) && st.date >= today && (st.source ?? 'socoteco') === 'socoteco' && !!st.blocked.length && !st.cancelAskedAt && st.card?.kind !== 'cancel' && !protectedDates.has(st.date); // an unsent cancel card is a pending ask, never an auto-release
   if (!sched) { for (const st of states) if (eligible(st)) out.unknown.push(st.date); return out; }
   for (const st of states) {
     if (!eligible(st)) continue;

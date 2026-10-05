@@ -3,7 +3,7 @@ import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/st
 import { keepNotice, listNotices, patchNoticeState, readNotice, releaseNotice } from '../_shared/cascade-core/brownout.ts';
 import { FakeDb } from './fake-db.ts';
 import { scheduleFrom, type Built, type Schedule } from './plan.ts';
-import { pruneStates, reconcile, type Found } from './watch.ts';
+import { POWER_WATCH_NAME, pruneStates, reconcile, type Found } from './watch.ts';
 
 const PID = 'prop-1', URL0 = 'https://www.socoteco2.com/wp-content/uploads/2026/10/SPI-TEST.jpg';
 const found = (date: string, time: string | null, hours: number | null, postId: number, extra: Partial<Found> = {}): Found => ({
@@ -192,10 +192,10 @@ const MOVED = () => scheduleFrom([
   { id: 22013, posters: [P + 'SPI-PMS-10102026-DAMALERIO-SS.jpg', P + 'SPI-PMS-10152026-LEON-LLIDO-SS.jpg', P + 'SPI-PMS-10252026-TUPI-B-SS.jpg'] },
   { id: 21945, posters: [P + 'SPI-PMS-10032026-PENTAGON-SS.jpg', P + 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', P + 'SPI-PMS-10182026-TUPI-B-SS.jpg'] },
 ], {}, () => true);
-/** A typed notice: what Lloyd entered for Oct 8 (postId 0, no poster). */
+/** A notice power-watch itself inserted for an earlier poster (postId 0 in its state, no poster url). Typed, staff and dashboard rows override posted_by_name and source. */
 const hand = (date: string, o: Record<string, unknown> = {}) => ({
   id: `n-${date}`, property_id: PID, notice_type: 'brownout', is_active: true, effective_date: date, effective_time: '06:00:00', duration_hours: '11.0',
-  source: 'socoteco', posted_by_name: 'Test Staff @test_staff', ...o,
+  source: 'socoteco', posted_by_name: POWER_WATCH_NAME, ...o,
 });
 /** Three quick runs, all inside the 3-hour reminder grace. */
 const at = (i: number) => `2026-10-02T01:${15 * (i + 1)}:00Z`;
@@ -229,11 +229,11 @@ Deno.test('SPEC-41 3.5-1: the moved series. Oct 12 is a miss, then released on t
   assertEquals(await w.run([], '2026-10-02T01:45:00Z', sc), [], 'a released notice is not chased again');
 });
 
-Deno.test('SPEC-41 3.5-2: a typed notice that is not on the schedule: run 1 counts, run 2 releases; a listing in between resets the count', async () => {
+Deno.test('SPEC-41 3.5-2: a notice power-watch inserted that is not on the schedule: run 1 counts, run 2 releases; a listing in between resets the count', async () => {
   const w = world({ ops_notices: [hand('2026-10-08')] });
   await w.run([]);
   const st0 = (await readNotice(w.db, '2026-10-08'))!;
-  assertEquals([st0.postId, st0.poster, st0.source, st0.enteredBy], [0, '', 'socoteco', 'Test Staff @test_staff']);
+  assertEquals([st0.postId, st0.poster, st0.source, st0.enteredBy], [0, '', 'socoteco', POWER_WATCH_NAME]);
   await w.run([], '2026-10-02T01:15:00Z', sched([]));
   assertEquals([(await readNotice(w.db, '2026-10-08'))!.missRuns, live(w.db).length], [1, 2]);
   assertEquals(await w.run([], '2026-10-02T01:30:00Z', sched(['2026-10-08'])), [], 'listed again');
@@ -394,4 +394,45 @@ Deno.test('audit L5a: a live notice state with no url is the same poster: equal 
   assertEquals((await readNotice(w.db, '2026-10-15'))!.url ?? '', '', 'the state has no url');
   assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 100, { url: P + 'SPI-OTHER.jpg' })], '2026-10-02T02:00:00Z'), ['2026-10-15: older poster ignored']);
   assertEquals(await w.run([found('2026-10-15', '08:00:00', 3, 101, { url: P + 'SPI-OTHER.jpg' })], '2026-10-02T03:00:00Z'), ['2026-10-15: changed']);
+});
+
+Deno.test('round 6: only a notice power-watch inserted is auto-released; a dashboard row (no source), a staff photo marked socoteco, and a staff-typed row are not', async () => {
+  const typed = { posted_by_name: 'Test Staff @test_staff' };
+  const sc = sched([]); // nothing listed, every date covered
+  for (const [name, row] of [['dashboard row, no source', hand('2026-10-08', { source: null, posted_by_name: 'Admin dashboard' })],
+    ['staff photo marked socoteco', hand('2026-10-08', { ...typed })],
+    ['a second row on the date typed by staff beside the power-watch one', null]] as const) {
+    const w = world({ ops_notices: row ? [row] : [hand('2026-10-08'), hand('2026-10-08', { id: 'n-b', ...typed })] });
+    await w.run([]);
+    for (let i = 0; i < 3; i++) assertEquals(await w.run([], at(i), sc), [], `${name} run ${i + 1}`);
+    assertEquals(live(w.db), ['2026-10-07', '2026-10-08'], name);
+    assertEquals((await readNotice(w.db, '2026-10-08'))!.status, 'active', name);
+  }
+  // the power-watch-inserted row is released after two clean misses
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([]);
+  assertEquals(await w.run([], at(0), sc), ['2026-10-08: not on the SOCOTECO schedule (clean scrape 1 of 2)']);
+  assertEquals(await w.run([], at(1), sc), ['2026-10-08: released (not on SOCOTECO schedule)']);
+  assertEquals(live(w.db), []);
+});
+
+Deno.test('round 6 (K): an unsent cancel card is a pending ask, never an auto-release', async () => {
+  const w = world({ ops_notices: [hand('2026-10-08')] });
+  await w.run([]);
+  await patchNoticeState(w.db, '2026-10-08', { card: { kind: 'cancel', note: 'cancelled' }, missRuns: 1 });
+  w.telegram(false); // the card cannot go out: it stays queued
+  const r = await w.run([], at(0), sched([]));
+  assertEquals(r.some((x) => x.includes('released')), false, r.join('|'));
+  assertEquals(live(w.db), ['2026-10-07', '2026-10-08']);
+});
+
+Deno.test('round 6: an old cancelled or moved poster read again does not ask to unblock a date a newer poster set', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 200)]);
+  assertEquals(await w.run([found('2026-10-15', '06:00:00', 11, 100, { status: 'cancelled' })], '2026-10-02T02:00:00Z'), [], 'older cancelled poster: nothing');
+  assertEquals((await readNotice(w.db, '2026-10-15'))!.card, null);
+  assertEquals(live(w.db), ['2026-10-14', '2026-10-15']);
+  const r = await w.run([found('2026-10-20', '06:00:00', 11, 100, { originalDate: '2026-10-15' })], '2026-10-02T03:00:00Z');
+  assertEquals(r.some((x) => x.includes('2026-10-15: moved')), false, 'an older moved poster does not ask for Oct 15');
+  assertEquals(await w.run([found('2026-10-15', '06:00:00', 11, 300, { status: 'cancelled' })], '2026-10-02T04:00:00Z'), ['2026-10-15: cancelled'], 'a newer cancelled poster still asks');
 });

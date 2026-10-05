@@ -17,9 +17,11 @@ export type Deps = {
   sendFinance?: (card: Built) => Promise<boolean>; // the same card to the Finance chat (the auto-release card goes to OPS and Finance)
 };
 export type Found = Notice & { postId: number };
+/** The posted_by_name power-watch writes on the notices it inserts itself. Only those are ever auto-released (a dashboard entry, a staff photo, an NGCP or Cassy notice never is). */
+export const POWER_WATCH_NAME = 'Power watch (socoteco2.com)';
 type NoticeRow = { id: string; effective_date: string; effective_time: string | null; duration_hours: number | string | null; source?: string | null; posted_by_name?: string | null };
 type Base = { date: string; noticeId: string | null; time: string | null; hours: number | null; postId: number; poster: string; url: string; source?: NoticeSource; enteredBy?: string };
-/** A row with no source (written before the SPEC-41 release, or by an old writer) reads as SOCOTECO, like a state with none. */
+/** A row with no source (written before the SPEC-41 release, or by an old writer) reads as SOCOTECO, like a state with none. For DISPLAY only: release is decided by POWER_WATCH_NAME. */
 const srcOf = (r: { source?: string | null } | undefined): NoticeSource => (r?.source === 'ngcp' || r?.source === 'staff' ? r.source : 'socoteco');
 
 const hhmm = (t: string | null) => (t ? t.slice(0, 5) : null);
@@ -84,10 +86,10 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   const baseFromRow = (r: NoticeRow): Base => ({ date: r.effective_date, noticeId: r.id, time: r.effective_time, hours: num(r.duration_hours), postId: 0, poster: '', url: '', source: srcOf(r), ...(r.posted_by_name ? { enteredBy: r.posted_by_name } : {}) });
 
   /** SOCOTECO cancelled an outage, or moved it: ask before anything is released, because Airbnb is Marifel's to unblock. */
-  async function cancel(date: string, note: string, url: string) {
+  async function cancel(date: string, note: string, url: string, postId: number) {
     const row = noticeRows.find((r) => r.effective_date === date);
     let st = states.get(date);
-    if (st && (st.status !== 'active' || st.cancelAskedAt)) return;
+    if (st && (st.status !== 'active' || st.cancelAskedAt || st.postId > postId)) return; // a newer poster set this date: an old cancelled or moved poster read again must not ask to unblock it
     if (!st && !row) return;
     if (!st) {
       st = { ...baseFromRow(row!), status: 'active', nights: [], blocked: [], already: [], guests: [], card: null };
@@ -103,8 +105,8 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
   for (const n of found) if (!byDate.has(n.date) || n.postId > byDate.get(n.date)!.postId) byDate.set(n.date, n);
 
   for (const n of byDate.values()) {
-    if (n.status === 'cancelled') { await cancel(n.date, 'cancelled', n.url); continue; }
-    if (n.originalDate) await cancel(n.originalDate, `moved to ${dayLabel(n.date)}`, n.url);
+    if (n.status === 'cancelled') { await cancel(n.date, 'cancelled', n.url, n.postId); continue; }
+    if (n.originalDate) await cancel(n.originalDate, `moved to ${dayLabel(n.date)}`, n.url, n.postId);
     let st = states.get(n.date);
     let row = noticeRows.find((r) => r.effective_date === n.date);
     const base: Base = { date: n.date, noticeId: row?.id ?? null, time: n.time, hours: n.hours, postId: n.postId, poster: n.poster, url: n.url, source: st?.source ?? (row ? srcOf(row) : 'socoteco') };
@@ -112,7 +114,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     const insert = async () => {
       const { data, error } = await db.from('ops_notices').insert({
         property_id: pid, notice_type: 'brownout', title: n.title, description: `${n.purpose ? n.purpose + ' | ' : ''}poster ${n.poster}`,
-        effective_date: n.date, effective_time: n.time, duration_hours: n.hours, feeder: `Feeder ${FEEDER}`, posted_by_name: 'Power watch (socoteco2.com)', source: 'socoteco',
+        effective_date: n.date, effective_time: n.time, duration_hours: n.hours, feeder: `Feeder ${FEEDER}`, posted_by_name: POWER_WATCH_NAME, source: 'socoteco',
       }).select('id').single();
       if (error) throw new Error(`ops_notices: ${error.message}`);
       base.noticeId = data?.id ?? null;
@@ -145,8 +147,12 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
 
   // SPEC-41 Part 3 (D-299.1): a brownout block stays only while SOCOTECO's current schedule still lists the outage. Runs before the cards
   // go out, so a guest-night question (the cancel card) is asked in this run. Unknown or a failed scrape never reaches here as "gone".
-  // A date that also carries an active staff / NGCP / hand-entered notice is never released by a scrape, whatever the SOCOTECO state says.
-  const protectedDates = new Set(noticeRows.filter((r) => srcOf(r) !== 'socoteco').map((r) => r.effective_date));
+  // Auto-release is for the notices power-watch inserted itself (POWER_WATCH_NAME, a SOCOTECO source). Every other notice (a dashboard entry with no source,
+  // a staff photo or text, NGCP, Cassy) is never released by a scrape and protects its date, whatever the state says about its source.
+  const ours = (r: NoticeRow) => r.posted_by_name === POWER_WATCH_NAME && srcOf(r) === 'socoteco';
+  const autoDates = new Set(noticeRows.filter(ours).map((r) => r.effective_date));
+  for (const r of noticeRows) if (!ours(r)) autoDates.delete(r.effective_date);
+  const protectedDates = new Set([...states.keys()].filter((date) => !autoDates.has(date)));
   const stale = staleNotices([...states.values()], d.schedule ?? null, rows, today, protectedDates);
   for (const date of [...stale.hit, ...stale.unknown]) { // a listed or an unjudgeable run breaks the streak: release needs two CONSECUTIVE clean misses
     if ((states.get(date)?.missRuns ?? 0) > 0) { const n = await patchNoticeState(db, date, { missRuns: 0 }); if (n) states.set(date, n); }
@@ -156,7 +162,7 @@ export async function reconcile(d: Deps, found: Found[]): Promise<string[]> {
     if (n) states.set(date, n);
     res.push(`${date}: not on the SOCOTECO schedule (clean scrape 1 of 2)`);
   }
-  for (const date of stale.ask) await cancel(date, 'no longer lists', states.get(date)?.url ?? ''); // a guest is in: asked once, nothing released without a tap
+  for (const date of stale.ask) await cancel(date, 'no longer lists', states.get(date)?.url ?? '', Number.MAX_SAFE_INTEGER); // a guest is in: asked once, nothing released without a tap
   for (const date of stale.release) {
     const r = await releaseNotice(db, pid, date, 'unblock', 'auto: not on SOCOTECO schedule'); // respects releasable(): a night another active notice needs stays held
     if (!r.ok) { d.log('power_watch_release_failed', { date, error: r.error }); continue; } // the miss count stays, so the next run tries again
