@@ -173,7 +173,7 @@ We hope you had a restful night and a comfortable stay here at Cascade Hideaway.
 
 As your stay comes to a close, we want to ensure your departure is as seamless as your arrival. Our standard check-out time is 12:00 noon, so there's no rush. Please take your time and enjoy a relaxed morning.
 
-As you gather your belongings, we'd be so grateful if you could switch off the lights and AC and leave the space generally tidy. This gives our team enough time to carefully clean and refresh the space for our next guest.
+As you gather your belongings, we'd be so grateful if you could switch off the lights and AC, leave the key card with the remotes on the wooden tray, and leave the space generally tidy. This gives our team enough time to carefully clean and refresh the space for our next guest.
 
 Once you've checked out, a quick message as you set off would be much appreciated. We truly appreciate having you with us.
 

@@ -3,6 +3,7 @@
 // check (check-in date + booking-name initial, stay on today), then the urgent host card; a stranger gets two tries, an
 // ordinary card and the phone route, and no second verification for 24 h.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { DEFAULT_CONTACT } from '../_shared/cascade-core/contact.ts';
 import { postbackText, priorityAnswer, priorityEntry, stayIsCurrent } from './priority.ts';
 
 (Deno as unknown as { serve: unknown }).serve = () => ({ finished: Promise.resolve(), shutdown: () => Promise.resolve() });
@@ -74,7 +75,7 @@ Deno.test('verified and staying now: one priority card (urgent), the thanks by n
   assertEquals(r.handoffs.length, 1);
   assertEquals(r.handoffs[0].detail.risk, 'priority');
   assertEquals(/^Thank you, Allyssa\. Your host has been told/.test(r.reply), true);
-  assertEquals(/0991 853 8269/.test(r.reply), true);
+  assertEquals(r.reply.includes(DEFAULT_CONTACT.phone), true);
 });
 
 Deno.test('the guide link carries the check, so a verified guest types nothing', async () => {
@@ -89,7 +90,7 @@ Deno.test('a stay that ended, or a wrong name: one more try, then an ordinary ca
   assertEquals(first.handoffs.length, 0);
   const second = await turn({ message: { mid: 'm3', text: 'Sept 26, Ben' } }, askedTurn(2), wrong);
   assertEquals(second.handoffs.map((h) => h.detail.risk), ['uncertain']);
-  assertEquals(/Your message is with your host/.test(second.reply) && /0991 853 8269/.test(second.reply), true);
+  assertEquals(/Your message is with your host/.test(second.reply) && second.reply.includes(DEFAULT_CONTACT.phone), true);
   assertEquals(second.saved.history.at(-1).route, { priority: 'unmatched' });
 });
 

@@ -50,6 +50,7 @@ BOOKING & PAYMENT
 
 TIMES & POLICIES (lead with what we can do, and give the reason)
 - Check-in 2:00 PM. Check-out 12:00 noon. Self check-in by smart lock, so a late arrival is easy; for an arrival after 10 PM, add a gentle reminder that quiet hours run 10 PM to 6 AM in the residential community.
+- Before leaving at check-out: lights, aircon and appliances off, trash in the big trash bin, the key card left with the remotes on the wooden tray on the TV cabinet, then close the door firmly (it locks itself).
 - Early check-in: complimentary from 12 noon when no guest checks out that day; before noon PHP 100 per hour. On a same-day turnover, say we will let them know right away if the unit becomes ready earlier.
 - Late check-out: available when no one arrives that day. When another guest is arriving, check-out stays at 12 noon; say we are preparing the unit to the same standard for the next guest, thank them, and leave the hourly extension unmentioned on that day.
 - Never PROMISE an early check-in or a late check-out until the guest's dates are known and AVAILABILITY shows no other guest checking out or arriving that day. If the dates are not yet known, say warmly that we will gladly arrange it once their dates are set and the calendar allows - do not say 'complimentary' or 'confirmed' before then.

@@ -50,10 +50,11 @@ Deno.test('staff rows never reach Messenger; Telegram reads every tier', () => {
 });
 
 Deno.test('placeholders fill from app_settings, with a safe wording when a value is missing', () => {
-  const s = [{ key: 'wifi_ssid', value: 'NetA' }, { key: 'wifi_password', value: 'pw1' }, { key: 'onground_name', value: 'Honey' }, { key: 'onground_phone', value: '0991 853 8269' }];
-  assertEquals(fillPlaceholders('{{WIFI_SSID}} / {{WIFI_PASSWORD}} / call {{ONGROUND}}', s), 'NetA / pw1 / call Honey (0991 853 8269)');
+  const s = [{ key: 'wifi_ssid', value: 'NetA' }, { key: 'wifi_password', value: 'pw1' }, { key: 'onground_name', value: 'Honey' }, { key: 'onground_phone', value: '0917 111 2222' }];
+  assertEquals(fillPlaceholders('{{WIFI_SSID}} / {{WIFI_PASSWORD}} / call {{ONGROUND}}', s), 'NetA / pw1 / call Honey (+63 917 111 2222)');
   assertEquals(fillPlaceholders('password {{WIFI_PASSWORD}}', []), 'password on the card in the unit');
   assert(!fillPlaceholders('{{ONGROUND}}', []).includes('{{'));
+  assertEquals(fillPlaceholders('{{ONGROUND}}', [{ key: 'onground_name', value: 'Honey' }, { key: 'onground_phone', value: '+639171112222' }]), 'Honey (+63 917 111 2222)'); // D-296.3: one format
 });
 
 Deno.test('the HOUSE block says so when nothing matched', () => {
