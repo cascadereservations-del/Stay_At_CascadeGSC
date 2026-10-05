@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T071619Z",
+    "verified_at": "2026-10-05T07:23:13.891Z",
     "production_rule": "telegram_pending_kind_check re-created with the 17 production values (read from pg_constraint 2026-10-05) plus refund_confirm, inquiry_reply and lock_code; booking_lifecycle_events_event_type_check widened by guest_replied; three new service_role-only definer functions (telegram_inquiry_view_v1, telegram_inquiry_decide_v1, telegram_inquiry_message_logged_v1). No table, column, policy, grant-on-existing-object or data change; nothing is dropped. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [

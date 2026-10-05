@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING: take a fresh backup, then fill restore_point and verified_at",
-    "verified_at": "2026-10-05T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T071619Z",
+    "verified_at": "2026-10-05T07:23:13.891Z",
     "production_rule": "Phase is backfill, not expand, only because the expand-safety scan refuses the literal DELETE FROM inside guest_id_photo_purge_done_v1 (a new function that clears queue rows only when called, and only for paths whose storage object is gone; nothing runs it at apply time). One new table (guest_id_photo_purge_queue: RLS on, no policy, no grant for anon, authenticated or service_role), one new AFTER UPDATE OF id_photo_path OR DELETE row trigger on guest_companions (security definer, never blocks the staff action, never raises), two new service_role-only functions (guest_id_photo_purge_status_v1, guest_id_photo_purge_done_v1) and two new job_heartbeats rows (guest-id-photos-backup 2 days, guest-id-photos-drill monthly, last_succeeded_at = now() so no alert before the first run). No existing data, table, column or grant changes. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [

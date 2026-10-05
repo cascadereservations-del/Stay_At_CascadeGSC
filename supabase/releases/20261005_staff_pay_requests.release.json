@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING: take a fresh backup (supabase-backup-over-alfred.sh), then fill restore_point and verified_at",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261005T071619Z",
+    "verified_at": "2026-10-05T07:23:13.891Z",
     "production_rule": "Additive. One new table (staff_pay_requests: RLS on, no policy, service_role only), five new columns (cleaner_rate_schedule.transport_rate, staff_details.payout_qrph, cleaning_sessions.pay_request_id, cleaning_expense_claims.pay_request_id and receipt_path), one new cleaner_rate_schedule row (2026-09-30: 500 / 1000 / 150), a guard trigger on cleaning_sessions (pay_request_id moves only through the definer RPCs), five new functions (staff_pay_candidates_v1 and staff_pay_request_create_v1 for authenticated; telegram_staff_pay_step_v1 for service_role; staff_pay_rate_v1 and staff_pay_settle_v1 internal, no grant), one column grant (staff_details user_id + payout_qrph to service_role, which had none), and save_staff_details_v1 replaced by its live body (md5(prosrc) aff77cec89cc6b9130a6e41c0014819a, read 2026-10-05) plus the payout_qrph patch key and a masked history snapshot. Side effect by design: /payclean and the airbnb_cleans estimate use 500 for cleans from 2026-09-30. The payout QR value is NOT in this release: it is written afterwards through the dashboard or the one-off SQL. restore_point and verified_at are placeholders: take a fresh backup, then fill both. Take a fresh backup if the one named is more than an hour old at apply time. Run supabase/sql/2026-10-05-d298-cleaner-pay-backfill.sql after this release and before the staff page goes live."
   },
   "forward_verification": [
