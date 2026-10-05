@@ -34,7 +34,7 @@ import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake 
 import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
 import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
 import { liveSendIO } from './inquiry-send.ts';
-import { parseReason } from './reply.ts';
+import { parseReason, noticeTitle } from './reply.ts'; // noticeTitle: D-306, OPS notice titles are masked
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
@@ -649,13 +649,13 @@ async function handleOpsNoticeCommand(noticeType:string,args:string[],chatId:any
   const {error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:noticeType,title,effective_date:effectiveDate,effective_time:effectiveTime,duration_hours:durationHours,feeder:noticeType==='brownout'?'Feeder 14-3':null,posted_by_chat_id:from.id??null,posted_by_name:postedBy});
   if(error){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error.message)}`);return;}
   const icon=NOTICE_ICON[noticeType]??'📌';
-  await tgSend(chatId,`${icon} *Notice saved*\nDate: ${effectiveDate}${effectiveTime?` at ${effectiveTime.slice(0,5)}`:''}${durationHours?` for ${durationHours}h`:''}\n${mdEsc(title)}\n_Will appear in tomorrow's digest._`);
+  await tgSend(chatId,`${icon} *Notice saved*\nDate: ${effectiveDate}${effectiveTime?` at ${effectiveTime.slice(0,5)}`:''}${durationHours?` for ${durationHours}h`:''}\n${noticeTitle(title,isFinanceChat(chatId),mdEsc)}\n_Will appear in tomorrow's digest._`);
 }
 async function handleNoticesList(chatId:any,db:any) {
   const today=toManilaDate();const{data}=await db.from('ops_notices').select('notice_type,title,effective_date,effective_time,is_active').eq('property_id',PROPERTY_ID).eq('is_active',true).gte('effective_date',today).order('effective_date').limit(15);
   const rows=(data??[]) as any[];if(!rows.length){await tgSend(chatId,'📌 No upcoming notices.');return;}
   const lines=['📌 *Upcoming Notices*',''];
-  rows.forEach((n:any)=>{const icon=NOTICE_ICON[n.notice_type]??'📌';const time=n.effective_time?` ${String(n.effective_time).slice(0,5)}`:'';lines.push(`${icon} *${n.effective_date}*${time} \u2014 ${mdEsc(n.title)}`);});
+  rows.forEach((n:any)=>{const icon=NOTICE_ICON[n.notice_type]??'📌';const time=n.effective_time?` ${String(n.effective_time).slice(0,5)}`:'';lines.push(`${icon} *${n.effective_date}*${time} \u2014 ${noticeTitle(n.title,isFinanceChat(chatId),mdEsc)}`);});
   await tgSend(chatId,lines.join('\n'));
 }
 async function handleNoticesByType(chatId:any,db:any,type:string) {
@@ -664,7 +664,7 @@ async function handleNoticesByType(chatId:any,db:any,type:string) {
   const label=({brownout:'brownout',holiday:'holiday',event:'event',reminder:'reminder'} as Record<string,string>)[type]??type;
   const lines:string[]=[];
   if(!rows.length)lines.push(`${icon} No scheduled ${label}.`);
-  else{lines.push(`${icon} *Upcoming ${label}${rows.length>1?'s':''}*`,'');for(const n of rows){const t=n.effective_time?` ${String(n.effective_time).slice(0,5)}`:'';const dur=n.duration_hours?` (${n.duration_hours}h)`:'';lines.push(`${n.effective_date}${t}${dur} \u2014 ${mdEsc(n.title)}`);}}
+  else{lines.push(`${icon} *Upcoming ${label}${rows.length>1?'s':''}*`,'');for(const n of rows){const t=n.effective_time?` ${String(n.effective_time).slice(0,5)}`:'';const dur=n.duration_hours?` (${n.duration_hours}h)`:'';lines.push(`${n.effective_date}${t}${dur} \u2014 ${noticeTitle(n.title,isFinanceChat(chatId),mdEsc)}`);}}
   const eg=type==='brownout'?'/brownout tomorrow 8am 4h SOCOTECO maintenance':type==='holiday'?'/holiday 06-12 Independence Day':type==='event'?'/event tomorrow Property inspection':'/reminder tomorrow Pay Honey';
   lines.push('',`_Add one: ${eg}_`);await tgSend(chatId,lines.join('\n'));
 }
@@ -672,7 +672,7 @@ async function handleCalendarNotices(chatId:any,db:any) {
   const today=toManilaDate();const{data}=await db.from('ops_notices').select('notice_type,title,effective_date,effective_time').eq('property_id',PROPERTY_ID).eq('is_active',true).in('notice_type',['holiday','event','reminder']).gte('effective_date',today).order('effective_date').order('effective_time',{nullsFirst:true}).limit(20);
   const rows=(data??[]) as any[];const lines:string[]=[];
   if(!rows.length)lines.push('📅 No upcoming holidays, events, or reminders.');
-  else{lines.push('📅 *Calendar \u2014 upcoming*','');for(const n of rows){const icon=NOTICE_ICON[n.notice_type]??'📌';const time=n.effective_time?` ${String(n.effective_time).slice(0,5)}`:'';lines.push(`${icon} *${n.effective_date}*${time} \u2014 ${mdEsc(n.title)}`);}}
+  else{lines.push('📅 *Calendar \u2014 upcoming*','');for(const n of rows){const icon=NOTICE_ICON[n.notice_type]??'📌';const time=n.effective_time?` ${String(n.effective_time).slice(0,5)}`:'';lines.push(`${icon} *${n.effective_date}*${time} \u2014 ${noticeTitle(n.title,isFinanceChat(chatId),mdEsc)}`);}}
   lines.push('','_Add: /holiday 06-12 Independence Day · /event tomorrow Property inspection · /reminder tomorrow Pay Honey_');
   await tgSend(chatId,lines.join('\n'));
 }
@@ -1650,7 +1650,7 @@ async function executeNoticeFromLLM(db:any,params:any,chatId:any,from:any){
   const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:params.notice_type,title:params.title,effective_date:params.effective_date,effective_time:params.effective_time??null,duration_hours:params.duration_hours??null,feeder:params.notice_type==='brownout'?'Feeder 14-3':null,posted_by_chat_id:from?.id??null,posted_by_name:postedBy});
   const icon=NOTICE_ICON[params.notice_type]??'📌';
   if(error){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error.message)}`);return;}
-  await tgSend(chatId,`${icon} *Notice saved* — ${mdEsc(params.title)} on ${params.effective_date}`);
+  await tgSend(chatId,`${icon} *Notice saved* — ${noticeTitle(params.title,isFinanceChat(chatId),mdEsc)} on ${params.effective_date}`);
 }
 
 /** SPEC-16: the text is the answer to the question this person was asked. A bad answer keeps the question open. */

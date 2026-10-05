@@ -1,6 +1,8 @@
 // deno test telegram-cassy/policy.test.ts  (run from supabase/functions)
 import { assertEquals, assert } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, HISTORY_WINDOW_MS } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, HISTORY_WINDOW_MS, opsToolsOnly, maskReport, postDraft } from './policy.ts';
+import { hasMoney } from '../_shared/ops-money.ts';
+import { OPS_MONEY_REFUSED } from '../_shared/cascade-core/inquiry.ts';
 
 Deno.test('deep tier: /deep before or after the address escalates and is removed; the cap is exclusive', () => {
   assertEquals(deepRequest('/deep compare August and September occupancy'), { deep: true, text: 'compare August and September occupancy' });
@@ -11,7 +13,7 @@ Deno.test('deep tier: /deep before or after the address escalates and is removed
   assertEquals(deepAllowed(0, 0), false);
 });
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
-import { nightsIn, writeTool } from '../_shared/cascade-core/tools.ts';
+import { nightsIn, writeTool, TOOL_DECLS } from '../_shared/cascade-core/tools.ts';
 
 // Minimal db stub: expense_categories select chain and telegram_pending insert chain.
 const stubDb = (inserted: any[]) => ({
@@ -141,4 +143,46 @@ Deno.test('history window: 5-day-old turns are dropped, 5-minute-old kept, exact
   // remember() stamps user = t, model = t + 1 ms; the fetch is newest-first and index.ts reverses it
   const rows = [{ role: 'model', created_at: at(59_999) }, { role: 'user', created_at: at(60_000) }];
   assertEquals(recentTurns(rows, now).reverse().map((r) => r.role), ['user', 'model']);
+});
+
+// ---- D-306: the OPS group never shows booking income ----
+Deno.test('D-306: OPS is not offered period_metrics (occupancy, nights sold, revenue); Finance is', () => {
+  assert(TOOL_DECLS.some((t) => t.name === 'period_metrics'));
+  assert(!opsToolsOnly(TOOL_DECLS, 'ops').some((t) => t.name === 'period_metrics'));
+  assertEquals(opsToolsOnly(TOOL_DECLS, 'finance').length, TOOL_DECLS.length);
+});
+
+Deno.test('D-306: stripMoney also drops rate, deposit, refund, quote, income and paid keys, and keeps the rest', () => {
+  const r = stripMoney({ nightly_rate: 1780, deposit_due: 890, refund_type: 'partial', quote: 3560, income: 1, paid_at: 'x', turnover_rate_per_day: 2, generated_at: 'y', facts: [{ title: 'Wi-Fi', rate: 1 }] }) as Record<string, unknown>;
+  assertEquals(Object.keys(r).sort(), ['facts', 'generated_at', 'turnover_rate_per_day']);
+  assertEquals(r.facts, [{ title: 'Wi-Fi' }]);
+});
+
+Deno.test('D-306: a stubbed model reply with revenue and a rate comes out of OPS masked, and unmasked in Finance', () => {
+  const raw = JSON.stringify({ decision: 'Revenue ₱50,000 and the rate is 1,780 a night', lines: ['Balance 3560 due', '2 nights from Oct 15'], action: 'Send P 1,780' });
+  const ops = renderReport(maskReport(parseReport(raw), 'ops'), 'm');
+  assert(!/50,000|1,780|3560|1780/.test(ops), ops);
+  assert(ops.includes('2 nights') && ops.includes('Oct 15'), ops);
+  assertEquals(renderReport(maskReport(parseReport(raw), 'finance'), 'm'), renderReport(parseReport(raw), 'm'));
+});
+
+Deno.test('D-306: a draft or revision with an amount is refused in OPS and sent whole to Finance', async () => {
+  const sent: { chat: string; text: string }[] = [];
+  const send = async (chat: string, text: string) => { sent.push({ chat, text }); };
+  const parts = ['✍️ Guest reply · Messenger', 'Hi Ben, PHP 3,560 total, reservation fee 1,780 to GCash 0956 011 5744.'];
+  const r = await postDraft(send, { surface: 'ops', chatId: 'OPS', financeChat: 'FIN', refused: OPS_MONEY_REFUSED, parts });
+  assertEquals(r.toFinance, true);
+  assertEquals(sent.filter((m) => m.chat === 'OPS').map((m) => m.text), [OPS_MONEY_REFUSED]);
+  assert(!sent.filter((m) => m.chat === 'OPS').some((m) => hasMoney(m.text)));
+  assertEquals(sent.filter((m) => m.chat === 'FIN').map((m) => m.text), parts);
+
+  sent.length = 0; // Finance posts as is; so does an OPS draft with no money; no Finance chat configured posts nothing but the refusal
+  assertEquals((await postDraft(send, { surface: 'finance', chatId: 'FIN', financeChat: 'FIN', refused: OPS_MONEY_REFUSED, parts })).toFinance, false);
+  assertEquals(sent.map((m) => m.chat), ['FIN', 'FIN']);
+  sent.length = 0;
+  await postDraft(send, { surface: 'ops', chatId: 'OPS', financeChat: 'FIN', refused: OPS_MONEY_REFUSED, parts: ['Hi Ben, check-in is from 2:00 PM.'] });
+  assertEquals(sent, [{ chat: 'OPS', text: 'Hi Ben, check-in is from 2:00 PM.' }]);
+  sent.length = 0;
+  await postDraft(send, { surface: 'ops', chatId: 'OPS', financeChat: '', refused: OPS_MONEY_REFUSED, parts });
+  assertEquals(sent, [{ chat: 'OPS', text: OPS_MONEY_REFUSED }]);
 });

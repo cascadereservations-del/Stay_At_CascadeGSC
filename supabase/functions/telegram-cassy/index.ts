@@ -14,10 +14,11 @@ import { TOOL_DECLS, WRITE_TOOL_DECLS, runTool, writeTool, isWriteTool, manilaTo
 import { parseReport, renderReport } from '../_shared/cascade-core/format.ts';
 import { HOUSE_READ_DECL, HOUSE_TEACH_DECL, houseInfo, teachCard } from '../_shared/cascade-core/house.ts'; // D-282
 import { toneRules } from '../messenger-concierge/voice.ts';
-import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, type Surface } from './policy.ts';
+import { gate, addressed, unmention, stripMoney, wantsExpense, honestAboutCard, onlyAskedFor, memoOf, deepRequest, deepAllowed, recentTurns, opsToolsOnly, maskReport, postDraft, type Surface } from './policy.ts';
 // v23 (session 27, Telegram plan §3): "cassy reply: <guest text>" or a chat screenshot captioned "cassy draft"
 // returns a reply for the host to copy. Never sends to the guest.
 import { draftRequest, draftGuestReply, draftInquiry, inquiryDraftCard, routeDraft, transcribeChat, reviseHostMessage, splitThread, type Line, type Platform } from './draft.ts';
+import { maskMoney } from '../_shared/ops-money.ts'; // D-306
 import { OPS_MONEY_REFUSED, staleReason, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: Cassy reply and the Other decline for an unpaid request
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -94,14 +95,14 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
     // Live read 2026-09-29: "cassy house wifi" called guest_stays too and answered with a guest's stays from the chat
     // history. "cassy house ..." now offers the house tool alone, forced.
     const houseAsk = /^\s*house\b/i.test(question);
-    const tools = houseAsk ? [HOUSE_READ_DECL] : [...TOOL_DECLS, HOUSE_READ_DECL, ...WRITE_TOOL_DECLS.filter((t) => surface === 'finance' || t.name === 'create_notice'), ...(surface === 'finance' ? [HOUSE_TEACH_DECL] : [])];
+    const tools = houseAsk ? [HOUSE_READ_DECL] : [...opsToolsOnly(TOOL_DECLS, surface), HOUSE_READ_DECL, ...WRITE_TOOL_DECLS.filter((t) => surface === 'finance' || t.name === 'create_notice'), ...(surface === 'finance' ? [HOUSE_TEACH_DECL] : [])];
     const ctx = { chatId, from: msg.from ?? {}, surface };
     let cardSent = false;
     const res = await chatTools({
       system: VOICE(surface, today), history: await history(db, chatId), question, tools, title: 'Cascade Cassy', tier, maxRounds: tier === 'deep' ? 5 : 3, maxTokens: tier === 'deep' ? 1200 : 700,
       forceTool: houseAsk ? 'house_info' : wantsExpense(question, surface) ? 'log_expense' : surface === 'finance' && /^\s*(teach|edit|retire)\b/i.test(question) ? 'teach_house_fact' : undefined,
       run: async (name, args) => {
-        if (name === 'house_info') return await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; });
+        if (name === 'house_info') { const h = await houseInfo(db, String(args.query ?? '')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { error: 'house_info unavailable' }; }); return surface === 'ops' ? stripMoney(h) : h; } // D-306
         if (name === 'teach_house_fact') {
           if (surface !== 'finance') return { error: 'house facts are taught in the finance chat' };
           const w = await teachCard(db, chatId, args, [msg.from?.first_name, msg.from?.id].filter(Boolean).join(' ')).catch((e) => { console.error('tool_failed', JSON.stringify({ name, error: String(e).slice(0, 300) })); return { card: null, result: { error: 'teach_house_fact unavailable' } }; });
@@ -122,8 +123,8 @@ async function answer(db: any, msg: any, surface: Surface, rawQuestion: string):
     });
     const report = parseReport(res.text);
     if (!report.decision && !report.lines.length) console.warn('report_unparsed', JSON.stringify({ tier, raw: res.text.slice(0, 400) }));
-    const shaped = onlyAskedFor(honestAboutCard(report, cardSent), res.toolCalls ?? []);
-    const text = renderReport(shaped, res.model);
+    const shaped = maskReport(onlyAskedFor(honestAboutCard(report, cardSent), res.toolCalls ?? []), surface); // D-306: OPS answers are masked, history included
+    const text = surface === 'ops' ? maskMoney(renderReport(shaped, res.model)) : renderReport(shaped, res.model);
     await tgSend(chatId, text, msg.message_id);
     await remember(db, chatId, question, memoOf(shaped)).catch((e) => console.warn('history_failed', String(e).slice(0, 200)));
     console.log('cassy_turn', JSON.stringify({ chat: chatId, from: msg.from?.id, surface, tier, tools: res.toolCalls, provider: res.provider, model: res.model, ms: Date.now() - t0 }));
@@ -143,7 +144,7 @@ async function photoBytes(msg: any): Promise<{ bytes: Uint8Array; mime: string }
   return { bytes: new Uint8Array(await r.arrayBuffer()), mime: /\.png$/i.test(path) ? 'image/png' : 'image/jpeg' };
 }
 
-async function draft(db: any, msg: any, pasted: string): Promise<void> {
+async function draft(db: any, msg: any, pasted: string, surface: Surface): Promise<void> {
   const chatId = String(msg.chat.id);
   const t0 = Date.now();
   try {
@@ -162,7 +163,8 @@ async function draft(db: any, msg: any, pasted: string): Promise<void> {
     if (nm) { guestName = nm[1]; guestText = guestText.replace(nm[0], '').trim(); }
     if (!guestText.trim()) { await tgSend(chatId, 'I could not find a guest message there. Tap ✍️ Guest reply and paste what they wrote, or send a screenshot of the chat.', msg.message_id); return; }
     const out = await draftGuestReply(db, guestText, guestName, thread);
-    for (const m of out) await tgSend(chatId, m, msg.message_id); // header, then each option alone: a long-press copies only the reply
+    // header, then each option alone: a long-press copies only the reply. D-306: a draft with an amount is posted in Finance, not OPS.
+    await postDraft(tgSend, { surface, chatId, financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), refused: OPS_MONEY_REFUSED, parts: out, replyTo: msg.message_id });
     console.log('cassy_draft', JSON.stringify({ chat: chatId, from: msg.from?.id, photo: !!msg.photo, chars: guestText.length, ms: Date.now() - t0 }));
   } catch (e) {
     console.error('cassy_draft_failed', String(e).slice(0, 300));
@@ -170,11 +172,11 @@ async function draft(db: any, msg: any, pasted: string): Promise<void> {
   }
 }
 
-async function revise(db: any, msg: any, raw: string): Promise<void> {
+async function revise(db: any, msg: any, raw: string, surface: Surface): Promise<void> {
   const chatId = String(msg.chat.id);
   const [template, context = ''] = raw.split('|||').map((x) => x.trim());
   if (!template) { await tgSend(chatId, 'Nothing to revise on that card.', msg.message_id); return; }
-  try { await tgSend(chatId, await reviseHostMessage(db, template, context), msg.message_id); }
+  try { await postDraft(tgSend, { surface, chatId, financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), refused: OPS_MONEY_REFUSED, parts: [await reviseHostMessage(db, template, context)], replyTo: msg.message_id }); } // D-306
   catch (e) { console.error('cassy_revise_failed', String(e).slice(0, 300)); await tgSend(chatId, 'I could not revise that right now. Try again in a minute.', msg.message_id); }
 }
 
@@ -213,7 +215,7 @@ async function inquiry(db: any, msg: any, surface: Surface, purpose: 'reply' | '
       if (pe || !row) { console.error('pending_insert_failed', JSON.stringify({ kind: 'inquiry_reply', error: String(pe?.message ?? pe ?? 'no row').slice(0, 200) })); await tgSend(chatId, 'I could not open that draft, so nothing was drafted. Try again in a minute.', msg.message_id); return; }
       pid = row.id;
     }
-    const card = inquiryDraftCard({ view, purpose, pid, d });
+    const card = inquiryDraftCard({ view, purpose, pid, d, forOps: surface === 'ops' && !route.toFinance });
     await tgSend(target, card.text, target === chatId ? msg.message_id : undefined, { text: card.text, keyboard: card.keyboard as Card['keyboard'] });
     console.log('cassy_inquiry', JSON.stringify({ chat: chatId, from: msg.from?.id, purpose, source: d.source, gate: d.gate, to_finance: route.toFinance, ms: Date.now() - t0 }));
   } catch (e) {
@@ -240,7 +242,7 @@ Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, a
   const rv = /^\s*revise\s*:\s*([\s\S]*)$/i.exec(question);
   const iq = INQUIRY_RE.exec(question);
   const dr = draftRequest(question);
-  const work = rv ? revise(db, msg, rv[1]) : iq ? inquiry(db, msg, g.surface, iq[1].toLowerCase() as 'reply' | 'decline', iq[2], iq[3]) : dr.draft ? draft(db, msg, dr.text) : answer(db, msg, g.surface, question);
+  const work = rv ? revise(db, msg, rv[1], g.surface) : iq ? inquiry(db, msg, g.surface, iq[1].toLowerCase() as 'reply' | 'decline', iq[2], iq[3]) : dr.draft ? draft(db, msg, dr.text, g.surface) : answer(db, msg, g.surface, question);
   // @ts-ignore EdgeRuntime is provided by Supabase
   if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work); else await work;
   return Response.json({ ok: true, surface: g.surface });

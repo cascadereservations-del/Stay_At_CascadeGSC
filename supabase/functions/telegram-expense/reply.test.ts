@@ -4,7 +4,7 @@ import type { Change, CountItem } from './count.ts';
 import { BTN, doSend } from '../_shared/cascade-core/format.ts';
 import {
   countCardKeyboard, countCardText, NOT_WAITING, parseAmount, parseExpenseAnswer, parseManualClean, parseQty, refusal,
-  routeText, setChange,
+  routeText, setChange, noticeTitle,
 } from './reply.ts';
 
 const item = (id: string, name: string, qty: number, reorder: number | null = null, unit = 'pc'): CountItem =>
@@ -171,4 +171,11 @@ Deno.test('inquiry_reason: a few words are a reason; empty, emoji-only or digit-
   assertEquals(parseReason('x'.repeat(500))!.length, 300);
   for (const bad of ['', '   ', '👍', '🙏🙏🙏', '12345', 'ok', '??']) assertEquals(parseReason(bad), null, JSON.stringify(bad));
   assertEquals(refusal('inquiry_reason'), 'A few words are enough, like "guest asked for a party". Nothing was saved.');
+});
+
+Deno.test('D-306: a notice title with an amount is masked for OPS and whole for Finance', () => {
+  const esc = (s: unknown) => String(s ?? '').replaceAll('_', ' ');
+  assertEquals(noticeTitle('Pay Honey ₱3,560 balance', false, esc), 'Pay Honey [amount hidden] balance');
+  assertEquals(noticeTitle('Pay Honey ₱3,560 balance', true, esc), 'Pay Honey ₱3,560 balance');
+  assertEquals(noticeTitle('Property inspection 2026-10-05', false, esc), 'Property inspection 2026-10-05');
 });

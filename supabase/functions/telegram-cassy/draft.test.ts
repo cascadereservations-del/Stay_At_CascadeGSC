@@ -71,3 +71,12 @@ Deno.test('declineInstruction forbids quoting the reason, and a model that echoe
   const clean = 'Ana, thank you for your request for Nov 30 to Dec 4. We are unable to accept this stay, and we would be glad to hear from you again should your plans change.';
   assertEquals(gateInquiry(clean, '', 'en', 'guest asked for a party'), []);
 });
+
+Deno.test('D-306: the inquiry draft card posted in OPS masks the guest own amounts; Finance sees them whole', () => {
+  const d = { text: GOOD, gate: [] as string[], source: 'concierge' as const, channel: 'Messenger' as const, lastMessage: 'ok po, I sent PHP 1,780 to 0956 011 5744 already' };
+  const ops = inquiryDraftCard({ view: iqView, purpose: 'reply', pid: 'p1-0000-4000-8000-000000000001', forOps: true, d });
+  assert(!/1,780|0956/.test(ops.text), ops.text);
+  assertStringIncludes(ops.text, 'Guest wrote: "ok po, I sent [amount hidden] to [number hidden] already"');
+  const fin = inquiryDraftCard({ view: iqView, purpose: 'reply', pid: 'p1-0000-4000-8000-000000000001', d });
+  assertStringIncludes(fin.text, 'PHP 1,780');
+});

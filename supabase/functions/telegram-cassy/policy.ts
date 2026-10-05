@@ -1,4 +1,5 @@
 // telegram-cassy policy (2026-09-13, D-104). Pure functions, code-owned, proven in policy.test.ts.
+import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
 export type Surface = 'finance' | 'ops';
 export type GateEnv = { financeChat: string; opsChat: string; dmUserIds: string[] };
 export type Gate = { allowed: false; reason: string } | { allowed: true; surface: Surface };
@@ -57,7 +58,7 @@ export function honestAboutCard(r: { decision: string; lines: string[]; action: 
   return { decision: r.decision.replace(/\bcard\b/gi, 'entry'), lines, action };
 }
 
-const MONEY_KEY = /amount|payout|revenue|cost|total|price|earn|fee|php|peso|balance/i;
+const MONEY_KEY = /amount|payout|revenue|cost|total|price|earn|fee|php|peso|balance|(?<!turnover_)(?<![a-z])rate|deposit|refund|quote|income|paid/i; // D-306 (not generated_at, not the stock turnover_rate)
 /** Ops surface never sees money: delete money-named keys anywhere in a tool result (code, not prompt). */
 export function stripMoney(v: unknown): unknown {
   if (Array.isArray(v)) return v.map(stripMoney);
@@ -89,4 +90,21 @@ export function memoOf(r: { decision: string; lines: string[]; action: string })
 export const HISTORY_WINDOW_MS = 30 * 60_000;
 export function recentTurns<T extends { created_at: string }>(rows: T[], nowMs: number, maxAgeMs = HISTORY_WINDOW_MS): T[] {
   return rows.filter((r) => nowMs - Date.parse(r.created_at) <= maxAgeMs);
+}
+
+/** D-306: OPS never shows booking income. period_metrics (occupancy, nights sold, revenue) is a Finance tool. */
+export const opsToolsOnly = <T extends { name: string }>(decls: T[], surface: Surface): T[] => surface === 'ops' ? decls.filter((t) => t.name !== 'period_metrics') : decls;
+
+/** D-306 belt and braces: the rendered Cassy answer in OPS is masked whatever the model wrote. */
+export function maskReport<T extends { decision: string; lines: string[]; action: string }>(r: T, surface: Surface): T {
+  return surface === 'finance' ? r : { ...r, decision: maskMoney(r.decision), lines: r.lines.map(maskMoney), action: maskMoney(r.action) };
+}
+
+/** D-306: post a drafted guest reply. In OPS a draft with an amount is not shown: OPS gets the refusal line and Finance the whole draft
+ *  (the same pattern as inquiry()). Finance, and an OPS draft with no money, post as is. */
+export async function postDraft(send: (chat: string, text: string, replyTo?: number) => Promise<void>, o: { surface: Surface; chatId: string; financeChat: string; refused: string; parts: string[]; replyTo?: number }): Promise<{ toFinance: boolean }> {
+  const toFinance = o.surface === 'ops' && o.parts.some(hasMoney);
+  if (toFinance) { await send(o.chatId, o.refused, o.replyTo); if (o.financeChat) for (const p of o.parts) await send(o.financeChat, p); return { toFinance }; }
+  for (const p of o.parts) await send(o.chatId, p, o.replyTo);
+  return { toFinance };
 }
