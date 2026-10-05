@@ -603,16 +603,17 @@ Deno.test('Lloyd 2026-10-05 (b): a guest on a held night, or a hand-entered noti
   }
 });
 
-Deno.test('audit b6cc3e8: a newer post that moves an outage by more than 21 days (could be a second job) is asked once, never auto-released', async () => {
+Deno.test('audit b6cc3e8: a newer post more than 21 days later (could be a second job) moves nothing: the held date stays, and an unannounced older poster is still announced', async () => {
   const NOV19 = P + 'SPI-PMS-11192026-LEON-LLIDO-SS.jpg';
   const posts = [{ id: 22100, posters: [NOV19], postedAt: '2026-10-02T00:45:00.000Z' }, { id: 21945, posters: [OLD8], postedAt: SEP }];
   const ours = { [OLD8]: '2026-10-08', [NOV19]: '2026-11-19' };
-  const w = world({ ops_notices: [hand('2026-10-08')] });
-  await w.run([]);
-  const r = await w.run([], '2026-10-02T01:15:00Z', scheduleFrom(posts, ours, () => true), supersededBy(posts, ours));
-  assertEquals(r, ['2026-10-08: moved to Thu 19 Nov']);
-  assertEquals(live(w.db), ['2026-10-07', '2026-10-08'], 'nothing released without a tap');
-  assertEquals(w.fin.length, 0);
+  const held = world({ ops_notices: [hand('2026-10-08')] });
+  await held.run([]);
+  const r = await held.run([], '2026-10-02T01:15:00Z', scheduleFrom(posts, ours, () => true), supersededBy(posts, ours));
+  assert(!r.some((x) => x.includes('released') || x.includes('moved')), 'no release, no ask');
+  assertEquals(live(held.db), ['2026-10-07', '2026-10-08']);
+  const fresh = world();
+  assertEquals(await fresh.run([f8()], '2026-10-02T01:00:00Z', scheduleFrom(posts, ours, () => true), supersededBy(posts, ours)), ['2026-10-08: new'], 'the older poster is still announced');
 });
 
 Deno.test('Lloyd 2026-10-05 (c): a different substation newer post, a post with no publish time, or an unknown schedule releases nothing', async () => {

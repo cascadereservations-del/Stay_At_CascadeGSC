@@ -290,8 +290,9 @@ Deno.test('Lloyd 2026-10-05: supersededBy - the live Oct 8 -> Oct 15 case, and e
   const o7 = PU + 'SPI-PMS-10072026-LEON-LLIDO-SS.jpg', o4 = PU + 'SPI-PMS-10042026-LEON-LLIDO-SS.jpg', o1119 = PU + 'SPI-PMS-11192026-LEON-LLIDO-SS.jpg';
   assertEquals(sup([{ id: 3, posters: [o7], postedAt: NOV }, { id: 2, posters: [o15], postedAt: OCT }], { [o7]: '2026-10-07', [o15]: '2026-10-15' }).dates.size, 0, 'earlier date is not a move');
   assertEquals(sup([{ id: 3, posters: [o4], postedAt: NOV }, { id: 2, posters: [o15], postedAt: OCT }], { [o4]: '2026-10-04', [o15]: '2026-10-15' }).dates.size, 0, 'past date is not a move');
-  // a far-later newer post IS a candidate here; watch.ts asks (one Unblock tap) instead of releasing when the move is over 21 days
-  assertEquals(sup([{ id: 3, posters: [o1119], postedAt: NOV }, { id: 2, posters: [o15], postedAt: OCT }], { [o1119]: '2026-11-19', [o15]: '2026-10-15' }).dates.get('2026-10-15')?.to, '2026-11-19');
+  // a newer post more than 21 days later may be a second job: no supersede at all, the older poster is still announced and kept
+  const far = sup([{ id: 3, posters: [o1119], postedAt: NOV }, { id: 2, posters: [o15], postedAt: OCT }], { [o1119]: '2026-11-19', [o15]: '2026-10-15' });
+  assertEquals([far.dates.size, far.urls.size], [0, 0]);
   // a different substation's newer post (a miss-class poster) never supersedes
   const maasim = PU + 'SPI-PMS-10152026-MAASIM-A-SS.jpg';
   assertEquals(sup([{ id: 2, posters: [maasim], postedAt: OCT }, { id: 1, posters: [o8], postedAt: SEP }]).dates.size, 0);

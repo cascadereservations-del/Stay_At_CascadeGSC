@@ -244,6 +244,8 @@ export const posterDate = (url: string): string | null => {
 };
 /** An older outage date a newer post moved: `to` = the date the newer same-substation, same-kind post names, `url` = that poster. */
 export type Moved = { to: string; url: string };
+/** A newer same-substation post moves an older date only when its date is at most this many days later (audit b6cc3e8): further out it may be a second job. */
+export const MAX_AUTO_MOVE_DAYS = 21;
 export type Superseded = { dates: Map<string, Moved>; urls: Map<string, Moved> }; // dates = the older DATES; urls = the older POSTERS (never to be announced again)
 export const noSupersede = (): Superseded => ({ dates: new Map(), urls: new Map() });
 
@@ -273,6 +275,8 @@ export function supersededBy(posts: Post[], ours: Record<string, string>): Super
     if (!to) continue;
     // audit b6cc3e8: a move goes FORWARD. A newer post for an earlier date (short notice, or a past one still in the feed) is another job, never a move.
     if (named(i.url).some((d) => d >= to)) continue;
+    // ...and a near one: over MAX_AUTO_MOVE_DAYS later it may be a second job, so both dates stay (never hide an older poster for it)
+    if (named(i.url).some((d) => (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${d}T00:00:00Z`)) / 86_400_000 > MAX_AUTO_MOVE_DAYS)) continue;
     out.urls.set(i.url, { to, url: best.url });
     supUrls.add(i.url);
   }
