@@ -1,5 +1,9 @@
 begin;
 select plan(70);
+-- The rehearsal restore is --no-acl: give authenticated the table grants production has (rolled back with the suite),
+-- so the guard trigger, not a missing grant, is what refuses the direct writes below.
+grant select, insert, update, delete on public.cleaning_sessions to authenticated;
+grant select on public.cleaning_expense_claims to authenticated;
 
 -- SPEC-37 staff payment request. All inserts run as the owner (service_role has no BYPASSRLS in the rehearsal restore);
 -- the staff RPCs run under a synthetic JWT, the Telegram step as the owner. Synthetic zz- fixtures only; the suite is inside
