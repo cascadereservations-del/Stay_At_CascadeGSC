@@ -71,6 +71,10 @@ Deno.test('"twenty" or "2 20" to a count prompt is refused with the spec wording
   assertEquals(refusal('count_qty'), 'Just the new number, like 20. Nothing saved yet.');
 });
 
+Deno.test('SPEC-37: the screenshot question is refused in words when text is sent, and keeps its row', () => {
+  assertEquals(refusal('payreq_proof'), 'Send the transfer screenshot as a photo. Nothing is marked paid yet.');
+});
+
 Deno.test('a count is a number of zero or more with at most two decimals', () => {
   assertEquals(parseQty('20'), 20);
   assertEquals(parseQty('0'), 0);
