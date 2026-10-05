@@ -5,7 +5,7 @@ import type { Change, CountItem } from './count.ts';
 
 export type Flow =
   | 'count_qty' | 'expense' | 'edit_amount' | 'payclean_amount'
-  | 'receipt_item_edit' | 'receipt_item_add' | 'manual_clean';
+  | 'receipt_item_edit' | 'receipt_item_add' | 'manual_clean' | 'payreq_proof';
 
 export type Route =
   | { kind: 'flow' }         // the person is being asked something: this text is the answer
@@ -57,6 +57,7 @@ export function refusal(flow: Flow): string {
     receipt_item_edit: 'Type the new price, like 216, or name and price, like Mr Muscle 216. Nothing saved yet.',
     receipt_item_add: 'Type the item and its price, like Joy Dishwashing 89. Nothing saved yet.',
     manual_clean: 'Type: cleaner, date, amount, like Honey, 05-28, 500. Nothing saved yet.',
+    payreq_proof: 'Send the transfer screenshot as a photo. Nothing is marked paid yet.',
   } as Record<Flow, string>)[flow];
 }
 

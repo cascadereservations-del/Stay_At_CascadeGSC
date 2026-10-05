@@ -19,6 +19,8 @@
 // v53 (2026-06-06): Stub replacement — deploys the fixed v52 source. Version strings updated in handleStatus and handlePing.
 // v108 (session 37, SPEC-16 / D-196): typed-marker replies replaced by telegram_pending awaiting_reply rows;
 //   a reply to a bot card that asked nothing is refused and never reaches the expense parser (D-195).
+// session 70 (SPEC-37, D-298): the Staff Payment Request. spr: taps and the transfer screenshot are staffpay-flow.ts; bookCleaningFee and
+//   payCleanList refuse a clean that sits in a pay request; the dead cleanpayinvoice: branch (its producer inserted a refused kind) is removed.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
@@ -29,6 +31,7 @@ import { applyHouseFact, houseTapLine, mayTeach } from '../_shared/cascade-core/
 import { nightsPhrase, parsePwTap, parseTaskTap, patchNoticeState, readNotice, releaseNotice, rpcMissing } from '../_shared/cascade-core/brownout.ts'; // D-290: brownout card taps, stay/guest-details task taps
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
+import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
 import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
@@ -197,6 +200,8 @@ function largestPhotoId(msg:any):string|null{const p=Array.isArray(msg.photo)?ms
 async function fetchPhotoBytes(msg:any):Promise<{bytes:Uint8Array;mime:string}|null>{const id=largestPhotoId(msg);return id?fetchPhotoBytesByFileId(id):null;}
 // session 67b: the /guest flow gets Telegram, the shared vision helper and the database through this one object (guest-flow.ts holds no globals).
 const guestDeps=(db:any)=>({db,propertyId:PROPERTY_ID,send:(c:any,t:string,x:Record<string,unknown>={})=>tgSend(c,t,x.reply_to_message_id?{...x,allow_sending_without_reply:true}:x),edit:tgEdit,answer:tgAnswerCB,photo:fetchPhotoBytesByFileId,read:(prompt:string,bytes:Uint8Array,mime:string)=>visionExtractText(prompt,bytes,mime,'Cascade Guest Intake'),visionReady:hasVisionKey,esc:mdEsc,today:toManilaDate});
+// session 70 (SPEC-37): the Staff Payment Request flow gets Telegram, the shared vision helper and the database through this one object.
+const payDeps=(db:any)=>({db,call:tgCall,answer:tgAnswerCB,isFinance:isFinanceChat,financeOnly:FINANCE_ONLY,opsChat:OPS_CHAT,askProof:(chatId:any,fromId:unknown,rid:string,text:string)=>ask(db,chatId,fromId,'payreq_proof',{rid},text,[],30),photo:fetchPhotoBytesByFileId,read:(prompt:string,bytes:Uint8Array,mime:string)=>visionExtractText(prompt,bytes,mime,'Cascade Staff Pay Proof'),visionReady:hasVisionKey});
 async function handleStockQuery(db:any,chatId:any,surface:'ops'|'finance',params:any){
   const filter=String(params?.filter??'low');const item=params?.item?String(params.item).trim().toLowerCase():null;const isFin=surface==='finance';
   const{data,error:invErr}=await db.from('inventory_items').select('name,qty_on_hand,reorder_below,unit,is_consumable,consumption_per_booking,unit_cost,sort_order').eq('property_id',PROPERTY_ID).eq('is_active',true).order('sort_order');
@@ -337,7 +342,7 @@ async function runAdvisoryOcr(db:any,chatId:any,bytes:Uint8Array,mime:string,fro
 }
 
 async function payCleanList(db:any,chatId:any) {
-  const {data,error:feeErr}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at').eq('property_id',PROPERTY_ID).is('fee_paid_at',null).order('cleaned_at',{ascending:false}).limit(10);
+  const {data,error:feeErr}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at').eq('property_id',PROPERTY_ID).is('fee_paid_at',null).is('pay_request_id',null).order('cleaned_at',{ascending:false}).limit(10);
   if(feeErr){await tgSend(chatId,'\u26a0\ufe0f Could not read the cleaning fees right now, so this is not a list of what is settled. Try again in a minute.');return;}
   const sessions=(data??[]) as any[];
   if (!sessions.length){await tgSend(chatId,'\u2705 No unpaid cleans. All settled.');return;}
@@ -355,9 +360,10 @@ async function paySessionCard(db:any,chatId:any,msgId:number|null,sessionId:stri
   if(msgId)await tgEdit(chatId,msgId,text,kb);else await tgSend(chatId,text,{reply_markup:kb});
 }
 async function bookCleaningFee(db:any,sessionId:string,amount:number,loggedBy:string|null):Promise<{ok:boolean;already?:boolean;cleaner?:string;date?:string;error?:string}> {
-  const {data:s}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at,fee_paid_at').eq('id',sessionId).maybeSingle();
+  const {data:s}=await db.from('cleaning_sessions').select('id,cleaner_name,cleaning_type,checkin_date,checkout_date,cleaned_at,fee_paid_at,pay_request_id').eq('id',sessionId).maybeSingle();
   if(!s) return {ok:false,error:'not_found'};
   if(s.fee_paid_at) return {ok:true,already:true,cleaner:s.cleaner_name,date:sessionDate(s)};
+  if(s.pay_request_id) return {ok:false,error:`in pay request ${shortRef(s.pay_request_id)} - pay it from that card`}; // SPEC-37: one payment path per clean
   const d=sessionDate(s);
   const {data:row,error}=await db.from('transactions').insert({property_id:PROPERTY_ID,txn_type:'expense',category:'cleaning',status:'confirmed',source:'cleaner_fee',gross_amount:amount,payee_name:s.cleaner_name??null,transaction_date:d,external_ref:`cleanfee:${s.id}`,notes:`Cleaning fee \u2014 ${s.cleaner_name??'cleaner'}, ${d}, ${typeLabelOf(s.cleaning_type)}. Session ${shortRef(s.id)}.`,logged_by:loggedBy}).select('id').single();
   let txnId:string|null=null;
@@ -703,9 +709,9 @@ async function getCategories(db:any):Promise<Category[]>{
 async function getCategoryLabel(db:any,slug:string){const cats=await getCategories(db);return cats.find(c=>c.slug===slug)?.label??slug;}
 async function createPending(db:any,chatId:any,kind:string,payload:Record<string,unknown>,ttlMinutes?:number){const row:Record<string,unknown>={chat_id:chatId,kind,payload};if(ttlMinutes)row.expires_at=new Date(Date.now()+ttlMinutes*60_000).toISOString();const{data}=await db.from('telegram_pending').insert(row).select('id').single();return data?.id??'';}
 // SPEC-16: one open question per person per chat. A fresh tap deletes that person's previous question first.
-async function awaiting(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>){
+async function awaiting(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>,ttlMinutes=10){
   await db.from('telegram_pending').delete().eq('chat_id',chatId).eq('kind','awaiting_reply').eq('payload->>from_id',String(fromId));
-  return createPending(db,chatId,'awaiting_reply',{flow,from_id:fromId,...refs},10);
+  return createPending(db,chatId,'awaiting_reply',{flow,from_id:fromId,...refs},ttlMinutes);
 }
 async function findAwaiting(db:any,chatId:any,fromId:unknown):Promise<{id:string;payload:any}|null>{
   if(fromId==null)return null;
@@ -715,8 +721,8 @@ async function findAwaiting(db:any,chatId:any,fromId:unknown):Promise<{id:string
 const hasAwaiting=async(db:any,chatId:any,fromId:unknown)=>!!(await findAwaiting(db,chatId,fromId));
 const cancelKb=(pid:string)=>({inline_keyboard:[[{text:'❌ Cancel',callback_data:`x:${pid}`}]]});
 /** Ask one person one question: the row first, then the prompt (with Cancel), then the prompt's id on the row. */
-async function ask(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>,text:string,buttons:Array<{text:string;callback_data:string}>=[]){
-  const pid=fromId==null?'':await awaiting(db,chatId,fromId,flow,refs);
+async function ask(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>,text:string,buttons:Array<{text:string;callback_data:string}>=[],ttlMinutes=10){
+  const pid=fromId==null?'':await awaiting(db,chatId,fromId,flow,refs,ttlMinutes);
   if(!pid){await tgSend(chatId,'⚠️ Could not open that question, so nothing was saved. Try again in a minute.');return;}
   const r=await tgSend(chatId,text,{reply_markup:{inline_keyboard:[[...buttons,{text:'❌ Cancel',callback_data:`x:${pid}`}]]}});
   const mid=r?.result?.message_id;
@@ -994,6 +1000,7 @@ async function handleDocumentMessage(msg: any, db: any): Promise<void> {
 
   const doc = msg.document;
   const filename = String(doc?.file_name ?? '');
+  if (/^image\//i.test(String(doc?.mime_type ?? '')) && await onPayReqPhoto(payDeps(db), msg, await findAwaiting(db, chatId, msg.from?.id))) return; // session 70 (SPEC-37): a screenshot sent as a file
 
   if (!filename.toLowerCase().endsWith('.csv')) {
     await tgSend(chatId, '📎 _Send the CSV exported from Airbnb → Finance → Transaction History → Download._');
@@ -1240,9 +1247,10 @@ async function handleCallbackQuery(cq:any,db:any){
 async function handleCallbackQueryInner(cq:any,db:any){
   const chatId=cq.message?.chat?.id;const msgId=cq.message?.message_id;const data=String(cq.data??'');
   // SPEC-16: these taps answer for themselves, so a refused tap can explain itself in the toast.
-  if(!/^(inv:item:|inv:qty:|x:|pw:|stc:|crm:|gst:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
+  if(!/^(inv:item:|inv:qty:|x:|pw:|stc:|crm:|gst:|spr:)/.test(data))await tgAnswerCB(cq.id);const firstLine=(cq.message?.text??'').split('\n')[0];
 
   if(data==='xx'){await tgEdit(chatId,msgId,CANCELLED);return;}
+  if(data.startsWith('spr:')){await onPayReqTap(payDeps(db),cq);return;} // session 70 (SPEC-37): Finance taps on a staff payment request card (they answer the tap themselves)
   if(data.startsWith('gst:')){await onGuestTap(guestDeps(db),cq);return;} // session 67b: /guest pick, Other, Save, Cancel (they answer the tap themselves)
   if(data.startsWith('x:')){
     const pid=data.slice(2);
@@ -1554,18 +1562,6 @@ async function handleCallbackQueryInner(cq:any,db:any){
     if(err){await tgEdit(chatId,msgId,`${cq.message?.text??'🧹 Cleaning Fees Settled'}\n\n`+NOTHING_CHANGED('record the acknowledgement',err));return;}
     await tgEdit(chatId,msgId,`${cq.message?.text??'🧹 Cleaning Fees Settled'}\n\n✅ Acknowledged by ${ackerName} at ${mt}`);return;
   }
-  // ── v52: Dashboard "Send Invoice" → cleaner acknowledgement ──
-  if(data.startsWith('cleanpayinvoice:')){
-    const payload=await consumePending(db,data.slice('cleanpayinvoice:'.length));
-    if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
-    const ackerName=whoFrom(cq.from).split(' ').slice(0,2).join(' ')||'Team';
-    const res=await bookCleaningFee(db,String(payload.sessionId),Number(payload.feeAmount),ackerName);
-    if(!res.ok&&!res.already){await tgEdit(chatId,msgId,firstLine+`\n⚠️ Could not record payment: ${errMsg(res.error)}`);return;}
-    const mt=new Date().toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit'});
-    await db.from('cleaning_sessions').update({fee_acked_at:new Date().toISOString()}).eq('id',String(payload.sessionId)).is('fee_acked_at',null);
-    await tgEdit(chatId,msgId,firstLine+`\n\n✅ *Received* — confirmed by ${ackerName} at ${mt}`);
-    return;
-  }
   if(data.startsWith('pcsel:'))  {await paySessionCard(db,chatId,msgId,data.slice('pcsel:'.length));return;}
   if(data.startsWith('pcpay:'))  {const[,sid,fs]=data.split(':');const fee=Number(fs)||0;const res=await bookCleaningFee(db,sid,fee,whoFrom(cq.from));if(!res.ok){await tgEdit(chatId,msgId,`⚠️ Could not book: ${errMsg(res.error)}`);return;}if(res.already){await tgEdit(chatId,msgId,'ℹ️ That clean was already paid.');return;}await tgEdit(chatId,msgId,`✅ *Paid ${mdEsc(res.cleaner??'cleaner')} ₱${peso(fee)}* for ${res.date}\nBooked to ledger.\n_Run /notifyclean to send the acknowledgement card._`);return;}
   if(data.startsWith('pcedit:')) {await ask(db,chatId,cq.from?.id,'payclean_amount',{sid:data.slice('pcedit:'.length)},'💵 Type the amount you paid for this clean, like 500.');return;}
@@ -1685,6 +1681,7 @@ async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any}
       const m=parseManualClean(text);if(!m){await bad();return;}
       await done();await handleManualCleanAnswer(db,chatId,msg,m);return;
     }
+    case 'payreq_proof': await bad(); return; // SPEC-37: only a photo answers it; the question stays open
     default: await done(); await tgReply(chatId,msg.message_id,NOT_WAITING);
   }
 }
@@ -1796,6 +1793,7 @@ async function handlePhotoMessage(msg:any,db:any){
   const chatId=msg.chat?.id;const from=msg.from??{};const loggedBy=whoFrom(from);
   // SPEC-16: a receipt photo sent while this person is being asked for an expense takes that category.
   const aw=await findAwaiting(db,chatId,from.id);
+  if(await onPayReqPhoto(payDeps(db),msg,aw))return; // session 70 (SPEC-37): a transfer screenshot for a staff payment request is never a receipt
   const cat=aw?.payload?.flow==='expense'?String(aw.payload.slug??''):'';
   if(cat)await db.from('telegram_pending').delete().eq('id',aw!.id);
   try{
