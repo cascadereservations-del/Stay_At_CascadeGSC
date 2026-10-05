@@ -1,5 +1,5 @@
 // deno test supabase/functions/power-watch/watch.test.ts - whole runs against an in-memory database. Synthetic data only.
-import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
+import { assert, assertEquals, assertNotMatch, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { keepNotice, listNotices, patchNoticeState, readNotice, releaseNotice } from '../_shared/cascade-core/brownout.ts';
 import { FakeDb } from './fake-db.ts';
 import { scheduleFrom, supersededBy, type Built, type Schedule, type Superseded } from './plan.ts';
@@ -347,8 +347,9 @@ Deno.test('SPEC-41 3.5-4: a guest on a night we hold turns the second miss into 
   const w = world({ ops_notices: [hand('2026-10-08')] });
   await w.run([]);
   w.db.tables.calendar_events.push({ uid: 'ab-stay', source: 'airbnb', status: 'confirmed', checkin_date: '2026-10-06', checkout_date: '2026-10-08', guest_name: 'Test Guest', property_id: PID });
-  const before = w.sent.length;
   await w.run([], '2026-10-02T01:15:00Z', sched([]));
+  assertStringIncludes(w.sent[w.sent.length - 1].text, 'Test booked the night of Oct 7, which we hold', 'D-308.3: the booking on a held night is told once, at the first run that sees it');
+  const before = w.sent.length;
   assertEquals(await w.run([], '2026-10-02T01:30:00Z', sched([])), ['2026-10-08: no longer lists']);
   assertEquals(live(w.db), ['2026-10-07', '2026-10-08'], 'no row cancelled');
   assertEquals(w.sent.length - before, 1);
@@ -667,4 +668,141 @@ Deno.test('Lloyd 2026-10-05 (e): an explicit cancel poster for the date still as
   const r = await w2.run([found('2026-10-15', '06:00:00', 11, 22013, { url: NEW15, originalDate: '2026-10-08', postedAt: OCT })], '2026-10-02T01:15:00Z');
   assertStringIncludes(r.join('|'), '2026-10-08: moved to Thu 15 Oct');
   assertEquals(live(w2.db), ['2026-10-07', '2026-10-08', '2026-10-14', '2026-10-15']);
+});
+
+// ── D-308.3 (Lloyd 2026-10-06): a guest booked a night we hold for a brownout ─────────────────────────────────────────────
+const MONEY = /₱|PHP|\b\d{1,3},\d{3}\b|\bpeso/i;
+const booking = (uid: string, a: string, b: string, name: string | null = 'Anna Testguest', extra: Record<string, unknown> = {}) =>
+  ({ uid, property_id: PID, source: 'airbnb', status: 'confirmed', checkin_date: a, checkout_date: b, guest_name: name, ...extra });
+const bookingCards = (w: ReturnType<typeof world>) => w.sent.filter((c) => c.text.includes('booked the night'));
+const alerts = async (w: ReturnType<typeof world>, date = '2026-10-15') => ((await readNotice(w.db, date)) as { bookingAlerts?: string[] } | null)?.bookingAlerts;
+
+Deno.test('D-308.3: a guest books two held nights after the hold: ONE OPS card that leads with what happened, names who acts, sends nothing to the guest; re-runs repeat nothing', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(w.sent.length, 1, 'the outage card');
+  w.db.tables.calendar_events.push(booking('ab-g1', '2026-10-14', '2026-10-16'));
+  assertEquals(await w.run([found('2026-10-15', '06:00:00', 11, 100)]), ['2026-10-15: known', '2026-10-15: a guest booked a held night, OPS told']);
+  const cards = bookingCards(w);
+  assertEquals(cards.length, 1);
+  const t = cards[0].text;
+  assert(t.split('\n\n')[1].startsWith('📅 Anna booked the nights of Oct 14 and Oct 15, which we hold for the SOCOTECO power interruption Thu 15 Oct, 06:00-17:00 (Feeder 14-3).'), t);
+  assertStringIncludes(t, 'Stay: Oct 14 to Oct 16.');
+  assertStringIncludes(t, 'Marifel: message Anna about the outage and offer to keep or move the stay. Nothing was sent to the guest.');
+  assertEquals(cards[0].markup, undefined, 'no button: nothing here is a callback');
+  assertNotMatch(t, MONEY);
+  assertEquals(await alerts(w), ['ab-g1']);
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)], '2026-10-02T09:00:00Z');
+  assertEquals(bookingCards(w).length, 1, 're-runs never repeat it');
+});
+
+Deno.test('D-308.3: one held night is "night of", the check-out day is not a night, a booking off the held nights and a guest already in the house say nothing', async () => {
+  const w = world({ calendar_events: [booking('ab-before', '2026-10-13', '2026-10-15', 'Early Bird')] });
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(live(w.db), ['2026-10-15'], 'the guest already in the house on the 14th is never blocked, so never a booking card');
+  w.db.tables.calendar_events.push(booking('ab-out', '2026-10-12', '2026-10-14'), booking('ab-far', '2026-10-20', '2026-10-22'));
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(bookingCards(w).length, 0, 'leaves on the 14th (check-out day is no night), or far away');
+  w.db.tables.calendar_events.push(booking('ab-one', '2026-10-15', '2026-10-17', 'Bea'));
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(bookingCards(w).length, 1);
+  assertStringIncludes(bookingCards(w)[0].text, 'Bea booked the night of Oct 15, which we hold');
+});
+
+Deno.test('D-308.3: a cancelled booking and an Airbnb block are not guests', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  w.db.tables.calendar_events.push(booking('ab-x', '2026-10-14', '2026-10-16', 'Gone', { status: 'cancelled' }), booking('ab-blk', '2026-10-14', '2026-10-16', null, { status: 'blocked' }));
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(bookingCards(w).length, 0);
+});
+
+Deno.test('D-308.3: one card per notice date and booking: two bookings are two cards, the same booking on two notices is two cards', async () => {
+  const w = world();
+  const both = () => [found('2026-10-15', '06:00:00', 11, 100), found('2026-10-16', '06:00:00', 11, 101, { url: URL0 + '2' })];
+  await w.run(both());
+  w.db.tables.calendar_events.push(booking('ab-1', '2026-10-15', '2026-10-16', 'Cara'), booking('ab-2', '2026-10-14', '2026-10-15', 'Dan'));
+  await w.run(both());
+  const texts = bookingCards(w).map((c) => c.text);
+  assertEquals(texts.length, 3, 'Cara on the 15th and 16th notices, Dan on the 15th notice');
+  assertEquals(texts.filter((t) => t.includes('Cara booked')).length, 2);
+  assertEquals(texts.filter((t) => t.includes('Dan booked the night of Oct 14')).length, 1);
+  await w.run(both());
+  assertEquals(bookingCards(w).length, 3);
+});
+
+Deno.test('D-308.3: a changed time on the notice does not repeat a booking OPS already heard about', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  w.db.tables.calendar_events.push(booking('ab-g1', '2026-10-14', '2026-10-16'));
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(bookingCards(w).length, 1);
+  assertEquals(await w.run([found('2026-10-15', '07:00:00', 10, 101, { url: URL0 + '2' })]), ['2026-10-15: changed']);
+  assertEquals(bookingCards(w).length, 1, 'the changed card went out, the booking card did not repeat');
+  assertEquals(await alerts(w), ['ab-g1']);
+});
+
+Deno.test('D-308.3: a released, undone or cancelled notice says nothing about a booking', async () => {
+  for (const how of ['release', 'undo', 'cancel'] as const) {
+    const w = world();
+    await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+    if (how === 'release') await releaseNotice(w.db, PID, '2026-10-15', 'unblock', 'test');
+    if (how === 'undo') await releaseNotice(w.db, PID, '2026-10-15', 'undo', 'test');
+    if (how === 'cancel') await w.run([found('2026-10-15', '06:00:00', 11, 101, { status: 'cancelled', url: URL0 + '2' })]); // SOCOTECO cancelled it: the ask card, then waiting for a tap
+    w.db.tables.calendar_events.push(booking('ab-g1', '2026-10-14', '2026-10-16'));
+    await w.run([]);
+    assertEquals(bookingCards(w).length, 0, how);
+    assertEquals(await alerts(w), undefined, how);
+  }
+});
+
+Deno.test('D-308.3: a notice a newer post moved says nothing about a booking: released first (the booking comes after), or asked first (a guest was on the night)', async () => {
+  const sup: Superseded = { dates: new Map([['2026-10-08', { to: '2026-10-15', url: URL0 + '2' }]]), urls: new Map() };
+  const sched: Schedule = { listed: new Set(['2026-10-15']), covered: () => true };
+  const w = world();
+  await w.run([found('2026-10-08', '06:00:00', 11, 90)]);
+  await w.run([], '2026-10-02T01:15:00Z', sched, sup);
+  assertEquals((await readNotice(w.db, '2026-10-08'))!.status, 'released');
+  const told = w.sent.length;
+  w.db.tables.calendar_events.push(booking('ab-g1', '2026-10-07', '2026-10-09'));
+  await w.run([], '2026-10-02T01:30:00Z', sched, sup);
+  assertEquals(w.sent.length, told, 'released: nothing said about the booking');
+  const g = world();
+  await g.run([found('2026-10-08', '06:00:00', 11, 90)]);
+  g.db.tables.calendar_events.push(booking('ab-g1', '2026-10-07', '2026-10-09'));
+  const first = g.sent.length;
+  await g.run([], '2026-10-02T01:15:00Z', sched, sup);
+  assertEquals(g.sent.length - first, 1, 'one card: the ask (Unblock), not a booking card');
+  assertStringIncludes(g.sent[g.sent.length - 1].text, 'moved to Thu 15 Oct');
+  assertEquals(bookingCards(g).length, 0);
+});
+
+Deno.test('D-308.3: Telegram down - the booking is not marked told, and goes out once when Telegram is back', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  w.db.tables.calendar_events.push(booking('ab-g1', '2026-10-14', '2026-10-16'));
+  w.telegram(false);
+  await w.run([]);
+  assertEquals(await alerts(w), undefined);
+  assert(w.logs.includes('power_watch_card_failed'));
+  w.telegram(true);
+  await w.run([]);
+  await w.run([]);
+  assertEquals(bookingCards(w).length, 1);
+});
+
+Deno.test('D-306: money-shaped values around a booking never reach the OPS card (name, summary and amount fields), nor a phone or an e-mail', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  w.db.tables.calendar_events.push(
+    booking('ab-m1', '2026-10-14', '2026-10-15', '₱2,800 Anna', { total: 'PHP 4,550', total_amount: '₱2,800', raw_summary: 'Reserved PHP 4,550 payout' }),
+    booking('ab-m2', '2026-10-15', '2026-10-16', '+639171234567 Zed', { rate: '₱2,800' }),
+    booking('ab-m3', '2026-10-15', '2026-10-16', 'a@b.co Yan'),
+  );
+  await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  const cards = bookingCards(w);
+  assertEquals(cards.length, 3);
+  for (const c of cards) { assertNotMatch(c.text, MONEY); assertNotMatch(c.text, /@|\+?63\d{6,}|\d{7,}/); assertStringIncludes(c.text, 'A guest booked the night'); }
+  assertEquals(w.fin.length, 0, 'nothing goes to the Finance chat');
 });

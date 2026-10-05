@@ -4,7 +4,7 @@ import { lintReply, toneRules } from '../messenger-concierge/voice.ts';
 import { templateOf } from '../_shared/cascade-core/format.ts';
 import type { NoticeState } from '../_shared/cascade-core/brownout.ts';
 import {
-  airbnbCovers, cancelCard, changedCard, classifyNights, extraGuestCards, guestDraft, newCard, nightsLine, posterDate, releasedCard, reminderCard, reminderDue,
+  airbnbCovers, bookingCard, cancelCard, changedCard, classifyNights, extraGuestCards, guestDraft, heldBookings, newCard, nightsLine, posterDate, releasedCard, reminderCard, reminderDue,
   scheduleFrom, seenCard, seenDue, staleNotices, supersededBy, touchedNights, windowLabel, type Row,
 } from './plan.ts';
 import { postedAt, posterKey } from './poster.ts';
@@ -372,4 +372,41 @@ Deno.test('audit L5a (staff): a date whose notice power-watch did not insert cou
   assertEquals(run(s({ missRuns: 1, card: { kind: 'cancel', note: 'no longer lists' } })), { miss: [], hit: [], release: [], ask: [] }, 'a queued ask is not repeated');
   const listed = { listed: new Set(['2026-10-08']), covered: () => true };
   assertEquals(staleNotices([s({ missRuns: 1 })], listed, [], '2026-10-02', prot).hit, ['2026-10-08'], 'listed: nothing to ask');
+});
+
+// ── D-308.3 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+const held = (blocked: string[], status: NoticeState['status'] = 'active'): NoticeState => ({
+  date: '2026-10-15', noticeId: 'n1', time: '06:00:00', hours: 11, postId: 1, poster: 'SPI-TEST.jpg', url: 'https://www.socoteco2.com/x/SPI-TEST.jpg',
+  status, nights: blocked, blocked, already: [], guests: [], card: null,
+});
+const stay = (uid: string, a: string, b: string, name: string | null = 'Anna Testguest', source = 'airbnb', status = 'confirmed'): Row => ({ uid, source, status, checkin_date: a, checkout_date: b, guest_name: name });
+
+Deno.test('D-308.3 heldBookings: single night, multi-night, check-out day, not a guest, past night, inactive notice', () => {
+  const st = held(['2026-10-14', '2026-10-15']);
+  assertEquals(heldBookings(st, [stay('a', '2026-10-15', '2026-10-17')], T), [{ uid: 'a', name: 'Anna', nights: ['2026-10-15'], checkin: '2026-10-15', checkout: '2026-10-17' }], 'one night');
+  assertEquals(heldBookings(st, [stay('a', '2026-10-13', '2026-10-17')], T)[0].nights, ['2026-10-14', '2026-10-15'], 'both nights, ONE booking');
+  assertEquals(heldBookings(st, [stay('a', '2026-10-12', '2026-10-14')], T), [], 'checks out on the first held night: that is not a night');
+  assertEquals(heldBookings(st, [stay('a', '2026-10-16', '2026-10-18')], T), [], 'checks in after the held nights');
+  assertEquals(heldBookings(st, [airbnbBlock('2026-10-14', '2026-10-16'), ours('2026-10-14'), stay('c', '2026-10-14', '2026-10-16', 'X', 'airbnb', 'cancelled')], T), [], 'a block, our own row, a cancelled stay');
+  assertEquals(heldBookings(st, [direct('2026-10-14', 'Dee', 'confirmed')], T).map((b) => b.name), ['Dee'], 'a direct booking counts');
+  assertEquals(heldBookings(st, [stay('a', '2026-10-13', '2026-10-17')], '2026-10-15')[0].nights, ['2026-10-15'], 'a night already past is not held any more');
+  assertEquals(heldBookings(held(['2026-10-14'], 'released'), [stay('a', '2026-10-13', '2026-10-17')], T), []);
+  assertEquals(heldBookings(held(['2026-10-14'], 'undone'), [stay('a', '2026-10-13', '2026-10-17')], T), []);
+  assertEquals(heldBookings(held([]), [stay('a', '2026-10-13', '2026-10-17')], T), [], 'nothing held, nothing to collide with');
+});
+
+Deno.test('D-308.3 bookingCard: leads with what happened, who acts, first name and dates only, no money, no contact', () => {
+  const st = held(['2026-10-14', '2026-10-15']);
+  const [b] = heldBookings(st, [stay('a', '2026-10-13', '2026-10-17', 'Anna Testguest')], T);
+  const { text, markup } = bookingCard(st, b);
+  const body = text.split('\n\n')[1];
+  assert(body.startsWith('📅 Anna booked the nights of Oct 14 and Oct 15, which we hold for the SOCOTECO power interruption Thu 15 Oct, 06:00-17:00 (Feeder 14-3).'), body);
+  assertStringIncludes(text, 'Stay: Oct 13 to Oct 17.');
+  assertStringIncludes(text, 'Marifel: message Anna about the outage and offer to keep or move the stay. Nothing was sent to the guest.');
+  assertStringIncludes(text, 'SOCOTECO notice: https://www.socoteco2.com/x/SPI-TEST.jpg');
+  assert(text.lastIndexOf('SOCOTECO notice') > text.indexOf('Marifel:'), 'the poster link is last');
+  assertEquals(markup, undefined);
+  assertEquals(heldBookings(st, [stay('n', '2026-10-14', '2026-10-15', null)], T)[0].name, '');
+  assertStringIncludes(bookingCard(st, heldBookings(st, [stay('n', '2026-10-14', '2026-10-15', 'Reserved')], T)[0]).text, 'A guest booked the night of Oct 14');
+  assertStringIncludes(bookingCard(st, heldBookings(st, [stay('n', '2026-10-14', '2026-10-15', null)], T)[0]).text, 'message the guest about the outage');
 });

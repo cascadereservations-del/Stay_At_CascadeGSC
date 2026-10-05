@@ -3,7 +3,7 @@
 // path against an in-memory database. Nothing here writes to Airbnb or sends anything to a guest.
 import { cancelBrownoutRows, brownoutUid, holds, listNotices, patchNoticeState, putNoticeState, readNotice, releasable, releaseNotice, type NoticeSource, type NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { alertText, dayLabel, FEEDER, posterFor, type Notice } from './poster.ts';
-import { AIRBNB_CAL, airbnbBlocks, cancelCard, changedCard, classifyNights, extraGuestCards, newCard, nightsLine, noSupersede, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule, type Superseded } from './plan.ts';
+import { AIRBNB_CAL, airbnbBlocks, bookingCard, cancelCard, changedCard, classifyNights, extraGuestCards, heldBookings, newCard, nightsLine, noSupersede, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule, type Superseded, type WatchState } from './plan.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -81,6 +81,7 @@ export async function reconcile(d: Deps, foundAll: Found[]): Promise<string[]> {
       blocked, already: cls.already, guests: cls.guests,
       card: { kind, ...(prev ? { prev: { time: prev.time, hours: prev.hours, blocked: prev.blocked } } : {}) },
       // A change that adds nights is a new job for Marifel; one that only moves the hours leaves what she did standing.
+      ...((prev as WatchState | undefined)?.bookingAlerts ? { bookingAlerts: (prev as WatchState).bookingAlerts } : {}), // D-308.3: a changed time must not re-announce a booking OPS already heard about
       ...(prev && !added.length ? { cardAt: prev.cardAt, doneAt: prev.doneAt, doneBy: prev.doneBy, seenAt: prev.seenAt, remindedAt: prev.remindedAt, cardMsgId: prev.cardMsgId, remindMsgId: prev.remindMsgId, unverifiedAt: prev.unverifiedAt } : {}),
     };
     await putNoticeState(db, st);
@@ -250,6 +251,21 @@ export async function reconcile(d: Deps, foundAll: Found[]): Promise<string[]> {
       if (sent) { const n = await patchNoticeState(db, st.date, { remindedAt: nowIso, remindMsgId: msgId(sent) }); if (n) states.set(st.date, n); res.push(`${st.date}: reminder`); }
     } else if (unverifiedDue(st, rows, now, today)) {
       if (await d.send(unverifiedCard(linked(st)))) { const n = await patchNoticeState(db, st.date, { unverifiedAt: nowIso }); if (n) states.set(st.date, n); res.push(`${st.date}: done tapped, airbnb still open`); }
+    }
+  }
+
+  // D-308.3 (Lloyd 2026-10-06): a guest booked a night we hold for an active brownout. ONE OPS card per (notice date, booking), remembered on the notice state
+  // (bookingAlerts) so a re-run never repeats it. Skipped for a released, undone or taken-off-board notice and for a cancelled or moved one (a pending or asked cancel card).
+  // Nothing is sent to the guest; Marifel reads the card and writes to them herself.
+  for (const st of [...states.values()].filter((x) => noticeRows.some((r) => r.effective_date === x.date))) {
+    if (!holds(st) || st.date < today || st.card || st.cancelAskedAt) continue;
+    const told = new Set((st as WatchState).bookingAlerts ?? []);
+    for (const b of heldBookings(st, rows, today).filter((x) => !told.has(x.uid))) {
+      if (!(await d.send(bookingCard(linked(st), b)))) { d.log('power_watch_card_failed', { date: st.date, kind: 'booking', chat: 'ops' }); continue; } // the next run tries again
+      told.add(b.uid);
+      const n = await patchNoticeState(db, st.date, { bookingAlerts: [...told] } as Partial<NoticeState>);
+      if (n) states.set(st.date, n);
+      res.push(`${st.date}: a guest booked a held night, OPS told`);
     }
   }
   return res;
