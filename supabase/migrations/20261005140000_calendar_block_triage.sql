@@ -12,14 +12,14 @@ begin;
 
 do $stop$
 begin
-  if (select md5(prosrc) from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure) <> '0c2bc9aea7cdb418fb646590a2434a76' then
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure) <> '0c2bc9aea7cdb418fb646590a2434a76' then
     raise exception 'STOP: public.get_hospitality_metrics_v1 changed in production since SPEC-41 was written (md5 0c2bc9aea7cdb418fb646590a2434a76); re-read production and re-vendor before applying';
   end if;
 end;
 $stop$;
 do $stop$
 begin
-  if (select md5(prosrc) from pg_proc where oid = 'public.telegram_answer_calendar_block_v1(bigint,text,text)'::regprocedure) <> '7f43ea5dda50f325487aaa9ca04e473c' then
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.telegram_answer_calendar_block_v1(bigint,text,text)'::regprocedure) <> '7f43ea5dda50f325487aaa9ca04e473c' then
     raise exception 'STOP: public.telegram_answer_calendar_block_v1 changed in production since SPEC-41 was written (md5 7f43ea5dda50f325487aaa9ca04e473c); re-read production and re-vendor before applying';
   end if;
 end;

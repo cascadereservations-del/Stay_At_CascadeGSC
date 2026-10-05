@@ -170,8 +170,8 @@ drop function if exists public.telegram_answer_calendar_block_v2(bigint, text, t
 
 do $assert$
 begin
-  if (select md5(prosrc) from pg_proc where oid = 'public.telegram_answer_calendar_block_v1(bigint,text,text)'::regprocedure) <> '7f43ea5dda50f325487aaa9ca04e473c'
-     or (select md5(prosrc) from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure) <> '0c2bc9aea7cdb418fb646590a2434a76' then
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.telegram_answer_calendar_block_v1(bigint,text,text)'::regprocedure) <> '7f43ea5dda50f325487aaa9ca04e473c'
+     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure) <> '0c2bc9aea7cdb418fb646590a2434a76' then
     raise exception 'rollback did not restore the pre-release function bodies';
   end if;
 end;
