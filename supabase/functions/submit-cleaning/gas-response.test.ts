@@ -32,3 +32,9 @@ Deno.test('the GAS forward outlives a real turnover', () => {
   // below that reintroduces the abort that lost SPEC-15's file ids.
   assertEquals(GAS_TIMEOUT_MS > 120_000, true);
 });
+
+Deno.test('the GAS forward gives up before the Edge worker is shut down at 150 s, leaving the alert time to send', () => {
+  // 2026-09-29: the worker died at WallClockTime 150.0 s, 0.4 s after Apps Script answered with an HTML page,
+  // so the Finance alert never had time to run. The timeout must leave at least 10 s.
+  assertEquals(GAS_TIMEOUT_MS <= 140_000, true);
+});

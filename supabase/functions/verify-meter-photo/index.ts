@@ -38,6 +38,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { recordUsage } from '../_shared/cascade-core/usage.ts';
+import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
 
 // Deliberately NOT importing ../_shared/observability.ts. Every other ops
 // function wraps itself in it for redacted logging, and that is right for
@@ -337,7 +338,7 @@ Deno.serve(async (req: Request) => {
   if (body.submission_id) {
     const { data, error } = await db
       .from('cleaning_sessions')
-      .select('id, submission_id, cleaned_at, cleaner_name, meter_readings(electric_curr, water_curr)')
+      .select('id, submission_id, cleaned_at, cleaner_name, session_folder_id, drive_files, meter_readings(electric_curr, water_curr)')
       .eq('submission_id', String(body.submission_id))
       .limit(1);
     if (error) return json({ ok: false, error: error.message }, 500);
@@ -346,6 +347,8 @@ Deno.serve(async (req: Request) => {
       submission_id: r.submission_id,
       cleaned_at: r.cleaned_at,
       cleaner_name: r.cleaner_name,
+      session_folder_id: r.session_folder_id ?? null,
+      drive_files: r.drive_files ?? null,
       electric_curr: r.meter_readings?.[0]?.electric_curr ?? null,
       water_curr: r.meter_readings?.[0]?.water_curr ?? null,
     }));
@@ -379,6 +382,13 @@ Deno.serve(async (req: Request) => {
     const pathFor = (which: Which) =>
       (objects ?? []).find((o: any) => o.meter === which)?.object_name ?? null;
     const paths = { electric: pathFor('electric'), water: pathFor('water') };
+
+    // Session 72: expire-cleaning-photos removes the Storage copy of a session once Drive holds it. A re-check of such a session
+    // answers "archived" and leaves the recorded verdict alone; it must not write 'unreadable' or 'error' over it.
+    if (meterPhotosArchived(t, paths)) {
+      results.push({ submission_id: t.submission_id, archived: true, note: ARCHIVED_NOTE });
+      continue;
+    }
 
     const read = async (which: Which): Promise<VisionResult | null> => {
       const path = paths[which];

@@ -25,6 +25,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { evaluateGasResponse, GAS_TIMEOUT_MS } from '../submit-cleaning/gas-response.ts';
 import { drivePhotos, type ResendPhoto } from './archive-photos.ts';
+import { parseDriveArchive } from '../submit-cleaning/drive-archive.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-cascade-cron-secret' };
 function json(data: unknown, status = 200): Response {
@@ -129,10 +130,25 @@ Deno.serve(async (req: Request) => {
   const bodyText = await res.text().catch(() => '');
   const { failed, reason, stack } = evaluateGasResponse(res.ok, res.status, bodyText);
 
+  // Session 72 (F2): a session whose original archive was never recorded (2026-09-29, Code.gs did not answer in time) is
+  // repaired by this resend, which files the photos again in a NEW folder. Keep the ids it returns, so the archive is
+  // findable and expire-cleaning-photos may count the session. A session that already has Drive ids is left as it is.
+  let idsStored: boolean | null = null;
+  if (!failed && !fromDrive) {
+    const archive = parseDriveArchive(bodyText);
+    if (archive) {
+      const { error: upErr } = await db.from('cleaning_sessions').update({
+        session_folder_id: archive.folderId, session_folder_url: archive.folderUrl, drive_files: archive.files,
+      }).eq('id', sessionId);
+      idsStored = !upErr;
+      if (upErr) console.warn('resend: drive archive not stored:', upErr.message);
+    }
+  }
+
   return json({
     ok: !failed, session_id: sessionId, gas_reason: failed ? reason : undefined,
     gas_stack: failed ? stack : undefined,
     checkout_date: session.checkout_date, guest: session.last_guest_name,
-    photo_sections: Object.keys(photos), photo_count: photoCount, photo_source: fromDrive ? 'drive' : 'storage',
+    photo_sections: Object.keys(photos), photo_count: photoCount, photo_source: fromDrive ? 'drive' : 'storage', drive_ids_stored: idsStored,
   }, failed ? 502 : 200);
 });

@@ -16,11 +16,15 @@
  *  `files[]` was never read (D-199), and Finance got an e-mail-FAILED alert
  *  for an e-mail that had in fact been sent.
  *
- *  The ceiling that matters is Apps Script's own: a consumer-account web app
- *  is killed at 6 minutes, so past that there is no response to wait for.
- *  This sits just under it, and the whole fetch runs inside `waitUntil` after
- *  the checklist already has its 200, so waiting costs the cleaner nothing. */
-export const GAS_TIMEOUT_MS = 300_000;
+ *  The ceiling that matters is the Edge worker's own: it is shut down 150 s after it booted
+ *  (Shutdown reason WallClockTime), however long waitUntil was told to wait. 2026-09-29 13:46Z showed
+ *  it: Code.gs was still working at 150 s, the worker died the same instant the fetch returned an
+ *  Apps Script HTML page, 0.4 s before the shutdown, so the Finance alert that follows had no time to
+ *  send. The turnover has no session_folder_id / drive_files (finding F2, session 72). The old
+ *  300_000 here sat above that ceiling, so the abort and its alert could never run in time. This now
+ *  sits under it, leaving the alert about 15 s to send. The whole fetch still runs inside
+ *  `waitUntil` after the checklist already has its 200, so waiting costs the cleaner nothing. */
+export const GAS_TIMEOUT_MS = 135_000;
 
 export function evaluateGasResponse(ok: boolean, status: number, bodyText: string): { failed: boolean; reason: string; stack?: string } {
   let parsed: { result?: string; message?: string; stack?: string } | null = null;
