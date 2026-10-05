@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "69c4348f5ee2c1698f5ff2809445fddf97067000"
+    "commit": "483bd6d04cbffd2be73f3d7894b5da3679f2bd16"
   },
   "migrations": [
     "20261005110000_staff_pay_requests.sql"
@@ -86,8 +86,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING: run migration-rehearsal-on-host.sh on a fresh backup with this release (forward checks, pgTAP staff_pay_requests.sql + telegram_pending_guest_kinds.sql + money_checks_from_accounting_start.sql, then the D-298 backfill file inside the restore: Block A asserts 1,340, Block B 4,550), then set verified true.",
+    "verified": true,
+    "rehearsal": "PASSED 2026-10-05 (session 71) on cascade-supabase-20261005T033535Z: all five wave 1 releases applied together in timestamp order (20261005100000..140000), 5/5 migrations, 35/35 forward checks, pgTAP 9 suites 318/318 (telegram_inquiry_decisions 52, staff_pay_requests 70, staff_home_v1 65, guest_id_photo_purge 33, calendar_block_triage 33, telegram_pending_guest_kinds 5, money_checks_from_accounting_start 7, admin_read_models_v1 22, verifier_v7_dates_mismatch 31); 0 leftovers.",
     "evidence": "Read-only against production on 2026-10-05: save_staff_details_v1 live md5(prosrc) aff77cec89cc6b9130a6e41c0014819a equals the repo body; staff_details grants are authenticated select only (service_role none), so the column grant is needed; cleaner_rate_schedule has rows 1900-01-01 250, 2026-01-02 500/1000, 2026-05-07 650/1000 and no transport_rate; cleaning_sessions and cleaning_expense_claims have no pay_request_id; telegram_pending_kind_check names awaiting_reply; the nine September sessions and the PHP 40 claim 6a13890a are unpaid and have no cleanfee: or claim: ledger row; one other claim (5c64d9d6, PHP 20, 2026-10-04) and one unpaid Oct 4 session exist and are NOT in the backfill."
   },
   "approvals": {

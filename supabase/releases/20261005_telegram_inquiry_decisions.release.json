@@ -3,8 +3,8 @@
   "release_id": "telegram_inquiry_decisions_20261005",
   "phase": "expand",
   "source": {
-    "branch": "s70/l1-sql",
-    "commit": "FILL_AT_MERGE"
+    "branch": "main",
+    "commit": "483bd6d04cbffd2be73f3d7894b5da3679f2bd16"
   },
   "migrations": [
     "20261005100000_telegram_inquiry_decisions.sql"
@@ -71,8 +71,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "PENDING: rehearse on a fresh backup with migration-rehearsal-on-host.sh, pgTAP telegram_inquiry_decisions.sql expects 52 checks.",
+    "verified": true,
+    "rehearsal": "PASSED 2026-10-05 (session 71) on cascade-supabase-20261005T033535Z: all five wave 1 releases applied together in timestamp order (20261005100000..140000), 5/5 migrations, 35/35 forward checks, pgTAP 9 suites 318/318 (telegram_inquiry_decisions 52, staff_pay_requests 70, staff_home_v1 65, guest_id_photo_purge 33, calendar_block_triage 33, telegram_pending_guest_kinds 5, money_checks_from_accounting_start 7, admin_read_models_v1 22, verifier_v7_dates_mismatch 31); 0 leftovers.",
     "evidence": "Read-only against production on 2026-10-05: the live pending CHECK has exactly the 17 values listed; the live lifecycle CHECK has the 10 values listed; decide_direct_booking_without_finance_review md5(prosrc) 8f9384913791779afd0cd38ed5152220; staff_access_allowed has no AAL rule (p_aal ignored); booking_decisions.idempotency_key is unique."
   },
   "approvals": {

@@ -3,8 +3,8 @@
   "release_id": "staff_home_v1_20261005",
   "phase": "expand",
   "source": {
-    "branch": "s70/l3-staff-home",
-    "commit": "PENDING - the orchestrator fills the merge commit"
+    "branch": "main",
+    "commit": "483bd6d04cbffd2be73f3d7894b5da3679f2bd16"
   },
   "migrations": [
     "20261005120000_staff_home_v1.sql"
@@ -76,8 +76,8 @@
     "mode": "additive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "rehearsal": "NOT RUN - the orchestrator rehearses this release (migration-rehearsal-on-host.sh) and runs pgTAP staff_home_v1.sql (65 tests) before filling this field.",
+    "verified": true,
+    "rehearsal": "PASSED 2026-10-05 (session 71) on cascade-supabase-20261005T033535Z: all five wave 1 releases applied together in timestamp order (20261005100000..140000), 5/5 migrations, 35/35 forward checks, pgTAP 9 suites 318/318 (telegram_inquiry_decisions 52, staff_pay_requests 70, staff_home_v1 65, guest_id_photo_purge 33, calendar_block_triage 33, telegram_pending_guest_kinds 5, money_checks_from_accounting_start 7, admin_read_models_v1 22, verifier_v7_dates_mismatch 31); 0 leftovers.",
     "evidence": "Read-only against production on 2026-10-05: staff_home_v1 and the seven helpers absent; current_staff_authorized and staff_access_allowed live bodies read (cleaner has read_operations and submit_cleaning, maintenance has read_operations); guest-id-photos policies are manage_operations only; 40 of 41 confirmed stays since 2026-05-01 resolve to a guest by link, by direct inquiry or by unique dates; guest_profile_details.stay_preferences is the notes column; guest_companions.id_photo_path holds <companion id>/<uuid>.jpg."
   },
   "approvals": {
