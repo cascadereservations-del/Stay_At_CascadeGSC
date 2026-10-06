@@ -163,7 +163,7 @@ export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
   if (calm) body = body.replace(/!/g, '.');
   else {
     const [first, ...rest] = body.split('\n');
-    body = [first.replace(/^((?:hi|hello)\s+[^\s,.!?]+)[,.]?(?=\s|$)/i, '$1!').replace(/^((?:hi|hello)\s+[^\s!]+!\s+)([a-z])/i, (_, g, c) => g + c.toUpperCase()), ...rest.map((l) => l.replace(/!/g, '.'))].join('\n');
+    body = [first.replace(/^((?:hi|hello)\s+[^\s,.!?]+)[,.](?=\s|$)/i, '$1!').replace(/^((?:hi|hello)\s+[^\s!]+!\s+)([a-z])/i, (_, g, c) => g + c.toUpperCase()), ...rest.map((l) => l.replace(/!/g, '.'))].join('\n');
   }
   return `${body}\n\n${SIGN_OFF}`;
 }
