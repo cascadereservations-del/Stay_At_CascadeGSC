@@ -267,7 +267,7 @@ Deno.test('SECTIONS: filename and label mapping', () => {
     ['afterclean', 'afterclean', 'preclean', 'meter', 'meter', 'condition', 'issue', 'bedroom', 'kitchen', 'other', 'other']);
 });
 
-Deno.test('CAP: sessions that reach remove() count against the 10, even when remove deletes but reports nothing', async () => {
+Deno.test('CAP: sessions that reach remove() count against the cap, even when remove deletes but reports nothing', async () => {
   const list = Array.from({ length: MAX_SESSIONS_PER_RUN + 4 }, (_, i) => session(i + 1)), storage: Record<string, StoredObject[]> = {};
   for (const s of list) storage[prefixOf(s)] = objs(5);
   let calls = 0;
@@ -336,4 +336,22 @@ Deno.test('cap line: plain words, no digits, no money (D-306)', () => {
   assertEquals(capLine(), '📦 Photo archive tidy-up reached its weekly limit. More old cleanings are waiting and go next Monday. Nothing is wrong; if this repeats for weeks, tell Lloyd.');
   assertFalse(hasMoney(capLine()));
   assertFalse(/\d/.test(capLine()));
+});
+
+Deno.test('D-306: Freed figure never reaches 100.0 MB: 100 MB, 450 MB and 1.5 GB read clean', () => {
+  for (const b of [99_949_999, 100_000_000, 450_000_000, 1_500_000_000]) assertFalse(hasMoney(opsLine(6, b, NOW)), `${b}`);
+  assertStringIncludes(opsLine(6, 1_500_000_000, NOW), 'Freed 1.5 GB.');
+  assertStringIncludes(opsLine(6, 450_000_000, NOW), 'Freed 0.5 GB.');
+  assertStringIncludes(opsLine(6, 99_949_999, NOW), 'Freed 99.9 MB.');
+});
+
+Deno.test('METER: a meter photo in Storage with no meter_readings row (or none at all) is kept as meter_unverified; no meter photo and no row still expires', async () => {
+  for (const m of [[], null] as SessionRow['meter_readings'][]) {
+    const s = session(1, { meter_readings: m }), w = world([s], { [prefixOf(s)]: named(['a-afterclean_1.jpg', 'a-afterclean_2.jpg', 'a-afterclean_3.jpg', 'a-afterclean_4.jpg', 'u-electric_meter_1.jpg']) });
+    const r = await runExpiry(w.deps, { dry: false });
+    assertEquals(r.kept, [{ session: s.id.slice(0, 8), reason: 'meter_unverified' }]);
+    assertEquals(w.removed, []);
+  }
+  const ok = session(2, { meter_readings: [{ vision_verdict: 'ok' }], drive_files: [...files(4), entry('Meter_Readings', 9)] }), w2 = world([ok], { [prefixOf(ok)]: named(['a-afterclean_1.jpg', 'a-afterclean_2.jpg', 'a-afterclean_3.jpg', 'a-afterclean_4.jpg', 'u-water_meter_1.jpg']) });
+  assertEquals((await runExpiry(w2.deps, { dry: false })).expired.length, 1);   // verified reading + archived meter section: goes
 });

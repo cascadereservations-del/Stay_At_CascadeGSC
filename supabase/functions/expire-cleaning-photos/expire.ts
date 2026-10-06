@@ -83,7 +83,7 @@ export function parseRunMode(url: string, header: string | null, secret: string)
 export const cutoffIso = (now: Date): string => new Date(now.getTime() - RETENTION_DAYS * 86_400_000).toISOString();
 
 /** Conditions 1-3 and the folder path (4 needs the listing). Returns the reason a session is kept, or the folder prefix. */
-export function gate(s: SessionRow, now: Date): { ok: true; prefix: string; archived: number; sections: Map<string, number> } | { ok: false; reason: SkipReason } {
+export function gate(s: SessionRow, now: Date): { ok: true; prefix: string; archived: number; sections: Map<string, number>; metered: boolean } | { ok: false; reason: SkipReason } {
   if (!(Date.parse(s.created_at) < now.getTime() - RETENTION_DAYS * 86_400_000)) return { ok: false, reason: 'too_young' };
   if (!s.session_folder_id || !String(s.session_folder_id).trim()) return { ok: false, reason: 'no_drive_folder' };
   const total = Number(s.total_photo_count);
@@ -92,11 +92,12 @@ export function gate(s: SessionRow, now: Date): { ok: true; prefix: string; arch
     return { ok: false, reason: 'archive_incomplete' };
   }
   const readings = Array.isArray(s.meter_readings) ? s.meter_readings : s.meter_readings ? [s.meter_readings] : [];
+  // No reading row does NOT mean verified: submit-cleaning inserts one only when a number was typed. runExpiry keeps such a session if a meter photo is in Storage.
   if (readings.some((r) => !r?.vision_verdict || r.vision_verdict === 'error')) return { ok: false, reason: 'meter_unverified' };
   if (!s.property_id || !s.submitted_by_user_id || !s.submission_id || !UUID.test(s.property_id) || !UUID.test(s.submitted_by_user_id) || !UUID.test(s.submission_id)) {
     return { ok: false, reason: 'bad_path' };
   }
-  return { ok: true, prefix: `${s.property_id}/${s.submitted_by_user_id}/${s.submission_id}`, archived, sections: archivedBySection(s.drive_files) };
+  return { ok: true, prefix: `${s.property_id}/${s.submitted_by_user_id}/${s.submission_id}`, archived, sections: archivedBySection(s.drive_files), metered: readings.length > 0 };
 }
 
 export interface Deps {
@@ -143,6 +144,7 @@ export async function runExpiry(deps: Deps, opts: { dry?: boolean } = {}): Promi
     if (files.length > g.archived) { out.kept.push({ session: id8(s.id), reason: 'extra_objects' }); continue; }
     const stored = new Map<string, number>();
     for (const o of files) { const k = fileSection(o.name); stored.set(k, (stored.get(k) ?? 0) + 1); }
+    if (stored.has('meter') && !g.metered) { out.kept.push({ session: id8(s.id), reason: 'meter_unverified' }); continue; }   // meter photo with no reading row: never verified, never deleted (D-310)
     if (stored.has('other') || [...stored].some(([k, n]) => n > (g.sections.get(k) ?? 0))) { out.kept.push({ session: id8(s.id), reason: 'section_not_archived' }); continue; }
     // The cap is checked only for a session that WOULD go, so a pile of permanent keeps never raises the alert.
     if (attempted >= MAX_SESSIONS_PER_RUN || planned + files.length > MAX_OBJECTS_PER_RUN) { out.capHit = true; break; }
@@ -182,10 +184,12 @@ const finiteOr0 = (v: unknown): number => { const n = typeof v === 'number' ? v 
  *  fee cannot reach the OPS group through it (D-306). Anything that is not a plain non-negative number reads as 0. */
 export function opsLine(sessions: number, bytes: number, now: Date): string {
   const n = Math.floor(finiteOr0(sessions));
-  const mb = Math.round(finiteOr0(bytes) / 1e5) / 10;   // one decimal
+  const b = finiteOr0(bytes);
+  // one decimal; 100.0 MB or more would read as money to ops-money (D-306), so from 99.95 MB it is GB
+  const size = b >= 99_950_000 ? `${(Math.round(b / 1e8) / 10).toFixed(1)} GB` : `${(Math.round(b / 1e5) / 10).toFixed(1)} MB`;
   const day = WEEKDAY[new Date(now.getTime() + 8 * 3_600_000).getUTCDay()];   // Manila weekday
   const what = n === 1 ? '1 cleaning older than 6 months moved off Supabase (it was already in Drive).' : `${n} cleanings older than 6 months moved off Supabase (all ${n} already in Drive).`;
-  return `📦 Photo archive tidy-up — ${day}. ${what} Freed ${mb.toFixed(1)} MB. Nothing else touched.`;
+  return `📦 Photo archive tidy-up — ${day}. ${what} Freed ${size}. Nothing else touched.`;
 }
 
 /** The OPS line when a run stopped at its cap. No numbers at all: ops-money hides any 3+ digit number from OPS (D-306), so a count of 500 would read as money.
