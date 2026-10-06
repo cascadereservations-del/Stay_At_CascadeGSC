@@ -135,3 +135,27 @@ Deno.test('s74 G1.3: two concurrent host replies on one handoff send once; a ref
   assertEquals(await hostReply(refused, false, false), 1);
   assertEquals([refused[0].status, refused[0].sent_text, refused[0].resolved_by], ['open', null, null]); // still open: Tap again works
 });
+
+// ---- Fable audit fixes ----
+Deno.test('s74 G1 audit 1: a past stay and "book again" (no price word) starts no flow and asks the new dates', async () => {
+  for (const t of ['previous booking Sep 5-7, can we book again same dates next month?', 'we booked before Sep 5-7, can we book again same dates?',
+    'dati po kaming nag-book Sep 5 to 7, pwede po ba ulit mag-book?']) {
+    assertEquals(bookingStart(t, [], '', now), null, t);
+    const r = await turn(t);
+    assert(/\bdates\b/i.test(r.reply) && !/PHP|₱|hold/i.test(r.reply), `${t} -> ${r.reply}`);
+  }
+  // not rolled: the date is still ahead, so a past-stay word beside it is an ordinary booking
+  assertEquals(bookingStart('can I book Oct 19 to 21? we stayed before', [], '', now) !== null, true);
+  assertEquals(bookingStart('we booked before, can I book Oct 19 to 21 again?', [], '', now) !== null, true);
+});
+
+Deno.test('s74 G1 audit 2: "this coming January" names the stay asked for, a past-stay word notwithstanding', () => {
+  assertEquals(pricedStay(['we stayed last year Jan 2 to 4, same dates this coming January how much?'], now), { checkin: '2027-01-02', checkout: '2027-01-04' });
+  assertEquals(pricedStay(['we stayed last year Jan 2 to 4, same dates next year how much?'], now), { checkin: '2027-01-02', checkout: '2027-01-04' });
+  assertEquals(pricedStay(['we stayed last year Jan 2 to 4, same dates again how much?'], now), null); // "again" alone is not an exemption
+});
+
+Deno.test('s74 G1 audit 3: "within 5 days from Dec 25" is a policy question, not a stay', () => {
+  assertEquals(stayFromPhrase('within 5 days from Dec 25 can I cancel?', now), null);
+  assertEquals(stayFromPhrase('5 days from Dec 25 can I cancel?', now), { checkin: '2026-12-25', checkout: '2026-12-30' });
+});

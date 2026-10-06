@@ -17,7 +17,7 @@ import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
 import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
@@ -1118,7 +1118,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
   // s74 G1: a past stay told about and a price asked ("last time we stayed Sep 5 to 7, how much now?") - no quote, no hold, ask the new dates.
-  else if (rolledPastStay(text, now) && priceAsked(text)) reply = pastStayAsk(turnLang === 'bisaya' ? 'bis' : turnLang === 'taglish' ? 'tl' : 'en');
+  else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text))) reply = pastStayAsk(turnLang === 'bisaya' ? 'bis' : turnLang === 'taglish' ? 'tl' : 'en');
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
   else {
     try {

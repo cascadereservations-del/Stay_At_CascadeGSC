@@ -171,7 +171,7 @@ const CHAT_OFFER_RE = /\b(arrange\b[^.\n]{0,60}\b(in (the|this) chat|here in (th
  * 2. A plain yes to the bot's own "we can arrange it here in the chat" starts it from the guest's latest dated message.
  */
 export function bookingStart(text: string, priorGuestTexts: string[], lastBotText: string, now = new Date()): string | null {
-  if (rolledPastStay(text, now) && PRICE_RE.test(text)) return null; // s74 G1: a past stay and a price ask holds no dates
+  if (rolledPastStay(text, now)) return null; // s74 G1: a past stay told about (price asked, or "book again") starts no flow for next year's dates
   const how = /\b(how (do|can) (i|we)|paano)\b/i.test(text);
   const hedged = /\b(can i|pwede( po)? ba|possible)\b/i.test(text);
   // The dated-hedge exception needs a booking WORD: "available po ba Oct 5? pwede po ba check in 12 noon?" is two
@@ -199,7 +199,7 @@ const NUM_W: Record<string, number> = { one: 1, a: 1, isa: 1, isang: 1, usa: 1, 
  *  One date only (two dates are the range) and a future one; null otherwise. */
 export function stayFromPhrase(text: string, now = new Date()): { checkin: string; checkout: string } | null {
   const m = /\b(\d{1,2}|one|a|isa|isang|usa|two|dalawa|dalawang|duha|three|tatlo|tatlong|tulo|four|apat|upat|five|lima|limang)\s*(?:ka\s*)?(?:po\s*)?(?:days?|nights?|araw|adlaw|gabi|gabii)\s+(?:po\s+)?(?:from|starting|starts?|beginning|simula(?:ng)?|mula|gikan|sugod|magsisimula)\s+(?:on\s+|sa\s+|ng\s+|the\s+)?(.+)$/i.exec(text);
-  if (!m) return null;
+  if (!m || /\bwithin\b/i.test(text)) return null; // "within 5 days from Dec 25 can I cancel?" is a policy question, not a stay
   const n = /^\d+$/.test(m[1]) ? +m[1] : NUM_W[m[1].toLowerCase()], d = parseDates(m[2], now);
   return n >= 1 && n <= 60 && d.length === 1 && d[0] >= dayStrOf(now) ? { checkin: d[0], checkout: addDay(d[0], n) } : null;
 }
@@ -209,11 +209,11 @@ export const datesOf = (text: string, now = new Date()): string[] => { const s =
 /** s74 G1: a past stay told about ("last time we stayed Sep 5 to 7") whose date parseDates rolled into NEXT year (this year's
  *  Sep 5 is gone). Not rolled = still ahead ("same as last year, Oct 19 to 21" in October) and a typed year is taken as said. */
 export function rolledPastStay(text: string, now = new Date()): boolean {
-  if (!PAST_REF_RE.test(text) || /\b20\d\d\b/.test(text)) return false;
+  if (!PAST_REF_RE.test(text) || /\b20\d\d\b|\b(?:this coming|next year|susunod na taon|sunod nga tuig)\b/i.test(text)) return false; // a typed year or "this coming January" is the stay asked for
   const d = parseDates(text, now)[0], today = dayStrOf(now);
   return !!d && d.slice(0, 4) > today.slice(0, 4) && `${today.slice(0, 4)}${d.slice(4)}` < today;
 }
-const PAST_REF_RE = /\b(last (?:time|year|month)|stayed|nag-?stay|dati|niadtong|kaniadto|before|previously)\b/i;
+const PAST_REF_RE = /\b(last (?:time|year|month)|stayed|nag-?stay|dati|niadtong|kaniadto|before|previously|previous|booked|nag-?book)\b/i;
 /** "2 nights", "one night", "isang gabi", "duha ka gabii" -> the count; null when the message names no nights. */
 export function nightsIn(text: string): number | null {
   const w = NUM_W;
