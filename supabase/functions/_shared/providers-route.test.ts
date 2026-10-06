@@ -70,9 +70,50 @@ Deno.test('text: a truncated reply is recorded ok:true with <name>_truncated and
   const logs: string[] = [], warns: string[] = [], real = { log: console.log, warn: console.warn };
   console.log = (...a: unknown[]) => { logs.push(a.join(' ')); };
   console.warn = (...a: unknown[]) => { warns.push(a.join(' ')); };
-  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ model: 'google/gemini-2.5-flash', choices: [{ finish_reason: 'length', message: { content: '{"reply":"cut' } }], usage: { prompt_tokens: 50, completion_tokens: 700, cost: 0.002 } }), { status: 200 }))) as typeof fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ model: 'google/gemini-2.5-flash', choices: [{ finish_reason: 'length', message: { content: '{"reply":"cut' } }], usage: { prompt_tokens: 50, completion_tokens: 700, completion_tokens_details: { reasoning_tokens: 650 }, cost: 0.002 } }), { status: 200 }))) as typeof fetch;
   try { await assertRejects(() => chatJson(q), Error, 'openrouter_truncated'); } finally { globalThis.fetch = realFetch; geminiBreaker.until = 0; console.log = real.log; console.warn = real.warn; }
   const line = logs.find((l) => l.startsWith('llm_usage '));
   assertEquals(JSON.parse(line!.slice('llm_usage '.length)), { provider: 'openrouter', model: 'google/gemini-2.5-flash', tier: 'full', input: 50, output: 700, cost_usd: 0.002, error: 'openrouter_truncated' });
   assertEquals(warns.some((w) => w.startsWith('llm_call_failed')), false, 'not an outage row');
+  assertEquals(warns.some((w) => w.startsWith('llm_truncated') && w.includes('"reasoning":650')), true, 'the alarm names the hidden reasoning tokens');
+});
+
+// SPEC-43: OpenRouter retires gemini-2.5-* on 2026-10-20; Gemini 3 spends max_tokens on hidden reasoning (696/700 live, 2026-09-24).
+const bodies: Array<Record<string, any>> = [];
+function capture() {
+  bodies.length = 0;
+  globalThis.fetch = ((_u: string | URL | Request, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":1}' } }] }), { status: 200 }));
+  }) as typeof fetch;
+}
+
+Deno.test('SPEC-43 chat: full and lite send the Gemini 3 id, reasoning minimal and +300 max_tokens', async () => {
+  geminiBreaker.until = 0;
+  try {
+    capture(); await chatJson(q); const full = bodies[0];
+    capture(); await chatJson({ ...q, tier: 'lite' }); const lite = bodies[0];
+    capture(); await chatJson({ ...q, maxTokens: 500 }); const explicit = bodies[0];
+    assertEquals(full.models[0], 'google/gemini-3.6-flash');
+    assertEquals(lite.models[0], 'google/gemini-3.1-flash-lite');
+    for (const b of [full, lite]) { assertEquals(b.reasoning, { effort: 'minimal' }); assertEquals(b.max_tokens, 1000); }
+    assertEquals(explicit.max_tokens, 800, 'a caller-set maxTokens gets the headroom too');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+Deno.test('SPEC-43 tools: the full tier carries reasoning and headroom, the deep tier (Anthropic) neither', async () => {
+  try {
+    capture(); await chatTools(tq); const full = bodies[0];
+    capture(); await chatTools({ ...tq, tier: 'deep', maxTokens: 500 }); const deep = bodies[0];
+    assertEquals(full.model, 'google/gemini-3.6-flash');
+    assertEquals(full.reasoning, { effort: 'minimal' });
+    assertEquals(full.max_tokens, 1000);
+    assertEquals(deep.model, 'anthropic/claude-sonnet-5');
+    assertEquals('reasoning' in deep, false);
+    assertEquals(deep.max_tokens, 500);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+Deno.test('SPEC-43: providers.ts names no retired gemini-2.5 model', async () => {
+  assertEquals((await Deno.readTextFile(new URL('./cascade-core/providers.ts', import.meta.url))).includes('gemini-2.5'), false);
 });

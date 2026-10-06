@@ -1,17 +1,18 @@
 // cascade-core providers (D-070 phase 2, lifted unchanged from messenger-concierge on 2026-09-12).
 // D-222 (Lloyd 2026-09-24): OpenRouter first, Gemini only when OpenRouter fails and Gemini's breaker is
 // closed. Both return the raw model text; callers parse. Env: CASCADE_OPENROUTER_BOT_KEY,
-// CASCADE_OPENROUTER_MODEL (default google/gemini-2.5-flash - it served every reply from ~09-13 to 09-24; 3.6-flash
-// spends max_tokens on hidden reasoning and cut a live reply mid-word at 696/700 on 2026-09-24),
+// CASCADE_OPENROUTER_MODEL (default google/gemini-3.6-flash; 2.5-flash served ~09-13..10-06 and OpenRouter retires it
+// 2026-10-20, SPEC-43). Gemini 3 calls send reasoning effort minimal + max_tokens headroom because hidden reasoning
+// cut a live reply at 696/700 on 2026-09-24,
 // CASCADE_GEMINI_BOT_KEY (the only Gemini key), CASCADE_GEMINI_MODEL (default gemini-3.6-flash).
 import { recordUsage } from './usage.ts';
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GEMINI_MODEL = env('CASCADE_GEMINI_MODEL') || 'gemini-3.6-flash';
-const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-2.5-flash';
+const OPENROUTER_MODEL = env('CASCADE_OPENROUTER_MODEL') || 'google/gemini-3.6-flash';
 // Cost tier (2026-09-13): short follow-ups and option drafts do not need the full model. The lite
 // tier goes straight to OpenRouter's flash-lite (a known, listed slug, ~1/3 the price), skipping
 // the Gemini round trip entirely.
-const OPENROUTER_LITE_MODEL = env('CASCADE_OPENROUTER_LITE_MODEL') || 'google/gemini-2.5-flash-lite';
+const OPENROUTER_LITE_MODEL = env('CASCADE_OPENROUTER_LITE_MODEL') || 'google/gemini-3.1-flash-lite';
 // Deep tier (D-070 #5, Cassy deploy 4): explicit /deep goes straight to OpenRouter on a stronger model.
 const OPENROUTER_DEEP_MODEL = env('CASCADE_OPENROUTER_DEEP_MODEL') || 'anthropic/claude-sonnet-5';
 // Session 58: a second upstream (OpenAI, ~1/3 of Flash's price) that OpenRouter tries when the first model fails.
@@ -19,6 +20,10 @@ const OPENROUTER_FALLBACK_MODEL = env('CASCADE_OPENROUTER_FALLBACK_MODEL') || 'o
 // 2026-09-13 (Lloyd): the bare GEMINI_BOT_KEY belongs to another project and was being drained
 // through Cascade. CASCADE_GEMINI_BOT_KEY is the only Gemini key this project may use - no fallback.
 const geminiKey = () => env('CASCADE_GEMINI_BOT_KEY');
+// SPEC-43: Gemini 3 reasons before it answers and OpenRouter counts that against max_tokens; "minimal" is its lowest setting.
+const gemini3 = (m: string) => m.startsWith('google/gemini-3');
+const REASONING_HEADROOM = 300;
+const MINIMAL = { reasoning: { effort: 'minimal' } };
 
 export type ChatTurn = { role: 'user' | 'assistant'; text: string };
 export type ChatJsonRequest = {
@@ -84,13 +89,16 @@ async function openaiChat(q: ChatJsonRequest, p: { name: 'openrouter' | 'omnirou
   // `error` (tokens and cost kept): a truncation is our max_tokens, not an outage, and must not count toward V15 (D-294).
   const cut = j?.choices?.[0]?.finish_reason === 'length';
   recordUsage({ ...row, model: j?.model ?? row.model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, ...(cut ? { error: `${p.name}_truncated` } : {}), probe: probing() });
-  if (cut) { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens })); throw new Error(`${p.name}_truncated`); }
+  if (cut) { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens, reasoning: u?.completion_tokens_details?.reasoning_tokens })); throw new Error(`${p.name}_truncated`); }
   return j?.choices?.[0]?.message?.content ?? '';
 }
 // Session 58: OpenRouter's own fallback list - a Google outage on the primary no longer leaves the guest without a
 // reply while Gemini direct has no credit (402). Tested live: the list is accepted and the fallback returns JSON.
-const openrouter = (q: ChatJsonRequest, key: string) => openaiChat(q, { name: 'openrouter', url: 'https://openrouter.ai/api/v1', key,
-  model: { models: [q.tier === 'lite' || q.tier === 'routine' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, OPENROUTER_FALLBACK_MODEL] } });
+function openrouter(q: ChatJsonRequest, key: string): Promise<string> {
+  const primary = q.tier === 'lite' || q.tier === 'routine' ? OPENROUTER_LITE_MODEL : OPENROUTER_MODEL, g3 = gemini3(primary);
+  return openaiChat(g3 ? { ...q, maxTokens: (q.maxTokens ?? 700) + REASONING_HEADROOM } : q,
+    { name: 'openrouter', url: 'https://openrouter.ai/api/v1', key, model: { models: [primary, OPENROUTER_FALLBACK_MODEL], ...(g3 ? MINIMAL : {}) } });
+}
 /** 2026-09-30 (Lloyd, the Gemini prepay empty): the rungs after the guests' OpenRouter key - a second Cascade OpenRouter key
  *  with its own cap (CASCADE_OPENROUTER_BACKUP_KEY), then Cascade's own OmniRoute gateway (CASCADE_OMNIROUTE_URL,
  *  CASCADE_OMNIROUTE_KEY, CASCADE_OMNIROUTE_MODEL = its combo; never Alfred's). A rung whose secret is unset is skipped, and
@@ -223,13 +231,14 @@ async function openrouterTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
   ];
   const tools = q.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
   const toolCalls: string[] = [];
-  let model = q.tier === 'deep' ? OPENROUTER_DEEP_MODEL : OPENROUTER_MODEL;
+  const chosen = q.tier === 'deep' ? OPENROUTER_DEEP_MODEL : OPENROUTER_MODEL, g3 = gemini3(chosen);
+  let model = chosen;
   for (let round = 0; ; round++) {
     const row = { provider: 'openrouter' as const, model, title: q.title, tier: q.tier ?? 'full', round };
     const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env('CASCADE_OPENROUTER_BOT_KEY')}`, 'X-Title': q.title ?? 'Cascade' },
-      body: JSON.stringify({ model: q.tier === 'deep' ? OPENROUTER_DEEP_MODEL : OPENROUTER_MODEL, messages, tools, tool_choice: round === 0 && q.forceTool ? { type: 'function', function: { name: q.forceTool } } : (round < (q.maxRounds ?? 3) ? 'auto' : 'none'), temperature: q.temperature ?? 0.3, max_tokens: q.maxTokens ?? 700 }),
+      body: JSON.stringify({ model: chosen, ...(g3 ? MINIMAL : {}), messages, tools, tool_choice: round === 0 && q.forceTool ? { type: 'function', function: { name: q.forceTool } } : (round < (q.maxRounds ?? 3) ? 'auto' : 'none'), temperature: q.temperature ?? 0.3, max_tokens: (q.maxTokens ?? 700) + (g3 ? REASONING_HEADROOM : 0) }),
       signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
     }).catch((e) => fetchFailed(e, row));
     if (!r.ok) { recordUsage({ ...row, ok: false, error: `openrouter_${r.status}`, probe: probing() }); throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`); }

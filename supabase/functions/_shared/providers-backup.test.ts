@@ -98,7 +98,7 @@ Deno.test('an empty or unreadable free reply is a failure: the paid chain answer
     }) as typeof fetch;
     try { assertEquals(await chatJson({ ...q, tier: 'routine', maxTokens: 20 }), '{"from":"or-main"}'); } finally { globalThis.fetch = realFetch; withEnv(false); }
     assertEquals(hits.map((h) => h.to), ['omni', 'or-main']);
-    assertEquals([hits[0].body.max_tokens, hits[1].body.max_tokens], [1200, 20]);
+    assertEquals([hits[0].body.max_tokens, hits[1].body.max_tokens], [1200, 320]); // SPEC-43: the paid lite rung is Gemini 3 now, so 20 + 300 reasoning headroom
   }
 });
 
