@@ -6,6 +6,8 @@
 --   paid_from_channel  the channel on that proof (GCash, Maya, a bank)
 -- Both are nullable with no default: every existing booking has none, and /refund then asks for a typed reason instead of guessing.
 -- Expand only: two nullable columns, two length checks that every existing row satisfies. No data change.
+-- Only a proof-grade read (an amount found, confidence >= 0.5) is stored. If a wrong first read still claims the slot, clear it by hand (the next receipt then writes):
+--   update public.booking_inquiries set paid_from_name = null, paid_from_channel = null where id = '<uuid>';
 -- Rollback: supabase/rollbacks/20261006_refund_destination.sql
 begin;
 
