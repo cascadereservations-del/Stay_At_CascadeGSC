@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "release_id": "ops_notices_rls_20261007",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "e9789248d765df3970020efa5d4426cd053763e0"
+  },
+  "migrations": [
+    "20261007100000_ops_notices_rls.sql"
+  ],
+  "migration_sha256": {
+    "20261007100000_ops_notices_rls.sql": "2e1fe9f5964c121df224ada9cffad6d67f9759bad655ba60bf8504f31a4ad02f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Policies and grants on public.ops_notices only: the three old policies (anon insert, anon select, authenticated ALL) are replaced by ops_notices_staff_read (read_operations) and ops_notices_manage (manage_operations); every privilege is revoked from PUBLIC/anon/authenticated, then select/insert/update/delete granted to authenticated and all to service_role. No row, column or function change. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "no_policy_names_anon",
+      "query": "select count(*) = 0 from pg_policies where schemaname = 'public' and tablename = 'ops_notices' and 'anon' = any(roles)",
+      "expect": true
+    },
+    {
+      "name": "exactly_the_two_staff_policies",
+      "query": "select array_agg(policyname::text order by policyname) = array['ops_notices_manage','ops_notices_staff_read'] and bool_and(qual like '%current_staff_authorized%') from pg_policies where schemaname = 'public' and tablename = 'ops_notices'",
+      "expect": true
+    },
+    {
+      "name": "anon_holds_no_privilege",
+      "query": "select not has_table_privilege('anon', 'public.ops_notices', 'select, insert, update, delete, truncate, references, trigger')",
+      "expect": true
+    },
+    {
+      "name": "authenticated_crud_only",
+      "query": "select has_table_privilege('authenticated', 'public.ops_notices', 'select') and has_table_privilege('authenticated', 'public.ops_notices', 'insert') and has_table_privilege('authenticated', 'public.ops_notices', 'update') and has_table_privilege('authenticated', 'public.ops_notices', 'delete') and not has_table_privilege('authenticated', 'public.ops_notices', 'truncate, references, trigger')",
+      "expect": true
+    },
+    {
+      "name": "service_role_keeps_access",
+      "query": "select has_table_privilege('service_role', 'public.ops_notices', 'select') and has_table_privilege('service_role', 'public.ops_notices', 'insert') and has_table_privilege('service_role', 'public.ops_notices', 'update') and has_table_privilege('service_role', 'public.ops_notices', 'delete')",
+      "expect": true
+    },
+    {
+      "name": "rls_on_and_policy_helper_callable",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.ops_notices'::regclass) and has_function_privilege('authenticated', 'public.current_staff_authorized(text, uuid)', 'execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261007_ops_notices_rls.sql with run-sql-on-host.sh: restores the three old policies and ALL to anon and authenticated, as read on 2026-10-07. It reopens the public write path; prefer a forward fix."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_function_redeploy_needed",
+      "required_state": "Policies and grants only. power-watch, telegram-expense (/brownout, poster save, notice edit), calendar-sync, daily-digest and _shared/brownout.ts use SUPABASE_SERVICE_ROLE_KEY and keep their access; staff_home_v1, get_admin_overview_v1 and admin_soft_delete_v1 are SECURITY DEFINER. The admin dashboard Notices page (owner/admin) holds manage_operations. No Edge Function, page or Apps Script change."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "NOT RUN YET: rehearse on a fresh backup with pgTAP ops_notices_rls.sql (18) plus calendar_block_triage.sql and staff_home_v1.sql (both touch ops_notices) before apply.",
+    "evidence": "Production read-only 2026-10-07: 4 rows, all source socoteco (power-watch). Grep of guest-guide, manual, system-guide, staff-app, admin-dashboard, stay-site, direct-booking-waves-0-1-sol (incl. docs/gas), cascade-ha: no anon reader or writer; the guide reads app_settings and the RPCs verify_booking, get_guest_history, log_returning_guest_alert, verify_admin_pin only. Edge logs for /rest/v1/ops_notices on 2026-09-28, 10-04, 10-05 and the 24 h to 10-07: every request (GET and the one POST) carried the secret key from SupabaseEdgeRuntime; zero anon, zero n8n. staff_access_profiles: owner, 3 admin, 1 cleaner, each with one property; owner/admin hold manage_operations (staff_access_allowed), the cleaner only read_operations."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP ops_notices_rls.sql green on this commit"
+  ]
+}
