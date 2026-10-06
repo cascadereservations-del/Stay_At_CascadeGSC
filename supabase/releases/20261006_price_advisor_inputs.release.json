@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "release_id": "price_advisor_inputs_20261006",
+  "phase": "expand",
+  "source": {
+    "branch": "s72/l7-price-advisor",
+    "commit": "a48300bc5c42af80168804a12b7d89359c6121bf"
+  },
+  "migrations": [
+    "20261006140000_price_advisor_inputs.sql"
+  ],
+  "migration_sha256": {
+    "20261006140000_price_advisor_inputs.sql": "0ed71b1aa531814b9b1738a0653576304a4d45ed6dacc71c9d89f6ead51a0b4f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - take a fresh backup, re-read the clock, then fill both fields (fill-restore-point.mjs does it)",
+    "verified_at": "PENDING",
+    "production_rule": "Expand only: one new read-only function public.price_advisor_inputs_v1(uuid, date, date), granted to authenticated only. No table, column or data change. restore_point and verified_at are placeholders for the orchestrator. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "function_exists_definer_stable_empty_search_path",
+      "query": "select count(*) = 1 and bool_and(p.prosecdef and p.provolatile = 's' and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'price_advisor_inputs_v1'",
+      "expect": true
+    },
+    {
+      "name": "grants_authenticated_only_anon_and_public_none",
+      "query": "select has_function_privilege('authenticated','public.price_advisor_inputs_v1(uuid,date,date)','execute') and not has_function_privilege('anon','public.price_advisor_inputs_v1(uuid,date,date)','execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.price_advisor_inputs_v1(uuid,date,date)'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "function_body_only_reads",
+      "query": "select count(*) = 1 and bool_and(p.prosrc !~* 'insert into|update public|delete from|truncate|drop |alter table') from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'price_advisor_inputs_v1'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261006_price_advisor_inputs.sql with run-sql-on-host.sh: it drops the function. No data is touched. Roll the admin dashboard back too (the Price advisor page calls the function)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_app",
+      "required_state": "Apply this release BEFORE the admin dashboard build that adds the Price advisor page is published: the page calls price_advisor_inputs_v1 and shows an error until it exists."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "NOT YET RUN (session 72 lane L7). The orchestrator rehearses on a restored backup: 1/1 migration, 3/3 forward checks, pgTAP price_advisor_inputs 55/55 (includes a cleaner refused and an owner on a password session allowed). The function body was not executed by the lane builder: no local Postgres.",
+    "evidence": "Production read-only (2026-10-06): airbnb_reservations, booking_inquiries, calendar_events (block_reason, block_reason_source), transactions and acct_settings have the columns the function reads; no function with this name exists. Nothing reads or writes the function except the new dashboard page; old readers and writers are unaffected."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the admin dashboard build is published before this release is applied"
+  ]
+}
