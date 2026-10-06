@@ -10,7 +10,7 @@
     "20261006140000_price_advisor_inputs.sql"
   ],
   "migration_sha256": {
-    "20261006140000_price_advisor_inputs.sql": "85601f6504f485e445b3cae3450886d842f461308aa939f3d7757a71d3d77aff"
+    "20261006140000_price_advisor_inputs.sql": "0ed71b1aa531814b9b1738a0653576304a4d45ed6dacc71c9d89f6ead51a0b4f"
   },
   "backup": {
     "required": true,
@@ -57,7 +57,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "NOT YET RUN (session 72 lane L7). The orchestrator rehearses on a restored backup: 1/1 migration, 3/3 forward checks, pgTAP price_advisor_inputs 54/54 (includes a cleaner and an owner without the second factor being refused). The function body was not executed by the lane builder: no local Postgres.",
+    "rehearsal": "NOT YET RUN (session 72 lane L7). The orchestrator rehearses on a restored backup: 1/1 migration, 3/3 forward checks, pgTAP price_advisor_inputs 55/55 (includes a cleaner refused and an owner on a password session allowed). The function body was not executed by the lane builder: no local Postgres.",
     "evidence": "Production read-only (2026-10-06): airbnb_reservations, booking_inquiries, calendar_events (block_reason, block_reason_source), transactions and acct_settings have the columns the function reads; no function with this name exists. Nothing reads or writes the function except the new dashboard page; old readers and writers are unaffected."
   },
   "approvals": {

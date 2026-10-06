@@ -5,7 +5,7 @@
 -- Reservations are inserted as 'confirmed': the advisor treats confirmed and completed alike, and completed past stays would fire the
 -- income reconciler (ensure_income_transaction), which is not what is under test.
 begin;
-select plan(54);
+select plan(55);
 
 select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_proc p where p.oid = 'public.price_advisor_inputs_v1(uuid,date,date)'::regprocedure), 'security definer with an empty search_path');
 select ok(not has_function_privilege('anon', 'public.price_advisor_inputs_v1(uuid,date,date)', 'execute'), 'anon cannot call it');
@@ -33,6 +33,9 @@ insert into public.booking_inquiries(property_id, guest_name, guest_phone, check
   values ('e7500000-0000-4000-8000-0000000000a1', 'Synthetic Guest', '0000000000', '2025-02-10', '2025-02-12', 'direct', 'confirmed', 3000);
 insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, block_reason, block_reason_source) values
   ('e7500000-0000-4000-8000-0000000000a1', 'adv-direct-1',      'direct',  'confirmed', '2025-02-10', '2025-02-12', null, null),
+  ('e7500000-0000-4000-8000-0000000000a1', 'adv-direct-only',   'manual',  'confirmed', '2025-03-10', '2025-03-12', null, null),       -- direct stay with NO inquiry: Mar nights 10,11 = 2
+  ('e7500000-0000-4000-8000-0000000000a1', 'adv-direct-canc',   'direct',  'cancelled', '2025-03-20', '2025-03-22', null, null),       -- cancelled: counts for nothing
+  ('e7500000-0000-4000-8000-0000000000a2', 'adv-direct-b',      'direct',  'confirmed', '2025-03-10', '2025-03-12', null, null),       -- property B's own calendar-only stay
   ('e7500000-0000-4000-8000-0000000000a1', 'adv-brown-ly',      'airbnb',  'blocked',   '2025-02-14', '2025-02-16', 'brownout', 'auto'),       -- held nights 14,15 = 2
   ('e7500000-0000-4000-8000-0000000000a1', 'adv-maint-assumed', 'airbnb',  'blocked',   '2025-02-17', '2025-02-18', 'maintenance', 'assumed'), -- only assumed: stays sellable
   ('e7500000-0000-4000-8000-0000000000a1', 'adv-other',         'airbnb',  'blocked',   '2025-02-18', '2025-02-19', 'other', 'staff'),         -- "other" is not a hold
@@ -64,7 +67,7 @@ select set_config('request.jwt.claims', json_build_object('sub', 'e7600000-0000-
 select set_config('role', 'authenticated', true);
 select throws_ok($$select public.price_advisor_inputs_v1('e7500000-0000-4000-8000-0000000000a1', date '2026-02-01', date '2026-03-31')$$, '42501', 'read_finance denied', 'a cleaner is refused');
 select set_config('request.jwt.claims', json_build_object('sub', 'e7600000-0000-4000-8000-0000000000a1', 'role', 'authenticated', 'aal', 'aal1', 'app_metadata', json_build_object('role', 'owner'), 'iat', extract(epoch from now())::bigint)::text, true);
-select throws_ok($$select public.price_advisor_inputs_v1('e7500000-0000-4000-8000-0000000000a1', date '2026-02-01', date '2026-03-31')$$, '42501', 'read_finance denied', 'an owner without the second factor is refused');
+select lives_ok($$select public.price_advisor_inputs_v1('e7500000-0000-4000-8000-0000000000a1', date '2026-02-01', date '2026-03-31')$$, 'an owner on a password session is allowed (D-094: aal no longer gates)');
 select set_config('request.jwt.claims', json_build_object('sub', 'e7600000-0000-4000-8000-0000000000a1', 'role', 'authenticated', 'aal', 'aal2', 'app_metadata', json_build_object('role', 'owner'), 'iat', extract(epoch from now())::bigint)::text, true);
 
 -- Property A, target Feb 2026 (index 0) and Mar 2026 (index 1).
@@ -84,9 +87,11 @@ select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 0, 'ly_paid_nights')
 -- Last-year Mar 2025: 31 known days; ZADV3 sleeps Mar 30, 31 (and Apr 1).
 select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_days_covered'), '31', 'last Mar is fully known: 31 days');
 select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_airbnb_nights'), '2', 'last Mar Airbnb nights: 30 and 31 = 2');
-select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_direct_nights'), '0', 'last Mar direct nights: 0');
+select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_direct_nights'), '2', 'last Mar direct nights: the calendar-only stay, nights 10 and 11 = 2');
 select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_held_nights'), '0', 'last Mar held nights: 0');
-select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_stays'), '1', 'last Mar stays: ZADV3 overlaps March');
+-- ly_stays Mar 2025 = Airbnb ZADV3 (1) + confirmed inquiries (0) + calendar-only direct stays with no matching inquiry (adv-direct-only = 1; the cancelled row and property B's row add 0) = 2.
+select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_stays'), '2', 'last Mar stays: ZADV3 + the direct stay that exists only as a calendar row');
+select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a2', 1, 'ly_stays'), '1', 'property B counts only its own calendar-only stay in last Mar');
 select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_payout_total')::numeric, 2000::numeric, 'last Mar payout: 2 nights at 3000 / 3 = 1000');
 select is(pg_temp.f('e7500000-0000-4000-8000-0000000000a1', 1, 'ly_paid_nights'), '2', 'last Mar nights that carry a payout: 2');
 select is(pg_temp.g('e7500000-0000-4000-8000-0000000000a1', array['history_start']), '2025-02-03', 'history starts at the first confirmed stay');

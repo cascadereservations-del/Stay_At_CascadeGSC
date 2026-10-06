@@ -13,7 +13,7 @@
 --     capacity; with none left the month's last-year figures are null (unknown), never 0.
 --   * Expenses: every non-void expense in the 12 months before the first target month (or this month, if earlier). The page decides
 --     which categories to include; rows before acct_settings.accounting_start are totalled separately as estimates.
--- Read-only, security definer, empty search_path, gated on read_finance (owner / admin / finance at aal2), authenticated only.
+-- Read-only, security definer, empty search_path, gated on read_finance (owner / admin / finance), authenticated only.
 -- Rollback: supabase/rollbacks/20261006_price_advisor_inputs.sql
 
 begin;
@@ -84,7 +84,9 @@ begin
     'ly_direct_nights', case when c.covered = 0 then null else (select count(*) from nights n where not n.is_airbnb and n.night >= greatest(c.ls, v_hist) and n.night < least(c.le, v_today)) end,
     'ly_held_nights', case when c.covered = 0 then null else (select count(*) from held_free f where f.night >= greatest(c.ls, v_hist) and f.night < least(c.le, v_today)) end,
     'ly_stays', (select count(*) from public.airbnb_reservations r where r.property_id = p_property_id and r.status in ('completed', 'confirmed') and r.checkin_date < c.le and r.checkout_date > c.ls)
-              + (select count(*) from public.booking_inquiries b where b.property_id = p_property_id and b.status = 'confirmed' and b.checkin_date < c.le and b.checkout_date > c.ls),
+              + (select count(*) from public.booking_inquiries b where b.property_id = p_property_id and b.status = 'confirmed' and b.checkin_date < c.le and b.checkout_date > c.ls)
+              + (select count(*) from public.calendar_events e where e.property_id = p_property_id and e.status = 'confirmed' and e.source <> 'airbnb' and e.checkin_date < c.le and e.checkout_date > c.ls
+                   and not exists (select 1 from public.booking_inquiries b where b.property_id = p_property_id and b.status = 'confirmed' and b.checkin_date = e.checkin_date and b.checkout_date = e.checkout_date)),
     'ly_payout_total', (select sum(p.per_night) from pay p where p.night >= c.ls and p.night < c.le),
     'ly_paid_nights', (select count(*) from pay p where p.night >= c.ls and p.night < c.le)
   ) order by c.ms), '[]'::jsonb) into v_months from cov c;
