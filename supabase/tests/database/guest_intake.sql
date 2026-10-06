@@ -32,8 +32,8 @@ select ok((select p.prosrc ~ 'perform 1 from public.guests where id = r.guest_id
 -- 6-7 SPEC-40 / D-292: this release leaves the ID photo bucket and its policies exactly as they were
 select ok((select not public and file_size_limit = 10485760 and allowed_mime_types = array['image/jpeg','image/png','image/webp'] from storage.buckets where id = 'guest-id-photos'),
   'the guest-id-photos bucket stays private, 10 MB, JPEG/PNG/WebP only');
-select is((select count(*)::int from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'guest id photos %' and 'anon' <> all(roles)), 3,
-  'the three staff-only guest id photo policies are still there and none names anon');
+select ok((select count(*) = 4 and bool_and('anon' <> all(roles)) from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'guest id photos %'),
+  'the four staff-only guest id photo policies (3 manage + staff current read, D-299 staff_home_v1) are still there and none names anon');
 
 -- Fixtures: A confirmed (booker g1), B pending, C cancelled, D confirmed but already checked out, E confirmed with no guest record.
 -- The first 8 characters of each booking id differ, because the guest-facing ref is those 8 characters.

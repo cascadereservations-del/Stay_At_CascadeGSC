@@ -42,7 +42,7 @@
     },
     {
       "name": "id_photo_bucket_and_policies_unchanged",
-      "query": "select (select not public and file_size_limit = 10485760 from storage.buckets where id = 'guest-id-photos') and (select count(*) = 3 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'guest id photos %')",
+      "query": "select (select not public and file_size_limit = 10485760 from storage.buckets where id = 'guest-id-photos') and (select count(*) = 4 and bool_and('anon' <> all(roles)) from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'guest id photos %')",
       "expect": true
     }
   ],
