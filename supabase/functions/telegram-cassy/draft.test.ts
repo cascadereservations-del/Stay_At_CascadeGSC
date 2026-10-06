@@ -367,5 +367,16 @@ Deno.test('s74: punctuation in code - calm drafts lose every "!", warm drafts op
   assertEquals(warm.slice(1).some((l) => l.includes('!')), false);
   assertEquals(airbnbFinish('Hi Rico! We can check.', 'en', false).split('\n')[0], 'Hi Rico! We can check.');
   assertEquals(airbnbFinish('Hi Dale.\nWe will check.', 'en', false).split('\n')[0], 'Hi Dale!');
-  assert(airbnbFinish('Hi Dale po, salamat sa message.', 'tl', false).startsWith('Hi Dale po,')); // never "Hi Dale! Po,"
+  assert(airbnbFinish('Hi Dale po, salamat sa message.', 'tl', false).startsWith('Hi Dale po! Salamat')); // never "Hi Dale! Po,"
+  // Opus review of b1b2c60: one-line drafts, titles, runs of marks, sign-off with "!"
+  const first = (m: string, calm = false) => airbnbFinish(m, 'en', calm).split('\n')[0];
+  assertEquals(first('Hi Ana! We would love to host you! See you soon!'), 'Hi Ana! We would love to host you. See you soon.');
+  assertEquals(first('Hi Ma. Liza, yes we can check.'), 'Hi Ma. Liza! Yes we can check.');
+  assertEquals(first('Hi Mr. Santos, thank you.'), 'Hi Mr. Santos! Thank you.');
+  assertEquals(first('Hi Joseph!! Sorry about that!!', true), 'Hi Joseph. Sorry about that.');
+  assertEquals(first('Hi Ben, is that really true?!'), 'Hi Ben! Is that really true?');
+  assertEquals(first('Hi Ben!!'), 'Hi Ben!');
+  const signed = airbnbFinish('Hi Ben, thank you!\nMarifel & The Cascade Team!\nHotel Comfort. Home Warmth!', 'en', false);
+  assertEquals((signed.match(/Marifel/g) ?? []).length, 1, signed);
+  assertEquals(airbnbTone(airbnbFinish('Hi Ana! We would love to host you! See you soon!', 'en', false), false).includes('exclamation_after_greeting'), false);
 });

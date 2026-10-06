@@ -11,7 +11,7 @@ import { airbnbTone, calmMoment, modelDraft } from './draft.ts';
 type Case = { id: string; guest: string; name: string; must: RegExp[]; mustNot: RegExp[] };
 const SIGNED = /Marifel & The Cascade Team\s*\n\s*Hotel Comfort\. Home Warmth\.\s*$/, OFF = /https?:\/\/|\bgcash\b|\bqr\b|(?:\+63|\b0)9\d{2}[\s-]?\d{3}/i;
 export const CASES: Case[] = [
-  { id: 'inquiry-tl', guest: 'Available po ba Oct 20-22? 2 kami', name: 'Dale', must: [/^Hi \w+!/, /\bpo\b/, SIGNED], mustNot: [OFF] },
+  { id: 'inquiry-tl', guest: 'Available po ba Oct 20-22? 2 kami', name: 'Dale', must: [/^Hi (?:\w+\.? )?\w+(?: po)?!/, /\bpo\b/, SIGNED], mustNot: [OFF] },
   { id: 'inquiry-en', guest: 'Is Oct 20-22 free for 2?', name: 'Emma', must: [/^Hi \w+!/, SIGNED], mustNot: [/\bpo\b/, OFF] },
   { id: 'complaint-calm', guest: "The aircon stopped working, it's so hot", name: 'Mark', must: [/sorry|understand/i, SIGNED], mustNot: [/!/, /[\p{Extended_Pictographic}]/u] },
   { id: 'our-mistake-calm', guest: "I don't have to check out today do I", name: 'Joseph', must: [/check|confirm|(?:don'?t|do not) (?:need|have) to|no need to/i, /understanding/i, SIGNED], mustNot: [/!/, /\b(?:is|are) (?:indeed )?(?:scheduled|set) for (?:today|tomorrow)|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}/i] }, // s74: no booking data, so no asserted date

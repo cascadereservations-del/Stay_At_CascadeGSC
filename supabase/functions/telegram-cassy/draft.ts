@@ -150,7 +150,7 @@ export function airbnbFallback(name: string | null, calm: boolean): string {
  *  thinPo as everywhere else); a calm draft thanks the guest for their understanding (playbook 5.5); the sign-off is
  *  written exactly once, at the end. */
 /** Any sign-off line the model wrote, in any case, dashed or on one line ("- Marifel", "Hotel comfort, home warmth"). */
-const SIGN_OFF_LINE = /^[ \t]*[-–—]?[ \t]*(?:Marifel(?:\s*&\s*the Cascade Team)?(?:[ \t,.]*Hotel Comfort[.,]?[ \t]*Home Warmth\.?)?|Hotel Comfort[.,]?[ \t]*Home Warmth\.?)[ \t\p{Extended_Pictographic}️]*$/gimu;
+const SIGN_OFF_LINE = /^[ \t]*[-–—]?[ \t]*(?:Marifel(?:\s*&\s*the Cascade Team)?(?:[ \t,.]*Hotel Comfort[.,]?[ \t]*Home Warmth\.?)?|Hotel Comfort[.,]?[ \t]*Home Warmth\.?)[ \t\p{Extended_Pictographic}️!.]*$/gimu;
 /** A valediction the model put above its own sign-off ("Warm regards,"), at the very end of the body only. */
 const VALEDICTION_END = /(?:\n+[ \t]*(?:warm(?:est)? regards|kind regards|best regards|regards|best wishes|warmly|cheers|sincerely|with warmth|yours truly)[ \t]*[,.]?[ \t]*)+$/i;
 export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
@@ -159,13 +159,17 @@ export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
   if (lang === 'bis') body = thinPo(body, 0);
   if (lang === 'tl') body = /\bpo\b/i.test(body) ? thinPo(body, 2) : courtesyPo(body);
   if (calm && !/\bunderstanding\b/i.test(body)) body += '\n\nThank you for your understanding.';
-  // s74: the register's punctuation in code (the golden 15/18 misses were all "!"): calm has none; warm opens "Hi <name>!" and has no other.
-  if (calm) body = body.replace(/!/g, '.');
-  else {
-    const [first, ...rest] = body.split('\n');
-    body = [first.replace(/^((?:hi|hello)\s+[^\s,.!?]+)[,.](?=\s|$)/i, '$1!').replace(/^((?:hi|hello)\s+[^\s!]+!\s+)([a-z])/i, (_, g, c) => g + c.toUpperCase()), ...rest.map((l) => l.replace(/!/g, '.'))].join('\n');
-  }
-  return `${body}\n\n${SIGN_OFF}`;
+  return `${punctuate(body, calm)}\n\n${SIGN_OFF}`;
+}
+// s74: the register's punctuation in code (the golden 15/18 misses were all "!"): calm has none; warm has exactly one, after
+// "Hi <name>" (titles "Ma." / "Mr.", honorifics "Ate" / "Sir" and a trailing "po" kept). "!!", "?!" and "!..." collapse to one mark.
+const BANG = /[!?]*![!?.]*/g;
+const unbang = (s: string) => s.replace(BANG, (x) => (x.includes('?') ? '?' : '.'));
+const GREET = /^((?:hi|hello)\s+(?:(?:ate|kuya|sir|ma'?am)\s+)?(?:(?:mr|mrs|ms|dr|ma|sta|sto|st|atty|engr|[a-z])\.\s+)?[^\s,.!?]+(?:\s+po)?)\s*(?:!+|[,.])(?=\s|$)/i;
+function punctuate(body: string, calm: boolean): string {
+  const g = calm ? null : GREET.exec(body);
+  if (!g) return unbang(body);
+  return `${g[1]}!` + unbang(body.slice(g[0].length)).replace(/^(\s*(?:\p{Extended_Pictographic}\s*)*)(\p{Ll})/u, (_, s, c) => s + c.toUpperCase());
 }
 /** "Yes, ..." -> "Yes po, ..."; otherwise "po" closes the first sentence after the greeting ("... shortly po."). */
 function courtesyPo(body: string): string {
@@ -205,7 +209,7 @@ export function airbnbTone(m: string, calm: boolean): string[] {
   if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
   if (/\bCassy\b|\bour host\b/i.test(m)) v.push('not_marifel');
   if (calm) { if (m.includes('!')) v.push('exclamation_in_calm'); if (/[\p{Extended_Pictographic}]/u.test(m)) v.push('emoji_in_calm'); }
-  else if (lines.slice(1).some((l) => l.includes('!'))) v.push('exclamation_after_greeting');
+  else if ((m.match(/!/g) ?? []).length > 1) v.push('exclamation_after_greeting'); // s74: one "!", after the greeting, on any line layout
   return v;
 }
 
