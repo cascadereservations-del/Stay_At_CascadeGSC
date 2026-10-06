@@ -35,7 +35,7 @@ const WAVES = join(import.meta.dirname, '..');
 // really deploys from another repo.
 const REPO_FOR = {};
 // B41 + the 2026-09-18 baseline: every function verifies no JWT except these three.
-const JWT_EXPECTED = new Set(['ocr-receipt', 'submit-cleaning', 'verify-meter-photo']);
+const JWT_EXPECTED = new Set(['host-reply', 'ocr-receipt', 'submit-cleaning', 'verify-meter-photo']); // host-reply: dashboard calls it with the owner's JWT (s72 L6)
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
