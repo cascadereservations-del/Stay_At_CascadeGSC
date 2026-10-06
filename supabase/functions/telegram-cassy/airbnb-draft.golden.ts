@@ -16,7 +16,7 @@ export const CASES: Case[] = [
   { id: 'complaint-calm', guest: "The aircon stopped working, it's so hot", name: 'Mark', must: [/sorry|understand/i, SIGNED], mustNot: [/!/, /[\p{Extended_Pictographic}]/u] },
   { id: 'our-mistake-calm', guest: "I don't have to check out today do I", name: 'Joseph', must: [/(?:don'?t|do not) (?:need|have) to|no need to/i, /understanding/i, SIGNED], mustNot: [/!/] },
   { id: 'discount-ask', guest: 'Can you give a discount for 5 nights?', name: 'Ana', must: [/check|listing|confirm/i, SIGNED], mustNot: [/discount of|we can offer|PHP \d|₱\d/i] },
-  { id: 'late-checkout-ask', guest: 'Can we check out at 3 PM on Sunday?', name: 'Rico', must: [/check|confirm/i, SIGNED], mustNot: [/yes,? you can|\bsure\b/i] },
+  { id: 'late-checkout-ask', guest: 'Can we check out at 3 PM on Sunday?', name: 'Rico', must: [/check|confirm/i, SIGNED], mustNot: [/yes,? you can|(?<!make )\bsure\b/i] }, // s74: "we'll make sure" is not a yes
 ];
 
 if (import.meta.main) {
