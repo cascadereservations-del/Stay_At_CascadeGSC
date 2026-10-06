@@ -361,3 +361,13 @@ Deno.test('SPEC-39 audit round 2: the Taglish, Bisaya and English change idioms 
   assertEquals(answer(f, 'Oct 10 na lang po', now).action === 'change', false);
   assertEquals(answer(f, 'make it full, I will pay by Oct 19', now).action, 'requote_full');
 });
+
+Deno.test('SPEC-39 audit round 3: usabon / ibalhin are changes; a held date, "the hold", a payment day are not; babayaran ... buo is full', () => {
+  const f = held(start('book Oct 20 to 22 for 2', now), { name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
+  assertEquals(answer(f, 'usabon nato ang dates, Oct 30 to Nov 1', now).action, 'change');
+  assertEquals(answer(f, 'ibalhin nato sa Oct 25 to 27', now).action, 'change');
+  assertEquals(answer(f, 'can we extend to Oct 22?', now).action === 'change', false); // the held check-out
+  assertEquals(answer(f, 'adjust the hold until Oct 19 please?', now).action === 'change', false);
+  assertEquals(answer(f, 'Oct 19 na lang bayad ko, Oct 20 check-in pa rin', now).action === 'change', false);
+  assertEquals(answer(f, 'babayaran ko na lang buo sa Oct 19', now).action, 'requote_full');
+});

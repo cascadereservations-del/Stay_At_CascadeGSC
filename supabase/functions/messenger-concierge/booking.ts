@@ -47,9 +47,12 @@ const SKIP_RE = /^\s*(skip|wala|none|no email|no)\s*[.!]*\s*$/i;
 const FULL_RE = /\b(full|buo|buong|lahat|whole|everything|total|bayaran (ko )?lahat|in full)\b/i;
 /** SPEC-39 3.6b, after the QR: a whole "fee"-shaped reply (nothing more to choose), and a request to pay the full amount. */
 const FEE_RE = /^\W*(?:the\s+)?(?:fee|reservation fee|deposit|dp|down ?payment|half|kalahati|50%?)\b/i;
-const PAY_FULL_RE = /^\W*(?:full|in full|buo)\b|\b(?:pay|bayad\w*|bayaran|magbayad|settle|make it)\b[^.?!\n]{0,20}\b(?:in full|full|buo|lahat)\b/i;
+const PAY_FULL_RE = /^\W*(?:full|in full|buo)\b|\b(?:pay|bayad\w*|(?:ba)?bayaran|magbayad|settle|make it)\b[^.?!\n]{0,20}\b(?:in full|full|buo|lahat)\b/i;
+const PAY_WORD = String.raw`\b(?:pay|paid|payment|bayad\w*|(?:ba)?bayaran|balance|send|transfer|gcash)\b`, A_DATE = String.raw`\b(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s*\d{1,2}\b|\b\d{1,2}[\/-]\d{1,2}\b`;
+/** After the hold: a payment word within a few words of a date - that date is the payment day, not a new stay. */
+const PAY_DAY_RE = new RegExp(String.raw`(?:${A_DATE})[^.?!\n]{0,20}${PAY_WORD}|${PAY_WORD}[^.?!\n]{0,20}(?:${A_DATE})`, 'i');
 /** A request to move the stay (after the hold, new dates alone are not one). */
-const CHANGE_RE = /\b(move|change|instead|rather|make it|reschedule|resched|extend|shorten|adjust|switch|baguhin|ibahin|palit\w*|ilis\w*|usb\w*|usab|ilipat|lipat\w*)\b/i;
+const CHANGE_RE = /\b(move|change|instead|rather|make it|reschedule|resched|extend|shorten|adjust|switch|baguhin|ibahin|palit\w*|ilis\w*|usb\w*|usab\w*|ibalhin\w*|ilipat|lipat\w*)\b/i;
 /** A guest-count word: a number beside it is a correction of the party, not a phone or a date. */
 const PAX_WORD_RE = /\b(guest|pax|person|people|tao|tawo|adult|kami|kabuok|mi\b|kids?|child|children)/i;
 const AVAIL_RE = /\b(available|avail|vacant|bakante|open|free|may (?:vacancy|slot)|meron pa)\b/i;
@@ -629,12 +632,14 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       // A change of dates only when the guest asks for one: written dates that differ from the held stay AND a change word.
       // "Can we check in at 2pm on Oct 20?", "I'll send the payment on Oct 8", "pay the balance on Oct 19?" are not changes.
       const d = parseDates(text.replace(/\b(today|tonight|ngayon|karon|tomorrow|tmrw|bukas|ugma)\b/gi, ' '), now);
-      const newDates = !!d[0] && d[0] >= today && (d[0] !== f.checkin || (!!d[1] && d[1] !== f.checkout));
+      // One date is new only when it is neither held date, and never beside "hold" ("adjust the hold until Oct 19"); a range is
+      // new when either end moves.
+      const newDates = !!d[0] && d[0] >= today && (d[1] ? d[0] !== f.checkin || d[1] !== f.checkout : d[0] !== f.checkin && d[0] !== f.checkout && !/\bhold\b/i.test(text));
       const wantsFull = PAY_FULL_RE.test(text);
       // "na lang" moves the stay only with a date RANGE ("Oct 21 to 23 na lang po"); with one date it is usually the payment day,
       // as is any single date beside a payment word ("Pwede Oct 10 na lang bayad instead?").
       const asks = CHANGE_RE.test(text) || (d.length === 2 && /\b(na ?lang|nalang)\b/i.test(text));
-      const payDay = d.length < 2 && /\b(pay|paid|payment|bayad\w*|balance|send|transfer|gcash)\b/i.test(text);
+      const payDay = PAY_DAY_RE.test(text); // a payment word beside a date: "Oct 19 na lang bayad ko, Oct 20 check-in pa rin" 
       if (newDates && asks && !wantsFull && !payDay) return { flow: f, reply: null, action: 'change' };
       if (text.includes('?') && !wantsFull) return { flow: f, reply: null, action: 'passthrough' };
       const who = P.first(f.name ?? name), full = (f.deposit ?? 0) >= (f.total ?? 0);
