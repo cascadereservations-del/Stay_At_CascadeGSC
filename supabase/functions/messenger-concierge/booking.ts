@@ -210,10 +210,12 @@ export const datesOf = (text: string, now = new Date()): string[] => { const s =
  *  Sep 5 is gone). Not rolled = still ahead ("same as last year, Oct 19 to 21" in October) and a typed year is taken as said. */
 export function rolledPastStay(text: string, now = new Date()): boolean {
   if (!PAST_REF_RE.test(text) || /\b20\d\d\b|\b(?:this coming|next year|susunod na taon|sunod nga tuig)\b/i.test(text)) return false; // a typed year or "this coming January" is the stay asked for
+  // a plain booking or availability ask that merely mentions a past visit ("can I book Jan 2 to 4? we stayed before") is for the dates given; "again" says otherwise
+  if (/\b(book|reserve|available|avail|bakante|open)\b/i.test(text) && !/\b(again|ulit|balik|same dates)\b/i.test(text)) return false;
   const d = parseDates(text, now)[0], today = dayStrOf(now);
   return !!d && d.slice(0, 4) > today.slice(0, 4) && `${today.slice(0, 4)}${d.slice(4)}` < today;
 }
-const PAST_REF_RE = /\b(last (?:time|year|month)|stayed|nag-?stay|dati|niadtong|kaniadto|before|previously|previous|booked|nag-?book)\b/i;
+const PAST_REF_RE = /\b(last (?:time|year|month)|stayed|nag-?stay|dati|niadtong|kaniadto|previously|previous|(?:booked|been (?:here|there)|came) before)\b/i;
 /** "2 nights", "one night", "isang gabi", "duha ka gabii" -> the count; null when the message names no nights. */
 export function nightsIn(text: string): number | null {
   const w = NUM_W;

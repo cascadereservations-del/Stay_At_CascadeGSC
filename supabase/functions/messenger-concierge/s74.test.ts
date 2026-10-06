@@ -159,3 +159,18 @@ Deno.test('s74 G1 audit 3: "within 5 days from Dec 25" is a policy question, not
   assertEquals(stayFromPhrase('within 5 days from Dec 25 can I cancel?', now), null);
   assertEquals(stayFromPhrase('5 days from Dec 25 can I cancel?', now), { checkin: '2026-12-25', checkout: '2026-12-30' });
 });
+
+// ---- Fable re-verify: next-year bookings (Jan to early Oct 2027 are "rolled") are not past stays ----
+Deno.test('s74 G1 re-verify: a real next-year booking or price ask mentioning a past visit, or "before", is handled normally', async () => {
+  for (const t of ['can I book Jan 2 to 4? we stayed before', 'book Jan 2 to 4 please, we stayed before', 'is Jan 2 to 4 available? we stayed before'])
+    assertEquals(bookingStart(t, [], '', now) !== null, true, t);
+  assertEquals(pricedStay(['I booked Jan 2 to 4, how much is the balance?'], now), { checkin: '2027-01-02', checkout: '2027-01-04' });
+  assertEquals(pricedStay(['nag-book po kami Jan 2 to 4, magkano pa ang babayaran?'], now), { checkin: '2027-01-02', checkout: '2027-01-04' });
+  assertEquals(pricedStay(['I need to pay before Jan 2, how much?'], now)?.checkin, '2027-01-02');
+  for (const t of ['I booked Jan 2 to 4, how much is the balance?', 'nag-book po kami Jan 2 to 4, magkano pa ang babayaran?', 'I need to pay before Jan 2, how much?']) {
+    const m = stubModel('Noted po.');
+    try { const r = await turn(t); assert(!/Which dates would you like this time|Aling dates po ang gusto/.test(r.reply), `${t} -> ${r.reply}`); } finally { m.restore(); }
+  }
+  for (const t of ['previous booking Sep 5-7, can we book again same dates next month?', 'we booked before Sep 5-7, can we book again same dates?', 'dati po kaming nag-book Sep 5 to 7, pwede po ba ulit mag-book?'])
+    assertEquals(bookingStart(t, [], '', now), null, t);
+});
