@@ -244,7 +244,7 @@ Deno.test('s73 R3-2: a date the guest takes back is not the stay', async () => {
 });
 
 Deno.test('s73 R3-3: a past stay told about is not priced as next year; a 12 noon check-in question still is', () => {
-  assertEquals(stayOf(['last time we stayed Sep 5 to 7, how much now?']), null);
+  assertEquals(stayOf(['last time we stayed Sep 5 to 7, it was lovely']), null); // R4-2: a past stay with a price ask is priced
   assertEquals(stayOf(['we stayed Oct 1 to 3 last year']), null);
   assertEquals(stayOf(['Oct 19 to 21, can we check in 12 noon? how much?']), '2026-10-19..2026-10-21');
 });
@@ -256,4 +256,26 @@ Deno.test('s73 R3-4: past 60 nights the model is told to quote no total, and no 
     const r = await turn('how much for Oct 10 to Dec 20?', null);
     assert(m.seen[0].includes('Over 60 nights: quote no total') && !/hold those dates/.test(r.reply), m.seen[0].slice(0, 200));
   } finally { m.restore(); }
+});
+
+// ---- Round 4 (Fable final re-check of 00e0bc5) ----
+Deno.test('s73 R4-1: a narrowed single date is the stay asked for; only an incidental date joins the quoted range', async () => {
+  const cases: Array<[Array<[string, string]>, string, string]> = [
+    [[['how much for Oct 19 to 25?', 'Your 6 nights come to PHP 9,612.'], ['hmm how about just Oct 20?', 'One night on Oct 20 is PHP 1,780. Shall we hold that night for you?']], '2026-10-20', '2026-10-21'],
+    [[['how much for Oct 19 to 25?', 'Your 6 nights come to PHP 9,612.'], ['actually only Oct 24, 1 night', 'One night on Oct 24 is PHP 1,780. Shall we hold that night for you?']], '2026-10-24', '2026-10-25'],
+    [[['how much for Oct 19 to 21?', 'Your 2 nights come to PHP 3,382.'], ['sorry not Oct 19, Oct 20', 'One night on Oct 20 is PHP 1,780. Shall we hold that night for you?']], '2026-10-20', '2026-10-21'],
+  ];
+  for (const [history, ci, co] of cases) {
+    const r = await turn('Yes please', null, history);
+    assertEquals([r.saved.booking_flow.checkin, r.saved.booking_flow.checkout], [ci, co], history[1][0]);
+  }
+  assertEquals(stayOf(['how much for Oct 19 to 25?', 'how about just Oct 20, how much?']), '2026-10-20..2026-10-21'); // the price turn itself
+  for (const later of ['we leave on Oct 21', 'our flight lands Oct 19 at 2 pm, can we check in early?'])
+    assertEquals(stayOf(['how much for Oct 19 to 21?', later]), '2026-10-19..2026-10-21', later);
+});
+
+Deno.test('s73 R4-2: a past stay mentioned beside a price ask is priced', () => {
+  assertEquals(stayOf(['same as last year po, Oct 19 to 21, how much?']), '2026-10-19..2026-10-21');
+  assert(priceAnchor(['same as last year po, Oct 19 to 21, how much?'], now).text.includes('PHP 3,382'));
+  assertEquals(stayOf(['we stayed Oct 1 to 3 last year']), null);
 });

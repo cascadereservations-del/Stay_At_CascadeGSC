@@ -121,6 +121,7 @@ export const rateAsked = (text: string): boolean => priceAsked(text) || (stayNig
 const NEGATED_DATE_RE = /\b(?:not|hindi|dili|instead of)\s+(?:po\s+)?(?:on\s+|sa\s+|ang\s+)?(?=(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d|\d)[^,.;]+[,;]?/gi;
 /** s73 R3-3: a past stay told about ("last time we stayed Sep 5 to 7") - parseDates would roll it into next year. "noon" is left
  *  out on purpose: "check in 12 noon on Oct 19" is a stay question. */
+const NARROW_RE = /\b(just|only|lang|instead|actually|how about|what about)\b/i; // s73 R4-1: the guest narrows the stay to this date
 const PAST_STAY_RE = /\b(last (time|year|month)|stayed|dati)\b/i;
 /** s73 R2-1 / R3: the stay being priced, from the guest's last three messages. The newest dated message wins: two dates are the
  *  stay whatever length word sits beside them ("Oct 19 to 21, 3 days 2 nights" is 2 nights). One date inside a range an older
@@ -128,12 +129,16 @@ const PAST_STAY_RE = /\b(last (time|year|month)|stayed|dati)\b/i;
  *  night. A date taken back or a past stay does not count. null with no future date. */
 export function pricedStay(guestTexts: string[], now: Date): { checkin: string; checkout: string } | null {
   const said = guestTexts.slice(-3), today = dayStr(new Date(now.getTime() + 8 * 3_600_000)); // Manila
-  const dates = said.map((t) => PAST_STAY_RE.test(t) ? [] : parseDates(t.replace(NEGATED_DATE_RE, ' '), now));
+  // R4-2: a past stay is skipped only when no price is asked ("same as last year po, Oct 19 to 21, how much?" is priced).
+  const dates = said.map((t) => PAST_STAY_RE.test(t) && !priceAsked(t) ? [] : parseDates(t.replace(NEGATED_DATE_RE, ' '), now));
   for (let i = said.length - 1; i >= 0; i--) {
     const d = dates[i];
     if (!d[0] || d[0] < today) continue;
     if (d[1] && d[1] > d[0]) return { checkin: d[0], checkout: d[1] };
-    const range = dates.slice(0, i).reverse().find((r) => r[1] && r[0] <= d[0] && d[0] <= r[1] && r[0] >= today);
+    // R4-1: only an incidental date joins the range - a narrowing ("how about just Oct 20?", "only Oct 24, 1 night", "not Oct 19,
+    // Oct 20", a price asked for it) is the stay asked for.
+    const t = said[i], narrows = priceAsked(t) || t.search(NEGATED_DATE_RE) >= 0 || !!stayNights(t) || NARROW_RE.test(t);
+    const range = narrows ? null : dates.slice(0, i).reverse().find((r) => r[1] && r[0] <= d[0] && d[0] <= r[1] && r[0] >= today);
     if (range) return { checkin: range[0], checkout: range[1] };
     const n = stayNights(said[i]) ?? stayNights(said.join(' '));
     return { checkin: d[0], checkout: addDays(d[0], n && n >= 2 && n <= 60 ? n : 1) };
