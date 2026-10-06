@@ -22,7 +22,7 @@ test('local pages linked from the booking surface exist', () => {
   }
 });
 
-test('communication links are complete and avoid failing short domains', () => {
+test('communication links are complete and avoid the failing short Messenger domain', () => {
   for (const href of hrefs.filter((value) => /^(https?:|mailto:|tel:)/i.test(value))) {
     if (/^mailto:/i.test(href)) {
       assert.match(href, /^mailto:[^?\s@]+@[^?\s@]+/i, `invalid email link ${href}`);
@@ -34,7 +34,7 @@ test('communication links are complete and avoid failing short domains', () => {
     }
     const url = new URL(href);
     assert.ok(url.hostname, `missing hostname in ${href}`);
-    assert.notEqual(url.hostname, 'wa.me', `use full WhatsApp domain: ${href}`);
+    assert.notEqual(url.hostname, 'web.whatsapp.com', `web.whatsapp.com is desktop-web only, use wa.me: ${href}`);
     assert.notEqual(url.hostname, 'm.me', `use full Messenger domain: ${href}`);
   }
 });
