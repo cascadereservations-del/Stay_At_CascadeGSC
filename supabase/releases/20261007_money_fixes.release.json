@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "release_id": "money_fixes_20261007",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "bc551a086373634ed17ceddb58ee3e68675db05d"
+  },
+  "migrations": [
+    "20261007110000_staff_pay_manila_day.sql",
+    "20261007111000_cleaner_rate_schedule_rls.sql",
+    "20261007112000_record_inventory_usage_movement.sql"
+  ],
+  "migration_sha256": {
+    "20261007110000_staff_pay_manila_day.sql": "70f167c62446f0d33857b5e0b3f6297296b9d13b02186ec54001570e944910bd",
+    "20261007111000_cleaner_rate_schedule_rls.sql": "f33e034308131584099957616491a4f75dba6678da58dc05107edf08bba5a5ca",
+    "20261007112000_record_inventory_usage_movement.sql": "47720368889f0f17840b28a15d7c3cfab65125cd22c2b8d679ed21da252e4896"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Three independent changes, no table or column change, no data change. (1) staff_pay_candidates_v1 and staff_pay_request_create_v1 are patched from their LIVE bodies: cleaned_at::date becomes the Manila date. (2) cleaner_rate_schedule: every policy dropped, one SELECT policy (read_operations) added, anon/authenticated reduced to SELECT; admin_add_pay_rate_v1 stays the only writer. (3) record_inventory_usage v3: same signature; a movement-controlled item gets its kind=usage inventory_stock_movements row even when a cleaner logs it (v2 refused the cleaner); a not-controlled item keeps the legacy clamp and writes NO movement. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "staff_pay_functions_use_the_manila_day",
+      "query": "select count(*) = 2 from pg_proc p where p.oid in ('public.staff_pay_candidates_v1()'::regprocedure, 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)'::regprocedure) and p.prosrc !~ 'cleaned_at::date' and p.prosrc like '%cleaned_at at time zone ''Asia/Manila''%'",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_functions_keep_definer_and_grants",
+      "query": "select bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) and has_function_privilege('authenticated', 'public.staff_pay_candidates_v1()', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)', 'execute') and not has_function_privilege('anon', 'public.staff_pay_candidates_v1()', 'execute') and not has_function_privilege('anon', 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)', 'execute') from pg_proc p where p.oid in ('public.staff_pay_candidates_v1()'::regprocedure, 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "rate_table_has_exactly_the_staff_read_policy",
+      "query": "select count(*) = 1 and bool_and(policyname = 'cleaner_rate_staff_read' and cmd = 'SELECT' and roles = array['authenticated']::name[] and qual like '%current_staff_authorized%' and qual like '%read_operations%') from pg_policies where schemaname = 'public' and tablename = 'cleaner_rate_schedule'",
+      "expect": true
+    },
+    {
+      "name": "rate_table_grants_are_select_only_for_staff",
+      "query": "select not has_table_privilege('anon', 'public.cleaner_rate_schedule', 'select, insert, update, delete, truncate, references, trigger') and has_table_privilege('authenticated', 'public.cleaner_rate_schedule', 'select') and not has_table_privilege('authenticated', 'public.cleaner_rate_schedule', 'insert, update, delete, truncate, references, trigger') and has_table_privilege('service_role', 'public.cleaner_rate_schedule', 'select') and (select relrowsecurity from pg_class where oid = 'public.cleaner_rate_schedule'::regclass)",
+      "expect": true
+    },
+    {
+      "name": "pay_rate_rpcs_still_callable_by_staff_login",
+      "query": "select has_function_privilege('authenticated', 'public.admin_pay_rates_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.admin_add_pay_rate_v1(uuid,date,numeric,numeric,numeric,text)', 'execute') and not has_function_privilege('anon', 'public.admin_add_pay_rate_v1(uuid,date,numeric,numeric,numeric,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "record_inventory_usage_v3_same_signature_writes_movements",
+      "query": "select pg_get_function_identity_arguments('public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) = 'p_property_id uuid, p_session_date date, p_logged_by text, p_notes text, p_rows jsonb' and (select prosecdef from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) and (select prosrc like '%insert into public.inventory_stock_movements%' and prosrc like '%if v_controlled and v_after <> v_before then%' and prosrc not like '%inventory_apply_event_v1%' from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) and has_function_privilege('authenticated', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute') and has_function_privilege('service_role', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute') and not has_function_privilege('anon', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261007_money_fixes.sql with run-sql-on-host.sh: staff pay functions back to cleaned_at::date, the old owner/admin policy and ALL grants on cleaner_rate_schedule, record_inventory_usage back to v2. It reopens direct API writes to the rate table for owner/admin; prefer a forward fix. Movement rows already written stay as history."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "telegram_expense_redeploy",
+      "required_state": "Deploy telegram-expense from the G3 waves commit (cleaning fee reads cleaner_rate_schedule or shows \"rate missing\"; the Manila pay day for a clean with no checkout date). It does not depend on the SQL and the SQL does not depend on it; deploy order is free. Keep --no-verify-jwt as today. No other Edge Function, page or Apps Script change: the dashboard Pay rates page calls admin_pay_rates_v1 / admin_add_pay_rate_v1 only, the staff app reads rates through staff_pay_rate_v1, the checklist and Cascade Staff call record_inventory_usage with the same arguments."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": false,
+    "verified": false,
+    "rehearsal": "PENDING: rehearse on a disposable restore of a fresh production backup, then pgTAP staff_pay_manila_day.sql 8/8, cleaner_rate_schedule_rls.sql 22/22, record_inventory_usage_movement.sql 19/19, and the neighbours staff_pay_requests.sql, d301_pay_rates_tasks.sql, inventory_movement_compat_v1.sql, inventory_check_controlled_items_only.sql. Neighbour misses that are function-EXECUTE assertions are the --no-acl artifact. Before the apply, read md5(prosrc) of staff_pay_candidates_v1 / staff_pay_request_create_v1 on production only if curious: the migration patches whatever is live and stops if it cannot.",
+    "evidence": "Direct writers of cleaner_rate_schedule: none in admin-dashboard/app/src (pay-rates-api.ts calls admin_pay_rates_v1 and admin_add_pay_rate_v1), staff-app, CH-Cleaners-Checklist or any Edge Function (telegram-expense and submit-cleaning only SELECT, with the service key). Readers as a signed-in user: the airbnb_cleans / airbnb_cleaner_summary views (security_invoker) - owner/admin hold read_operations. record_inventory_usage: 612 usage rows, all consumables, 0 movement-controlled items at 2026-10-07, so v3 changes nothing for them (no movement for uncontrolled items); it fixes the controlled path for a cleaner, which v2 refused."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the three new pgTAP suites green on this commit, and the neighbour suites staff_pay_requests.sql, d301_pay_rates_tasks.sql, inventory_movement_compat_v1.sql",
+    "the staff pay patch migration raises \"could not patch\": a live body differs from the one read; read it and fix forward"
+  ]
+}
