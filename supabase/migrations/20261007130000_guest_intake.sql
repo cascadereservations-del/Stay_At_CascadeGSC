@@ -5,7 +5,7 @@
 -- opens nothing returns null / {ok:false,reason:'invalid_token'}; nothing is written.
 --   intake_resolve_v1            internal: token hash -> the booking, its guest and its ref. Owner only.
 --   intake_uploads_today_v1      internal: ID photos linked for this booking in the last 24 h (the 12 a day limit). Owner only.
---   intake_guest_context_v1      what the page may show: ref, dates, headcount, the people already on the stay (name, has_id, id_type).
+--   intake_guest_context_v1      what the page may show: ref, dates, headcount, the people already on the stay (name, has_id, id_type; no row id).
 --                                Never a phone, e-mail, address, door code, ID number or storage path.
 --   intake_save_guest_details_v1 contact_number, id_on_file (true only), id_type for the booking guest. Same validation as the staff RPCs.
 --   intake_save_guest_companion_v1 create-or-update a person by name; attaches an ID photo path that must be <companion id>/<uuid>.(jpg|png|webp)
@@ -52,7 +52,7 @@ begin
     'max_uploads_per_day', 12,
     'uploads_today', case when r.guest_id is null then 0 else public.intake_uploads_today_v1(r.guest_id, r.ref) end,
     'people', case when r.guest_id is null then '[]'::jsonb else coalesce((
-        select jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name, 'has_id', c.id_photo_path is not null, 'id_type', c.id_type) order by c.created_at)
+        select jsonb_agg(jsonb_build_object('name', c.name, 'has_id', c.id_photo_path is not null, 'id_type', c.id_type) order by c.created_at)
           from public.guest_companions c where c.guest_id = r.guest_id), '[]'::jsonb) end);
 end $$;
 
@@ -126,6 +126,8 @@ begin
   select * into r from public.intake_resolve_v1(p_token_hash);
   if not found then return jsonb_build_object('ok', false, 'reason', 'invalid_token'); end if;
   if r.guest_id is null then return jsonb_build_object('ok', false, 'reason', 'no_guest_record'); end if;
+  -- Two submits at once would both pass the 12 people and 12 photos counts before either wrote; one lock on the guest row serialises them.
+  perform 1 from public.guests where id = r.guest_id for update;
   v_name := regexp_replace(btrim(coalesce(p_name, '')), '\s+', ' ', 'g');
   if char_length(v_name) not between 2 and 120 or v_name ~ '[0-9]{4}' then
     raise exception using errcode = '22023', message = 'name invalid';

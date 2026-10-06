@@ -1,7 +1,7 @@
 -- Session 74, SPEC-42 s4b: guest self-service intake RPCs. Synthetic property, guests, bookings and tokens only, inside begin/rollback.
 -- Tokens are looked up by hash, so each case stores a made-up 64-hex hash. Fake storage objects are plain storage.objects rows.
 begin;
-select plan(55);
+select plan(57);
 
 -- 1-5 the surface
 select ok((select bool_and(p.prosecdef and p.proconfig = array['search_path=""']) from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -25,6 +25,9 @@ select ok(not has_function_privilege('service_role', 'public.intake_resolve_v1(t
   'the two internal helpers are not callable by service_role or authenticated');
 select ok(not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.pronamespace = 'public'::regnamespace and p.proname like 'intake\_%' and a.grantee = 0),
   'PUBLIC has no execute grant on any of them');
+
+select ok((select p.prosrc ~ 'perform 1 from public.guests where id = r.guest_id for update' from pg_proc p where p.oid = 'public.intake_save_guest_companion_v1(text,text,text,text,text)'::regprocedure),
+  'the companion RPC locks the guest row first, so two submits at once cannot both pass the count checks');
 
 -- 6-7 SPEC-40 / D-292: this release leaves the ID photo bucket and its policies exactly as they were
 select ok((select not public and file_size_limit = 10485760 and allowed_mime_types = array['image/jpeg','image/png','image/webp'] from storage.buckets where id = 'guest-id-photos'),
@@ -108,6 +111,7 @@ set local role service_role;
 -- 37-38 attach a photo
 select is((public.intake_save_guest_companion_v1(repeat('a1', 32), 'Zz Intake Guest', null, current_setting('cascade.cid') || '/2c1c2c1c-0000-4000-8000-000000000001.jpg', null) ->> 'unchanged')::boolean, false, 'a photo whose object exists attaches');
 select is((public.intake_guest_context_v1(repeat('a1', 32)) -> 'people' -> 0 ->> 'has_id')::boolean, true, 'the context now shows that person has an ID, without the path');
+select is((select array_agg(k order by k) from jsonb_object_keys(public.intake_guest_context_v1(repeat('a1', 32)) -> 'people' -> 0) k), array['has_id','id_type','name']::text[], 'a person in the context carries a name, an ID type and has_id, never a row id or path');
 
 reset role;
 -- 39-45 what was written, and with what provenance

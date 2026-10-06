@@ -51,6 +51,8 @@ test('the Before you arrive form asks for a name, a mobile, an ID type and a pho
   assert.match(form, /we never record the ID number/);
   assert.match(form, /guest-intake/);
   assert.match(form, /'Content-Type': 'application\/json' \}, body: JSON\.stringify\(\{ token: t, action: 'context' \}\)/);
-  assert.match(form, /fd\.append\('token', t\)/, 'the token travels in the body, never the URL');
+  assert.match(form, /headers: \{ 'x-guest-token': t \}/, 'the token travels in a header, never the URL or the form');
+  assert.doesNotMatch(form, /fd\.append\('token'/);
+  assert.match(form, /done\(b \|\| file\)/, 'the re-encoded copy (no camera metadata) is always the one sent');
   assert.match(stay, /if \(s\.state === 'confirmed'\) loadIntake\(token\(\), ''\);/, 'the form is asked for only on a confirmed booking');
 });

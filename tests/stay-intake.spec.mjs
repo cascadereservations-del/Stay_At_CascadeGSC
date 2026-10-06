@@ -26,7 +26,7 @@ async function mock(page, { status = confirmed, intake = context(), intakeStatus
   await page.route('**/functions/v1/guest-intake', async (route) => {
     const req = route.request();
     if ((req.headers()['content-type'] || '').startsWith('multipart/form-data')) {
-      seen.submit.push({ url: req.url(), body: req.postDataBuffer().toString('latin1') });
+      seen.submit.push({ url: req.url(), token: req.headers()['x-guest-token'], body: req.postDataBuffer().toString('latin1') });
       const body = post(seen.submit.length);
       return route.fulfill({ status: body.status || 200, contentType: 'application/json', body: JSON.stringify(body) });
     }
@@ -76,8 +76,8 @@ test.describe('guest intake form', () => {
     expect(seen.submit).toHaveLength(1);
     const body = seen.submit[0].body;
     expect(seen.submit[0].url).not.toContain(TOKEN);
-    expect(body).toContain('name="token"');
-    expect(body).toContain(TOKEN);
+    expect(body).not.toContain(TOKEN);
+    expect(seen.submit[0].token).toBe(TOKEN);
     expect(body).toContain('name="photo_0"');
     expect(body).toContain('"name":"Ben Cruz"');
     expect(body).toContain('"id_type":"passport"');
