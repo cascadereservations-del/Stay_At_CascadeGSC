@@ -80,3 +80,64 @@ Deno.test('D-306: the inquiry draft card posted in OPS masks the guest own amoun
   const fin = inquiryDraftCard({ view: iqView, purpose: 'reply', pid: 'p1-0000-4000-8000-000000000001', d });
   assertStringIncludes(fin.text, 'PHP 1,780');
 });
+
+// ---- SPEC-39 section 6 (BRIEF H, D-296.3): Marifel's Airbnb register, checked in code. Synthetic guests only. ----
+import { airbnbTone, calmMoment, AIRBNB_HOST_REGISTER } from './draft.ts';
+import { postDraft } from './policy.ts';
+const SIGN = 'Marifel & The Cascade Team\nHotel Comfort. Home Warmth.';
+const WARM = `Hi Dale! 🌿 Thank you for your interest in Cascade Hideaway po.\n\nOct 20 to 22 is open, and we'd be delighted to host the two of you. The unit has fiber Wi-Fi, a full kitchen and free parking inside our gated village.\n\nKapag ready na po kayo, just send a booking request on the listing and we'll confirm right away.\n${SIGN}`;
+const CALM = `Hi Joseph. Yes, you don't need to check out today. The reminder was sent automatically by mistake, and we're sorry for the confusion. Your check-out remains 12:00 NN on Oct 5. Thank you for your understanding.\n${SIGN}`;
+
+Deno.test('SPEC-39 airbnbTone: the playbook examples pass; each rule fails by construction', () => {
+  assertEquals(airbnbTone(WARM, false), []);
+  assertEquals(airbnbTone(CALM, true), []);
+  const fails = (m: string, calm = false) => airbnbTone(m, calm);
+  assert(fails(WARM.replace('fiber Wi-Fi', 'wonderful fiber Wi-Fi')).includes('exclaim'));
+  assert(fails(WARM.replace('Thank you for', 'Rest assured, thank you for')).includes('boilerplate'));
+  assert(fails(WARM.replace('just send', 'book now, only 2 nights left - just send')).includes('urgency'));
+  for (const off of ['https://tinyurl.com/x', 'GCash 0956 011 5744', 'scan the QR', 'call 0917 123 4567', 'mail me at a@example.com'])
+    assert(fails(WARM.replace('just send', `${off} or just send`)).includes('off_platform'), off);
+  assert(fails(WARM.replace('just send', 'we can offer a discount, just send')).includes('promise'));
+  assert(fails(CALM.replace('Your check-out', 'Late check-out is fine. Your check-out'), true).includes('promise'));
+  assert(fails(WARM.replace(`\n${SIGN}`, '')).includes('no_sign_off'));
+  assert(fails(WARM.replace('Cascade Hideaway po.', 'Cascade Hideaway po, salamat po, ingat po.')).includes('po_over_two'));
+  assert(fails(WARM.replace('Thank you for', "I'm Cassy. Thank you for")).includes('not_marifel'));
+  assert(fails(WARM.replace('we\'ll confirm', 'our host will confirm')).includes('not_marifel'));
+  assert(fails(WARM.replace('right away.', 'right away!')).includes('exclamation_after_greeting'));
+  assertEquals(fails(CALM.replace('Hi Joseph.', 'Hi Joseph!'), true), ['exclamation_in_calm']);
+  assertEquals(fails(CALM.replace('understanding.', 'understanding. 💚'), true), ['emoji_in_calm']);
+});
+
+Deno.test('SPEC-39 calmMoment: the calm list (complaint, safety, access, refund, cancellation, payment, our mistake)', () => {
+  for (const r of ['complaint', 'safety', 'access', 'refund', 'cancellation', 'payment']) assertEquals(calmMoment('hello', r), true, r);
+  assertEquals(calmMoment("I don't have to check out today do I", 'routine'), true);
+  assertEquals(calmMoment('The aircon stopped working, it is so hot', 'routine'), true);
+  assertEquals(calmMoment('Available po ba Oct 20-22? 2 kami', 'routine'), false);
+  assertEquals(calmMoment('Can you give a discount for 5 nights?', 'policy_exception'), false);
+});
+
+Deno.test('SPEC-39 (D-300.1): forHost drops the initial-message signature - the host signs as herself', async () => {
+  const { forHost } = await import('./draft.ts');
+  assertEquals(forHost(`Hi Ana, thank you for reaching out.\n\nWhich dates are you looking at?\n\nCassy, Cascade Concierge`), 'Hi Ana, thank you for reaching out.\n\nWhich dates are you looking at?');
+  assert(AIRBNB_HOST_REGISTER.includes('Marifel & The Cascade Team') && /never Cassy/.test(AIRBNB_HOST_REGISTER));
+});
+
+Deno.test('D-306 (SPEC-39 change): a money-shaped Airbnb or concierge draft asked in OPS goes to Finance; OPS gets no amount', async () => {
+  const sent: Array<{ chat: string; text: string }> = [];
+  const send = (chat: string, text: string) => { sent.push({ chat, text }); return Promise.resolve(true); };
+  const draft = `Hi Dale! Oct 20 to 22 comes to ₱3,382, and the ₱1,691 reservation fee holds the dates (GCash 0956 011 5744).\n${SIGN}`;
+  const head = '✍️ Guest reply · Dale · Airbnb\n⚠️ Airbnb voice check: off_platform. Read it before sending.';
+  const r = await postDraft(send, { surface: 'ops', chatId: 'ops-chat', financeChat: 'fin-chat', refused: 'Posted in Finance.', parts: [head, draft] });
+  assertEquals(r.toFinance, true);
+  const ops = sent.filter((s) => s.chat === 'ops-chat').map((s) => s.text).join('\n');
+  assert(!/3,382|1,691|0956/.test(ops), ops);
+  assert(sent.some((s) => s.chat === 'fin-chat' && s.text.includes('₱3,382')));
+});
+Deno.test('SPEC-39 airbnb golden: the playbook examples meet their own cases (a case nothing can pass proves nothing)', async () => {
+  const { CASES } = await import('./airbnb-draft.golden.ts');
+  const ok = (id: string, m: string) => { const c = CASES.find((x) => x.id === id)!; return c.must.every((re) => re.test(m)) && !c.mustNot.some((re) => re.test(m)); };
+  assertEquals(CASES.length, 6);
+  assertEquals(ok('inquiry-tl', WARM), true);
+  assertEquals(ok('our-mistake-calm', CALM), true);
+  assertEquals(ok('inquiry-en', WARM), false); // "po" for an English guest fails
+});

@@ -546,3 +546,21 @@ Deno.test('D-286 golden AFTER: a Bislish answer counts as an answer (naa / kay),
   assertEquals(lintReply('Ang Cascade kay hilom nga private retreat, suited to rest.', 'Pwede ba mi mag-party diri?').includes('no_answer'), false);
   assertEquals(lintReply('Unsa inyong dates?', 'Naa bay wifi?').includes('no_answer'), true);
 });
+
+// ---- SPEC-39 (session 72, D-299.10 / D-300): the signature never costs a paragraph and never fakes warmth; the prompt says so ----
+import { paragraphs } from './voice.ts';
+Deno.test('SPEC-39: the signature folds into the paragraph above it, a signed first reply lints clean, "delighted" is care', () => {
+  assertEquals(paragraphs('a\n\nb\n\nCassy, Cascade Concierge').length, 2);
+  const signed = `Hi Maria, thank you for reaching out to Cascade Hideaway. For a two-month stay, your direct rate comes down to PHP 1,335 per night from the standard PHP 1,780, about PHP 80,100 for the 60 nights instead of PHP 106,800, with drinking water for the stay and a complimentary mid-stay refresh included.\n\nWe'd be delighted to have you with us. Which dates are you looking at? Share your check-in and check-out here and we'll check the calendar for you right away.\n\nCassy, Cascade Concierge`;
+  assertEquals(lintReply(signed, 'Hello, can I ask for details regarding our booking good for two months?', { firstTurn: true }), []);
+  assertEquals(isCold('We have the unit ready for long stays with fibre Wi-Fi, a full kitchen, a washing machine, a smart TV and a dedicated workspace, and we would be delighted to host you for the whole month.'), false);
+  // the signature names Cassy, so it cannot count as the reply's warmth
+  assertEquals(isCold('The unit has fibre Wi-Fi, a full kitchen, a washing machine, a smart TV, a dedicated workspace for remote work and free parking in front of the unit.\n\nCassy, Cascade Concierge'), true);
+});
+Deno.test('SPEC-39: VOICE says the first reply carries no link and the site is code-decided; the compact prompt is whole (D-179)', () => {
+  const compact = voiceCompact();
+  assertEquals(compact.includes('The FIRST reply to a prospect carries NO link and ends on one gentle question about their dates'), true);
+  assertEquals(VOICE.includes('ends with the booking link, even for a bare greeting'), false);
+  assertEquals(compact.length > 20_000 && compact.includes('THE SHAPE OF EVERY REPLY') && compact.includes('BEFORE YOU ANSWER'), true);
+  assertEquals(OUTPUT_ANSWER.includes('Never ask for dates in "ask" on a first message'), true);
+});
