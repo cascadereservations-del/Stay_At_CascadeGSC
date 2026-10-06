@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "7c115ab70eb8ea736047ccab069aec5242b2e66c"
+    "commit": "bc551a086373634ed17ceddb58ee3e68675db05d"
   },
   "migrations": [
     "20261007110000_staff_pay_manila_day.sql",
@@ -12,16 +12,16 @@
     "20261007112000_record_inventory_usage_movement.sql"
   ],
   "migration_sha256": {
-    "20261007110000_staff_pay_manila_day.sql": "4086c9ab24bb51c0cf6edf4bff767653b0aba74e039c7bc9411bf0914a1b4ca0",
+    "20261007110000_staff_pay_manila_day.sql": "70f167c62446f0d33857b5e0b3f6297296b9d13b02186ec54001570e944910bd",
     "20261007111000_cleaner_rate_schedule_rls.sql": "f33e034308131584099957616491a4f75dba6678da58dc05107edf08bba5a5ca",
-    "20261007112000_record_inventory_usage_movement.sql": "19a714c0146a326cf7e09928e89236093d538c2fd469bdeaa3f125c1e210fa25"
+    "20261007112000_record_inventory_usage_movement.sql": "47720368889f0f17840b28a15d7c3cfab65125cd22c2b8d679ed21da252e4896"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING",
     "verified_at": "1970-01-01T00:00:00Z",
-    "production_rule": "Three independent changes, no table or column change, no data change. (1) staff_pay_candidates_v1 and staff_pay_request_create_v1 are patched from their LIVE bodies: cleaned_at::date becomes the Manila date. (2) cleaner_rate_schedule: every policy dropped, one SELECT policy (read_operations) added, anon/authenticated reduced to SELECT; admin_add_pay_rate_v1 stays the only writer. (3) record_inventory_usage v3: same signature, writes one kind=usage inventory_stock_movements row per usage that changes stock. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+    "production_rule": "Three independent changes, no table or column change, no data change. (1) staff_pay_candidates_v1 and staff_pay_request_create_v1 are patched from their LIVE bodies: cleaned_at::date becomes the Manila date. (2) cleaner_rate_schedule: every policy dropped, one SELECT policy (read_operations) added, anon/authenticated reduced to SELECT; admin_add_pay_rate_v1 stays the only writer. (3) record_inventory_usage v3: same signature; a movement-controlled item gets its kind=usage inventory_stock_movements row even when a cleaner logs it (v2 refused the cleaner); a not-controlled item keeps the legacy clamp and writes NO movement. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
     {
@@ -51,7 +51,7 @@
     },
     {
       "name": "record_inventory_usage_v3_same_signature_writes_movements",
-      "query": "select pg_get_function_identity_arguments('public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) = 'p_property_id uuid, p_session_date date, p_logged_by text, p_notes text, p_rows jsonb' and (select prosecdef from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) and (select prosrc like '%insert into public.inventory_stock_movements%' and prosrc not like '%inventory_apply_event_v1%' from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) and has_function_privilege('authenticated', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute') and has_function_privilege('service_role', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute') and not has_function_privilege('anon', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute')",
+      "query": "select pg_get_function_identity_arguments('public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) = 'p_property_id uuid, p_session_date date, p_logged_by text, p_notes text, p_rows jsonb' and (select prosecdef from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) and (select prosrc like '%insert into public.inventory_stock_movements%' and prosrc like '%if v_controlled and v_after <> v_before then%' and prosrc not like '%inventory_apply_event_v1%' from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure) and has_function_privilege('authenticated', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute') and has_function_privilege('service_role', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute') and not has_function_privilege('anon', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute')",
       "expect": true
     }
   ],
@@ -76,8 +76,8 @@
     "old_reader": true,
     "old_writer": false,
     "verified": false,
-    "rehearsal": "PENDING: rehearse on a disposable restore of a fresh production backup, then pgTAP staff_pay_manila_day.sql 8/8, cleaner_rate_schedule_rls.sql 22/22, record_inventory_usage_movement.sql 22/22, and the neighbours staff_pay_requests.sql, d301_pay_rates_tasks.sql, inventory_movement_compat_v1.sql, inventory_check_controlled_items_only.sql. Neighbour misses that are function-EXECUTE assertions are the --no-acl artifact. Before the apply, read md5(prosrc) of staff_pay_candidates_v1 / staff_pay_request_create_v1 on production only if curious: the migration patches whatever is live and stops if it cannot.",
-    "evidence": "Direct writers of cleaner_rate_schedule: none in admin-dashboard/app/src (pay-rates-api.ts calls admin_pay_rates_v1 and admin_add_pay_rate_v1), staff-app, CH-Cleaners-Checklist or any Edge Function (telegram-expense and submit-cleaning only SELECT, with the service key). Readers as a signed-in user: the airbnb_cleans / airbnb_cleaner_summary views (security_invoker) - owner/admin hold read_operations. record_inventory_usage: 612 usage rows, all consumables, 0 movement-controlled items at 2026-10-07, so v3 starts writing movements for uncontrolled items only; the ledger health check judges controlled items only."
+    "rehearsal": "PENDING: rehearse on a disposable restore of a fresh production backup, then pgTAP staff_pay_manila_day.sql 8/8, cleaner_rate_schedule_rls.sql 22/22, record_inventory_usage_movement.sql 19/19, and the neighbours staff_pay_requests.sql, d301_pay_rates_tasks.sql, inventory_movement_compat_v1.sql, inventory_check_controlled_items_only.sql. Neighbour misses that are function-EXECUTE assertions are the --no-acl artifact. Before the apply, read md5(prosrc) of staff_pay_candidates_v1 / staff_pay_request_create_v1 on production only if curious: the migration patches whatever is live and stops if it cannot.",
+    "evidence": "Direct writers of cleaner_rate_schedule: none in admin-dashboard/app/src (pay-rates-api.ts calls admin_pay_rates_v1 and admin_add_pay_rate_v1), staff-app, CH-Cleaners-Checklist or any Edge Function (telegram-expense and submit-cleaning only SELECT, with the service key). Readers as a signed-in user: the airbnb_cleans / airbnb_cleaner_summary views (security_invoker) - owner/admin hold read_operations. record_inventory_usage: 612 usage rows, all consumables, 0 movement-controlled items at 2026-10-07, so v3 changes nothing for them (no movement for uncontrolled items); it fixes the controlled path for a cleaner, which v2 refused."
   },
   "approvals": {
     "production_required": true,
