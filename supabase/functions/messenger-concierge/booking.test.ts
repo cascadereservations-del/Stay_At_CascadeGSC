@@ -370,4 +370,8 @@ Deno.test('SPEC-39 audit round 3: usabon / ibalhin are changes; a held date, "th
   assertEquals(answer(f, 'adjust the hold until Oct 19 please?', now).action === 'change', false);
   assertEquals(answer(f, 'Oct 19 na lang bayad ko, Oct 20 check-in pa rin', now).action === 'change', false);
   assertEquals(answer(f, 'babayaran ko na lang buo sa Oct 19', now).action, 'requote_full');
+  // A change word with a range stays a change beside a payment word; a single payment day does not.
+  assertEquals(answer(f, "move to Oct 25 to 27 and I'll pay the balance", now).action, 'change');
+  assertEquals(answer(f, 'pwede ilipat sa Oct 25 to 27, send ko bayad later', now).action, 'change');
+  assertEquals(answer(f, 'Pwede Oct 10 na lang bayad instead?', now).action === 'change', false);
 });

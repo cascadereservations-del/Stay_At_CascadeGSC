@@ -638,9 +638,10 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       const wantsFull = PAY_FULL_RE.test(text);
       // "na lang" moves the stay only with a date RANGE ("Oct 21 to 23 na lang po"); with one date it is usually the payment day,
       // as is any single date beside a payment word ("Pwede Oct 10 na lang bayad instead?").
-      const asks = CHANGE_RE.test(text) || (d.length === 2 && /\b(na ?lang|nalang)\b/i.test(text));
-      const payDay = PAY_DAY_RE.test(text); // a payment word beside a date: "Oct 19 na lang bayad ko, Oct 20 check-in pa rin" 
-      if (newDates && asks && !wantsFull && !payDay) return { flow: f, reply: null, action: 'change' };
+      const verb = CHANGE_RE.test(text), asks = verb || (d.length === 2 && /\b(na ?lang|nalang)\b/i.test(text));
+      const payDay = PAY_DAY_RE.test(text); // a payment word beside a date: "Oct 19 na lang bayad ko, Oct 20 check-in pa rin"
+      // A change word with a date RANGE is a change even beside a payment word ("move to Oct 25 to 27 and I'll pay the balance").
+      if (newDates && asks && !wantsFull && ((verb && !!d[1]) || !payDay)) return { flow: f, reply: null, action: 'change' };
       if (text.includes('?') && !wantsFull) return { flow: f, reply: null, action: 'passthrough' };
       const who = P.first(f.name ?? name), full = (f.deposit ?? 0) >= (f.total ?? 0);
       if (wantsFull && full) return ask(P.feeAckLine(who, peso(f.deposit ?? 0), true, L));
