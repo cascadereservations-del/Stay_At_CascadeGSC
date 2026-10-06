@@ -279,3 +279,22 @@ Deno.test('s73 R4-2: a past stay mentioned beside a price ask is priced', () => 
   assert(priceAnchor(['same as last year po, Oct 19 to 21, how much?'], now).text.includes('PHP 3,382'));
   assertEquals(stayOf(['we stayed Oct 1 to 3 last year']), null);
 });
+
+// S74 cache: Gemini's implicit cache matches the START of the prompt, so everything static must come first and the per-turn
+// blocks last; the OUTPUT contract still follows the voice exemplars (live 2026-09-13).
+Deno.test('S74 cache: the concierge system prompt is static first (voice, FACTS, contract), per-turn last (name, landmarks, availability)', async () => {
+  const systems: string[] = [], real = globalThis.fetch;
+  globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
+    if (!String(url).includes('openrouter.ai')) return Promise.resolve(new Response('{}', { status: 500 }));
+    const sys = String(JSON.parse(String(init?.body ?? '{}')).messages?.[0]?.content ?? '');
+    if (sys.includes('GUEST FIRST NAME:')) systems.push(sys);
+    return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ answer: 'ok', ask: null, uncertain: false }) }, finish_reason: 'stop' }] }), { status: 200 }));
+  }) as typeof fetch;
+  setProviderKey('test');
+  try { await turn('Hi, how much for Oct 19 to 21?', null); } finally { globalThis.fetch = real; setProviderKey(null); }
+  assert(systems.length > 0, 'the brain was called');
+  const s = systems[0], at = (m: string) => { const i = s.indexOf(m); assert(i >= 0, m); return i; };
+  const order = [at('REFERENCE REPLIES ('), at('\nFACTS\n'), at('OUTPUT: JSON only'), at('GUEST FIRST NAME:'), at('\nLANDMARKS\n'), at('\nAVAILABILITY\n')];
+  assertEquals(order, [...order].sort((a, b) => a - b), 'voice exemplars, FACTS, contract, then the per-turn blocks');
+  assert(s.indexOf('GUEST FIRST NAME:') === s.lastIndexOf('GUEST FIRST NAME:'), 'the name block appears once (the contract only mentions it in words)');
+});

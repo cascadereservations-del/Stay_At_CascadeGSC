@@ -27,7 +27,7 @@ import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, OUTPUT_ANSWER, SITE_URL, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
 import { currentCard, livePromos, loadCard, tierRate } from '../_shared/cascade-core/pricing.ts';
-import { chatJson, geminiBreaker, setProviderKey } from '../_shared/cascade-core/providers.ts';
+import { chatJson, geminiBreaker, setProviderKey, startProbeTotals } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
 import { withHeader } from '../_shared/cascade-core/format.ts';
@@ -360,9 +360,11 @@ async function landmarksBlock(db: Db): Promise<string> {
 // 2026-09-13 every follow-up ran on 1,751 of ~30,000 characters: no Cassy persona, none of the three native protocols,
 // no voice rules. The cut is now made at the HEADING line, in facts.ts, and voice.test.ts asserts what it keeps.
 // SPEC-34: VOICE and FACTS are refilled from the rate card loaded for this turn (a promotion block when one is live).
+// S74 cache: static blocks first (voice, FACTS, contract), per-turn ones last (name, landmarks, availability), so Gemini's implicit
+// prefix cache hits across turns (OpenRouter docs: keep the start of the message array stable, push variation to the end).
 const systemPrompt = (thread: Thread, availability: string, landmarks = '', compact = false, contract = OUTPUT_ANSWER) => {
   const card = currentCard(), voice = voiceFor(card);
-  return `${compact ? voiceCompact(voice) : voice}\n\n${contract}\n\nGUEST FIRST NAME: ${thread.guest_name ?? 'unknown'}\n\nFACTS\n${factsFor(card)}\n\nLANDMARKS\n${landmarks}\n\nAVAILABILITY\n${availability}`;
+  return `${compact ? voiceCompact(voice) : voice}\n\nFACTS\n${factsFor(card)}\n\n${contract}\n\nGUEST FIRST NAME: ${thread.guest_name ?? 'unknown'}\n\nLANDMARKS\n${landmarks}\n\nAVAILABILITY\n${availability}`;
 };
 
 // Language of the guest's message, decided in code so the instruction can ride on the user turn itself, where small
@@ -1411,6 +1413,7 @@ async function runProbe(body: string): Promise<Response> {
   const out: unknown[] = [];
   // D-254: probes never spend the guests' budget; golden runs have a key of their own (Lloyd 2026-09-26).
   setProviderKey((p.golden ? env('CASCADE_OPENROUTER_GOLDEN_RUN_KEY') : '') || env('CASCADE_OPENROUTER_PROBE_KEY') || null);
+  const totals = startProbeTotals(); // S74: cost and cache hits of this probe's own model calls
   try {
     await db.from('concierge_threads').delete().eq('psid', psid); // a fresh thread, always
     // D-269: Cassy's reply helper seeds the conversation a host pasted (guest and host lines, oldest first), so the brain
@@ -1438,7 +1441,7 @@ async function runProbe(body: string): Promise<Response> {
       out.push({ guest: turn.text ?? '[image]', reply, step: row?.booking_flow?.step ?? null, flow_lang: row?.booking_flow?.lang ?? null, risk: row?.last_risk ?? null,
         effects: calls.filter((c) => c.fx !== 'send'), chips: calls.filter((c) => c.fx === 'send').flatMap((c) => (c.detail as { chips?: string[] } | undefined)?.chips ?? []), lint: lintReply(reply, turn.text ?? '', { firstTurn: i === 0, name: row?.guest_name ?? null }), ms: Date.now() - t0 });
     }
-    return json({ ok: true, voice_compact_chars: voiceCompact().length, turns: out });
+    return json({ ok: true, voice_compact_chars: voiceCompact().length, cost_usd: totals.cost_usd, cached_tokens: totals.cached, input_tokens: totals.input, turns: out });
   } catch (e) {
     return json({ ok: false, error: String(e).slice(0, 300), turns: out }, 500);
   } finally {

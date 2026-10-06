@@ -5,6 +5,7 @@
 // 2026-10-20, SPEC-43). Gemini 3 calls send reasoning effort minimal + max_tokens headroom because hidden reasoning
 // cut a live reply at 696/700 on 2026-09-24,
 // CASCADE_GEMINI_BOT_KEY (the only Gemini key), CASCADE_GEMINI_MODEL (default gemini-3.6-flash).
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { recordUsage } from './usage.ts';
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GEMINI_MODEL = env('CASCADE_GEMINI_MODEL') || 'gemini-3.6-flash';
@@ -47,8 +48,19 @@ const orKey = () => keyOverride ?? env('CASCADE_OPENROUTER_BOT_KEY');
 // ponytail: the same module-level ceiling - that rare mid-probe guest turn is also tagged probe (audit 2026-10-04); scope the
 // override per request (AsyncLocalStorage) if probes ever overlap real guest traffic often enough to skew the governor.
 const probing = () => keyOverride !== null;
+// S74: a probe or golden run sums what its model calls cost and how much of the prompt the provider served from cache, so
+// golden-run.ts can print a total and stop at --budget-usd. Per request (AsyncLocalStorage), so concurrent probes on one warm
+// worker keep their own totals; runProbe calls startProbeTotals() first and reads the object last.
+export type ProbeTotals = { cost_usd: number; cached: number; input: number };
+const totalsStore = new AsyncLocalStorage<ProbeTotals>();
+export function startProbeTotals(): ProbeTotals { const t = { cost_usd: 0, cached: 0, input: 0 }; totalsStore.enterWith(t); return t; }
+const record = (u: Parameters<typeof recordUsage>[0]) => {
+  const t = totalsStore.getStore();
+  if (t && u.ok !== false) { t.cost_usd += u.cost_usd ?? 0; t.cached += u.cached ?? 0; t.input += u.input ?? 0; }
+  recordUsage(u);
+};
 // A thrown fetch (timeout, network) is a failed attempt too: record it with the error's name, then rethrow unchanged.
-const fetchFailed = (e: unknown, u: Parameters<typeof recordUsage>[0]): never => { recordUsage({ ...u, ok: false, error: `${u.provider}_${(e as Error)?.name ?? 'fetch_error'}`, probe: probing() }); throw e; };
+const fetchFailed = (e: unknown, u: Parameters<typeof recordUsage>[0]): never => { record({ ...u, ok: false, error: `${u.provider}_${(e as Error)?.name ?? 'fetch_error'}`, probe: probing() }); throw e; };
 
 async function gemini(q: ChatJsonRequest): Promise<string> {
   const row = { provider: 'gemini' as const, model: GEMINI_MODEL, title: q.title, tier: q.tier ?? 'full' };
@@ -61,9 +73,9 @@ async function gemini(q: ChatJsonRequest): Promise<string> {
     body: JSON.stringify({ system_instruction: { parts: [{ text: q.system }] }, contents, generationConfig: { temperature: q.temperature ?? 0.4, maxOutputTokens: q.maxTokens ?? 700, ...(q.plain ? {} : { responseMimeType: 'application/json' }) } }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
   }).catch((e) => fetchFailed(e, row));
-  if (!r.ok) { recordUsage({ ...row, ok: false, error: `gemini_${r.status}`, probe: probing() }); throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`); }
+  if (!r.ok) { record({ ...row, ok: false, error: `gemini_${r.status}`, probe: probing() }); throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`); }
   const j = await r.json();
-  const u = j?.usageMetadata; recordUsage({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount, probe: probing() });
+  const u = j?.usageMetadata; record({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount, cached: u?.cachedContentTokenCount, probe: probing() });
   return j?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 }
 
@@ -81,14 +93,14 @@ async function openaiChat(q: ChatJsonRequest, p: { name: 'openrouter' | 'omnirou
     body: JSON.stringify({ ...p.model, messages, temperature: q.temperature ?? 0.4, max_tokens: q.maxTokens ?? 700, ...(q.plain ? {} : { response_format: { type: 'json_object' } }) }),
     signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
   }).catch((e) => fetchFailed(e, row));
-  if (!r.ok) { recordUsage({ ...row, ok: false, error: `${p.name}_${r.status}`, probe: probing() }); throw new Error(`${p.name}_${r.status}: ${(await r.text()).slice(0, 300)}`); }
+  if (!r.ok) { record({ ...row, ok: false, error: `${p.name}_${r.status}`, probe: probing() }); throw new Error(`${p.name}_${r.status}: ${(await r.text()).slice(0, 300)}`); }
   const j = await r.json();
   const u = j?.usage;
   // A reply cut by max_tokens reads as a sentence that stops mid-word (live 2026-09-24): make it visible, and let the
   // caller fall back rather than send half a sentence. The provider DID answer, so the row is ok:true and names the cut in
   // `error` (tokens and cost kept): a truncation is our max_tokens, not an outage, and must not count toward V15 (D-294).
   const cut = j?.choices?.[0]?.finish_reason === 'length';
-  recordUsage({ ...row, model: j?.model ?? row.model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, ...(cut ? { error: `${p.name}_truncated` } : {}), probe: probing() });
+  record({ ...row, model: j?.model ?? row.model, input: u?.prompt_tokens, output: u?.completion_tokens, cached: u?.prompt_tokens_details?.cached_tokens, cost_usd: u?.cost, ...(cut ? { error: `${p.name}_truncated` } : {}), probe: probing() });
   if (cut) { console.warn('llm_truncated', JSON.stringify({ model: j?.model, title: q.title, output: u?.completion_tokens, reasoning: u?.completion_tokens_details?.reasoning_tokens })); throw new Error(`${p.name}_truncated`); }
   return j?.choices?.[0]?.message?.content ?? '';
 }
@@ -145,7 +157,7 @@ async function routineFirst(q: ChatJsonRequest): Promise<string | null> {
     const unusable = !out.trim() ? 'omniroute_routine_empty'
       : !q.plain && (() => { try { JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '').trim()); return false; } catch { return true; } })() ? 'omniroute_routine_unreadable' : '';
     // D-294: openaiChat logged the call ok; a reply we throw away is the free provider failing, so the governor sees it as one.
-    if (unusable) { recordUsage({ provider: 'omniroute', title: q.title, tier: 'routine', ok: false, error: unusable }); throw new Error(unusable); }
+    if (unusable) { record({ provider: 'omniroute', title: q.title, tier: 'routine', ok: false, error: unusable }); throw new Error(unusable); }
     return out;
   }
   catch (e) { console.error('omniroute_routine_failed_trying_paid', String(e).slice(0, 300)); return null; }
@@ -206,9 +218,9 @@ async function geminiTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
       }),
       signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
     }).catch((e) => fetchFailed(e, row));
-    if (!r.ok) { recordUsage({ ...row, ok: false, error: `gemini_${r.status}`, probe: probing() }); throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`); }
+    if (!r.ok) { record({ ...row, ok: false, error: `gemini_${r.status}`, probe: probing() }); throw new Error(`gemini_${r.status}: ${(await r.text()).slice(0, 300)}`); }
     const j = await r.json();
-    const u = j?.usageMetadata; recordUsage({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount, probe: probing() });
+    const u = j?.usageMetadata; record({ ...row, input: u?.promptTokenCount, output: u?.candidatesTokenCount, cached: u?.cachedContentTokenCount, probe: probing() });
     const parts: any[] = j?.candidates?.[0]?.content?.parts ?? [];
     const calls = parts.filter((p) => p.functionCall);
     if (!calls.length) return { text: parts.map((p) => p.text ?? '').join('').trim(), provider: 'gemini', model: GEMINI_MODEL, toolCalls };
@@ -241,12 +253,12 @@ async function openrouterTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
       body: JSON.stringify({ model: chosen, ...(g3 ? MINIMAL : {}), messages, tools, tool_choice: round === 0 && q.forceTool ? { type: 'function', function: { name: q.forceTool } } : (round < (q.maxRounds ?? 3) ? 'auto' : 'none'), temperature: q.temperature ?? 0.3, max_tokens: (q.maxTokens ?? 700) + (g3 ? REASONING_HEADROOM : 0) }),
       signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
     }).catch((e) => fetchFailed(e, row));
-    if (!r.ok) { recordUsage({ ...row, ok: false, error: `openrouter_${r.status}`, probe: probing() }); throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`); }
+    if (!r.ok) { record({ ...row, ok: false, error: `openrouter_${r.status}`, probe: probing() }); throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`); }
     const j = await r.json();
     model = j?.model ?? model;
     // SPEC-43 (Fable): the same truncation alarm as openaiChat - a cut tool round must not come back as an empty final answer.
     const u = j?.usage, cut = j?.choices?.[0]?.finish_reason === 'length';
-    recordUsage({ ...row, model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, ...(cut ? { error: 'openrouter_truncated' } : {}), probe: probing() });
+    record({ ...row, model, input: u?.prompt_tokens, output: u?.completion_tokens, cached: u?.prompt_tokens_details?.cached_tokens, cost_usd: u?.cost, ...(cut ? { error: 'openrouter_truncated' } : {}), probe: probing() });
     if (cut) { console.warn('llm_truncated', JSON.stringify({ model, title: q.title, output: u?.completion_tokens, reasoning: u?.completion_tokens_details?.reasoning_tokens })); throw new Error('openrouter_truncated'); }
     const msg = j?.choices?.[0]?.message ?? {};
     const calls: any[] = msg.tool_calls ?? [];

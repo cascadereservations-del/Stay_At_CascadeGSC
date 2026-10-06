@@ -124,3 +124,32 @@ Deno.test('SPEC-43 tools: the full tier carries reasoning and headroom, the deep
 Deno.test('SPEC-43: providers.ts names no retired gemini-2.5 model', async () => {
   assertEquals((await Deno.readTextFile(new URL('./cascade-core/providers.ts', import.meta.url))).includes('gemini-2.5'), false);
 });
+
+// S74 cache: OpenRouter reports prompt tokens served from the provider's cache in usage.prompt_tokens_details.cached_tokens.
+const usageStub = (usage: Record<string, unknown>) => { globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ model: 'google/gemini-3.6-flash', choices: [{ finish_reason: 'stop', message: { content: '{"ok":1}' } }], usage }), { status: 200 }))) as typeof fetch; };
+const usageLines = async (run: () => Promise<unknown>) => {
+  const logs: string[] = [], real = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.join(' ')); };
+  try { await run(); } finally { console.log = real; globalThis.fetch = realFetch; }
+  return logs.filter((l) => l.startsWith('llm_usage ')).map((l) => JSON.parse(l.slice('llm_usage '.length)));
+};
+
+Deno.test('S74 cache: cached prompt tokens ride on the llm_usage line, chat and tools paths', async () => {
+  geminiBreaker.until = 0;
+  const u = { prompt_tokens: 6211, completion_tokens: 80, cost: 0.0012, prompt_tokens_details: { cached_tokens: 5120, cache_write_tokens: 0 } };
+  usageStub(u); const chat = await usageLines(() => chatJson(q));
+  usageStub(u); const tools = await usageLines(() => chatTools(tq));
+  for (const l of [...chat, ...tools]) { assertEquals(l.input, 6211); assertEquals(l.cached, 5120); assertEquals(l.cost_usd, 0.0012); }
+  assertEquals(chat.length + tools.length, 2);
+  usageStub({ prompt_tokens: 100, completion_tokens: 5 }); // a provider that reports no cache detail: the field is absent, never 0
+  assertEquals('cached' in (await usageLines(() => chatJson(q)))[0], false);
+});
+
+Deno.test('S74 cache: a probe sums cost, cached and prompt tokens of its own calls', async () => {
+  geminiBreaker.until = 0;
+  const { startProbeTotals } = await import('./cascade-core/providers.ts');
+  const totals = startProbeTotals();
+  usageStub({ prompt_tokens: 1000, completion_tokens: 10, cost: 0.01, prompt_tokens_details: { cached_tokens: 800 } });
+  await usageLines(async () => { await chatJson(q); await chatJson(q); });
+  assertEquals(totals, { cost_usd: 0.02, cached: 1600, input: 2000 });
+});
