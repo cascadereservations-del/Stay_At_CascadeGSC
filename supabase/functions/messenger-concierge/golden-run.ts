@@ -4,7 +4,7 @@
 //   --concurrency N  N conversations in flight at once (default 4; --pause is per worker). Rows still print in case order, then run.
 //   --failed-from F  run only the conversations that have any failing (red cross) row in a previous GOLDEN-RUN*.md table (with --only: the overlap).
 //                    No file or no failures: exit 0.
-//   --max-convs N    stop launching after N conversations and mark the table "(stopped at max-convs)".
+//   --max-convs N    stop launching after N conversations (each run of a case counts: --runs 3 --max-convs 9 = 3 cases) and mark the table "(stopped at max-convs)".
 //   --budget-usd X   stop launching once the summed cost_usd the probe reports (index.ts runProbe, S74) reaches X; the table says "(stopped at budget-usd)".
 //                    Conversations already in flight finish, so the total can pass X by up to --concurrency conversations.
 //   The end line and the table header print the total cost and the cache-hit share (cached prompt tokens / prompt tokens).
@@ -75,7 +75,9 @@ async function worker() {
   while (next < jobs.length && !stopped) {
     if (maxConvs && next >= maxConvs) { stopped = 'max-convs'; break; }
     if (budget && cost >= budget) { stopped = 'budget-usd'; break; }
-    await conv(jobs[next++]);
+    const job = jobs[next++];
+    // s74 (Fable): one reset or timeout must not kill the run and lose every finished row.
+    await conv(job).catch((e) => { rows.push({ id: job.c.id, ci: job.ci, run: job.run, turn: 0, guest: '-', reply: '', fails: [`probe failed: ${String(e).slice(0, 200)}`], step: null, ms: 0 }); console.log(`[${++done}/${jobs.length}] ${job.c.id} run ${job.run}: probe failed`); });
     await sleep(pause); // free-tier pacing, per worker
   }
 }

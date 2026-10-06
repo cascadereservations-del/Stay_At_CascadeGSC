@@ -250,7 +250,7 @@ async function openrouterTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
     const row = { provider: 'openrouter' as const, model, title: q.title, tier: q.tier ?? 'full', round };
     const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env('CASCADE_OPENROUTER_BOT_KEY')}`, 'X-Title': q.title ?? 'Cascade' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${orKey()}`, 'X-Title': q.title ?? 'Cascade' }, // s74 (Fable): a probe spends its own key here too
       body: JSON.stringify({ model: chosen, ...(g3 ? MINIMAL : {}), messages, tools, tool_choice: round === 0 && q.forceTool ? { type: 'function', function: { name: q.forceTool } } : (round < (q.maxRounds ?? 3) ? 'auto' : 'none'), temperature: q.temperature ?? 0.3, max_tokens: (q.maxTokens ?? 700) + (g3 ? REASONING_HEADROOM : 0) }),
       signal: AbortSignal.timeout(q.timeoutMs ?? 25_000),
     }).catch((e) => fetchFailed(e, row));
@@ -277,7 +277,7 @@ async function openrouterTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
 
 /** Tool-calling chat with the same OpenRouter-then-Gemini order and breaker as chatJson (D-222). */
 export async function chatTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
-  const hasOr = Boolean(env('CASCADE_OPENROUTER_BOT_KEY'));
+  const hasOr = Boolean(orKey());
   if (q.tier === 'deep' && hasOr) return await openrouterTools(q);
   if (hasOr) {
     try { return await openrouterTools(q); } catch (e) {
