@@ -1,6 +1,6 @@
 // D-301: the cleaning fee comes from cleaner_rate_schedule (the table the dashboard Pay rates page writes through
 // admin_add_pay_rate_v1) and from nowhere else. No guessed default: a missing rate is "rate missing", never PHP 500.
-// Pure, so a test can run it (deno test telegram-expense/cleaning-fee.test.ts).
+// Pure, so a test can run it (deno test _shared/cleaning-fee.test.ts; telegram-expense and submit-cleaning bundle it).
 
 export type RateRow = { regular_rate?: unknown; general_rate?: unknown } | null | undefined;
 
@@ -21,3 +21,6 @@ export function manilaDate(ts: unknown, fallback: string): string {
 
 export const RATE_MISSING = (date: string) =>
   `⚠️ The pay rate for ${date} is missing, so there is no amount to suggest. Add it in the dashboard under Settings, Pay rates, or tap Edit amount and type what you paid.`;
+
+// The Finance "cleaning complete" line (submit-cleaning). Plain text pieces; the caller adds the emoji and Markdown.
+export const feeDueText = (fee: number | null): string => fee == null ? 'rate missing, set it in Settings, Pay rates' : `₱${fee}`;

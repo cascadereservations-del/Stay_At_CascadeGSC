@@ -50,6 +50,7 @@ import {
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
 //   cleaning session is recorded first; work-order failures only warn.
 import { withHeader, autoKeyboard } from '../_shared/cascade-core/format.ts';
+import { cleaningFeeFromRow, feeDueText } from '../_shared/cleaning-fee.ts';
 import { raiseWorkOrder, suggestFix, workOrderCard } from '../_shared/cascade-core/workorders.ts';
 
 // This recovered function predates generated database types. Keep its helper
@@ -141,14 +142,13 @@ function typeLabelOf(cleaningType: string): string {
 }
 
 
-// Resolve cleaner fee from the real cleaner_rate_schedule schema.
-// Latest effective_from <= today; general_rate for deep clean, regular_rate otherwise.
+// Resolve cleaner fee from cleaner_rate_schedule: latest effective_from <= today; general_rate for deep clean, regular_rate otherwise.
+// null = no usable rate (D-301: never a guessed 500). Only the Finance message shows it; fee_amount is written when Finance pays.
 async function resolveFee(
   supabase:     LegacyDatabaseClient,
   propertyId:   string | null,
   cleaningType: string,
-): Promise<number> {
-  const FALLBACK = 500;
+): Promise<number | null> {
   try {
     let q = supabase
       .from('cleaner_rate_schedule')
@@ -157,14 +157,10 @@ async function resolveFee(
       .order('effective_from', { ascending: false })
       .limit(1);
     if (propertyId) q = q.eq('property_id', propertyId);
-    const { data: row } = await q.maybeSingle();
-    if (!row) return FALLBACK;
-    const amt = cleaningType === 'deep_clean'
-      ? Number(row.general_rate ?? row.regular_rate)
-      : Number(row.regular_rate);
-    return Number.isFinite(amt) && amt > 0 ? amt : FALLBACK;
+    const { data: row, error } = await q.maybeSingle();
+    return error ? null : cleaningFeeFromRow(row, cleaningType);
   } catch (_) {
-    return FALLBACK;
+    return null;
   }
 }
 
@@ -275,7 +271,7 @@ async function dispatchFinanceCard(
       `\uD83D\uDCF7 Photos: ${totalPhotoCount} total  (pre:${precleanCount} | after:${aftercleanCount} | meter:${meterCount})`,
       `\u2705 Completion: 100%`,
       ``,
-      `\uD83D\uDCB0 *Fee due: \u20B1${feeAmount}*`,
+      `\uD83D\uDCB0 *Fee due: ${feeDueText(feeAmount)}*`,
       `\u2139\uFE0F Send /payclean to issue payment card.`,
     ];
     await tgPost(tgToken, 'sendMessage', {

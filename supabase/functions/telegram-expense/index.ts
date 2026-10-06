@@ -33,7 +33,7 @@ import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button
 import { blockNoted, blockRecorded, blockRefusal, BLOCK_PROMPTS } from './block.ts'; // SPEC-41: the OPS blocked-date card's answers and follow-ups
 import { feederFor, parseBrownoutReply, parseNoticeArgs, resolveDateOn } from './notice-args.ts'; // SPEC-41: the /brownout parser, shared with the Brownout follow-up
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
-import { cleaningFeeFromRow, manilaDate, RATE_MISSING } from './cleaning-fee.ts'; // D-301: no guessed 500, Manila pay day
+import { cleaningFeeFromRow, manilaDate, RATE_MISSING } from '../_shared/cleaning-fee.ts'; // D-301: no guessed 500, Manila pay day
 import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
 import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
 import { liveSendIO } from './inquiry-send.ts';

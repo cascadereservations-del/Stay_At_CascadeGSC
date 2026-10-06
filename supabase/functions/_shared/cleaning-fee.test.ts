@@ -1,4 +1,4 @@
-// deno test --no-check --allow-env telegram-expense/cleaning-fee.test.ts
+// deno test --no-check --allow-env _shared/cleaning-fee.test.ts
 // D-301: the cleaning fee is the schedule row or nothing. Synthetic numbers only.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { cleaningFeeFromRow, manilaDate, RATE_MISSING } from './cleaning-fee.ts';
@@ -40,4 +40,11 @@ Deno.test('the pay day of a clean is the Manila date: 23:30Z is already tomorrow
 Deno.test('the rate-missing line names the day and offers the two ways out', () => {
   const t = RATE_MISSING('2026-10-06');
   assertEquals(t.includes('2026-10-06') && t.includes('Pay rates') && t.includes('Edit amount'), true);
+});
+
+Deno.test('the Finance fee line shows the rate or says it is missing, never 500', async () => {
+  const { feeDueText } = await import('./cleaning-fee.ts');
+  assertEquals(feeDueText(1000), '₱1000');
+  assertEquals(feeDueText(null).startsWith('rate missing'), true);
+  assertEquals(feeDueText(null).includes('500'), false);
 });
