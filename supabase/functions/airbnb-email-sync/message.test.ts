@@ -2,7 +2,7 @@
 // Airbnb guest-message e-mail parsing (session 72, SPEC-42 section 2). Synthetic names, numbers and e-mails only (public repo).
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { parseGuestTap } from '../telegram-expense/guest.ts';
-import { buildPlan, cardText, extract, findNames, findPhone, handleMessage, matchStay, type MessageDeps, stripQuoted, type Stay } from './message.ts';
+import { buildPlan, cardText, extract, findNames, findPhone, gateMessages, handleMessage, logRow, matchStay, secretMatches, type MessageDeps, stripQuoted, type Stay } from './message.ts';
 
 const GID = 'e2000000-0000-4000-8000-0000000000c1';
 const cand = { guest_id: GID, name: 'Jonas Example', checkin: '2026-10-10', checkout: '2026-10-13', last_stay: null, id_on_file: false, has_contact: false, companions: [] as string[] };
@@ -59,6 +59,49 @@ Deno.test('extract: capped at six names, deduped, and money in the message never
   assert(!JSON.stringify(r).match(/4,?550|2,?800|PHP|₱/));
 });
 
+Deno.test('extract: a payment account number is not the guest phone unless a contact cue is beside it', () => {
+  assertEquals(findPhone('my gcash is 0917 123 4567'), null);
+  assertEquals(findPhone('maya account: 0917 123 4567'), null);
+  assertEquals(findPhone('gcash 0917 123 4567, call me on 0918 765 4321'), '09187654321');
+  assertEquals(findPhone('my gcash number is 0917 123 4567'), '09171234567', 'a contact cue beside it keeps the number');
+  assertEquals(findPhone('you can text me 0917 123 4567'), '09171234567');
+});
+
+Deno.test('extract: relation words are not names, parentheticals are dropped, and the booker is not their own companion', () => {
+  assertEquals(findNames('Guests are Mara Santos and her sister'), ['Mara Santos']);
+  assertEquals(findNames('Companions: Ana Cruz (wife), Ben Cruz'), ['Ana Cruz', 'Ben Cruz']);
+  assertEquals(findNames('Companions: Ana Cruz (wife, 30), Kuya Ben'), ['Ana Cruz']);
+  assertEquals(findNames('Companions: Lola Rosa, Tito Ben'), []);
+  const p = buildPlan({ phone: null, names: ['jonas EXAMPLE', 'Ana Cruz'] }, cand, null);
+  assert(p && p.kind === 'chat');
+  assertEquals([p.newNames, p.knownNames], [['Ana Cruz'], []]);
+});
+
+Deno.test('logRow: the event log row has no text, no subject and exactly the documented keys; an event without text is skipped', () => {
+  const ev = { gmail_message_id: 'SYNTH-msg-9', email_date: '2026-10-06T01:00:00Z', guest_first_name: 'Jonas', confirmation_code: 'HMSYNTH001', checkin_date: '2026-10-10', text: 'my number 0917 123 4567', subject: 'Jonas sent you a message' };
+  const row = logRow(ev, 'P');
+  assertEquals(row, { property_id: 'P', gmail_message_id: 'SYNTH-msg-9', email_type: 'message', email_date: '2026-10-06T01:00:00Z', subject: null,
+    raw_payload: { guest_first_name: 'Jonas', confirmation_code: 'HMSYNTH001' } });
+  assert(!JSON.stringify(row).includes('0917') && !JSON.stringify(row).includes('sent you'));
+  assertEquals(Object.keys(row!.raw_payload).sort(), ['confirmation_code', 'guest_first_name']);
+  assertEquals(logRow({ ...ev, text: undefined }, 'P'), null);
+  assertEquals(logRow({ ...ev, guest_first_name: undefined, confirmation_code: undefined }, 'P')!.raw_payload, { guest_first_name: null, confirmation_code: null });
+});
+
+Deno.test('secret gate: message events need the exact secret; unset, missing or wrong drops them; the old types always pass', () => {
+  assert(secretMatches('s3cret-synthetic', 's3cret-synthetic'));
+  assert(!secretMatches('s3cret-synthetic', 's3cret-synthetiC'));
+  assert(!secretMatches('s3cret', 's3cret-synthetic'), 'a prefix is not a match');
+  assert(!secretMatches(null, 's3cret-synthetic'));
+  assert(!secretMatches('anything', undefined), 'env var unset: refused');
+  assert(!secretMatches('', ''), 'empty is never a secret');
+  const evs = [{ email_type: 'booking' }, { email_type: 'message' }, { email_type: 'payout' }, { email_type: 'message' }];
+  assertEquals(gateMessages(evs, 'wrong', 's3cret-synthetic'), { events: [evs[0], evs[2]], refused: 2 });
+  assertEquals(gateMessages(evs, null, undefined), { events: [evs[0], evs[2]], refused: 2 });
+  assertEquals(gateMessages(evs, 's3cret-synthetic', 's3cret-synthetic'), { events: evs, refused: 0 });
+  assertEquals(gateMessages([{ email_type: 'message' }], 'wrong', 's3cret-synthetic').events.length, 0, 'only message events and refused: nothing left, the function answers 401');
+});
+
 Deno.test('stripQuoted: quote lines, the "wrote:" tail and the signature are cut; the text is capped', () => {
   assertEquals(stripQuoted('Thanks!\n> old\nMy number 09171234567\nOn Tue, Oct 6, 2026 Cascade wrote:\nsecret'), 'Thanks!\nMy number 09171234567');
   assertEquals(stripQuoted('x'.repeat(5000)).length, 2000);
@@ -96,7 +139,7 @@ Deno.test('plan: the phone on file in any format is not offered again; a differe
   assertEquals(buildPlan({ phone: '09171234567', names: [] }, { ...cand, has_contact: true }, '+63 917 123 4567'), null, 'same number, nothing new');
   const p = buildPlan({ phone: '09171234567', names: ['Ana Cruz', 'Jonas Example'] }, { ...cand, has_contact: true }, '0918 000 0000');
   assert(p && p.kind === 'chat');
-  assertEquals([p.phone, p.replacesPhone, p.newNames, p.knownNames, p.via], ['09171234567', true, ['Ana Cruz'], ['Jonas Example'], 'airbnb']);
+  assertEquals([p.phone, p.replacesPhone, p.newNames, p.knownNames, p.via], ['09171234567', true, ['Ana Cruz'], [], 'airbnb']);
   assertEquals(buildPlan({ phone: null, names: ['Jonas Example'] }, cand, null), null, 'only a name already on the record');
 });
 

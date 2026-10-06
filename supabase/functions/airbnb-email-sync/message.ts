@@ -22,7 +22,8 @@ export function stripQuoted(raw: unknown): string {
 }
 
 const PHONE = /(?<![\d+])(?:\+?63|0)[\s-]?9\d{2}[\s-]?\d{3}[\s-]?\d{4}(?!\d)/g;
-const PHONE_CUE = /\b(?:contact|cp|cell|mobile|number|no\.?|viber|whatsapp|whats\s?app|call|text|reach)\b[^\n\d+]{0,25}$/i;
+const PHONE_CUE = /\b(?:contact|cp|cell|mobile|phone|number|no\.?|viber|whatsapp|whats\s?app|call|text|reach)\b[^\n\d+]{0,25}$/i;
+const PAY_CUE = /\b(?:gcash|maya|account|acct)\b/i; // a payment account number is not the guest's contact, unless a contact cue sits beside it
 const HOST_PHONES = new Set(['09560115744']); // the property's payment number (the one ops-money.ts hides): a guest quoting it is not giving theirs
 
 /** The guest's Philippine mobile as 09XXXXXXXXX. Two different numbers: only one with a "my number" style cue before it counts, else none. */
@@ -30,7 +31,10 @@ export function findPhone(text: string): string | null {
   const found: Array<{ n: string; cued: boolean }> = [];
   for (const m of text.matchAll(PHONE)) {
     const n = normalizePhone(m[0]);
-    if (n && !HOST_PHONES.has(n)) found.push({ n, cued: PHONE_CUE.test(text.slice(Math.max(0, (m.index ?? 0) - 40), m.index ?? 0)) });
+    if (!n || HOST_PHONES.has(n)) continue;
+    const before = text.slice(Math.max(0, (m.index ?? 0) - 40), m.index ?? 0), cued = PHONE_CUE.test(before);
+    if (PAY_CUE.test(before) && !cued) continue;
+    found.push({ n, cued });
   }
   const distinct = [...new Set(found.map((f) => f.n))];
   if (distinct.length <= 1) return distinct[0] ?? null;
@@ -42,11 +46,11 @@ export function findPhone(text: string): string | null {
 const CUE = /\b(?:companions?|kasama(?:ng|n)?(?:\s+(?:ko|namin))?|kasamahan|names?(?:\s+of\s+(?:my\s+|the\s+)?(?:guests?|companions?|kasama))?|(?:other\s+)?guests?\s+(?:are|will\s+be|po\s+ay)|with\s+me(?:\s+(?:are|is))?|bisita)\b[\s:,-]*(?:(?:are|is|ay|si|sina|na\s+sina|ni)\b[\s:,-]*)?(.*)$/i;
 const SPLIT = /\s*(?:,|;|&|\/|\+|\band\b|\bat\b|\bsi\b|\bsina\b|\bni\b)\s*/i;
 const BULLET = /^\s*(?:\d{1,2}[.)]|[-•*])\s*(.+)$/;
-const STOP = new Set(['and', 'at', 'the', 'my', 'our', 'we', 'us', 'is', 'are', 'will', 'be', 'wife', 'husband', 'kids', 'kid', 'son', 'daughter', 'friends', 'friend', 'family', 'mom', 'dad', 'mother', 'father', 'adults', 'adult', 'children', 'child', 'baby', 'guests', 'guest', 'total', 'pax', 'persons', 'people', 'check', 'in', 'out', 'arrive', 'arrival', 'around', 'time', 'am', 'pm', 'ako', 'kami', 'sila', 'po', 'opo', 'thank', 'thanks', 'you', 'hello', 'hi', 'to', 'of', 'for', 'with', 'also', 'may', 'ang', 'ng', 'mga']);
+const STOP = new Set(['and', 'at', 'the', 'my', 'our', 'we', 'us', 'is', 'are', 'will', 'be', 'wife', 'husband', 'kids', 'kid', 'son', 'daughter', 'friends', 'friend', 'family', 'mom', 'dad', 'mother', 'father', 'adults', 'adult', 'children', 'child', 'baby', 'guests', 'guest', 'total', 'pax', 'persons', 'people', 'check', 'in', 'out', 'arrive', 'arrival', 'around', 'time', 'am', 'pm', 'her', 'his', 'their', 'sister', 'brother', 'cousin', 'partner', 'asawa', 'anak', 'lola', 'lolo', 'tita', 'tito', 'kuya', 'ate', 'ako', 'kami', 'sila', 'po', 'opo', 'thank', 'thanks', 'you', 'hello', 'hi', 'to', 'of', 'for', 'with', 'also', 'may', 'ang', 'ng', 'mga']);
 
 /** One person's name or null: 2-4 words of letters (. ' - allowed), none a stop word, via the same cleaner the /guest reader uses. */
 function asName(s: string): string | null {
-  const t = s.replace(/\s+/g, ' ').trim().replace(/[.!?:]+$/, '');
+  const t = s.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim().replace(/[.!?:]+$/, '');
   if (!/^[\p{L}][\p{L}.'-]*(?: [\p{L}][\p{L}.'-]*){1,3}$/u.test(t)) return null;
   const words = t.toLowerCase().split(' ');
   if (words.some((w) => STOP.has(w.replace(/[.]/g, ''))) || words.filter((w) => w.replace(/[.]/g, '').length >= 2).length < 2) return null;
@@ -55,7 +59,7 @@ function asName(s: string): string | null {
 
 export function findNames(text: string): string[] {
   const names: string[] = [];
-  const add = (chunk: string) => { for (const p of chunk.split(SPLIT)) { const n = asName(p); if (n) names.push(n); } };
+  const add = (chunk: string) => { for (const p of chunk.replace(/\([^)]*\)/g, ' ').split(SPLIT)) { const n = asName(p); if (n) names.push(n); } };
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const cue = CUE.exec(lines[i]);
@@ -81,6 +85,8 @@ export type Stay = { guest_id: string | null; guest_name: string | null; confirm
 
 export const fold = (s: unknown) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 const firstWord = (s: unknown) => fold(s).split(/\s+/)[0] ?? '';
+/** The booker's own name (folded first + last word): a guest listing themselves is not a companion. */
+const isOwn = (n: string, own: string) => { const a = fold(n).split(/\s+/), b = fold(own).split(/\s+/); return a[0] === b[0] && a[a.length - 1] === b[b.length - 1]; };
 
 /** The one confirmed stay this e-mail is about, or null (none, or more than one: no card). `stays` are confirmed rows from [today-2, today+120] days. */
 export function matchStay(stays: Stay[], ev: { confirmation_code?: string; guest_first_name?: string; checkin_date?: string; checkout_date?: string }): Stay | null {
@@ -96,7 +102,7 @@ export function matchStay(stays: Stay[], ev: { confirmation_code?: string; guest
 /** What Save would do: phone dropped when it equals the one on file, names already on the record move to "left as they are". Null = nothing new, no card. */
 export function buildPlan(read: { phone: string | null; names: string[] }, g: Candidate, phoneOnFile: string | null): Plan | null {
   const phone = read.phone && normalizePhone(phoneOnFile) === read.phone ? null : read.phone;
-  const plan = planFor({ kind: 'chat', names: read.names, phone }, g);
+  const plan = planFor({ kind: 'chat', names: read.names.filter((n) => !isOwn(n, g.name)), phone }, g);
   if (!plan || plan.kind !== 'chat') return null;
   return { ...plan, via: 'airbnb' };
 }
@@ -114,6 +120,29 @@ export type MessageDeps = {
 };
 /** What goes in the event log: counts and a match flag only. */
 export type MessageLog = { guest_first_name: string | null; confirmation_code: string | null; matched: boolean; has_phone: boolean; names_count: number; carded: boolean };
+
+/** The event-log row for a message event: who it names and when, never the text or the subject. Null (event skipped) when it carries no text. */
+export function logRow(ev: MessageEvent, propertyId: string) {
+  if (typeof ev.text !== 'string') return null;
+  return { property_id: propertyId, gmail_message_id: ev.gmail_message_id, email_type: 'message', email_date: ev.email_date, subject: null,
+    raw_payload: { guest_first_name: ev.guest_first_name ?? null, confirmation_code: ev.confirmation_code ?? null } };
+}
+
+/** Constant-time compare of the shared secret. An unset or empty expected value never matches. */
+export function secretMatches(given: string | null, expected: string | null | undefined): boolean {
+  if (!expected || !given) return false;
+  const enc = new TextEncoder(), a = enc.encode(given), b = enc.encode(expected);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return diff === 0;
+}
+
+/** Message events need the shared secret; the three old types pass untouched. `refused` counts the message events dropped. */
+export function gateMessages<T extends { email_type?: string }>(events: T[], given: string | null, expected: string | null | undefined): { events: T[]; refused: number } {
+  if (secretMatches(given, expected)) return { events, refused: 0 };
+  const kept = events.filter((e) => e?.email_type !== 'message');
+  return { events: kept, refused: events.length - kept.length };
+}
 
 const DAY = 86_400_000;
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);

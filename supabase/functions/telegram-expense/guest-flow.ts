@@ -104,8 +104,11 @@ export async function onGuestTap(d: Deps, cq: any): Promise<void> {
   if (!tap) { await d.answer(cq.id, 'That button is not valid. Nothing changed.'); return; }
   const peek = await take(d, tap.pid, false);
   if (!peek) { await d.answer(cq.id); await d.edit(chatId, mid, EXPIRED); return; }
-  if (peek.payload.from_id != null && String(peek.payload.from_id) !== String(cq.from?.id)) { // from_id null = a card posted by airbnb-email-sync for any owner/admin; the save RPCs still refuse an unmapped Telegram user
+  if (peek.payload.from_id != null && String(peek.payload.from_id) !== String(cq.from?.id)) {
     await d.answer(cq.id, `That card is ${String(peek.payload.from_name ?? 'someone else')}'s. Nothing changed.`); return; }
+  // from_id null = a card posted by airbnb-email-sync: only an owner/admin may act on it, checked BEFORE any take() so a refused tap leaves the row and the card alone.
+  // telegram_staff_actor_v1 is not callable by service_role, so the same check is read through the candidates RPC (it answers ok:false unless the tapper maps to a staff profile with manage_operations); any error fails closed.
+  if (peek.payload.from_id == null && 'error' in await candidates(d, cq.from?.id, 'zz')) { await d.answer(cq.id, 'Only the owner or admin can use this card. Nothing changed.'); return; }
 
   if (tap.act === 'cancel') { await take(d, tap.pid, true); await d.answer(cq.id); await d.edit(chatId, mid, CANCELLED); return; }
 

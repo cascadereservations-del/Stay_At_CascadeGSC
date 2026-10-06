@@ -10,12 +10,12 @@
  * companion names, matches ONE confirmed stay, and posts a single "details from Airbnb chat" card to OPS with Save and Cancel.
  * Nothing is sent to the guest, and the text is never stored: the function's event log keeps counts only.
  *
- * ---- Edit 1 of 3: add the new type to the counters in syncAirbnbEmails() --------------------------------------------------
+ * ---- Edit 1 of 4: add the new type to the counters in syncAirbnbEmails() --------------------------------------------------
  * FIND:     const counts = { booking: 0, payout: 0, cancellation: 0, skipped: 0, errors: 0 };
  * REPLACE:  const counts = { booking: 0, payout: 0, cancellation: 0, message: 0, skipped: 0, errors: 0 };
  * (Without this, counts[event.email_type]++ turns the 'message' counter into NaN. It does not stop the sync, but the log line lies.)
  *
- * ---- Edit 2 of 3: add the branch to parseMessage_() ---------------------------------------------------------------------
+ * ---- Edit 2 of 4: add the branch to parseMessage_() ---------------------------------------------------------------------
  * FIND (the last lines of parseMessage_):
  *     if (/^Canceled: Reservation/i.test(subject))
  *       return parseCancellation_(id, subject, body, dateIso);
@@ -31,10 +31,22 @@
  *     return null;
  * The three existing checks run first, so a booking, payout or cancellation e-mail can never be taken for a chat message.
  *
- * ---- Edit 3 of 3: paste everything below this block at the end of AirbnbEmailSync.gs -------------------------------------
+ * ---- Edit 3 of 4: paste everything below this block at the end of AirbnbEmailSync.gs -------------------------------------
+ *
+ * ---- Edit 4 of 4: send the shared secret with every batch, in postToEF_() --------------------------------------------------
+ * FIND:     'apikey':         AES_CONFIG.ANON_KEY,
+ * REPLACE:  'apikey':         AES_CONFIG.ANON_KEY,
+ *           'x-airbnb-sync-secret': PropertiesService.getScriptProperties().getProperty('AIRBNB_SYNC_SECRET') || '',
+ * The function refuses 'message' events (no card, HTTP 401 when a batch holds only messages) unless this header equals its AIRBNB_SYNC_SECRET
+ * environment variable. Lloyd sets BOTH values himself (Script Properties > AIRBNB_SYNC_SECRET here; Supabase function secrets there), the same
+ * value in each. No value is written in this file or anywhere in the repo. Booking, payout and cancellation e-mails are not gated yet.
  *
  * BEFORE YOU DEPLOY (the one open point in SPEC-42): open ONE real "new message" e-mail from a guest in the cascadereservations
- * inbox and check the three AES_MSG values below against it. The defaults are Airbnb's usual shape, not a verified one:
+ * inbox and check the AES_MSG values below against it. The defaults are Airbnb's usual shape, not a verified one:
+ *   - the real chat e-mail's SENDER matches AES_CONFIG.AIRBNB_SENDER ('automated@airbnb.com'): the sync only reads mail from that
+ *     address, so a chat e-mail sent from another Airbnb address is never seen (open it, read the From line, change AIRBNB_SENDER or the
+ *     search if it differs),
+ *   - the subject contains "sent you a message" or starts "New message from" (AES_MSG.SUBJECT, isGuestMessageEmail_),
  *   - the Reply-To / From address ends in @reply.airbnb.com (isGuestMessageEmail_),
  *   - the guest's first name is in the subject or the first line (guestFirstName_),
  *   - the message ends at the first footer line (AES_MSG.FOOTER).
@@ -47,6 +59,7 @@
 
 const AES_MSG = {
   REPLY_DOMAIN:  /@reply\.airbnb\.com/i,        // thread address Airbnb puts in Reply-To (or From) on chat e-mails
+  SUBJECT:       /sent you a message|^(?:re:\s*)?new message from/i,  // a chat e-mail says so in the subject; nothing else is read as one
   MAX_AGE_DAYS:  3,                              // older chat e-mails (including the first-run 180-day back-fill) are never sent
   MAX_CHARS:     2000,                           // the function cuts at 2,000 too
   // the guest's text ends at the first line that starts like one of these (Airbnb footer / quoted history)
@@ -58,7 +71,7 @@ const AES_MSG = {
 /** True for an Airbnb chat e-mail: the reply address is Airbnb's relay and it is recent enough to matter. */
 function isGuestMessageEmail_(msg, subject) {
   const ageDays = (Date.now() - msg.getDate().getTime()) / 86400000;
-  if (ageDays > AES_MSG.MAX_AGE_DAYS) return false;
+  if (ageDays > AES_MSG.MAX_AGE_DAYS || !AES_MSG.SUBJECT.test(subject)) return false;
   const reply = String(msg.getReplyTo() || '') + ' ' + String(msg.getFrom() || '');
   return AES_MSG.REPLY_DOMAIN.test(reply);
 }

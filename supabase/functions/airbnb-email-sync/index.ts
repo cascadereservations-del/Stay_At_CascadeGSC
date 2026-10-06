@@ -48,7 +48,7 @@ import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.t
 import { welcomeBack } from '../messenger-concierge/persona.ts';
 import { dmRange } from '../messenger-concierge/booking.ts';
 import { maskMoney } from '../_shared/ops-money.ts'; // D-306: OPS never shows booking money, guest-history free text included
-import { handleMessage, type MessageEvent } from './message.ts'; // session 72: guest-message e-mails -> one /guest review card in OPS
+import { gateMessages, handleMessage, logRow, type MessageEvent } from './message.ts'; // session 72: guest-message e-mails -> one /guest review card in OPS
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -93,10 +93,18 @@ Deno.serve(withObservability({ functionName: 'airbnb-email-sync', route: 'ops' }
       { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } });
   }
 
-  const events: EmailEvent[] = body?.events ?? [];
-  if (!Array.isArray(events) || events.length === 0)
+  const all: EmailEvent[] = body?.events ?? [];
+  if (!Array.isArray(all) || all.length === 0)
     return new Response(JSON.stringify({ inserted: 0, skipped: 0, errors: [] }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } });
+
+  // Session 72: this function is verify_jwt=false, so a message event (it can make an OPS card) must carry the shared secret. The 3 old types are not gated yet:
+  // gate them too once Lloyd has set AIRBNB_SYNC_SECRET and the GAS patch sends the header.
+  const { events, refused } = gateMessages(all, req.headers.get('x-airbnb-sync-secret'), Deno.env.get('AIRBNB_SYNC_SECRET'));
+  if (refused) console.warn(`airbnb-email-sync message_secret_refused count=${refused}`); // no card, no text logged
+  if (!events.length)
+    return new Response(JSON.stringify({ error: 'Unauthorized' }),
+      { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
   const results = { inserted: 0, skipped: 0, errors: [] as string[] };
   for (const event of events) {
@@ -178,16 +186,16 @@ async function processEvent(
   results: { inserted: number; skipped: number; errors: string[] }
 ): Promise<void> {
   // Session 72: a message event logs only who it names (first name, code); the counts are added after it is read. The text is never stored.
-  const isMessage = event.email_type === 'message';
-  if (isMessage && typeof event.text !== 'string') { results.skipped++; return; }
-  const { error: logErr } = await supabase.from('airbnb_email_events').insert({
+  const row = event.email_type === 'message' ? logRow(event as MessageEvent, PROPERTY_ID) : {
     property_id:      PROPERTY_ID,
     gmail_message_id: event.gmail_message_id,
     email_type:       event.email_type,
     email_date:       event.email_date,
-    subject:          isMessage ? null : event.subject,
-    raw_payload:      isMessage ? { guest_first_name: event.guest_first_name ?? null, confirmation_code: event.confirmation_code ?? null } : event,
-  });
+    subject:          event.subject,
+    raw_payload:      event,
+  };
+  if (!row) { results.skipped++; return; }
+  const { error: logErr } = await supabase.from('airbnb_email_events').insert(row);
   if (logErr) {
     if (logErr.code === '23505') { results.skipped++; return; }
     throw new Error(`log insert: ${logErr.message}`);
