@@ -36,7 +36,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
-import { evaluateGasResponse, GAS_TIMEOUT_MS } from './gas-response.ts';
+import { evaluateGasResponse, gasTimeoutMs } from './gas-response.ts';
 import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import {
@@ -447,6 +447,7 @@ async function checkUtilityAnomaly(
 }
 
 Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, async (req: Request) => {
+  const t0 = Date.now();   // the GAS abort is a deadline from here (gasTimeoutMs), not a flat wait
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
 
   try {
@@ -787,7 +788,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         method:  'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body:    JSON.stringify(operationalPayload),
-        signal:  AbortSignal.timeout(GAS_TIMEOUT_MS),
+        signal:  AbortSignal.timeout(gasTimeoutMs(t0)),
       }).then(async (res) => {
         const bodyText = await res.text().catch(() => '');
         const { failed, reason } = evaluateGasResponse(res.ok, res.status, bodyText);

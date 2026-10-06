@@ -433,3 +433,6 @@ verify_jwt = false
 
 [functions.rate-card]
 verify_jwt = false
+
+[functions.expire-cleaning-photos]
+verify_jwt = false
