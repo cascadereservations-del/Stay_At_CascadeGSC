@@ -174,3 +174,5 @@ export function scoreReply(c: Ctx): Score {
   return s;
 }
 export const failures = (s: Score): string[] => RUBRIC.filter((k) => s[k]).map((k) => `${k}: ${s[k]}`);
+/** --failed-from: the Conversation ids that have any ❌ row in a GOLDEN-RUN*.md table (an escaped `\| ❌` inside a reply is not a result cell). */
+export const failedIds = (md: string): string[] => [...new Set(md.split('\n').filter((l) => /^\| [^|\s]+ \| \d+ \| \d+ \|/.test(l) && /(?<!\\)\| ❌ /.test(l)).map((l) => l.split(' ')[1]))];
