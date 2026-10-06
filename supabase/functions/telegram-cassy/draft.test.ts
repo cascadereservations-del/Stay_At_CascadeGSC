@@ -388,3 +388,45 @@ Deno.test('s74: punctuation in code - calm drafts lose every "!", warm drafts op
   assertEquals((signed.match(/Marifel/g) ?? []).length, 1, signed);
   assertEquals(airbnbTone(airbnbFinish('Hi Ana! We would love to host you! See you soon!', 'en', false), false).includes('exclamation_after_greeting'), false);
 });
+
+// ---- s74 lane G2: Airbnb drafts see a short, redacted transcript; unit figures are not prices ----
+import { historyBlock } from './draft.ts';
+const HIST = [
+  { from: 'guest' as const, text: 'Hi, my number is 0917 123 4567, e-mail ana.cruz@example.com' },
+  { from: 'host' as const, text: 'The 5 nights come to PHP 8,010, pay at https://cascade.example.com/pay or GCash 0956 011 5744' },
+  { from: 'guest' as const, text: 'Ok. We arrive late, around 9 pm' },
+];
+
+Deno.test('s74 G2: historyBlock keeps the last 6 lines, caps each at 200 characters, and hides contacts and amounts', () => {
+  const b = historyBlock(HIST);
+  assertStringIncludes(b, 'Earlier in this chat');
+  assertStringIncludes(b, 'Guest: Ok. We arrive late, around 9 pm');
+  for (const secret of ['0917', '4567', 'ana.cruz', 'example.com', '8,010', '0956', '5744', 'https']) assert(!b.includes(secret), secret);
+  const many = Array.from({ length: 9 }, (_, i) => ({ from: 'guest' as const, text: `line ${i} ${'x'.repeat(400)}` }));
+  const lines = historyBlock(many).split('\n').filter((l) => l.startsWith('Guest:'));
+  assertEquals(lines.length, 6);
+  assert(lines[0].startsWith('Guest: line 3') && lines.every((l) => l.length <= 'Guest: '.length + 200));
+  assertEquals(historyBlock([]), '');
+});
+
+Deno.test('s74 G2: draftGuestReply passes the redacted earlier chat into an Airbnb draft prompt', async () => {
+  Deno.env.set('CASCADE_OPENROUTER_BOT_KEY', 'test-openrouter');
+  const realFetch = globalThis.fetch, bodies: string[] = [];
+  globalThis.fetch = ((_u: unknown, init?: RequestInit) => {
+    bodies.push(String(init?.body ?? ''));
+    return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reply: 'Hi Ana, thank you for letting us know.\nWe will check the booking and confirm here.\n\nMarifel & The Cascade Team\nHotel Comfort. Home Warmth.' }) } }] }), { status: 200 }));
+  }) as typeof fetch;
+  try { await draftGuestReply({}, 'airbnb: what time can we check in?', 'Ana', { before: HIST, platform: 'airbnb' }); } finally { globalThis.fetch = realFetch; }
+  const prompt = bodies.map((b) => { try { return JSON.parse(b).messages?.at(-1)?.content as string; } catch { return ''; } }).find((c) => c?.includes('Earlier in this chat')) ?? '';
+  assertStringIncludes(prompt, 'Guest: Ok. We arrive late, around 9 pm');
+  assertStringIncludes(prompt, 'what time can we check in?');
+  for (const secret of ['0917', 'ana.cruz', '8,010', '0956', 'cascade.example.com']) assert(!prompt.includes(secret), secret);
+});
+
+Deno.test('s74 G2: a number followed by a non-money unit is not a price; prices, k-amounts and bare 4-5 digit figures still are', () => {
+  for (const s of ['the wifi is 300 Mbps', 'a 120 minutes drive', 'it takes 120 minutes', 'for 90 mins', 'about 2 hrs', 'the unit is 100 sqm', 'around 45 sqm', 'a 2,000 mAh power bank', 'a 5000 mAh bank', 'a 1200 W inverter', 'the EcoFlow gives 1.2 kWh', '12 km away', 'under 20 kg', 'a 1 Gbps line',
+    'the battery is at 80%', 'the EcoFlow is charged to 80%'])
+    assertEquals(leakWith(s), [], s);
+  for (const s of ['it is 1,602 per night', 'P1602', 'about 1.6k a night', '1602 per night', 'it is 1602', 'for 12000', 'the rate is 1500', 'PHP 300 per hour', '₱2,000 mah', 'it is 80% off', 'a 10% discount', 'you will be charged 10% extra'])
+    assert(leakWith(s).includes('price'), s);
+});

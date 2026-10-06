@@ -18,6 +18,7 @@ import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.t
 import { threadForBooking } from '../_shared/cascade-core/messenger.ts'; // SPEC-38: the Messenger thread a request came from
 import { asLang, draftKeyboard, dueWhat, firstName, joinMessage, quotesReason, replyContext, siteNotes, stayShort, type InquiryView, type Lang } from '../_shared/cascade-core/inquiry.ts';
 import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
+import { redactForLog } from '../_shared/redaction.ts';
 
 /** "cassy reply: …", "cassy draft …", "cassy, how should I answer: …" -> the guest text (may be empty when a photo carries it). */
 export function draftRequest(text: string): { draft: boolean; text: string } {
@@ -195,6 +196,9 @@ export function calmMoment(guestText: string, risk: string): boolean {
   return ['complaint', 'safety', 'access', 'refund', 'cancellation', 'payment'].includes(risk)
     || /\b((?:by|our|a|an|the) (?:mistake|error)|in error|went wrong|something wrong|confus\w*|(?:do|did) (?:i|we) (?:have|need) to check ?out|don'?t (?:have|need) to check ?out|not working|stopped working|broken|sira|hindi gumagana|madumi|dirty|disappoint\w*)\b/i.test(guestText);
 }
+// s74 G2: "300 Mbps", "120 minutes", "100 sqm", "2,000 mAh", "battery at 80%" are figures, not prices (they forced the safe fallback).
+// A currency sign before the number keeps it a price; 1,602 / P1602 / 1.6k / "1602 per night" / "10% off" are untouched.
+const UNIT_FIG = /(?<![₱$]\s?|\bPHP\s?|\bP)\b\d+(?:[.,]\d+)*\s?(?:[gmk]bps|mb|gb|minutes?|mins?|hours?|hrs?|sq\.? ?m|sqm|m2|m²|km|kg|mah|kwh|wh|w|watts?)\b|\b(?:battery|humidity|signal|brightness|(?:charged|charging) (?:to|up to|at))\b[^.!?\n%]{0,20}\d+\s?%(?!\s?(?:off|discount|less|lower|cheaper|savings?))/gi;
 /** The Airbnb register checked in code (as voice.ts toneRules checks Cassy's). [] = clean. */
 export function airbnbTone(m: string, calm: boolean): string[] {
   const v: string[] = [], lines = m.trim().split('\n');
@@ -204,7 +208,8 @@ export function airbnbTone(m: string, calm: boolean): string[] {
   // s74 (Fable re-check): more rails, banks, socials, contact asks and TLDs - the realistic path is echoing the guest's own words.
   if (/https?:\/\/|www\.|\b[\w-]+\.(?:com|ph|me|net|org|ly|co|app|io|site)\b|\S+@\S+\.\w|(?:(?:\+?63|\b0)\s?|\b)9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\(0?9\d{2}\)\s?\d{3}[\s.-]?\d{4}|\bg[\s-]?cash\b|\bqr\b|\bpay ?maya\b|(?<!\bhi |\bhello )\bmaya\b|\b(?:bpi|bdo|metrobank|landbank|cebuana)\b|\bpalawan (?:express|pawnshop)\b|\bbank (?:transfer|deposit|account|details)\b|\bwhats ?app\b|\bviber\b|(?<!airbnb )\bmessenger\b|\b(?:facebook|instagram|insta|telegram|fb)\b|\bour page\b(?! on airbnb)|\boutside airbnb\b|\bon google\b|\bgoogle (?:us|it)\b|\bdot com\b|\b(?:e-?mail|text|dm|pm) (?:me|us)\b|\bcall us\b|\b(?:send|drop) us an? e-?mail\b|\bgive us a call\b|\bsearch (?:for )?us\b|(?<!airbnb )\bwebsite\b|\bcascade hideaway (?:site|page)\b/i.test(m) || /\bIG\b/.test(m)) v.push('off_platform');
   if (/\breserv\w*\s+direct(?:ly)?\b(?!\s+(?:through|on|via|in) (?:the )?airbnb)|\b(?:avoid|skip|save on|no) (?:the )?(?:airbnb )?(?:service )?fees?\b|\bcheaper\b(?![^.!?\n]*\bairbnb\b)|\bbook(?:ing)?\s+direct(?:ly)?\b(?!\s+(?:through|on|via|in) (?:the )?airbnb)|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b|\b(?:contact|message|text|call|reach|e-?mail|pay|reserve with|book with) (?:me|us) directly\b|\bbetter deal\b|\bdirect(?:ly)?\b[^.!?\n]{0,60}\b(?:text|message|call|whats ?app|viber|e-?mail|dm|pm) (?:me|us)\b|\b(?:pay|send|transfer|settle)\w*\s+(?:\w+\s+){0,2}deposit\b|\bdeposit\s+(?:of\s+)?(?:PHP|₱|P)?\s?\d/i.test(m)) v.push('direct_booking');
-  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\b(?!100\b)\d+(?:\.\d+)?\s?%(?!\s?(?:ready|sure|safe|clean|complete)|\s?of (?:our )?(?:guests|reviews))|\b(?:rate|price|drops? to|down to|for)\s+(?:is\s+|of\s+)?(?!20\d\d\b)\d{3,5}\b|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night|nightly)|\b\d+(?:\.\d+)?\s?k\b|\b(?!20\d\d\b)\d{4,5}\b|\b\w+teen hundred\b/i.test(m) || /\bP\d/.test(m)) v.push('price');
+  const pm = m.replace(UNIT_FIG, 'N');
+  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\b(?!100\b)\d+(?:\.\d+)?\s?%(?!\s?(?:ready|sure|safe|clean|complete)|\s?of (?:our )?(?:guests|reviews))|\b(?:rate|price|drops? to|down to|for)\s+(?:is\s+|of\s+)?(?!20\d\d\b)\d{3,5}\b|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night|nightly)|\b\d+(?:\.\d+)?\s?k\b|\b(?!20\d\d\b)\d{4,5}\b|\b\w+teen hundred\b/i.test(pm) || /\bP\d/.test(pm)) v.push('price');
   if (/\b(discount of|we can (?:offer|give) (?:you )?(?:a )?(?:discount|lower|special)|(?:full|a) refund (?:is|will be)|you(?:'ll| will) be refunded|late check-?out is fine|yes,? you can (?:check out|stay) late)\b/i.test(m)) v.push('promise');
   if (!SIGN_OFF_RE.test(m)) v.push('no_sign_off');
   if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
@@ -221,14 +226,24 @@ export function draftSystem(card: RateCard, airbnb: boolean, calm = false): stri
   return `${airbnb ? airbnbPrompt(base) : base}\n\nYou are drafting for the HOST to copy and send; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. ${channel} If dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
 }
 
+/** s74 G2: what an Airbnb draft may see of the earlier chat - the last 6 lines, 200 characters each, with every link, e-mail, phone
+ *  number and money amount hidden first (the draft is checked for exactly those), so history cannot leak them back into a reply. */
+export function historyBlock(before: Line[] = []): string {
+  const hide = (t: string) => maskMoney(redactForLog(t, 'guest')
+    .replace(/\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:com|ph|me|net|org|ly|co|app|io|site)\b\S*/gi, '[link hidden]')
+    .replace(/\+?\d(?:[\s().-]?\d){8,}/g, '[number hidden]'));
+  const lines = before.slice(-6).map((l) => `${l.from === 'guest' ? 'Guest' : 'Host'}: ${hide(String(l.text ?? '')).replace(/\s+/g, ' ').trim().slice(0, 200)}`);
+  return lines.length ? `Earlier in this chat (oldest first; anything in [brackets] was hidden - never repeat or guess it):\n${lines.join('\n')}\n` : '';
+}
+
 // deno-lint-ignore no-explicit-any
-export async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean, hint = '', calm = false): Promise<string> {
+export async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean, hint = '', calm = false, before: Line[] = []): Promise<string> {
   const card = await loadCard(db); await loadContact(db);
   const system = draftSystem(card, airbnb, calm);
   const datesAsked = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}[\/-]\d{1,2}|\b(?:available|avail|vacant|bakante|free)\b|\bcheck-?\s?(?:in|out)\b|\b(?:today|tomorrow|tonight|extend|another night)\b/i.test(guestText);
   // s74 (Fable): "I don't have to check out today do I" got "your check-out is today" / an invented "October 27th".
   const datesHint = datesAsked && !hint ? "[The guest mentions dates, availability or their stay. You cannot see the calendar or this guest's reservation: never say dates are available or taken, and never state or confirm which day or date their own stay starts or ends; say you will check the booking and confirm here. The house check-in and check-out times in FACTS may be stated.] " : '';
-  const q = `${hint}${datesHint}${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
+  const q = `${hint}${datesHint}${airbnb ? historyBlock(before) : ''}${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
   const once = async (strict: boolean) => {
     const raw = await chatJson({ system, history: [], question: (strict ? AIRBNB_STRICT : '') + q, title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: 500, timeoutMs: 30_000 });
     return leafAtClose(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'));
@@ -265,7 +280,7 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   const airbnb = platform === 'airbnb', calm = airbnb && calmMoment(guestText, risk);
   // A rewrite of an Airbnb draft is finished like the draft and dropped ('') if it leaks: the clean original stands.
   const airbnbSafe = (m: string) => { const f = m ? airbnbFinish(m, detectLang(guestText), calm) : ''; return f && !airbnbLeaks(f).length ? f : ''; };
-  let main = brain?.reply || await modelDraft(db, guestText, guestName, ctx, airbnb, '', calm);
+  let main = brain?.reply || await modelDraft(db, guestText, guestName, ctx, airbnb, '', calm, thread.before);
   let airbnbFail = airbnb ? airbnbTone(main, calm) : [];
   if (airbnbFail.length) {
     const fixed = airbnbSafe(await rewrite(db, main, `Fix only these: ${airbnbFail.join(', ')}. ${AIRBNB_HOST_REGISTER}${calm ? `\n${AIRBNB_CALM}` : ''}`, true).catch(() => ''));
