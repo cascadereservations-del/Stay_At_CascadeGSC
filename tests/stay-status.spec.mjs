@@ -6,7 +6,8 @@ import { test, expect } from '@playwright/test';
 const TOKEN = 'A'.repeat(43);
 const NOW = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
-const money = { total: 4000, reservation_payment: 2000, paid_verified: 0, balance: 4000, balance_due_date: '2026-10-15', security_deposit: 1000 };
+const manilaDay = (offsetDays) => new Date(NOW + offsetDays * 86_400_000).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+const money = { total: 4000, reservation_payment: 2000, balance_due_date: manilaDay(5), security_deposit: 1000 };
 const status = (over) => ({
   ok: true,
   status: {
@@ -45,7 +46,6 @@ test.describe('booking status page', () => {
 
   test('under review: no upload button, receipt wording', async ({ page }) => {
     await mock(page, status({ state: 'under_review', hold_expires_at: null, can_upload_receipt: false, receipt_upload_token: null,
-      money: { ...money, paid_verified: null, balance: null },
       timeline: [{ key: 'requested', done: true }, { key: 'paid', done: true }, { key: 'confirmed', done: false }, { key: 'arrival', done: false }] }));
     await page.goto(`/stay.html#t=${TOKEN}`);
     await expect(page.getByText('We have your receipt')).toBeVisible();
@@ -53,14 +53,26 @@ test.describe('booking status page', () => {
     await expect(page.locator('#stView')).toContainText('under review');
   });
 
-  test('confirmed: verified payment and the arrival-details promise, no address or door code', async ({ page }) => {
-    await mock(page, status({ state: 'confirmed', hold_expires_at: null, can_upload_receipt: false, receipt_upload_token: null,
-      money: { ...money, paid_verified: 2000, balance: 2000 },
-      timeline: [{ key: 'requested', done: true }, { key: 'paid', done: true }, { key: 'confirmed', done: true }, { key: 'arrival', done: false }] }));
+  const confirmed = (over) => status({ state: 'confirmed', hold_expires_at: null, can_upload_receipt: false, receipt_upload_token: null, ...over,
+    timeline: [{ key: 'requested', done: true }, { key: 'paid', done: true }, { key: 'confirmed', done: true }, { key: 'arrival', done: false }] });
+
+  test('confirmed: verified payment, "Balance due" while it is still ahead, and the arrival-details promise', async ({ page }) => {
+    await mock(page, confirmed());
     await page.goto(`/stay.html#t=${TOKEN}`);
     await expect(page.locator('#stView .st-state').first()).toHaveText('Your booking is confirmed');
     await expect(page.locator('.st-steps li.done')).toHaveCount(3);
     await expect(page.locator('#stView')).toContainText('verified');
+    await expect(page.locator('#stView dt', { hasText: 'Balance due' })).toBeVisible();
+    await expect(page.locator('#stView')).not.toContainText('Remaining balance');
+  });
+
+  test('confirmed with the balance due date already past (Manila date): no balance row, a settled guest owes nothing on screen', async ({ page }) => {
+    await mock(page, confirmed({ money: { ...money, balance_due_date: manilaDay(-1) } }));
+    await page.goto(`/stay.html#t=${TOKEN}`);
+    await expect(page.locator('#stView .st-state').first()).toHaveText('Your booking is confirmed');
+    await expect(page.locator('#stView')).toContainText('Total stay');
+    await expect(page.locator('#stView')).not.toContainText('Balance due');
+    await expect(page.locator('#stView')).not.toContainText('Remaining balance');
   });
 
   for (const state of ['cancelled', 'released']) {
@@ -93,6 +105,14 @@ test.describe('booking status page', () => {
     await mock(page, { error: 'guest_access_unavailable' }, 503);
     await page.goto(`/stay.html#t=${TOKEN}`);
     await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+  });
+
+  test('a 200 reply with no status is a retry page, not an endless Loading', async ({ page }) => {
+    await mock(page, { ok: true });
+    await page.goto(`/stay.html#t=${TOKEN}`);
+    await expect(page.getByText('We could not load your booking just now')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(page.locator('#stView')).not.toContainText('Loading');
   });
 
   test('upload sends the receipt token as the bearer and nothing else identifying', async ({ page }) => {

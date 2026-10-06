@@ -187,7 +187,9 @@
       row(g, 'Total stay', peso(m.total));
       row(g, 'Reservation payment', peso(m.reservation_payment) + (s.state === 'confirmed' ? ' — verified' : s.state === 'under_review' ? ' — under review' : ' — due now'));
       var rest = (typeof m.total === 'number' && typeof m.reservation_payment === 'number') ? Math.max(0, m.total - m.reservation_payment) : null;
-      row(g, 'Remaining balance', rest === null ? '—' : (rest === 0 ? 'None' : peso(rest) + ' by ' + day(m.balance_due_date)));
+      var today = new Date(isFinite(Date.parse(s.server_now)) ? Date.parse(s.server_now) : Date.now()).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+      var settled = s.state === 'confirmed' && typeof m.balance_due_date === 'string' && m.balance_due_date < today; /* due date passed: a settled guest is not told they owe */
+      if (!settled) row(g, s.state === 'confirmed' ? 'Balance due' : 'Remaining balance', rest === null ? '—' : (rest === 0 ? 'None' : peso(rest) + ' by ' + day(m.balance_due_date)));
       row(g, 'Security deposit', peso(m.security_deposit) + ' refundable' + (m.balance_due_date ? ', by ' + day(m.balance_due_date) : ''));
       pay.appendChild(g);
       frag.appendChild(pay);
@@ -228,7 +230,11 @@
         if (!r.ok) { neutral('We could not load your booking just now', 'This is on our side. Please try again in a moment.', true); return null; }
         return r.json();
       })
-      .then(function (data) { if (data && data.status) render(data.status); })
+      .then(function (data) {
+        if (data === null) return;
+        if (data && data.status) render(data.status);
+        else neutral('We could not load your booking just now', 'This is on our side. Please try again in a moment.', true);
+      })
       .catch(function () { neutral('We could not load your booking just now', 'Please check your connection and try again.', true); });
   }
 

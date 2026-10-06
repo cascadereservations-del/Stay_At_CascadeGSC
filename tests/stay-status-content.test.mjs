@@ -32,6 +32,12 @@ test('the page writes with textContent only and keeps the token out of the URL q
   assert.doesNotMatch(stay, /console\./);
 });
 
+test('the confirmed balance row is labelled "Balance due" and hidden once its date has passed, and a reply without a status shows the retry page', () => {
+  assert.match(stay, /s\.state === 'confirmed' \? 'Balance due' : 'Remaining balance'/);
+  assert.match(stay, /timeZone: 'Asia\/Manila'/);
+  assert.match(stay, /else neutral\('We could not load your booking just now'/);
+});
+
 test('the success overlay links the private status page only from the server-returned status_url', () => {
   assert.match(index, /id="successTrackLink" href="stay\.html"[^>]*hidden>Track your booking</);
   assert.match(index, /statusUrl\.indexOf\('https:\/\/cascadereservations-del\.github\.io\/Stay_At_CascadeGSC\/stay\.html#t='\) === 0/);
