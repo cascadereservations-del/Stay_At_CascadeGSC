@@ -10,7 +10,7 @@
     "20261006110000_d301_pay_rates_tasks.sql"
   ],
   "migration_sha256": {
-    "20261006110000_d301_pay_rates_tasks.sql": "8d7f5a0ff07253aed72e6843a02876a351cc2609417564575150b01b7c361251"
+    "20261006110000_d301_pay_rates_tasks.sql": "1b510f0741a4ef68b3def37545485eb147437b903d0048e27190a9d6050d22f0"
   },
   "backup": {
     "required": true,
@@ -82,7 +82,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "PENDING on a restored backup. Lane evidence: the suite supabase/tests/database/d301_pay_rates_tasks.sql (98 assertions, including the rollback body) passes 98/98 against an in-process PostgreSQL (pglite) carrying stubs of the auth, staff-access, audit and redaction helpers and a pgTAP shim; the migration also re-applies cleanly. The orchestrator must still run it as real pgTAP on the rehearsal.",
+    "rehearsal": "PENDING on a restored backup. Lane evidence: the suite supabase/tests/database/d301_pay_rates_tasks.sql (101 assertions, including the rollback body; three added after the audit, not yet re-run) passed 98/98 before that against an in-process PostgreSQL (pglite) carrying stubs of the auth, staff-access, audit and redaction helpers and a pgTAP shim; the migration also re-applies cleanly. The orchestrator must still run it as real pgTAP on the rehearsal.",
     "evidence": "Production read-only (2026-10-06): cleaner_rate_schedule holds four rows (1900-01-01, 2026-01-02, 2026-05-07, 2026-09-30) with no duplicate (property, date), no foreign key points at it, and nothing in the repo updates or deletes its rows; staff_pay_rate_v1 already reads the row in force on the clean date. follow_up_tasks, work_orders and verifier_findings keep their columns; the new functions only read them and update status columns the existing save_* RPCs already update. Old writers (Telegram bot, submit-cleaning, save_follow_up_v1, save_work_order_v1) are untouched."
   },
   "approvals": {
