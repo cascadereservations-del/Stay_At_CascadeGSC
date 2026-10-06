@@ -1,7 +1,7 @@
 // deno test --allow-env supabase/functions/expire-cleaning-photos/expire.test.ts - the whole run against in-memory fakes. Synthetic data only.
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'jsr:@std/assert@1';
 import { hasMoney } from '../_shared/ops-money.ts';
-import { archivedCount, fileSection, gate, labelSection, MAX_SESSIONS_PER_RUN, opsLine, parseRunMode, runExpiry, type Deps, type SessionRow, type StoredObject } from './expire.ts';
+import { archivedCount, capLine, fileSection, gate, labelSection, MAX_OBJECTS_PER_RUN, MAX_SESSIONS_PER_RUN, opsLine, RETENTION_DAYS, parseRunMode, runExpiry, type Deps, type SessionRow, type StoredObject } from './expire.ts';
 
 const NOW = new Date('2026-12-13T22:00:00Z');   // Sunday 22:00 UTC = Monday 06:00 Manila
 const DAY = 86_400_000;
@@ -12,7 +12,7 @@ const files = (n: number) => Array.from({ length: n }, (_, i) => ({ section: 'se
 /** A session that passes every condition unless `over` breaks one. */
 function session(n: number, over: Partial<SessionRow> = {}): SessionRow {
   return {
-    id: `e94${String(n).padStart(5, '0')}-0000-4000-8000-000000000001`, created_at: new Date(NOW.getTime() - 100 * DAY - n * 60_000).toISOString(),
+    id: `e94${String(n).padStart(5, '0')}-0000-4000-8000-000000000001`, created_at: new Date(NOW.getTime() - 200 * DAY - n * 60_000).toISOString(),
     submission_id: sub(n), property_id: PROP, submitted_by_user_id: USER, session_folder_id: `FOLDER${String(n).padStart(6, '0')}`,
     total_photo_count: 5, drive_files: files(5), meter_readings: [{ vision_verdict: 'ok' }], ...over,
   };
@@ -89,11 +89,23 @@ Deno.test('each archive condition that is false keeps the session (count short, 
   }
 });
 
-Deno.test('too young (inside 90 days) is kept even if the candidate list hands it over', async () => {
-  const s = session(1, { created_at: new Date(NOW.getTime() - 89 * DAY).toISOString() }), w = world([s], { [prefixOf(s)]: objs(5) });
-  const r = await runExpiry(w.deps, { dry: false });
-  assertEquals(r.kept[0].reason, 'too_young');
-  assertEquals(w.removed, []);
+Deno.test('RETENTION is 180 days (six months, Lloyd 2026-10-07): 179 days old is kept even if the candidate list hands it over, 181 goes', async () => {
+  assertEquals(RETENTION_DAYS, 180);
+  for (const days of [89, 120, 179]) {   // 90 days was the old rule: none of these may go now
+    const s = session(1, { created_at: new Date(NOW.getTime() - days * DAY).toISOString() }), w = world([s], { [prefixOf(s)]: objs(5) });
+    const r = await runExpiry(w.deps, { dry: false });
+    assertEquals(r.kept[0].reason, 'too_young', `${days} days`);
+    assertEquals(w.removed, [], `${days} days`);
+  }
+  const old = session(2, { created_at: new Date(NOW.getTime() - 181 * DAY).toISOString() });
+  assertEquals((await runExpiry(world([old], { [prefixOf(old)]: objs(5) }).deps, { dry: false })).expired.length, 1);
+});
+
+Deno.test('the candidate query is asked for sessions older than 180 days, not 90', async () => {
+  let asked = '';
+  const deps: Deps = { now: NOW, fetchCandidates: async (cutoff) => { asked = cutoff; return []; }, listObjects: async () => [], removeObjects: async () => [] };
+  await runExpiry(deps, { dry: false });
+  assertEquals(asked, new Date(NOW.getTime() - 180 * DAY).toISOString());
 });
 
 Deno.test('meter photos: a session whose meter photo was never verified (null) or errored is kept; "ok", "mismatch" and no reading at all are expired', async () => {
@@ -142,13 +154,16 @@ Deno.test('legacy sessions with no per-session folder (date-folder photos) find 
   assertEquals(w.removed, []);
 });
 
-Deno.test(`at most ${MAX_SESSIONS_PER_RUN} sessions per run, the rest wait for next Monday`, async () => {
-  const list = Array.from({ length: 14 }, (_, i) => session(i + 1)), storage: Record<string, StoredObject[]> = {};
+Deno.test(`at most ${MAX_SESSIONS_PER_RUN} sessions per run, the rest wait for next Monday, and the cap is reported`, async () => {
+  const list = Array.from({ length: MAX_SESSIONS_PER_RUN + 4 }, (_, i) => session(i + 1)), storage: Record<string, StoredObject[]> = {};
   for (const s of list) storage[prefixOf(s)] = objs(5);
   const w = world(list, storage);
   const r = await runExpiry(w.deps, { dry: false });
   assertEquals(r.expired.length, MAX_SESSIONS_PER_RUN);
   assertEquals(w.removed.length, MAX_SESSIONS_PER_RUN * 5);
+  assertEquals(r.capHit, true);
+  assertEquals(w.sent.length, 2);   // the tidy-up line and the cap line
+  assertEquals(w.sent[1], r.capLine);
   const dry = await runExpiry(world(list, storage).deps);
   assertEquals(dry.expired.length, MAX_SESSIONS_PER_RUN);
 });
@@ -194,8 +209,8 @@ Deno.test('gate returns the session folder as property/user/submission', () => {
 });
 
 Deno.test('OPS line: the approved wording, Manila weekday, one decimal, singular for one', () => {
-  assertEquals(opsLine(6, 8_400_000, NOW), '📦 Photo archive tidy-up — Monday. 6 cleanings older than 90 days moved off Supabase (all 6 already in Drive). Freed 8.4 MB. Nothing else touched.');
-  assertStringIncludes(opsLine(1, 1_250_000, NOW), '1 cleaning older than 90 days moved off Supabase (it was already in Drive).');
+  assertEquals(opsLine(6, 8_400_000, NOW), '📦 Photo archive tidy-up — Monday. 6 cleanings older than 6 months moved off Supabase (all 6 already in Drive). Freed 8.4 MB. Nothing else touched.');
+  assertStringIncludes(opsLine(1, 1_250_000, NOW), '1 cleaning older than 6 months moved off Supabase (it was already in Drive).');
   assertStringIncludes(opsLine(1, 1_250_000, NOW), 'Freed 1.3 MB.');
 });
 
@@ -252,8 +267,8 @@ Deno.test('SECTIONS: filename and label mapping', () => {
     ['afterclean', 'afterclean', 'preclean', 'meter', 'meter', 'condition', 'issue', 'bedroom', 'kitchen', 'other', 'other']);
 });
 
-Deno.test('CAP: sessions that reach remove() count against the 10, even when remove deletes but reports nothing', async () => {
-  const list = Array.from({ length: 14 }, (_, i) => session(i + 1)), storage: Record<string, StoredObject[]> = {};
+Deno.test('CAP: sessions that reach remove() count against the cap, even when remove deletes but reports nothing', async () => {
+  const list = Array.from({ length: MAX_SESSIONS_PER_RUN + 4 }, (_, i) => session(i + 1)), storage: Record<string, StoredObject[]> = {};
   for (const s of list) storage[prefixOf(s)] = objs(5);
   let calls = 0;
   const deps: Deps = { now: NOW, fetchCandidates: async () => list, listObjects: async (p) => storage[p] ?? [], removeObjects: async () => { calls += 1; return []; } };
@@ -279,4 +294,64 @@ Deno.test('RUN MODE: only ?delete=1 with the right secret is real; ?delete=true,
   for (const [h, sec] of [[null, 'sekret'], ['wrong!', 'sekret'], ['sekret', ''], ['', ''], [null, '']] as [string | null, string][]) {
     assertEquals(parseRunMode(U + '?delete=1', h, sec), { ok: false, status: 401 });
   }
+});
+
+Deno.test(`OBJECT CAP: never more than ${MAX_OBJECTS_PER_RUN} photos in one run; a session that would cross it waits whole, the cap is reported`, async () => {
+  const list = Array.from({ length: 6 }, (_, i) => session(i + 1, { total_photo_count: 100, drive_files: files(100) })), storage: Record<string, StoredObject[]> = {};
+  for (const s of list) storage[prefixOf(s)] = objs(100);
+  const w = world(list, storage);
+  const r = await runExpiry(w.deps, { dry: false });
+  assertEquals(w.removed.length, MAX_OBJECTS_PER_RUN);   // 5 sessions x 100, the sixth would make 600
+  assertEquals(r.expired.length, 5);
+  assertEquals(r.capHit, true);
+  assertEquals(w.sent.length, 2);
+  assertStringIncludes(w.sent[1], 'weekly limit');
+  assertFalse(hasMoney(w.sent[1]));
+  assertEquals(w.listed.length, 6);   // the sixth was listed to learn its size, never removed
+  assertEquals((await runExpiry(world(list, storage).deps)).capHit, true);   // dry run shows the cap too, tells nobody
+});
+
+Deno.test('a session larger than the object cap is never deleted, and says so every week', async () => {
+  const s = session(1, { total_photo_count: 600, drive_files: files(600) }), w = world([s], { [prefixOf(s)]: objs(600) });
+  const r = await runExpiry(w.deps, { dry: false });
+  assertEquals(w.removed, []);
+  assertEquals(r.capHit, true);
+  assertEquals(w.sent.length, 1);
+});
+
+Deno.test('under both caps: no cap line; a pile of permanent keeps never raises the cap alert', async () => {
+  const kept = Array.from({ length: MAX_SESSIONS_PER_RUN + 5 }, (_, i) => session(i + 1, { meter_readings: [{ vision_verdict: null }] }));
+  const w = world(kept, {});
+  const r = await runExpiry(w.deps, { dry: false });
+  assertEquals(r.capHit, false);
+  assertEquals(r.capLine, null);
+  assertEquals(w.sent, []);
+  const good = session(99), w2 = world([good], { [prefixOf(good)]: objs(5) });
+  const r2 = await runExpiry(w2.deps, { dry: false });
+  assertEquals(r2.capHit, false);
+  assertEquals(w2.sent.length, 1);
+});
+
+Deno.test('cap line: plain words, no digits, no money (D-306)', () => {
+  assertEquals(capLine(), '📦 Photo archive tidy-up reached its weekly limit. More old cleanings are waiting and go next Monday. Nothing is wrong; if this repeats for weeks, tell Lloyd.');
+  assertFalse(hasMoney(capLine()));
+  assertFalse(/\d/.test(capLine()));
+});
+
+Deno.test('D-306: Freed figure never reaches 100.0 MB: 100 MB, 450 MB and 1.5 GB read clean', () => {
+  for (const b of [99_949_999, 100_000_000, 450_000_000, 1_500_000_000]) assertFalse(hasMoney(opsLine(6, b, NOW)), `${b}`);
+  assertStringIncludes(opsLine(6, 1_500_000_000, NOW), 'Freed 1.5 GB.');
+  assertStringIncludes(opsLine(6, 450_000_000, NOW), 'Freed 0.5 GB.');
+  assertStringIncludes(opsLine(6, 99_949_999, NOW), 'Freed 99.9 MB.');
+});
+
+Deno.test('METER: a meter photo in Storage with no meter_readings row (or none at all) is kept as meter_unverified; no meter photo and no row still expires', async () => {
+  for (const m of [[], null] as SessionRow['meter_readings'][]) {
+    const s = session(1, { meter_readings: m }), w = world([s], { [prefixOf(s)]: named(['a-afterclean_1.jpg', 'a-afterclean_2.jpg', 'a-afterclean_3.jpg', 'a-afterclean_4.jpg', 'u-electric_meter_1.jpg']) });
+    const r = await runExpiry(w.deps, { dry: false });
+    assertEquals(r.kept, [{ session: s.id.slice(0, 8), reason: 'meter_unverified' }]);
+    assertEquals(w.removed, []);
+  }
+  const ok = session(2, { meter_readings: [{ vision_verdict: 'ok' }], drive_files: [...files(4), entry('Meter_Readings', 9)] }), w2 = world([ok], { [prefixOf(ok)]: named(['a-afterclean_1.jpg', 'a-afterclean_2.jpg', 'a-afterclean_3.jpg', 'a-afterclean_4.jpg', 'u-water_meter_1.jpg']) });
+  assertEquals((await runExpiry(w2.deps, { dry: false })).expired.length, 1);   // verified reading + archived meter section: goes
 });
