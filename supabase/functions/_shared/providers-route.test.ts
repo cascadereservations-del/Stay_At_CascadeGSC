@@ -78,6 +78,13 @@ Deno.test('text: a truncated reply is recorded ok:true with <name>_truncated and
   assertEquals(warns.some((w) => w.startsWith('llm_truncated') && w.includes('"reasoning":650')), true, 'the alarm names the hidden reasoning tokens');
 });
 
+Deno.test('tools: a round cut by max_tokens throws openrouter_truncated instead of returning an empty answer (SPEC-43)', async () => {
+  geminiBreaker.until = Date.now() + 3600_000;
+  const warn = console.warn; console.warn = () => {};
+  globalThis.fetch = (() => Promise.resolve(new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '' } }], usage: { completion_tokens: 1000, completion_tokens_details: { reasoning_tokens: 990 } } }), { status: 200 }))) as typeof fetch;
+  try { await assertRejects(() => chatTools(tq), Error, 'openrouter_truncated'); } finally { globalThis.fetch = realFetch; geminiBreaker.until = 0; console.warn = warn; }
+});
+
 // SPEC-43: OpenRouter retires gemini-2.5-* on 2026-10-20; Gemini 3 spends max_tokens on hidden reasoning (696/700 live, 2026-09-24).
 const bodies: Array<Record<string, any>> = [];
 function capture() {

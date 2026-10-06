@@ -244,7 +244,10 @@ async function openrouterTools(q: ChatToolsRequest): Promise<ChatToolsResult> {
     if (!r.ok) { recordUsage({ ...row, ok: false, error: `openrouter_${r.status}`, probe: probing() }); throw new Error(`openrouter_${r.status}: ${(await r.text()).slice(0, 300)}`); }
     const j = await r.json();
     model = j?.model ?? model;
-    const u = j?.usage; recordUsage({ ...row, model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, probe: probing() });
+    // SPEC-43 (Fable): the same truncation alarm as openaiChat - a cut tool round must not come back as an empty final answer.
+    const u = j?.usage, cut = j?.choices?.[0]?.finish_reason === 'length';
+    recordUsage({ ...row, model, input: u?.prompt_tokens, output: u?.completion_tokens, cost_usd: u?.cost, ...(cut ? { error: 'openrouter_truncated' } : {}), probe: probing() });
+    if (cut) { console.warn('llm_truncated', JSON.stringify({ model, title: q.title, output: u?.completion_tokens, reasoning: u?.completion_tokens_details?.reasoning_tokens })); throw new Error('openrouter_truncated'); }
     const msg = j?.choices?.[0]?.message ?? {};
     const calls: any[] = msg.tool_calls ?? [];
     if (!calls.length) return { text: String(msg.content ?? '').trim(), provider: 'openrouter', model, toolCalls };
