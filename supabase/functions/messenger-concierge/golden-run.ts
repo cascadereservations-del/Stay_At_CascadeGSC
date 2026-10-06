@@ -1,5 +1,5 @@
 // Voice close-out (2026-09-17): runs the golden conversations through the DEPLOYED function's probe and scores them.
-//   deno run --allow-net --allow-env --allow-write golden-run.ts [--runs 1|3] [--only <group|id>] [--out GOLDEN-RUN.md] [--pause 4000]
+//   deno run --allow-net --allow-env --allow-write --allow-read golden-run.ts [--runs 1|3] [--only <group|id>] [--out GOLDEN-RUN.md] [--pause 4000]
 // env: CASCADE_PROBE_URL (the function URL), CASCADE_PROBE_SECRET, optional GOLDEN_BOOKED="Oct 3 to 5", GOLDEN_TURNOVER="Oct 5",
 //      GOLDEN_OPEN_FROM="2026-11-02" (first of 15 open nights; without it the open-date cases start at today + 40),
 //      GOLDEN_SOON="Sep 20 to 21" (an OPEN one-night stay inside 5 days of check-in; without it the case is skipped).
@@ -13,7 +13,19 @@ const url = Deno.env.get('CASCADE_PROBE_URL') ?? '', secret = Deno.env.get('CASC
 if (!url || !secret) { console.error('Set CASCADE_PROBE_URL and CASCADE_PROBE_SECRET.'); Deno.exit(2); }
 const runs = Number(arg('--runs', '1')) /* one pass by default: 43 calls, USD 0.10 on 2.5-flash (measured 2026-09-24); --runs 3 before a voice release */, only = arg('--only'), pause = Number(arg('--pause', '1500')), outPath = arg('--out');
 const NAME = 'Ben';
-const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null, Deno.env.get('GOLDEN_OPEN_FROM') ? new Date(Deno.env.get('GOLDEN_OPEN_FROM') + 'T00:00:00Z') : null, Deno.env.get('GOLDEN_SOON') ?? null).filter((c) => !only || only.split(',').some((o) => c.group === o.trim() || c.id === o.trim())); // --only a,b,c (2026-09-24)
+/** s73 F8: the calendar's taken nights, from the site's public availability endpoint (read-only), so the promo flow cases pick
+ *  open nights or step aside. The publishable key is the site's own (index.html). Unreadable: null, the cases run as before. */
+async function bookedNights(): Promise<Set<string> | null> {
+  try {
+    const key = Deno.env.get('SUPABASE_ANON_KEY') ?? /SUPABASE_ANON\s*=\s*'([^']+)'/.exec(await Deno.readTextFile(new URL('../../../index.html', import.meta.url)))?.[1];
+    const res = await fetch(url.replace(/\/functions\/v1\/.*$/, '/functions/v1/availability'), { headers: { apikey: key ?? '', Authorization: `Bearer ${key ?? ''}` } });
+    const rows: Array<{ checkin_date: string; checkout_date: string }> = await res.json();
+    const out = new Set<string>();
+    for (const r of rows) for (let d = r.checkin_date; d < r.checkout_date; d = new Date(Date.parse(d + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10)) out.add(d);
+    return out;
+  } catch (e) { console.warn(`Calendar not read (${String(e).slice(0, 120)}); the promo flow cases keep their fixed nights.`); return null; }
+}
+const cases = goldenCases(new Date(), Deno.env.get('GOLDEN_BOOKED') ?? null, Deno.env.get('GOLDEN_TURNOVER') ?? null, Deno.env.get('GOLDEN_OPEN_FROM') ? new Date(Deno.env.get('GOLDEN_OPEN_FROM') + 'T00:00:00Z') : null, Deno.env.get('GOLDEN_SOON') ?? null, await bookedNights()).filter((c) => !only || only.split(',').some((o) => c.group === o.trim() || c.id === o.trim())); // --only a,b,c (2026-09-24)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Row = { id: string; run: number; turn: number; guest: string; reply: string; fails: string[]; step: string | null; ms: number };

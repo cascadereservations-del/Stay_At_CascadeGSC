@@ -870,10 +870,10 @@ export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx
   if (c.hostLine) answer = joinLast(answer, c.hostLine);
   if (askInAnswer) answer = joinLast(answer, ask!);
   const fit = fitParagraphs(answer, 2);
-  // D-299.10: no introduction sentence. The greeting shares the answer's first paragraph when both fit in 320 characters
-  // (Lloyd's approved first reply), else it stands alone (a stay quote).
+  // D-299.10: no introduction sentence. SPEC-39 3.1 (s73 F3, golden s63-month: a stay quote shared the greeting's paragraph and
+  // the reply read as one block): the greeting is its own paragraph - greeting, answer (at most two), next step = four at most.
   const g = c.greet ? greeting(c.name, c.lang).trim() : '';
-  const head = !g ? fit : !fit ? g : g.length + 1 + fit.split(/\n\s*\n/)[0].length <= 320 ? `${g} ${fit}` : `${g}\n\n${fit}`;
+  const head = !g ? fit : !fit ? g : `${g}\n\n${fit}`;
   let reply = [head.trim(), step, close].filter(Boolean).join('\n\n');
   reply = thinPo(reply, c.lang === 'bis' ? 0 : 2);
   if (c.flowFollowUp) reply = [reply, c.seeHome ?? '', c.flowFollowUp].filter(Boolean).join('\n\n');

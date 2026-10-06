@@ -210,6 +210,9 @@ export function kidsIn(text: string): number {
   const k = KIDS_RE.exec(text);
   return k && ADULTS_RE.test(text) ? count(k[1]) : 0;
 }
+/** s73 F4 (golden pay-brisk-en, "Oct 19 to 21 available? 2"): a bare count of 1-6 closing the message after a "?" or after a
+ *  date range and a comma ("Oct 19 to 21, 2") is the party. "Oct 5, 6" (two dates) is not. */
+const TRAILING_PAX_RE = /(?:\?|(?:-|–|\bto|\buntil|\bhanggang)\s*(?:[a-z]+\.?\s*)?\d{1,2}\s*,)\s*([1-6])\s*[.!]?\s*$/i;
 export function parsePax(text: string): number | null {
   // SPEC-39 4.4: adults and children both named - the party is the two together.
   const a = ADULTS_RE.exec(text), kids = kidsIn(text);
@@ -219,6 +222,7 @@ export function parsePax(text: string): number | null {
   // Lloyd 2026-09-18: a courtesy particle may sit between the count and the guest word - "2 po kami" is two guests.
   const m = /\b(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:po|pa|ba|po\s+ba)?\s*(?:adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.exec(text)
     ?? /\b(?:for|para sa|kaming)\s+(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.exec(text) // "book for 2" (live 2026-09-17 09:53)
+    ?? TRAILING_PAX_RE.exec(text)
     ?? /\b(\d{1,2}|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\b/i.exec(text);
   if (!m) return null;
   const n = /^\d+$/.test(m[1]) ? +m[1] : words[m[1].toLowerCase()];
@@ -500,7 +504,7 @@ export function start(text: string, now = new Date()): Flow {
   if (until) flow.checkout = d[0];
   else if (d[0] && d[0] >= today) { flow.checkin = d[0]; flow.step = 'checkout'; }
   if (flow.checkin && d[1] && d[1] > flow.checkin) { flow.checkout = d[1]; flow.step = 'pax'; }
-  const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:po|pa|ba|po\s+ba)?\s*(adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.test(text) || /\b(?:for|para sa|kaming)\s+(\d|one|two|three|four|isa|dalawa|tatlo|apat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.test(text) ? parsePax(text) : null;
+  const p = /\b(\d|one|two|three|four|isa|dalawa|tatlo|apat|duha|tulo|upat)\s*(?:po|pa|ba|po\s+ba)?\s*(adults?|pax|persons?|people|guests?|tao|tawo|kami|mi|ka|kabuok)\b/i.test(text) || /\b(?:for|para sa|kaming)\s+(\d|one|two|three|four|isa|dalawa|tatlo|apat)\b(?!\s*(?:nights?|days?|gabi|araw))/i.test(text) || TRAILING_PAX_RE.test(text) ? parsePax(text) : null;
   if (p && flow.step === 'pax' && !overCapacity(text, p)) { flow.pax = p; flow.children = kidsIn(text) || undefined; flow.step = 'offer'; } // D-222: over capacity stays at the guest ask, which states the limit
   // What did the guest actually ask? index.ts answers availability from the calendar (code) or hands
   // any other question to the model before the flow's own ask (protocol rule 1). A check-out alone makes no calendar

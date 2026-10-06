@@ -12,19 +12,27 @@ export type GoldenCase = { id: string; group: 'first' | 'followup' | 'register' 
 
 /** SPEC-34 (D-262): while a promotion is at least 5 days out (so no case meets the full-payment rule), a stay fully
  *  inside it and one straddling its last night, as a flow and as a free question, en and tl. PHP 1,929 never appears. */
-export function promoCases(card: RateCard, now = new Date()): GoldenCase[] {
+/** s73 F8 (golden 2026-10-06: the promo nights filled with real bookings, so both flow cases tested the reserved path): with
+ *  `booked` (the calendar's taken nights, golden-run.ts reads them) the inside case takes the first open three nights of the
+ *  promotion, and a flow case with no open window is left out. Without it the windows stay as before. */
+export function promoCases(card: RateCard, now = new Date(), booked: Set<string> | null = null): GoldenCase[] {
   const out: GoldenCase[] = [];
   const day = (d: string, k: number) => new Date(Date.parse(d + 'T00:00:00Z') + k * 86_400_000);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const open = (from: Date) => [0, 1, 2].every((k) => !booked?.has(iso(day(iso(from), k))));
   for (const p of card.promotions) {
     if (day(p.first_night, 1).getTime() < now.getTime() + 5 * 86_400_000) continue;
-    const inside = range(day(p.first_night, 1), 0, 3), straddle = range(day(p.last_night, -1), 0, 3);
-    const inQ = quote(card, day(p.first_night, 1).toISOString().slice(0, 10), day(p.first_night, 4).toISOString().slice(0, 10));
+    let k = 1;
+    while (day(p.first_night, k + 2) <= day(p.last_night, 0) && !open(day(p.first_night, k))) k++;
+    const inStart = day(p.first_night, k), inOpen = day(p.first_night, k + 2) <= day(p.last_night, 0) && open(inStart), stOpen = open(day(p.last_night, -1));
+    const inside = range(inStart, 0, 3), straddle = range(day(p.last_night, -1), 0, 3);
+    const inQ = quote(card, iso(inStart), iso(day(iso(inStart), 3)));
     const stQ = quote(card, day(p.last_night, -1).toISOString().slice(0, 10), day(p.last_night, 2).toISOString().slice(0, 10));
     const pr = new RegExp(p.nightly_rate.toLocaleString('en-US')), base = new RegExp(card.base.toLocaleString('en-US')), no = [/1,929/];
     const tot = (v: number) => new RegExp(v.toLocaleString('en-US'));
+    if (inOpen) out.push({ id: 'promo-inside-flow-en', group: 'promo', turns: [{ say: `Hi, is ${inside} available? 2 adults`, kind: 'flow', lang: 'en', must: [new RegExp(p.name), pr, base, tot(inQ.total), /hold (that night|those dates) for you/i], mustNot: no }] });
+    if (stOpen) out.push({ id: 'promo-straddle-flow-tl', group: 'promo', turns: [{ say: `Available po ba ang ${straddle}? 2 kami`, kind: 'flow', lang: 'tl', must: [pr, tot(stQ.total), tot(stQ.tier_rate)], mustNot: no }] });
     out.push(
-      { id: 'promo-inside-flow-en', group: 'promo', turns: [{ say: `Hi, is ${inside} available? 2 adults`, kind: 'flow', lang: 'en', must: [new RegExp(p.name), pr, base, tot(inQ.total), /hold (that night|those dates) for you/i], mustNot: no }] },
-      { id: 'promo-straddle-flow-tl', group: 'promo', turns: [{ say: `Available po ba ang ${straddle}? 2 kami`, kind: 'flow', lang: 'tl', must: [pr, tot(stQ.total), tot(stQ.tier_rate)], mustNot: no }] },
       { id: 'promo-rate-dated-en', group: 'promo', turns: [m(`How much would ${straddle} cost?`, 'en', { must: [tot(stQ.total), pr], mustNot: no })] },
       { id: 'promo-ask-en', group: 'promo', turns: [m('Do you have any promo this month or next?', 'en', { must: [pr, new RegExp(p.name, 'i')], mustNot: [...no, /\bno (current |ongoing )?promo/i] })] },
       { id: 'promo-ask-tl', group: 'promo', turns: [m('May promo po ba kayo ngayong October?', 'tl', { must: [pr], mustNot: [...no, /walang promo/i] })] },
@@ -116,7 +124,7 @@ export function s63Cases(): GoldenCase[] {
   ];
 }
 
-export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null, openFrom: Date | null = null, soonRange: string | null = null): GoldenCase[] {
+export function goldenCases(now = new Date(), bookedRange: string | null = null, turnoverDay: string | null = null, openFrom: Date | null = null, soonRange: string | null = null, bookedNights: Set<string> | null = null): GoldenCase[] {
   const base = openFrom ?? now, o = openFrom ? 0 : 40;
   // SPEC-39 first-until-en: this month's end in Manila, and a check-out 30 nights after it (computed, so the case never rots)
   const manila = new Date(now.getTime() + 8 * 3_600_000), monthEnd = new Date(Date.UTC(manila.getUTCFullYear(), manila.getUTCMonth() + 1, 0));
@@ -153,7 +161,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     // SPEC-39 3.8 (live T2): a thanks with a blessing is closed in code - no dates nudge, no link
     { id: 'fu-thanks-bless-en', group: 'followup', turns: [m('How much per night?', 'en', { mustNot: [LINK] }), { say: 'Thanks and God bless', kind: 'code', lang: 'en', must: [/pleasure|welcome/i], mustNot: [LINK, /preferred dates|which dates/i, NO_SIG] }] },
     // SPEC-39 3.8 (guest S, Sep 24): a yes to our own offer starts the flow; a flow started on turn 2 is not signed (D-300.1)
-    { id: 'fu-chat-yes-en', group: 'followup', turns: [m(`Hi, how much for ${d2}?`), { say: 'Yes please', kind: 'flow', lang: 'en', must: [/hold (those dates|that night)|name for the reservation|full name/i], mustNot: [NO_SIG] }] },
+    { id: 'fu-chat-yes-en', group: 'followup', turns: [m(`Hi, how much for ${d2}?`), { say: 'Yes please', kind: 'flow', lang: 'en', must: [/hold (those dates|that night)|name for the reservation|full name|how many of you/i], mustNot: [NO_SIG] }] }, // s73 F5: no party given yet, so the flow's next ask is the guest count (SPEC-14)
     // SPEC-39 3.3 (D-300.4): the price objection - empathy, the stay total only, the host line in English, one soft question, no link
     { id: 'fu-objection-dated-en', group: 'followup', turns: [{ say: `Hi, is ${d3} available? 2 adults`, kind: 'flow', lang: 'en' },
       { say: 'can you do 1,500 a night?', kind: 'handoff', lang: 'en', must: [/5,073/, /Our host also looks/, /\?/], mustNot: [LINK, /1,691|1,780|%/], effects: [/"handoff"[^}]*policy_exception/] }] },
@@ -214,7 +222,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'handoff-payment-en', group: 'handoff', turns: [{ say: 'I already sent the GCash payment, please confirm', kind: 'handoff', lang: 'en', noInvite: true }] },
     { id: 'handoff-refund-en', group: 'handoff', turns: [{ say: 'We need to cancel our booking next week, can we get a refund?', kind: 'handoff', lang: 'en', noInvite: true }] },
     ...paymentCases(d2, d3),
-    ...promoCases(SEED_CARD, now),
+    ...promoCases(SEED_CARD, now, bookedNights),
     ...s63Cases(),
   ];
   // A taken range needs a night that is really booked: pass GOLDEN_BOOKED="Oct 3 to 5" from a read-only calendar query.
@@ -229,8 +237,10 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   if (soonRange) cases.push({ id: 'pay-near-en', group: 'payment', turns: [f(`${soonRange} available? 2 adults`, 'en'), f('yes', 'en'),
     f(PAY, 'en', { must: [/check-in is near/, /full ₱/], mustNot: [/reservation fee holds/, LINK], effects: [/"fx":"submit"/, /"qr"/] })] });
   if (soonRange) cases.push({ id: 'flow-offer-fullnow-en', group: 'flow', turns: [
-    { say: `Hi, is ${soonRange} available? 2 adults`, kind: 'flow', lang: 'en', must: [/less than five days away/i] },
-    { say: 'yes', kind: 'flow', lang: 'en', must: [/name for the reservation/i] },
+    // s73 F8: persona.ts LAST_MINUTE says "arriving within the next five days" and the details ask asks for "your full name"
+    // (SPEC-39 3.6); the old wordings ("less than five days away", "name for the reservation") are no longer said.
+    { say: `Hi, is ${soonRange} available? 2 adults`, kind: 'flow', lang: 'en', must: [/within the next five days/i] },
+    { say: 'yes', kind: 'flow', lang: 'en', must: [/full name/i] },
     { say: 'Ben Munez 09171234567 ben@example.com', kind: 'flow', lang: 'en', must: [/full ₱/], mustNot: [/"fee" or "full"/], effects: [/"fx":"submit"/] },
   ] });
   if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12/i] })] });

@@ -316,6 +316,8 @@ export function paragraphs(reply: string): string[] {
 /** SPEC-39 3.6b: the stay card, the hold and the payment in one code-written message - the one named exception to 700. */
 export const STAY_PAY_CAP = 960; // measured worst case 948 (tl gentle, a promo line, a long name and e-mail); the approved wording, not padding
 
+/** persona.ts greeting(), alone in its paragraph, every register ("Hi Ben, thank you for reaching out to Cascade Hideaway."). */
+const GREET_ONLY_RE = /^(?:hi|hello)\b[^\n]{0,40}?(?:thank you for reaching out to|salamat sa pag-message sa) cascade hideaway\.$/i;
 /** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. `cap`: STAY_PAY_CAP for the
  *  stay-and-payment message only. */
 export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null; cap?: number } = {}): Violation[] {
@@ -338,7 +340,9 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
   // ANSWER: a guest question must be met with an answer before the next ask - a reply that is only
   // a question back to them is the failure Lloyd saw live ("is Oct 3 to 4 available?" -> "Your mobile number po?").
   if (guestText && QUESTION_RE.test(guestText)) {
-    const firstPara = reply.split(/\n\s*\n/)[0] ?? '';
+    // s73 F3: a first reply's greeting is its own paragraph (SPEC-39 3.1); the answer is the paragraph after it.
+    const ps = reply.split(/\n\s*\n/).map((p) => p.trim());
+    const firstPara = (ps.length > 1 && GREET_ONLY_RE.test(ps[0]) ? ps[1] : ps[0]) ?? '';
     // D-173: a disclosure answers the bot question; without this every "are you a bot?" turn logged a false no_answer.
     // Golden AFTER 2026-09-30: Bislish answers ("Naa, Ben.", "Ang Cascade kay hilom...") read as no answer.
     const answers = /\b(yes|yes po|oo|opo|naa|naay|kay|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|\bi'?m cassy\b|\bako(?: po)? si cassy\b|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());

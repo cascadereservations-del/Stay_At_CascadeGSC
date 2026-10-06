@@ -11,13 +11,13 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed } from './persona.ts';
 import { JEV_INTENTS, jevRoute, primaryLang, routeRisk, type JevRoute } from './jev.ts'; // D-271
 import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { CANCEL_RE, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { CANCEL_RE, PAY_HOW_RE, payHowReply, answer, isChatYes, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
 import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
@@ -111,6 +111,23 @@ export function stayAnchor(text: string, lang = 'english'): string {
     : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(std)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * std)}`, `so you keep about ${peso(n * (std - tier.rate))}`, extras.slice(2)];
   return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "${q[0]}", (2) "${q[1]}", (3) "${q[2]}"${q[3] ? `, (4) "${q[3]}"` : ''}. Do not state the percentage; do not use the word "discount" more than once. If their dates are not known, put the question about which dates they are looking at in "ask".] `;
 }
+/** s73 F2 (golden first-two-months: "details regarding our booking good for two months" got no figures): a rate word, or a
+ *  month-scale stay named, is a price question - the stay figures ride on it. */
+export const rateAsked = (text: string): boolean => /\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) || (stayNights(text) ?? 0) >= 28;
+/** SPEC-34 (D-262) + s73 F1 (golden fu-chat-yes-en: "how much for Oct 19 to 21?" got no figures and the model said PHP 5,073,
+ *  three nights, for two): a dated stay gets code's figures (rateLine), promo or not, so the model never does the arithmetic.
+ *  A length named beside a single date ("Oct 19, 3 nights") keeps the length's anchor - one date alone reads as one night. */
+export function priceAnchor(guestTexts: string[], now: Date, lang = 'english'): string {
+  const said = guestTexts.slice(-3), stay = stayFrom(said, now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null, named = stayNights(said.join(' '));
+  if (stay && sq && sq.nights <= 60 && (sq.q.promo_nights > 0 || !named || named === sq.nights))
+    return `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3Of(lang) } as Flow, now)}" Never mention any other "was" or "usual" price.] `;
+  return stayAnchor(said.join(' '), lang);
+}
+/** s73 F7 (golden fu-checkout-steps: the steps came without the time): what to do before check-out starts with when. A late
+ *  check-out ask is not this - FACTS answer it against the calendar. */
+export const checkoutHint = (text: string): string =>
+  /\bcheck[- ]?out\b/i.test(text) && /\b(before|need to do|steps?|what (do|should)|gagawin|bago|buhaton|unsa(y|on)?|procedure|instructions?|reminders?)\b/i.test(text) && !/\b(late|extend|extension|after)\b/i.test(text)
+    ? '[Check-out is by 12:00 noon: say the time in your first sentence, then the steps from FACTS.] ' : '';
 /** SPEC-39 3.3 (D-300.4): a discount ask or a price objection ("medyo mahal po", "a bit expensive") - the host gets the card.
  *  "hindi naman mahal" / "not expensive at all" says the opposite and is not one. */
 export const priceObjection = (text: string): boolean =>
@@ -1002,6 +1019,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && (startText = bookingStart(text,
       thread.history.filter((h) => h.role === 'guest').map((h) => h.text), thread.history.filter((h) => h.role === 'bot').slice(-1)[0]?.text ?? '', now))) {
     flow = start(startText, now); // session 49: a dated "can I book" and a yes to our own chat offer both start here (bookingStart)
+    // s73 F5: a yes to our offer started from an earlier message whose question was already answered - only the flow speaks.
+    if (startText !== text && isChatYes(text)) flow = { ...flow, asked: null, question: false };
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
     // D-222: the calendar is read whenever both dates are known, not only on an "available" word - "book Oct 10 to 12
@@ -1013,7 +1032,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const nights = await bookedNightsFor(db, probe); calendarDown = !nights;
       const alt = nights && nights.size ? await nearestWindow(db, probe) : null;
       const line = availabilityLine(probe, nights, alt, now, true);
-      if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = (greetNow ? greetBlock(thread.guest_name, flow.lang, false) : '') + line; } // SPEC-28 section 3
+      if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = (greetNow ? greeting(thread.guest_name, flow.lang).trimEnd() + '\n\n' : '') + line; } // SPEC-28 section 3; SPEC-39 3.5 (s73 F3): the greeting is its own paragraph
       // SPEC-28 section 2: "is Oct 26 to 28 open? is there wifi?" - the model answers the wifi, then the dates line and the
       // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
       else if (flow.asked === 'question' || flow.question) flowFollowUp = opener(flow, thread.guest_name, flow.question ? line : '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
@@ -1070,12 +1089,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const datesHint = datesKnown.length ? `[Guest's dates already given: ${datesKnown.join('; ')} - answer for these days, do not ask for dates.] ` : '';
       // Capacity rides on the guest turn too: "pwede 5 adults?" got "we can accommodate 5 adults" (live 2026-09-13).
       const capHint = /\b([4-9]|1\d)\s*(adults?|pax|persons?|people|guests?|tao|matanda)\b/i.test(text) ? '[Capacity is a hard limit: 3 adults, or 3 adults + 1 child, or 2 adults + 2 children. This group does not fit - say so warmly and suggest a larger place; never say we can accommodate them.] ' : '';
-      // SPEC-34 (D-262): a dated stay that touches a promotion gets code's figures (rateLine: promo nights anchored on
-      // the standard rate), so the model never does promo arithmetic or denies a live promotion.
+      // SPEC-34 (D-262) + s73 F1: a dated stay gets code's figures (priceAnchor), so the model never does the arithmetic.
       const stay = stayFrom(guestTexts.slice(-3), now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null;
-      const rawAnchor = stay && sq && sq.q.promo_nights > 0 && sq.nights <= 60
-        ? `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3 } as Flow, now)}" Never mention any other "was" or "usual" price.] `
-        : stayAnchor(guestTexts.slice(-3).join(' '), lang);
+      const rawAnchor = priceAnchor(guestTexts, now, lang);
       // D-270 (live probe 2026-09-28: "Can you do 1,500?" repeated the whole month quote given one turn earlier): figures or a
       // promotion already said in the last three replies are referred to, not said again (protocol rule 4, no repetition).
       const recentBot = thread.history.filter((h) => h.role === 'bot').slice(-3).map((h) => h.text).join('\n');
@@ -1085,9 +1101,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // D-300.4 (Lloyd 2026-10-05, "medyo mahal po"): empathy first, one value line with the stay TOTAL only, the host line
       // (code, English), and one soft question - never a rate lecture, a percentage or a saving.
       const objTotal = stay && sq ? `[Their ${sq.nights} night${sq.nights === 1 ? '' : 's'} (${dmRange(stay.checkin, stay.checkout)}) come to ${peso(sq.total)} at the direct rate, with cleaning and drinking water included - the one figure you may say.] ` : anchorTotal(guestTexts.slice(-3).join(' '));
-      const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[The guest finds the price high. Shape: ONE sentence of understanding first (no apology, no "unfortunately"), then AT MOST ONE value sentence with the stay total only - no per-night arithmetic, no percentages, no "from PHP ${currentCard().base.toLocaleString('en-US')}", no savings figure - then code adds the host line. Put ONE soft question in "ask": whether we may hold their dates while the host takes a look (their dates if unknown). English is welcome where Tagalog would read stiff. Do not promise a special price.] ${objTotal}`
+      const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[The guest finds the price high. Shape: ONE sentence of understanding first (no apology, no "unfortunately"), then AT MOST ONE value sentence with the stay total only - no per-night arithmetic, no percentages, no "from PHP ${currentCard().base.toLocaleString('en-US')}", no savings figure - then code adds the host line. Put ONE soft question in "ask": whether we may hold their dates while the host takes a look (their dates if unknown). English is welcome where Tagalog would read stiff. Do not promise a special price. Do not say you will forward, pass on or share their request and do not name the host: code adds that line.] ${objTotal}`
         : promoAsk ? `[Promo ask: answer in one or two short paragraphs - ${livePromos(currentCard(), now).map((p) => `our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('; ')}; outside those nights, booking direct still lowers the nightly rate the longer the stay. Put the question about which dates they have in mind in "ask". Quote no other number and no other "was" price.] ${anchor}`
-        : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
+        : (rateAsked(text) ? anchor : '');
       // SPEC-39 Q2 (default): a nameless first contact with no dates gets the dates question alone - the details step takes the name.
       const nameHint = !thread.guest_name && !followUp && datesKnown.length ? '[Guest name unknown: put one warm question for their name in "ask".] ' : '';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
@@ -1101,7 +1117,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const paxHint = knownPax && !flowFollowUp ? `[Already known from this chat: ${knownPax} guest${knownPax === 1 ? '' : 's'}. Do not ask how many guests again; ask something only if it is truly needed.] ` : '';
       // Golden AFTER 2026-09-30: the rewrites below carried only the pax and dates hints, so a cold-rewritten stay quote lost
       // the code's figures and said "the site will show the total". Every rewrite now carries the same hints as the first draft.
-      const hints = nameHint + intentHint(jev) + discHint + capHint + datesHint + paxHint + flowHint + payHint;
+      const hints = nameHint + intentHint(jev) + discHint + capHint + datesHint + paxHint + flowHint + payHint + checkoutHint(text);
       let out = await draft(thread, hints + LANG_HINT[lang] + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
@@ -1202,7 +1218,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         siteShown, // D-269: never twice in one stretch of conversation
         datesKnown: datesKnown.length > 0, held: { dates: datesKnown.length > 0, pax: !!knownPax, name: !!thread.guest_name }, prevBot: lastBot?.text ?? '',
       });
-      let composed = compose({ answer, ask: out.ask ?? null }, frame(l3));
+      // s73 F5 (D-297.3; golden fu-chat-yes-en: a dated price answer closed on nothing, so "Yes please" had no offer to accept):
+      // it closes on the flow's own hold question, which bookingStart's CHAT_OFFER_RE knows - only while the calendar shows
+      // the stay open (never an offer to hold a taken night).
+      let holdQ = stay && sq && !flow && !hostAsk && !promoAsk && !quiet && rateAsked(text) ? holdOffer(sq.nights === 1, l3, false) : null;
+      if (holdQ) { const n = await bookedNightsFor(db, { ...stay } as Flow); if (!n || n.size) holdQ = null; }
+      let composed = compose({ answer, ask: holdQ ?? out.ask ?? null }, frame(l3));
       // Lloyd 2026-09-30 ("if it's too long then use the english reply"; D-245: English passes for a Taglish guest): a Taglish
       // message over 700 characters (a first-reply stay quote is ~655 of code-owned text) is drafted again in English and sent
       // when shorter. The English draft goes through the same guards; one that claims dates open or offers an early check-in
@@ -1211,7 +1232,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         const en = await draft(thread, `[Your Taglish answer made the message too long for chat. Write the whole answer in warm, natural English with contractions and no "po". Keep every fact and figure exactly.] ${hints}${asked}`, context, 'full', followUp).catch(() => null);
         const enAnswer = en ? guard(fixEarlyFee(dropBankUnlessAsked(en.reply, text), text), true) : '';
         if (en && enAnswer && !claimsOpen(enAnswer) && !offersEarlyCheckin(enAnswer)) {
-          const c2 = compose({ answer: enAnswer, ask: en.ask ?? null }, frame('en'));
+          const c2 = compose({ answer: enAnswer, ask: holdQ ? holdOffer(sq!.nights === 1, 'en', false) : en.ask ?? null }, frame('en'));
           if (c2.reply.length < composed.reply.length) { console.warn('tl_too_long_english', JSON.stringify({ psid, tl: composed.reply.length, en: c2.reply.length })); composed = c2; }
         }
       }
@@ -1221,7 +1242,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // A model-flagged uncertainty used to silence the bot for 24 h right after it had answered
       // (live test 2026-09-12: a warm reply about a mother's recovery, then silence). Now it only
       // alerts the host; the conversation continues, and the host can still take over by replying.
-      if (out.uncertain) { flagOnly = true; risk = 'uncertain'; }
+      // s73 F6 (golden fu-objection-dated-en, fu-mahal-tl): a model unsure about a price proposal turned the host card's
+      // policy_exception into "uncertain". A turn already going to the host keeps its own risk.
+      if (out.uncertain && !handoff) { flagOnly = true; risk = 'uncertain'; }
     } catch (e) {
       console.error('draft_failed', String(e).slice(0, 400));
       handoff = true; risk = 'uncertain'; reply = HANDOFF.uncertain; draftNote = draftFailureNote(e);
