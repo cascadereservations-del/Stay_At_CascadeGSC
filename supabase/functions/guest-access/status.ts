@@ -57,10 +57,6 @@ export function statusView(f: StatusFacts, nowMs: number) {
   const closed = state === 'cancelled' || state === 'released';
   const total = amount(f.total_amount);
   const fee = amount(f.deposit_amount);
-  // The ledger row is the full total and the booking is confirmed once the reservation payment is verified, so "paid" is
-  // the verified reservation payment (the fee, or the full amount on a pay-in-full booking), and only once confirmed.
-  const paid = state === 'confirmed' ? fee : state === 'under_review' ? null : 0;
-  const balance = total !== null && paid !== null ? Math.max(0, total - paid) : null;
   const paidStep = f.has_receipt || state === 'confirmed';
   return {
     state,
@@ -76,8 +72,6 @@ export function statusView(f: StatusFacts, nowMs: number) {
     money: closed ? null : {
       total,
       reservation_payment: fee,
-      paid_verified: paid,
-      balance,
       balance_due_date: dayBefore(f.checkin_date),
       security_deposit: SECURITY_DEPOSIT,
     },

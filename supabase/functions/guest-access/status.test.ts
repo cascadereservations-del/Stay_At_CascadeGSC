@@ -33,29 +33,28 @@ Deno.test('a held request shows the deadline, the amounts and an upload button',
   const v = statusView(held(), NOW)!;
   assertEquals(v.state, 'held');
   assertEquals(v.hold_expires_at, '2026-10-06T10:00:00Z');
-  assertEquals(v.money, { total: 4000, reservation_payment: 2000, paid_verified: 0, balance: 4000, balance_due_date: '2026-10-15', security_deposit: SECURITY_DEPOSIT });
+  assertEquals(v.money, { total: 4000, reservation_payment: 2000, balance_due_date: '2026-10-15', security_deposit: SECURITY_DEPOSIT });
   assertEquals(v.nights, 2);
   assertEquals(v.can_upload_receipt, true);
   assertEquals(v.checkin_time, '2:00 PM');
   assertEquals(v.checkout_time, '12:00 PM');
 });
 
-Deno.test('under review: paid amount is unknown (null), no upload button, paid step done', () => {
+Deno.test('under review: no upload button, paid step done', () => {
   const v = statusView(held({ has_receipt: true }), NOW)!;
-  assertEquals(v.money!.paid_verified, null);
-  assertEquals(v.money!.balance, null);
   assertEquals(v.can_upload_receipt, false);
   assertEquals(v.hold_expires_at, null);
   assertEquals(v.timeline!.map((s) => s.done), [true, true, false, false]);
 });
 
-Deno.test('confirmed: the verified reservation payment is paid, the balance follows, and a pay-in-full booking owes none', () => {
+Deno.test('confirmed: the money carries total and reservation payment only (the page works out the balance), a pay-in-full booking has fee = total', () => {
   const v = statusView({ ...base, status: 'confirmed', has_receipt: true }, NOW)!;
-  assertEquals(v.money!.paid_verified, 2000);
-  assertEquals(v.money!.balance, 2000);
+  assertEquals(v.money!.total, 4000);
+  assertEquals(v.money!.reservation_payment, 2000);
   assertEquals(v.timeline!.map((s) => s.done), [true, true, true, false]);
   const full = statusView({ ...base, status: 'confirmed', has_receipt: true, deposit_amount: '4000' }, NOW)!;
-  assertEquals(full.money!.balance, 0);
+  assertEquals(full.money!.reservation_payment, full.money!.total);
+  assertEquals(Object.keys(v.money!).sort(), ['balance_due_date', 'reservation_payment', 'security_deposit', 'total']);
 });
 
 Deno.test('cancelled and released show no money and no timeline', () => {
@@ -73,7 +72,6 @@ Deno.test('unknown amounts are null, never 0', () => {
   const v = statusView(held({ total_amount: null, deposit_amount: 'abc', pax: undefined }), NOW)!;
   assertEquals(v.money!.total, null);
   assertEquals(v.money!.reservation_payment, null);
-  assertEquals(v.money!.balance, null);
   assertEquals(v.pax, null);
 });
 
