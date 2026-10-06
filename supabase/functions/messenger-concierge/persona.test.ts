@@ -113,6 +113,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   nudgeDates: (l) => [`${P.nudgeDates(l)} ${P.nudgeSite(l)}`, P.nudgeDates(l)],
   nudgeReady: (l) => [P.nudgeReady(l)],
   datesTaken: (l) => [P.datesTaken(l)],
+  pastStayAsk: (l) => [P.pastStayAsk(l)],
   submitFailed: (l) => [P.submitFailed(l)],
   receiptThanks: (l) => [P.receiptThanks('Ben Munez', l), P.receiptThanks(null, l)],
   receiptAlready: (l) => [P.receiptAlready(l)],

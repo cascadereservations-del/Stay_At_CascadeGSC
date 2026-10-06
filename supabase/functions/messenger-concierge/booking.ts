@@ -171,6 +171,7 @@ const CHAT_OFFER_RE = /\b(arrange\b[^.\n]{0,60}\b(in (the|this) chat|here in (th
  * 2. A plain yes to the bot's own "we can arrange it here in the chat" starts it from the guest's latest dated message.
  */
 export function bookingStart(text: string, priorGuestTexts: string[], lastBotText: string, now = new Date()): string | null {
+  if (rolledPastStay(text, now) && PRICE_RE.test(text)) return null; // s74 G1: a past stay and a price ask holds no dates
   const how = /\b(how (do|can) (i|we)|paano)\b/i.test(text);
   const hedged = /\b(can i|pwede( po)? ba|possible)\b/i.test(text);
   // The dated-hedge exception needs a booking WORD: "available po ba Oct 5? pwede po ba check in 12 noon?" is two
@@ -192,9 +193,30 @@ export function availStart(text: string, now = new Date()): boolean {
   const d = parseDates(text, now);
   return !!d[0] && d[0] >= now.toISOString().slice(0, 10);
 }
+const NUM_W: Record<string, number> = { one: 1, a: 1, isa: 1, isang: 1, usa: 1, two: 2, dalawa: 2, dalawang: 2, duha: 2, three: 3, tatlo: 3, tatlong: 3, tulo: 3, four: 4, apat: 4, upat: 4, five: 5, lima: 5, limang: 5 };
+/** s74 G1 (live: "5 days from December 25 po" was asked for nights again): "<N> days|nights from|starting <date>" (en), "simula" /
+ *  "mula" (tl), "gikan" / "sugod" (bis) is a stay of N nights from that date - stayNights (index.ts) already counts days as nights.
+ *  One date only (two dates are the range) and a future one; null otherwise. */
+export function stayFromPhrase(text: string, now = new Date()): { checkin: string; checkout: string } | null {
+  const m = /\b(\d{1,2}|one|a|isa|isang|usa|two|dalawa|dalawang|duha|three|tatlo|tatlong|tulo|four|apat|upat|five|lima|limang)\s*(?:ka\s*)?(?:po\s*)?(?:days?|nights?|araw|adlaw|gabi|gabii)\s+(?:po\s+)?(?:from|starting|starts?|beginning|simula(?:ng)?|mula|gikan|sugod|magsisimula)\s+(?:on\s+|sa\s+|ng\s+|the\s+)?(.+)$/i.exec(text);
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? +m[1] : NUM_W[m[1].toLowerCase()], d = parseDates(m[2], now);
+  return n >= 1 && n <= 60 && d.length === 1 && d[0] >= dayStrOf(now) ? { checkin: d[0], checkout: addDay(d[0], n) } : null;
+}
+const dayStrOf = (now: Date) => new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10); // Manila
+/** The dates a message names: a "<N> days from <date>" stay as its check-in and check-out, else parseDates. */
+export const datesOf = (text: string, now = new Date()): string[] => { const s = stayFromPhrase(text, now); return s ? [s.checkin, s.checkout] : parseDates(text, now); };
+/** s74 G1: a past stay told about ("last time we stayed Sep 5 to 7") whose date parseDates rolled into NEXT year (this year's
+ *  Sep 5 is gone). Not rolled = still ahead ("same as last year, Oct 19 to 21" in October) and a typed year is taken as said. */
+export function rolledPastStay(text: string, now = new Date()): boolean {
+  if (!PAST_REF_RE.test(text) || /\b20\d\d\b/.test(text)) return false;
+  const d = parseDates(text, now)[0], today = dayStrOf(now);
+  return !!d && d.slice(0, 4) > today.slice(0, 4) && `${today.slice(0, 4)}${d.slice(4)}` < today;
+}
+const PAST_REF_RE = /\b(last (?:time|year|month)|stayed|nag-?stay|dati|niadtong|kaniadto|before|previously)\b/i;
 /** "2 nights", "one night", "isang gabi", "duha ka gabii" -> the count; null when the message names no nights. */
 export function nightsIn(text: string): number | null {
-  const w: Record<string, number> = { one: 1, a: 1, isa: 1, isang: 1, usa: 1, two: 2, dalawa: 2, dalawang: 2, duha: 2, three: 3, tatlo: 3, tatlong: 3, tulo: 3, four: 4, apat: 4, upat: 4, five: 5, lima: 5, limang: 5 };
+  const w = NUM_W;
   const m = /\b(\d{1,2}|one|a|isa|isang|usa|two|dalawa|dalawang|duha|three|tatlo|tatlong|tulo|four|apat|upat|five|lima|limang)\s*(?:ka\s*)?(?:po\s*)?(?:nights?|gabi|gabii)\b/i.exec(text);
   if (!m) return null;
   const n = /^\d+$/.test(m[1]) ? +m[1] : w[m[1].toLowerCase()];
@@ -497,7 +519,7 @@ export function start(text: string, now = new Date()): Flow {
   const at = now.toISOString();
   const first = settleLang(undefined, detectLang(text), 0);
   const flow: Flow = { step: 'dates', started_at: at, updated_at: at, lang: first.lang, bis_turns: first.bisTurns };
-  const d = parseDates(text, now);
+  const d = datesOf(text, now); // s74 G1: "5 days from Dec 25" is Dec 25 to 30
   const today = at.slice(0, 10);
   // SPEC-39 4.2 (live 2026-10-04): "until Nov 30" with no earlier date names the CHECK-OUT; the check-in is asked next.
   const until = d.length === 1 && d[0] >= today && untilOnly(text);
@@ -537,7 +559,7 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
   const retry = (what: P.RetryWhat): Step => text.includes('?') ? { flow: f, reply: null, action: 'passthrough' } : ask(P.retryLine(what, prompt(f, null), L));
   switch (f.step) {
     case 'dates': {
-      const d = parseDates(text, now);
+      const d = datesOf(text, now);
       // The nearest window was offered as a question: a whole-message yes takes it, a no closes gently (isChatYes, not
       // OFFER_YES_RE - "ok let me think" must not book). index.ts re-reads the calendar because the dates changed.
       if (!d[0] && f.alt && isChatYes(text)) { f.checkin = f.alt.start; f.checkout = f.alt.end; f.alt = undefined; f.agreed = true; f.step = f.pax ? 'offer' : 'pax'; return ask(); }
@@ -559,6 +581,8 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       return ask();
     }
     case 'checkout': {
+      const sp = stayFromPhrase(text, now); // s74 G1: "5 days from Dec 25" answers the nights ask
+      if (sp) { f.checkin = sp.checkin; f.checkout = sp.checkout; f.step = f.pax ? 'offer' : 'pax'; return ask(); }
       const d = parseDates(text, now);
       const n = d[0] ? null : nightsIn(text);
       if (n) { f.checkout = addDay(f.checkin!, n); f.step = f.pax ? 'offer' : 'pax'; return ask(); }

@@ -11,13 +11,13 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, pastStayAsk, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed } from './persona.ts';
 import { JEV_INTENTS, jevRoute, primaryLang, routeRisk, type JevRoute } from './jev.ts'; // D-271
 import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { CANCEL_RE, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
 import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
@@ -122,7 +122,7 @@ const NEGATED_DATE_RE = /\b(?:not|hindi|dili|instead of)\s+(?:po\s+)?(?:on\s+|sa
 /** s73 R3-3: a past stay told about ("last time we stayed Sep 5 to 7") - parseDates would roll it into next year. "noon" is left
  *  out on purpose: "check in 12 noon on Oct 19" is a stay question. */
 const NARROW_RE = /\b(just|only|lang|instead|actually|how about|what about)\b/i; // s73 R4-1: the guest narrows the stay to this date
-const PAST_STAY_RE = /\b(last (time|year|month)|stayed|dati)\b/i;
+const PAST_STAY_RE = /\b(last (time|year|month)|stayed|dati|niadtong|kaniadto)\b/i;
 /** s73 R2-1 / R3: the stay being priced, from the guest's last three messages. The newest dated message wins: two dates are the
  *  stay whatever length word sits beside them ("Oct 19 to 21, 3 days 2 nights" is 2 nights). One date inside a range an older
  *  message gave ("we leave Oct 21 early") is that range; otherwise it takes the length named ("Oct 19, 3 nights"), else one
@@ -130,7 +130,8 @@ const PAST_STAY_RE = /\b(last (time|year|month)|stayed|dati)\b/i;
 export function pricedStay(guestTexts: string[], now: Date): { checkin: string; checkout: string } | null {
   const said = guestTexts.slice(-3), today = dayStr(new Date(now.getTime() + 8 * 3_600_000)); // Manila
   // R4-2: a past stay is skipped only when no price is asked ("same as last year po, Oct 19 to 21, how much?" is priced).
-  const dates = said.map((t) => PAST_STAY_RE.test(t) && !priceAsked(t) ? [] : parseDates(t.replace(NEGATED_DATE_RE, ' '), now));
+  // s74 G1: ...nor one parseDates rolled into next year ("last time we stayed Sep 5 to 7, how much now?"): no stay to price or hold.
+  const dates = said.map((t) => PAST_STAY_RE.test(t) && !priceAsked(t) || rolledPastStay(t, now) ? [] : datesOf(t.replace(NEGATED_DATE_RE, ' '), now));
   for (let i = said.length - 1; i >= 0; i--) {
     const d = dates[i];
     if (!d[0] || d[0] < today) continue;
@@ -669,20 +670,25 @@ async function openHandoffByShort(db: Db, short: string): Promise<any | null> {
   return (data ?? []).find((h: any) => String(h.id).startsWith(short)) ?? null;
 }
 
-async function sendHostReply(db: Db, short: string, text: string, from: any, cbId?: string): Promise<void> {
+export async function sendHostReply(db: Db, short: string, text: string, from: any, cbId?: string): Promise<void> {
   const h = await openHandoffByShort(db, short);
   if (!h) { if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: 'Already handled.' }); return; }
   const name = whoIs(from);
   const final = `${text.trim()}\n\n— ${name}, Cascade Hideaway`;
+  const now = new Date().toISOString();
+  // s74 G1: claim BEFORE the send (host-reply's pattern): two taps, or a tap and a typed reply, read the same open row and both
+  // sent. open -> sent is one atomic update; zero rows back means the other run got there first.
+  const { data: won, error: claimErr } = await db.from('concierge_handoffs')
+    .update({ status: 'sent', sent_text: final, resolved_by: name, resolved_at: now }).eq('id', h.id).eq('status', 'open').select('id');
+  if (claimErr || (won?.length ?? 0) !== 1) { if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: 'Already handled.' }); return; }
   // SPEC-17 (D-212): the handoff stays open and the card says so when Messenger did not accept the reply.
   // Before this the card showed a tick and the row closed while the guest had received nothing.
   if (!(await fbSend(h.psid, final, true))) {
+    await db.from('concierge_handoffs').update({ status: 'open', sent_text: null, resolved_by: null, resolved_at: null }).eq('id', h.id).eq('sent_text', final); // only the row this call claimed
     if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: 'Messenger refused the send. Nothing was sent.' });
     if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: maskMoney(`\u26a0\ufe0f Messenger refused the reply to ${h.guest_name ?? h.psid}, so nothing was sent and this is still open. Tap again in a minute.\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}`) });
     return;
   }
-  const now = new Date().toISOString();
-  await db.from('concierge_handoffs').update({ status: 'sent', sent_text: final, resolved_by: name, resolved_at: now }).eq('id', h.id);
   const { data: t } = await db.from('concierge_threads').select('history').eq('psid', h.psid).maybeSingle();
   await db.from('concierge_threads').upsert({ psid: h.psid, history: [...(t?.history ?? []), { role: 'bot', text: final, at: now }].slice(-HISTORY_KEEP * 2), updated_at: now });
   if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: `Sent as ${name}` });
@@ -1111,6 +1117,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
+  // s74 G1: a past stay told about and a price asked ("last time we stayed Sep 5 to 7, how much now?") - no quote, no hold, ask the new dates.
+  else if (rolledPastStay(text, now) && priceAsked(text)) reply = pastStayAsk(turnLang === 'bisaya' ? 'bis' : turnLang === 'taglish' ? 'tl' : 'en');
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
   else {
     try {
@@ -1134,6 +1142,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const datesKnown = [...new Set(guestTexts.join(' \n ').match(DATES_RE) ?? [])].slice(-3);
       // s73 R2-6: a day-first date ("19 to 21 Oct") is outside DATES_RE but read by parseDates - the dates are known all the same.
       if (!datesKnown.length && stay) datesKnown.push(dmRange(stay.checkin, stay.checkout));
+      // s74 G1: "5 days from Dec 25" is the whole stay, not just its first date (the model asked for the nights again).
+      const phrased = stayFromPhrase(text, now);
+      if (phrased) datesKnown.splice(0, datesKnown.length, dmRange(phrased.checkin, phrased.checkout));
       const datesHint = datesKnown.length ? `[Guest's dates already given: ${datesKnown.join('; ')} - answer for these days, do not ask for dates.] ` : '';
       // Capacity rides on the guest turn too: "pwede 5 adults?" got "we can accommodate 5 adults" (live 2026-09-13).
       const capHint = /\b([4-9]|1\d)\s*(adults?|pax|persons?|people|guests?|tao|matanda)\b/i.test(text) ? '[Capacity is a hard limit: 3 adults, or 3 adults + 1 child, or 2 adults + 2 children. This group does not fit - say so warmly and suggest a larger place; never say we can accommodate them.] ' : '';

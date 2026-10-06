@@ -199,6 +199,13 @@ export const pastDate = (lang?: Lang) => by(lang, {
   tl: `Lumipas na po ang date na iyon. Aling upcoming dates po ang gusto ninyo?`,
   bis: `Lapas na ang date nga na. Unsang upcoming dates ang gusto ninyo?`,
 });
+/** s74 G1: a past stay told about with a price asked ("last time we stayed Sep 5 to 7, how much now?") - nothing is quoted or held;
+ *  the new dates are asked. */
+export const pastStayAsk = (lang?: Lang) => by(lang, {
+  en: `Happy to check that for you. Which dates would you like this time? Share them here and we'll check the calendar and the rate.`,
+  tl: `Sige po, i-check namin. Aling dates ang gusto ninyo ngayon? I-share lang po dito and we'll check the calendar at ang rate.`,
+  bis: `Sige, atong i-check. Unsang dates ang gusto ninyo karon? Share lang diri and we'll check ang calendar ug ang rate.`,
+});
 export type RetryWhat = 'dates' | 'checkout' | 'guests' | 'details' | 'that';
 const RETRY: Record<RetryWhat, { en: string; tl: string; bis: string }> = {
   dates: { en: 'the dates', tl: 'ang dates', bis: 'ang dates' },

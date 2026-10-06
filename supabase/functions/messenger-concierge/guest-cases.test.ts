@@ -13,7 +13,7 @@ Deno.test('an emergency or a lockout gets through a human hold; other messages s
   const off = gate('my wife fainted, need a hospital now', { ...hold, mode: 'off' }); assertEquals(off.reply, false);
 });
 
-const CASES: Record<RiskCode, string[]> = {
+const CASES: Record<Exclude<RiskCode, 'priority'>, string[]> = {
   access: [ // G2 a failing lock, the Bisaya code ask; G4 a claim on the address
     'unsa ang code sa pultahan?', 'the lock is beeping red and wont open', 'ayaw mag-open ng door kahit tama ang code',
     'low battery yung lock, hindi nag-respond', 'gate guard wont let us in, wala kaming gate pass',
