@@ -8,7 +8,7 @@
 -- function without the header is a 401 until the next run. Redeploy verify-meter-photo WITHOUT changing its JWT setting (still
 -- verify_jwt true), so its job keeps the legacy anon Authorization the gateway needs.
 -- The schedule of each existing job is kept (read from cron.job; the default is the one in the migration/sql that created it).
--- The bodies and Authorization headers below are the ones those files created. No table change. pg_cron/pg_net/vault are absent
+-- The bodies below are the ones those files created; each job's current Authorization header is carried over. No table change. pg_cron/pg_net/vault are absent
 -- from rehearsal and CI copies; the block skips there (same pattern as 20260913160000).
 begin;
 
@@ -16,6 +16,8 @@ do $$
 declare
   j record;
   cur text;
+  cur_cmd text;
+  bearer text;
   secret text := $s$(select decrypted_secret from vault.decrypted_secrets where name = 'cascade_cron_shared_secret')$s$;
 begin
   if to_regclass('cron.job') is null or to_regnamespace('net') is null or to_regclass('vault.decrypted_secrets') is null then
@@ -27,12 +29,18 @@ begin
   end if;
 
   for j in select * from (values
-    ('finance-watch-daily',          '30 0 * * *', 'finance-watch',         'Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj', '{}',                                         60000),
-    ('release-expired-holds-hourly', '20 * * * *', 'release-expired-holds', 'Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj', '{}',                                         60000),
-    ('verify-meter-photo-daily',     '30 23 * * *', 'verify-meter-photo',   'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZ2Zoc2RwcHNsd3VuYXJjemVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2MjI3MDYsImV4cCI6MjA5NTE5ODcwNn0.Rf1XhyuxkkoGd2HG0I02CP0BA4mu8kfQalLtStDaXAI',
-                                                                                                                                         '{"lookback":14,"limit":5,"notify":false}', 300000)
-  ) as t(jobname, dflt_schedule, fn, bearer, body, timeout_ms)
+    ('finance-watch-daily',          '30 0 * * *',  'finance-watch',         'Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj', '{}',                                         60000),
+    ('release-expired-holds-hourly', '20 * * * *',  'release-expired-holds', 'Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj', '{}',                                         60000),
+    ('verify-meter-photo-daily',     '30 23 * * *', 'verify-meter-photo',    null,                                                     '{"lookback":14,"limit":5,"notify":false}', 300000)
+  ) as t(jobname, dflt_schedule, fn, dflt_bearer, body, timeout_ms)
   loop
+    cur_cmd := (select command from cron.job where jobname = j.jobname limit 1);
+    -- The Authorization value of the live job is carried over unchanged (verify-meter-photo's is the legacy anon JWT its gateway checks;
+    -- the secret scan forbids writing a JWT into a tracked file). A job that is missing and has no default stops the release.
+    bearer := coalesce(substring(cur_cmd from $re$'Authorization',\s*'([^']+)'$re$), j.dflt_bearer);
+    if bearer is null then
+      raise exception 'job % has no Authorization header to carry over', j.jobname;
+    end if;
     cur := coalesce((select schedule from cron.job where jobname = j.jobname limit 1), j.dflt_schedule);
     perform cron.unschedule(jobid) from cron.job where jobname = j.jobname;
     perform cron.schedule(j.jobname, cur, format($cmd$
@@ -46,7 +54,7 @@ begin
         body    := '%4$s'::jsonb,
         timeout_milliseconds := %5$s
       ) as request_id;
-    $cmd$, j.fn, j.bearer, secret, j.body, j.timeout_ms));
+    $cmd$, j.fn, bearer, secret, j.body, j.timeout_ms));
   end loop;
 
   if (select count(*) from cron.job where jobname in ('finance-watch-daily', 'release-expired-holds-hourly', 'verify-meter-photo-daily')
