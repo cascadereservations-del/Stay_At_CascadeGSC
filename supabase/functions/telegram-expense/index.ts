@@ -33,6 +33,7 @@ import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button
 import { blockNoted, blockRecorded, blockRefusal, BLOCK_PROMPTS } from './block.ts'; // SPEC-41: the OPS blocked-date card's answers and follow-ups
 import { feederFor, parseBrownoutReply, parseNoticeArgs, resolveDateOn } from './notice-args.ts'; // SPEC-41: the /brownout parser, shared with the Brownout follow-up
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
+import { cleaningFeeFromRow, manilaDate, RATE_MISSING } from './cleaning-fee.ts'; // D-301: no guessed 500, Manila pay day
 import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
 import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
 import { liveSendIO } from './inquiry-send.ts';
@@ -171,11 +172,12 @@ function clamp01(n:unknown) { const x=Number(n); return isFinite(x)?Math.max(0,M
 function validDate(d:unknown) { const s=String(d??''); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null; const t=new Date(s+'T00:00:00Z').getTime(); if(isNaN(t)||t>Date.now()+2*86_400_000||t<new Date('2020-01-01').getTime()) return null; return s; }
 function lineItemsToText(items:any) { if(!Array.isArray(items)||!items.length) return ''; return items.map((it:any)=>typeof it==='string'?it:`${it?.name??'?'}${Number(it?.qty)?` x${it.qty}`:''}`).join(', ').slice(0,300); }
 
-async function cleaningFeeFor(db:any,cleaningType:string,dateStr:string) {
-  const {data}=await db.from('cleaner_rate_schedule').select('regular_rate,general_rate').lte('effective_from',dateStr).order('effective_from',{ascending:false}).limit(1).maybeSingle();
-  return cleaningType==='deep_clean'?(Number(data?.general_rate)||500):(Number(data?.regular_rate)||500);
+// null = no rate on file for that day (the old ||500 paid a deep clean 500 and any gap 500). Callers show "rate missing" and offer no amount.
+async function cleaningFeeFor(db:any,cleaningType:string,dateStr:string):Promise<number|null> {
+  const {data,error}=await db.from('cleaner_rate_schedule').select('regular_rate,general_rate').eq('property_id',PROPERTY_ID).lte('effective_from',dateStr).order('effective_from',{ascending:false}).limit(1).maybeSingle();
+  return error?null:cleaningFeeFromRow(data,cleaningType);
 }
-function sessionDate(s:any) { return s.checkout_date??s.checkin_date??(s.cleaned_at?String(s.cleaned_at).slice(0,10):toManilaDate()); }
+function sessionDate(s:any) { return s.checkout_date??s.checkin_date??manilaDate(s.cleaned_at,toManilaDate()); }
 function typeLabelOf(t:string|null|undefined) { return t==='deep_clean'?'Deep Clean':'Turnover'; }
 function whoFrom(from:any) { return [from?.first_name,from?.username?`@${from.username}`:null,from?.id].filter(Boolean).join(' '); }
 
@@ -367,7 +369,7 @@ async function payCleanList(db:any,chatId:any) {
   const sessions=(data??[]) as any[];
   if (!sessions.length){await tgSend(chatId,'\u2705 No unpaid cleans. All settled.');return;}
   const rows:any[][]=[];
-  for (const s of sessions){const d=sessionDate(s);const fee=await cleaningFeeFor(db,s.cleaning_type??'turnover',d);rows.push([{text:`${s.cleaner_name??'Cleaner'} \u00b7 ${d.slice(5)} \u00b7 ${typeLabelOf(s.cleaning_type)} \u00b7 \u20b1${peso(fee)}`,callback_data:`pcsel:${s.id}`}]);}
+  for (const s of sessions){const d=sessionDate(s);const fee=await cleaningFeeFor(db,s.cleaning_type??'turnover',d);rows.push([{text:`${s.cleaner_name??'Cleaner'} \u00b7 ${d.slice(5)} \u00b7 ${typeLabelOf(s.cleaning_type)} \u00b7 ${fee==null?'rate missing':`\u20b1${peso(fee)}`}`,callback_data:`pcsel:${s.id}`}]);}
   await tgSend(chatId,'\uD83E\uDDF9 *Pay Cleaning Fees*\nTap a clean you have already paid for:',{reply_markup:{inline_keyboard:rows}});
 }
 async function paySessionCard(db:any,chatId:any,msgId:number|null,sessionId:string) {
@@ -375,8 +377,8 @@ async function paySessionCard(db:any,chatId:any,msgId:number|null,sessionId:stri
   if(!s){await tgSend(chatId,'\u26a0\ufe0f Clean not found.');return;}
   if(s.fee_paid_at){const txt='\u2139\ufe0f That clean is already marked paid.';if(msgId)await tgEdit(chatId,msgId,txt);else await tgSend(chatId,txt);return;}
   const d=sessionDate(s);const fee=await cleaningFeeFor(db,s.cleaning_type??'turnover',d);
-  const text=[`\uD83E\uDDF9 *Pay cleaning fee*`,`\uD83D\uDC64 ${mdEsc(s.cleaner_name??'Cleaner')}`,`\uD83D\uDCC5 ${d} \u00b7 ${typeLabelOf(s.cleaning_type)}`,`\uD83D\uDCB5 Fee: *\u20b1${peso(fee)}*`,``,`Confirm the amount you paid, or edit it.`].join('\n');
-  const kb={inline_keyboard:[[{text:`\u2705 Mark Paid \u20b1${peso(fee)}`,callback_data:`pcpay:${s.id}:${fee}`}],[{text:'\u270f\ufe0f Edit amount',callback_data:`pcedit:${s.id}`},{text:'\u274c Cancel',callback_data:'pccancel'}]]};
+  const text=[`\uD83E\uDDF9 *Pay cleaning fee*`,`\uD83D\uDC64 ${mdEsc(s.cleaner_name??'Cleaner')}`,`\uD83D\uDCC5 ${d} \u00b7 ${typeLabelOf(s.cleaning_type)}`,fee==null?RATE_MISSING(d):`\uD83D\uDCB5 Fee: *\u20b1${peso(fee)}*`,``,`Confirm the amount you paid, or edit it.`].join('\n');
+  const kb={inline_keyboard:[...(fee==null?[]:[[{text:`\u2705 Mark Paid \u20b1${peso(fee)}`,callback_data:`pcpay:${s.id}:${fee}`}]]),[{text:'\u270f\ufe0f Edit amount',callback_data:`pcedit:${s.id}`},{text:'\u274c Cancel',callback_data:'pccancel'}]]};
   if(msgId)await tgEdit(chatId,msgId,text,kb);else await tgSend(chatId,text,{reply_markup:kb});
 }
 async function bookCleaningFee(db:any,sessionId:string,amount:number,loggedBy:string|null):Promise<{ok:boolean;already?:boolean;cleaner?:string;date?:string;error?:string}> {
