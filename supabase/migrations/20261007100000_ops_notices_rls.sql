@@ -12,7 +12,7 @@
 --     repo; the guest guide reads app_settings and four RPCs only. Edge logs 09-28, 10-04, 10-05, 10-06/07: every
 --     /rest/v1/ops_notices request used the secret key.
 --   * The signed-in staff accounts include a cleaner, who could write notices through auth_all.
--- After: anon has nothing; signed-in staff read with read_operations and write with manage_operations (owner/admin),
+-- After: anon has nothing; signed-in staff read with read_operations and insert/update with manage_operations (owner/admin),
 -- the same action admin_table_action_v1 already names for ops_notices; service_role unchanged.
 
 begin;
@@ -29,7 +29,7 @@ create policy ops_notices_manage on public.ops_notices for all to authenticated
 
 -- State the end state, not the start (a --no-acl restore starts from default privileges; see security_grants_20260925).
 revoke all on table public.ops_notices from public, anon, authenticated;
-grant select, insert, update, delete on table public.ops_notices to authenticated;
+grant select, insert, update on table public.ops_notices to authenticated;  -- no delete: the dashboard soft-deletes via admin_soft_delete_v1
 grant all on table public.ops_notices to service_role;
 
 commit;

@@ -13,9 +13,9 @@ select is((select array_agg(policyname::text order by policyname) from pg_polici
 select ok(not has_table_privilege('anon', 'public.ops_notices', 'select, insert, update, delete, truncate, references, trigger'),
   'anon holds no privilege on ops_notices');
 select ok(has_table_privilege('authenticated', 'public.ops_notices', 'select') and has_table_privilege('authenticated', 'public.ops_notices', 'insert')
-      and has_table_privilege('authenticated', 'public.ops_notices', 'update') and has_table_privilege('authenticated', 'public.ops_notices', 'delete')
-      and not has_table_privilege('authenticated', 'public.ops_notices', 'truncate, references, trigger'),
-  'authenticated keeps select/insert/update/delete only (RLS decides the rows)');
+      and has_table_privilege('authenticated', 'public.ops_notices', 'update')
+      and not has_table_privilege('authenticated', 'public.ops_notices', 'delete, truncate, references, trigger'),
+  'authenticated keeps select/insert/update only (RLS decides the rows; deletes go through admin_soft_delete_v1)');
 select ok(has_table_privilege('service_role', 'public.ops_notices', 'select') and has_table_privilege('service_role', 'public.ops_notices', 'insert')
       and has_table_privilege('service_role', 'public.ops_notices', 'update') and has_table_privilege('service_role', 'public.ops_notices', 'delete'),
   'service_role (power-watch, telegram-expense, calendar-sync) keeps its access');
@@ -53,10 +53,9 @@ select throws_ok($$insert into public.ops_notices(id, property_id, notice_type, 
   values ('e7400000-0000-4000-8000-0000000000f3', 'e7400000-0000-4000-8000-0000000000a1', 'brownout', 'zz cleaner forged', '2026-12-03', 'staff')$$,
   '42501', null, 'a cleaner cannot insert a notice directly (Telegram /brownout goes through the service role)');
 update public.ops_notices set is_active = false where id = 'e7400000-0000-4000-8000-0000000000f1';
-delete from public.ops_notices where id = 'e7400000-0000-4000-8000-0000000000f1';
 reset role;
 select is((select is_active from public.ops_notices where id = 'e7400000-0000-4000-8000-0000000000f1'), true,
-  'a cleaner''s update and delete touch no row');
+  'a cleaner''s update touches no row');
 
 -- a user with no staff profile ----------------------------------------------------------------------------------------------
 set local role authenticated;
