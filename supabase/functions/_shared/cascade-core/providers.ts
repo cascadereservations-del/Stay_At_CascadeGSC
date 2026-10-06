@@ -38,24 +38,25 @@ export type ChatJsonRequest = {
   tier?: 'full' | 'lite' | 'routine';  // default full; lite = cheap model for follow-ups and option drafts; routine = free first (below)
   plain?: boolean;         // SPEC-32 s5: no JSON mode - the last try after two unreadable JSON replies
 };
-// SPEC-32 s4 (D-254): probe and golden runs spend CASCADE_OPENROUTER_PROBE_KEY, never the guests' key. Set by runProbe for
-// its own request and reset in finally.
-// ponytail: module-level; a guest turn landing on the same warm worker mid-probe would bill the probe key - harmless.
-let keyOverride: string | null = null;
-export function setProviderKey(key: string | null): void { keyOverride = key || null; }
-const orKey = () => keyOverride ?? env('CASCADE_OPENROUTER_BOT_KEY');
-// D-294: a row written while keyOverride is set is a probe or golden run, so the governor can leave it out of guest demand.
-// ponytail: the same module-level ceiling - that rare mid-probe guest turn is also tagged probe (audit 2026-10-04); scope the
-// override per request (AsyncLocalStorage) if probes ever overlap real guest traffic often enough to skew the governor.
-const probing = () => keyOverride !== null;
-// S74: a probe or golden run sums what its model calls cost and how much of the prompt the provider served from cache, so
-// golden-run.ts can print a total and stop at --budget-usd. Per request (AsyncLocalStorage), so concurrent probes on one warm
-// worker keep their own totals; runProbe calls startProbeTotals() first and reads the object last.
+// SPEC-32 s4 (D-254): probe and golden runs spend CASCADE_OPENROUTER_PROBE_KEY, never the guests' key. S74: the key and the run's
+// cost totals live in a per-request AsyncLocalStorage context, so overlapping probes on one warm worker (golden-run --concurrency 4)
+// neither end each other's key nor mix totals, and a guest turn (no context) never sees a probe key. index.ts wraps runProbe in
+// probeScope(); runProbe sets the key with setProviderKey and clears it in finally, both inside its own context.
 export type ProbeTotals = { cost_usd: number; cached: number; input: number };
-const totalsStore = new AsyncLocalStorage<ProbeTotals>();
-export function startProbeTotals(): ProbeTotals { const t = { cost_usd: 0, cached: 0, input: 0 }; totalsStore.enterWith(t); return t; }
+type Scope = { key: string | null; totals: ProbeTotals };
+const scope = new AsyncLocalStorage<Scope>();
+export const probeScope = <T>(fn: () => T): T => scope.run({ key: null, totals: { cost_usd: 0, cached: 0, input: 0 } }, fn);
+/** The running probe's totals (cost, cached and prompt tokens of its own model calls); a detached zero outside a probeScope. */
+export const probeTotals = (): ProbeTotals => scope.getStore()?.totals ?? { cost_usd: 0, cached: 0, input: 0 };
+// ponytail: outside a probeScope (the local golden scripts, one process, one run at a time) the key falls back to a module variable.
+let scriptKey: string | null = null;
+export function setProviderKey(key: string | null): void { const s = scope.getStore(); if (s) s.key = key || null; else scriptKey = key || null; }
+const keyNow = () => scope.getStore() ? scope.getStore()!.key : scriptKey;
+const orKey = () => keyNow() ?? env('CASCADE_OPENROUTER_BOT_KEY');
+// D-294: a row written while a probe key is set is a probe or golden run, so the governor can leave it out of guest demand.
+const probing = () => keyNow() !== null;
 const record = (u: Parameters<typeof recordUsage>[0]) => {
-  const t = totalsStore.getStore();
+  const t = scope.getStore()?.totals;
   if (t && u.ok !== false) { t.cost_usd += u.cost_usd ?? 0; t.cached += u.cached ?? 0; t.input += u.input ?? 0; }
   recordUsage(u);
 };
@@ -114,9 +115,9 @@ function openrouter(q: ChatJsonRequest, key: string): Promise<string> {
 /** 2026-09-30 (Lloyd, the Gemini prepay empty): the rungs after the guests' OpenRouter key - a second Cascade OpenRouter key
  *  with its own cap (CASCADE_OPENROUTER_BACKUP_KEY), then Cascade's own OmniRoute gateway (CASCADE_OMNIROUTE_URL,
  *  CASCADE_OMNIROUTE_KEY, CASCADE_OMNIROUTE_MODEL = its combo; never Alfred's). A rung whose secret is unset is skipped, and
- *  a probe or golden run (keyOverride) spends neither. */
+ *  a probe or golden run spends neither. */
 function backupRungs(q: ChatJsonRequest): Array<{ name: string; run: () => Promise<string> }> {
-  if (keyOverride) return [];
+  if (probing()) return [];
   const out: Array<{ name: string; run: () => Promise<string> }> = [];
   const backup = env('CASCADE_OPENROUTER_BACKUP_KEY');
   if (backup) out.push({ name: 'openrouter_backup', run: () => openrouter(q, backup) });
@@ -146,7 +147,7 @@ async function tripOn(e: unknown): Promise<void> {
  *  falls through to the paid chain on the lite model, and never becomes the error a host card names. Never pass tier 'routine'
  *  with guest names, messages or photos. Probes and golden runs skip it. */
 async function routineFirst(q: ChatJsonRequest): Promise<string | null> {
-  if (q.tier !== 'routine' || keyOverride) return null;
+  if (q.tier !== 'routine' || probing()) return null;
   const url = env('CASCADE_OMNIROUTE_URL').replace(/\/+$/, ''), key = env('CASCADE_OMNIROUTE_KEY');
   if (!url || !key) return null;
   try {

@@ -27,7 +27,7 @@ import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, OUTPUT_ANSWER, SITE_URL, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
 import { currentCard, livePromos, loadCard, tierRate } from '../_shared/cascade-core/pricing.ts';
-import { chatJson, geminiBreaker, setProviderKey, startProbeTotals } from '../_shared/cascade-core/providers.ts';
+import { chatJson, geminiBreaker, probeScope, probeTotals, setProviderKey } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
 import { withHeader } from '../_shared/cascade-core/format.ts';
@@ -1413,7 +1413,7 @@ async function runProbe(body: string): Promise<Response> {
   const out: unknown[] = [];
   // D-254: probes never spend the guests' budget; golden runs have a key of their own (Lloyd 2026-09-26).
   setProviderKey((p.golden ? env('CASCADE_OPENROUTER_GOLDEN_RUN_KEY') : '') || env('CASCADE_OPENROUTER_PROBE_KEY') || null);
-  const totals = startProbeTotals(); // S74: cost and cache hits of this probe's own model calls
+  const totals = probeTotals(); // S74: cost and cache hits of this probe's own model calls
   try {
     await db.from('concierge_threads').delete().eq('psid', psid); // a fresh thread, always
     // D-269: Cassy's reply helper seeds the conversation a host pasted (guest and host lines, oldest first), so the brain
@@ -1473,7 +1473,7 @@ Deno.serve(async (req) => {
   // Probe: header-gated, probe: psids only, sends nothing. A missing or wrong header falls through to the HMAC check,
   // which rejects it, so the probe adds no unauthenticated surface.
   const probeSecret = env('CASCADE_PROBE_SECRET'), probeHeader = req.headers.get('x-cascade-probe');
-  if (probeSecret.length >= 24 && probeHeader === probeSecret) return url.searchParams.get('profile') ? await messengerProfile(url.searchParams.get('profile') === 'set') : await runProbe(body);
+  if (probeSecret.length >= 24 && probeHeader === probeSecret) return url.searchParams.get('profile') ? await messengerProfile(url.searchParams.get('profile') === 'set') : await probeScope(() => runProbe(body));
   if (!(await hmacOk(env('META_APP_SECRET'), body, req.headers.get('x-hub-signature-256')))) return new Response('bad signature', { status: 401 });
 
   const db: Db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));

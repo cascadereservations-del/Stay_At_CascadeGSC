@@ -147,9 +147,33 @@ Deno.test('S74 cache: cached prompt tokens ride on the llm_usage line, chat and 
 
 Deno.test('S74 cache: a probe sums cost, cached and prompt tokens of its own calls', async () => {
   geminiBreaker.until = 0;
-  const { startProbeTotals } = await import('./cascade-core/providers.ts');
-  const totals = startProbeTotals();
+  const { probeScope, probeTotals } = await import('./cascade-core/providers.ts');
   usageStub({ prompt_tokens: 1000, completion_tokens: 10, cost: 0.01, prompt_tokens_details: { cached_tokens: 800 } });
-  await usageLines(async () => { await chatJson(q); await chatJson(q); });
+  const totals = await probeScope(async () => { await usageLines(async () => { await chatJson(q); await chatJson(q); }); return { ...probeTotals() }; });
   assertEquals(totals, { cost_usd: 0.02, cached: 1600, input: 2000 });
+});
+
+Deno.test('S74 probes: overlapping probe contexts - one ending first never takes the other key or its probe tag', async () => {
+  geminiBreaker.until = 0;
+  const { probeScope, setProviderKey } = await import('./cascade-core/providers.ts');
+  Deno.env.set('SUPABASE_URL', 'https://usage.test'); Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'svc');
+  const seen: string[] = [];
+  globalThis.fetch = ((u: string | URL | Request, init?: RequestInit) => {
+    const url = String(u);
+    if (url.includes('/rest/v1/llm_usage')) seen.push(`probe:${JSON.parse(String(init?.body)).probe}`);
+    else seen.push(String((init?.headers as Record<string, string>).Authorization));
+    return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":1}' } }] }), { status: 200 }));
+  }) as typeof fetch;
+  let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+  const run = async (key: string, wait: Promise<void> | null) => {
+    await probeScope(async () => { setProviderKey(key); await chatJson(q); await wait; seen.push(`${key}:second`); await chatJson(q); setProviderKey(null); });
+  };
+  try {
+    const b = run('keyB', gate), a = run('keyA', null);
+    await a; release(); await b;
+    await chatJson(q); // a guest turn outside every probe context
+  } finally { globalThis.fetch = realFetch; Deno.env.delete('SUPABASE_URL'); Deno.env.delete('SUPABASE_SERVICE_ROLE_KEY'); }
+  const after = seen.slice(seen.indexOf('keyB:second') + 1);
+  assertEquals(after.slice(0, 2).sort(), ['Bearer keyB', 'probe:true'], 'the later call of B still spends its probe key and is tagged probe');
+  assertEquals(after.slice(2), ['Bearer test-openrouter', 'probe:false'], 'a guest turn spends the guest key and is not a probe');
 });
