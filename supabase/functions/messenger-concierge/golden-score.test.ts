@@ -20,7 +20,7 @@ Deno.test('every example in VOICE passes the rubric: the model copies examples, 
     const note = /\(([^)]*)\)\s*$/.exec(q)?.[1] ?? '';
     const lang: Reg = /bisaya/i.test(note) ? 'bis' : /taglish/i.test(note) ? 'tl' : 'en';
     const guest = q.replace(/\s*\([^)]*\)\s*$/, '');
-    const got = failures(scoreReply({ guest, reply, prevReply: null, kind: 'model', lang, firstTurn: first, siteUrl: SITE_URL, noInvite: /no invitation/i.test(note), guestUsedPo: /\bpo\b/i.test(guest) }));
+    const got = failures(scoreReply({ guest, reply, prevReply: null, kind: 'model', lang, firstTurn: first, siteUrl: SITE_URL, noInvite: /no invitation/i.test(note), guestUsedPo: /\bpo\b/i.test(guest), reference: true }));
     assertEquals(got, [], `example "${guest}" fails the rubric: ${got.join('; ')}`);
     seen++;
   }
@@ -102,8 +102,39 @@ Deno.test('D-286: the nine s63 cases (month, deposit, party x en/tl/bis) catch t
   const greet = `Hi Ben, thank you for reaching out to Cascade Hideaway. I'm Cassy, the home's digital concierge, here with Marifel and our team.`;
   const live = `${greet} For a month-long stay, Ben, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.`; // the live fault
   assertEquals(rules({ guest: month.say, firstTurn: true, reply: live, must: month.must, mustNot: month.mustNot }).includes('X'), true);
-  assertEquals(rules({ guest: month.say, firstTurn: true, reply: `${greet}\n\nFor a month-long stay, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.`, must: month.must, mustNot: month.mustNot }).includes('X'), false);
+  assertEquals(rules({ guest: month.say, firstTurn: true, reply: `${greet}\n\nFor a month-long stay, the direct rate is PHP 1,335 per night, PHP 37,380 for 28 nights.\n\nCassy, Cascade Concierge`, must: month.must, mustNot: month.mustNot }).includes('X'), false);
   const twoCloses = `Ben, yes - the PHP 1,000 refundable deposit applies to every stay.\n\nWe're here if you have any other questions.\n\nJust let us know your preferred dates, and we'll gladly check our availability for you.`;
   assertEquals(rules({ guest: dep.say, reply: twoCloses, must: dep.must, mustNot: dep.mustNot }).includes('X'), true);
   assertEquals(rules({ guest: dep.say, reply: `Ben, yes - the PHP 1,000 refundable deposit applies to every stay. We'll have everything prepared before you arrive. 🌿`, must: dep.must, mustNot: dep.mustNot }).includes('X'), true);
+});
+
+// ---- SPEC-39 (D-299.10, D-300.1): the first message carries no link and is signed; nothing after it is signed ----
+Deno.test('SPEC-39 R4/X: a link on the first message fails R4; an unsigned first message and a signed follow-up fail X', () => {
+  const signed = `Hi Ben, thank you for reaching out to Cascade Hideaway. Yes, there's free parking in front of the unit.\n\nWe'd be delighted to have you with us. Which dates are you looking at? Share your check-in and check-out here and we'll check the calendar for you right away.\n\nCassy, Cascade Concierge`;
+  assertEquals(rules({ guest: 'is there parking?', firstTurn: true, reply: signed }), []);
+  const linked = signed.replace('\n\nCassy', `\n\nWe can arrange it here in the chat, or on our site:\n👉 ${SITE_URL}\n\nCassy`);
+  assertEquals(rules({ guest: 'is there parking?', firstTurn: true, reply: linked }).includes('R4'), true);
+  assertEquals(scoreReply(base({ guest: 'is there parking?', firstTurn: true, reply: linked })).R4, 'a link on the first message (D-299.10)');
+  assertEquals(scoreReply(base({ guest: 'is there parking?', firstTurn: true, reply: signed.replace(/\n\nCassy, Cascade Concierge$/, '') })).X, 'first message not signed');
+  assertEquals(scoreReply(base({ guest: 'is there parking?', reply: `Yes, Ben, there's free parking.\n\nCassy, Cascade Concierge` })).X, 'signature on a follow-up');
+  // a first-message handoff is never signed and never scored for it; a flow's first reply is
+  assertEquals(scoreReply(base({ guest: 'the aircon is broken', firstTurn: true, kind: 'handoff', noInvite: true, reply: 'Thank you for letting us know right away. Our host has already been alerted.' })).X, null);
+  assertEquals(scoreReply(base({ guest: 'Oct 20 to 22?', firstTurn: true, kind: 'flow', reply: 'Hi Ben, thank you. Oct 20 to 22 is available.' })).X, 'first message not signed');
+});
+Deno.test('SPEC-39 golden: the first-turn link cases flipped, the D-300.2 link cases added, the new cases present', () => {
+  const cs = goldenCases(new Date('2026-10-04T00:00:00Z'), 'Oct 10 to 12');
+  const byId = (id: string) => cs.find((c) => c.id === id)!;
+  const link = /tinyurl\.com\/Stay-at-Cascade/;
+  for (const id of ['first-greeting-en', 'first-greeting-tl', 'first-rate-en', 'first-rate-tl', 'first-location-en', 'first-howtobook-en', 'reg-english-po']) {
+    const t = byId(id).turns[0];
+    assertEquals((t.mustNot ?? []).some((r) => String(r) === String(link)), true, `${id} mustNot LINK`);
+    assertEquals((t.must ?? []).some((r) => String(r) === String(link)), false, `${id} no longer must LINK`);
+  }
+  for (const id of ['first-two-months-en', 'first-two-months-tl', 'first-vague-en', 'first-until-en', 'flow-family-en', 'fu-thanks-bless-en', 'fu-chat-yes-en', 'fu-objection-dated-en', 'fu-mahal-tl', 'fu-second-link-en', 'fu-photos-tl', 'fu-howtobook-en', 'fu-reviews-en', 'pay-brisk-en', 'pay-gentle-en', 'first-avail-taken-en'])
+    assertEquals(!!byId(id), true, id);
+  assertEquals(byId('fu-photos-tl').turns[1].must!.some((r) => String(r) === String(link)), true);
+  assertEquals(byId('fu-think-about-it-en').turns[1].must!.some((r) => String(r) === String(link)), true);
+  // pay-near-en needs a really open stay inside five days (GOLDEN_SOON)
+  assertEquals(cs.some((c) => c.id === 'pay-near-en'), false);
+  assertEquals(goldenCases(new Date('2026-10-04T00:00:00Z'), null, null, null, 'Oct 6 to 7').some((c) => c.id === 'pay-near-en'), true);
 });

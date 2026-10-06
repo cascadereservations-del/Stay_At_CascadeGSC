@@ -14,7 +14,11 @@ export type Ctx = {
   must?: RegExp[]; mustNot?: RegExp[];
   /** SPEC-32 s7: what the turn did (submit, qr, receipt, handoff + risk), scored against the probe's recorded effects. */
   effects?: RegExp[]; effectsText?: string;
+  /** A VOICE reference reply scored as a model of the answer's middle: the D-299.10 / D-300.1 frame checks (no link and the
+   *  signature on a first message, no signature after it) are code's, not the example's. */
+  reference?: boolean;
 };
+const SIGNED_RE = /\nCassy, Cascade Concierge\s*$/;
 export const RUBRIC = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'X', 'E'] as const;
 export type Rule = typeof RUBRIC[number];
 export type Score = Record<Rule, string | null>;
@@ -110,8 +114,9 @@ export function scoreReply(c: Ctx): Score {
   if (banned.length || extra) s.R2 = [...banned, ...(extra ? [`"${extra}"`] : [])].join(', ');
   // R3 warmth present
   if (voiced && isCold(r)) s.R3 = 'substantive reply with no marker of care';
-  // R4 one invitation, both routes, the link under its sentence
-  if (c.kind !== 'flow' && c.kind !== 'midflow') {
+  // R4 one invitation, both routes, the link under its sentence. D-299.10: never a link on the first message.
+  if (c.firstTurn && !c.reference && c.kind !== 'handoff' && r.includes(c.siteUrl)) s.R4 = 'a link on the first message (D-299.10)';
+  else if (c.kind !== 'flow' && c.kind !== 'midflow') {
     const invites = paras.filter((p) => p.includes(c.siteUrl) || (INVITE_RE.test(p) && ASKING_RE.test(p)));
     const dangling = paras.find((p) => /:\s*$/.test(p));
     const bare = paras.find((p, i) => p.includes(c.siteUrl) && (/^(👉|https?:\/\/)/.test(p) || (i === 0 && paras.length === 1)));
@@ -160,6 +165,9 @@ export function scoreReply(c: Ctx): Score {
   // X the case's own expectations
   const miss = (c.must ?? []).find((re) => !re.test(r)), hit = (c.mustNot ?? []).find((re) => re.test(r));
   if (miss) s.X = `expected ${miss}`; else if (hit) s.X = `must not match ${hit}`;
+  // D-300.1: the initial message, and only it, is signed "Cassy, Cascade Concierge" (a handoff line never is).
+  else if (!c.reference && c.firstTurn && c.kind !== 'handoff' && !SIGNED_RE.test(r)) s.X = 'first message not signed';
+  else if (!c.reference && !c.firstTurn && /Cassy, Cascade Concierge\s*$/.test(r)) s.X = 'signature on a follow-up';
   // E the turn's effects (a reply can read right while no card was raised - REVIEW F1)
   const lost = (c.effects ?? []).find((re) => !re.test(c.effectsText ?? ''));
   if (lost) s.E = `effect missing ${lost}`;

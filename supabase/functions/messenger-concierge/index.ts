@@ -863,7 +863,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // promo answer past 700 characters and dropped the chat route). A discount ask still goes to the host.
   // Not bare "sale": "May sale po ba sa SM?" is about the mall (second review 2026-09-26).
   const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
-  const discountAsk = !promoAsk && /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text);
+  // SPEC-39 3.3 (D-300.4): "medyo mahal po" / "a bit expensive" is the same price objection as "any discount?".
+  const discountAsk = !promoAsk && /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo|mahal|expensive|pricey)\b/i.test(text);
   const siteShown = thread.history.filter((h) => h.role === 'bot').slice(-4).some((h) => h.text.includes(SITE_URL)); // D-269
   // D-269 answer-then-escalate: a price proposal or special request (policy_exception that is not a house rule) is answered
   // from FACTS like a discount ask, and the host still gets the card with two options. A bare "our host will consider it"
@@ -962,7 +963,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
     const before = flow;
     const s = answer(flow, text, now, thread.guest_name); flow = s.flow;
-    if (s.action === 'passthrough') flowFollowUp = prompt(flow, thread.guest_name, true); // protocol: the model answers, then the flow's ask follows (resumed card: soft nudge)
+    // protocol: the model answers, then the flow's ask follows (resumed card: soft nudge). D-300.4: not under a price
+    // objection - the host decides the price, so no rate is re-quoted and the model's one soft question closes the reply.
+    if (s.action === 'passthrough') flowFollowUp = hostAsk ? null : prompt(flow, thread.guest_name, true);
     if (s.action === 'ask') flowReply = s.reply ?? prompt(flow, thread.guest_name);
     // Protocol rule 1 mid-flow (live 2026-09-17 10:57: "Oct 20 to 22 po, available pa po ba?" got the contact ask with no
     // answer): dates completed on this turn are checked against the calendar before the next ask.

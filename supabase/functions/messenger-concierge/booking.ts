@@ -155,7 +155,9 @@ export function isChatYes(text: string): boolean {
   return words.every((w) => YES_STRONG.has(w) || YES_FILLER.has(w)) && words.some((w) => YES_STRONG.has(w) && w !== 'please' && w !== 'chat');
 }
 const PAY_ASK_RE = /\b(payment (link|details?|options?|methods?|instructions?)|pay(ment)? (via|thru|through|using)|how (do|can|will|should) (i|we) pay|where (do|can|should) (i|we) (pay|send)|gcash (number|no|details?|account|qr)|(send|give)( me| us)?( the)? (qr|account|bank|gcash|payment)|qr ?code|account (details?|number|name)|bank details?|paano (po )?(mag ?bayad|magbayad|mag-bayad)|saan (po )?(mag ?bayad|magbabayad)|asa (mi )?(mo ?bayad|magbayad))\b/i;
-const CHAT_OFFER_RE = /\b(arrange\b[^.\n]{0,60}\b(in (the|this) chat|here in (the )?chat|sa chat)|(right )?here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i;
+// SPEC-39: a first reply with the dates known no longer carries the chat invitation (D-299.10), so the model's own offer to
+// hold or book those dates is an offer a "yes please" accepts too.
+const CHAT_OFFER_RE = /\b(arrange\b[^.\n]{0,60}\b(in (the|this) chat|here in (the )?chat|sa chat)|(right )?here in (the|this) chat|dito (po )?sa chat|diri sa chat|(hold|reserve|book|set aside) (those|these|the|your) (dates|nights?)|i-?hold\b[^.?!\n]{0,20}\bdates)\b/i;
 
 /**
  * Should this message start the in-chat booking flow, and from which guest text? Null means no.
