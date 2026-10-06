@@ -263,6 +263,7 @@
 
       /* Part 5 addition — error token (shared palette red, D-312) */
       --ch-error: #B3261E;
+      --ch-error-on-dark: #F2B8B5;   /* error TEXT on the dark form/payment bands; --ch-error stays for borders and light surfaces */
     }
 
     /* ── 2. RESET ── */
@@ -512,7 +513,7 @@
       color: var(--ch-gold);
     }
 
-    .header-cta { padding: 0.6em 1.3em; font-size: 0.62rem; letter-spacing: 0.15em; }
+    .header-cta { padding: 0.6em 1.3em; font-size: var(--step--2); letter-spacing: 0.15em; }
 
     /* ── 7. HERO SECTION ── */
     .hero {
@@ -1593,7 +1594,7 @@
     /* ── Layout ── */
     .booking-inner {
       position: relative; z-index: 1;
-      display: grid; grid-template-columns: 1fr;
+      display: grid; grid-template-columns: minmax(0, 1fr);
       gap: var(--space-2xl); align-items: start;
     }
     @media (min-width: 900px) {
@@ -1642,7 +1643,7 @@
 
     /* ── Form column ── */
     .booking-form-col {
-      position: relative; z-index: 1;
+      position: relative; z-index: 1; min-width: 0;
       background: rgb(247 242 232 / 0.04);
       border: 1px solid rgb(247 242 232 / 0.08);
       padding: var(--space-m);
@@ -1724,7 +1725,7 @@
     /* Error message beneath field */
     .form-error-msg {
       font-family: var(--ch-font-body); font-size: var(--step--2);
-      font-weight: 400; color: var(--ch-error);
+      font-weight: 400; color: var(--ch-error-on-dark);
       letter-spacing: 0.02em; line-height: 1.4;
     }
 
@@ -1783,7 +1784,7 @@
     /* Email note — inline tip next to label */
     .form-label-note {
       font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 400;
-      letter-spacing: 0.10em; color: rgb(201 150 58 / 0.55);
+      letter-spacing: 0.10em; color: rgb(201 150 58 / 0.85);
       text-transform: none; margin-inline-start: 0.4em;
     }
 
@@ -2106,7 +2107,7 @@
     .stay-address-note {
       font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.12em; text-transform: uppercase;
-      color: rgb(201 150 58 / 0.50); margin-top: 0.5em;
+      color: rgb(201 150 58 / 0.85); margin-top: 0.5em;
     }
     .stay-checkin-pill {
       display: inline-flex; align-items: center; gap: 0.5em;
@@ -2440,7 +2441,7 @@
       transition: color var(--ch-dur-s) var(--ch-ease);
       min-height: 2.5em;
     }
-    .cal-instruction--error { color: var(--ch-error) !important; }
+    .cal-instruction--error { color: var(--ch-error-on-dark) !important; }
 
     /* Selection summary strip */
     .cal-selection {
@@ -2635,7 +2636,7 @@
     .booking-step-num {
       width: 22px; height: 22px; border-radius: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 600;
+      font-size: var(--step--2); font-weight: 600;
       border: 1px solid currentColor;
       flex-shrink: 0;
       transition: background var(--ch-dur-s) var(--ch-ease), border-color var(--ch-dur-s) var(--ch-ease);
@@ -2899,8 +2900,11 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.12em; text-transform: uppercase;
-      color: rgb(247 220 160 / 0.50);
+      color: rgb(247 220 160 / 0.85);
       white-space: nowrap;
+    }
+    @media (max-width: 480px) {
+      .pay-later-together-label { white-space: normal; text-align: center; }
     }
 
 
@@ -2930,10 +2934,10 @@
     .pay-mode-btn-sub {
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 400;
-      color: rgba(247,242,232,0.55); letter-spacing: 0.04em;
+      color: rgba(247,242,232,0.72); letter-spacing: 0.04em;
     }
     .pay-mode-btn.is-active .pay-mode-btn-label { color: var(--ch-gold-light); }
-    .pay-mode-btn.is-active .pay-mode-btn-sub   { color: rgba(201,150,58,0.70); }
+    .pay-mode-btn.is-active .pay-mode-btn-sub   { color: var(--ch-gold-light); }
 
     /* ── Revised trust zone — single-line ── */
     .pay-trust-block {
@@ -3089,7 +3093,7 @@
       border-left: 3px solid #B3261E;
     }
     .pay-gcash-delay-icon {
-      flex-shrink: 0; color: #B3261E;
+      flex-shrink: 0; color: var(--ch-error-on-dark);
       width: 1.1em; height: 1.1em; margin-top: 0.1em;
     }
     .pay-gcash-delay-icon svg { width: 100%; height: 100%; }
@@ -3101,7 +3105,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 700;
       letter-spacing: 0.04em;
-      color: rgb(179 38 30 / 0.90);
+      color: var(--ch-error-on-dark);
       margin-bottom: 0.3em;
     }
     .pay-gcash-delay-body p {
@@ -3188,7 +3192,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 700;
       letter-spacing: 0.12em; text-transform: uppercase;
-      color: var(--ch-mahogany); text-align: center;
+      color: rgb(247 242 232 / 0.85); text-align: center;
       margin-top: 4px; line-height: 1.3;
     }
     .pay-qr-wrap {
@@ -3495,7 +3499,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 700;
       letter-spacing: 0.20em; text-transform: uppercase;
-      color: rgb(201 150 58 / 0.75); margin-bottom: 0.25em;
+      color: rgb(201 150 58 / 0.85); margin-bottom: 0.25em;
     }
     .gallery-title {
       display: block;
@@ -3509,7 +3513,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.13em; text-transform: uppercase;
-      color: rgb(201 150 58 / 0.65); margin-top: 0.3em;
+      color: rgb(201 150 58 / 0.85); margin-top: 0.3em;
     }
 
     /* Slide counter top-right */
@@ -3593,7 +3597,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.18em; text-transform: uppercase;
-      color: rgb(201 150 58 / 0.50); margin-bottom: 0.6em;
+      color: rgb(201 150 58 / 0.85); margin-bottom: 0.6em;
     }
     .loc-heading {
       font-family: var(--ch-font-display);
@@ -3635,7 +3639,7 @@
     .loc-signature {
       font-family: var(--ch-font-display);
       font-size: var(--step-1); font-weight: 300; font-style: italic;
-      color: rgb(201 150 58 / 0.50);
+      color: rgb(201 150 58 / 0.85);
       padding-block-start: var(--space-s);
       border-block-start: 1px solid rgb(247 242 232 / 0.06);
     }
@@ -3667,7 +3671,7 @@
     .loc-cta-btn:hover svg { opacity: 1; }
     .loc-cta-label { flex: 1; }
     .loc-cta-label strong { display: block; font-weight: 600; font-size: 1em; }
-    .loc-cta-label span { font-size: var(--step--2); opacity: 0.50; letter-spacing: 0.06em; }
+    .loc-cta-label span { font-size: var(--step--2); color: rgb(247 242 232 / 0.72); letter-spacing: 0.06em; }
     .loc-cta-btn.is-messenger { border-color: rgb(0 153 255 / 0.15); }
     .loc-cta-btn.is-messenger:hover { border-color: rgb(0 153 255 / 0.30); background: rgb(0 153 255 / 0.05); }
     /* Get Directions button in success dialog */
@@ -3701,9 +3705,9 @@
     }
     .tier-row--header span {
       font-family: var(--ch-font-body);
-      font-size: 0.62rem; font-weight: 600; /* was 0.56rem */
+      font-size: var(--step--2); font-weight: 600; /* was 0.56rem */
       letter-spacing: 0.14em; text-transform: uppercase;
-      color: rgb(201 150 58 / 0.65); /* was 0.50 */
+      color: rgb(201 150 58 / 0.85); /* was 0.50 */
     }
     .tier-row--header span:not(:first-child) { text-align: right; }
     .tier-row--popular { background: rgb(201 150 58 / 0.06); }
@@ -3885,12 +3889,12 @@
       .review-new-badge { animation: none; }
     }
     .nearby-strip { margin-top: var(--space-m); padding-top: var(--space-m); border-top: 1px solid rgb(247 242 232 / 0.08); }
-    .nearby-label { font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: rgb(201 150 58 / 0.50); margin-bottom: var(--space-s); }
+    .nearby-label { font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: rgb(201 150 58 / 0.85); margin-bottom: var(--space-s); }
     .nearby-categories { display: flex; flex-direction: column; gap: 10px; }
     .nearby-category { display: flex; align-items: flex-start; gap: 8px; }
-    .nearby-cat-label { flex-shrink: 0; width: 52px; padding-top: 5px; font-family: var(--ch-font-body); font-size: 9px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgb(201 150 58 / 0.40); }
+    .nearby-cat-label { flex-shrink: 0; width: 6em; padding-top: 5px; font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgb(201 150 58 / 0.85); }
     .nearby-chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
-    .nearby-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid rgb(247 242 232 / 0.10); font-family: var(--ch-font-body); font-size: 11px; font-weight: 400; color: rgb(247 242 232 / 0.55); white-space: nowrap; text-decoration: none; transition: border-color 200ms,color 200ms,background 200ms; }
+    .nearby-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid rgb(247 242 232 / 0.10); font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 400; color: rgb(247 242 232 / 0.55); white-space: nowrap; text-decoration: none; transition: border-color 200ms,color 200ms,background 200ms; }
     .nearby-chip:hover { border-color: rgb(201 150 58 / 0.30); color: rgb(247 242 232 / 0.80); background: rgb(201 150 58 / 0.05); }
     .nearby-chip-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--ch-gold); opacity: 0.50; flex-shrink: 0; }
     .nearby-chip strong { font-weight: 600; color: rgb(247 242 232 / 0.75); }
@@ -4153,7 +4157,7 @@
       background: var(--ch-gold-gradient);
       color: var(--ch-mahogany);
       font-family: var(--ch-font-body);
-      font-size: 0.68rem;
+      font-size: var(--step--2);
       font-weight: 700;
       letter-spacing: 0.12em;
       text-transform: uppercase;
@@ -4441,7 +4445,7 @@
       display: flex; flex-direction: column; gap: 0;
     }
     .hero-bk-eyebrow {
-      font-family: var(--ch-font-body); font-size: 0.64rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;
       color: rgba(201, 150, 58, 0.90);
       margin-bottom: 0.60rem; text-align: center;
@@ -4467,7 +4471,7 @@
       padding: 0.80em 1em; /* was 0.60em 0.75em */
     }
     .hero-bk-label {
-      font-family: var(--ch-font-body); font-size: 0.64rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
       color: rgba(247, 242, 232, 0.75); line-height: 1;
       text-shadow: 0 1px 6px rgba(0,0,0,0.60), 0 2px 12px rgba(0,0,0,0.40);
@@ -4492,20 +4496,20 @@
 
     /* Live estimate + error */
     .hero-bk-estimate {
-      font-family: var(--ch-font-body); font-size: 0.68rem; /* was 0.56rem */
+      font-family: var(--ch-font-body); font-size: var(--step--2); /* was 0.56rem */
       font-weight: 500; letter-spacing: 0.05em;
       color: rgba(201, 150, 58, 0.90); text-align: center;
       padding: 0.40em 0 0;
     }
     .hero-bk-estimate:empty { display: none; }
     .hero-bk-error {
-      font-family: var(--ch-font-body); font-size: 0.62rem; /* was 0.54rem */
+      font-family: var(--ch-font-body); font-size: var(--step--2); /* was 0.54rem */
       color: #e09070; text-align: center; padding: 0.22em 0;
     }
     .hero-bk-error:empty { display: none; }
     /* Availability status line */
     .hero-bk-avail {
-      font-family: var(--ch-font-body); font-size: 0.68rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       text-align: center; padding: 0.25em 0; line-height: 1.45;
     }
     .hero-bk-avail:empty { display: none; }
@@ -4516,7 +4520,7 @@
     /* Tappable nearest-available suggestion */
     .qbw-suggest-btn {
       display: inline-block; margin-top: 0.35em;
-      font-family: var(--ch-font-body); font-size: 0.68rem; font-weight: 700;
+      font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 700;
       letter-spacing: 0.06em; text-transform: uppercase;
       color: rgba(247,242,232,0.95);
       background: rgba(201,150,58,0.28);
@@ -4572,7 +4576,7 @@
       font-weight:400; color:rgba(247,242,232,0.92); letter-spacing:0.02em;
     }
     .qbw-picker-prompt {
-      font-family:var(--ch-font-body); font-size:0.62rem; font-weight:600;
+      font-family:var(--ch-font-body); font-size:var(--step--2); font-weight:600;
       letter-spacing:0.12em; text-transform:uppercase;
       color:rgba(201,150,58,0.85); text-align:center;
       margin-bottom:0.45rem; min-height:1em;
@@ -4581,7 +4585,7 @@
       display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-bottom:3px;
     }
     .qbw-picker-dow span {
-      text-align:center; font-family:var(--ch-font-body); font-size:0.55rem;
+      text-align:center; font-family:var(--ch-font-body); font-size:var(--step--2);
       font-weight:700; letter-spacing:0.10em; text-transform:uppercase;
       color:rgba(247,242,232,0.30); padding:2px 0;
     }
@@ -4633,7 +4637,7 @@
       }
     }
     .qbw-picker-sync {
-      font-family:var(--ch-font-body); font-size:0.58rem; font-weight:500;
+      font-family:var(--ch-font-body); font-size:var(--step--2); font-weight:500;
       letter-spacing:0.07em; text-align:center; font-style:italic;
       color:rgba(201,150,58,0.50); margin-top:0.45rem; min-height:0.9em;
       transition: color 0.3s ease;
@@ -4676,7 +4680,7 @@
     .hero-bk-cta {
       margin-top: 0.70rem;
       width: 100%;
-      font-family: var(--ch-font-body); font-size: 0.74rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
       color: rgba(247, 242, 232, 1.00);
       background: rgba(201, 150, 58, 0.35);
@@ -4837,9 +4841,9 @@
     }
     .concierge-heading {
       font-family: var(--ch-font-body);
-      font-size: clamp(0.62rem, 1.8vw, 0.72rem);
+      font-size: var(--step--2);
       font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase;
-      color: rgba(201,150,58,0.70);
+      color: var(--ch-gold);
       margin-bottom: clamp(0.45rem, 1.5vw, 0.65rem);
     }
     .concierge-link {
@@ -4910,9 +4914,9 @@
     /* Change-dates button — always below the golden summary bar when shown */
     .date-summary-wrap { display: flex; flex-direction: column; gap: 0.45em; }
     .cal-change-btn {
-      font-family: var(--ch-font-body); font-size: 0.62rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase;
-      color: rgb(201 150 58 / 0.65);
+      color: rgb(201 150 58 / 0.85);
       background: none; border: none;
       cursor: pointer; padding: 0;
       text-align: left;
@@ -4933,7 +4937,7 @@
       display: inline-flex; align-items: center; gap: 0.4em;
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 500; letter-spacing: 0.06em;
-      color: rgb(201 150 58 / 0.68);
+      color: rgb(201 150 58 / 0.85);
       background: none; border: none; cursor: pointer; padding: 0.2em 0;
     }
     .sr-toggle-btn:hover { color: var(--ch-gold); }
@@ -5181,7 +5185,7 @@
 
         <article class="why-direct-item ch-reveal" role="listitem">
           <span class="why-direct-num" aria-hidden="true">02</span>
-          <h3 class="why-direct-item-heading">Answers right away, a host behind it</h3>
+          <h3 class="why-direct-item-heading">Instant answers, a real host behind them</h3>
           <p class="why-direct-item-body">
             Cassy, our concierge, answers right away, and Marifel and the team see every message.
           </p>
@@ -6043,7 +6047,7 @@
             Calendar synced live with all bookings
           </p>
           <!-- 2. Soft urgency — evidenced, not fabricated -->
-          <p class="ch-reveal" hidden style="font-family:var(--ch-font-body); font-size:var(--step--2); font-weight:500; letter-spacing:0.08em; color:rgb(201 150 58 / 0.65); margin-bottom:var(--space-s);">
+          <p class="ch-reveal" hidden style="font-family:var(--ch-font-body); font-size:var(--step--2); font-weight:500; letter-spacing:0.08em; color:rgb(201 150 58 / 0.85); margin-bottom:var(--space-s);">
             <span aria-hidden="true">◆ </span>This property typically books 2–4 weeks in advance
           </p>
 
@@ -6257,7 +6261,7 @@
                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <polyline points="6 9 12 15 18 9"/>
                   </svg>
-                  Any special requests?&ensp;<em style="font-style:normal;opacity:0.58;">(Optional)</em>
+                  Any special requests?&ensp;<em style="font-style:normal;opacity:0.85;">(Optional)</em>
                 </button>
               </div>
               <div class="form-field form-field--sr" id="srField" hidden>
@@ -6852,7 +6856,7 @@
                 Brgy. San Isidro<br>
                 General Santos City, 9500
               </p>
-              <p style="font-size:var(--step--2); color:rgb(201 150 58 / 0.55); font-family:var(--ch-font-body); letter-spacing:0.09em; text-transform:uppercase; margin-top:0.4em;">
+              <p style="font-size:var(--step--2); color:rgb(201 150 58 / 0.85); font-family:var(--ch-font-body); letter-spacing:0.09em; text-transform:uppercase; margin-top:0.4em;">
                 Exact address sent after booking confirmed
               </p>
             </div>
@@ -6897,7 +6901,7 @@
               <span class="nearby-cat-label">Shops</span>
               <div class="nearby-chips">
                 <a class="nearby-chip" href="https://maps.app.goo.gl/69WJMLfXPZRawXQn8" target="_blank" rel="noopener noreferrer">
-                  <span class="nearby-chip-dot"></span>Robinsons Place <span style="font-size:9px;font-weight:700;letter-spacing:0.08em;color:rgb(201 150 58 / 0.65);margin-left:2px;">Closest</span> <strong>~10 min</strong>
+                  <span class="nearby-chip-dot"></span>Robinsons Place <span style="font-size:var(--step--2);font-weight:700;letter-spacing:0.08em;color:rgb(201 150 58 / 0.85);margin-left:2px;">Closest</span> <strong>~10 min</strong>
                 </a>
                 <a class="nearby-chip" href="https://maps.app.goo.gl/kdQKAya8AauE6vya8" target="_blank" rel="noopener noreferrer">
                   <span class="nearby-chip-dot"></span>Veranza Mall <strong>~12 min</strong>
@@ -6922,7 +6926,7 @@
               <span class="nearby-cat-label">Café</span>
               <div class="nearby-chips">
                 <a class="nearby-chip" href="https://www.google.com/maps?q=Coffee+Project+General+Santos" target="_blank" rel="noopener noreferrer">
-                  <span class="nearby-chip-dot"></span>Coffee Project <span style="font-size:9px;font-weight:700;letter-spacing:0.08em;color:rgb(201 150 58 / 0.65);margin-left:2px;">Nearest</span> <strong>~5 min</strong>
+                  <span class="nearby-chip-dot"></span>Coffee Project <span style="font-size:var(--step--2);font-weight:700;letter-spacing:0.08em;color:rgb(201 150 58 / 0.85);margin-left:2px;">Nearest</span> <strong>~5 min</strong>
                 </a>
               </div>
             </div>
@@ -6951,7 +6955,7 @@
             </svg>
             <span class="loc-cta-label">
               <strong>Message on Messenger</strong>
-              <span>We respond personally</span>
+              <span>Answers right away</span>
             </span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity:0.3; width:11px; height:11px; flex-shrink:0;"><path d="M7 17L17 7M7 7h10v10"/></svg>
           </a>
@@ -7174,7 +7178,7 @@
             </svg>
             <span class="success-reach-btn-text">
               <span class="success-reach-btn-title">Messenger</span>
-              <span class="success-reach-btn-sub">We respond personally</span>
+              <span class="success-reach-btn-sub">Answers right away</span>
             </span>
           </a>
           <a class="success-reach-btn success-reach-btn--whatsapp" href="https://wa.me/639618056979" target="_blank" rel="noopener noreferrer" aria-label="Chat on WhatsApp">

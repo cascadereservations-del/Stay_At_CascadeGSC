@@ -228,7 +228,7 @@
 .theme-quiet-luxury .hero-bk-label {
   color: #806b56;
   font-family: Manrope, system-ui, sans-serif;
-  font-size: .6rem;
+  font-size: var(--step--2);
   font-weight: 600;
   letter-spacing: .12em;
   text-shadow: none;
@@ -270,7 +270,7 @@
 .theme-quiet-luxury #heroBookBar .hero-bk-inner { padding: .58rem .70rem .64rem; }
 .theme-quiet-luxury #heroBookBar .hero-bk-eyebrow {
   margin-bottom: .45rem;
-  font-size: .58rem;
+  font-size: var(--step--2);
   letter-spacing: .18em;
 }
 .theme-quiet-luxury #heroBookBar .hero-bk-field {
@@ -285,7 +285,7 @@
 }
 .theme-quiet-luxury #heroBookBar .hero-bk-label {
   color: #705b48;
-  font-size: .56rem;
+  font-size: var(--step--2);
   font-weight: 700;
   letter-spacing: .14em;
   line-height: 1.1;
@@ -339,7 +339,7 @@
 .theme-quiet-luxury #heroBookBar .hero-bk-cta {
   min-height: 44px;
   margin-top: .55rem;
-  font-size: .72rem;
+  font-size: var(--step--2);
 }
 
 /* Desktop hero split: the property name owns the upper half, the booking
@@ -557,9 +557,9 @@
 .theme-quiet-luxury .booking-legal-note {
   margin: .75rem 0 0;
   font-size: .8125rem;
-  color: var(--ch-stone);
+  color: rgb(247 242 232 / .72);
 }
-.theme-quiet-luxury .booking-legal-note a { color: var(--ch-brass-dark); }
+.theme-quiet-luxury .booking-legal-note a { color: #e5c384; }
 
 /* ── Motion & interaction contract ───────────────────────────── */
 
