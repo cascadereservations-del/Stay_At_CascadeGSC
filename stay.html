@@ -38,6 +38,15 @@
   .st-err { color: #8a2b1d; font-weight: 500; }
   .st-neutral { text-align: center; padding: 2.5rem 1.5rem; }
   .st-neutral .st-state { margin-bottom: 0.8rem; }
+  .ai-person { border: 1px solid var(--ch-line); background: rgb(255 255 255 / 0.5); padding: 1rem; margin: 0 0 1rem; min-width: 0; }
+  .ai-person legend { font-weight: 600; color: var(--ch-ink); padding: 0 0.4rem; }
+  .ai-field { display: block; margin: 0 0 0.8rem; font-size: 0.92rem; color: var(--ch-muted); }
+  .ai-field input, .ai-field select { display: block; width: 100%; min-height: 2.75rem; margin-top: 0.25rem; padding: 0.55rem 0.7rem; font: inherit; font-size: 1rem; color: var(--ch-ink); background: #fff; border: 1px solid var(--ch-warm-stone); border-radius: 0; }
+  .ai-field input[readonly] { background: rgb(247 242 232 / 0.7); }
+  .ai-field input[type="file"] { padding: 0.5rem 0.4rem; }
+  .ai-got { color: var(--ch-ink); font-weight: 500; margin: 0 0 0.8rem; }
+  .ai-got::before { content: "\2713  "; color: var(--ch-gold-muted); }
+  #stArrive .st-btn { width: 100%; min-height: 2.75rem; }
   @media (max-width: 480px) { .st-grid { grid-template-columns: 1fr; gap: 0; } .st-grid dd { margin-bottom: 0.6rem; } }
 </style>
 </head>
@@ -46,6 +55,7 @@
   <p class="st-brand"><a href="index.html">Cascade Hideaway</a> &middot; General Santos City</p>
   <h1>Your booking</h1>
   <div id="stView" aria-live="polite"><p class="st-note">Loading your booking&hellip;</p></div>
+  <div id="stArrive"></div>
 
   <section class="st-card" id="stPolicy" hidden>
     <h2>Good to know</h2>
@@ -69,6 +79,8 @@
   var FN = 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/';
   var view = document.getElementById('stView');
   var policy = document.getElementById('stPolicy');
+  var arrive = document.getElementById('stArrive');
+  var intakeSeq = 0;
   var timers = [];
   var TEXT = {
     held: ['Your dates are held', 'We are holding your dates while you send the reservation fee. Once you have paid, upload your receipt below. If nothing arrives before the hold ends, the hold is released and nothing is owed.'],
@@ -96,7 +108,7 @@
     return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' });
   }
   function clearTimers() { timers.forEach(function (t) { clearTimeout(t); clearInterval(t); }); timers = []; }
-  function setView(node) { clearTimers(); view.textContent = ''; view.appendChild(node); }
+  function setView(node) { clearTimers(); intakeSeq++; arrive.textContent = ''; view.textContent = ''; view.appendChild(node); }
 
   function neutral(title, message, retry) {
     var card = el('section', 'st-card st-neutral');
@@ -162,6 +174,136 @@
     return wrap;
   }
 
+  /* SPEC-42 s4b: "Before you arrive". A confirmed guest adds each person's name, an optional mobile, the ID type and one ID photo.
+     The photo is shrunk here first (smaller upload, and the camera's location data is dropped); the server checks it again. */
+  var ID_TYPES = [['', 'Choose ID type'], ['passport', 'Passport'], ['drivers_license', 'Driver\u2019s license'], ['national_id', 'National ID'], ['other', 'Other ID']];
+  var WHY = {
+    photo_type: 'Please send a JPG, PNG or WebP photo.',
+    rate_limited: 'We have reached today\u2019s limit for ID photos. Please try again tomorrow, or show your ID when you arrive.',
+    save_failed: 'That one did not go through. Please try again.'
+  };
+  function words(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim().split(' ').filter(Boolean); }
+  function sameName(a, b) {
+    var x = words(a), y = words(b), s = x.length <= y.length ? x : y, l = x.length <= y.length ? y : x;
+    return s.length >= 2 && s.every(function (w) { return l.indexOf(w) >= 0; });
+  }
+  function shrink(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || !window.createImageBitmap) return Promise.resolve(file);
+    return createImageBitmap(file).then(function (bmp) {
+      var k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+      var c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      return new Promise(function (done) { c.toBlob(function (b) { done(b && b.size < file.size ? b : file); }, 'image/jpeg', 0.85); });
+    }).catch(function () { return file; });
+  }
+  function field(label, input) {
+    var l = el('label', 'ai-field', label);
+    l.appendChild(input);
+    return l;
+  }
+  function personRow(n, name, known, isSelf) {
+    var box = el('fieldset', 'ai-person');
+    box.appendChild(el('legend', '', isSelf ? 'Guest ' + n + ' (you)' : 'Guest ' + n));
+    var nameIn = el('input'); nameIn.type = 'text'; nameIn.value = name || ''; nameIn.maxLength = 80; nameIn.autocomplete = isSelf ? 'name' : 'off';
+    if (known) nameIn.readOnly = true;
+    box.appendChild(field('Full name', nameIn));
+    var contactIn = el('input'); contactIn.type = 'tel'; contactIn.autocomplete = isSelf ? 'tel' : 'off'; contactIn.maxLength = 20; contactIn.placeholder = 'Optional';
+    box.appendChild(field('Mobile number', contactIn));
+    var typeIn = el('select');
+    ID_TYPES.forEach(function (t) { var o = el('option', '', t[1]); o.value = t[0]; typeIn.appendChild(o); });
+    typeIn.value = (known && known.id_type) || '';
+    box.appendChild(field('ID type', typeIn));
+    var got = el('p', 'ai-got', 'ID received'); got.hidden = !(known && known.has_id);
+    box.appendChild(got);
+    var fileIn = el('input'); fileIn.type = 'file'; fileIn.accept = 'image/*';
+    box.appendChild(field(known && known.has_id ? 'Send a new ID photo (optional)' : 'ID photo', fileIn));
+    return { node: box, name: nameIn, contact: contactIn, type: typeIn, file: fileIn, got: got, self: isSelf, has: !!(known && known.has_id) };
+  }
+
+  function intakeForm(ctx, t, note) {
+    var card = el('section', 'st-card');
+    card.appendChild(el('h2', '', 'Before you arrive'));
+    card.appendChild(el('p', '', 'A quick photo of each guest\u2019s ID lets us welcome you without paperwork at the door. It goes to a private store that only our team can open, and we never record the ID number.'));
+    var priv = el('p', 'st-note', 'How we handle your details: ');
+    var a = el('a', '', 'Privacy'); a.href = 'privacy.html';
+    priv.appendChild(a);
+    card.appendChild(priv);
+    var out = el('p', 'st-note'); out.setAttribute('role', 'status');
+    if (note) { out.className = 'ai-got'; out.textContent = note; }
+    card.appendChild(out);
+
+    var people = ctx.people || [], rows = [], bookerAt = -1;
+    people.forEach(function (p, i) { if (bookerAt < 0 && ctx.guest_name && sameName(p.name, ctx.guest_name)) bookerAt = i; });
+    var list = people.map(function (p) { return { name: p.name, known: p }; });
+    if (bookerAt < 0) { list.unshift({ name: ctx.guest_name || '', known: null }); bookerAt = 0; }
+    while (list.length < Math.max(1, Number(ctx.pax) || 1)) list.push({ name: '', known: null });
+    list.slice(0, 12).forEach(function (p, i) {
+      var r = personRow(i + 1, p.name, p.known, i === bookerAt);
+      rows.push(r); card.appendChild(r.node);
+    });
+
+    var btn = el('button', 'st-btn', 'Send to Cascade'); btn.type = 'button';
+    function say(cls, text) { out.className = cls; out.textContent = text; }
+    btn.addEventListener('click', function () {
+      var send = [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i], name = r.name.value.trim(), file = r.file.files && r.file.files[0], contact = r.contact.value.trim();
+        if (!name && !file) continue;
+        if (!name) { say('st-err', 'Please add a name for each ID photo.'); return; }
+        if (r.has && !file && !contact) continue;
+        send.push({ row: r, name: name, file: file || null, contact: contact });
+      }
+      if (!send.length) { say('st-err', 'Add a name and an ID photo for at least one guest first.'); return; }
+      btn.disabled = true; say('st-note', 'Sending\u2026');
+      Promise.all(send.map(function (s) { return s.file ? shrink(s.file) : Promise.resolve(null); })).then(function (blobs) {
+        var fd = new FormData();
+        fd.append('token', t);
+        fd.append('people', JSON.stringify(send.map(function (s) { return { name: s.name, id_type: s.row.type.value, contact: s.contact, self: s.row.self }; })));
+        for (var j = 0; j < blobs.length; j++) {
+          if (!blobs[j]) continue;
+          if (blobs[j].size > 10 * 1024 * 1024) throw new Error('big');
+          fd.append('photo_' + j, blobs[j], 'id.jpg');
+        }
+        return fetch(FN + 'guest-intake', { method: 'POST', body: fd });
+      }).then(function (r) {
+        if (r.status === 404) { say('st-err', 'This link is no longer active. Please contact us and we will help.'); btn.disabled = false; return null; }
+        if (r.status === 413) { say('st-err', 'That photo is too large. Please send a smaller one, up to 10 MB.'); btn.disabled = false; return null; }
+        if (!r.ok) { say('st-err', 'That did not go through. Please try again in a moment.'); btn.disabled = false; return null; }
+        return r.json();
+      }).then(function (data) {
+        if (!data || !data.results) return;
+        var bad = [];
+        data.results.forEach(function (res, j) {
+          var s = send[j];
+          if (!s) return;
+          if (res.ok) { if (res.photo) { s.row.has = true; s.row.got.hidden = false; s.row.file.value = ''; } }
+          else bad.push(res.name + ': ' + (WHY[res.reason] || WHY.save_failed));
+        });
+        if (!bad.length) { loadIntake(t, 'Thank you. We have your details, and there is nothing more to do before you arrive.'); return; }
+        btn.disabled = false;
+        say('st-err', bad.join(' '));
+      }).catch(function (e) {
+        btn.disabled = false;
+        say('st-err', e && e.message === 'big' ? 'That photo is too large. Please send a smaller one, up to 10 MB.' : 'The upload did not go through. Please check your connection and try again.');
+      });
+    });
+    card.appendChild(btn);
+    return card;
+  }
+
+  function loadIntake(t, note) {
+    var seq = ++intakeSeq;
+    fetch(FN + 'guest-intake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t, action: 'context' }) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (seq !== intakeSeq || !d || !d.intake || !d.intake.can_save) return;
+        arrive.textContent = '';
+        arrive.appendChild(intakeForm(d.intake, t, note));
+      })
+      .catch(function () { /* no form is the safe answer: the status page stands on its own */ });
+  }
+
   function render(s) {
     var copy = TEXT[s.state];
     if (!copy) { neutral('We could not read this booking', 'Please contact us with your reference and we will help.', false); return; }
@@ -219,6 +361,7 @@
     setView(holder);
     policy.hidden = !s.money;
     if (s.state === 'under_review') timers.push(setTimeout(load, 60000));
+    if (s.state === 'confirmed') loadIntake(token(), '');
   }
 
   function load() {
