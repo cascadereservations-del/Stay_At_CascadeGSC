@@ -1,7 +1,7 @@
 // deno test --no-lock --node-modules-dir=auto --allow-env --allow-read messenger-concierge/s74.test.ts
 // Session 74 lane G1: "<N> days from <date>" is a stay; a past stay + price ask is not priced or held; sendHostReply claims first.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { answer, bookingStart, start, stayFromPhrase, type Flow } from './booking.ts';
+import { answer, bookingStart, rolledPastStay, start, stayFromPhrase, type Flow } from './booking.ts';
 import { setProviderKey } from '../_shared/cascade-core/providers.ts';
 
 (Deno as unknown as { serve: unknown }).serve = () => ({ finished: Promise.resolve(), shutdown: () => Promise.resolve() });
@@ -173,4 +173,11 @@ Deno.test('s74 G1 re-verify: a real next-year booking or price ask mentioning a 
   }
   for (const t of ['previous booking Sep 5-7, can we book again same dates next month?', 'we booked before Sep 5-7, can we book again same dates?', 'dati po kaming nag-book Sep 5 to 7, pwede po ba ulit mag-book?'])
     assertEquals(bookingStart(t, [], '', now), null, t);
+});
+
+Deno.test('s74 G1 r4: an availability re-ask after a past stay gets the dates ask, not an answer for an unknown year', () => {
+  const now = new Date('2026-10-06T06:00:00Z');
+  for (const t of ['we stayed Sep 5-7, is it open again same dates?', 'we stayed Sep 5-7 last time, available again?'])
+    assertEquals(rolledPastStay(t, now) && /\b(available|avail|open|bakante)\b/i.test(t), true, t);
+  assertEquals(rolledPastStay('is Jan 2 to 4 available? we stayed before', now), false);
 });

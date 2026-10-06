@@ -1118,7 +1118,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
   // s74 G1: a past stay told about and a price asked ("last time we stayed Sep 5 to 7, how much now?") - no quote, no hold, ask the new dates.
-  else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text))) reply = pastStayAsk(turnLang === 'bisaya' ? 'bis' : turnLang === 'taglish' ? 'tl' : 'en');
+  else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text) || /\b(available|avail|open|bakante)\b/i.test(text))) reply = pastStayAsk(turnLang === 'bisaya' ? 'bis' : turnLang === 'taglish' ? 'tl' : 'en');
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
   else {
     try {
