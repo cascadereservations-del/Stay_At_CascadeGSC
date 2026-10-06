@@ -336,3 +336,15 @@ Deno.test('SPEC-39 3.1/3.2 (D-299.10, D-300.1): no Cassy sentence anywhere in th
     assertEquals(p.includes('Cassy') || p.includes(SIGNATURE), false, step);
   }
 });
+
+// ---- SPEC-39 audit fix (session 72): after the hold, a date is a change only when it is new AND the guest asks to change ----
+Deno.test('SPEC-39 audit: after the QR only a requested move of the dates is a change; a date in passing is not', () => {
+  const f = held(start('book Oct 20 to 22 for 2', now), { name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
+  assertEquals([f.checkin, f.checkout], ['2026-10-20', '2026-10-22']);
+  for (const t of ['Can we check in at 2pm on Oct 20?', 'I will send the payment on Oct 8 po', 'Can I pay the balance on Oct 19?', 'wait, Oct 20 is the check-in right?'])
+    assertEquals(answer(f, t, now).action === 'change', false, t);
+  assertEquals(answer(f, 'I will send the payment on Oct 8 po', now).action, 'passthrough'); // falls through to the model, as at base
+  assertEquals(answer(f, 'make it Oct 21 to 23 instead', now).action, 'change');
+  assertEquals(answer(f, 'pwede po ba ilipat sa Oct 25 to 27?', now).action, 'change');
+  assertEquals(answer(f, 'can we change it to Oct 20 to 22?', now).action === 'change', false); // the same dates are no change
+});

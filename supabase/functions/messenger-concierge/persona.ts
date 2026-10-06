@@ -724,6 +724,8 @@ export type ComposeCtx = {
   name: string | null;
   /** the first reply in the thread (nothing answered yet): greeted, the dates asked, signed, no link (D-299.10) */
   greet: boolean;
+  /** D-300.1: the initial message of a conversation (no bot reply in 12 h) - the one signed message, whoever wrote it */
+  greetNow: boolean;
   /** our last reply was under 6 hours ago */
   followUp: boolean;
   /** mid-booking: the flow's own card and ask follow the answer, and nothing else does */
@@ -878,6 +880,6 @@ export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx
   reply = capName(reply, c.name, c.greet && !c.flowFollowUp ? 1 : 2);
   // Nothing left (an answer that was all frame, and no step): the model's words without links or leaves, never silence.
   if (!reply.trim()) reply = m.answer.split('\n').filter((l) => !URL_LINE_RE.test(l)).join('\n').replace(/[ \t]*🌿/gu, '').trim();
-  // D-300.1: the first reply of a conversation is the one signed message.
-  return { reply: signFirst(reply, c.greet), stripped: clean.stripped, fitted: fit !== answer };
+  // D-300.1: the initial message of a conversation (greetNow, 12 h) is the one signed message - a returning guest's too.
+  return { reply: signFirst(reply, c.greetNow), stripped: clean.stripped, fitted: fit !== answer };
 }

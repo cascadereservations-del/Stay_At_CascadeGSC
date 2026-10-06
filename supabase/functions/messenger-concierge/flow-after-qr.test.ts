@@ -224,3 +224,25 @@ Deno.test('SPEC-39 D-300.2: a thanks is closed with no link and no dates nudge',
   assertEquals(r.reply.includes(SITE_URL) || /preferred dates/i.test(r.reply), false);
   assertEquals(/pleasure|welcome|Salamat/i.test(r.reply), true);
 });
+
+// ---- SPEC-39 audit fixes (session 72) ----
+Deno.test('SPEC-39 audit: a returning guest after 12 h is signed on the flow path; inside 12 h not', async () => {
+  const back = await turn(null, { text: 'Hi, is Nov 17 to 19 available? 2 adults' }, ['Hi']);
+  assertEquals(back.reply.includes('Cassy, Cascade Concierge'), false); // the bot replied 3 h ago
+  const row = { psid: 'probe:t1', guest_name: 'Ben', human_until: null, bot_turns: 1, last_risk: null, last_mid: null, booking_flow: null,
+    history: [{ role: 'guest', text: 'Hi', at: ago(14) }, { role: 'bot', text: 'Hello, Ben.', at: ago(14) }] };
+  const { db } = fakeDb(row);
+  const calls: Call[] = [];
+  await handle(db as any, { sender: { id: 'probe:t1' }, recipient: { id: 'page' }, message: { mid: 'm-back', text: 'Hi, is Nov 17 to 19 available? 2 adults' } }, 'auto', probeEffects(calls as any, 'Ben', now), now);
+  const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
+  assertEquals(reply.endsWith('\n\nCassy, Cascade Concierge'), true, reply);
+});
+
+Deno.test('SPEC-39 audit: the children split follows the Messenger marker, so the cards show it', async () => {
+  const { submitNotes } = await import('./index.ts');
+  const { siteNotes } = await import('../_shared/cascade-core/inquiry.ts');
+  const n = submitNotes('p1', flow({ pax: 3, children: 1 }));
+  assertEquals(n, 'via Messenger (psid p1) · 2 adults, 1 child');
+  assertEquals(siteNotes(n), '· 2 adults, 1 child');
+  assertEquals(submitNotes('p1', flow()), 'via Messenger (psid p1)');
+});

@@ -111,6 +111,11 @@ export function stayAnchor(text: string, lang = 'english'): string {
     : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(std)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * std)}`, `so you keep about ${peso(n * (std - tier.rate))}`, extras.slice(2)];
   return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "${q[0]}", (2) "${q[1]}", (3) "${q[2]}"${q[3] ? `, (4) "${q[3]}"` : ''}. Do not state the percentage; do not use the word "discount" more than once. If their dates are not known, put the question about which dates they are looking at in "ask".] `;
 }
+/** SPEC-39 3.3 (D-300.4): a discount ask or a price objection ("medyo mahal po", "a bit expensive") - the host gets the card.
+ *  "hindi naman mahal" / "not expensive at all" says the opposite and is not one. */
+export const priceObjection = (text: string): boolean =>
+  /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo|mahal|expensive|pricey)\b/i.test(text)
+  && !/\b(hindi|not|dili|wala)\b[^.?!]{0,12}\b(mahal|expensive|pricey)/i.test(text);
 /** D-300.2 trigger 1: how to book, or the site itself, asked for. */
 export const HOW_BOOK_RE = /\b(how (?:do|can|should) (?:i|we) (?:book|reserve)|how to book|paano (?:po )?(?:mag-?book|mag-?reserve|ma-?book)|unsaon (?:pag-?)?book|book(?:ing)? link|(?:your |the |ang |inyong )?(?:site|website|link|page)\b|where (?:do|can) (?:i|we) book|san (?:po )?(?:pwede|puwede) mag-?book)\b/i;
 /** D-300.2 (Lloyd 2026-10-05): the site link only as applicable - how to book or the site itself, the home or its photos,
@@ -652,11 +657,16 @@ async function handleOps(db: Db, update: any): Promise<void> {
 // ---- Book flow I/O (booking PRD §A). The pure parts live in booking.ts. ----
 // SITE_URL is the tinyurl; the QR asset needs the Pages origin.
 const QR_URL = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/assets/images/qr-gcash.png';
+/** The booking's notes: the Messenger marker, then the party split when children came (SPEC-39 4.4). */
+export const submitNotes = (psid: string, flow: Flow): string => {
+  const kids = flow.children ?? 0, adults = (flow.pax ?? 0) - kids;
+  return `via Messenger (psid ${psid})${kids ? ` · ${adults} adult${adults === 1 ? '' : 's'}, ${kids} ${kids === 1 ? 'child' : 'children'}` : ''}`;
+};
 async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }> {
   const q = quoteTotal(flow.checkin!, flow.checkout!); // session 28: the guest chose fee or full; submit-booking accepts either
   const body = { guest_name: flow.name ?? thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
-    // SPEC-39 4.4: pax is the whole party; the split rides inside the marker siteNotes strips, so no card shows it as a message.
-    pax: flow.pax, notes: `via Messenger (psid ${psid}${flow.children ? `; ${(flow.pax ?? 0) - flow.children} adults, ${flow.children} ${flow.children === 1 ? 'child' : 'children'}` : ''})`, contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit, pay_full: flow.pay_full === true };
+    // SPEC-39 4.4: pax is the whole party; the split follows the marker, so the cards (siteNotes) show it.
+    pax: flow.pax, notes: submitNotes(psid, flow), contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit, pay_full: flow.pay_full === true };
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
   if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: submitFailed(flow.lang), image: null }; }
@@ -737,7 +747,12 @@ const liveEffects: Effects = {
   },
   ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName,
   // booking_inquiries is submit-booking's table; only a request still pending is touched.
-  amend: async (db, flow, fields) => !!flow.booking_id && !(await db.from('booking_inquiries').update(fields).eq('id', flow.booking_id).eq('status', 'pending')).error,
+  // No row updated (not pending any more, wrong id) is a failure too, so requote_full_failed / correction_after_hold_failed log.
+  amend: async (db, flow, fields) => {
+    if (!flow.booking_id) return false;
+    const { data, error } = await db.from('booking_inquiries').update(fields).eq('id', flow.booking_id).eq('status', 'pending').select('id');
+    return !error && (data?.length ?? 0) > 0;
+  },
 };
 type ProbeCall = { fx: string; text?: string; detail?: unknown };
 export function probeEffects(calls: ProbeCall[], guestName: string | null, now = new Date()): Effects {
@@ -864,7 +879,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // Not bare "sale": "May sale po ba sa SM?" is about the mall (second review 2026-09-26).
   const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
   // SPEC-39 3.3 (D-300.4): "medyo mahal po" / "a bit expensive" is the same price objection as "any discount?".
-  const discountAsk = !promoAsk && /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo|mahal|expensive|pricey)\b/i.test(text);
+  const discountAsk = !promoAsk && priceObjection(text);
   const siteShown = thread.history.filter((h) => h.role === 'bot').slice(-4).some((h) => h.text.includes(SITE_URL)); // D-269
   // D-269 answer-then-escalate: a price proposal or special request (policy_exception that is not a house rule) is answered
   // from FACTS like a discount ask, and the host still gets the card with two options. A bare "our host will consider it"
@@ -902,7 +917,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
   let draftNote = '';                 // D-227: a spent model budget, named on the host's card
   let reply = '';
-  let signHere = false;               // D-300.1: a code-written first reply that is signed when it is the initial message
+  let stayPayTurn = false;           // SPEC-39 3.6b: this reply is the stay card + payment message (its own length cap)
   let promiseAfterQr = true;          // the account-name line rides under the first QR only (SPEC-10 control 6)
 
   // Book flow: runs before every other branch. A receipt image on a thread that is waiting for one
@@ -982,7 +997,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const said = thread.history.filter((h) => h.role === 'guest');
       const sure = [...said.map((h) => h.route), jev ? { jev: jev.intent, c: jev.confidence } : null].filter((r) => r && Number(r.c) >= 0.8).map((r) => String(r!.jev));
       flow = { ...flow, tone: flow.tone ?? toneOf([...said.map((h) => h.text), text], [...said.filter((h) => h.at >= flow!.started_at).map((h) => h.text), text], sure, flow.lang) };
-      const r = await fx.submit(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image;
+      const r = await fx.submit(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; stayPayTurn = !!r.image;
     }
   } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && (startText = bookingStart(text,
       thread.history.filter((h) => h.role === 'guest').map((h) => h.text), thread.history.filter((h) => h.role === 'bot').slice(-1)[0]?.text ?? '', now))) {
@@ -1003,10 +1018,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
       else if (flow.asked === 'question' || flow.question) flowFollowUp = opener(flow, thread.guest_name, flow.question ? line : '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
       else flowReply = opener(flow, thread.guest_name, line, false, greetNow) + prompt(flow, thread.guest_name);
-      // D-299.10: no introduction sentence on any first reply; the initial message is signed instead (signHere, below).
+      // D-299.10: no introduction sentence on any first reply; the initial message is signed instead (greetNow, below).
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name, '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
     else flowReply = opener(flow, thread.guest_name, '', false, greetNow) + prompt(flow, thread.guest_name); // session 28: welcome first
-    signHere = true; // D-300.1: the flow's first reply is signed when it is the initial message (greetNow)
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }
@@ -1032,9 +1046,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // Session 58 live probe: "salamat" alone reads as Taglish, so a settled Bisaya thread got "It's our pleasure po". A
   // Taglish-reading closer keeps Bislish when the last two guest turns were Bisaya (D-172's own two-turn rule).
   else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
-  else if (BOT_RE.test(text)) { reply = botReply(thread.guest_name, turnLang); signHere = true; }
+  else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
-  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) { reply = datesFirstReply(thread.guest_name, text, followUp, turnLang); signHere = true; }
+  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
   else {
     try {
       const everAnswered = thread.history.some((h) => h.role === 'bot'); // SPEC-21: a thread fact, not a clock fact
@@ -1177,7 +1191,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const hostSaid = thread.history.some((h) => h.role === 'bot' && (Object.values(DISCOUNT_HOST_PAST).some((x) => h.text.includes(x)) || h.text.includes(HANDOFF.policy_exception)));
       if (hostAsk) { handoff = true; risk = 'policy_exception'; }
       const frame = (l: typeof l3) => ({
-        lang: l, name: thread.guest_name, greet: !everAnswered, followUp, flowFollowUp, quiet,
+        lang: l, name: thread.guest_name, greet: !everAnswered, greetNow, followUp, flowFollowUp, quiet,
         // D-300.2 trigger 2 mid-booking: the photos and the site once, then the flow's own ask.
         seeHome: flowFollowUp && !quiet && !siteShown && SEE_RE.test(text) ? seeHomeLine(thread.guest_name, l) : '',
         hostLine: hostAsk && !hostSaid ? discountHostLine(l) : '',
@@ -1232,9 +1246,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // (model answer + card) is not lint-scored as one message. D-300.2: the confirm card no longer carries the site.
     if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Kapag ready po kayo|We can arrange (the booking|everything)|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
     // D-299.10 / D-300.1: the initial message of a conversation (no bot reply in 12 h) is signed - the composed reply signs
-    // itself; the flow's first reply, the bot answer and the dates-first line are signed here. Never a handoff, a card or a QR turn.
-    if (greetNow && signHere && !handoff && !flowImage) reply = signFirst(reply, true);
-    lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name, cap: flowImage ? STAY_PAY_CAP : undefined });
+    // itself; every other code-written initial message is signed here, on the same greetNow flag. Never a handoff, a card or a QR turn.
+    if (greetNow && !handoff && !flowImage) reply = signFirst(reply, true);
+    lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name, cap: stayPayTurn ? STAY_PAY_CAP : undefined });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     // Lloyd 2026-09-28: an emergency or a lockout is never left to a draft - whatever the mode (a failed settings read
     // falls back to 'suggest', D-222), the guest gets the safety or access line and the host the card and the urgent alert.

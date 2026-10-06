@@ -24,7 +24,7 @@ const ANSWER: Record<Lang, string> = {
 const ASK: Record<Lang, string> = { en: 'Which dates do you have in mind?', tl: 'Kailan po ninyo balak mag-stay?', bis: 'Kanus-a mo plano mag-stay?' };
 const ctx = (o: Partial<P.ComposeCtx> = {}): P.ComposeCtx => ({ lang: 'en', name: 'Ben', greet: false, followUp: true, flowFollowUp: null,
   hostLine: '', quiet: false, look: '', decision: false, linkTurn: false, siteShown: false, datesKnown: false,
-  held: { dates: false, pax: false, name: true }, prevBot: '', ...o });
+  held: { dates: false, pax: false, name: true }, prevBot: '', ...o, greetNow: o.greetNow ?? !!o.greet }); // a first reply is the initial message
 const A = (l: Lang, ask: string | null = null) => ({ answer: ANSWER[l], ask });
 const CARD_TAIL = `Here's your stay, ready whenever you are:\n📅 Oct 20 to 22 · 2 nights · 2 guests\n💰 Total ₱3,382`;
 /** One of every shape: first reply, first with an ask, follow-up with and without a link, an ask, a host line, a look turn,
@@ -288,6 +288,12 @@ Deno.test('SPEC-39 compose (D-299.10, D-300.1): the first reply is greeting, ans
     assert(!P.compose(A(l), ctx({ lang: l, linkTurn: true })).reply.includes(P.SIGNATURE), l);
   }
   // signFirst: once, only when greetNow
+  // audit fix: one flag - a returning guest after 12 h (no greeting, a follow-up shape) is the initial message too, so signed
+  for (const l of LANGS) {
+    const back = P.compose(A(l), ctx({ lang: l, greet: false, greetNow: true, followUp: false })).reply;
+    assert(back.endsWith(`\n\n${P.SIGNATURE}`) && !back.includes('https'), `${l}: ${back}`);
+    assert(!P.compose(A(l), ctx({ lang: l, greet: false, greetNow: false })).reply.includes(P.SIGNATURE), l);
+  }
   assertEquals(P.signFirst('Hi.', false), 'Hi.');
   assertEquals(P.signFirst(P.signFirst('Hi.', true), true), `Hi.\n\n${P.SIGNATURE}`);
 });

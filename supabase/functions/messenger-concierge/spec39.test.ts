@@ -56,3 +56,9 @@ Deno.test('SPEC-39 3.3: the objection hint carries the stay total only - no per-
   assert(t.includes('PHP 80,100') && !/1,335|1,780|per night|%/.test(t), t);
   assertEquals(anchorTotal('medyo mahal po'), '');
 });
+
+Deno.test('SPEC-39 audit: "hindi naman mahal" and "not expensive at all" are not price objections (no hostAsk, no host card)', async () => {
+  const { priceObjection } = await import('./index.ts');
+  for (const t of ['hindi naman mahal po', 'not expensive at all', 'dili man mahal', 'wala namang mahal']) assertEquals(priceObjection(t), false, t);
+  for (const t of ['medyo mahal po', 'a bit expensive for us', 'any discount?', 'May discount po ba?', 'can you do cheaper?']) assertEquals(priceObjection(t), true, t);
+});
