@@ -144,7 +144,7 @@ export const airbnbLeaks = (m: string) => airbnbTone(m, false).filter((v) => LEA
 const AIRBNB_STRICT = '[AIRBNB RULE - the last draft broke it: no link or URL, no phone, no e-mail, no GCash or QR, no peso, PHP or percentage figure, and never "book directly", "direct rate" or "our site". For a price or discount question, say you will check and confirm here on the listing, with no number. If dates are asked, say you will check and confirm.] ';
 /** Code-written, so it can never carry a leak; airbnbFinish signs it. */
 export function airbnbFallback(name: string | null, calm: boolean): string {
-  return `Hi ${firstName(name) || 'there'}${calm ? '.' : '!'} Thank you for your message. I'll check this for you and confirm here on the listing shortly.`;
+  return `Hi ${firstName(name)?.replace(/\.$/, '') || 'there'}${calm ? '.' : '!'} Thank you for your message. I'll check this for you and confirm here on the listing shortly.`;
 }
 /** s73 D2-D4, in code rather than hoped for from the model: a Taglish guest's draft carries a courtesy "po" (one or two,
  *  thinPo as everywhere else); a calm draft thanks the guest for their understanding (playbook 5.5); the sign-off is
@@ -163,9 +163,10 @@ export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
 }
 // s74: the register's punctuation in code (the golden 15/18 misses were all "!"): calm has none; warm has exactly one, after
 // "Hi <name>" (titles "Ma." / "Mr.", honorifics "Ate" / "Sir" and a trailing "po" kept). "!!", "?!" and "!..." collapse to one mark.
-const BANG = /[!?]*![!?.]*/g;
+const BANG = /[.!?]*![!?.]*/g;
 const unbang = (s: string) => s.replace(BANG, (x) => (x.includes('?') ? '?' : '.'));
-const GREET = /^((?:hi|hello)\s+(?:(?:ate|kuya|sir|ma'?am)\s+)?(?:(?:mr|mrs|ms|dr|ma|sta|sto|st|atty|engr|[a-z])\.\s+)?[^\s,.!?]+(?:\s+po)?)\s*(?:!+|[,.])(?=\s|$)/i;
+// A no-name greeting ("Hi!", "Hello, Ben!", "Maayong adlaw!") keeps its "!"; a real first word ("Hi Ma. Yes po") is never a title.
+const GREET = /^((?:hi|hello|maayong \w+|magandang \w+)(?:,?\s+(?:(?:ate|kuya|sir|ma'?am)\s+)?(?:(?:mr|mrs|ms|dr|ma|sta|sto|st|atty|engr|[a-z])\.\s+(?!(?:yes|no|oo|opo|salamat|thank|thanks|sorry|we|i)\b))?(?!(?:yes|no|oo|opo|salamat|thank|thanks|sorry|we|i)\b)[^\s,.!?]+)?(?:\s+po)?)\s*(?:!+|[,.])(?=\s|$)/i;
 function punctuate(body: string, calm: boolean): string {
   const g = calm ? null : GREET.exec(body);
   if (!g) return unbang(body);

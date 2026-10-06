@@ -376,6 +376,14 @@ Deno.test('s74: punctuation in code - calm drafts lose every "!", warm drafts op
   assertEquals(first('Hi Joseph!! Sorry about that!!', true), 'Hi Joseph. Sorry about that.');
   assertEquals(first('Hi Ben, is that really true?!'), 'Hi Ben! Is that really true?');
   assertEquals(first('Hi Ben!!'), 'Hi Ben!');
+  // Opus re-check of b607708: no-name greetings keep "!", a real first word is never a title, no "..!" -> "..".
+  assertEquals(first('Hi! Thank you for asking.'), 'Hi! Thank you for asking.');
+  assertEquals(first('Hello, Ben! Yes, available.'), 'Hello, Ben! Yes, available.');
+  assertEquals(first('Hi, thank you for asking.'), 'Hi! Thank you for asking.');
+  assertEquals(airbnbFinish('Maayong adlaw! Available mi!', 'bis', false).split('\n')[0], 'Maayong adlaw! Available mi.');
+  assertEquals(first('Hi Ma. Yes, we can check.'), 'Hi Ma! Yes, we can check.');
+  assert(airbnbFallback('Ma. Liza Cruz', false).startsWith('Hi Ma! '), airbnbFallback('Ma. Liza Cruz', false));
+  assert(!airbnbFinish(airbnbFallback('Ma. Liza Cruz', true), 'en', true).includes('..'));
   const signed = airbnbFinish('Hi Ben, thank you!\nMarifel & The Cascade Team!\nHotel Comfort. Home Warmth!', 'en', false);
   assertEquals((signed.match(/Marifel/g) ?? []).length, 1, signed);
   assertEquals(airbnbTone(airbnbFinish('Hi Ana! We would love to host you! See you soon!', 'en', false), false).includes('exclamation_after_greeting'), false);
