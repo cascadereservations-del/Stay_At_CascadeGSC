@@ -346,16 +346,13 @@ Deno.serve(async (req: Request) => {
         .eq('property_id', propertyId).eq('notice_type', 'brownout').eq('is_active', true).gte('effective_date', today);
       if (nqErr) throw new Error(`ops_notices: ${nqErr.message}`);
       const notices = (nq ?? []) as Notice[];
-      const { data: hq, error: hqErr } = await supabase.from('booking_holds').select('id,status,checkin_date,checkout_date')
-        .eq('property_id', propertyId).eq('status', 'active').gt('expires_at', new Date().toISOString()).gt('checkout_date', today);
-      if (hqErr) throw new Error(`booking_holds: ${hqErr.message}`);
+      // s74: no booking_holds read - that table is revoked from service_role by design (20260905030000), so the read threw on
+      // every run since v16 went live and this whole step never ran. Every hold belongs to a direct booking, which this view
+      // already lists while it is live (only cancelled/declined/expired are left out).
       const { data: iq, error: iqErr } = await supabase.from('v_direct_bookings').select('ref,status,checkin_date,checkout_date')
         .gt('checkout_date', today).not('status', 'in', '(cancelled,declined,expired)');
       if (iqErr) throw new Error(`v_direct_bookings: ${iqErr.message}`);
-      const direct: DirectEvidence[] = [
-        ...((hq ?? []) as Array<{ id: string; checkin_date: string; checkout_date: string }>).map((h) => ({ ref: String(h.id).slice(0, 8).toUpperCase(), status: 'hold', checkin_date: h.checkin_date, checkout_date: h.checkout_date })),
-        ...((iq ?? []) as DirectEvidence[]),
-      ];
+      const direct = (iq ?? []) as DirectEvidence[];
 
       // 1. Label what the evidence explains; reset an automatic label whose evidence has gone. Silent: nobody is asked.
       for (const b of blocksToTriage(rows, today, horizonGuard)) {
