@@ -1,5 +1,6 @@
 import { assertEquals } from 'jsr:@std/assert@1';
-import { appendHostTurn, handleHostReply, replyWindow, signOffName, withSignOff, type Deps, type Turn } from './logic.ts';
+import { appendHostTurn, handleHostReply, handoffCardText, replyWindow, signOffName, staffNameFromUser, withSignOff, type Deps, type Handoff, type Turn } from './logic.ts';
+import { maskMoney } from '../_shared/ops-money.ts';
 
 const NOW = new Date('2026-10-06T00:00:00Z');
 const PSID = 'zz-psid-1';
@@ -7,15 +8,18 @@ const HID = '11111111-1111-4111-8111-111111111111';
 const guest = (at: string): Turn => ({ role: 'guest', text: 'hello', at });
 const fresh: Turn[] = [guest('2026-10-05T10:00:00Z'), { role: 'bot', text: 'hi', at: '2026-10-05T10:00:05Z' }];
 
-type Calls = { sends: Array<[string, string]>; records: unknown[]; threadLoads: number };
-function fake(over: Partial<Deps> = {}, history: Turn[] = fresh, handoff: { id: string; psid: string; status: string } | null = { id: HID, psid: PSID, status: 'open' }): { deps: Deps; calls: Calls } {
-  const calls: Calls = { sends: [], records: [], threadLoads: 0 };
+type Calls = { sends: Array<[string, string]>; records: unknown[]; threadLoads: number; claims: number; unclaims: number; cards: Array<[number | string, string]> };
+function fake(over: Partial<Deps> = {}, history: Turn[] = fresh, handoff: Handoff | null = { id: HID, psid: PSID, status: 'open' }): { deps: Deps; calls: Calls } {
+  const calls: Calls = { sends: [], records: [], threadLoads: 0, claims: 0, unclaims: 0, cards: [] };
   const deps: Deps = {
     authenticate: () => Promise.resolve({ ok: true, staff: { name: 'Lloyd' } }),
     loadThread: (psid) => { calls.threadLoads++; return Promise.resolve(psid === PSID ? { psid, history } : null); },
     loadHandoff: () => Promise.resolve(handoff),
     send: (psid, text) => { calls.sends.push([psid, text]); return Promise.resolve(true); },
-    record: (a) => { calls.records.push(a); return Promise.resolve({ thread: true, handoff: !!a.handoffId }); },
+    claim: () => { calls.claims++; return Promise.resolve(true); },
+    unclaim: () => { calls.unclaims++; return Promise.resolve(); },
+    editCard: (id, text) => { calls.cards.push([id, text]); return Promise.resolve(); },
+    record: (a) => { calls.records.push(a); return Promise.resolve({ thread: true }); },
     now: () => NOW,
     ...over,
   };
@@ -92,7 +96,7 @@ Deno.test('send: one HUMAN_AGENT send with the sign-off, then the turn and the h
   assertEquals(calls.sends[0], [PSID, 'We saved the late check-in for you.\n\n— Lloyd, Cascade Hideaway']);
   assertEquals(j.sent_text, calls.sends[0][1]);
   assertEquals(calls.records.length, 1);
-  assertEquals((calls.records[0] as { handoffId: string }).handoffId, HID);
+  assertEquals(calls.claims, 1);
   assertEquals(j.handoff_marked, true);
   assertEquals(j.recorded, true);
 });
@@ -101,7 +105,7 @@ Deno.test('send: without a handoff id nothing is marked sent', async () => {
   const { deps, calls } = fake();
   const j = await (await handleHostReply(post(send), deps)).json();
   assertEquals(calls.sends.length, 1);
-  assertEquals((calls.records[0] as { handoffId: string | null }).handoffId, null);
+  assertEquals(calls.claims, 0);
   assertEquals(j.handoff_marked, false);
 });
 
@@ -113,6 +117,9 @@ Deno.test('refused send: Messenger says no -> 502, no history row, no handoff ch
   assertEquals((await res.json()).error, 'messenger_refused');
   assertEquals(attempts, 1);
   assertEquals(calls.records.length, 0);
+  assertEquals(calls.claims, 1);
+  assertEquals(calls.unclaims, 1); // the claim is put back so the host can tap again
+  assertEquals(calls.cards.length, 0);
 });
 
 Deno.test('window: the 7 day HUMAN_AGENT window closed -> 409 and nothing is sent', async () => {
@@ -166,15 +173,66 @@ Deno.test('sign-off and history helpers match sendHostReply', () => {
   assertEquals(appendHostTurn(null as unknown as Turn[], 'x', 'at').length, 1);
 });
 
-// D-306: the OPS Telegram chat never shows booking income. host-reply has no path to Telegram at all: it sends only to the
-// guest's Messenger thread. A host may type a price to a guest (that is the guest's own chat); the function must stay free of any
-// Telegram sender so a money-shaped reply can never reach OPS.
-Deno.test('D-306: host-reply contains no Telegram sender, and a money-shaped reply goes only to the guest send', async () => {
-  for (const f of ['logic.ts', 'index.ts']) {
-    const src = await Deno.readTextFile(new URL(`./${f}`, import.meta.url));
-    assertEquals(/telegram/i.test(src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')), false, `${f} must not reference Telegram`);
-  }
+Deno.test('claim: a lost claim (zero rows) is 409 handoff_not_open and nothing is sent', async () => {
+  const { deps, calls } = fake({ claim: () => Promise.resolve(false) });
+  const res = await handleHostReply(post({ ...send, handoff_id: HID }), deps);
+  assertEquals(res.status, 409);
+  assertEquals((await res.json()).error, 'handoff_not_open');
+  assertEquals(calls.sends.length, 0);
+  assertEquals(calls.records.length, 0);
+});
+
+Deno.test('claim: two concurrent sends on one handoff share one atomic claim -> exactly one Messenger send', async () => {
+  let status = 'open';
+  const claim = () => { if (status !== 'open') return Promise.resolve(false); status = 'sent'; return Promise.resolve(true); };
+  const { deps, calls } = fake({ claim });
+  const [a, b] = await Promise.all([handleHostReply(post({ ...send, handoff_id: HID }), deps), handleHostReply(post({ ...send, handoff_id: HID }), deps)]);
+  assertEquals([a.status, b.status].sort(), [200, 409]);
+  assertEquals(calls.sends.length, 1);
+});
+
+Deno.test('duplicate: no handoff, same final text as the last bot turn under 2 minutes -> 409 duplicate_reply, nothing sent', async () => {
+  const final = withSignOff(send.text, 'Lloyd');
+  const dup: Turn[] = [guest('2026-10-05T10:00:00Z'), { role: 'bot', text: final, at: '2026-10-05T23:59:00Z' }]; // 1 minute before NOW
+  const a = fake({}, dup);
+  const res = await handleHostReply(post(send), a.deps);
+  assertEquals(res.status, 409);
+  assertEquals((await res.json()).error, 'duplicate_reply');
+  assertEquals(a.calls.sends.length, 0);
+  // two minutes or more ago, or different words: allowed
+  const old = fake({}, [guest('2026-10-05T10:00:00Z'), { role: 'bot', text: final, at: '2026-10-05T23:58:00Z' }]);
+  assertEquals((await handleHostReply(post(send), old.deps)).status, 200);
+  const other = fake({}, [guest('2026-10-05T10:00:00Z'), { role: 'bot', text: 'something else', at: '2026-10-05T23:59:30Z' }]);
+  assertEquals((await handleHostReply(post(send), other.deps)).status, 200);
+});
+
+Deno.test('sign-off: a user with only an e-mail signs Cascade host; a display name is used (first name)', () => {
+  assertEquals(staffNameFromUser({}), 'Cascade host');
+  assertEquals(staffNameFromUser({ app_metadata: {}, user_metadata: {} }), 'Cascade host');
+  assertEquals(staffNameFromUser({ user_metadata: { display_name: 'Marifel Santos' } }), 'Marifel');
+  assertEquals(staffNameFromUser({ app_metadata: { display_name: 'Lloyd' }, user_metadata: { display_name: 'Other' } }), 'Lloyd');
+});
+
+// D-306: the OPS handoff card is edited after a dashboard reply, and every character of it goes through maskMoney. A host may type a
+// price to the guest (the guest's own chat, sent whole); the card the cleaners can read carries no money.
+Deno.test('D-306: the OPS card edit goes through maskMoney and carries no money; the guest send stays whole', async () => {
+  const money = 'The balance is PHP 4,550, or ₱2,800 for one night.';
+  const h: Handoff = { id: HID, psid: PSID, status: 'open', guest_name: 'Zed', guest_text: 'How much for tonight, is 3,500 ok?', tg_message_id: 77 };
+  const { deps, calls } = fake({}, fresh, h);
+  const res = await handleHostReply(post({ ...send, text: money, handoff_id: HID }), deps);
+  assertEquals(res.status, 200);
+  assertEquals(calls.sends[0][1].includes('PHP 4,550'), true); // the guest gets the real text
+  assertEquals(calls.cards.length, 1);
+  const [id, card] = calls.cards[0];
+  assertEquals(id, 77);
+  assertEquals(card, handoffCardText('Lloyd', h, money));
+  assertEquals(card, maskMoney(card)); // masking is idempotent: nothing left to hide
+  assertEquals(/4,550|2,800|3,500|₱/.test(card), false);
+  assertEquals(card.includes('Replied by Lloyd to Zed'), true);
+});
+
+Deno.test('card: no tg_message_id -> no card edit and no error', async () => {
   const { deps, calls } = fake();
-  await handleHostReply(post({ ...send, text: 'The balance is PHP 4,550, or ₱2,800 for one night.' }), deps);
-  assertEquals(calls.sends.length, 1); // the only outbound call there is
+  assertEquals((await handleHostReply(post({ ...send, handoff_id: HID }), deps)).status, 200);
+  assertEquals(calls.cards.length, 0);
 });

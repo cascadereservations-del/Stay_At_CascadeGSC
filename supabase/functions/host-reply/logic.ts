@@ -3,6 +3,7 @@
 // send marks nothing) but is a separate function: SPEC-39 owns messenger-concierge this session. All I/O comes in through Deps so the
 // authorisation, the explicit-action rule, the reply window and the refused-send rule are tested without a network.
 import { bearerToken, StaffAuthError } from '../_shared/staff-auth.ts';
+import { maskMoney } from '../_shared/ops-money.ts'; // D-306: the OPS handoff card never shows money
 
 export const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -17,8 +18,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 export type Turn = { role: 'guest' | 'bot'; text: string; at: string; route?: Record<string, unknown> };
 export type Staff = { name: string };
-export type Handoff = { id: string; psid: string; status: string };
-export type Recorded = { thread: boolean; handoff: boolean };
+export type Handoff = { id: string; psid: string; status: string; guest_name?: string | null; guest_text?: string | null; tg_message_id?: number | string | null };
+export type Recorded = { thread: boolean };
+/** A reply to the same thread, word for word, inside this window is a double tap (no handoff row exists to claim). */
+export const DUPLICATE_MS = 2 * 60_000;
 
 export interface Deps {
   /** The caller's session -> an active owner/admin, or the HTTP status to refuse with. */
@@ -27,8 +30,14 @@ export interface Deps {
   loadHandoff(id: string): Promise<Handoff | null>;
   /** The Messenger Send API with the HUMAN_AGENT tag. false = Meta did not accept it. */
   send(psid: string, text: string): Promise<boolean>;
-  /** After an accepted send: append the host turn, mark the handoff sent. */
-  record(a: { psid: string; final: string; name: string; handoffId: string | null; nowIso: string }): Promise<Recorded>;
+  /** Atomic claim BEFORE the send: open -> sent for this handoff. false = zero rows, someone else got there first. */
+  claim(a: { handoffId: string; final: string; name: string; nowIso: string }): Promise<boolean>;
+  /** Messenger refused the send: put the claimed handoff back to open (only the row this call claimed). */
+  unclaim(handoffId: string, final: string): Promise<void>;
+  /** After an accepted send: append the host turn. */
+  record(a: { psid: string; final: string; nowIso: string }): Promise<Recorded>;
+  /** Edit the OPS handoff card (best effort, skipped silently when there is no card). The text is already masked. */
+  editCard(tgMessageId: number | string, text: string): Promise<void>;
   now(): Date;
 }
 
@@ -53,7 +62,20 @@ export function signOffName(displayName: string | null | undefined): string {
   const first = String(displayName ?? '').trim().split(/\s+/)[0];
   return first || 'Cascade host';
 }
+/** The sign-off name of a Supabase user: the display name only. An unset name signs 'Cascade host'; an e-mail local part is never a name a guest should read. */
+export function staffNameFromUser(u: { app_metadata?: Record<string, unknown>; user_metadata?: Record<string, unknown> }): string {
+  return signOffName((u.app_metadata?.display_name ?? u.user_metadata?.display_name ?? null) as string | null);
+}
 export const withSignOff = (text: string, name: string): string => `${text.trim()}\n\n— ${name}, Cascade Hideaway`;
+
+/** D-306: the OPS card text (one string, all of it through maskMoney) once a host has answered from the dashboard. */
+export function handoffCardText(name: string, h: Handoff, replyText: string): string {
+  return maskMoney(`✅ Replied by ${name} to ${h.guest_name ?? h.psid}:
+${replyText.trim().slice(0, 600)}
+
+Guest wrote:
+> ${String(h.guest_text ?? '').slice(0, 300)}`);
+}
 
 export function appendHostTurn(history: Turn[], final: string, nowIso: string): Turn[] {
   return [...(Array.isArray(history) ? history : []), { role: 'bot' as const, text: final, at: nowIso }].slice(-HISTORY_CAP);
@@ -91,17 +113,32 @@ export async function handleHostReply(req: Request, deps: Deps): Promise<Respons
   const win = replyWindow(thread.history, now);
   if (!win.open) return json({ ok: false, error: 'reply_window_closed', last_guest_at: win.lastGuestAt }, 409);
 
+  let handoff: Handoff | null = null;
   if (handoffId) {
-    const h = await deps.loadHandoff(handoffId);
-    if (!h || h.psid !== psid) return json({ ok: false, error: 'handoff_not_found' }, 404);
+    handoff = await deps.loadHandoff(handoffId);
+    if (!handoff || handoff.psid !== psid) return json({ ok: false, error: 'handoff_not_found' }, 404);
     // Someone already answered it (a Telegram tap, or another admin): the same "already handled" the card gives. Nothing is sent.
-    if (h.status !== 'open') return json({ ok: false, error: 'handoff_not_open' }, 409);
+    if (handoff.status !== 'open') return json({ ok: false, error: 'handoff_not_open' }, 409);
   }
 
   const final = withSignOff(text, who.staff.name);
-  // SPEC-17 (D-212): a send Messenger did not accept marks nothing, so the handoff stays open and the host can tap again.
-  if (!(await deps.send(psid, final))) return json({ ok: false, error: 'messenger_refused' }, 502);
+  const nowIso = now.toISOString();
+  if (handoffId) {
+    // Claim first: the row flips open -> sent in one statement, so of two taps only one gets a row and only that one sends.
+    if (!(await deps.claim({ handoffId, final, name: who.staff.name, nowIso }))) return json({ ok: false, error: 'handoff_not_open' }, 409);
+  } else {
+    // No row to claim: the same words to the same thread under 2 minutes ago is the same tap twice.
+    const lastBot = [...thread.history].reverse().find((t) => t?.role === 'bot');
+    const age = lastBot ? now.getTime() - Date.parse(lastBot.at) : NaN;
+    if (lastBot && lastBot.text === final && age >= 0 && age < DUPLICATE_MS) return json({ ok: false, error: 'duplicate_reply' }, 409);
+  }
+  // SPEC-17 (D-212): a send Messenger did not accept marks nothing, so the handoff goes back to open and the host can tap again.
+  if (!(await deps.send(psid, final))) {
+    if (handoffId) await deps.unclaim(handoffId, final);
+    return json({ ok: false, error: 'messenger_refused' }, 502);
+  }
 
-  const recorded = await deps.record({ psid, final, name: who.staff.name, handoffId, nowIso: now.toISOString() });
-  return json({ ok: true, sent_text: final, recorded: recorded.thread, handoff_marked: handoffId ? recorded.handoff : false });
+  if (handoff?.tg_message_id) await deps.editCard(handoff.tg_message_id, handoffCardText(who.staff.name, handoff, text));
+  const recorded = await deps.record({ psid, final, nowIso });
+  return json({ ok: true, sent_text: final, recorded: recorded.thread, handoff_marked: !!handoffId });
 }
