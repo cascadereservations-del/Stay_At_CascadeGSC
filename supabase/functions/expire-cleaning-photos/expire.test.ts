@@ -1,7 +1,7 @@
 // deno test --allow-env supabase/functions/expire-cleaning-photos/expire.test.ts - the whole run against in-memory fakes. Synthetic data only.
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'jsr:@std/assert@1';
 import { hasMoney } from '../_shared/ops-money.ts';
-import { archivedCount, gate, MAX_SESSIONS_PER_RUN, opsLine, runExpiry, type Deps, type SessionRow, type StoredObject } from './expire.ts';
+import { archivedCount, fileSection, gate, labelSection, MAX_SESSIONS_PER_RUN, opsLine, parseRunMode, runExpiry, type Deps, type SessionRow, type StoredObject } from './expire.ts';
 
 const NOW = new Date('2026-12-13T22:00:00Z');   // Sunday 22:00 UTC = Monday 06:00 Manila
 const DAY = 86_400_000;
@@ -18,7 +18,7 @@ function session(n: number, over: Partial<SessionRow> = {}): SessionRow {
   };
 }
 const prefixOf = (s: SessionRow) => `${s.property_id}/${s.submitted_by_user_id}/${s.submission_id}`;
-const objs = (n: number, size = 100_000): StoredObject[] => Array.from({ length: n }, (_, i) => ({ name: `u${i}-photo_${i}.jpg`, size, isFolder: false }));
+const objs = (n: number, size = 100_000): StoredObject[] => Array.from({ length: n }, (_, i) => ({ name: `u${i}-afterclean_2026-07-01_${i}.jpg`, size, isFolder: false }));
 
 /** Fake Storage: the buckets hold objects by prefix; remove() deletes and reports. `failRemove` simulates an API refusal, `partial` a short delete. */
 function world(sessions: SessionRow[], storage: Record<string, StoredObject[]>, extra: { failRemove?: boolean; partial?: boolean } = {}) {
@@ -218,4 +218,65 @@ Deno.test('D-306: what the run sends to OPS is only that line, even when session
   assertEquals(w.sent.length, 1);
   assertFalse(hasMoney(w.sent[0]));
   for (const bad of ['PHP', '₱', '4,550', 'deposit']) assertFalse(w.sent[0].includes(bad));
+});
+
+const named = (names: string[], size = 100_000): StoredObject[] => names.map((name) => ({ name, size, isFolder: false }));
+const entry = (section: string, i: number) => ({ section, name: `photo_${i}.jpg`, fileId: `DRIVEFILE${String(i).padStart(4, '0')}`, url: '' });
+
+Deno.test('SECTIONS: an archive of 24 with no condition entries while Storage holds 8 condition photos is kept whole', async () => {
+  const drive = [...Array.from({ length: 12 }, (_, i) => entry('section_preclean', i)), ...Array.from({ length: 12 }, (_, i) => entry('section_afterclean', 100 + i))];
+  const s = session(1, { total_photo_count: 24, drive_files: drive });
+  const stored = [...objs(12).map((o, i) => ({ ...o, name: `u${i}-preclean_x_${i}.jpg` })), ...objs(4).map((o, i) => ({ ...o, name: `u${i}-afterclean_x_${i}.jpg` })), ...objs(8).map((o, i) => ({ ...o, name: `u${i}-condition_x_${i}.jpg` }))];
+  const w = world([s], { [prefixOf(s)]: stored });
+  const r = await runExpiry(w.deps, { dry: false });
+  assertEquals(r.kept, [{ session: s.id.slice(0, 8), reason: 'section_not_archived' }]);
+  assertEquals(r.keptReasons, { section_not_archived: 1 });
+  assertEquals(w.removed, []);
+});
+
+Deno.test('SECTIONS: an object whose name maps to no section is kept; matching sections with real Drive label spellings expire', async () => {
+  const s1 = session(1), w1 = world([s1], { [prefixOf(s1)]: named(['u-mystery.jpg', ...objs(2).map((o) => o.name)]) });
+  assertEquals((await runExpiry(w1.deps, { dry: false })).kept[0].reason, 'section_not_archived');
+  const drive = [entry('After-Clean', 1), entry('section_preclean', 2), entry('Meter_Readings', 3), entry('Unit_Condition', 4), entry('issue_check_sink', 5)];
+  const s2 = session(2, { drive_files: drive });
+  const w2 = world([s2], { [prefixOf(s2)]: named(['a-afterclean_1.jpg', 'a-preclean_1.jpg', 'a-water_meter_1.jpg', 'a-condition_1.jpg', 'a-issue_sink_1.jpg']) });
+  const r = await runExpiry(w2.deps, { dry: false });
+  assertEquals(r.expired.length, 1);
+  assertEquals(w2.removed.length, 5);
+});
+
+Deno.test('SECTIONS: filename and label mapping', () => {
+  assertEquals(['x-preclean_1.jpg', 'x-afterclean_1', 'x-bedroom_1', 'x-kitchen_1', 'x-electric_meter_1', 'x-water_meter_1', 'x-issue_1', 'x-condition_1', 'x-photo_1'].map(fileSection),
+    ['preclean', 'afterclean', 'bedroom', 'kitchen', 'meter', 'meter', 'issue', 'condition', 'other']);
+  assertEquals(['section_afterclean', 'After-Clean', 'Pre-Clean', 'Meter_Readings', 'section_meter', 'Unit_Condition', 'issue_check_x', 'Bedroom & Living Room', 'Kitchen & Bathroom', 'x', undefined].map(labelSection),
+    ['afterclean', 'afterclean', 'preclean', 'meter', 'meter', 'condition', 'issue', 'bedroom', 'kitchen', 'other', 'other']);
+});
+
+Deno.test('CAP: sessions that reach remove() count against the 10, even when remove deletes but reports nothing', async () => {
+  const list = Array.from({ length: 14 }, (_, i) => session(i + 1)), storage: Record<string, StoredObject[]> = {};
+  for (const s of list) storage[prefixOf(s)] = objs(5);
+  let calls = 0;
+  const deps: Deps = { now: NOW, fetchCandidates: async () => list, listObjects: async (p) => storage[p] ?? [], removeObjects: async () => { calls += 1; return []; } };
+  const r = await runExpiry(deps, { dry: false });
+  assertEquals(calls, MAX_SESSIONS_PER_RUN);
+  assertEquals(r.failed.length, MAX_SESSIONS_PER_RUN);
+  assertEquals(r.expired, []);
+});
+
+Deno.test('KEPT REASONS: counted per reason in the result, so permanent keeps are visible; no OPS line at 0 expired', async () => {
+  const list = [session(1, { session_folder_id: null }), session(2, { session_folder_id: null }), session(3, { meter_readings: [{ vision_verdict: null }] })];
+  const w = world(list, {});
+  const r = await runExpiry(w.deps, { dry: false });
+  assertEquals(r.keptReasons, { no_drive_folder: 2, meter_unverified: 1 });
+  assertEquals(r.opsLine, null);
+  assertEquals(w.sent, []);
+});
+
+Deno.test('RUN MODE: only ?delete=1 with the right secret is real; ?delete=true, ?delete=0 and no query are dry; a missing or wrong secret is 401', () => {
+  const U = 'https://x.test/functions/v1/expire-cleaning-photos';
+  assertEquals(parseRunMode(U + '?delete=1', 'sekret', 'sekret'), { ok: true, dry: false });
+  for (const q of ['?delete=true', '?delete=0', '?delete=', '']) assertEquals(parseRunMode(U + q, 'sekret', 'sekret'), { ok: true, dry: true }, q);
+  for (const [h, sec] of [[null, 'sekret'], ['wrong!', 'sekret'], ['sekret', ''], ['', ''], [null, '']] as [string | null, string][]) {
+    assertEquals(parseRunMode(U + '?delete=1', h, sec), { ok: false, status: 401 });
+  }
 });

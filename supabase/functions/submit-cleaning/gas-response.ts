@@ -22,9 +22,18 @@
  *  Apps Script HTML page, 0.4 s before the shutdown, so the Finance alert that follows had no time to
  *  send. The turnover has no session_folder_id / drive_files (finding F2, session 72). The old
  *  300_000 here sat above that ceiling, so the abort and its alert could never run in time. This now
- *  sits under it, leaving the alert about 15 s to send. The whole fetch still runs inside
+ *  sits under it: the abort is derived from a deadline at request start (gasTimeoutMs), so the alert always has at least 10 s. The whole fetch still runs inside
  *  `waitUntil` after the checklist already has its 200, so waiting costs the cleaner nothing. */
-export const GAS_TIMEOUT_MS = 135_000;
+export const EDGE_DEADLINE_MS = 140_000;     // from request start: the worker is shut down at 150 s, so plan for 140
+export const GAS_ALERT_RESERVE_MS = 10_000;  // the Finance alert after an abort needs this long to send
+export const GAS_MIN_TIMEOUT_MS = 1_000;
+/** The longest a GAS wait can be from a standing start; resend-cleaning-report, which forwards within a second or two of its own start, uses it as is. */
+export const GAS_TIMEOUT_MS = EDGE_DEADLINE_MS - GAS_ALERT_RESERVE_MS;
+
+/** Abort budget for the GAS fetch, taken from a deadline set at request start (t0), so time already spent on
+ *  the checklist, Storage and Telegram comes off the wait instead of pushing the abort past the worker's 150 s. */
+export const gasTimeoutMs = (t0: number, now: number = Date.now()): number =>
+  Math.max(GAS_MIN_TIMEOUT_MS, t0 + EDGE_DEADLINE_MS - now - GAS_ALERT_RESERVE_MS);
 
 export function evaluateGasResponse(ok: boolean, status: number, bodyText: string): { failed: boolean; reason: string; stack?: string } {
   let parsed: { result?: string; message?: string; stack?: string } | null = null;

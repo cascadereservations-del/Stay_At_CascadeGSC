@@ -10,8 +10,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
-import { cronSecretMatches } from '../_shared/cron-auth.ts';
-import { BUCKET, runExpiry, type SessionRow, type StoredObject } from './expire.ts';
+import { BUCKET, parseRunMode, runExpiry, type SessionRow, type StoredObject } from './expire.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } });
@@ -28,11 +27,9 @@ async function tgOps(text: string): Promise<void> {
 
 Deno.serve(withObservability({ functionName: 'expire-cleaning-photos', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
-  const secret = env('CASCADE_CRON_SHARED_SECRET');
-  if (!secret || !cronSecretMatches(secret, req.headers.get('x-cascade-cron-secret'))) return json({ ok: false, error: 'unauthorized' }, 401);
-
-  const url = new URL(req.url);
-  const dry = url.searchParams.get('delete') !== '1';
+  const mode = parseRunMode(req.url, req.headers.get('x-cascade-cron-secret'), env('CASCADE_CRON_SHARED_SECRET'));
+  if (!mode.ok) return json({ ok: false, error: 'unauthorized' }, mode.status);
+  const dry = mode.dry;
   const db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
   const hb = heartbeat(db, 'expire-cleaning-photos-weekly');
   if (!dry) await hb('started');
@@ -61,7 +58,7 @@ Deno.serve(withObservability({ functionName: 'expire-cleaning-photos', route: 'o
       },
       notify: tgOps,
     }, { dry });
-    console.log('expire_cleaning_photos_run', JSON.stringify({ dry, considered: result.considered, expired: result.expired.length, kept: result.kept.length, failed: result.failed.length, freedBytes: result.freedBytes }));
+    console.log('expire_cleaning_photos_run', JSON.stringify({ dry, considered: result.considered, expired: result.expired.length, kept: result.kept.length, keptReasons: result.keptReasons, failed: result.failed.length, freedBytes: result.freedBytes }));
     if (!dry) await (result.failed.length > 0 ? hb('failed', 'REMOVE_FAILED') : hb('succeeded'));
     return json({ ok: result.failed.length === 0, ...result });
   } catch (e) {

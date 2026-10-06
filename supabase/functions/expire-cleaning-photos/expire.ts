@@ -5,12 +5,15 @@
 //      every one with a Drive file id, and total_photo_count > 0;
 //   3. its meter photos are no longer needed: no meter reading, or a vision verdict that is neither empty nor 'error'
 //      (the daily sweep retries 'error'; an unverified meter photo is never thrown away);
-//   4. the session's own storage folder (property/user/submission) holds no MORE objects than the archive holds files.
-//      A folder with extras (a retake, a photo from a page reload) holds something the archive may not have, so the
-//      whole session is kept: nothing is deleted without a Drive record that can cover it.
+//   4. the session's own storage folder (property/user/submission) holds no MORE objects than the archive holds files,
+//      and no MORE in any one section: each Storage object is mapped to a section by its filename (as resend-cleaning-report
+//      does) and each archive entry by its section label. A section with extras, or an object that maps to no section, means
+//      the archive may not hold that photo, so the whole session is kept: nothing is deleted without a Drive record that covers it.
 // Photos filed before 2026-09-12 sit in date folders (YYYY-MM-DD/...) that cannot be tied to one session, so they are
 // never touched here (about 335 objects, see the session 72 handoff).
-// ponytail: the match is per session (counts), not per file: the archive names files photo_N.jpg and keeps no storage path.
+// ponytail: the match is per session and per section (counts), not per file: the archive names files photo_N.jpg and keeps no storage path.
+
+import { cronSecretMatches } from '../_shared/cron-auth.ts';
 
 export const RETENTION_DAYS = 90;
 export const MAX_SESSIONS_PER_RUN = 10;
@@ -31,7 +34,7 @@ export interface SessionRow {
 export interface StoredObject { name: string; size: number | null; isFolder: boolean }
 
 export type SkipReason =
-  | 'too_young' | 'no_drive_folder' | 'archive_incomplete' | 'meter_unverified' | 'bad_path' | 'extra_objects' | 'unexpected_layout' | 'nothing_in_storage';
+  | 'too_young' | 'no_drive_folder' | 'archive_incomplete' | 'meter_unverified' | 'bad_path' | 'extra_objects' | 'section_not_archived' | 'unexpected_layout' | 'nothing_in_storage';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -41,11 +44,45 @@ export function archivedCount(driveFiles: unknown): number {
   return driveFiles.filter((f) => typeof (f as { fileId?: unknown })?.fileId === 'string' && String((f as { fileId: string }).fileId).trim() !== '').length;
 }
 
+const FILE_SECTIONS: [string, string][] = [   // same needles, same order as resend-cleaning-report's sectionFor
+  ['preclean', 'preclean'], ['afterclean', 'afterclean'], ['bedroom', 'bedroom'], ['kitchen', 'kitchen'],
+  ['electric_meter', 'meter'], ['water_meter', 'meter'], ['issue_', 'issue'], ['condition', 'condition'],
+];
+/** The section a Storage object belongs to, from its filename (<uuid>-afterclean_<date>_<ts>.jpg). Anything unrecognised is 'other'. */
+export function fileSection(name: string): string {
+  for (const [needle, key] of FILE_SECTIONS) if (name.includes(needle)) return key;
+  return 'other';
+}
+const LABEL_SECTIONS: [string, string][] = [['preclean', 'preclean'], ['afterclean', 'afterclean'], ['bedroom', 'bedroom'], ['kitchen', 'kitchen'], ['meter', 'meter'], ['issue', 'issue'], ['condition', 'condition']];
+/** The same section keys from a drive_files label: section_afterclean, After-Clean, Meter_Readings, Unit_Condition, issue_check_* all normalise. */
+export function labelSection(label: unknown): string {
+  const k = String(label ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  for (const [needle, key] of LABEL_SECTIONS) if (k.includes(needle)) return key;
+  return 'other';
+}
+/** Archive entries that carry a file id, counted per section key. */
+export function archivedBySection(driveFiles: unknown): Map<string, number> {
+  const m = new Map<string, number>();
+  if (!Array.isArray(driveFiles)) return m;
+  for (const f of driveFiles as { section?: unknown; fileId?: unknown }[]) {
+    if (typeof f?.fileId !== 'string' || f.fileId.trim() === '') continue;
+    const k = labelSection(f.section);
+    m.set(k, (m.get(k) ?? 0) + 1);
+  }
+  return m;
+}
+
+/** POST auth and run mode, pure. A real delete needs the secret AND exactly ?delete=1; anything else that is authorised is a dry run. */
+export function parseRunMode(url: string, header: string | null, secret: string): { ok: false; status: 401 } | { ok: true; dry: boolean } {
+  if (!secret || !cronSecretMatches(secret, header)) return { ok: false, status: 401 };
+  return { ok: true, dry: new URL(url).searchParams.get('delete') !== '1' };
+}
+
 /** The cut-off for condition 1, as an ISO string. */
 export const cutoffIso = (now: Date): string => new Date(now.getTime() - RETENTION_DAYS * 86_400_000).toISOString();
 
 /** Conditions 1-3 and the folder path (4 needs the listing). Returns the reason a session is kept, or the folder prefix. */
-export function gate(s: SessionRow, now: Date): { ok: true; prefix: string; archived: number } | { ok: false; reason: SkipReason } {
+export function gate(s: SessionRow, now: Date): { ok: true; prefix: string; archived: number; sections: Map<string, number> } | { ok: false; reason: SkipReason } {
   if (!(Date.parse(s.created_at) < now.getTime() - RETENTION_DAYS * 86_400_000)) return { ok: false, reason: 'too_young' };
   if (!s.session_folder_id || !String(s.session_folder_id).trim()) return { ok: false, reason: 'no_drive_folder' };
   const total = Number(s.total_photo_count);
@@ -58,7 +95,7 @@ export function gate(s: SessionRow, now: Date): { ok: true; prefix: string; arch
   if (!s.property_id || !s.submitted_by_user_id || !s.submission_id || !UUID.test(s.property_id) || !UUID.test(s.submitted_by_user_id) || !UUID.test(s.submission_id)) {
     return { ok: false, reason: 'bad_path' };
   }
-  return { ok: true, prefix: `${s.property_id}/${s.submitted_by_user_id}/${s.submission_id}`, archived };
+  return { ok: true, prefix: `${s.property_id}/${s.submitted_by_user_id}/${s.submission_id}`, archived, sections: archivedBySection(s.drive_files) };
 }
 
 export interface Deps {
@@ -77,6 +114,7 @@ export interface RunResult {
   considered: number;
   expired: { session: string; objects: number; bytes: number }[];   // dry: what WOULD go
   kept: { session: string; reason: SkipReason }[];
+  keptReasons: Record<string, number>;   // kept, counted per reason, so a permanent keep shows in the response and the run log
   failed: { session: string; error: string }[];
   freedBytes: number;
   opsLine: string | null;
@@ -87,10 +125,11 @@ const id8 = (id: string) => String(id).slice(0, 8);
 /** Dry by default. A real delete needs `dry: false`, which the HTTP layer only passes for ?delete=1. */
 export async function runExpiry(deps: Deps, opts: { dry?: boolean } = {}): Promise<RunResult> {
   const dry = opts.dry !== false;
-  const out: RunResult = { dry, considered: 0, expired: [], kept: [], failed: [], freedBytes: 0, opsLine: null };
+  const out: RunResult = { dry, considered: 0, expired: [], kept: [], keptReasons: {}, failed: [], freedBytes: 0, opsLine: null };
+  let attempted = 0;   // sessions that reached removeObjects (or would, on a dry run): moved, failed or short, all count against the cap
   const candidates = await deps.fetchCandidates(cutoffIso(deps.now), CANDIDATE_LIMIT);
   for (const s of candidates) {
-    if (out.expired.length >= MAX_SESSIONS_PER_RUN) break;
+    if (attempted >= MAX_SESSIONS_PER_RUN) break;
     out.considered += 1;
     const g = gate(s, deps.now);
     if (!g.ok) { out.kept.push({ session: id8(s.id), reason: g.reason }); continue; }
@@ -100,6 +139,10 @@ export async function runExpiry(deps: Deps, opts: { dry?: boolean } = {}): Promi
     if (objects.length !== files.length || files.some((o) => !o.name || o.name.includes('/'))) { out.kept.push({ session: id8(s.id), reason: 'unexpected_layout' }); continue; }
     if (files.length === 0) { out.kept.push({ session: id8(s.id), reason: 'nothing_in_storage' }); continue; }
     if (files.length > g.archived) { out.kept.push({ session: id8(s.id), reason: 'extra_objects' }); continue; }
+    const stored = new Map<string, number>();
+    for (const o of files) { const k = fileSection(o.name); stored.set(k, (stored.get(k) ?? 0) + 1); }
+    if (stored.has('other') || [...stored].some(([k, n]) => n > (g.sections.get(k) ?? 0))) { out.kept.push({ session: id8(s.id), reason: 'section_not_archived' }); continue; }
+    attempted += 1;
     const paths = files.map((o) => `${g.prefix}/${o.name}`);
     if (dry) {
       out.expired.push({ session: id8(s.id), objects: files.length, bytes: files.reduce((n, o) => n + (Number.isFinite(o.size) ? Number(o.size) : 0), 0) });
@@ -115,6 +158,7 @@ export async function runExpiry(deps: Deps, opts: { dry?: boolean } = {}): Promi
     if (paths.some((p) => !gone.has(p))) { out.failed.push({ session: id8(s.id), error: `removed ${paths.filter((p) => gone.has(p)).length} of ${paths.length}` }); continue; }
     out.expired.push({ session: id8(s.id), objects: files.length, bytes });
   }
+  for (const k of out.kept) out.keptReasons[k.reason] = (out.keptReasons[k.reason] ?? 0) + 1;
   if (dry) out.freedBytes = out.expired.reduce((n, e) => n + e.bytes, 0);
   if (!dry && out.expired.length > 0) {
     out.opsLine = opsLine(out.expired.length, out.freedBytes, deps.now);
