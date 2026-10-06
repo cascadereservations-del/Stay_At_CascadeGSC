@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261006T225542Z",
+    "verified_at": "2026-10-06T22:59:45.671Z",
     "production_rule": "Policies and grants on public.ops_notices only: the three old policies (anon insert, anon select, authenticated ALL) are replaced by ops_notices_staff_read (read_operations) and ops_notices_manage (manage_operations); every privilege is revoked from PUBLIC/anon/authenticated, then select/insert/update granted to authenticated (deletes go through admin_soft_delete_v1) and all to service_role. No row, column or function change. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
