@@ -124,7 +124,7 @@ Deno.test('Get Started is a hello; the priority button and the guide link are no
 
 // D-281 (DESIGN-contact-host-button-2026-09-28): one "Reach my host" button, only when the guest seems to be staying now.
 import { CONTACT_CHIP, contactHostChip, isStayingNow } from './priority.ts';
-const base = { risk: 'routine', profileName: 'Sean', inHouse: ['Joseph Ewing'], flowActive: false, priorityOpen: false, history: [] as any[], now };
+const base = { risk: 'routine', profileName: 'Sean' as string | null, inHouse: ['Joseph Ewing'], flowActive: false, priorityOpen: false, history: [] as any[], now };
 const fires = (t: string, o: Partial<typeof base> = {}) => contactHostChip(t, { ...base, ...o }) !== null;
 
 Deno.test('the button fires on the live lockout message and on each trigger in three registers', () => {
