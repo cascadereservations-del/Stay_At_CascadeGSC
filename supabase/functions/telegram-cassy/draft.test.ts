@@ -86,7 +86,7 @@ import { airbnbTone, calmMoment, AIRBNB_HOST_REGISTER } from './draft.ts';
 import { postDraft } from './policy.ts';
 const SIGN = 'Marifel & The Cascade Team\nHotel Comfort. Home Warmth.';
 const WARM = `Hi Dale! 🌿 Thank you for your interest in Cascade Hideaway po.\n\nOct 20 to 22 is open, and we'd be delighted to host the two of you. The unit has fiber Wi-Fi, a full kitchen and free parking inside our gated village.\n\nKapag ready na po kayo, just send a booking request on the listing and we'll confirm right away.\n${SIGN}`;
-const CALM = `Hi Joseph. Yes, you don't need to check out today. The reminder was sent automatically by mistake, and we're sorry for the confusion. Your check-out remains 12:00 NN on Oct 5. Thank you for your understanding.\n${SIGN}`;
+const CALM = `Hi Joseph. Yes, you don't need to check out today. The reminder was sent automatically by mistake, and we're sorry for the confusion. We'll check your booking and confirm your check-out time here shortly. Thank you for your understanding.\n${SIGN}`;
 
 Deno.test('SPEC-39 airbnbTone: the playbook examples pass; each rule fails by construction', () => {
   assertEquals(airbnbTone(WARM, false), []);
@@ -98,7 +98,7 @@ Deno.test('SPEC-39 airbnbTone: the playbook examples pass; each rule fails by co
   for (const off of ['https://tinyurl.com/x', 'GCash 0956 011 5744', 'scan the QR', 'call 0917 123 4567', 'mail me at a@example.com'])
     assert(fails(WARM.replace('just send', `${off} or just send`)).includes('off_platform'), off);
   assert(fails(WARM.replace('just send', 'we can offer a discount, just send')).includes('promise'));
-  assert(fails(CALM.replace('Your check-out', 'Late check-out is fine. Your check-out'), true).includes('promise'));
+  assert(fails(CALM.replace('Thank you for', 'Late check-out is fine. Thank you for'), true).includes('promise'));
   assert(fails(WARM.replace(`\n${SIGN}`, '')).includes('no_sign_off'));
   assert(fails(WARM.replace('Cascade Hideaway po.', 'Cascade Hideaway po, salamat po, ingat po.')).includes('po_over_two'));
   assert(fails(WARM.replace('Thank you for', "I'm Cassy. Thank you for")).includes('not_marifel'));
@@ -209,9 +209,10 @@ Deno.test('s73 D4: a calm draft thanks the guest for their understanding; the ca
   const live = ["Hi Joseph.\n\nNo, you don't have to check out today. Your booking is until tomorrow, so check-out is at 12:00 noon tomorrow, October 20.", 'Hi Joseph.\n\nNo, you do not have to check out today. Your booking is set until tomorrow, October 18, at 12:00 noon.'];
   for (const d of live) {
     const m = airbnbFinish(d, 'en', true);
-    assert(meets(c, m), m);
+    assert(!meets(c, m), m); // s74: these assert a date the draft cannot know (Fable re-check) - the case now rejects them
     assertEquals(airbnbTone(m, true), []);
   }
+  assert(meets(c, airbnbFinish("Hi Joseph.\n\nNo need to worry. We'll check your booking and confirm your check-out here shortly.", 'en', true)));
   const owned = 'Hi Joseph. The reminder went out by mistake. Thank you for your understanding.';
   assertEquals(airbnbFinish(owned, 'en', true), `${owned}\n\n${SIGN}`); // never a second thank-you
   assert(!airbnbFinish('Hi Emma! Yes, there is parking.', 'en', false).includes('understanding')); // warm drafts untouched
@@ -224,6 +225,16 @@ Deno.test('s73 R2-1: bare domains, spaced phones, Maya, bank transfer, socials, 
     'it is 1,602 per night', 'it is 1602 per night', 'it is P1,602', 'that is 10 percent off'])
     assert(airbnbLeaks(WARM.replace('just send', `${s}, just send`)).length, s);
   for (const s of ['check-in is at 2:00 PM', 'check-out is 12 noon', 'Oct 20-22 for 2 guests', 'we are at Block 47 Lot 39'])
+    assertEquals(airbnbLeaks(WARM.replace('just send', `${s}, just send`)), [], s);
+});
+
+Deno.test('s74 (Fable re-check): echoed figures, banks, rails, socials, contact asks and fee-steering all leak', () => {
+  for (const s of ['Yes, 1602 is correct', '1602 for two nights', 'a 1000 security deposit', 'sixteen hundred', 'g-cash', 'g cash', 'BPI account', 'BDO',
+    'bank deposit', 'PayMaya', 'Palawan Express', 'insta', 'IG', '(0917) 123-4567', 'cascadehideaway dot com', 'the Cascade Hideaway site',
+    'search for us online', 'email us', 'send us an e-mail', 'give us a call', 'text me', 'DM us', 'cascade.co', 'cascade.app',
+    'reserve directly with us', 'avoid the Airbnb service fee', 'cheaper if you stay with us', 'save on fees'])
+    assert(airbnbLeaks(WARM.replace('just send', `${s}, just send`)).length, s);
+  for (const s of ['check-out is 12:00 noon', 'Oct 20-22 for 2 guests', 'on-site parking', 'book directly through Airbnb', 'see you in 2026', 'the Airbnb website'])
     assertEquals(airbnbLeaks(WARM.replace('just send', `${s}, just send`)), [], s);
 });
 
