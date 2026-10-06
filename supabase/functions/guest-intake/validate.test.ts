@@ -2,17 +2,16 @@
 // SPEC-42 s4b: the form's pure rules, parity with the Telegram intake rules, and source guards on index.ts.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { cleanName as tgCleanName, sniffImage as tgSniff } from '../telegram-expense/guest.ts';
-import { cleanContact, cleanName, MAX_PHOTO_BYTES, parseSubmission, sniffImage } from './validate.ts';
+import { JPEG_GPS, PNG_GPS, WEBP_GPS } from './fixtures.ts';
+import { cleanContact, cleanName, MAX_PHOTO_BYTES, parseSubmission, sniffImage, stripMetadata } from './validate.ts';
 
-const TOKEN = 'A'.repeat(43);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
 const SVG = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
 
-function form(people: unknown, files: Record<string, Uint8Array> = {}, token: string = TOKEN): FormData {
+function form(people: unknown, files: Record<string, Uint8Array> = {}): FormData {
   const f = new FormData();
-  f.set('token', token);
   f.set('people', JSON.stringify(people));
   for (const [k, v] of Object.entries(files)) f.set(k, new File([v as BlobPart], 'id.jpg', { type: 'image/jpeg' }));
   return f;
@@ -59,7 +58,6 @@ Deno.test('parseSubmission: people, photos and the self flag come through; anyth
 
   for (const bad of [
     form([], {}),
-    form([{ name: 'Ben Cruz' }], {}, 'short'),
     form([{ name: 'Ben 123456' }], {}),
     form([{ name: 'Ben Cruz', id_type: 'visa' }], {}),
     form([{ name: 'Ben Cruz', contact: 'abc' }], {}),
@@ -76,7 +74,46 @@ Deno.test('index.ts: service key only on the server, token never logged, neutral
   assert(src.includes("withObservability({ functionName: 'guest-intake', route: 'guest' }, async"));
   assert(!/console\.[a-z]+\([^)]*token/i.test(src), 'the token must never reach a log line');
   assert(src.includes("invalid_guest_access"), 'unknown tokens get the neutral 404');
+  assert(src.indexOf("intake_guest_context_v1") < src.indexOf('request.formData()'), 'the token is resolved before the body is read');
+  assert(src.includes("'x-guest-token'") && !/console\.[a-z]+\([^)]*x-guest-token/i.test(src), 'the multipart token travels in a header and is never logged');
   assert(!/id_number|birthday|address/i.test(src.replace(/\/\/.*$/gm, '')), 'no ID number, birthday or address anywhere in the handler');
   assert(src.includes("const BUCKET = 'guest-id-photos'"));
   assert(!/createBucket|updateBucket|listBuckets/.test(src), 'the bucket is never created, changed or listed here');
+});
+
+const text = (b: Uint8Array) => new TextDecoder('latin1').decode(b);
+Deno.test('stripMetadata: a GPS-tagged JPEG loses APP1 and COM, keeps JFIF and the scan, and is still a whole JPEG', () => {
+  const out = stripMetadata(JPEG_GPS, 'jpg')!;
+  assert(out && out.length < JPEG_GPS.length);
+  assert(!text(out).includes('GPSLATLONG') && !text(out).includes('Exif') && !text(out).includes('camera'));
+  assert(text(out).includes('JFIF'));
+  assertEquals([out[0], out[1], out[out.length - 2], out[out.length - 1]], [0xff, 0xd8, 0xff, 0xd9]);
+  assertEquals(sniffImage(out)?.ext, 'jpg');
+  assertEquals(Array.from(out).filter((_, i) => out[i] === 0xff && out[i + 1] === 0xe1).length, 0);
+  assertEquals(stripMetadata(out, 'jpg'), out, 'stripping a clean file changes nothing');
+});
+
+Deno.test('stripMetadata: PNG drops tEXt and eXIf and keeps IHDR, IDAT and IEND', () => {
+  const out = stripMetadata(PNG_GPS, 'png')!;
+  assert(out);
+  for (const gone of ['tEXt', 'eXIf', 'GPSLATLONG', 'secret']) assert(!text(out).includes(gone), gone);
+  for (const kept of ['IHDR', 'IDAT', 'IEND']) assert(text(out).includes(kept), kept);
+  assertEquals(sniffImage(out)?.ext, 'png');
+});
+
+Deno.test('stripMetadata: WebP drops EXIF and XMP, fixes the RIFF size and clears the VP8X flags', () => {
+  const out = stripMetadata(WEBP_GPS, 'webp')!;
+  assert(out);
+  assert(!text(out).includes('EXIF') && !text(out).includes('XMP ') && !text(out).includes('GPSLATLONG'));
+  assert(text(out).includes('VP8X') && text(out).includes('VP8 '));
+  const size = out[4] | (out[5] << 8) | (out[6] << 16) | (out[7] << 24);
+  assertEquals(size, out.length - 8);
+  assertEquals(out[20] & 0x0c, 0, 'VP8X EXIF and XMP flags cleared');
+  assertEquals(sniffImage(out)?.ext, 'webp');
+});
+
+Deno.test('stripMetadata: a file that does not parse is refused, never passed through', () => {
+  assertEquals(stripMetadata(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff, 1, 2, 3, 4, 5, 6]), 'jpg'), null);
+  assertEquals(stripMetadata(PNG_GPS.slice(0, 40), 'png'), null);
+  assertEquals(stripMetadata(WEBP_GPS.slice(0, 40), 'webp'), null);
 });

@@ -1,4 +1,4 @@
-// SPEC-42 s4b: guest-intake, the pure parts (no I/O). The guest form posts one multipart request: `token`, `people` (a JSON array) and
+// SPEC-42 s4b: guest-intake, the pure parts (no I/O). The guest form posts one multipart request: `people` (a JSON array; the token is the x-guest-token header) and
 // `photo_<i>` for the i-th person. Rules mirror the staff side: names as in telegram-expense/guest.ts and photos as in telegram-expense
 // sniffImage / admin-dashboard guests/validation.ts (parity test in validate.test.ts): JPEG/PNG/WebP by magic bytes, <= 10 MB, never SVG.
 // No ID number, birthday or address is read, asked for or stored: the form has no such field and the RPC whitelist would refuse one.
@@ -38,13 +38,68 @@ export function sniffImage(b: Uint8Array): { ext: 'jpg' | 'png' | 'webp'; mime: 
   return null;
 }
 
+/** Drops location and camera metadata without re-encoding: JPEG APP1-APP15 and COM segments, PNG eXIf/tEXt/zTXt/iTXt chunks, WebP EXIF and
+ *  XMP chunks (RIFF size and the VP8X flags fixed). null when the structure does not parse, so a file we cannot clean is never stored. */
+export function stripMetadata(b: Uint8Array, kind: 'jpg' | 'png' | 'webp'): Uint8Array | null {
+  const out: number[] = [];
+  const push = (from: number, to: number) => { for (let i = from; i < to; i++) out.push(b[i]); };
+  if (kind === 'jpg') {
+    if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+    out.push(0xff, 0xd8);
+    let i = 2;
+    while (i < b.length) {
+      if (b[i] !== 0xff) return null;
+      while (b[i + 1] === 0xff) i++; // fill bytes
+      const m = b[i + 1];
+      if (m === undefined) return null;
+      if (m === 0xda) { push(i, b.length); return Uint8Array.from(out); } // scan data: copy the rest as is
+      if (m === 0xd9) { out.push(0xff, 0xd9); return Uint8Array.from(out); }
+      if (m === 0x01 || (m >= 0xd0 && m <= 0xd8)) { push(i, i + 2); i += 2; continue; }
+      if (i + 4 > b.length) return null;
+      const len = (b[i + 2] << 8) | b[i + 3];
+      if (len < 2 || i + 2 + len > b.length) return null;
+      if (!((m >= 0xe1 && m <= 0xef) || m === 0xfe)) push(i, i + 2 + len);
+      i += 2 + len;
+    }
+    return null; // no scan: not a whole image
+  }
+  if (kind === 'png') {
+    push(0, 8);
+    let i = 8;
+    while (i + 12 <= b.length) {
+      const len = ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+      const type = String.fromCharCode(b[i + 4], b[i + 5], b[i + 6], b[i + 7]);
+      if (i + 12 + len > b.length) return null;
+      if (!['eXIf', 'tEXt', 'zTXt', 'iTXt'].includes(type)) push(i, i + 12 + len);
+      i += 12 + len;
+      if (type === 'IEND') return Uint8Array.from(out);
+    }
+    return null;
+  }
+  push(0, 12);
+  let i = 12;
+  while (i + 8 <= b.length) {
+    const cc = String.fromCharCode(b[i], b[i + 1], b[i + 2], b[i + 3]);
+    const len = (b[i + 4] | (b[i + 5] << 8) | (b[i + 6] << 16) | (b[i + 7] << 24)) >>> 0;
+    const end = i + 8 + len + (len & 1);
+    if (i + 8 + len > b.length) return null;
+    if (cc !== 'EXIF' && cc !== 'XMP ') {
+      const start = out.length;
+      push(i, Math.min(end, b.length));
+      if (cc === 'VP8X' && len >= 1) out[start + 8] &= ~0x0c; // no EXIF (0x08) or XMP (0x04) flag
+    }
+    i = end;
+  }
+  const size = out.length - 8;
+  out[4] = size & 0xff; out[5] = (size >>> 8) & 0xff; out[6] = (size >>> 16) & 0xff; out[7] = (size >>> 24) & 0xff;
+  return Uint8Array.from(out);
+}
+
 export type Person = { name: string; idType: IdType | null; contact: string | null; self: boolean; photo: Uint8Array | null };
-export type Parsed = { ok: true; token: string; people: Person[] } | { ok: false; error: 'bad_request' | 'invalid_people' | 'photo_too_large' };
+export type Parsed = { ok: true; people: Person[] } | { ok: false; error: 'invalid_people' | 'photo_too_large' };
 
 /** The multipart body to people. Anything off is refused whole: a half-read form is never saved. */
 export async function parseSubmission(form: FormData): Promise<Parsed> {
-  const token = form.get('token');
-  if (typeof token !== 'string' || !TOKEN_RE.test(token)) return { ok: false, error: 'bad_request' };
   let raw: unknown;
   try { raw = JSON.parse(String(form.get('people') ?? '')); } catch { return { ok: false, error: 'invalid_people' }; }
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > MAX_PEOPLE) return { ok: false, error: 'invalid_people' };
@@ -67,5 +122,5 @@ export async function parseSubmission(form: FormData): Promise<Parsed> {
     people.push({ name, idType, contact, self: p.self === true, photo });
   }
   if (selves > 1) return { ok: false, error: 'invalid_people' };
-  return { ok: true, token, people };
+  return { ok: true, people };
 }

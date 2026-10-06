@@ -4,7 +4,7 @@
 // 404 as guest-access. The token is never logged. ID photos go to the private guest-id-photos bucket with the service key
 // (SPEC-40 / D-292: bucket and policies untouched), at <companion id>/<uuid>.<ext>, after a magic-byte check.
 //   POST application/json      {token, action:'context'}                 -> {ok, intake:{ref, dates, pax, guest_name, people[], uploads_today, ...}}
-//   POST multipart/form-data   token, people (JSON), photo_<i>            -> {ok, results:[{name, ok, photo, reason?}]}
+//   POST multipart/form-data   header x-guest-token; people (JSON), photo_<i> -> {ok, results:[{name, ok, photo, reason?}]}
 // One OPS line per submission that saved anything ("<name> sent 2 IDs before arrival. No action needed."). It never carries a phone,
 // money, ID detail or link, because cleaners read OPS.
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
@@ -15,7 +15,7 @@ import { opsCard, savePeople, type Context } from './intake.ts';
 import { MAX_BODY_BYTES, parseSubmission, TOKEN_RE } from './validate.ts';
 
 const BUCKET = 'guest-id-photos';
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type', 'Content-Type': 'application/json' };
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-guest-token', 'Content-Type': 'application/json' };
 const json = (body: Record<string, unknown>, status = 200) => new Response(JSON.stringify(body), { status, headers: CORS });
 const invalid = () => json({ error: 'invalid_guest_access' }, 404);
 
@@ -36,15 +36,12 @@ Deno.serve(withObservability({ functionName: 'guest-intake', route: 'guest' }, a
   const db = createClient(url, key, { auth: { persistSession: false } });
   const type = request.headers.get('content-type') ?? '';
 
+  // The token is read and checked BEFORE the body: a bad token never makes us buffer 30 MB. The multipart route carries it in the
+  // x-guest-token header (never in the URL or the form); the JSON route keeps it in the body. Neither is ever logged.
+  const multipart = type.startsWith('multipart/form-data');
   let token = '';
-  let form: FormData | null = null;
-  if (type.startsWith('multipart/form-data')) {
-    const declared = Number(request.headers.get('content-length') ?? 0);
-    if (!Number.isFinite(declared) || declared < 1 || declared > MAX_BODY_BYTES) return json({ error: 'file_too_large' }, 413);
-    try { form = await request.formData(); } catch { return json({ error: 'bad_request' }, 400); }
-    const parsed = form.get('token');
-    token = typeof parsed === 'string' ? parsed : '';
-  } else if (type.startsWith('application/json')) {
+  if (multipart) token = request.headers.get('x-guest-token') ?? '';
+  else if (type.startsWith('application/json')) {
     try { const body = await request.json(); token = typeof body?.token === 'string' && body?.action === 'context' ? body.token : ''; } catch { return invalid(); }
   } else return json({ error: 'unsupported_media_type' }, 415);
   if (!TOKEN_RE.test(token)) return invalid();
@@ -53,7 +50,12 @@ Deno.serve(withObservability({ functionName: 'guest-intake', route: 'guest' }, a
   const { data: ctx, error } = await db.rpc('intake_guest_context_v1', { p_token_hash: tokenHash });
   if (error) return json({ error: 'guest_intake_unavailable' }, 503);
   if (!ctx) return invalid();
-  if (!form) return json({ ok: true, intake: ctx });
+  if (!multipart) return json({ ok: true, intake: ctx });
+
+  const declared = Number(request.headers.get('content-length') ?? 0);
+  if (!Number.isFinite(declared) || declared < 1 || declared > MAX_BODY_BYTES) return json({ error: 'file_too_large' }, 413);
+  let form: FormData;
+  try { form = await request.formData(); } catch { return json({ error: 'bad_request' }, 400); }
 
   if (!ctx.can_save) return json({ error: 'cannot_save' }, 409);
   const parsed = await parseSubmission(form);

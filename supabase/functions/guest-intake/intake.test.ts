@@ -4,14 +4,16 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import { opsCard, savePeople, type Context, type Deps, type RpcResult } from './intake.ts';
 import type { Person } from './validate.ts';
 
-const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+import { JPEG_GPS } from './fixtures.ts';
+const JPEG = JPEG_GPS;
 const ctx: Context = { ref: 'E9200001', guest_name: 'Ben Cruz', checkin_date: '2026-10-17', checkout_date: '2026-10-19', can_save: true, uploads_today: 0, max_uploads_per_day: 12 };
 const person = (over: Partial<Person> = {}): Person => ({ name: 'Ben Cruz', idType: 'passport', contact: '09170001111', self: true, photo: JPEG, ...over });
+const has = (b: Uint8Array, text: string) => new TextDecoder('latin1').decode(b).includes(text);
 const ok = (data: unknown): RpcResult => ({ data, error: null });
 
 function rig(handlers: Partial<Record<string, (args: Record<string, unknown>) => RpcResult>> = {}) {
   const calls: Array<[string, Record<string, unknown>]> = [];
-  const stored: string[] = [], removed: string[] = [];
+  const stored: string[] = [], removed: string[] = [], uploaded: Uint8Array[] = [];
   const deps: Deps = {
     rpc: async (fn, args) => {
       calls.push([fn, args]);
@@ -20,17 +22,18 @@ function rig(handlers: Partial<Record<string, (args: Record<string, unknown>) =>
       if (fn === 'intake_save_guest_companion_v1') return ok({ ok: true, id: 'cid-1' });
       return ok({ ok: true });
     },
-    upload: async (path) => { stored.push(path); return null; },
+    upload: async (path, bytes) => { stored.push(path); uploaded.push(bytes); return null; },
     remove: async (path) => { removed.push(path); },
     uuid: () => '2c1c2c1c-0000-4000-8000-000000000001',
   };
-  return { deps, calls, stored, removed };
+  return { deps, calls, stored, removed, uploaded };
 }
 
 Deno.test('a booker with a photo: person, object, link, then ID on file with their contact and ID type', async () => {
   const r = rig();
   const out = await savePeople(r.deps, 'h'.repeat(64), ctx, [person()]);
   assertEquals(out, [{ name: 'Ben Cruz', ok: true, photo: true }]);
+  assert(r.uploaded[0] && !has(r.uploaded[0], 'GPSLATLONG') && has(r.uploaded[0], 'JFIF'), 'the stored copy has no GPS data');
   assertEquals(r.stored, ['cid-1/2c1c2c1c-0000-4000-8000-000000000001.jpg']);
   assertEquals(r.calls.map((c) => c[0]), ['intake_save_guest_companion_v1', 'intake_save_guest_companion_v1', 'intake_save_guest_details_v1']);
   assertEquals(r.calls[1][1].p_id_photo_path, 'cid-1/2c1c2c1c-0000-4000-8000-000000000001.jpg');
