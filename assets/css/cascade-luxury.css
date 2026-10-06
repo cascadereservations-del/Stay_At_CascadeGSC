@@ -6,13 +6,13 @@
 ============================================================ */
 
 :root {
-  --ch-ink: #1d1712;
+  --ch-ink: #2a1f16;
   --ch-mahogany: #2b1713;
   --ch-mahogany-soft: #3a211c;
-  --ch-parchment: #f2ece2;
-  --ch-bone: #fbf8f2;
+  --ch-parchment: #f1ebe1;
+  --ch-bone: #f9f6f0;
   --ch-brass: #7a5a2b;
-  --ch-brass-dark: #76552f;
+  --ch-brass-dark: #7a5a2b;
   --ch-stone: #5c4d3f;
   --ch-line: rgb(43 23 19 / 14%);
   --ch-success: #2f6b45;
@@ -329,7 +329,7 @@
   z-index: auto;
   justify-content: center;
   margin: .5rem auto 0;
-  font-size: .53rem;
+  font-size: var(--step--2);
   letter-spacing: .07em;
   line-height: 1.3;
   color: rgb(251 248 242 / .62);

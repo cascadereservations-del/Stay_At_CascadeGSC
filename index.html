@@ -717,7 +717,7 @@
       display: flex; align-items: center; justify-content: center; gap: 0.35em;
       width: 100%; max-width: 100%; margin: 0.60rem auto 0;
       color: rgb(247 242 232 / 0.56);
-      font-size: clamp(0.50rem, 1.4vw, 0.60rem); font-weight: 500;
+      font-size: var(--step--2); font-weight: 500;
       letter-spacing: 0.11em; line-height: 1.35; text-align: center;
       text-transform: uppercase;
     }
@@ -1345,7 +1345,7 @@
     .tier-cell-head {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
-      color: rgb(247 242 232 / 0.40);
+      color: rgb(247 242 232 / 0.72);
     }
     .tier-cell-rate { font-weight: 400; color: var(--ch-cream); white-space: nowrap; }
     .tier-cell-save { text-align: right; white-space: nowrap; }
@@ -1554,7 +1554,7 @@
       text-align: center;
       font-family: var(--ch-font-display); font-size: var(--step-0);
       font-style: italic; font-weight: 300;
-      color: rgb(247 242 232 / 0.45); pointer-events: none;
+      color: rgb(247 242 232 / 0.72); pointer-events: none;
     }
     .lightbox-counter {
       position: fixed; inset-block-start: var(--space-m);
@@ -1689,7 +1689,7 @@
     }
 
     .form-input::placeholder,
-    .form-textarea::placeholder { color: rgb(247 242 232 / 0.52); }
+    .form-textarea::placeholder { color: rgb(247 242 232 / 0.72); }
 
     /* Webkit date/time text colour fix */
     input[type="date"].form-input::-webkit-datetime-edit-text,
@@ -1778,7 +1778,7 @@
       letter-spacing: 0.02em;
       outline: none;
     }
-    .phone-number-input::placeholder { color: rgb(247 242 232 / 0.40); }
+    .phone-number-input::placeholder { color: rgb(247 242 232 / 0.72); }
 
     /* Email note — inline tip next to label */
     .form-label-note {
@@ -1803,7 +1803,7 @@
     .rate-est-label {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;
-      color: rgb(247 242 232 / 0.52);
+      color: rgb(247 242 232 / 0.72);
     }
     .rate-est-value {
       font-family: var(--ch-font-display); font-size: var(--step-2);
@@ -2135,7 +2135,7 @@
       color: var(--ch-cream);
     }
     .stay-shortcut-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
-    .stay-shortcut-label { font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase; font-size: 10px; }
+    .stay-shortcut-label { font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase; font-size: var(--step--2); }
     .stay-map-col {
       position: relative; display: flex; flex-direction: column; min-height: 300px;
     }
@@ -2433,7 +2433,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--1);
       font-weight: 400;
-      color: rgb(247 242 232 / 0.40);
+      color: rgb(247 242 232 / 0.72);
       letter-spacing: 0.04em;
       text-align: center;
       padding-block: var(--space-s);
@@ -2500,7 +2500,7 @@
     /* Freshness note */
     .cal-freshness {
       font-size: var(--step--2);
-      color: rgb(247 242 232 / 0.52);
+      color: rgb(247 242 232 / 0.72);
       text-align: right;
       letter-spacing: 0.03em;
       margin-top: 0.35em;
@@ -2525,7 +2525,7 @@
     .cal-month-notice-label {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 500; letter-spacing: 0.10em; text-transform: uppercase;
-      color: rgb(247 242 232 / 0.42);
+      color: rgb(247 242 232 / 0.72);
     }
     .cal-month-notice-date {
       font-family: var(--ch-font-display); font-size: var(--step-1);
@@ -2555,7 +2555,7 @@
       display: flex; align-items: center; gap: 0.4em;
       font-family: var(--ch-font-body); font-size: var(--step--2);
       letter-spacing: 0.08em; text-transform: uppercase;
-      color: rgb(247 242 232 / 0.32);
+      color: rgb(247 242 232 / 0.72);
       margin-top: 0.25em;
     }
     .cal-legend-blocked {
@@ -2631,7 +2631,7 @@
       transition: color var(--ch-dur-s) var(--ch-ease);
     }
     .booking-step-item.is-active  { color: var(--ch-gold); }
-    .booking-step-item.is-done    { color: rgb(247 242 232 / 0.45); }
+    .booking-step-item.is-done    { color: rgb(247 242 232 / 0.72); }
     .booking-step-num {
       width: 22px; height: 22px; border-radius: 0;
       display: flex; align-items: center; justify-content: center;
@@ -3063,7 +3063,7 @@
     /* Soft GCash redirect nudge */
     .pay-gcash-soft-note {
       font-family: var(--ch-font-body); font-size: var(--step--2);
-      font-weight: 400; color: rgb(247 242 232 / 0.45);
+      font-weight: 400; color: rgb(247 242 232 / 0.72);
       letter-spacing: 0.02em; margin-top: var(--space-s);
     }
 
@@ -3107,7 +3107,7 @@
     .pay-gcash-delay-body p {
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 400;
-      color: rgb(247 242 232 / 0.50);
+      color: rgb(247 242 232 / 0.72);
       line-height: 1.58; margin: 0;
     }
     /* Inline link to switch tab */
@@ -3147,7 +3147,7 @@
     .pay-bank-instant-body p {
       font-family: var(--ch-font-body);
       font-size: var(--step--2);
-      color: rgb(247 242 232 / 0.45);
+      color: rgb(247 242 232 / 0.72);
       line-height: 1.55; margin: 0;
     }
 
@@ -3206,7 +3206,7 @@
     .pay-bank-qr-hint {
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 400;
-      color: rgb(247 242 232 / 0.40); line-height: 1.55;
+      color: rgb(247 242 232 / 0.72); line-height: 1.55;
       margin-top: var(--space-xs);
     }
 
@@ -3224,10 +3224,10 @@
       margin-bottom: 0.15em;
     }
     .pay-method-name {
-      font-size: var(--step--1); color: rgb(247 242 232 / 0.45);
+      font-size: var(--step--1); color: rgb(247 242 232 / 0.72);
     }
     .pay-method-instruction {
-      font-size: var(--step--1); color: rgb(247 242 232 / 0.45);
+      font-size: var(--step--1); color: rgb(247 242 232 / 0.72);
       line-height: 1.55; margin-top: var(--space-s);
     }
 
@@ -3255,7 +3255,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.12em; text-transform: uppercase;
-      color: rgb(247 242 232 / 0.45); display: block;
+      color: rgb(247 242 232 / 0.72); display: block;
       margin-bottom: var(--space-xs);
     }
     .receipt-dropzone {
@@ -3308,7 +3308,7 @@
     .receipt-drop-text strong { color: var(--ch-gold); font-weight: 500; }
     .receipt-drop-hint {
       font-size: var(--step--2);
-      color: rgb(247 242 232 / 0.52); letter-spacing: 0.03em;
+      color: rgb(247 242 232 / 0.72); letter-spacing: 0.03em;
     }
     /* Preview bar shown after file selected */
     .receipt-preview {
@@ -3423,7 +3423,7 @@
     }
     .explore-area-note {
       display: inline-block;
-      font-size: 10px; font-weight: 600;
+      font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.13em; text-transform: uppercase;
       color: var(--ch-gold); opacity: 0.80; margin-top: 0.4em;
     }
@@ -3617,7 +3617,7 @@
     .loc-item-body {}
     .loc-item-label {
       font-family: var(--ch-font-body);
-      font-size: 10px; font-weight: 600;
+      font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.16em; text-transform: uppercase;
       color: rgb(247 242 232 / 0.55); margin-bottom: 0.3em;
     }
@@ -3667,7 +3667,7 @@
     .loc-cta-btn:hover svg { opacity: 1; }
     .loc-cta-label { flex: 1; }
     .loc-cta-label strong { display: block; font-weight: 600; font-size: 1em; }
-    .loc-cta-label span { font-size: 10px; opacity: 0.50; letter-spacing: 0.06em; }
+    .loc-cta-label span { font-size: var(--step--2); opacity: 0.50; letter-spacing: 0.06em; }
     .loc-cta-btn.is-messenger { border-color: rgb(0 153 255 / 0.15); }
     .loc-cta-btn.is-messenger:hover { border-color: rgb(0 153 255 / 0.30); background: rgb(0 153 255 / 0.05); }
     /* Get Directions button in success dialog */
@@ -3719,7 +3719,7 @@
     }
     .tier-tag {
       font-family: var(--ch-font-body);
-      font-size: 0.60rem; font-weight: 500; letter-spacing: 0.06em; /* was 0.54rem */
+      font-size: var(--step--2); font-weight: 500; letter-spacing: 0.06em; /* was 0.54rem */
       color: rgb(201 150 58 / 0.72); /* was 0.60 */
     }
     .tier-pop-label, .tier-best-label {
@@ -3752,7 +3752,7 @@
       font-size: var(--step--2); font-weight: 600; letter-spacing: 0.10em;
       padding: 0.2em 0.5em;
       background: rgb(247 242 232 / 0.07);
-      color: rgb(247 242 232 / 0.48); white-space: nowrap;
+      color: rgb(247 242 232 / 0.72); white-space: nowrap;
     }
     .tier-badge--gold { background: rgb(201 150 58 / 0.15); color: var(--ch-gold); }
     .tier-badge--cream { background: var(--ch-gold-gradient); color: var(--ch-mahogany); font-weight: 700; }
@@ -4099,7 +4099,7 @@
       border-radius: 2rem;
       padding: 0.3em 0.8em;
       font-family: var(--ch-font-body);
-      font-size: 0.6rem;
+      font-size: var(--step--2);
       font-weight: 600;
       letter-spacing: 0.10em;
       text-transform: uppercase;
@@ -4230,7 +4230,7 @@
     .qbw-badge {
       margin-left: auto;
       font-family: var(--ch-font-body);
-      font-size: 0.60rem;
+      font-size: var(--step--2);
       font-weight: 600;
       letter-spacing: 0.10em;
       text-transform: uppercase;
@@ -4259,7 +4259,7 @@
       font-weight: 600;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: rgb(247 242 232 / 0.40);
+      color: rgb(247 242 232 / 0.72);
     }
     .qbw-input {
       width: 100%;
@@ -4340,10 +4340,10 @@
     .qbw-trust {
       text-align: center;
       font-family: var(--ch-font-body);
-      font-size: 0.60rem;
+      font-size: var(--step--2);
       font-weight: 400;
       letter-spacing: 0.06em;
-      color: rgb(247 242 232 / 0.38);
+      color: rgb(247 242 232 / 0.72);
     }
 
     /* Payment badges */
@@ -4360,7 +4360,7 @@
       font-weight: 500;
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      color: rgb(247 242 232 / 0.30);
+      color: rgb(247 242 232 / 0.72);
     }
     .qbw-pay-badge {
       font-family: var(--ch-font-body);
@@ -4653,9 +4653,9 @@
       display: flex; flex-direction: column; gap: 0.08em;
     }
     .qbw-month-notice-label {
-      font-family: var(--ch-font-body); font-size: 0.59rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase;
-      color: rgb(247 242 232 / 0.38);
+      color: rgb(247 242 232 / 0.72);
     }
     .qbw-month-notice-date {
       font-family: var(--ch-font-display); font-size: 0.82rem;
@@ -4665,7 +4665,7 @@
       flex-shrink: 0;
       background: rgb(201 150 58 / 0.12); border: 1px solid rgb(201 150 58 / 0.30);
       cursor: pointer; color: rgb(201 150 58);
-      font-family: var(--ch-font-body); font-size: 0.59rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase;
       padding: 0.35em 0.6em; white-space: nowrap;
       transition: background 150ms ease-out, color 150ms ease-out;
@@ -4951,7 +4951,7 @@
       flex: 1; padding: 0.55em 1em;
       background: rgb(247 242 232 / 0.06);
       border: 1px solid rgb(247 242 232 / 0.18);
-      color: rgb(247 242 232 / 0.50);
+      color: rgb(247 242 232 / 0.72);
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 500; letter-spacing: 0.10em; text-transform: uppercase;
       cursor: pointer; transition: all 150ms ease-out;
@@ -5563,7 +5563,7 @@
               <span class="policy-key">Cancellation</span>
               <span class="policy-val" style="line-height:1.55;">
                 Free if cancelled 5+ days out<br>
-                <span style="color:rgb(247 242 232 / 0.45); font-size:var(--step--1);">Full refund of the reservation fee 5+ days before check-in &middot; Under 5 days it is retained for the reserved dates</span>
+                <span style="color:rgb(247 242 232 / 0.72); font-size:var(--step--1);">Full refund of the reservation fee 5+ days before check-in &middot; Under 5 days it is retained for the reserved dates</span>
               </span>
             </li>
             <li class="policy-row ch-reveal">
@@ -6852,7 +6852,7 @@
                 Brgy. San Isidro<br>
                 General Santos City, 9500
               </p>
-              <p style="font-size:10px; color:rgb(201 150 58 / 0.55); font-family:var(--ch-font-body); letter-spacing:0.09em; text-transform:uppercase; margin-top:0.4em;">
+              <p style="font-size:var(--step--2); color:rgb(201 150 58 / 0.55); font-family:var(--ch-font-body); letter-spacing:0.09em; text-transform:uppercase; margin-top:0.4em;">
                 Exact address sent after booking confirmed
               </p>
             </div>
