@@ -1,9 +1,11 @@
 // finance-watch v1 (phase 5, D-106 #5, 2026-09-13). Daily payment watch for the Finance group.
 // Posts only when something is overdue; the rules and wording live in watch.ts (tested), the shape in
-// cascade-core/format.ts. Runs from pg_cron (see stay-site migration 20260913160000) or any POST.
+// cascade-core/format.ts. Runs from pg_cron (see stay-site migration 20260913160000) and now needs x-cascade-cron-secret (s74 G8, migration
+// 20261007150000): it was open to any POST, and a POST posts a Finance card. Fails closed when CASCADE_CRON_SHARED_SECRET is unset.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
+import { cronAuthFailure } from '../_shared/cron-auth.ts';
 import { renderReport, withHeader } from '../_shared/cascade-core/format.ts';
 import { overdue, watchReport, due } from './watch.ts';
 // v2 (session 26, 2026-09-16, Telegram plan §4/§5): 🟡 ATTENTION header; posts on day 2, day 5,
@@ -32,6 +34,8 @@ async function tgSend(chatId: string, text: string): Promise<void> {
 
 Deno.serve(withObservability({ functionName: 'finance-watch', route: 'finance' }, async (req: Request) => {
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
+  const denied = cronAuthFailure(req, Deno.env.get('CASCADE_CRON_SHARED_SECRET'));
+  if (denied) return denied;
   if (!FINANCE_CHAT) return new Response(JSON.stringify({ ok: false, error: 'FINANCE_CHAT not configured' }), { status: 500, headers: JSON_H });
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
   const hb0 = heartbeat(db, 'finance-watch-daily');

@@ -33,10 +33,15 @@
 //     lookback?: number,       // sweep mode, days back      (default 7)
 //     limit?: number,          // sweep mode, how many       (default 10)
 //     notify?: boolean }       // default true; false = write the verdict only
+//
+// Auth (s74 G8): x-cascade-cron-secret, fail closed. The gateway still checks a JWT (verify_jwt true), but the anon key is public, so
+// without this any caller could pick a property_id or submission_id and write meter verdicts. The only caller is the
+// 'verify-meter-photo-daily' pg_cron job; a hand check sends the same header (Vault 'cascade_cron_shared_secret').
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { heartbeat } from '../_shared/heartbeat.ts';
+import { cronAuthFailure } from '../_shared/cron-auth.ts';
 import { recordUsage } from '../_shared/cascade-core/usage.ts';
 import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
 
@@ -312,6 +317,8 @@ function verdictFor(
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
+  const denied = cronAuthFailure(req, Deno.env.get('CASCADE_CRON_SHARED_SECRET'));
+  if (denied) return denied;
 
   let body: any = {};
   try { body = await req.json(); } catch { /* sweep mode with an empty body is fine */ }

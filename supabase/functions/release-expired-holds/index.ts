@@ -6,9 +6,11 @@
 // HOLD_EXPIRY_EMAIL_ACTION names an action the relay implements (it has ackEmail/confirmEmail
 // today; the expiry template is Lloyd's to add) - until then the Finance card carries the message.
 // ponytail: no per-guest state table; idempotent because the status flips to expired.
+// v4 (s74 G8): needs x-cascade-cron-secret (the cron sends it from Vault); it was open to any POST. Fails closed when CASCADE_CRON_SHARED_SECRET is unset.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
+import { cronAuthFailure } from '../_shared/cron-auth.ts';
 import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 
@@ -37,6 +39,8 @@ const peso = (n: unknown) => Number(n ?? 0).toLocaleString('en-PH');
 
 Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'finance' }, async (req: Request) => {
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
+  const denied = cronAuthFailure(req, Deno.env.get('CASCADE_CRON_SHARED_SECRET'));
+  if (denied) return denied;
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
   const hb = heartbeat(db, 'release-expired-holds-hourly');
   await hb('started');
