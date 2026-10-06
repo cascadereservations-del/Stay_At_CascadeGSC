@@ -6,7 +6,7 @@
 //   06:00-17:00 -> D-1 and D     18:00-20:00 -> D     08:00-11:00 -> D-1     13:00-15:00 -> D
 // Nothing here writes to Airbnb. Marifel blocks Airbnb by hand; the cards exist to tell her at once.
 import { autoKeyboard, doSend, groups, withHeader, type Btn } from '../_shared/cascade-core/format.ts';
-import { brownoutUid, holds, nightsList, nightsPhrase, pwData, sourceWord, type Guest, type NoticeState } from '../_shared/cascade-core/brownout.ts';
+import { brownoutUid, holds, monthDay, nightsList, nightsPhrase, pwData, sourceWord, type Guest, type NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { classifyFile, clock, dayLabel, endOf, FEEDER, posterKey } from './poster.ts';
 
 // SPEC-41: the night rule moved to _shared/cascade-core/brownout.ts so calendar-sync reads the same one; power-watch and its tests import it from here as before.
@@ -229,6 +229,45 @@ export function nightsLine(st: NoticeState): string {
     ifs(st.already.length, `Already blocked: ${nightsPhrase(st.already)}.`),
     ifs(st.guests.length, `A guest is in the house on ${nightsPhrase(st.guests.map((g) => g.night))}, so no block there.`),
   ].filter(Boolean).join(' ');
+}
+
+// ── D-308.3: a guest booked a night we hold for a brownout ─────────────────────────────────────────────────────────────────
+/** The notice state plus the bookings OPS was already told about (brownout.ts NoticeState has no field for it; the state is a jsonb blob, so extra keys ride along). */
+export type WatchState = NoticeState & { bookingAlerts?: string[] };
+export type HeldBooking = { uid: string; name: string; nights: string[]; checkin: string; checkout: string };
+/** First name only, and only if it looks like a name: a phone number, an e-mail or a money-shaped first word is dropped (staff chat, D-306). */
+const firstName = (full: string | null | undefined) => {
+  const w = String(full ?? '').trim().split(/\s+/)[0] ?? '';
+  return /^\p{L}[\p{L}'’.-]{0,29}$/u.test(w) && !/^(reserved|php|peso|pesos)$/i.test(w) ? w : '';
+};
+/**
+ * Guest bookings that cover a night this ACTIVE notice still holds (st.blocked). A guest who was already in the house when the notice was
+ * announced is never in st.blocked (classifyNights), so this finds only a booking that landed after the hold. The check-out day is not a night.
+ * One entry per booking, with the held nights it overlaps.
+ */
+export function heldBookings(st: NoticeState, rows: Row[], today: string): HeldBooking[] {
+  if (!holds(st)) return [];
+  const by = new Map<string, HeldBooking>();
+  for (const night of st.blocked.filter((n) => n >= today)) {
+    for (const r of rows.filter((x) => isGuest(x) && covers(x, night))) {
+      const b = by.get(r.uid) ?? { uid: r.uid, name: firstName(r.guest_name), nights: [], checkin: r.checkin_date, checkout: r.checkout_date };
+      b.nights.push(night);
+      by.set(r.uid, b);
+    }
+  }
+  return [...by.values()];
+}
+/** One OPS card per (notice date, booking): what happened, who acts, that nothing went to the guest. First name and dates only, no money, no contact details. */
+export function bookingCard(st: NoticeState, b: HeldBooking): Built {
+  const who = b.name || 'A guest', them = b.name || 'the guest';
+  const body = groups(
+    [`📅 ${who} booked the ${nightsPhrase(b.nights)}, which we hold for the ${prov(st)} power interruption ${windowLabel(st.date, st.time, st.hours)}${feederOf(st)}.`,
+      `Stay: ${monthDay(b.checkin)} to ${monthDay(b.checkout)}.`],
+    [`Marifel: message ${them} about the outage and offer to keep or move the stay. Nothing was sent to the guest.`],
+    source(st),
+  );
+  const text = header(`brownout booking ${dayLabel(st.date)}`, body);
+  return { text, markup: autoKeyboard(text) };
 }
 
 // ── SPEC-41 Part 3: a brownout block must be backed by a live notice ────────────────────────────────────────────────────────
