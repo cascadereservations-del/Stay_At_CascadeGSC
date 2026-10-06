@@ -391,6 +391,9 @@ verify_jwt = true
 [functions.submit-cleaning]
 verify_jwt = true
 
+[functions.host-reply]
+verify_jwt = true
+
 [functions.job-heartbeat-liveness]
 verify_jwt = false
 
