@@ -27,11 +27,12 @@ test('public HTML does not use unsupported luxury superlatives', () => {
   assert.doesNotMatch(html, /world-class|pinnacle of luxury|bespoke|iconic destinations|elevated stays/i);
 });
 
-test('all WhatsApp links use the resilient full-domain public destination', () => {
-  const numbers = [...html.matchAll(/web\.whatsapp\.com\/send\?phone=(\d+)/g)].map(match => match[1]);
+test('all WhatsApp links use wa.me with the one guest-facing number', () => {
+  // wa.me opens the app on phones; web.whatsapp.com/send is desktop-web only (d047990). +63 961 805 6979 (FACTS, D-278).
+  const numbers = [...html.matchAll(/https:\/\/wa\.me\/(\d+)/g)].map(match => match[1]);
   assert.ok(numbers.length > 0);
-  assert.equal(new Set(numbers).size, 1);
-  assert.doesNotMatch(html, /https:\/\/wa\.me\//);
+  assert.deepEqual([...new Set(numbers)], ['639618056979']);
+  assert.doesNotMatch(html, /web\.whatsapp\.com/);
 });
 
 test('every direct communication route has a non-empty, full-domain destination', () => {
