@@ -115,7 +115,7 @@ const SIGN_OFF = 'Marifel & The Cascade Team\nHotel Comfort. Home Warmth.';
  *  the site link, GCash, the e-mail - and quoted them. Airbnb forbids steering a guest off the platform, so the Airbnb prompt
  *  drops the direct-booking FACTS sections and every other sentence that carries a link, a figure or the direct route. */
 const AIRBNB_DROP_SECTION = /^(RATES|PROMOTION|BOOKING & PAYMENT|CONTACT)\b/;
-const DIRECT_RE = /https?:\/\/|www\.|👉|\bPHP\b|₱|\bpesos?\b|\d,\d{3}|\d\s?%|\bgcash\b|\bQR\b|\bmaya\b|instapay|unionbank|\bdirect\b|\bsite\b|\blink\b|\be-?mail\b|@|whats ?app|\+63|\b09\d{2}|\bpromo\w*|\breservation fee\b|\bfee\b|\bdeposit\b/iu;
+const DIRECT_RE = /https?:\/\/|www\.|👉|\bPHP\b|₱|\bpesos?\b|\d,\d{3}|\d\s?%|\bgcash\b|\bQR\b|\bmaya\b|instapay|unionbank|\bdirect\b|\bsite\b|\blink\b|\be-?mail\b|@|whats ?app|\+63|\b09\d{2}|\bpromo\w*|\breservation fee\b|\bfee\b|\bdeposit\b|\btier\b|\bstandard figure\b|\bfares? we quote\b|\bfull payment\b/iu;
 /** A section heading ("REFERENCE REPLIES (...", "BEFORE YOU ANSWER - ...") ends an example. */
 const HEADING = /^[A-Z][A-Z &/,()-]{3,}/;
 export function airbnbPrompt(prompt: string): string {
@@ -150,9 +150,12 @@ export function airbnbFallback(name: string | null, calm: boolean): string {
  *  thinPo as everywhere else); a calm draft thanks the guest for their understanding (playbook 5.5); the sign-off is
  *  written exactly once, at the end. */
 /** Any sign-off line the model wrote, in any case, dashed or on one line ("- Marifel", "Hotel comfort, home warmth"). */
-const SIGN_OFF_LINE = /^[ \t]*[-–—]?[ \t]*(?:Marifel(?:\s*&\s*the Cascade Team)?(?:[ \t,.]*Hotel Comfort[.,]?[ \t]*Home Warmth\.?)?|Hotel Comfort[.,]?[ \t]*Home Warmth\.?)[ \t]*$/gim;
+const SIGN_OFF_LINE = /^[ \t]*[-–—]?[ \t]*(?:Marifel(?:\s*&\s*the Cascade Team)?(?:[ \t,.]*Hotel Comfort[.,]?[ \t]*Home Warmth\.?)?|Hotel Comfort[.,]?[ \t]*Home Warmth\.?)[ \t\p{Extended_Pictographic}️]*$/gimu;
+/** A valediction the model put above its own sign-off ("Warm regards,"), at the very end of the body only. */
+const VALEDICTION_END = /(?:\n+[ \t]*(?:warm(?:est)? regards|kind regards|best regards|regards|best wishes|warmly|cheers|sincerely|with warmth|yours truly)[ \t]*[,.]?[ \t]*)+$/i;
 export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
-  let body = m.replace(SIGN_OFF_LINE, '').replace(/\n{3,}/g, '\n\n').trim();
+  let body = m.replace(SIGN_OFF_LINE, '').replace(/\n{3,}/g, '\n\n').trim().replace(VALEDICTION_END, '').trim();
+  if (lang === 'en') body = thinPo(body, 0); // a guest writing English gets plain English with no "po"
   if (lang === 'bis') body = thinPo(body, 0);
   if (lang === 'tl') body = /\bpo\b/i.test(body) ? thinPo(body, 2) : courtesyPo(body);
   if (calm && !/\bunderstanding\b/i.test(body)) body += '\n\nThank you for your understanding.';
@@ -161,9 +164,10 @@ export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
 /** "Yes, ..." -> "Yes po, ..."; otherwise "po" closes the first sentence after the greeting ("... shortly po."). */
 function courtesyPo(body: string): string {
   const g = /^(?:hi|hello)\b[^\n!.]*[!.]\s*/i.exec(body)?.[0] ?? '', rest = body.slice(g.length);
-  const lead = /^(yes|salamat|thank you)\b/i.exec(rest);
+  const lead = /^(yes|salamat)\b/i.exec(rest); // never "Thank you po so much"
   if (lead) return g + lead[0] + ' po' + rest.slice(lead[0].length);
-  const i = rest.search(/[.?](?=\s+[A-Z]|\s*$)/); // a sentence end, never "Oct. 20", "2:00 P.M. and" or "e.g."
+  // a sentence end, never "Oct. 20", "St. Elizabeth", "Mr. Santos", "2:00 P.M. Salamat" or "e.g."
+  const i = rest.search(/(?<!\b(?:[A-Z][a-z]?|Mrs|Brgy|Sta))[.?](?=\s+[A-Z]|\s*$)/);
   return i < 0 ? body : g + rest.slice(0, i) + ' po' + rest.slice(i);
 }
 /** Generate, finish, and refuse a leak: one stricter regeneration, then the code-written fallback (never the leaking text). */
@@ -186,9 +190,9 @@ export function airbnbTone(m: string, calm: boolean): string[] {
   v.push(...lintReply(m).filter((x) => x === 'exclaim' || x === 'boilerplate'));
   if (toneRules(m, 'en', true).includes('urgency')) v.push('urgency');
   // s73 round 2: a bare domain counts as a link - airbnb.com included (the register allows no link at all).
-  if (/https?:\/\/|www\.|\b[\w-]+\.(?:com|ph|me|net|org|ly)\b|\S+@\S+\.\w|(?:\+63|\b0)\s?9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\bgcash\b|\bqr\b|\bmaya\b|\bbank transfer\b|\bwhats ?app\b|\bviber\b|\bmessenger\b|\b(?:facebook|instagram|telegram|fb)\b|\bour page\b|\boutside airbnb\b/i.test(m)) v.push('off_platform');
-  if (/\bbook(?:ing)?\s+direct(?:ly)?\b|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b/i.test(m)) v.push('direct_booking');
-  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\d\s?%\s?(?:off|discount|less)|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night)/i.test(m) || /\bP\d/.test(m)) v.push('price');
+  if (/https?:\/\/|www\.|\b[\w-]+\.(?:com|ph|me|net|org|ly)\b|\S+@\S+\.\w|(?:(?:\+?63|\b0)\s?|\b)9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\bgcash\b|\bqr\b|\bmaya\b|\bbank transfer\b|\bwhats ?app\b|\bviber\b|(?<!airbnb )\bmessenger\b|\b(?:facebook|instagram|telegram|fb)\b|\bour page\b(?! on airbnb)|\boutside airbnb\b|\bon google\b|\bgoogle (?:us|it)\b/i.test(m)) v.push('off_platform');
+  if (/\bbook(?:ing)?\s+direct(?:ly)?\b(?!\s+(?:through|on|via|in) (?:the )?airbnb)|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b|\b(?:contact|message|text|call|reach|e-?mail|pay|reserve with|book with) us directly\b|\bbetter deal\b|\bdeposit\b/i.test(m)) v.push('direct_booking');
+  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\d\s?%(?!\s?(?:ready|sure|safe|clean|complete))|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night|nightly)|\b\d+(?:\.\d+)?\s?k\b/i.test(m) || /\bP\d/.test(m)) v.push('price');
   if (/\b(discount of|we can (?:offer|give) (?:you )?(?:a )?(?:discount|lower|special)|(?:full|a) refund (?:is|will be)|you(?:'ll| will) be refunded|late check-?out is fine|yes,? you can (?:check out|stay) late)\b/i.test(m)) v.push('promise');
   if (!SIGN_OFF_RE.test(m)) v.push('no_sign_off');
   if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
@@ -220,10 +224,20 @@ export async function modelDraft(db: any, guestText: string, guestName: string |
   return airbnbGuard(once, (m) => airbnbFinish(m, detectLang(guestText), calm), airbnbFallback(guestName, calm));
 }
 
+/** s73 R4: the Messenger brain (direct rates, the site link) only for a source that is positively Messenger - a screenshot the
+ *  reader labels messenger, or a "messenger:" marker. Pasted text and an unclear screenshot get the Airbnb register, safe on
+ *  both platforms. A leading "airbnb:" / "messenger:" marker (or a caption line) is taken off the guest text. */
+export function draftPlatform(text: string, label?: Platform): { platform: 'airbnb' | 'messenger'; text: string; guessed: boolean } {
+  const mk = /^\s*(airbnb|messenger)\s*(?:[:\-–]\s*|\n\s*|$)/i.exec(text);
+  const t = mk ? text.slice(mk[0].length) : text, said = mk ? mk[1].toLowerCase() : label;
+  return { platform: said === 'messenger' && !/\bairbnb\b/i.test(t) ? 'messenger' : 'airbnb', text: t, guessed: !mk && label !== 'messenger' && label !== 'airbnb' };
+}
+
 /** Messages for the host, in order: a header card, then each option alone so a long-press copies only the reply. */
 // deno-lint-ignore no-explicit-any
 export async function draftGuestReply(db: any, guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform } = {}): Promise<string[]> {
-  const platform = thread.platform === 'airbnb' || /\bairbnb\b/i.test(guestText) ? 'airbnb' : thread.platform ?? 'messenger';
+  const src = draftPlatform(guestText, thread.platform), platform = src.platform;
+  guestText = src.text;
   // deno-lint-ignore no-explicit-any
   const ctx = guestName ? guestContextLines(await guestContext(db, { name: guestName }).catch(() => ({} as any))) : [];
   const brain = platform === 'airbnb' ? null : await conciergeDraft(thread.before ?? [], guestText, guestName).catch(() => null);
@@ -249,6 +263,7 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   const head = [`✍️ Guest reply${guestName ? ` · ${guestName}` : ''} · ${platform === 'airbnb' ? 'Airbnb' : 'Messenger'}${risk !== 'routine' ? ` · ${risk.replace('_', ' ')}` : ''}`,
     brain ? '1️⃣ is what the concierge would send (calendar and rate card checked).' : `1️⃣ is a drafted reply${platform === 'airbnb' ? ' (Airbnb: no links or outside payment)' : ' (the concierge could not be reached, so dates are not checked)'}.`,
     ...(short ? ['2️⃣ says the same, shorter.'] : [])];
+  if (src.guessed) head.push('ℹ️ Source unclear, so this is the Airbnb-safe draft. For a Messenger chat: "cassy reply messenger: …" or a screenshot.');
   if (FLAG[risk]) head.push(`⚠️ This reads as ${FLAG[risk]}.`);
   if (airbnbFail.length) head.push(`⚠️ Airbnb voice check: ${airbnbFail.join(', ')}. Read it before sending.`);
   if (brain?.effects.some((e) => e.fx === 'qr' || e.fx === 'image')) head.push('📎 The concierge would attach the GCash QR here: send it with the reply.');

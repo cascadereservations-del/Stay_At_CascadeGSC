@@ -156,6 +156,9 @@ Deno.test('D-269: a reply to the Guest reply prompt is a draft request - text as
   assertEquals(draftAsk('', DRAFT_PROMPT, true), 'cassy draft');
   assertEquals(draftAsk('hello', DRAFT_PROMPT, false), null);
   assertEquals(draftAsk('hello', '🤖 Ask Cassy: reply to this message with your question.', true), null);
+  // s73 R4: pasted text is drafted Airbnb-safe unless marked; the prompt says how, and the marker reaches Cassy intact.
+  assertEquals(DRAFT_PROMPT.includes('"messenger:"') && DRAFT_PROMPT.startsWith('✍️ Guest reply:'), true);
+  assertEquals(draftAsk('messenger: Hi po, available?', DRAFT_PROMPT, true), 'cassy reply: messenger: Hi po, available?');
 });
 
 // ---- SPEC-38 (session 70): the "Other" decline reason ----

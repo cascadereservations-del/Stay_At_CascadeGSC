@@ -271,3 +271,52 @@ Deno.test('s73 R3: an example that would lose ANY sentence goes whole - "How do 
   assert(!air.includes('Q: Is there a parking?') && msg.includes('Q: Is there a parking?')); // its answer ends on the site link
   assertStringIncludes(air, 'Q: naa bay parking?');
 });
+
+// ---- s73 round 4 (Opus review of 034a509) ----
+import { draftPlatform } from './draft.ts';
+
+Deno.test('s73 R4-F1: only a positively Messenger source gets the Messenger brain; everything else is the Airbnb register', () => {
+  assertEquals(draftPlatform('Can you give a discount for 5 nights?'), { platform: 'airbnb', text: 'Can you give a discount for 5 nights?', guessed: true });
+  assertEquals(draftPlatform('Can you give a discount?', 'other').platform, 'airbnb');
+  assertEquals(draftPlatform('Can you give a discount?', 'messenger'), { platform: 'messenger', text: 'Can you give a discount?', guessed: false });
+  assertEquals(draftPlatform('messenger: Hi po, available ba Oct 3?'), { platform: 'messenger', text: 'Hi po, available ba Oct 3?', guessed: false });
+  assertEquals(draftPlatform('airbnb: Hi po', 'messenger'), { platform: 'airbnb', text: 'Hi po', guessed: false });
+  assertEquals(draftPlatform('messenger\nHi po, available?', 'other').platform, 'messenger'); // a photo caption marker
+  assertEquals(draftPlatform('Airbnb says my booking is pending', 'messenger').platform, 'airbnb');
+  assertEquals(draftRequest('reply messenger: Hi po').text, 'messenger: Hi po');
+});
+
+Deno.test('s73 R4-F2: bare percentages, nightly figures, k-amounts and unprefixed phones leak; "100% ready" does not', () => {
+  for (const s of ['We give 10% for stays of 5 nights', 'it is 1600 nightly', 'about 1.6k a night', 'text 917 123 4567', 'text 639171234567'])
+    assert(airbnbLeaks(WARM.replace('just send', `${s}, just send`)).includes('price') || airbnbLeaks(WARM.replace('just send', `${s}, just send`)).includes('off_platform'), s);
+  for (const s of ['we are 100% ready', 'we are 100% sure', 'it is 100% safe', 'kept 100% clean'])
+    assertEquals(airbnbLeaks(WARM.replace('just send', `${s}, just send`)), [], s);
+  const p = draftSystem(SEED_CARD, true, false).split('You are drafting for the HOST')[0];
+  for (const re of [/Quote one tier/, /standard figure/, /ONLY fares/, /full payment/]) assert(!re.test(p), String(re));
+});
+
+Deno.test('s73 R4-F3: no "po" inside St., Mr., P.M., and never "Thank you po so much"', () => {
+  const first = (m: string) => airbnbFinish(m, 'tl', false).split('\n')[0];
+  assertEquals(first('Hi Dale! St. Elizabeth Hospital is 10 minutes away. We hope you feel better.'), 'Hi Dale! St. Elizabeth Hospital is 10 minutes away po. We hope you feel better.');
+  assertEquals(first('Hi Dale! Mr. Santos will meet you at the gate. See you soon.'), 'Hi Dale! Mr. Santos will meet you at the gate po. See you soon.');
+  assertEquals(first('Hi Dale! Check-in is 2:00 P.M. Salamat for choosing us.'), 'Hi Dale! Check-in is 2:00 P.M. Salamat for choosing us po.');
+  assertEquals(first('Hi Dale! Thank you so much for your message. We will check.'), 'Hi Dale! Thank you so much for your message po. We will check.');
+  assertEquals(first('Hi Dale! Yes, there is parking.'), 'Hi Dale! Yes po, there is parking.');
+});
+
+Deno.test('s73 R4-F4: an English guest draft carries no "po", even when the model wrote some', () => {
+  assert(!/\bpo\b/.test(airbnbFinish('Hi Emma! Yes po, there is parking po.', 'en', false)));
+});
+
+Deno.test('s73 R4-F5: Airbnb-internal wording passes; direct-deal, deposit and Google steering leak', () => {
+  for (const s of ['message us in Airbnb messenger', 'see our page on Airbnb', 'book directly through the Airbnb app'])
+    assertEquals(airbnbLeaks(WARM.replace('just send', `${s}, just send`)), [], s);
+  for (const s of ['Contact us directly for a better deal', 'Reserve with us directly', 'Pay a deposit', 'Search Cascade Hideaway on Google'])
+    assert(airbnbLeaks(WARM.replace('just send', `${s}, just send`)).length, s);
+});
+
+Deno.test('s73 R4-F6: valedictions and decorated sign-off lines above the real sign-off are removed', () => {
+  const body = 'Hi Emma! Thank you for your message.';
+  for (const tail of ['Warm regards,\nMarifel & The Cascade Team\nHotel Comfort. Home Warmth.', 'Marifel 🌿', 'Marifel & The Cascade Team 💚\nHotel Comfort. Home Warmth.', 'Best regards,\nMarifel'])
+    assertEquals(airbnbFinish(`${body}\n\n${tail}`, 'en', false), `${body}\n\n${SIGN}`, tail);
+});
