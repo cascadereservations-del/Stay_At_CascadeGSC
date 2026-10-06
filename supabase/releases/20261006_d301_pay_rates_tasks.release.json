@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "release_id": "d301_pay_rates_tasks_20261006",
+  "phase": "expand",
+  "source": {
+    "branch": "s72/l4-d301",
+    "commit": "f6b6c038d9128403ca57a11389a3d4ff848bcaa2"
+  },
+  "migrations": [
+    "20261006110000_d301_pay_rates_tasks.sql"
+  ],
+  "migration_sha256": {
+    "20261006110000_d301_pay_rates_tasks.sql": "1b510f0741a4ef68b3def37545485eb147437b903d0048e27190a9d6050d22f0"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - fill-restore-point.mjs stamps the newest COMPLETE backup (60 minutes or less) right before the apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Expand only: one unique index (cleaner_rate_schedule property_id + effective_from; the four production rows already satisfy it), an append-only trigger and an audit trigger on public.cleaner_rate_schedule, and eight functions (seven RPCs plus the trigger function). No column, no table, no data change, no new telegram_pending kind. Existing rate rows are never touched. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both with fill-restore-point.mjs. Take a fresh backup if the one named is more than an hour old at apply time."
+  },
+  "forward_verification": [
+    {
+      "name": "seven_rpcs_exist_definer_empty_search_path",
+      "query": "select count(*) = 7 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('admin_pay_rates_v1','admin_add_pay_rate_v1','tasks_rows_v1','tasks_list_v1','task_set_done_v1','task_add_reminder_v1','task_assignees_v1')",
+      "expect": true
+    },
+    {
+      "name": "grants_authenticated_six_anon_none_internal_none",
+      "query": "select has_function_privilege('authenticated','public.admin_pay_rates_v1(uuid)','execute') and has_function_privilege('authenticated','public.admin_add_pay_rate_v1(uuid,date,numeric,numeric,numeric,text)','execute') and has_function_privilege('authenticated','public.tasks_list_v1(uuid,boolean)','execute') and has_function_privilege('authenticated','public.task_set_done_v1(uuid,text,uuid,boolean,text)','execute') and has_function_privilege('authenticated','public.task_add_reminder_v1(uuid,text,timestamptz,uuid,text,text)','execute') and has_function_privilege('authenticated','public.task_assignees_v1(uuid)','execute') and not has_function_privilege('anon','public.tasks_list_v1(uuid,boolean)','execute') and not has_function_privilege('anon','public.admin_add_pay_rate_v1(uuid,date,numeric,numeric,numeric,text)','execute') and not has_function_privilege('authenticated','public.tasks_rows_v1(uuid,uuid,boolean,boolean)','execute') and not has_function_privilege('service_role','public.tasks_rows_v1(uuid,uuid,boolean,boolean)','execute')",
+      "expect": true
+    },
+    {
+      "name": "no_public_execute_grant",
+      "query": "select not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.pronamespace = 'public'::regnamespace and a.grantee = 0 and p.proname in ('admin_pay_rates_v1','admin_add_pay_rate_v1','tasks_rows_v1','tasks_list_v1','task_set_done_v1','task_add_reminder_v1','task_assignees_v1'))",
+      "expect": true
+    },
+    {
+      "name": "rate_table_triggers_present",
+      "query": "select count(*) = 2 from pg_trigger where tgrelid = 'public.cleaner_rate_schedule'::regclass and not tgisinternal and tgname in ('cleaner_rate_schedule_append_only','admin_audit_row')",
+      "expect": true
+    },
+    {
+      "name": "unique_index_valid",
+      "query": "select count(*) = 1 and bool_and(i.indisvalid and i.indisunique) from pg_index i where i.indexrelid = 'public.cleaner_rate_schedule_property_from_uq'::regclass",
+      "expect": true
+    },
+    {
+      "name": "production_rates_unchanged",
+      "query": "select count(*) filter (where effective_from = date '2026-09-30' and regular_rate = 500 and general_rate = 1000 and transport_rate = 150) = 1 and count(*) filter (where effective_from = date '2026-05-07' and regular_rate = 650 and general_rate = 1000 and transport_rate is null) = 1 from public.cleaner_rate_schedule where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'",
+      "expect": true
+    },
+    {
+      "name": "task_union_compiles_against_live_columns",
+      "query": "select count(*) >= 0 from public.tasks_rows_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', null, true, true)",
+      "expect": true
+    },
+    {
+      "name": "staff_view_never_includes_verifier_findings",
+      "query": "select count(*) = 0 from public.tasks_rows_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', null, false, true) where source = 'verifier_findings'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261006_d301_pay_rates_tasks.sql with run-sql-on-host.sh: it drops the seven RPCs, the two triggers on cleaner_rate_schedule, the trigger function and the unique index. Rate rows added through the new RPC stay (history). Roll the admin dashboard Pay rates and Tasks pages and the Cascade Staff Tasks and Pay rates screens back too."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_apps",
+      "required_state": "Apply this release BEFORE publishing the admin dashboard build that has the Pay rates and Tasks pages and BEFORE the Cascade Staff build with the Tasks tab and the Pay rates screen: they call these RPCs and show an error until they exist."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING on a restored backup. Lane evidence: the suite supabase/tests/database/d301_pay_rates_tasks.sql (101 assertions, including the rollback body; three added after the audit, not yet re-run) passed 98/98 before that against an in-process PostgreSQL (pglite) carrying stubs of the auth, staff-access, audit and redaction helpers and a pgTAP shim; the migration also re-applies cleanly. The orchestrator must still run it as real pgTAP on the rehearsal.",
+    "evidence": "Production read-only (2026-10-06): cleaner_rate_schedule holds four rows (1900-01-01, 2026-01-02, 2026-05-07, 2026-09-30) with no duplicate (property, date), no foreign key points at it, and nothing in the repo updates or deletes its rows; staff_pay_rate_v1 already reads the row in force on the clean date. follow_up_tasks, work_orders and verifier_findings keep their columns; the new functions only read them and update status columns the existing save_* RPCs already update. Old writers (Telegram bot, submit-cleaning, save_follow_up_v1, save_work_order_v1) are untouched."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the pgTAP suite green on this commit",
+    "the admin dashboard or the Cascade Staff build is published before this release is applied"
+  ]
+}
