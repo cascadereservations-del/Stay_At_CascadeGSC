@@ -6,7 +6,8 @@
 // lintReply() is run over every canned prompt in voice.test.ts (fails the build) and over every
 // outgoing reply at runtime (warn-only log `voice_lint`, so live drift is visible without blocking).
 
-import { AMENITY_RE } from './booking.ts';
+import { AMENITY_RE, SEE_RE, TRUST_RE } from './booking.ts';
+import { SIGNATURE } from './persona.ts'; // read inside functions only (persona.ts imports this file)
 import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 
 export type Violation = 'no_answer' | 'form_speak' | 'two_asks' | 'too_long' | 'cold_opener' | 'robot_word' | 'shouting' | 'too_dense' | 'command_tone' | 'exclaim' | 'boilerplate';
@@ -56,7 +57,7 @@ export function contractions(text: string): string {
 // and nothing checked that care was present, so a reply could pass every lint and still be cold. This is the positive
 // check: a substantive reply shows care somewhere - anticipation, reassurance, an offer of help or a warm close
 // (protocol 08 sections 6, 12, 22; 07 and 09 equivalents).
-const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|relax|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala|gladly|makakatipid|makatipid|ihahanda|iche-check|i-share lang|i-send lang|share lang|handa na|asikasuhin|aasikasuhin|amo dayon|i-check namo|excited)\b|🌿|💚|😊|🙏|✨/i; // SPEC-32 s4 (F11)
+const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|relax|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala|gladly|makakatipid|makatipid|ihahanda|iche-check|i-share lang|i-send lang|share lang|handa na|asikasuhin|aasikasuhin|amo dayon|i-check namo|excited|delighted)\b|🌿|💚|😊|🙏|✨/i; // SPEC-32 s4 (F11); SPEC-39 (D-297.3): "delighted"
 /** True when the reply is not in the register code settled for this turn (golden run 2026-09-17: an English question got
  *  the Taglish reference reply pasted whole; "Hm po per night?" got plain English). Narrow on purpose: two Tagalog markers
  *  in an English reply, any Tagalog-only word in a Bislish one, no Filipino word at all in a substantive Taglish one. */
@@ -95,13 +96,6 @@ export const decisionInvite = (lang: L3, siteUrl: string) => ({
   en: `When you've decided, just tell us here and we'll arrange the booking in this chat, or you may secure the dates on our site:`,
   tl: `Kapag nakapag-decide po kayo, sabihin lang dito and we'll arrange the booking sa chat, o maaari ninyong i-secure ang dates sa aming site:`,
   bis: `Kung naka-decide na mo, ingna lang mi diri and we'll arrange the booking sa chat, or pwede pud i-secure ang dates sa among site:`,
-})[lang] + `\n\n👉 ${siteUrl}`;
-/** First contact always carries the link (VOICE). When the model left it out, code used to append a bare "👉 link";
- *  protocol 10 section 2: a link always sits under a sentence that offers both routes. */
-export const firstInvite = (lang: L3, siteUrl: string) => ({
-  en: `We can arrange everything right here in the chat, or you may see the home and live availability on our site:`,
-  tl: `We can arrange everything dito sa chat, o puwede ninyong i-check ang home at live availability sa aming site:`,
-  bis: `We can arrange everything diri sa chat, or pwede pud i-check ang home ug live availability sa among site:`,
 })[lang] + `\n\n👉 ${siteUrl}`;
 // Session 58 live probe: "Salamat po sa pag-reach out sa Cascade Hideaway." was missed, so the greeting went on top of it
 // and the guest was thanked twice in one opening.
@@ -310,25 +304,30 @@ export function setTurnoverCheckin(reply: string, line: string): string {
   return out || reply;
 }
 
-/** Paragraphs with a link line folded into the sentence it belongs to (linkSolo puts blank lines around the link). */
+/** Paragraphs with a link line folded into the sentence it belongs to (linkSolo puts blank lines around the link).
+ *  SPEC-39 (D-299.10): the closing signature folds into the paragraph above it the same way - it never costs a paragraph. */
 export function paragraphs(reply: string): string[] {
   const out: string[] = [];
   for (const p of reply.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean)) {
-    if (/^(👉|https?:\/\/)/.test(p) && out.length) out[out.length - 1] += '\n' + p; else out.push(p);
+    if ((/^(👉|https?:\/\/)/.test(p) || p === SIGNATURE) && out.length) out[out.length - 1] += '\n' + p; else out.push(p);
   }
   return out;
 }
+/** SPEC-39 3.6b: the stay card, the hold and the payment in one code-written message - the one named exception to 700. */
+export const STAY_PAY_CAP = 960; // measured worst case 948 (tl gentle, a promo line, a long name and e-mail); the approved wording, not padding
 
-/** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. */
-export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null } = {}): Violation[] {
+/** Rules a canned prompt or a live reply must satisfy. `guestText` enables the ANSWER check. `cap`: STAY_PAY_CAP for the
+ *  stay-and-payment message only. */
+export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boolean; name?: string | null; cap?: number } = {}): Violation[] {
   const v: Violation[] = [];
   const asks = (reply.match(/\?/g) ?? []).length;
   if (asks > 2) v.push('two_asks');
-  if (reply.length > 700) v.push('too_long');
+  if (reply.length > (opts.cap ?? 700)) v.push('too_long');
   // Easy to consume (protocol rule 4): at most four paragraphs, none longer than ~320 characters. D-286: a 👉 link line
   // belongs to the paragraph above it - the same count golden-score uses, so D-285 measures the protocol.
   const paras = paragraphs(reply);
-  if (paras.length > 4 || paras.some((p) => p.replace(/\n[^\n]*https?:\/\/[^\n]*/g, '').length > 320)) v.push('too_dense');
+  // SPEC-39 3.6b: a stay card's fact lines (👤 📅 📞 💰 🏷️ 🔐 ⏳) are scanned one per line, not read as prose - like a link line.
+  if (paras.length > 4 || paras.some((p) => p.replace(/\n[^\n]*https?:\/\/[^\n]*/g, '').replace(/\n(?:👤|📅|📞|💰|🏷️|🔐|⏳)[^\n]*/gu, '').length > 320)) v.push('too_dense');
   if (FORM_RE.test(reply)) v.push('form_speak');
   if (ROBOT_RE.test(reply)) v.push('robot_word');
   if (/\b[A-Z]{6,}\b/.test(reply.replace(/\b(GCASH|PHP|YES|QR|OK|DEPOSIT|FULL)\b/g, ''))) v.push('shouting');
@@ -372,15 +371,17 @@ export function toneRules(m: string, lang: L3 = 'en', approved = false): string[
 // The Tagalog and Bisaya amenity words are the same loanwords as the English ones, so the noun list
 // carries all three registers. The spec's `may .* ba` / `naa .* ba` catch-alls are deliberately NOT
 // here: they matched "may available ba sa Oct 3", which is a dates question, not an amenity one.
-export { AMENITY_RE }; // defined in booking.ts since SPEC-28 (start() uses it; this file imports booking.ts)
-export const TRUST_RE = /\b(reviews?|feedback|legit|legitimate|scam|trust|trustworthy|tinuod)\b|\bsafe( po)? ba\b|\bluwas ba\b/i;
+// AMENITY_RE, SEE_RE and TRUST_RE are defined in booking.ts (start() and toneOf use them; this file imports booking.ts).
+export { AMENITY_RE, SEE_RE, TRUST_RE };
 
-/** '' when nothing should be added. `has` says which link the thread has already shown. */
+/** '' when nothing should be added. `has` says which link the thread has already shown. SPEC-39 (D-300.2): the site and
+ *  reviews block answers a guest who asked to SEE the home (photos, "what is it like"); a Wi-Fi or parking question is a
+ *  fact, answered from FACTS with no link. A reviews or trust question gets the reviews line. */
 export function lookNudge(text: string, lang: L3, has: { site: boolean; reviews: boolean }): string {
-  const amenity = AMENITY_RE.test(text), trust = TRUST_RE.test(text);
-  if (!amenity && !trust) return '';
+  const see = SEE_RE.test(text), trust = TRUST_RE.test(text);
+  if (!see && !trust) return '';
   const reviewsLine = `⭐ Guest reviews: ${AIRBNB_URL}`;
-  if (amenity && !has.site && !has.reviews) {
+  if (see && !has.site && !has.reviews) {
     // Golden run 2026-09-25 (R10, 733 and 775 characters): code's own lines are most of a first amenity reply, so this
     // sentence was cut from 138 characters to under 100.
     const sentence = { en: `Photos and the full amenities are on our site, and past guests' reviews are on our Airbnb listing.`,

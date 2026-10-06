@@ -18,12 +18,17 @@ import type { Lang } from './booking.ts';
 import type { RiskCode } from './policy.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { currentContact, type Contact } from '../_shared/cascade-core/contact.ts';
-import { ALWAYS_CLOSE_RE, answerOnly, ASKING_RE, asksDates, asksHeld, capName, DATES_NUDGE_RE, CLOSE_START_RE, CLOSER_RE, decisionInvite, firstInvite, fitParagraphs, INVITE_RE, sentencesOf, thinPo } from './voice.ts';
+import { ALWAYS_CLOSE_RE, answerOnly, ASKING_RE, asksDates, asksHeld, capName, DATES_NUDGE_RE, CLOSE_START_RE, CLOSER_RE, decisionInvite, fitParagraphs, INVITE_RE, sentencesOf, thinPo } from './voice.ts';
 
 export const pick = (lang: Lang | undefined, t: { en: string; tl: string; bis: string }): string => t[lang ?? 'en'];
 const by = pick;
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const first = (name: string | null | undefined) => (name ?? '').trim().split(/\s+/)[0] ?? '';
+/** The first name a host would use. SPEC-39 3.7 (live 2026-10-04, "Thank you, Ma."): a leading abbreviation or initial
+ *  ("Ma.", "Jr.", one or two letters) is not the first name - "Ma. Elizabeth Reyes" is Elizabeth. */
+export function first(name: string | null | undefined): string {
+  const toks = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  return toks.find((t) => !/\.$/.test(t) && t.replace(/[^\p{L}]/gu, '').length > 2) ?? toks[0] ?? '';
+}
 
 /** REQUIRED: the capacity, said before any booking commitment (D-222). */
 export const CAPACITY: Record<Lang, string> = {
@@ -36,14 +41,18 @@ export const LAST_MINUTE = `As you're arriving within the next five days, the fu
 
 // ---- Greeting and introduction (APPROVED) ----
 
-/** D-173 / SPEC-01: the direct answer to "are you a bot?", approved wording, all three registers.
- *  The first name and its comma are added by the caller. */
-export const BOT_REPLY: Record<Lang, string> = {
-  en: `I'm Cassy, Cascade Hideaway's digital concierge, an AI assistant looked after by our team. I'm glad to help with rates, dates, directions and anything about your stay, and whenever you'd like a person, our host Marifel is one message away.`,
-  tl: `ako po si Cassy, ang digital concierge ng Cascade Hideaway, isang AI assistant na inaalagaan ng aming team. I'm glad to help with rates, dates, directions at anything about your stay, and kapag gusto ninyong makausap ang isang person, si Marifel, ang host namin, ay one message away lang po.`,
-  bis: `ako si Cassy, ang digital concierge sa Cascade Hideaway, usa ka AI assistant nga giatiman sa among team. Glad ko to help with rates, dates, directions ug anything about your stay, ug kung gusto mo makig-istorya og person, si Marifel, among host, one message away ra.`,
-};
-/** D-173 / SPEC-01: said once, in the first message only, directly after the greeting's
+/** D-173 / SPEC-01, shortened by D-300.5 (Lloyd 2026-10-05): the direct answer to "are you a bot?" - the honest yes, the
+ *  disclosure in one clause, and the reassurance that people see every conversation. The whole line, the name included. */
+export function botReply(name: string | null, lang: Lang = 'en'): string {
+  const n = first(name), c = n ? `, ${n}` : '';
+  return by(lang, {
+    en: `Yes${c}. I'm Cassy, Cascade's digital concierge, an AI assistant. Every conversation here is seen by Marifel and the team, and they're on top of it whenever you'd like a person.`,
+    tl: `Opo${c}. Ako si Cassy, ang digital concierge ng Cascade, isang AI assistant. Lahat ng conversation dito ay nababasa ni Marifel at ng team, and they're on top of it kapag gusto ninyong makausap ang isang tao.`,
+    bis: `Oo${c}. Ako si Cassy, ang digital concierge sa Cascade, usa ka AI assistant. Tanan nga conversation diri nakita ni Marifel ug sa team, ug naa ra sila kung gusto mo makig-istorya og tawo.`,
+  });
+}
+/** D-299.10 (Lloyd 2026-10-05): no longer said - the initial message is signed instead (SIGNATURE). Kept because telegram-cassy
+ *  forHost strips it from older history. Was (D-173 / SPEC-01): said once, in the first message only, directly after the greeting's
  *  "thank you for reaching out" sentence and before the answer. Approved wording - do not reword.
  *  No "po" in tl or bis on purpose: the canned first message already carries three (protocol 07
  *  section 4 asks for one or two) and Bisaya takes none (protocol 09 section 3). */
@@ -58,28 +67,53 @@ export const CASSY_INTRO: Record<Lang, string> = {
  *  knows whether the guest has already met Cassy passes it explicitly, and a call site missed later should fall back
  *  to saying nothing rather than to repeating the introduction, which is the one thing D-173 forbids. */
 export const greeting = (name: string | null, lang: Lang = 'en', intro = false) => by(lang, {
-  en: `${name ? `Hi ${name.split(' ')[0]},` : 'Hello,'} thank you for reaching out to Cascade Hideaway. `,
-  tl: `${name ? `Hi ${name.split(' ')[0]}!` : 'Hello po!'} Salamat sa pag-message sa Cascade Hideaway. `,
-  bis: `${name ? `Hi ${name.split(' ')[0]}!` : 'Hello!'} Salamat sa pag-message sa Cascade Hideaway. `,
+  en: `${name ? `Hi ${first(name)},` : 'Hello,'} thank you for reaching out to Cascade Hideaway. `,
+  tl: `${name ? `Hi ${first(name)}!` : 'Hello po!'} Salamat sa pag-message sa Cascade Hideaway. `,
+  bis: `${name ? `Hi ${first(name)}!` : 'Hello!'} Salamat sa pag-message sa Cascade Hideaway. `,
 }) + (intro ? CASSY_INTRO[lang ?? 'en'] : '');
 /** SPEC-28 section 3: with the Cassy sentence the greeting is long, so the answer goes on its own paragraph (golden
  *  first-avail-taken-en read as one block). Without it the greeting and the answer stay one paragraph: that is Lloyd's
  *  approved first reply (2026-09-18) and the lint wants the answer in the first paragraph. */
 export const greetBlock = (name: string | null, lang: Lang = 'en', intro = false) => intro ? greeting(name, lang, true).trimEnd() + '\n\n' : greeting(name, lang, false);
 
+/** D-299.10 / D-300.1 (Lloyd 2026-10-05): the initial message of a conversation is signed as a person signs - Lloyd's words,
+ *  every register. Never on a flow reply inside 12 h, a card, a payment message, a handoff or any follow-up. */
+export const SIGNATURE = 'Cassy, Cascade Concierge';
+/** The one place the signature is added. `greetNow` (index.ts: no bot reply in this thread for 12 h) is the only input. */
+export const signFirst = (reply: string, greetNow: boolean): string =>
+  !greetNow || !reply.trim() || reply.trimEnd().endsWith(SIGNATURE) ? reply : `${reply.trimEnd()}\n\n${SIGNATURE}`;
+/** D-297.3 / D-299.10: the first reply's one question - their dates, gently, and no link (the conversation stays here). */
+export const firstDatesNudge = (lang: Lang = 'en') => by(lang, {
+  en: `We'd be delighted to have you with us. Which dates are you looking at? Share your check-in and check-out here and we'll check the calendar for you right away.`,
+  tl: `We'd be delighted po to have you. Kailan po ninyo gustong mag-stay? Share lang dito ang check-in at check-out and iche-check namin agad.`,
+  bis: `Delighted mi to have you. Kanus-a mo gusto mag-stay? Share lang diri ang check-in ug check-out and amo dayon i-check.`,
+});
+/** D-300.2 trigger 2, mid-booking: the guest asked to see the home - the site link once, the photos named. */
+export const seeHomeLine = (name: string | null, lang: Lang = 'en') => {
+  const n = first(name), c = n ? `, ${n}` : '';
+  return by(lang, {
+    en: `Of course${c}. The photos of the whole home are on our site, with the live availability:`,
+    tl: `Of course po${c}. Nasa site namin ang photos ng buong home, pati ang live availability:`,
+    bis: `Sige${c}. Naa sa among site ang photos sa tibuok home, apil ang live availability:`,
+  }) + `\n👉 ${SITE_URL}`;
+};
+
 // ---- The party ----
 
 const TL_COUNT: Record<number, string> = { 2: 'dalawa', 3: 'tatlo', 4: 'apat' };
 const BIS_COUNT: Record<number, string> = { 2: 'duha', 3: 'tulo', 4: 'upat' };
-/** The party as a host names it: "the two of you" / "kayong dalawa" (Taglish never "the two of you"). */
-export function partyName(pax: number | undefined, lang?: Lang): string {
+const EN_COUNT: Record<number, string> = { 2: 'two', 3: 'three', 4: 'four' };
+/** The party as a host names it: "the two of you" / "kayong dalawa" (Taglish never "the two of you"). SPEC-39 4.4: with a
+ *  child in it the party is a family ("your family of three", "kamong tulo"). */
+export function partyName(pax: number | undefined, lang?: Lang, children = 0): string {
   if (!pax || pax === 1) return 'you';
   if (lang === 'tl') return `kayong ${TL_COUNT[pax] ?? pax}`;
+  if (children > 0) return lang === 'bis' ? `kamong ${BIS_COUNT[pax] ?? pax}` : `your family of ${EN_COUNT[pax] ?? pax}`;
   return pax === 2 ? 'the two of you' : `your party of ${pax}`;
 }
-/** The welcome that follows an answer ("..., and we'd be glad to welcome the two of you."). */
+/** The welcome that follows an answer ("..., and we'd be delighted to welcome the two of you."). D-297.3: "delighted". */
 const welcomeParty = (who: string, lang?: Lang) => by(lang, {
-  en: `we'd be glad to welcome ${who}.`, tl: `we'd be glad to have ${who}.`, bis: `looking forward mi to have ${who}.`,
+  en: `we'd be delighted to welcome ${who}.`, tl: `we'd be delighted to have ${who}.`, bis: `looking forward mi to have ${who}.`,
 });
 
 // ---- Availability ----
@@ -112,7 +146,7 @@ export function datesReservedNearest(dates: string, when: string, one: boolean, 
     bis: `Pasensya, reserved na ang ${dates}. ${near}.\n\n${holdOffer(one, lang)} If naa moy lain nga dates, share lang ug amo dayon i-check.`,
   });
   return by(lang, {
-    en: `I'm sorry, ${dates} is already reserved. ${near}, and we'd be glad to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.`,
+    en: `I'm sorry, ${dates} is already reserved. ${near}, and we'd be delighted to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.`,
     tl: `Pasensya na po, reserved na ang ${dates}. ${near}, and we'd be glad to have you then. If may ibang dates kayong gusto, share lang po ang check-in at check-out and iche-check namin agad.`,
     bis: `Pasensya, reserved na ang ${dates}. ${near}, ug looking forward mi to have you then. If naa moy lain nga dates, share lang ang check-in ug check-out ug amo dayon i-check.`,
   });
@@ -192,10 +226,10 @@ export const overCapacityLine = (pax: number, lang?: Lang) => by(lang, {
   bis: `Ganahan unta mi ma-host mo tanan, pero ang inyong comfort ang una. ${CAPACITY.bis} For ${pax}, mas maayo ang mas dako nga place para mas naa moy space. If mas gamay ang group ninyo, ingna lang mi pila mo.`,
 });
 /** After the guest count, when the guest already heard the price: welcome the party instead of quoting it twice. */
-export const partyWelcome = (pax: number | undefined, lang?: Lang) => {
+export const partyWelcome = (pax: number | undefined, lang?: Lang, children = 0) => {
   const solo = !pax || pax === 1;
   return by(lang, {
-    en: solo ? `Noted, and we're already looking forward to welcoming you.` : `${cap(partyName(pax, 'en'))}, then, and we're already looking forward to it.`,
+    en: solo ? `Noted, and we're already looking forward to welcoming you.` : `${cap(partyName(pax, 'en', children))}, then, and we're already looking forward to it.`,
     tl: solo ? `Noted po, and we're looking forward to welcoming you.` : `Noted po, ${TL_COUNT[pax!] ?? pax} kayo. We're looking forward to welcoming you.`,
     bis: solo ? `Noted, and looking forward mi to welcome you.` : `Noted, ${BIS_COUNT[pax!] ?? pax} mo. Looking forward mi to welcome you.`,
   });
@@ -252,13 +286,25 @@ export const choiceAck = (dates: string, lang?: Lang) => by(lang, {
 
 // ---- The details ----
 
+/** SPEC-39 3.6: what the guest said beside their yes, returned as a host would ("Yes and thank you. Good night.").
+ *  Chosen by code from the guest's words: a good night, a thank-you, or nothing. */
+export type Echo = 'night' | 'thanks' | null;
+export const echoOf = (text: string): Echo => /\b(good ?night|gabi)\b/i.test(text) ? 'night' : /\b(thank|salamat)/i.test(text) ? 'thanks' : null;
 /** The details, asked once for all three so one reply can finish them (protocol: fewer steps beat more). `thank` false
  *  when a line above already acknowledged the guest (the price or the party welcome). */
-export const detailsAsk = (name: string, lang?: Lang, thank = true) => by(lang, {
-  en: `${name && thank ? `Thank you, ${name}. ` : ''}To prepare your reservation, may we have your full name, a mobile number we can reach you on, and an email for the confirmation? All three in one message is easiest.`,
-  tl: `${!thank ? '' : name ? `Salamat, ${name}. ` : 'Salamat po. '}Para ma-prepare ang reservation ninyo, maaari po ba naming makuha ang full name, mobile number, at email para sa confirmation? Okay lang na sabay-sabay sa isang message.`,
-  bis: `${!thank ? '' : name ? `Salamat, ${name}. ` : 'Salamat. '}Para ma-prepare ang inyong reservation, pwede namo makuha ang full name, mobile number, ug email for the confirmation? Okay ra nga usa ra ka message.`,
-});
+export const detailsAsk = (name: string, lang?: Lang, thank = true, echo: Echo = null) => {
+  const n = name ? `, ${name}` : '';
+  const lead = !thank ? '' : echo === 'night'
+    ? by(lang, { en: `Good night to you too${n}, and thank you. `, tl: `Good night din po${n}, at salamat. `, bis: `Good night pud${n}, ug salamat. ` })
+    : echo === 'thanks'
+    ? by(lang, { en: `It's our pleasure${n}. `, tl: `Walang anuman po${n}. `, bis: `Walay sapayan${n}. ` })
+    : by(lang, { en: name ? `Thank you, ${name}. ` : '', tl: name ? `Salamat, ${name}. ` : 'Salamat po. ', bis: name ? `Salamat, ${name}. ` : 'Salamat. ' });
+  return lead + by(lang, {
+    en: `To prepare your reservation, may we have your full name, a mobile number we can reach you on, and an email for the confirmation? All three in one message is easiest.`,
+    tl: `Para ma-prepare ang reservation ninyo, maaari po ba naming makuha ang full name, mobile number, at email para sa confirmation? Okay lang na sabay-sabay sa isang message.`,
+    bis: `Para ma-prepare ang inyong reservation, pwede namo makuha ang full name, mobile number, ug email for the confirmation? Okay ra nga usa ra ka message.`,
+  });
+};
 /** SPEC-14 (D-184): after a partial answer, only the first missing item is asked for. `who` is the reservation name. */
 export function nextDetail(missing: 'name' | 'phone' | 'email', who: string, lang?: Lang): string {
   if (missing === 'name') return by(lang, { en: `Thank you. And the name for the reservation?`, tl: `Salamat po. At ang pangalan para sa reservation?`, bis: `Salamat. Ug ang name for the reservation?` });
@@ -268,32 +314,98 @@ export function nextDetail(missing: 'name' | 'phone' | 'email', who: string, lan
 
 // ---- The confirm card ----
 
-export type CardFacts = { resume: boolean; who: string | null; range: string; nights: number; pax: number | undefined; phone: string | undefined; email: string | null | undefined; total: string; promo: { name: string; nights: number; rate: string } | null };
+export type CardFacts = { resume: boolean; who: string | null; range: string; nights: number; pax: number | undefined; phone: string | undefined; email: string | null | undefined; total: string; promo: { name: string; nights: number; rate: string } | null;
+  /** SPEC-39 4.4: children in the party (pax is the total) */
+  children?: number;
+  /** SPEC-39 3.6b: the booking exists - its reference, and the 24-hour hold (until/rel) or none (full payment) */
+  ref?: string; hold?: boolean; until?: string | null; rel?: string };
 /** The stay at a glance, one fact per line; `resume` after a mid-flow question (Lloyd 2026-09-17: nudge subtly). */
 export function stayCard(c: CardFacts, lang?: Lang): string {
   const s = (k: number | undefined) => (k === 1 ? '' : 's');
+  const kids = c.children && c.pax && c.pax > c.children ? ` (${c.pax - c.children} adult${s(c.pax - c.children)}, ${c.children} ${c.children === 1 ? 'child' : 'children'})` : '';
   return [
     c.resume
       ? by(lang, { en: `Here's your stay, ready whenever you are:`, tl: `Ito po ang stay ninyo, ready whenever you are:`, bis: `Mao ni ang inyong stay, ready whenever you are:` })
       : by(lang, { en: `Here are your stay details:`, tl: `Ito po ang details ng stay ninyo:`, bis: `Mao ni ang details sa stay ninyo:` }),
     ...(c.who ? [`👤 ${c.who}`] : []),
-    `📅 ${c.range} · ${c.nights} night${s(c.nights)} · ${c.pax} guest${s(c.pax)}`,
+    `📅 ${c.range} · ${c.nights} night${s(c.nights)} · ${c.pax} guest${s(c.pax)}${kids}`,
     `📞 ${c.phone}${c.email ? ` · ${c.email}` : ''}`,
-    `💰 Total ${c.total}`,
+    `💰 Total ${c.total}${c.ref ? ` · reference ${c.ref}` : ''}`,
     ...(c.promo ? [`🏷️ ${c.promo.name}: ${c.promo.nights} night${s(c.promo.nights)} at ${c.promo.rate}`] : []),
     by(lang, { en: `🔐 ₱1,000 refundable security deposit, returned after check-out`, tl: `🔐 ₱1,000 refundable security deposit, ibabalik after check-out`, bis: `🔐 ₱1,000 refundable security deposit, i-uli after check-out` }),
+    ...(!c.ref ? [] : c.hold && c.until
+      ? [by(lang, { en: `⏳ Held for you for 24 hours, until ${c.until} (${c.rel})`, tl: `⏳ Naka-hold na para sa inyo for 24 hours, until ${c.until} (${c.rel})`, bis: `⏳ Naka-hold na para ninyo for 24 hours, until ${c.until} (${c.rel})` })]
+      : [by(lang, { en: `⏳ Yours as soon as the payment arrives`, tl: `⏳ Sa inyo na ito once dumating ang payment`, bis: `⏳ Inyo na ni once muabot ang payment` })]),
   ].join('\n');
 }
-/** SPEC-14 (D-184): the card's payment sentence - the fee-or-full choice, or the full-only sentence inside five days. */
-export const payChoiceLine = (fullOnly: boolean, total: string, deposit: string, lang?: Lang) => fullOnly
-  ? by(lang, {
-      en: `As your check-in is near, the full ${total} secures your stay, with the ₱1,000 refundable deposit due before you arrive. You may reply FULL to send your request through, or let us know if anything needs changing.`,
-      tl: `Malapit na po ang check-in, kaya ang full ${total} ang magse-secure ng stay, and the ₱1,000 refundable deposit is due before you arrive. You may reply FULL to send the request through, or sabihin lang if may kailangang baguhin.`, // one po: the card head above carries the other
-      bis: `Duol na ang check-in, so ang full ${total} ang mag-secure sa stay, and the ₱1,000 refundable deposit is due before you arrive. Pwede mo mu-reply og FULL para ma-send ang request, or ingna lang mi if naa may changes.` })
-  : by(lang, {
-      en: `A reservation fee of ${deposit} holds the dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; or you may settle the full ${total} now. Just tell us "fee" or "full", whichever suits you.`,
-      tl: `Ang reservation fee na ${deposit} ang magho-hold ng dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; o puwede rin pong bayaran ang full ${total} ngayon. Sabihin lang po "fee" o "full", kung alin ang mas okay sa inyo.`,
-      bis: `Ang reservation fee nga ${deposit} ang mo-hold sa dates. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; o pwede pud bayran ang full ${total} karon. Ingna lang mi og "fee" o "full", kung asa ang mas okay ninyo.` });
+
+// ---- SPEC-39 3.6b (D-300.3): the stay details and the payment in ONE message, the nudge in the guest's own tone ----
+
+/** Read from the guest by booking.ts toneOf: brisk (short, plain), warm (the default), gentle (hesitant or first-timer). */
+export type Tone = 'brisk' | 'warm' | 'gentle';
+/** `fullOnly`: only the full amount is due now (inside five days, or the guest chose it); `near`: inside five days. */
+export type PayFacts = { deposit: string; total: string; fullOnly: boolean; near?: boolean; dates: string; name: string; party?: string };
+const GCASH = '0956 011 5744';
+/** The payment paragraph and the receipt line, after the stay card. Facts in every variant: the 50% reservation fee holds
+ *  the dates; the balance and the ₱1,000 refundable deposit at least a day before check-in; or the full amount now; inside
+ *  five days only the full amount. The amount-set QR is the image of the same turn. */
+export function payNudge(p: PayFacts, tone: Tone, lang?: Lang): string {
+  const L = lang ?? 'en', n = p.name, c = n ? `, ${n}` : '';
+  const pay = p.fullOnly
+    ? by(L, {
+        en: `${p.near ? 'As your check-in is near, the' : 'The'} full ${p.total} secures your stay: the QR below carries the exact amount, or GCash ${GCASH}. The ₱1,000 refundable deposit is due before you arrive.`,
+        tl: `${p.near ? 'Malapit na po ang check-in, kaya ang' : 'Ang'} full ${p.total} ang magse-secure ng stay: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. The ₱1,000 refundable deposit is due before you arrive.`,
+        bis: `${p.near ? 'Duol na ang check-in, so ang' : 'Ang'} full ${p.total} ang mag-secure sa stay: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. The ₱1,000 refundable deposit is due before you arrive.` })
+    : tone === 'brisk' ? by(L, {
+        en: `The ${p.deposit} reservation fee holds these dates: the QR below carries the exact amount, or GCash ${GCASH}. The balance and the ₱1,000 deposit follow at least a day before check-in. If you'd rather settle the full ${p.total} now, a quick "full" here brings that QR instead.`,
+        tl: `Ang ${p.deposit} reservation fee ang magho-hold ng dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang balance at ang ₱1,000 deposit ay due at least a day before check-in. Kung mas gusto ninyo ang full ${p.total} ngayon, "full" lang dito at ipapadala namin ang QR na iyon.`,
+        bis: `Ang ${p.deposit} reservation fee ang mo-hold sa dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang balance ug ang ₱1,000 deposit kay due at least a day before check-in. Kung mas gusto ninyo ang full ${p.total} karon, "full" lang diri ug i-send namo ang QR para didto.` })
+    : tone === 'gentle' ? by(L, {
+        en: `No rush at all${c}, and nothing is charged until you decide. When you're ready, the ${p.deposit} reservation fee holds ${p.dates} for you: the QR below carries the exact amount, or GCash ${GCASH}, so there's nothing to type.\n\nThe balance and the ₱1,000 refundable deposit follow at least a day before check-in; or, if you'd prefer, the full ${p.total} now, and a "full" here brings that QR.`,
+        tl: `Walang rush po${c}, at wala pang babayaran hangga't hindi pa kayo decided. Kapag ready na kayo, ang ${p.deposit} reservation fee ang magho-hold ng ${p.dates} para sa inyo: naka-set na ang exact amount sa QR below, o GCash ${GCASH}, so wala nang ita-type.\n\nAng balance at ang ₱1,000 refundable deposit ay due at least a day before check-in; o kung mas gusto ninyo, ang full ${p.total} ngayon, "full" lang dito at ipapadala namin ang QR na iyon.`,
+        bis: `Walay rush${c}, ug wala pay bayranan hangtod dili pa mo decided. Kung ready na mo, ang ${p.deposit} reservation fee ang mo-hold sa ${p.dates} para ninyo: naka-set na ang exact amount sa QR below, o GCash ${GCASH}, so wala nay i-type.\n\nAng balance ug ang ₱1,000 refundable deposit kay due at least a day before check-in; o kung mas gusto ninyo, ang full ${p.total} karon, "full" lang diri ug i-send namo ang QR para didto.` })
+    : by(L, {
+        en: `We'd be delighted to have ${p.party ?? 'you'}. The ${p.deposit} reservation fee holds these dates: the QR below carries the exact amount, or GCash ${GCASH}. The balance and the ₱1,000 refundable deposit are due at least a day before check-in; or you may settle the full ${p.total} now, and a "full" here brings that QR instead.`,
+        tl: `Para ma-secure ang dates, ang ${p.deposit} reservation fee lang ang kailangan ngayon: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang balance at ang ₱1,000 refundable deposit ay due at least a day before check-in. Kung mas gusto ninyong bayaran na ang full ${p.total} ngayon, sabihin lang "full" at ipapadala namin ang QR para doon.`,
+        bis: `Para ma-secure ang dates, ang ${p.deposit} reservation fee ra ang kinahanglan karon: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang balance ug ang ₱1,000 refundable deposit kay due at least a day before check-in. Kung mas gusto ninyo bayran na ang full ${p.total} karon, ingna lang mi og "full" ug i-send namo ang QR para didto.` });
+  const receipt = tone === 'brisk' ? by(L, {
+      en: `A screenshot of the receipt here is all we need, and we'll confirm right away.`,
+      tl: `Screenshot lang po ng receipt dito, at iko-confirm namin agad.`,
+      bis: `Screenshot ra sa receipt diri, ug i-confirm dayon namo.` })
+    : tone === 'gentle' ? by(L, {
+      en: `A screenshot of the receipt here is all we need; Marifel and the team then confirm it personally, and we take care of the rest.`,
+      tl: `Screenshot lang po ng receipt dito; si Marifel at ang team mismo ang magko-confirm, and we take care of the rest.`,
+      bis: `Screenshot ra sa receipt diri; si Marifel ug ang team mismo ang mo-confirm, ug amo nang atimanon ang uban.` })
+    : by(L, {
+      en: `Once done, a screenshot of the receipt here is all we need, and we'll confirm right away. 🌿`,
+      tl: `Once done, screenshot lang po ng receipt dito, and iko-confirm na namin ang stay ninyo. Excited na rin kaming i-welcome kayo. 🌿`,
+      bis: `Once done, screenshot ra sa receipt diri, ug i-confirm na namo ang inyong stay. Excited na pud mi mo-welcome ninyo. 🌿` });
+  return `${splitLong(pay)}\n\n${receipt}`; // a paragraph over 320 splits at a sentence (protocol rule 4)
+}
+/** D-300.3: "full" after the hold - the QR for the full amount follows this line; no second card. */
+export const fullSwitchLine = (name: string, total: string, lang?: Lang) => {
+  const n = first(name), c = n ? `, ${n}` : '';
+  return by(lang, {
+    en: `Of course${c}. Here is the QR for the full ${total}; only the ₱1,000 refundable deposit then remains, due before you arrive.`,
+    tl: `Sige po${c}. Ito ang QR para sa full ${total}; ang ₱1,000 refundable deposit na lang ang natitira, due before you arrive.`,
+    bis: `Sige${c}. Mao ni ang QR para sa full ${total}; ang ₱1,000 refundable deposit na lang ang nabilin, due before you arrive.`,
+  });
+};
+/** D-300.3: "fee" / "yes" / "ok" after the QR - nothing left to choose, and no second QR. `full`: the QR carries the full amount. */
+export const feeAckLine = (name: string, amount: string, full: boolean, lang?: Lang) => {
+  const n = first(name), c = n ? `, ${n}` : '', what = full ? 'payment' : 'fee';
+  return by(lang, {
+    en: `Thank you${c}. The QR above already carries the ${amount} ${what}, so there's nothing more to choose; whenever it's done, a screenshot here is all we need.`,
+    tl: `Salamat po${c}. Nasa QR above na ang ${amount} ${what}, so wala na pong pipiliin; kapag tapos na, screenshot lang dito.`,
+    bis: `Salamat${c}. Naa na sa QR above ang ${amount} ${what}, so wala nay pilionon; kung human na, screenshot ra diri.`,
+  });
+};
+/** SPEC-39 4.2: "until Nov 30" with no check-in yet - the check-out is noted and the check-in asked. */
+export const checkinAsk = (checkout: string, lang?: Lang) => by(lang, {
+  en: `Noted, until ${checkout}. From which date would you like to check in?`,
+  tl: `Noted po, hanggang ${checkout}. Kailan po ang check-in ninyo?`,
+  bis: `Noted, hangtod ${checkout}. Kanus-a ang inyong check-in?`,
+});
 
 /** D-269 (live 2026-09-27, Suzanne "Is party allowed?" got only "That's a request our host would love to consider"): a
  *  house-rule question is answered from FACTS first; the host still hears it, and the guest is told so once. */
@@ -321,11 +433,14 @@ export const houseRule = (kind: 'party' | 'pets' | 'guests', lang?: Lang) => {
 };
 /** D-269: a discount turn still reaches the host (Lloyd 2026-09-13), said once per thread and as part of the answer -
  *  not "That's a request our host would love to consider", which read as a form letter twice in one chat. */
-export const discountHostLine = (lang?: Lang) => by(lang, {
+/** D-300.4 (Lloyd 2026-10-05: the forced Tagalog host line read worse than English): English in every register. */
+export const discountHostLine = (_lang?: Lang) => DISCOUNT_HOST_PAST.en;
+/** Every wording the host line has had, so index.ts still finds it in older history (said once per thread). */
+export const DISCOUNT_HOST_PAST: Record<Lang, string> = {
   en: `Our host also looks at special requests personally, so we've shared your message with them.`,
   tl: `Personal ding tinitingnan ng host ang special requests, kaya na-share na namin ang message ninyo.`,
   bis: `Personal pud nga gitan-aw sa among host ang special requests, so na-share na namo ang inyong message.`,
-});
+};
 
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => by(lang, {
@@ -504,21 +619,16 @@ export const ACK_SUGGEST = `Thank you for your message. Our host will reply pers
 export function datesFirstLine(name: string | null, lang: Lang, followUp: boolean): string {
   const open = followUp ? (name ? `${name}, ` : '') : `${name ? `Hi ${name}.` : 'Hello.'} `;
   const c = (s: string) => (open.endsWith(', ') ? s[0].toLowerCase() + s.slice(1) : s);
+  // D-300.2: no link here - the guest asked about a time, not how to book or to see the home.
   if (lang === 'bis') return `${open}${c('Salamat')} sa pagpangutana. We'd be glad to arrange that for you: depende ni sa calendar anang adlawa, and kung walay laing guest nga moabot o mobiya that day, sayon ra ma-arrange.
 
-Share lang diri ang inyong dates and we'll check right away, or pwede pud i-check ang live availability sa among site:
-
-👉 ${SITE_URL}`;
+Share lang diri ang inyong dates and we'll check right away.`;
   if (lang === 'tl') return `${open}${c('Salamat')} po sa pagtanong. We'd be glad to arrange that for you: depende ito sa calendar ng araw na iyon, and kapag walang ibang guest na dumarating o umaalis that day, madali pong ma-arrange.
 
-Share lang dito ang dates ninyo and we'll check right away, o puwede ninyong i-check ang live availability sa aming site:
-
-👉 ${SITE_URL}`;
+Share lang dito ang dates ninyo and we'll check right away.`;
   return `${open}${c('We')}'d be glad to arrange that for you. It depends on the calendar for that day: when no other guest arrives or leaves the same day, it's easy to arrange.
 
-If you share your dates here, we'll check right away and arrange it in this chat, or you may see live availability on our site:
-
-👉 ${SITE_URL}`;
+If you share your dates here, we'll check right away and arrange it in this chat.`;
 }
 
 /** "salamat po" / "ok, bye": the caller picks one line (not the one it sent last). */
@@ -536,13 +646,6 @@ export function closers(name: string | null, lang: Lang, thanks: boolean): strin
       : [`Salamat${n}. Naa ra mi diri kung naa moy need.`, `Noted${n}. Amping, ug message lang anytime.`],
   })[lang];
 }
-/** The open door under a closer when our last reply did not carry the link. */
-export const readyInvite = (lang: Lang) => by(lang, {
-  en: `Whenever you're ready, we can arrange the booking right here in the chat, or you may secure your dates on our site:`,
-  tl: `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site:`,
-  bis: `Kung ready na mo, we can arrange the booking diri sa chat, or pwede pud i-secure ang dates sa among site:`,
-}) + `\n\n👉 ${SITE_URL}`;
-
 // bookingNudge (Lloyd 2026-09-13: one soft next step). Session 58: a Bisaya thread used to get the Taglish lines, "po"
 // and all; it now has its own (the gate's no-po-in-Bislish rule found it).
 /** The site part alone, when the model already closed on dates. */
@@ -562,12 +665,6 @@ export const nudgeReady = (lang: Lang) => by(lang, {
   en: `Whenever you feel ready, we can arrange the booking right here in the chat, or you may secure your dates on our site, where direct bookings carry our best rates:`,
   tl: `Kapag ready po kayo, we can arrange the booking dito sa chat, o puwede ninyong i-secure ang dates sa aming site, where direct bookings carry our best rates:`,
   bis: `Kung ready na mo, we can arrange the booking diri sa chat, or pwede pud i-secure ang dates sa among site, where direct bookings carry our best rates:`,
-}) + `\n\n👉 ${SITE_URL}`;
-/** Lloyd 2026-09-17: the site once, under a resumed confirm card. */
-export const confirmSiteInvite = (lang: Lang) => by(lang, {
-  en: `If you'd like to see more of the home first, everything is on our site, where direct bookings enjoy our best rates:`,
-  tl: `If you'd like to see more of the home first, nasa site namin po ang lahat, with our best rates for direct bookings:`,
-  bis: `If you'd like to see more of the home first, naa sa among site ang tanan, with our best rates for direct bookings:`,
 }) + `\n\n👉 ${SITE_URL}`;
 
 // ---- Submit and receipt turns. Session 58: no error code reaches the guest (it is in the log), and no "Thank you, po."
@@ -625,14 +722,16 @@ export const receiptRetry = (lang: Lang | undefined) => by(lang, {
 export type ComposeCtx = {
   lang: Lang;
   name: string | null;
-  /** the first reply in the thread (nothing answered yet) */
+  /** the first reply in the thread (nothing answered yet): greeted, the dates asked, signed, no link (D-299.10) */
   greet: boolean;
-  /** Cassy not yet introduced, and not under a resumed flow card (D-173) */
-  intro: boolean;
+  /** D-300.1: the initial message of a conversation (no bot reply in 12 h) - the one signed message, whoever wrote it */
+  greetNow: boolean;
   /** our last reply was under 6 hours ago */
   followUp: boolean;
   /** mid-booking: the flow's own card and ask follow the answer, and nothing else does */
   flowFollowUp: string | null;
+  /** D-300.2 mid-booking: the guest asked to see the home - seeHomeLine's block before the flow's ask ('' otherwise) */
+  seeHome?: string;
   /** D-269: the discount host line, once per thread ('' otherwise) */
   hostLine: string;
   /** a pay hold, a staying guest, an open host matter: the answer only */
@@ -641,10 +740,10 @@ export type ComposeCtx = {
   look: string;
   /** "think about it", "how do I book" on a follow-up */
   decision: boolean;
-  /** a booking, rate or dates question */
-  bookingTurn: boolean;
-  /** the link is in one of our last two replies */
-  siteRecent: boolean;
+  /** D-300.2: the guest asked for something the site answers - how to book, the site itself, photos, reviews (index.ts linkTurn) */
+  linkTurn: boolean;
+  /** the link is in one of our last four replies: never repeated in one stretch of conversation */
+  siteShown: boolean;
   datesKnown: boolean;
   held: { dates: boolean; pax: boolean; name: boolean };
   /** our previous reply, so the close is never the same twice (R8) */
@@ -660,27 +759,27 @@ const LOOK_LEAD: Record<Lang, string> = {
 function lookStep(look: string, c: ComposeCtx): string {
   const [sentence, ...links] = look.split(/\n\s*\n/);
   const block = `${sentence.trim().replace(/[.\s]*$/, ':')}\n${links.join('\n').trim()}`;
-  if (look.includes(SITE_URL)) return `${LOOK_LEAD[c.lang]} ${block}`;
-  return c.greet ? `${firstInvite(c.lang, SITE_URL)}\n\n${block}` : block; // reviews only: a first reply still carries the site
+  return look.includes(SITE_URL) ? `${LOOK_LEAD[c.lang]} ${block}` : block; // reviews only: the reviews line alone
 }
 
 const unpo = (s: string) => s.replace(/ po\b/g, ''); // thinPo may have taken a "po" out of the line we sent
-/** D-286: the one next step (design section 1, first match wins). '' = nothing. */
+/** D-286: the one next step (design section 1, first match wins). '' = nothing. SPEC-39: the first reply asks for the dates
+ *  and carries no link (D-299.10); after it the site comes only when the guest asks for what it answers (D-300.2). */
 export function nextStep(c: ComposeCtx, ask: string | null): string {
   if (c.flowFollowUp || c.quiet) return '';                                   // 1-2: the flow's card, or the answer alone
-  if (c.look) return lookStep(c.look, c);                                     // 3: look before you book
+  if (c.greet) return c.datesKnown ? '' : firstDatesNudge(c.lang);            // 6: first contact - their dates, no link
+  if (c.look) return lookStep(c.look, c);                                     // 3: look before you book (photos, reviews)
   if (ask && !asksHeld(ask, c.held)) return ask.trim();                       // 4: the model's one question
   if (c.decision) return decisionInvite(c.lang, SITE_URL);                    // 5: a decision moment
-  if (c.greet) return firstInvite(c.lang, SITE_URL);                          // 6: first contact carries the link
-  if (c.bookingTurn && !c.siteRecent) return c.datesKnown ? nudgeReady(c.lang) : nudgeSite(c.lang);
-  // 7 - never the same dates line twice in a row (golden AFTER 2026-09-30, R8)
+  if (c.linkTurn && !c.siteShown) return c.datesKnown ? nudgeReady(c.lang) : nudgeSite(c.lang); // 6b: the site, asked for
+  // 7 - their dates, never the same dates line twice in a row (golden AFTER 2026-09-30, R8); no unprompted link
   if (!c.datesKnown) return unpo(c.prevBot).trimEnd().endsWith(unpo(nudgeDates(c.lang))) ? '' : nudgeDates(c.lang);
-  return c.siteRecent ? '' : nudgeReady(c.lang);
+  return '';
 }
 
 /** The prospect closes, one 🌿 each (the Oct 27 example's "prepared before you arrive" was said to guests with no booking). */
 const CLOSES: Record<Lang, string[]> = {
-  en: [`We'd be glad to welcome you. 🌿`, `We look forward to welcoming you to Cascade. 🌿`, `We'd love to have you with us. 🌿`],
+  en: [`We'd be delighted to welcome you. 🌿`, `We look forward to welcoming you to Cascade. 🌿`, `We'd love to have you with us. 🌿`],
   tl: [`We'd be glad to have you dito sa Cascade. 🌿`, `We're looking forward to welcoming you. 🌿`],
   bis: [`Looking forward mi to have you. 🌿`, `Looking forward mi sa inyong stay sa Cascade. 🌿`],
 };
@@ -757,8 +856,10 @@ const joinLast = (answer: string, s: string) => {
 /** D-286: the whole message from the model's answer. `fitted` is true when the answer had to be joined into two
  *  paragraphs (logged as frame_fit; the golden pass bar is zero). */
 export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx): { reply: string; stripped: string[]; fitted: boolean } {
-  const ask = m.ask?.trim() || null;
-  // A first reply ends on the link (Lloyd's approved first replies ask inside the answer); a quiet turn's own question stays.
+  // SPEC-39 3.1 (Q2: the dates alone): on a first reply with no dates, code asks for them - the model's own question (dates or
+  // name) would be a second one, and two read like a form.
+  const ask = c.greet && !c.datesKnown ? null : m.ask?.trim() || null;
+  // A first reply with dates known asks inside the answer; a quiet turn's own question stays.
   const askInAnswer = !!ask && !c.flowFollowUp && (c.greet || c.quiet) && !asksHeld(ask, c.held);
   const step = nextStep(c, askInAnswer ? null : ask);
   const close = !c.greet && /https?:\/\/\S+\s*$/.test(step) ? closeLine(c.lang, c.prevBot) : '';
@@ -769,12 +870,16 @@ export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx
   if (c.hostLine) answer = joinLast(answer, c.hostLine);
   if (askInAnswer) answer = joinLast(answer, ask!);
   const fit = fitParagraphs(answer, 2);
-  const head = c.greet ? greetBlock(c.name, c.lang, c.intro) : '';
-  let reply = [(head + fit).trim(), step, close].filter(Boolean).join('\n\n');
+  // D-299.10: no introduction sentence. The greeting shares the answer's first paragraph when both fit in 320 characters
+  // (Lloyd's approved first reply), else it stands alone (a stay quote).
+  const g = c.greet ? greeting(c.name, c.lang).trim() : '';
+  const head = !g ? fit : !fit ? g : g.length + 1 + fit.split(/\n\s*\n/)[0].length <= 320 ? `${g} ${fit}` : `${g}\n\n${fit}`;
+  let reply = [head.trim(), step, close].filter(Boolean).join('\n\n');
   reply = thinPo(reply, c.lang === 'bis' ? 0 : 2);
-  if (c.flowFollowUp) reply = reply ? `${reply}\n\n${c.flowFollowUp}` : c.flowFollowUp;
+  if (c.flowFollowUp) reply = [reply, c.seeHome ?? '', c.flowFollowUp].filter(Boolean).join('\n\n');
   reply = capName(reply, c.name, c.greet && !c.flowFollowUp ? 1 : 2);
   // Nothing left (an answer that was all frame, and no step): the model's words without links or leaves, never silence.
   if (!reply.trim()) reply = m.answer.split('\n').filter((l) => !URL_LINE_RE.test(l)).join('\n').replace(/[ \t]*🌿/gu, '').trim();
-  return { reply, stripped: clean.stripped, fitted: fit !== answer };
+  // D-300.1: the initial message of a conversation (greetNow, 12 h) is the one signed message - a returning guest's too.
+  return { reply: signFirst(reply, c.greetNow), stripped: clean.stripped, fitted: fit !== answer };
 }

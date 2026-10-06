@@ -13,7 +13,7 @@ Deno.test('Suzanne: "Available today?" is answered in the first reply, open or t
   const f = start('Available today?', now);
   assertEquals([f.step, f.checkin, f.asked], ['checkout', '2026-09-26', 'availability']);
   const open = opener(f, 'Suzanne Ligason Boncales', availabilityLine(tonight(f), new Set(), null, now)) + prompt(f, null, false, now);
-  assertEquals(open, "Hi Suzanne, thank you for reaching out to Cascade Hideaway. Tonight (Sep 26) is available, and we'd be glad to welcome you.\n\nHow many nights would you like to stay with us from tonight? A check-out date works just as well.");
+  assertEquals(open, "Hi Suzanne, thank you for reaching out to Cascade Hideaway. Tonight (Sep 26) is available, and we'd be delighted to welcome you.\n\nHow many nights would you like to stay with us from tonight? A check-out date works just as well.");
   assertEquals((open.match(/thank you/gi) ?? []).length, 1); // thanked once
   assertEquals(lintReply(open, 'Available today?', { firstTurn: true }), []);
   const taken = availabilityLine(tonight(f), new Set(['2026-09-26']), alt, now, true);

@@ -8,7 +8,8 @@ import { claimsOpen, earlyFeeFor, fixEarlyFee, setAvailability } from './voice.t
 import { decisionInvite } from './voice.ts';
 import { AMENITY_RE, lookNudge, TRUST_RE } from './voice.ts';
 import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
-import { BOT_REPLY, CASSY_INTRO, greeting } from './booking.ts';
+import { botReply, CASSY_INTRO, greeting, stayPayMessage } from './booking.ts';
+import { STAY_PAY_CAP } from './voice.ts';
 
 
 // Lloyd 2026-09-17: an invitation offers BOTH routes - settle the booking here in the chat, or the site.
@@ -80,7 +81,7 @@ Deno.test('the question is answered before the ask (live failure of 2026-09-17)'
   const warm = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt({ ...f, step: 'contact' }, 'Ben');
   assertEquals(lintReply(warm, guest, { firstTurn: true }), []);
   assertEquals(availabilityLine(f, new Set(['2026-10-03'])).startsWith("I'm sorry, the night of Oct 3 is already reserved"), true);
-  assertEquals(warm.startsWith("Hi Ben, thank you for reaching out to Cascade Hideaway. The night of Oct 3 is available, and we'd be glad to welcome the two of you."), true);
+  assertEquals(warm.startsWith("Hi Ben, thank you for reaching out to Cascade Hideaway. The night of Oct 3 is available, and we'd be delighted to welcome the two of you."), true);
   assertEquals(lintReply('Your mobile number po?', '', { firstTurn: true }), ['form_speak', 'cold_opener']);
   assertEquals(lintReply('Kindly send the receipt at your earliest convenience.'), ['boilerplate']); // English protocol sections 8 and 18
   assertEquals(lintReply('Wonderful, Ben! Send ₱890 now.'), ['command_tone', 'exclaim']); // the persona's two forbidden moves
@@ -104,7 +105,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   const f = start(guest, now);
   assertEquals([f.lang, f.pax, f.asked], ['tl', 2, 'availability']);
   const first = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
-  assertEquals(first.startsWith("Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to 22, and we'd be glad to have kayong dalawa."), true); // D-269: Taglish names the party in Filipino
+  assertEquals(first.startsWith("Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available po ang Oct 20 to 22, and we'd be delighted to have kayong dalawa."), true); // D-269: Taglish names the party in Filipino
   assertEquals(lintReply(first, guest, { firstTurn: true }), []);
   let s = answer(f, '09171234567', now); assertEquals(s.flow.lang, 'tl'); // a bare number keeps the register
   assertEquals(answer(f, '09171234567 ben@example.com', now).flow.lang, 'tl'); // an e-mail is not English (live render 11:35)
@@ -122,7 +123,7 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   for (const step of ['dates', 'checkout', 'pax', 'offer', 'contact', 'confirm'] as const) assertEquals(lintReply(prompt({ ...base, lang: 'tl', step }, 'Ben')), [], step);
   assertEquals(lintReply(availabilityLine({ ...base, lang: 'tl' }, new Set(['2026-10-03'])), 'available pa po ba'), []);
   const mid = availabilityAck({ ...base, lang: 'tl' }, availabilityLine({ ...base, lang: 'tl' }, new Set())) + '\n\n' + prompt({ ...base, lang: 'tl', step: 'contact' }, 'Ben');
-  assertEquals(mid.startsWith("Available po ang Oct 3 to 4, and we'd be glad to have kayong dalawa."), true);
+  assertEquals(mid.startsWith("Available po ang Oct 3 to 4, and we'd be delighted to have kayong dalawa."), true);
   assertEquals(lintReply(mid, 'Oct 3 to 4 po, available pa po ba?'), []);
 });
 
@@ -260,10 +261,10 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
   // Lloyd's approved first reply (2026-09-18); D-269: the offer asks with the hold wording every other offer uses, and
   // without a second "glad" under the welcome.
   const en = opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben', false, now);
-  assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be glad to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 \u2014 PHP 3,382 for the stay.\n\nShall we hold those dates for you?");
+  assertEquals(en, "Hi Ben, thank you for reaching out to Cascade Hideaway. Nov 17 to 19 is available, and we'd be delighted to welcome the two of you.\n\nBooking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 \u2014 PHP 3,382 for the stay.\n\nShall we hold those dates for you?");
   assertEquals(en.length < 700, true);
   const taken = availabilityLine(f, new Set(['2026-11-17']), { start: '2026-11-20', end: '2026-11-23', nights: 3 });
-  assertEquals(taken, "I'm sorry, Nov 17 to 19 is already reserved. The nearest open dates are Nov 20 to 23, and we'd be glad to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.");
+  assertEquals(taken, "I'm sorry, Nov 17 to 19 is already reserved. The nearest open dates are Nov 20 to 23, and we'd be delighted to welcome you then. If other dates suit you better, just share your check-in and check-out and we'll gladly check them for you.");
   for (const lang of ['en', 'tl', 'bis'] as const) {
     const first = opener({ ...f, lang }, 'Ben', availabilityLine({ ...f, lang }, new Set())) + prompt({ ...f, lang }, 'Ben', false, now);
     const card = prompt({ ...f, lang, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
@@ -275,62 +276,60 @@ Deno.test('SPEC-14: the offer, the details asks, the card and the reserved line 
     for (const l of [card, cancelReply(lang), ...asks]) assertEquals(lintReply(l), [], `${lang}: ${l.slice(0, 40)}`);
     if (lang === 'bis') for (const l of [first, card, reserved, cancelReply(lang), ...asks]) assertEquals(/\b(po|opo)\b/i.test(l), false, 'no Tagalog po in Bisaya: ' + l.slice(0, 40));
   }
-  // the card carries the name, the deposit and the choice; the hold message no longer greets a second time
+  // SPEC-39 3.6b: the card carries the name and the deposit; with the hold it also carries the payment, in one message
   const card = prompt({ ...f, step: 'confirm', name: 'Ben Munez', email: 'ben@example.com' }, 'Ben', false, now);
   assertEquals(card.includes('\u{1F464} Ben Munez'), true);
   assertEquals(card.includes('\u{1F510} \u20B11,000 refundable security deposit, returned after check-out'), true);
-  assertEquals(card.includes('A reservation fee of \u20B11,691 holds the dates. The balance and the \u20B11,000 refundable deposit are due at least a day before check-in; or you may settle the full \u20B13,382 now.'), true);
+  const one = stayPayMessage({ ...f, step: 'await_receipt', name: 'Ben Munez', email: 'ben@example.com', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben', now);
+  assertEquals(one.includes('The \u20B11,691 reservation fee holds these dates: the QR below carries the exact amount, or GCash 0956 011 5744. The balance and the \u20B11,000 refundable deposit are due at least a day before check-in; or you may settle the full \u20B13,382 now'), true);
+  assertEquals(lintReply(one, '', { cap: STAY_PAY_CAP }), []);
   const hold = paymentReply({ ...f, step: 'await_receipt', name: 'Ben Munez', ref: 'DIR-1', deposit: 1691, total: 3382, hold: true, hold_expires_at: '2026-09-18T00:00:00Z' }, 'Ben Munez', 'https://x', now);
   assertEquals(hold.startsWith("Ben, we've set aside Nov 17 to 19 for you for 24 hours"), true);
   assertEquals(hold.includes('Once done, a screenshot of the receipt here is all we need.'), true); // SPEC-31 s5
   assertEquals(lintReply(hold), []);
 });
 
-// D-173 / SPEC-01: Cassy introduces herself once, in the first message, and never again.
-Deno.test('SPEC-01: the opener carries the Cassy sentence exactly once, in every register', () => {
+// D-299.10 (Lloyd 2026-10-05) supersedes SPEC-01's opener line: no Cassy sentence in any first reply; the initial message is
+// signed instead (persona.test.ts), and the are-you-a-bot answer keeps the disclosure (D-173, shortened by D-300.5).
+Deno.test('SPEC-39 (inverts SPEC-01): the opener carries no Cassy sentence, in every register', () => {
   const guest = 'Hello is Oct 3 to 4 available. i would like to book for 2 adults';
-  for (const [l3, lang] of [['en', 'en'], ['tl', 'tl'], ['bis', 'bis']] as const) {
+  for (const lang of ['en', 'tl', 'bis'] as const) {
     const f = { ...start(guest, now), lang };
-    const first = opener(f, 'Ben', availabilityLine(f, new Set()), true) + prompt({ ...f, step: 'contact' }, 'Ben');
-    assertEquals(first.split('Cassy').length - 1, 1, l3);                       // said, and said once
-    assertEquals(first.includes(CASSY_INTRO[l3].trimEnd()), true, l3);          // the approved sentence, verbatim (SPEC-28: its trailing space became the paragraph break)
-    assertEquals(lintReply(first, guest, { firstTurn: true }), [], l3);         // still passes the protocol
+    const first = opener(f, 'Ben', availabilityLine(f, new Set()), false) + prompt({ ...f, step: 'contact' }, 'Ben');
+    assertEquals(first.includes('Cassy'), false, lang);
+    assertEquals(lintReply(first, guest, { firstTurn: true }), [], lang);
   }
+  assertEquals(greeting('Ben', 'en').includes('Cassy'), false);
+  assertEquals(greeting('Ben', 'en', true).includes(CASSY_INTRO.en), true); // kept for telegram-cassy forHost (older history)
+  assertEquals(opener(start('book Oct 3 to 4 for 2', now), 'Ben').includes('Cassy'), false);
 });
 
-Deno.test('SPEC-01: nothing is introduced when the guest has already met her', () => {
-  assertEquals(greeting('Ben', 'en').includes('Cassy'), false);                 // default is silence
-  assertEquals(greeting('Ben', 'en', false).includes('Cassy'), false);
-  assertEquals(greeting('Ben', 'en', true).includes(CASSY_INTRO.en), true);
-  const f = start('book Oct 3 to 4 for 2', now);
-  assertEquals(opener(f, 'Ben').includes('Cassy'), false);                      // a resumed card never carries it
-});
-
-
-Deno.test('SPEC-01: the are-you-a-bot answer is clean in all three registers', () => {
+Deno.test('SPEC-01 / D-300.5: the are-you-a-bot answer is clean in all three registers', () => {
   for (const l3 of ['en', 'tl', 'bis'] as const) {
-    assertEquals(lintReply('Ben, ' + BOT_REPLY[l3], 'are you a bot?'), [], l3);
-    assertEquals(BOT_REPLY[l3].includes('Cassy'), true, l3);
+    assertEquals(lintReply(botReply('Ben', l3), 'are you a bot?'), [], l3);
+    assertEquals(botReply('Ben', l3).includes('Cassy'), true, l3);
   }
 });
 
 // SPEC-13 / D-176: look before you book.
-Deno.test('SPEC-13: an amenity question gets both links, a trust question only the reviews', () => {
+Deno.test('SPEC-13 / D-300.2: a see-the-home question gets both links, a trust question only the reviews, a fact question none', () => {
   const fresh = { site: false, reviews: false };
-  const both = lookNudge('may wifi po ba?', 'tl', fresh);
+  const both = lookNudge('may pictures po ba?', 'tl', fresh);
   assertEquals(both.includes(`🏡 Amenities and photos: ${SITE_URL}`), true);
   assertEquals(both.includes(`⭐ Guest reviews: ${AIRBNB_URL}`), true);
   const trust = lookNudge('legit ba ni?', 'bis', fresh);
   assertEquals(trust.includes(SITE_URL), false);                       // reviews only
   assertEquals(trust.includes(`⭐ Guest reviews: ${AIRBNB_URL}`), true);
+  assertEquals(lookNudge('is there wifi?', 'en', fresh), '');          // SPEC-39: a fact, answered from FACTS, no link
+  assertEquals(lookNudge('may parking po ba?', 'tl', fresh), '');
   assertEquals(lookNudge('how do I pay?', 'en', fresh), '');           // a payment turn earns nothing
   assertEquals(lookNudge('is Oct 3 to 4 available?', 'en', fresh), ''); // a dates question is not an amenity question
 });
 
 Deno.test('SPEC-13: each link is offered at most once in a conversation', () => {
-  assertEquals(lookNudge('what amenities are included?', 'en', { site: true, reviews: false }).includes(SITE_URL), false);
-  assertEquals(lookNudge('what amenities are included?', 'en', { site: true, reviews: false }).includes(AIRBNB_URL), true);
-  assertEquals(lookNudge('what amenities are included?', 'en', { site: true, reviews: true }), '');
+  assertEquals(lookNudge('can I see photos of the home?', 'en', { site: true, reviews: false }).includes(SITE_URL), false);
+  assertEquals(lookNudge('can I see photos of the home?', 'en', { site: true, reviews: false }).includes(AIRBNB_URL), true);
+  assertEquals(lookNudge('can I see photos of the home?', 'en', { site: true, reviews: true }), '');
   assertEquals(lookNudge('is there a review page?', 'en', { site: false, reviews: true }), '');
 });
 
@@ -338,8 +337,8 @@ Deno.test('SPEC-13: every one of the six strings passes the protocol lint', () =
   const answer = 'Yes, the unit has fast fibre Wi-Fi throughout, and the kitchen is fully equipped.';
   for (const l3 of ['en', 'tl', 'bis'] as const) {
     for (const has of [{ site: false, reviews: false }, { site: true, reviews: false }]) {
-      const block = lookNudge('what amenities are included?', l3, has);
-      assertEquals(lintReply(`${answer}\n\n${block}`, 'what amenities are included?'), [], `${l3} ${has.site}`);
+      const block = lookNudge('can I see photos of the home?', l3, has);
+      assertEquals(lintReply(`${answer}\n\n${block}`, 'can I see photos of the home?'), [], `${l3} ${has.site}`);
     }
   }
 });
@@ -546,4 +545,22 @@ Deno.test('D-286 golden AFTER: a Bislish answer counts as an answer (naa / kay),
   assertEquals(lintReply('Naa, Ben. Ang unit naay fiber Wi-Fi.', 'Naa bay wifi?').includes('no_answer'), false);
   assertEquals(lintReply('Ang Cascade kay hilom nga private retreat, suited to rest.', 'Pwede ba mi mag-party diri?').includes('no_answer'), false);
   assertEquals(lintReply('Unsa inyong dates?', 'Naa bay wifi?').includes('no_answer'), true);
+});
+
+// ---- SPEC-39 (session 72, D-299.10 / D-300): the signature never costs a paragraph and never fakes warmth; the prompt says so ----
+import { paragraphs } from './voice.ts';
+Deno.test('SPEC-39: the signature folds into the paragraph above it, a signed first reply lints clean, "delighted" is care', () => {
+  assertEquals(paragraphs('a\n\nb\n\nCassy, Cascade Concierge').length, 2);
+  const signed = `Hi Maria, thank you for reaching out to Cascade Hideaway. For a two-month stay, your direct rate comes down to PHP 1,335 per night from the standard PHP 1,780, about PHP 80,100 for the 60 nights instead of PHP 106,800, with drinking water for the stay and a complimentary mid-stay refresh included.\n\nWe'd be delighted to have you with us. Which dates are you looking at? Share your check-in and check-out here and we'll check the calendar for you right away.\n\nCassy, Cascade Concierge`;
+  assertEquals(lintReply(signed, 'Hello, can I ask for details regarding our booking good for two months?', { firstTurn: true }), []);
+  assertEquals(isCold('We have the unit ready for long stays with fibre Wi-Fi, a full kitchen, a washing machine, a smart TV and a dedicated workspace, and we would be delighted to host you for the whole month.'), false);
+  // the signature names Cassy, so it cannot count as the reply's warmth
+  assertEquals(isCold('The unit has fibre Wi-Fi, a full kitchen, a washing machine, a smart TV, a dedicated workspace for remote work and free parking in front of the unit.\n\nCassy, Cascade Concierge'), true);
+});
+Deno.test('SPEC-39: VOICE says the first reply carries no link and the site is code-decided; the compact prompt is whole (D-179)', () => {
+  const compact = voiceCompact();
+  assertEquals(compact.includes('The FIRST reply to a prospect carries NO link and ends on one gentle question about their dates'), true);
+  assertEquals(VOICE.includes('ends with the booking link, even for a bare greeting'), false);
+  assertEquals(compact.length > 20_000 && compact.includes('THE SHAPE OF EVERY REPLY') && compact.includes('BEFORE YOU ANSWER'), true);
+  assertEquals(OUTPUT_ANSWER.includes('Never ask for dates in "ask" on a first message'), true);
 });

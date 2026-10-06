@@ -175,3 +175,81 @@ Deno.test('D-269: "Is party allowed?" is answered from FACTS and the host still 
   assertEquals(/request our host would love/.test(r.reply), false);
   assertEquals(r.calls.filter((c) => c.fx === 'handoff').length, 1);
 });
+
+// ---- SPEC-39 (session 72): the one-step card and QR (3.6b), the signed initial message (D-300.1), D-300.2 under a thanks ----
+Deno.test('SPEC-39 3.6b: the details turn sends the card with the hold, then the fee QR, then the account line - one step', async () => {
+  const at = flow({ step: 'contact', name: 'Ben Munez', phone: '09171234567', email: undefined, booking_id: undefined, ref: undefined, deposit: undefined, total: undefined, hold: undefined, hold_expires_at: undefined, receipt_token: undefined, receipt_expires_at: undefined });
+  const r = await turn(at, { text: 'ben@example.com' });
+  assertEquals(r.calls.map((c) => c.fx), ['submit', 'send', 'qr', 'send']);
+  assertEquals(r.calls.find((c) => c.fx === 'qr')!.detail.amount, 1691);
+  const card = r.calls.filter((c) => c.fx === 'send')[0].text!;
+  for (const k of ['👤 Ben Munez', 'reference DIR-PROBE', '⏳ Held for you for 24 hours', '0956 011 5744', 'QR below']) assertEquals(card.includes(k), true, k);
+  assertEquals(/fee" or "full|Cassy, Cascade Concierge/.test(card), false);
+  assertEquals(/Cascades, registered to Marifel/.test(r.calls.filter((c) => c.fx === 'send')[1].text!), true);
+  assertEquals(r.saved.booking_flow.step, 'await_receipt');
+  assertEquals(['brisk', 'warm', 'gentle'].includes(r.saved.booking_flow.tone), true);
+});
+
+Deno.test('SPEC-39 3.6b: "full" after the QR swaps it for the total, amends the booking, no second card or account line', async () => {
+  const r = await turn(flow(), { text: 'full na lang po' });
+  assertEquals(r.calls.filter((c) => c.fx === 'qr').map((c) => c.detail.amount), [3382]);
+  assertEquals(r.calls.find((c) => c.fx === 'amend')!.detail.deposit_amount, 3382);
+  const sent = r.calls.filter((c) => c.fx === 'send').map((c) => c.text!);
+  assertEquals(sent.length, 1);
+  assertEquals(/full ₱3,382/.test(sent[0]) && !/📅|Cascades, registered/.test(sent[0]), true);
+  assertEquals([r.saved.booking_flow.pay_full, r.saved.booking_flow.deposit], [true, 3382]);
+  // "fee" or "ok" after the QR: nothing more to choose, no second QR
+  const fee = await turn(flow(), { text: 'fee' });
+  assertEquals([fee.calls.some((c) => c.fx === 'qr'), /already carries the ₱1,691 fee/.test(fee.reply)], [false, true]);
+  // a corrected count re-shows the card, reaches the booking, and sends no QR
+  const pax = await turn(flow(), { text: 'make it 3 guests po' });
+  assertEquals([pax.calls.some((c) => c.fx === 'qr'), pax.calls.find((c) => c.fx === 'amend')?.detail.pax, /3 guests/.test(pax.reply)], [false, 3, true]);
+});
+
+Deno.test('SPEC-39 D-300.1: the flow first reply of a new conversation is signed; inside 12 h nothing is', async () => {
+  const fresh = await turn(null, { text: 'Hi, is Nov 17 to 19 available? 2 adults' }, []);
+  assertEquals(fresh.reply.endsWith('\n\nCassy, Cascade Concierge'), true, fresh.reply);
+  assertEquals(/digital concierge|I'?m Cassy/.test(fresh.reply), false);
+  assertEquals(fresh.reply.includes(SITE_URL), false);
+  const later = await turn(null, { text: 'Hi, is Nov 17 to 19 available? 2 adults' });
+  assertEquals(later.reply.includes('Cassy, Cascade Concierge'), false);
+  // "are you a bot?" as the very first message is the initial message, so it is signed too (D-300.1, no exception)
+  const bot = await turn(null, { text: 'are you a bot?' }, []);
+  assertEquals([/Marifel/.test(bot.reply), bot.reply.endsWith('Cassy, Cascade Concierge')], [true, true]);
+  assertEquals((await turn(null, { text: 'are you a bot?' })).reply.includes('Cascade Concierge'), false);
+});
+
+Deno.test('SPEC-39 D-300.2: a thanks is closed with no link and no dates nudge', async () => {
+  const r = await turn(null, { text: 'Thanks and God bless' });
+  assertEquals(r.reply.includes(SITE_URL) || /preferred dates/i.test(r.reply), false);
+  assertEquals(/pleasure|welcome|Salamat/i.test(r.reply), true);
+});
+
+// ---- SPEC-39 audit fixes (session 72) ----
+Deno.test('SPEC-39 audit: a returning guest after 12 h is signed on the flow path; inside 12 h not', async () => {
+  const back = await turn(null, { text: 'Hi, is Nov 17 to 19 available? 2 adults' }, ['Hi']);
+  assertEquals(back.reply.includes('Cassy, Cascade Concierge'), false); // the bot replied 3 h ago
+  const row = { psid: 'probe:t1', guest_name: 'Ben', human_until: null, bot_turns: 1, last_risk: null, last_mid: null, booking_flow: null,
+    history: [{ role: 'guest', text: 'Hi', at: ago(14) }, { role: 'bot', text: 'Hello, Ben.', at: ago(14) }] };
+  const { db } = fakeDb(row);
+  const calls: Call[] = [];
+  await handle(db as any, { sender: { id: 'probe:t1' }, recipient: { id: 'page' }, message: { mid: 'm-back', text: 'Hi, is Nov 17 to 19 available? 2 adults' } }, 'auto', probeEffects(calls as any, 'Ben', now), now);
+  const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
+  assertEquals(reply.endsWith('\n\nCassy, Cascade Concierge'), true, reply);
+});
+
+Deno.test('SPEC-39 audit: the children split follows the Messenger marker, so the cards show it', async () => {
+  const { submitNotes } = await import('./index.ts');
+  const { siteNotes } = await import('../_shared/cascade-core/inquiry.ts');
+  const n = submitNotes('p1', flow({ pax: 3, children: 1 }));
+  assertEquals(n, 'via Messenger (psid p1) · 2 adults, 1 child');
+  assertEquals(siteNotes(n), '2 adults, 1 child'); // the separator is not shown
+  const { financeCard } = await import('../_shared/cascade-core/inquiry.ts');
+  const view = { id: '00000000-1111-4222-8333-444455556666', ref: 'DIR-T1', guest_name: 'Ana Cruz', guest_email: 'ana@example.com', guest_phone: '09171234567', checkin_date: '2026-11-17', checkout_date: '2026-11-19',
+    nights: 2, pax: 3, total_amount: 3382, deposit_amount: 1691, notes: n, submitted_at: '2026-10-04T14:40:00Z', status: 'pending', has_receipt: false, hold_expires_at: null, held_by: null, held_at: null, conflict: false };
+  // deno-lint-ignore no-explicit-any
+  const text = financeCard(view as any, { lastMessage: siteNotes(n) });
+  assertEquals(text.includes('Guest wrote: "2 adults, 1 child"'), true, text);
+  assertEquals(/"·|psid/.test(text), false, text);
+  assertEquals(submitNotes('p1', flow()), 'via Messenger (psid p1)');
+});

@@ -11,21 +11,21 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, confirmSiteInvite, datesFirstLine, datesTaken, discountHostLine, houseRule, compose, readyInvite, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, submitFailed } from './persona.ts';
-import { jevRoute, primaryLang, routeRisk } from './jev.ts'; // D-271
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed } from './persona.ts';
+import { JEV_INTENTS, jevRoute, primaryLang, routeRisk, type JevRoute } from './jev.ts'; // D-271
 import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOT_REPLY, CANCEL_RE, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, paymentReply, prompt, quoteTotal, rateLine, replyLang, start, strayReceiptReply, trimWindow, type Flow, type Window } from './booking.ts';
-import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge } from './voice.ts';
+import { CANCEL_RE, PAY_HOW_RE, payHowReply, answer, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, greetBlock, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
 import { CONTACT_CHIP, contactHostChip, isStayingNow, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
-import { AIRBNB_URL, MAYA_FACT, OUTPUT_ANSWER, SITE_URL, discountRange, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
+import { AIRBNB_URL, MAYA_FACT, OUTPUT_ANSWER, SITE_URL, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
 import { currentCard, livePromos, loadCard, tierRate } from '../_shared/cascade-core/pricing.ts';
 import { chatJson, geminiBreaker, setProviderKey } from '../_shared/cascade-core/providers.ts';
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
@@ -55,9 +55,10 @@ const datesFirstReply = (name: string | null, text: string, followUp: boolean, l
 
 // Two turns that need no model (live audit 2026-09-13: the model padded "salamat po" with a
 // sales nudge and answered "are you a bot?" with "I ... just like a human host would").
-// Closers: thanks, okay, noted, goodbye. Answered in code, warmly, and - Lloyd 2026-09-13 - with
-// the direct site left as a gentle open door when it was not in our previous reply.
-const THANKS_RE = /^\s*(ok(ay)?|sige|noted|got it|great|nice)?( po)?[,.! ]*(thank(s| you)( so much| very much)?|salamat( po)?( ulit)?|maraming salamat( po)?|ty|tysm)[,.! ]*(po|talaga)?[,.! ]*$/i; // "sige po, salamat" went to the model (v57 check)
+// Closers: thanks, okay, noted, goodbye. Answered in code, warmly. D-300.2 (Lloyd 2026-10-05): no link under a thanks - a
+// closer that ends on a link reads as a pitch.
+// SPEC-39 3.8 (live 2026-10-04: "Thanks and God bless" got the dates nudge from the model): a blessing or a farewell may follow.
+export const THANKS_RE = /^\s*(ok(ay)?|sige|noted|got it|great|nice)?( po)?[,.! ]*(thank(s| you)( so much| very much)?|salamat( po)?( ulit)?|maraming salamat( po)?|ty|tysm)[,.! ]*(po|talaga)?(?:,?\s*(?:and\s+)?(?:god bless|ingat|take care|good ?night)(?: po)?)?[,.! ]*$/i; // "sige po, salamat" went to the model (v57 check)
 const CLOSER_ONLY_RE = /^\s*(?:(?:ok(?:ay)?|sige|noted|got it|alright|copy|bye|good ?bye|ingat|see you|talk (?:to you )?later|ttyl|good night|goodnight)(?: po)?(?: na)?[,.! ]*){1,3}$/i;
 const BOT_RE = /\b(are you a (bot|robot|an? ai)|is this a bot|bot (ka|po|ba)|ai (po )?ba|robot (ka|po) ba|chatbot|real person|human ba|tao (po )?ba|automated)\b/i;
 const pick = (xs: string[]) => xs[Math.floor(Math.random() * xs.length)];
@@ -65,30 +66,37 @@ const pick = (xs: string[]) => xs[Math.floor(Math.random() * xs.length)];
 // routes. `lang` is the SETTLED register of the turn (Bislish only after two Bisaya turns, D-172).
 type L3 = 'en' | 'tl' | 'bis';
 const l3Of = (lang: string): L3 => (lang === 'bisaya' ? 'bis' : lang === 'taglish' ? 'tl' : 'en');
-function closingReply(name: string | null, lang: string, thanks: boolean, lastBotText: string): string {
+export function closingReply(name: string | null, lang: string, thanks: boolean, lastBotText: string): string {
   const l = l3Of(lang);
   const fresh = (xs: string[]) => { const ys = xs.filter((x) => !lastBotText.includes(x.replace(/^[^.]*\.\s*/, '').slice(0, 40))); return ys.length ? ys : xs; };
-  const reply = pick(fresh(closers(name, l, thanks)));
-  return lastBotText.includes(SITE_URL) ? reply : `${reply}\n\n${readyInvite(l)}`;
+  return pick(fresh(closers(name, l, thanks)));
 }
-// D-173 / SPEC-01: Lloyd's approved wording, three registers ("automated" failed our own lint;
-// there was no Bisaya line). The strings live in booking.ts so voice.test.ts can lint them.
-function botReply(name: string | null, lang: string): string {
-  const n = name ? `${name}, ` : '';
-  return n + BOT_REPLY[l3Of(lang)];
-}
+// D-173 / D-300.5: the short disclosure, the name inside it; the words are persona.ts's (persona.test.ts gates them).
+const botReply = (name: string | null, lang: string) => botLine(name, l3Of(lang));
 // Lloyd 2026-09-13: anchor the saving, not the percentage. When the guest names a stay length,
 // the standard total, the discounted total and the added value are computed here so the
 // numbers are never invented ("5 nights: PHP 8,900 becomes about PHP 8,010, with drinking water").
 const peso = (n: number) => 'PHP ' + n.toLocaleString('en-US');
-export function stayAnchor(text: string, lang = 'english'): string {
+/** The stay length the guest's words name, in nights (a month is 30, a week 7), or null. SPEC-39 4.1 (live 2026-10-04:
+ *  "two months" got the generic 28-night line and no total): number words count too. */
+function stayNights(text: string): number | null {
   const m = /\b(\d{1,2})\s*(?:nights?|gabi|days?|araw)\b/i.exec(text);
-  // D-269 (live 2026-09-27: "If I book for a month, how much?" got a nightly rate and "the total will be shown on our site"):
-  // a month is 30 nights and a week 7, so the total comes from code like any named stay.
-  const w = m ? null : /\b(a|one|isang|usa ka|\d)\s*(month|buwan|bulan|weeks?|linggo|semana)\b|\bmonth-?long\b/i.exec(text);
-  if (!m && !w) return '';
-  const k = w && /^\d$/.test(w[1] ?? '') ? Number(w[1]) : 1;
-  const n = m ? Number(m[1]) : (/week|linggo|semana/i.test(w![2] ?? '') ? 7 : 30) * k;
+  if (m) return Number(m[1]);
+  // D-269 (live 2026-09-27: "If I book for a month, how much?" got a nightly rate and "the total will be shown on our site").
+  const w = /\b(a|an|one|two|three|isang|dalawang|tatlong|usa ka|duha ka|tulo ka|\d{1,2})\s*(month|months|buwan|bulan|weeks?|linggo|semana)\b|\bmonth-?long\b/i.exec(text);
+  if (!w) return null;
+  const k = /^\d+$/.test(w[1] ?? '') ? Number(w[1]) : /^(two|dalawang|duha)/i.test(w[1] ?? '') ? 2 : /^(three|tatlong|tulo)/i.test(w[1] ?? '') ? 3 : 1;
+  return (/week|linggo|semana/i.test(w[2] ?? '') ? 7 : 30) * k;
+}
+/** D-300.4: the stay TOTAL only, for the price objection - no per-night arithmetic, no saving ('' when no length is named). */
+export function anchorTotal(text: string): string {
+  const n = stayNights(text), card = currentCard();
+  if (!n || n < 2 || n > 60) return '';
+  return `[Their ${n} nights come to ${peso(n * tierRate(card, n))} at the direct rate - the one figure you may say.] `;
+}
+export function stayAnchor(text: string, lang = 'english'): string {
+  const n = stayNights(text);
+  if (!n) return '';
   // SPEC-34: the live card's tier for n nights and its base (the standard every saving is measured from).
   const card = currentCard(), std = card.base, tier = { rate: tierRate(card, n) };
   if (n < 2 || n > 60 || tier.rate >= std) return '';
@@ -102,6 +110,28 @@ export function stayAnchor(text: string, lang = 'english'): string {
     ? [`para sa ${n} nights po, bumababa ang direct rate namin sa ${peso(tier.rate)} per night mula sa standard ${peso(std)}`, `mga ${peso(n * tier.rate)} para sa buong stay imbes na ${peso(n * std)}`, `kaya makakatipid kayo ng mga ${peso(n * (std - tier.rate))}`, n >= 5 ? 'kasama na rin ang drinking water for the stay at complimentary mid-stay refresh with fresh linens and towels' : '']
     : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(std)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * std)}`, `so you keep about ${peso(n * (std - tier.rate))}`, extras.slice(2)];
   return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "${q[0]}", (2) "${q[1]}", (3) "${q[2]}"${q[3] ? `, (4) "${q[3]}"` : ''}. Do not state the percentage; do not use the word "discount" more than once. If their dates are not known, put the question about which dates they are looking at in "ask".] `;
+}
+/** SPEC-39 3.3 (D-300.4): a discount ask or a price objection ("medyo mahal po", "a bit expensive") - the host gets the card.
+ *  "hindi naman mahal" / "not expensive at all" says the opposite and is not one. */
+export const priceObjection = (text: string): boolean =>
+  /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text) // a discount ask counts whatever else is said
+  || (/\b(mahal|expensive|pricey)\b/i.test(text) && !/\b(hindi|not|dili|wala)\b[^.?!]{0,12}\b(mahal|expensive|pricey)/i.test(text));
+/** D-300.2 trigger 1: how to book, or the site itself, asked for. */
+export const HOW_BOOK_RE = /\b(how (?:do|can|should) (?:i|we) (?:book|reserve)|how to book|paano (?:po )?(?:mag-?book|mag-?reserve|ma-?book)|unsaon (?:pag-?)?book|book(?:ing)? link|(?:your |the |ang |inyong )?(?:site|website|link|page)\b|where (?:do|can) (?:i|we) book|san (?:po )?(?:pwede|puwede) mag-?book)\b/i;
+/** D-300.2 (Lloyd 2026-10-05): the site link only as applicable - how to book or the site itself, the home or its photos,
+ *  reviews or trust (hesitation is the decision moment, rule 5). A price, parking or Wi-Fi question, a thanks or a dated
+ *  message is not a reason for it. Jev's intent counts only when it is sure. */
+export function linkTurn(text: string, jev: JevRoute | null, now = new Date()): boolean {
+  const sure = (i: string) => !!jev && jev.intent === i && jev.confidence >= 0.8;
+  if (HOW_BOOK_RE.test(text) || SEE_RE.test(text) || TRUST_RE.test(text) || sure('trust')) return true;
+  return sure('booking') && !parseDates(text, now).length; // a dated "book Oct 20-22" starts the flow instead
+}
+/** SPEC-39 4.3: the router's intent, told to the model in one line (no new call). Unclear intent: answer what we can - code
+ *  asks for the dates. '' when Jev is not sure either way. */
+export function intentHint(jev: JevRoute | null): string {
+  if (!jev) return '';
+  if (jev.intent === 'other' || jev.confidence < 0.6) return `[The guest's intent is unclear. Answer what you can in ONE warm sentence; code asks for their dates.] `;
+  return jev.confidence >= 0.8 ? `[Intent read by our router: ${jev.intent} (${JEV_INTENTS[jev.intent] ?? ''}). Answer that first.] ` : '';
 }
 // Dates the guest has already given, so a later early/late check-in question is answered against
 // the calendar instead of "once your dates are set" (live audit 2026-09-13, Oct 10-12 given two turns earlier).
@@ -627,10 +657,16 @@ async function handleOps(db: Db, update: any): Promise<void> {
 // ---- Book flow I/O (booking PRD §A). The pure parts live in booking.ts. ----
 // SITE_URL is the tinyurl; the QR asset needs the Pages origin.
 const QR_URL = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/assets/images/qr-gcash.png';
+/** The booking's notes: the Messenger marker, then the party split when children came (SPEC-39 4.4). */
+export const submitNotes = (psid: string, flow: Flow): string => {
+  const kids = flow.children ?? 0, adults = (flow.pax ?? 0) - kids;
+  return `via Messenger (psid ${psid})${kids ? ` · ${adults} adult${adults === 1 ? '' : 's'}, ${kids} ${kids === 1 ? 'child' : 'children'}` : ''}`;
+};
 async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }> {
   const q = quoteTotal(flow.checkin!, flow.checkout!); // session 28: the guest chose fee or full; submit-booking accepts either
   const body = { guest_name: flow.name ?? thread.guest_name ?? 'Messenger guest', guest_phone: flow.phone, guest_email: flow.email ?? '', checkin_date: flow.checkin, checkout_date: flow.checkout,
-    pax: flow.pax, notes: `via Messenger (psid ${psid})`, contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit, pay_full: flow.pay_full === true };
+    // SPEC-39 4.4: pax is the whole party; the split follows the marker, so the cards (siteNotes) show it.
+    pax: flow.pax, notes: submitNotes(psid, flow), contact_type: 'phone', hold: true, channel: 'messenger', total_amount: q.total, deposit_amount: flow.pay_full ? q.total : q.deposit, pay_full: flow.pay_full === true };
   const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/submit-booking`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: env('SUPABASE_ANON_KEY'), Authorization: `Bearer ${env('SUPABASE_ANON_KEY')}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
   if (!r || !j) { console.error('submit_flow_failed', r?.status); return { flow, reply: submitFailed(flow.lang), image: null }; }
@@ -638,7 +674,7 @@ async function submitFlow(flow: Flow, thread: Thread, psid: string): Promise<{ f
   if (!j.ok) { console.error('submit_flow_rejected', JSON.stringify(j).slice(0, 200)); return { flow, reply: submitFailed(flow.lang), image: null }; }
   const f: Flow = { ...flow, step: 'await_receipt', booking_id: j.inquiry_id, ref: j.ref, deposit: Number(j.deposit_amount), total: Number(j.total_amount), hold: j.hold === true,
     hold_expires_at: j.hold_expires_at ?? null, receipt_token: j.receipt_upload_token, receipt_expires_at: j.receipt_upload_expires_at, updated_at: new Date().toISOString() };
-  return { flow: f, reply: paymentReply(f, f.name ?? thread.guest_name, SITE_URL), image: QR_URL };
+  return { flow: f, reply: stayPayMessage(f, thread.guest_name), image: QR_URL }; // SPEC-39 3.6b: card + hold + payment, one message
 }
 async function forwardReceipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }> {
   if (!flow.receipt_token || (flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < Date.now())) return { sent: false, reply: receiptLapsed('hold', flow.lang) };
@@ -646,7 +682,9 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
   if (!img || !img.ok) return { sent: false, reply: receiptRetry(flow.lang) };
   const bytes = new Uint8Array(await img.arrayBuffer());
   const mime = (img.headers.get('content-type') ?? 'image/jpeg').split(';')[0].trim();
-  const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY') }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
+  // SPEC-39 3.6b: a guest who switched to "full" after the hold is checked against the stored total (SPEC-34's x-pay-full),
+  // so the receipt reads right even if the deposit_amount update did not land.
+  const r = await fetch(`${env('SUPABASE_URL')}/functions/v1/upload-booking-receipt`, { method: 'POST', headers: { Authorization: `Bearer ${flow.receipt_token}`, 'Content-Type': mime, 'X-Receipt-Filename': 'messenger.' + (mime.split('/')[1] || 'jpg'), apikey: env('SUPABASE_ANON_KEY'), ...(flow.pay_full ? { 'X-Pay-Full': 'true' } : {}) }, body: bytes, signal: AbortSignal.timeout(30_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => ({})) : {};
   if (r?.ok) return { sent: true, reply: receiptThanks(name, flow.lang) };
   if (j?.error === 'receipt_already_uploaded') return { sent: true, reply: receiptAlready(flow.lang) };
@@ -694,6 +732,8 @@ type Effects = {
   handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string, anyWording?: boolean): Promise<void>;
   submit(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }>;
   receipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }>;
+  /** SPEC-39 3.6b: a change after the hold reaches the booking row ("full" -> deposit_amount; a corrected count or contact). */
+  amend(db: Db, flow: Flow, fields: Record<string, unknown>): Promise<boolean>;
   name(psid: string): Promise<string | null>;
 };
 const liveEffects: Effects = {
@@ -706,6 +746,13 @@ const liveEffects: Effects = {
     if (!sent) await fbSendImage(psid, fallbackUrl);
   },
   ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName,
+  // booking_inquiries is submit-booking's table; only a request still pending is touched.
+  // No row updated (not pending any more, wrong id) is a failure too, so requote_full_failed / correction_after_hold_failed log.
+  amend: async (db, flow, fields) => {
+    if (!flow.booking_id) return false;
+    const { data, error } = await db.from('booking_inquiries').update(fields).eq('id', flow.booking_id).eq('status', 'pending').select('id');
+    return !error && (data?.length ?? 0) > 0;
+  },
 };
 type ProbeCall = { fx: string; text?: string; detail?: unknown };
 export function probeEffects(calls: ProbeCall[], guestName: string | null, now = new Date()): Effects {
@@ -721,8 +768,9 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
       const hold = !flow.pay_full && !lastMinute(flow.checkin!, at);
       const until = new Date(at.getTime() + 24 * 3_600_000).toISOString();
       const f: Flow = { ...flow, step: 'await_receipt', booking_id: 'probe', ref: 'DIR-PROBE', deposit, total: q.total, hold, hold_expires_at: hold ? until : null, receipt_token: 'probe', receipt_expires_at: until, updated_at: at.toISOString() };
-      return Promise.resolve({ flow: f, reply: paymentReply(f, thread.guest_name, SITE_URL, at), image: QR_URL });
+      return Promise.resolve({ flow: f, reply: stayPayMessage(f, thread.guest_name, at), image: QR_URL });
     },
+    amend: (_db, flow, fields) => { calls.push({ fx: 'amend', detail: { booking: flow.booking_id, ...fields } }); return Promise.resolve(true); },
     receipt: (flow, _url, name) => { calls.push({ fx: 'receipt' }); return Promise.resolve({ sent: true, reply: receiptThanks(name, flow.lang) }); },
     name: () => Promise.resolve(guestName),
   };
@@ -808,13 +856,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const gapMin = lastBot ? (now.getTime() - Date.parse(lastBot.at)) / 60_000 : Infinity;
   const followUp = gapMin < 6 * 60;
   const priorTurns = followUp ? thread.bot_turns : 0;
-  // D-173 / SPEC-01: Cassy introduces herself once per thread, never again - not after a 6 h gap,
-  // not on a resumed card. History is the record; it is capped at HISTORY_KEEP*2, so a very long
-  // thread could re-introduce her once, which is harmless.
-  // ponytail: history scan; add concierge_threads.introduced_at only if a repeat is ever seen live.
-  const introduced = thread.history.some((h) => h.role === 'bot' && /\bCassy\b/.test(h.text));
+  // D-299.10 (Lloyd 2026-10-05): Cassy no longer introduces herself in the first message; it is signed instead (D-173's
+  // "introduced" scan went with it). botReply still discloses on a direct question.
   // D-258 (live 2026-09-26 02:14Z): a second booking on a thread the bot answered minutes ago opened with "Hi Ben, thank you
-  // for reaching out". A new flow greets only when the bot has not spoken for 12 h.
+  // for reaching out". A new flow greets only when the bot has not spoken for 12 h - and D-300.1 signs only then.
   const greetNow = !thread.history.some((h) => h.role === 'bot' && now.getTime() - Date.parse(h.at) < 12 * 3_600_000);
   const g0 = gate(text || 'attachment', { mode, humanUntil: thread.human_until, botTurns: priorTurns, now, hasBooking: !!thread.booking_flow?.ref }); // SPEC-32 s2
   // D-271 safety net: Jev may raise a routine turn to a handoff (smoke, a Bisaya complaint, a date change the regex missed);
@@ -833,7 +878,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // promo answer past 700 characters and dropped the chat route). A discount ask still goes to the host.
   // Not bare "sale": "May sale po ba sa SM?" is about the mall (second review 2026-09-26).
   const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
-  const discountAsk = !promoAsk && /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text);
+  // SPEC-39 3.3 (D-300.4): "medyo mahal po" / "a bit expensive" is the same price objection as "any discount?".
+  const discountAsk = !promoAsk && priceObjection(text);
   const siteShown = thread.history.filter((h) => h.role === 'bot').slice(-4).some((h) => h.text.includes(SITE_URL)); // D-269
   // D-269 answer-then-escalate: a price proposal or special request (policy_exception that is not a house rule) is answered
   // from FACTS like a discount ask, and the host still gets the card with two options. A bare "our host will consider it"
@@ -871,6 +917,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let flagOnly = false;               // the bot answered but wants a host to glance: alert, no hold
   let draftNote = '';                 // D-227: a spent model budget, named on the host's card
   let reply = '';
+  let stayPayTurn = false;           // SPEC-39 3.6b: this reply is the stay card + payment message (its own length cap)
+  let promiseAfterQr = true;          // the account-name line rides under the first QR only (SPEC-10 control 6)
 
   // Book flow: runs before every other branch. A receipt image on a thread that is waiting for one
   // is evidence, not an attachment handoff; a slot answer is code-parsed; a question mid-flow passes
@@ -878,6 +926,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let flow: Flow | null = isActive(thread.booking_flow, now) ? thread.booking_flow! : null;
   let flowReply: string | null = null, flowImage: string | null = null, flowFollowUp: string | null = null;
   let startText: string | null = null;
+  let afterQr: ReturnType<typeof answer> | null = null; // SPEC-39 3.6b: the guest's reply after the card and QR
   const payHold = !!flow && ['await_receipt', 'receipt_sent'].includes(flow.step); // SPEC-31 s4: the QR is out; the model answers questions only
   let calendarDown = false; // session 30: the calendar read failed on this turn - the reply does not claim availability and a host is told
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
@@ -905,6 +954,22 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // s2: "paid na po?" is answered from what we hold, and the host gets one payment card per 24 h.
     flowReply = paidClaimReply(booked, booked.name ?? thread.guest_name, replyLang(text, booked.lang));
     card = { risk: 'payment', note: holdNote(booked, now), anyWording: true };
+  } else if (g.reply && text && !g.handoff && flow?.step === 'await_receipt' && (afterQr = answer(flow, text, now, thread.guest_name)).action !== 'passthrough') {
+    // SPEC-39 3.6b (D-300.3): after the one-step card and QR - "full" swaps the QR, "fee"/"ok" needs nothing more, a
+    // correction re-shows the card and reaches the booking, new dates go to the host. A question falls through to the model.
+    const s = afterQr, L = replyLang(text, flow.lang);
+    if (s.action === 'change') {
+      flowReply = holdCancelReply(flow, flow.name ?? thread.guest_name, L, true);
+      card = { risk: 'cancellation', note: holdNote(flow, now, 'change requested'), anyWording: false };
+      flow = { ...flow, step: 'cancel_requested', updated_at: now.toISOString() };
+    } else {
+      flow = s.flow; flowReply = s.reply;
+      if (s.action === 'requote_full') {
+        if (!(await fx.amend(db, flow, { deposit_amount: flow.total }))) console.error('requote_full_failed', JSON.stringify({ booking: flow.booking_id, ref: flow.ref }));
+        flowImage = QR_URL; promiseAfterQr = false; // the QR for the full amount; the account line already rode under the first
+      }
+      if (s.action === 'correct' && !(await fx.amend(db, flow, { pax: flow.pax, guest_phone: flow.phone, guest_email: flow.email ?? '' }))) console.error('correction_after_hold_failed', JSON.stringify({ booking: flow.booking_id, ref: flow.ref }));
+    }
   } else if (g.reply && text && PAY_HOW_RE.test(text) && ['routine', 'payment'].includes(g.risk) && !(flow && ['await_receipt', 'receipt_sent'].includes(flow.step))
       && !(booked && ['await_receipt', 'receipt_sent', 'cancel_requested', 'receipt_declined', 'confirmed'].includes(booked.step))) {
     // D-258: "how do I pay?" before the QR is out - the GCash QR and one line, code-owned (the model promised a QR later).
@@ -912,8 +977,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     flowImage = QR_URL;
   } else if (g.reply && text && !g.handoff && flow && !['await_receipt', 'receipt_sent'].includes(flow.step)) {
     const before = flow;
-    const s = answer(flow, text, now); flow = s.flow;
-    if (s.action === 'passthrough') flowFollowUp = prompt(flow, thread.guest_name, true); // protocol: the model answers, then the flow's ask follows (resumed card: soft nudge)
+    const s = answer(flow, text, now, thread.guest_name); flow = s.flow;
+    // protocol: the model answers, then the flow's ask follows (resumed card: soft nudge). D-300.4: not under a price
+    // objection - the host decides the price, so no rate is re-quoted and the model's one soft question closes the reply.
+    if (s.action === 'passthrough') flowFollowUp = hostAsk ? null : prompt(flow, thread.guest_name, true);
     if (s.action === 'ask') flowReply = s.reply ?? prompt(flow, thread.guest_name);
     // Protocol rule 1 mid-flow (live 2026-09-17 10:57: "Oct 20 to 22 po, available pa po ba?" got the contact ask with no
     // answer): dates completed on this turn are checked against the calendar before the next ask.
@@ -925,7 +992,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
-    else if (s.action === 'submit') { const r = await fx.submit(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; }
+    else if (s.action === 'submit') {
+      // SPEC-39 3.6b: the tone of the payment nudge is read once, here, from the whole thread and its booking turns.
+      const said = thread.history.filter((h) => h.role === 'guest');
+      const sure = [...said.map((h) => h.route), jev ? { jev: jev.intent, c: jev.confidence } : null].filter((r) => r && Number(r.c) >= 0.8).map((r) => String(r!.jev));
+      flow = { ...flow, tone: flow.tone ?? toneOf([...said.map((h) => h.text), text], [...said.filter((h) => h.at >= flow!.started_at).map((h) => h.text), text], sure, flow.lang) };
+      const r = await fx.submit(flow, thread, psid); flow = r.flow; flowReply = r.reply; flowImage = r.image; stayPayTurn = !!r.image;
+    }
   } else if (g.reply && text && !g.handoff && !flow && g.risk === 'routine' && (startText = bookingStart(text,
       thread.history.filter((h) => h.role === 'guest').map((h) => h.text), thread.history.filter((h) => h.role === 'bot').slice(-1)[0]?.text ?? '', now))) {
     flow = start(startText, now); // session 49: a dated "can I book" and a yes to our own chat offer both start here (bookingStart)
@@ -940,14 +1013,14 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const nights = await bookedNightsFor(db, probe); calendarDown = !nights;
       const alt = nights && nights.size ? await nearestWindow(db, probe) : null;
       const line = availabilityLine(probe, nights, alt, now, true);
-      if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = (greetNow ? greetBlock(thread.guest_name, flow.lang, !introduced) : '') + line; } // SPEC-28 section 3
+      if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = (greetNow ? greetBlock(thread.guest_name, flow.lang, false) : '') + line; } // SPEC-28 section 3
       // SPEC-28 section 2: "is Oct 26 to 28 open? is there wifi?" - the model answers the wifi, then the dates line and the
       // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
       else if (flow.asked === 'question' || flow.question) flowFollowUp = opener(flow, thread.guest_name, flow.question ? line : '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
-      else flowReply = opener(flow, thread.guest_name, line, !introduced, greetNow) + prompt(flow, thread.guest_name);
-      // D-173: no Cassy sentence on a resumed card - the disclosure belongs to the greeting, never to a flowFollowUp.
+      else flowReply = opener(flow, thread.guest_name, line, false, greetNow) + prompt(flow, thread.guest_name);
+      // D-299.10: no introduction sentence on any first reply; the initial message is signed instead (greetNow, below).
     } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name, '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
-    else flowReply = opener(flow, thread.guest_name, '', !introduced, greetNow) + prompt(flow, thread.guest_name); // session 28: welcome first
+    else flowReply = opener(flow, thread.guest_name, '', false, greetNow) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
   if (flowReply) { handoff = false; risk = 'routine'; }
@@ -982,7 +1055,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const stateBlock = followUp
         ? `\n\nCONVERSATION STATE: this is a FOLLOW-UP in a live chat (your last reply was ${Math.round(gapMin)} min ago). Do NOT greet again - no "Hello", "Hi", "Hello po", "Good morning". Address the guest by name early in the first sentence instead ("Ben, yes po...", "Sige po, Sir Ben, ..."), the way a host continues a conversation, then the answer.`
         : everAnswered ? `\n\nCONVERSATION STATE: the guest is back after a long gap. A short warm salutation by first name is welcome, then the answer.`
-        : `\n\nCONVERSATION STATE: this is the FIRST exchange. Code greets the guest and introduces you, so your answer begins with the answer itself.`;
+        : `\n\nCONVERSATION STATE: this is the FIRST exchange. Code greets the guest, asks for their dates and signs the message, so your answer begins with the answer itself and carries no link.`;
       // First exchange gets the full model (voice, warmth, facts); follow-ups run on the lite tier.
       // Follow-ups: compact prompt (no exemplars) on the full model - cheaper than the old full
       // prompt AND better behaved than lite; the language hint rides on the guest's own turn.
@@ -1009,10 +1082,14 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const figures = (rawAnchor.match(/PHP [\d,]+/g) ?? []).filter((a) => a !== peso(currentCard().base));
       const anchor = figures.some((a) => recentBot.includes(a)) ? '[The stay figures were already given in this chat: refer to them in a few words, do not repeat them.] ' : rawAnchor;
       const houseMixed = negotiate && houseAsk; // D-270/271: a house rule (keyword or Jev) the canned line does not cover - the rule, then everything else
-      const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[Discount ask: say warmly that booking through our direct site gives the best rate automatically - adjusted to the dates and discounted by length of stay, ${discountRange(currentCard(), 'from')}, the longer the stay the higher the discount${livePromos(currentCard(), now).filter((p) => !rawAnchor && !recentBot.includes(p.name)).map((p) => `; also say warmly that our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('')}. If their dates are not known yet, put one soft question about their dates in "ask". Do not quote any other number and do not promise a special price.] ${anchor}`
+      // D-300.4 (Lloyd 2026-10-05, "medyo mahal po"): empathy first, one value line with the stay TOTAL only, the host line
+      // (code, English), and one soft question - never a rate lecture, a percentage or a saving.
+      const objTotal = stay && sq ? `[Their ${sq.nights} night${sq.nights === 1 ? '' : 's'} (${dmRange(stay.checkin, stay.checkout)}) come to ${peso(sq.total)} at the direct rate, with cleaning and drinking water included - the one figure you may say.] ` : anchorTotal(guestTexts.slice(-3).join(' '));
+      const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[The guest finds the price high. Shape: ONE sentence of understanding first (no apology, no "unfortunately"), then AT MOST ONE value sentence with the stay total only - no per-night arithmetic, no percentages, no "from PHP ${currentCard().base.toLocaleString('en-US')}", no savings figure - then code adds the host line. Put ONE soft question in "ask": whether we may hold their dates while the host takes a look (their dates if unknown). English is welcome where Tagalog would read stiff. Do not promise a special price.] ${objTotal}`
         : promoAsk ? `[Promo ask: answer in one or two short paragraphs - ${livePromos(currentCard(), now).map((p) => `our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('; ')}; outside those nights, booking direct still lowers the nightly rate the longer the stay. Put the question about which dates they have in mind in "ask". Quote no other number and no other "was" price.] ${anchor}`
         : (/\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) ? anchor : '');
-      const nameHint = !thread.guest_name && !followUp ? '[Guest name unknown: put one warm question for their name in "ask".] ' : '';
+      // SPEC-39 Q2 (default): a nameless first contact with no dates gets the dates question alone - the details step takes the name.
+      const nameHint = !thread.guest_name && !followUp && datesKnown.length ? '[Guest name unknown: put one warm question for their name in "ask".] ' : '';
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
       const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
       // SPEC-31 s4 (F4, F7): the hold is open and the QR is out - the booking is arranged; the model answers the question only.
@@ -1024,7 +1101,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const paxHint = knownPax && !flowFollowUp ? `[Already known from this chat: ${knownPax} guest${knownPax === 1 ? '' : 's'}. Do not ask how many guests again; ask something only if it is truly needed.] ` : '';
       // Golden AFTER 2026-09-30: the rewrites below carried only the pax and dates hints, so a cold-rewritten stay quote lost
       // the code's figures and said "the site will show the total". Every rewrite now carries the same hints as the first draft.
-      const hints = nameHint + discHint + capHint + datesHint + paxHint + flowHint + payHint;
+      const hints = nameHint + intentHint(jev) + discHint + capHint + datesHint + paxHint + flowHint + payHint;
       let out = await draft(thread, hints + LANG_HINT[lang] + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
@@ -1108,20 +1185,21 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         return a;
       };
       const answer = guard(out.reply, lang === 'english' || lang === 'english_po');
-      const siteRecent = thread.history.filter((h) => h.role === 'bot').slice(-2).some((h) => h.text.includes(SITE_URL));
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       const quiet = payHold || stayingNow || hostOpen.length > 0;
-      // D-269: the discount host line is said once per thread (in any register), closing the answer.
-      const hostSaid = thread.history.some((h) => h.role === 'bot' && ((['en', 'tl', 'bis'] as const).some((x) => h.text.includes(discountHostLine(x))) || h.text.includes(HANDOFF.policy_exception)));
+      // D-269: the discount host line is said once per thread (in any register, any wording it has had), closing the answer.
+      const hostSaid = thread.history.some((h) => h.role === 'bot' && (Object.values(DISCOUNT_HOST_PAST).some((x) => h.text.includes(x)) || h.text.includes(HANDOFF.policy_exception)));
       if (hostAsk) { handoff = true; risk = 'policy_exception'; }
       const frame = (l: typeof l3) => ({
-        lang: l, name: thread.guest_name, greet: !everAnswered, intro: !introduced && !flowFollowUp, followUp, flowFollowUp, quiet,
+        lang: l, name: thread.guest_name, greet: !everAnswered, greetNow, followUp, flowFollowUp, quiet,
+        // D-300.2 trigger 2 mid-booking: the photos and the site once, then the flow's own ask.
+        seeHome: flowFollowUp && !quiet && !siteShown && SEE_RE.test(text) ? seeHomeLine(thread.guest_name, l) : '',
         hostLine: hostAsk && !hostSaid ? discountHostLine(l) : '',
-        // SPEC-13 / D-176: look before you book - an amenity or trust question the thread has not seen the links for.
-        look: flowFollowUp || hostAsk || quiet || risk !== 'routine' ? '' : lookNudge(text, l, { site: siteRecent, reviews: reviewsShown }),
+        // SPEC-13 / D-176 / D-300.2: look before you book - photos or reviews asked for, and not shown in this stretch.
+        look: flowFollowUp || hostAsk || quiet || risk !== 'routine' ? '' : lookNudge(text, l, { site: siteShown, reviews: reviewsShown }),
         decision: followUp && /\b(think about|decide|consider|book|reserve|reservation|magpa-?book|paano (po )?mag)\b/i.test(text), // a decision moment leaves the door open with the link
-        bookingTurn: /\b(discount|promo|book|reserve|reservation|link|site|website|magpa-?book|paano (po )?mag|how (do|can) (i|we)|rate|price|how much|magkano|pila|tagpila|avail|dates?|nights?|weekend|think about|decide|consider)\b/i.test(text),
-        siteRecent: hostAsk ? siteShown : siteRecent, // D-269: a second discount turn does not repeat the link
+        linkTurn: !hostAsk && linkTurn(text, jev, now), // D-300.2: the site only when the guest asks for what it answers
+        siteShown, // D-269: never twice in one stretch of conversation
         datesKnown: datesKnown.length > 0, held: { dates: datesKnown.length > 0, pax: !!knownPax, name: !!thread.guest_name }, prevBot: lastBot?.text ?? '',
       });
       let composed = compose({ answer, ask: out.ask ?? null }, frame(l3));
@@ -1165,11 +1243,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let lint: string[] = []; // D-285: hoisted for the turn's stats row
   if (reply) {
     // Mid-flow (session 28 T6): the guest is already booking here - no site invite after the answer, and the composite
-    // (model answer + card) is not lint-scored as one message.
+    // (model answer + card) is not lint-scored as one message. D-300.2: the confirm card no longer carries the site.
     if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Kapag ready po kayo|We can arrange (the booking|everything)|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
-    // Lloyd 2026-09-17 14:30: show the direct site whenever practicable - once, under a resumed confirm card.
-    if (flowFollowUp && flow?.step === 'confirm' && !handoff) reply += '\n\n' + confirmSiteInvite(flow.lang ?? 'en');
-    lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name });
+    // D-299.10 / D-300.1: the initial message of a conversation (no bot reply in 12 h) is signed - the composed reply signs
+    // itself; every other code-written initial message is signed here, on the same greetNow flag. Never a handoff, a card or a QR turn.
+    if (greetNow && !handoff && !flowImage) reply = signFirst(reply, true);
+    lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name, cap: stayPayTurn ? STAY_PAY_CAP : undefined });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
     // Lloyd 2026-09-28: an emergency or a lockout is never left to a draft - whatever the mode (a failed settings read
     // falls back to 'suggest', D-222), the guest gets the safety or access line and the host the card and the urgent alert.
@@ -1182,7 +1261,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         // QR rather than with paymentReply because that reply is already near lintReply's 700-character
         // cap, and because this is the moment the guest is looking at the QR wondering whose account
         // it is. Sent only when a QR was sent, so it cannot leak into an ordinary answer.
-        await fx.send(psid, paymentPromise(flow?.lang));
+        if (promiseAfterQr) await fx.send(psid, paymentPromise(flow?.lang));
       }
     }
     else { await fx.send(psid, ACK_SUGGEST, hostChip ? [hostChip] : []); await fx.ops(withHeader('guest', `draft · ${risk}`, `💬 Concierge draft (${risk})\nGuest: ${thread.guest_name ?? psid}\n> ${text.slice(0, 300)}\n\nSuggested reply:\n${reply}\n\n${link}`)); }

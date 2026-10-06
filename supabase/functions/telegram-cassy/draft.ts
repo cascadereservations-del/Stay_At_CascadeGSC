@@ -10,6 +10,7 @@ import { loadCard } from '../_shared/cascade-core/pricing.ts'; // SPEC-34: draft
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
 import { isHard, jevRoute, routeRisk } from '../messenger-concierge/jev.ts'; // D-271
 import { CASSY_INTRO, detectLang } from '../messenger-concierge/booking.ts';
+import { SIGNATURE } from '../messenger-concierge/persona.ts';
 import { leafAtClose, lintReply, thinPo, toneRules } from '../messenger-concierge/voice.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts';
 import { visionExtractText, parseModelJson, hasVisionKey } from '../_shared/cascade-core/vision.ts';
@@ -56,9 +57,10 @@ const FLAG: Partial<Record<RiskCode, string>> = {
   uncertain: 'an odd request - read it twice',
 };
 
-/** A concierge reply the HOST sends from the Page: Cassy's self-introduction is the bot's, not the host's. */
+/** A concierge reply the HOST sends from the Page: Cassy's self-introduction is the bot's, not the host's - and so is the
+ *  initial-message signature (SPEC-39, D-300.1: "Cassy, Cascade Concierge"). */
 export function forHost(reply: string): string {
-  let r = reply;
+  let r = reply.replace(new RegExp(`\\s*${SIGNATURE}\\s*$`), '');
   for (const s of Object.values(CASSY_INTRO)) r = r.replace(s.trim(), '').replace(/\n{3,}/g, '\n\n');
   // "we've shared your message with our host" is the bot's line; the host sending the draft IS the host (live test 2026-09-28).
   r = r.replace(/[^.!?\n]*\b(shared your (message|request) with (our host|them)|our host also looks at special requests|na-share na (namin|namo))[^.!?\n]*[.!?][ \t]*/gi, '').replace(/\n{3,}/g, '\n\n');
@@ -92,12 +94,44 @@ async function rewrite(db: any, text: string, how: string): Promise<string> {
   return leafAtClose(thinPo(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'), lang === 'bis' ? 0 : lang === 'tl' ? 2 : 1));
 }
 
+// ---- SPEC-39 section 6 (BRIEF H, D-296.3): Marifel's Airbnb register. Cassy stays Cassy on Messenger (D-173); on Airbnb the
+// host sends the draft as herself, so the draft is written as Marifel and checked in code (airbnbTone) before she reads it. ----
+
+/** The Airbnb voice (PLAYBOOK-airbnb-messaging-2026-10-02 section 1), appended to the draft prompt for an Airbnb guest. */
+export const AIRBNB_HOST_REGISTER = `AIRBNB REGISTER - this guest writes on AIRBNB and the reply is sent by MARIFEL, the host, as herself: write as Marifel, a person (never Cassy, never "our host" - she IS the host).
+- Open with "Hi {first name}!" - that greeting is the one "!" allowed. At most one 🌿 or 💚 in the whole reply.
+- A Filipino guest gets warm Taglish with "po" once or twice; a guest writing English gets plain English with no "po".
+- Answer first ("Yes po, ..."), short and warm, two short paragraphs at most.
+- End with these two lines exactly, nothing after them: "Marifel & The Cascade Team" then "Hotel Comfort. Home Warmth."
+- Never links, phone numbers, e-mail, GCash, QR or any payment outside Airbnb, and never suggest booking elsewhere; for a booking, invite a booking request on the Airbnb listing.
+- Never promise a discount, a refund or a late check-out: say you will check and confirm.`;
+/** Playbook 5.5: when something went wrong or the guest is worried. */
+export const AIRBNB_CALM = `CALM MOMENT: something went wrong or the guest is worried. No "!" anywhere and no emoji - open "Hi {first name}." Answer the question, own it in one sentence, say what is true now, then "Thank you for your understanding." Still end with the two sign-off lines.`;
+const SIGN_OFF_RE = /Marifel & The Cascade Team\s*\n\s*Hotel Comfort\. Home Warmth\.\s*$/;
+/** The calm list (Q5 default): a complaint, safety, access, refund, cancellation or payment matter, or our own mistake. */
+export function calmMoment(guestText: string, risk: string): boolean {
+  return ['complaint', 'safety', 'access', 'refund', 'cancellation', 'payment'].includes(risk)
+    || /\b(mistake|by mistake|in error|wrong|error|confus\w*|(?:do|did) (?:i|we) (?:have|need) to check ?out|don'?t (?:have|need) to check ?out|not working|stopped working|broken|sira|hindi gumagana|madumi|dirty|disappoint\w*)\b/i.test(guestText);
+}
+/** The Airbnb register checked in code (as voice.ts toneRules checks Cassy's). [] = clean. */
+export function airbnbTone(m: string, calm: boolean): string[] {
+  const v: string[] = [], lines = m.trim().split('\n');
+  v.push(...lintReply(m).filter((x) => x === 'exclaim' || x === 'boilerplate'));
+  if (toneRules(m, 'en', true).includes('urgency')) v.push('urgency');
+  if (/https?:\/\/|www\.|\S+@\S+\.\w|(?:\+63|\b0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}\b|\bgcash\b|\bqr\b/i.test(m)) v.push('off_platform');
+  if (/\b(discount of|we can (?:offer|give) (?:you )?(?:a )?(?:discount|lower|special)|(?:full|a) refund (?:is|will be)|you(?:'ll| will) be refunded|late check-?out is fine|yes,? you can (?:check out|stay) late)\b/i.test(m)) v.push('promise');
+  if (!SIGN_OFF_RE.test(m)) v.push('no_sign_off');
+  if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
+  if (/\bCassy\b|\bour host\b/i.test(m)) v.push('not_marifel');
+  if (calm) { if (m.includes('!')) v.push('exclamation_in_calm'); if (/[\p{Extended_Pictographic}]/u.test(m)) v.push('emoji_in_calm'); }
+  else if (lines.slice(1).some((l) => l.includes('!'))) v.push('exclamation_after_greeting');
+  return v;
+}
+
 // deno-lint-ignore no-explicit-any
-async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean, hint = ''): Promise<string> {
+export async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean, hint = '', calm = false): Promise<string> {
   const card = await loadCard(db); await loadContact(db);
-  const channel = airbnb
-    ? 'This guest writes on AIRBNB: never include links, phone numbers, e-mail, GCash, QR or any payment outside Airbnb, and never suggest booking elsewhere; for a booking, invite them to send a booking request on the Airbnb listing.'
-    : 'Do not invent availability or prices beyond FACTS.';
+  const channel = airbnb ? `${AIRBNB_HOST_REGISTER}${calm ? `\n${AIRBNB_CALM}` : ''}` : 'Do not invent availability or prices beyond FACTS.';
   const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are drafting for the HOST to copy and send; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. ${channel} If dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
   const datesAsked = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}[\/-]\d{1,2}|\b(?:available|avail|vacant|bakante|free)\b/i.test(guestText);
   const datesHint = datesAsked && !hint ? '[The guest mentions dates or availability. You cannot see the calendar: do NOT say the dates are available or taken; say you will check and confirm shortly.] ' : '';
@@ -117,13 +151,23 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   // (Jev-primary) already ran inside the probe - no second Jev call; Airbnb and the fallback route here.
   const base = classify(guestText, { hasBooking: true });
   const risk: RiskCode = isHard(base) ? base : brain?.risk ? brain.risk as RiskCode : routeRisk(base, await jevRoute(guestText, Deno.env.get('CASCADE_OPENROUTER_BOT_KEY')));
-  const main = brain?.reply || await modelDraft(db, guestText, guestName, ctx, platform === 'airbnb');
+  // SPEC-39 section 6: an Airbnb draft is Marifel's register, checked in code; a failing draft is rewritten once with the
+  // violation named, and if it still fails the host is told before she reads it (nothing reaches a guest from here).
+  const airbnb = platform === 'airbnb', calm = airbnb && calmMoment(guestText, risk);
+  let main = brain?.reply || await modelDraft(db, guestText, guestName, ctx, airbnb, '', calm);
+  let airbnbFail = airbnb ? airbnbTone(main, calm) : [];
+  if (airbnbFail.length) {
+    const fixed = await rewrite(db, main, `Fix only these: ${airbnbFail.join(', ')}. ${AIRBNB_HOST_REGISTER}${calm ? `\n${AIRBNB_CALM}` : ''}`).catch(() => '');
+    if (fixed) { main = fixed; airbnbFail = airbnbTone(fixed, calm); }
+    if (airbnbFail.length) console.warn('airbnb_tone', JSON.stringify({ calm, fail: airbnbFail }));
+  }
   const lint = lintReply(main, guestText); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_draft', brain: !!brain, lint }));
-  const short = main.length > 320 ? await rewrite(db, main, 'Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.').catch(() => '') : '';
+  const short = main.length > 320 ? await rewrite(db, main, `Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.${airbnb ? ' Keep the greeting line and the two sign-off lines exactly.' : ''}`).catch(() => '') : '';
   const head = [`✍️ Guest reply${guestName ? ` · ${guestName}` : ''} · ${platform === 'airbnb' ? 'Airbnb' : 'Messenger'}${risk !== 'routine' ? ` · ${risk.replace('_', ' ')}` : ''}`,
     brain ? '1️⃣ is what the concierge would send (calendar and rate card checked).' : `1️⃣ is a drafted reply${platform === 'airbnb' ? ' (Airbnb: no links or outside payment)' : ' (the concierge could not be reached, so dates are not checked)'}.`,
     ...(short ? ['2️⃣ says the same, shorter.'] : [])];
   if (FLAG[risk]) head.push(`⚠️ This reads as ${FLAG[risk]}.`);
+  if (airbnbFail.length) head.push(`⚠️ Airbnb voice check: ${airbnbFail.join(', ')}. Read it before sending.`);
   if (brain?.effects.some((e) => e.fx === 'qr' || e.fx === 'image')) head.push('📎 The concierge would attach the GCash QR here: send it with the reply.');
   if (brain?.effects.some((e) => e.fx === 'handoff')) head.push('🛎 The concierge would also flag this to you: it is yours to decide.');
   if (!brain && platform !== 'airbnb' && /\b(available|avail|open|free|vacant|bakante)\b/i.test(main) && !/\b(check|confirm)\b/i.test(main)) head.push('⚠️ The draft claims availability: check the calendar before sending.');
