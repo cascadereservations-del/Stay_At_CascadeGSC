@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s72/l8-booking-status",
-    "commit": "f7800c5a27dd8a56406f7602b49a451d2cff683d"
+    "commit": "5d23e43e6ed6f60d8565b86e283561dcaa0fe7fe"
   },
   "migrations": [
     "20261006150000_booking_status_tokens.sql"
@@ -54,7 +54,7 @@
   "feature_flags": [
     {
       "name": "sql_then_functions_then_site",
-      "required_state": "Apply this release BEFORE deploying guest-access (its view=status branch calls the RPC), then submit-booking (mints the token and returns status_url), then publish stay-site. The old guest-access ignores view=status and keeps answering the guide request, so an out-of-order deploy fails safe: the page shows the neutral not-found message."
+      "required_state": "Apply this release BEFORE deploying guest-access (its view=status branch calls the RPC), then submit-booking (mints the token and returns status_url), then publish stay-site. The old guest-access ignores view=status and keeps answering the guide request, so an out-of-order deploy fails safe: the page shows the neutral \"We could not load your booking just now\" retry message (a 200 reply with no status), never a booking and never an endless Loading."
     }
   ],
   "compatibility": {
@@ -62,7 +62,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "rehearsal": "PENDING - run pgTAP booking_status_tokens (24 tests) and the rollback body on a restored backup before apply.",
+    "rehearsal": "PENDING - run pgTAP booking_status_tokens (24 tests) and the rollback body on a restored backup before apply. Expected on a --no-acl restore (B103): the 4 grant assertions (anon, authenticated, service_role and PUBLIC execute, tests 2-5) fail by design because that backup cannot carry grants; the CI database job proves them. Do not weaken the suite.",
     "evidence": "Production read-only (2026-10-06): booking_inquiries.status holds pending, confirmed, cancelled (no CHECK) and expire_booking_holds_v1 writes expired; service_role has no grant on booking_holds, which is why the hold deadline is read through a definer function; guest_access_tokens has only its pkey and token_hash unique index, RLS on, service_role grants only. Old guest-access and submit-booking callers are unaffected: the function and index are new."
   },
   "approvals": {
