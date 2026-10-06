@@ -141,3 +141,78 @@ Deno.test('SPEC-39 airbnb golden: the playbook examples meet their own cases (a 
   assertEquals(ok('our-mistake-calm', CALM), true);
   assertEquals(ok('inquiry-en', WARM), false); // "po" for an English guest fails
 });
+
+// ---- s73 (golden 8/18 on 2026-10-06): the drafts below are the live model's own, from that run. ----
+import { airbnbFallback, airbnbFinish, airbnbGuard, airbnbLeaks, draftSystem } from './draft.ts';
+import { SEED_CARD } from '../_shared/cascade-core/pricing.ts';
+import { SITE_URL } from '../_shared/cascade-core/facts.ts';
+const LEAK_1 = `Hi Ana! Our direct rates already include a discount for longer stays. For 5 nights, the nightly rate comes down to PHP 1,602 from our standard PHP 1,780, and includes a complimentary mid-stay room refresh.\n\nIf you have dates in mind, you may send them here, and I'll gladly check the availability for you.\n\n${SIGN}`;
+const LEAK_2 = `Hi Ana!\n\nYes, our direct booking rates already include a discount for longer stays. For 5 nights, the rate is PHP 1,602 per night, which is 10% off our standard rate of PHP 1,780.\n\nWe can arrange the booking in this chat, or you may secure your dates on our site:\n👉 ${SITE_URL}\n\n${SIGN}`;
+const golden = async (id: string) => (await import('./airbnb-draft.golden.ts')).CASES.find((x) => x.id === id)!;
+const meets = (c: { must: RegExp[]; mustNot: RegExp[] }, m: string) => c.must.every((re) => re.test(m)) && !c.mustNot.some((re) => re.test(m));
+
+Deno.test('s73 D1: the Airbnb draft prompt carries no direct rate, link, GCash, e-mail or direct-booking talk; Messenger keeps them', () => {
+  const p = draftSystem(SEED_CARD, true, false).split('You are drafting for the HOST')[0]; // what follows is the register's own "never ..." list
+  for (const re of [/tinyurl|https?:\/\//i, /\bPHP\b|₱/, /\d,\d{3}/, /\bgcash\b/i, /\bdirect\b/i, /\bour site\b/i, /@/, /whats ?app/i, /\bdeposit\b/i]) assert(!re.test(p), String(re));
+  assertStringIncludes(draftSystem(SEED_CARD, true, false), 'AIRBNB REGISTER');
+  assertStringIncludes(p, 'Check-in 2:00 PM'); // the house facts stay
+  assertStringIncludes(draftSystem(SEED_CARD, false), SITE_URL);
+});
+
+Deno.test('s73 D1: airbnbTone flags direct-booking talk and figures, not only links', () => {
+  assertEquals(airbnbLeaks(LEAK_1), ['direct_booking', 'price']); // passed airbnbTone on b506365
+  assertEquals(airbnbLeaks(LEAK_2), ['off_platform', 'direct_booking', 'price']);
+  for (const s of ['book directly with us', 'our site has it', 'message us on Messenger', 'WhatsApp me', 'it is ₱1,602', '1,602 pesos', '10% off'])
+    assert(airbnbLeaks(WARM.replace('just send', `${s}, just send`)).length, s);
+  assertEquals(airbnbLeaks(WARM), []);
+});
+
+Deno.test('s73 D1: a leaking draft is regenerated once with the strict rule, then replaced by the code-written fallback', async () => {
+  const finish = (m: string) => airbnbFinish(m, 'en', false);
+  const calls: boolean[] = [];
+  const once = await airbnbGuard((strict) => { calls.push(strict); return Promise.resolve(strict ? "Hi Ana! I'll check this and confirm here on the listing." : LEAK_1); }, finish, airbnbFallback('Ana', false));
+  assertEquals(calls, [false, true]);
+  assertEquals(once, `Hi Ana! I'll check this and confirm here on the listing.\n\n${SIGN}`);
+  calls.length = 0;
+  const fb = await airbnbGuard((strict) => { calls.push(strict); return Promise.resolve(LEAK_2); }, finish, airbnbFallback('Ana Cruz', false));
+  assertEquals(calls, [false, true]);
+  assert(!fb.includes('PHP') && !fb.includes('http'), fb);
+  assertEquals(airbnbTone(fb, false), []);
+  assert(meets(await golden('discount-ask'), fb), fb);
+  const calmFb = airbnbFinish(airbnbFallback(null, true), 'en', true);
+  assertEquals(airbnbTone(calmFb, true), []);
+  assert(calmFb.startsWith('Hi there.'), calmFb);
+});
+
+Deno.test('s73 D2: the sign-off is appended when missing and written exactly once', () => {
+  const bare = "Hi Emma! Thank you for your message. I'll check the availability for October 20-22 for two guests and confirm with you shortly.";
+  const signed = airbnbFinish(bare, 'en', false);
+  assertEquals(signed, `${bare}\n\n${SIGN}`);
+  assertEquals(airbnbFinish(signed, 'en', false), signed);
+  assertEquals(airbnbFinish(`${bare}\nMarifel & The Cascade Team`, 'en', false), signed); // a half sign-off is not doubled
+  assertEquals(airbnbTone(signed, false), []);
+});
+
+Deno.test('s73 D3: a Taglish guest draft carries one or two "po", never more; English and Bisaya get none added', async () => {
+  const run2 = "Hi Dale! I'll gladly check the availability for October 20-22 for two guests and confirm with you shortly.";
+  const tl = airbnbFinish(run2, 'tl', false);
+  assertStringIncludes(tl, 'confirm with you shortly po.');
+  assert(meets(await golden('inquiry-tl'), tl), tl);
+  assertStringIncludes(airbnbFinish('Hi Dale! Yes, we have parking.', 'tl', false), 'Yes po, we have parking.');
+  assertEquals((airbnbFinish('Hi Dale! Yes po, may parking po, may Wi-Fi po, at may kitchen po.', 'tl', false).match(/\bpo\b/g) ?? []).length, 2);
+  assert(!/\bpo\b/.test(airbnbFinish(run2, 'en', false)));
+  assert(!/\bpo\b/.test(airbnbFinish('Hi Dale! Naa po, free parking.', 'bis', false)));
+});
+
+Deno.test('s73 D4: a calm draft thanks the guest for their understanding; the case accepts "don\'t have to"', async () => {
+  const c = await golden('our-mistake-calm');
+  const live = ["Hi Joseph.\n\nNo, you don't have to check out today. Your booking is until tomorrow, so check-out is at 12:00 noon tomorrow, October 20.", 'Hi Joseph.\n\nNo, you do not have to check out today. Your booking is set until tomorrow, October 18, at 12:00 noon.'];
+  for (const d of live) {
+    const m = airbnbFinish(d, 'en', true);
+    assert(meets(c, m), m);
+    assertEquals(airbnbTone(m, true), []);
+  }
+  const owned = 'Hi Joseph. The reminder went out by mistake. Thank you for your understanding.';
+  assertEquals(airbnbFinish(owned, 'en', true), `${owned}\n\n${SIGN}`); // never a second thank-you
+  assert(!airbnbFinish('Hi Emma! Yes, there is parking.', 'en', false).includes('understanding')); // warm drafts untouched
+});

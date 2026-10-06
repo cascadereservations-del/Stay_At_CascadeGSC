@@ -6,7 +6,7 @@
 // payment, which the Messenger brain offers by design.
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { factsFor, voiceFor, SITE_URL } from '../_shared/cascade-core/facts.ts';
-import { loadCard } from '../_shared/cascade-core/pricing.ts'; // SPEC-34: drafts quote the stored rate card
+import { loadCard, type RateCard } from '../_shared/cascade-core/pricing.ts'; // SPEC-34: drafts quote the stored rate card
 import { classify, type RiskCode } from '../messenger-concierge/policy.ts';
 import { isHard, jevRoute, routeRisk } from '../messenger-concierge/jev.ts'; // D-271
 import { CASSY_INTRO, detectLang } from '../messenger-concierge/booking.ts';
@@ -86,10 +86,11 @@ async function conciergeDraft(before: Line[], latest: string, name: string | nul
 }
 
 // deno-lint-ignore no-explicit-any
-async function rewrite(db: any, text: string, how: string): Promise<string> {
+async function rewrite(db: any, text: string, how: string, airbnb = false): Promise<string> {
   const card = await loadCard(db), lang = detectLang(text); await loadContact(db);
   const register = { en: 'refined conversational English, no "po"', tl: 'natural Taglish, at most two "po"', bis: 'natural Bislish (Cebuano with English hospitality terms), never Tagalog words or "po"/"opo"' }[lang];
-  const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are rewriting a reply the HOST is about to send to a guest. It is in ${register}: keep exactly that register. ${how} Keep every fact, figure, date, amount, link and name exactly. Return ONLY JSON {"reply": "<the message>"}.`;
+  const base = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}`;
+  const system = `${airbnb ? airbnbPrompt(base) : base}\n\nYou are rewriting a reply the HOST is about to send to a guest. It is in ${register}: keep exactly that register. ${how} Keep every fact, figure, date, amount, link and name exactly. Return ONLY JSON {"reply": "<the message>"}.`;
   const raw = await chatJson({ system, history: [], question: `Reply:\n"""${text.slice(0, 1500)}"""`, title: 'Cascade Cassy rewrite', temperature: 0.4, maxTokens: 400, timeoutMs: 30_000 });
   return leafAtClose(thinPo(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'), lang === 'bis' ? 0 : lang === 'tl' ? 2 : 1));
 }
@@ -108,6 +109,56 @@ export const AIRBNB_HOST_REGISTER = `AIRBNB REGISTER - this guest writes on AIRB
 /** Playbook 5.5: when something went wrong or the guest is worried. */
 export const AIRBNB_CALM = `CALM MOMENT: something went wrong or the guest is worried. No "!" anywhere and no emoji - open "Hi {first name}." Answer the question, own it in one sentence, say what is true now, then "Thank you for your understanding." Still end with the two sign-off lines.`;
 const SIGN_OFF_RE = /Marifel & The Cascade Team\s*\n\s*Hotel Comfort\. Home Warmth\.\s*$/;
+const SIGN_OFF = 'Marifel & The Cascade Team\nHotel Comfort. Home Warmth.';
+
+/** s73 D1 (golden 2026-10-06, discount-ask 0/3): the Airbnb draft was given Messenger's whole VOICE and FACTS - direct rates,
+ *  the site link, GCash, the e-mail - and quoted them. Airbnb forbids steering a guest off the platform, so the Airbnb prompt
+ *  drops the direct-booking FACTS sections and every other sentence that carries a link, a figure or the direct route. */
+const AIRBNB_DROP_SECTION = /^(RATES|PROMOTION|BOOKING & PAYMENT|CONTACT)\b/;
+const DIRECT_RE = /https?:\/\/|www\.|👉|\bPHP\b|₱|\bpesos?\b|\d,\d{3}|\d\s?%|\bgcash\b|\bQR\b|\bmaya\b|instapay|unionbank|\bdirect\b|\bsite\b|\blink\b|\be-?mail\b|@|whats ?app|\+63|\b09\d{2}|\bpromo\w*|\breservation fee\b|\bdeposit\b/iu;
+export function airbnbPrompt(prompt: string): string {
+  return prompt.split('\n\n').filter((b) => !AIRBNB_DROP_SECTION.test(b.trim())).join('\n\n').split('\n')
+    .flatMap((l) => {
+      if (!l.trim()) return [l];
+      const kept = l.split(/(?<=[.!?])\s+/).filter((s) => !DIRECT_RE.test(s)).join(' ');
+      return kept.trim() ? [kept] : [];
+    }).join('\n').replace(/\n{3,}/g, '\n\n');
+}
+/** The leaks a draft is never shown with: regenerated once, then replaced by airbnbFallback. */
+const LEAKS = ['off_platform', 'direct_booking', 'price'];
+export const airbnbLeaks = (m: string) => airbnbTone(m, false).filter((v) => LEAKS.includes(v));
+const AIRBNB_STRICT = '[AIRBNB RULE - the last draft broke it: no link or URL, no phone, no e-mail, no GCash or QR, no peso, PHP or percentage figure, and never "book directly", "direct rate" or "our site". For a price or discount question, say you will check and confirm here on the listing, with no number. If dates are asked, say you will check and confirm.] ';
+/** Code-written, so it can never carry a leak; airbnbFinish signs it. */
+export function airbnbFallback(name: string | null, calm: boolean): string {
+  return `Hi ${firstName(name) || 'there'}${calm ? '.' : '!'} Thank you for your message. I'll check this for you and confirm here on the listing shortly.`;
+}
+/** s73 D2-D4, in code rather than hoped for from the model: a Taglish guest's draft carries a courtesy "po" (one or two,
+ *  thinPo as everywhere else); a calm draft thanks the guest for their understanding (playbook 5.5); the sign-off is
+ *  written exactly once, at the end. */
+export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
+  let body = m.replace(/^[ \t]*(?:Marifel & The Cascade Team|Hotel Comfort\. Home Warmth\.)[ \t]*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (lang === 'bis') body = thinPo(body, 0);
+  if (lang === 'tl') body = /\bpo\b/i.test(body) ? thinPo(body, 2) : courtesyPo(body);
+  if (calm && !/\bunderstanding\b/i.test(body)) body += '\n\nThank you for your understanding.';
+  return `${body}\n\n${SIGN_OFF}`;
+}
+/** "Yes, ..." -> "Yes po, ..."; otherwise "po" closes the first sentence after the greeting ("... shortly po."). */
+function courtesyPo(body: string): string {
+  const g = /^(?:hi|hello)\b[^\n!.]*[!.]\s*/i.exec(body)?.[0] ?? '', rest = body.slice(g.length);
+  const lead = /^(yes|salamat|thank you)\b/i.exec(rest);
+  if (lead) return g + lead[0] + ' po' + rest.slice(lead[0].length);
+  const i = rest.search(/[.?](?=\s|$)/);
+  return i < 0 ? body : g + rest.slice(0, i) + ' po' + rest.slice(i);
+}
+/** Generate, finish, and refuse a leak: one stricter regeneration, then the code-written fallback (never the leaking text). */
+export async function airbnbGuard(gen: (strict: boolean) => Promise<string>, finish: (m: string) => string, fallback: string): Promise<string> {
+  for (const strict of [false, true]) {
+    const m = finish(await gen(strict)), leak = airbnbLeaks(m);
+    if (!leak.length) return m;
+    console.warn('airbnb_leak', JSON.stringify({ strict, leak }));
+  }
+  return finish(fallback);
+}
 /** The calm list (Q5 default): a complaint, safety, access, refund, cancellation or payment matter, or our own mistake. */
 export function calmMoment(guestText: string, risk: string): boolean {
   return ['complaint', 'safety', 'access', 'refund', 'cancellation', 'payment'].includes(risk)
@@ -118,7 +169,9 @@ export function airbnbTone(m: string, calm: boolean): string[] {
   const v: string[] = [], lines = m.trim().split('\n');
   v.push(...lintReply(m).filter((x) => x === 'exclaim' || x === 'boilerplate'));
   if (toneRules(m, 'en', true).includes('urgency')) v.push('urgency');
-  if (/https?:\/\/|www\.|\S+@\S+\.\w|(?:\+63|\b0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}\b|\bgcash\b|\bqr\b/i.test(m)) v.push('off_platform');
+  if (/https?:\/\/|www\.|\S+@\S+\.\w|(?:\+63|\b0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}\b|\bgcash\b|\bqr\b|\bwhats ?app\b|\bviber\b|\bmessenger\b|\b(?:facebook|fb) page\b/i.test(m)) v.push('off_platform');
+  if (/\bbook(?:ing)?\s+direct(?:ly)?\b|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b|\bbooking (?:site|page)\b/i.test(m)) v.push('direct_booking');
+  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\d\s?%/i.test(m)) v.push('price');
   if (/\b(discount of|we can (?:offer|give) (?:you )?(?:a )?(?:discount|lower|special)|(?:full|a) refund (?:is|will be)|you(?:'ll| will) be refunded|late check-?out is fine|yes,? you can (?:check out|stay) late)\b/i.test(m)) v.push('promise');
   if (!SIGN_OFF_RE.test(m)) v.push('no_sign_off');
   if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
@@ -128,16 +181,26 @@ export function airbnbTone(m: string, calm: boolean): string[] {
   return v;
 }
 
+/** The draft's system prompt. An Airbnb draft gets airbnbPrompt (no direct-booking facts) plus Marifel's register. */
+export function draftSystem(card: RateCard, airbnb: boolean, calm = false): string {
+  const base = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}`;
+  const channel = airbnb ? `${AIRBNB_HOST_REGISTER}${calm ? `\n${AIRBNB_CALM}` : ''}` : 'Do not invent availability or prices beyond FACTS.';
+  return `${airbnb ? airbnbPrompt(base) : base}\n\nYou are drafting for the HOST to copy and send; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. ${channel} If dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
+}
+
 // deno-lint-ignore no-explicit-any
 export async function modelDraft(db: any, guestText: string, guestName: string | null, ctx: string[], airbnb: boolean, hint = '', calm = false): Promise<string> {
   const card = await loadCard(db); await loadContact(db);
-  const channel = airbnb ? `${AIRBNB_HOST_REGISTER}${calm ? `\n${AIRBNB_CALM}` : ''}` : 'Do not invent availability or prices beyond FACTS.';
-  const system = `${voiceFor(card)}\n\nFACTS:\n${factsFor(card)}\n\nYou are drafting for the HOST to copy and send; the host will read it first. Write only the reply to the guest, in the guest's language, warm and short. ${channel} If dates are asked, say you will check and confirm. Return ONLY JSON {"reply": "<the message>"}.`;
+  const system = draftSystem(card, airbnb, calm);
   const datesAsked = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}[\/-]\d{1,2}|\b(?:available|avail|vacant|bakante|free)\b/i.test(guestText);
   const datesHint = datesAsked && !hint ? '[The guest mentions dates or availability. You cannot see the calendar: do NOT say the dates are available or taken; say you will check and confirm shortly.] ' : '';
   const q = `${hint}${datesHint}${guestName ? `Guest name: ${guestName}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${guestText.slice(0, 1500)}"""`;
-  const raw = await chatJson({ system, history: [], question: q, title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: 500, timeoutMs: 30_000 });
-  return leafAtClose(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'));
+  const once = async (strict: boolean) => {
+    const raw = await chatJson({ system, history: [], question: (strict ? AIRBNB_STRICT : '') + q, title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: 500, timeoutMs: 30_000 });
+    return leafAtClose(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'));
+  };
+  if (!airbnb) return once(false);
+  return airbnbGuard(once, (m) => airbnbFinish(m, detectLang(guestText), calm), airbnbFallback(guestName, calm));
 }
 
 /** Messages for the host, in order: a header card, then each option alone so a long-press copies only the reply. */
@@ -154,15 +217,18 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   // SPEC-39 section 6: an Airbnb draft is Marifel's register, checked in code; a failing draft is rewritten once with the
   // violation named, and if it still fails the host is told before she reads it (nothing reaches a guest from here).
   const airbnb = platform === 'airbnb', calm = airbnb && calmMoment(guestText, risk);
+  // A rewrite of an Airbnb draft is finished like the draft and dropped ('') if it leaks: the clean original stands.
+  const airbnbSafe = (m: string) => { const f = m ? airbnbFinish(m, detectLang(guestText), calm) : ''; return f && !airbnbLeaks(f).length ? f : ''; };
   let main = brain?.reply || await modelDraft(db, guestText, guestName, ctx, airbnb, '', calm);
   let airbnbFail = airbnb ? airbnbTone(main, calm) : [];
   if (airbnbFail.length) {
-    const fixed = await rewrite(db, main, `Fix only these: ${airbnbFail.join(', ')}. ${AIRBNB_HOST_REGISTER}${calm ? `\n${AIRBNB_CALM}` : ''}`).catch(() => '');
+    const fixed = airbnbSafe(await rewrite(db, main, `Fix only these: ${airbnbFail.join(', ')}. ${AIRBNB_HOST_REGISTER}${calm ? `\n${AIRBNB_CALM}` : ''}`, true).catch(() => ''));
     if (fixed) { main = fixed; airbnbFail = airbnbTone(fixed, calm); }
     if (airbnbFail.length) console.warn('airbnb_tone', JSON.stringify({ calm, fail: airbnbFail }));
   }
   const lint = lintReply(main, guestText); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_draft', brain: !!brain, lint }));
-  const short = main.length > 320 ? await rewrite(db, main, `Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.${airbnb ? ' Keep the greeting line and the two sign-off lines exactly.' : ''}`).catch(() => '') : '';
+  let short = main.length > 320 ? await rewrite(db, main, `Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.${airbnb ? ' Keep the greeting line and the two sign-off lines exactly.' : ''}`, airbnb).catch(() => '') : '';
+  if (airbnb) short = airbnbSafe(short);
   const head = [`✍️ Guest reply${guestName ? ` · ${guestName}` : ''} · ${platform === 'airbnb' ? 'Airbnb' : 'Messenger'}${risk !== 'routine' ? ` · ${risk.replace('_', ' ')}` : ''}`,
     brain ? '1️⃣ is what the concierge would send (calendar and rate card checked).' : `1️⃣ is a drafted reply${platform === 'airbnb' ? ' (Airbnb: no links or outside payment)' : ' (the concierge could not be reached, so dates are not checked)'}.`,
     ...(short ? ['2️⃣ says the same, shorter.'] : [])];

@@ -14,7 +14,7 @@ export const CASES: Case[] = [
   { id: 'inquiry-tl', guest: 'Available po ba Oct 20-22? 2 kami', name: 'Dale', must: [/^Hi \w+!/, /\bpo\b/, SIGNED], mustNot: [OFF] },
   { id: 'inquiry-en', guest: 'Is Oct 20-22 free for 2?', name: 'Emma', must: [/^Hi \w+!/, SIGNED], mustNot: [/\bpo\b/, OFF] },
   { id: 'complaint-calm', guest: "The aircon stopped working, it's so hot", name: 'Mark', must: [/sorry|understand/i, SIGNED], mustNot: [/!/, /[\p{Extended_Pictographic}]/u] },
-  { id: 'our-mistake-calm', guest: "I don't have to check out today do I", name: 'Joseph', must: [/don'?t need to|no need to/i, /understanding/i, SIGNED], mustNot: [/!/] },
+  { id: 'our-mistake-calm', guest: "I don't have to check out today do I", name: 'Joseph', must: [/(?:don'?t|do not) (?:need|have) to|no need to/i, /understanding/i, SIGNED], mustNot: [/!/] },
   { id: 'discount-ask', guest: 'Can you give a discount for 5 nights?', name: 'Ana', must: [/check|listing|confirm/i, SIGNED], mustNot: [/discount of|we can offer|PHP \d|₱\d/i] },
   { id: 'late-checkout-ask', guest: 'Can we check out at 3 PM on Sunday?', name: 'Rico', must: [/check|confirm/i, SIGNED], mustNot: [/yes,? you can|\bsure\b/i] },
 ];
