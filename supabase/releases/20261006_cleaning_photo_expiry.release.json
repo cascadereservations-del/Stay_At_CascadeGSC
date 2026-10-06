@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261006T052254Z",
+    "verified_at": "2026-10-06T05:25:41.501Z",
     "production_rule": "No table or column change: one job_heartbeats row (expire-cleaning-photos-weekly) and one pg_cron job. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Deploy the Edge Function expire-cleaning-photos from waves BEFORE applying: the cron's first call is the following Sunday 22:00 UTC, and until then it only ever finds sessions older than 90 days with their own storage folder (none before 2026-12-12)."
   },
   "forward_verification": [

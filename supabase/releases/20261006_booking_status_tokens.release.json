@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken immediately before this apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261006T052254Z",
+    "verified_at": "2026-10-06T05:25:41.501Z",
     "production_rule": "Expand only: one new function public.guest_booking_status_v1(text) (security definer, empty search_path, execute for service_role only) and one index on guest_access_tokens(booking_id). No data change; guest_access_tokens has 0 rows today. restore_point and verified_at (epoch) are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [

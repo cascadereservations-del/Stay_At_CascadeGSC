@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - fill-restore-point.mjs stamps the newest COMPLETE backup (60 minutes or less) right before the apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261006T052254Z",
+    "verified_at": "2026-10-06T05:25:41.501Z",
     "production_rule": "Expand only: one unique index (cleaner_rate_schedule property_id + effective_from; the four production rows already satisfy it), an append-only trigger and an audit trigger on public.cleaner_rate_schedule, and eight functions (seven RPCs plus the trigger function). No column, no table, no data change, no new telegram_pending kind. Existing rate rows are never touched. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both with fill-restore-point.mjs. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [

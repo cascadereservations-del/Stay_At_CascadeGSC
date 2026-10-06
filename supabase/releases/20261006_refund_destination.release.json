@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261006T052254Z",
+    "verified_at": "2026-10-06T05:25:41.501Z",
     "production_rule": "Expand only: two nullable text columns on public.booking_inquiries (paid_from_name, paid_from_channel) and two length checks that every existing row satisfies (all null). No data change, no grant change. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [

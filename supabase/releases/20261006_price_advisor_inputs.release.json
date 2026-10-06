@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - take a fresh backup, re-read the clock, then fill both fields (fill-restore-point.mjs does it)",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261006T052254Z",
+    "verified_at": "2026-10-06T05:25:41.501Z",
     "production_rule": "Expand only: one new read-only function public.price_advisor_inputs_v1(uuid, date, date), granted to authenticated only. No table, column or data change. restore_point and verified_at are placeholders for the orchestrator. Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [

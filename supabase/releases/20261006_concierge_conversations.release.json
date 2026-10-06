@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken immediately before this apply",
-    "verified_at": null,
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261006T052254Z",
+    "verified_at": "2026-10-06T05:25:41.501Z",
     "production_rule": "Expand only: two new read functions, public.concierge_conversations_v1(int) and public.concierge_thread_v1(text), both security definer with an empty search_path, granted to authenticated only and refusing anyone who is not an active owner or admin. No table, column, policy or data change; concierge_threads stays closed to every client role. restore_point and verified_at are placeholders: take a fresh backup, re-read the clock, then fill both (fill-restore-point.mjs does it). Take a fresh backup if the one named is more than an hour old at apply time."
   },
   "forward_verification": [
