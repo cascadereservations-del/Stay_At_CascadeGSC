@@ -367,4 +367,5 @@ Deno.test('s74: punctuation in code - calm drafts lose every "!", warm drafts op
   assertEquals(warm.slice(1).some((l) => l.includes('!')), false);
   assertEquals(airbnbFinish('Hi Rico! We can check.', 'en', false).split('\n')[0], 'Hi Rico! We can check.');
   assertEquals(airbnbFinish('Hi Dale.\nWe will check.', 'en', false).split('\n')[0], 'Hi Dale!');
+  assert(airbnbFinish('Hi Dale po, salamat sa message.', 'tl', false).startsWith('Hi Dale po,')); // never "Hi Dale! Po,"
 });
