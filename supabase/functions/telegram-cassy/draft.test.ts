@@ -359,3 +359,12 @@ Deno.test('s73 R5-4: direct offers, a bare rate figure and "directly ... text us
   for (const s of ['Message me directly and I can lower it', 'Our rate drops to 1600', 'Book directly on Airbnb or text us', 'the price is 1500']) assert(leakWith(s).length, s);
   for (const s of ['book directly through the Airbnb app', 'see you in 2026', 'for 2 guests']) assertEquals(leakWith(s), [], s);
 });
+
+Deno.test('s74: punctuation in code - calm drafts lose every "!", warm drafts open "Hi <name>!" and keep no later "!"', () => {
+  assert(!airbnbFinish('Hi Joseph!\nLet us check your reservation right away!', 'en', true).includes('!'));
+  const warm = airbnbFinish('Hi Ana, thank you for asking.\nWe would love to host you!', 'en', false).split('\n');
+  assertEquals(warm[0], 'Hi Ana! Thank you for asking.');
+  assertEquals(warm.slice(1).some((l) => l.includes('!')), false);
+  assertEquals(airbnbFinish('Hi Rico! We can check.', 'en', false).split('\n')[0], 'Hi Rico! We can check.');
+  assertEquals(airbnbFinish('Hi Dale.\nWe will check.', 'en', false).split('\n')[0], 'Hi Dale!');
+});

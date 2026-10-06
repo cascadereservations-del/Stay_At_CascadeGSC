@@ -159,6 +159,12 @@ export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
   if (lang === 'bis') body = thinPo(body, 0);
   if (lang === 'tl') body = /\bpo\b/i.test(body) ? thinPo(body, 2) : courtesyPo(body);
   if (calm && !/\bunderstanding\b/i.test(body)) body += '\n\nThank you for your understanding.';
+  // s74: the register's punctuation in code (the golden 15/18 misses were all "!"): calm has none; warm opens "Hi <name>!" and has no other.
+  if (calm) body = body.replace(/!/g, '.');
+  else {
+    const [first, ...rest] = body.split('\n');
+    body = [first.replace(/^((?:hi|hello)\s+[^\s,.!?]+)[,.]?(?=\s|$)/i, '$1!').replace(/^((?:hi|hello)\s+[^\s!]+!\s+)([a-z])/i, (_, g, c) => g + c.toUpperCase()), ...rest.map((l) => l.replace(/!/g, '.'))].join('\n');
+  }
   return `${body}\n\n${SIGN_OFF}`;
 }
 /** "Yes, ..." -> "Yes po, ..."; otherwise "po" closes the first sentence after the greeting ("... shortly po."). */
