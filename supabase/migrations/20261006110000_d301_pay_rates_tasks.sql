@@ -17,6 +17,8 @@
 --      task_add_reminder_v1     owner/admin add a reminder (title, due date, assignee, note) as a follow_up_tasks row.
 --      task_assignees_v1        owner/admin: the staff an assignee dropdown offers.
 --      tasks_rows_v1            internal, no grant to any API role.
+-- Correcting a rate row: there is no undo. Audit history undo is not available for pay rates. To fix a wrong row, a later migration drops the trigger
+-- cleaner_rate_schedule_append_only, changes the row, and recreates the trigger.
 -- Expand only: one unique index, two triggers on cleaner_rate_schedule (append-only, audit), eight functions. No data change, no new table, no new
 -- telegram_pending kind. Rollback: supabase/rollbacks/20261006_d301_pay_rates_tasks.sql
 
@@ -76,7 +78,7 @@ begin
     raise exception using errcode = '22023', message = 'the cleaning fee must be between 1 and 10,000'; end if;
   if p_general is null or p_general < 1 or p_general > 10000 or p_general <> round(p_general, 2) then
     raise exception using errcode = '22023', message = 'the deep clean fee must be between 1 and 10,000'; end if;
-  if v_transport is not null and (v_transport < 0 or v_transport > 2000 or v_transport <> round(v_transport, 2)) then
+  if v_transport is not null and (v_transport < 1 or v_transport > 2000 or v_transport <> round(v_transport, 2)) then
     raise exception using errcode = '22023', message = 'the transport fee must be between 1 and 2,000, or empty when the fee already includes transport'; end if;
   if char_length(v_note) < 3 or char_length(v_note) > 500 then raise exception using errcode = '22023', message = 'a note of 3 to 500 characters is required'; end if;
   if p_effective_from > v_today + 366 then raise exception using errcode = '22023', message = 'the start date is more than a year away'; end if;
@@ -227,10 +229,11 @@ returns jsonb language plpgsql security definer set search_path = '' as $$
 declare v_title text := btrim(coalesce(p_title, '')); v_note text := nullif(btrim(coalesce(p_note, '')), ''); v_id uuid; v_key text;
 begin
   perform public.admin_require('manage_operations', p_property_id);
-  if p_idempotency_key is null or char_length(p_idempotency_key) not between 16 and 160 then raise exception using errcode = '22023', message = 'idempotency key required'; end if;
+  if p_idempotency_key is null or char_length(p_idempotency_key) not between 16 and 151 then raise exception using errcode = '22023', message = 'the idempotency key must be 16 to 151 characters'; end if;
   if char_length(v_title) not between 3 and 200 then raise exception using errcode = '22023', message = 'the title must be 3 to 200 characters'; end if;
   if v_note is not null and char_length(v_note) > 1000 then raise exception using errcode = '22023', message = 'the note is at most 1,000 characters'; end if;
-  if p_assignee_user_id is not null and not exists (select 1 from public.staff_access_profiles where user_id = p_assignee_user_id and disabled_at is null) then
+  if p_assignee_user_id is not null and not exists (select 1 from public.staff_access_profiles p where p.user_id = p_assignee_user_id and p.disabled_at is null
+       and (p.role = 'owner' or exists (select 1 from public.staff_property_access a where a.user_id = p_assignee_user_id and a.property_id = p_property_id))) then
     raise exception using errcode = '22023', message = 'the assignee is not an active staff account';
   end if;
   v_key := 'reminder:' || p_idempotency_key;

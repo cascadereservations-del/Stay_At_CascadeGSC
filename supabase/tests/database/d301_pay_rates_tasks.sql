@@ -3,7 +3,7 @@
 -- are inserted guarded, as staff_pay_requests.sql does). Everything is inside begin/rollback; the roles are impersonated with
 -- request.jwt.claims. Fixtures insert as the owner role.
 begin;
-select plan(98);
+select plan(101);
 
 create temp table _t(k text primary key, v jsonb);
 grant all on _t to public;
@@ -109,6 +109,7 @@ select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-
 select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-0000000000b0', current_date + 1, 0, 1100, 150, 'zero fee')$$, '22023', 'the cleaning fee must be between 1 and 10,000', 'a zero cleaning fee is refused');
 select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-0000000000b0', current_date + 1, 600, 10001, 150, 'huge fee')$$, '22023', 'the deep clean fee must be between 1 and 10,000', 'a deep clean fee over 10,000 is refused');
 select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-0000000000b0', current_date + 1, 600, 1100, -5, 'negative transport')$$, '22023', null, 'a negative transport fee is refused');
+select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-0000000000b0', current_date + 1, 600, 1100, 0.5, 'half a peso transport')$$, '22023', 'the transport fee must be between 1 and 2,000, or empty when the fee already includes transport', 'a transport fee under 1 is refused');
 select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-0000000000b0', current_date + 1, 600, 1100, 150, 'ab')$$, '22023', 'a note of 3 to 500 characters is required', 'a note shorter than 3 characters is refused');
 select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-0000000000b0', null, 600, 1100, 150, 'no date')$$, '22023', 'a start date is required', 'a missing start date is refused');
 select throws_ok($$select public.admin_add_pay_rate_v1('e8400000-0000-4000-8000-0000000000b0', current_date + 400, 600, 1100, 150, 'too far')$$, '22023', 'the start date is more than a year away', 'a start date more than a year away is refused');
@@ -270,8 +271,10 @@ select pg_temp.as_user('e8400000-0000-4000-8000-0000000000a2');
 insert into _t select 'rem1', public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', '  Order new towels  ', now() + interval '2 days', 'e8400000-0000-4000-8000-0000000000a3', 'Call the supplier first', 'zz-l4-key-reminder-0001');
 insert into _t select 'rem1_again', public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', '  Order new towels  ', now() + interval '2 days', 'e8400000-0000-4000-8000-0000000000a3', 'Call the supplier first', 'zz-l4-key-reminder-0001');
 select throws_ok($$select public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', 'ab', null, null, null, 'zz-l4-key-reminder-0002')$$, '22023', 'the title must be 3 to 200 characters', 'a title under 3 characters is refused');
-select throws_ok($$select public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', 'Fine title', null, null, null, 'short')$$, '22023', 'idempotency key required', 'a short idempotency key is refused');
+select throws_ok($$select public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', 'Fine title', null, null, null, 'short')$$, '22023', 'the idempotency key must be 16 to 151 characters', 'a short idempotency key is refused');
+select throws_ok(format($$select public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', 'Fine title', null, null, null, %L)$$, repeat('k', 152)), '22023', 'the idempotency key must be 16 to 151 characters', 'an idempotency key too long to store with its prefix is refused');
 select throws_ok($$select public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', 'Fine title', null, 'e8400000-0000-4000-8000-0000000000ee', null, 'zz-l4-key-reminder-0003')$$, '22023', 'the assignee is not an active staff account', 'an unknown assignee is refused');
+select throws_ok($$select public.task_add_reminder_v1('e8400000-0000-4000-8000-0000000000b0', 'Fine title', null, 'e8400000-0000-4000-8000-0000000000a7', null, 'zz-l4-key-reminder-0004')$$, '22023', 'the assignee is not an active staff account', 'a staff account without access to the property is refused as assignee');
 insert into _t select 'assignees', public.task_assignees_v1('e8400000-0000-4000-8000-0000000000b0');
 reset role;
 select ok((select (v->>'ok')::boolean and v->>'replayed' = 'false' from _t where k = 'rem1'), 'an admin adds a reminder');
