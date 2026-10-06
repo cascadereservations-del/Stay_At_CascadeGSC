@@ -436,3 +436,6 @@ verify_jwt = false
 
 [functions.expire-cleaning-photos]
 verify_jwt = false
+
+[functions.guest-intake]
+verify_jwt = false
