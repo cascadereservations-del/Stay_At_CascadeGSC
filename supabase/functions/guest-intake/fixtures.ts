@@ -4,10 +4,11 @@ const be16 = (n: number) => [n >> 8, n & 255];
 const be32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
 const le32 = (n: number) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
 
-/** SOI, JFIF APP0, an APP1 Exif segment carrying a GPS tag, a COM, one scan, EOI. */
+/** SOI, JFIF APP0, an APP1 Exif segment carrying a GPS tag, an APP14 Adobe segment, a COM, one scan, EOI, then a trailer (as a Motion Photo has). */
 const exif = bytes('Exif\0\0', 'GPSLATLONG');
 export const JPEG_GPS = bytes([0xff, 0xd8], [0xff, 0xe0], be16(16), 'JFIF\0', [1, 1, 0, 0, 1, 0, 1, 0, 0],
-  [0xff, 0xe1], be16(exif.length + 2), exif, [0xff, 0xfe], be16(8), 'camera', [0xff, 0xda], be16(8), [1, 1, 0, 0, 0x3f, 0], [0x11, 0x22, 0x33], [0xff, 0xd9]);
+  [0xff, 0xe1], be16(exif.length + 2), exif, [0xff, 0xee], be16(13), 'Adobe', [0, 100, 0, 0, 0, 1], [0xff, 0xfe], be16(8), 'camera', [0xff, 0xda], be16(8), [1, 1, 0, 0, 0x3f, 0], [0x11, 0x22, 0x33], [0xff, 0xd9],
+  'MOTIONPHOTO-TRAILER-GPSTRAIL');
 
 const chunk = (type: string, data: number[] | string) => { const d = typeof data === 'string' ? [...data].map((c) => c.charCodeAt(0)) : data; return bytes(be32(d.length), type, d, [0, 0, 0, 0]); };
 /** PNG with tEXt and eXIf chunks (the GPS text is in the eXIf). */

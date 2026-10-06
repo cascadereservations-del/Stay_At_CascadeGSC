@@ -88,6 +88,8 @@ Deno.test('stripMetadata: a GPS-tagged JPEG loses APP1 and COM, keeps JFIF and t
   assert(!text(out).includes('GPSLATLONG') && !text(out).includes('Exif') && !text(out).includes('camera'));
   assert(text(out).includes('JFIF'));
   assertEquals([out[0], out[1], out[out.length - 2], out[out.length - 1]], [0xff, 0xd8, 0xff, 0xd9]);
+  assert(!text(out).includes('TRAILER') && !text(out).includes('GPSTRAIL'), 'bytes after EOI are dropped');
+  assert(text(out).includes('Adobe'), 'APP14 (colour transform) is kept');
   assertEquals(sniffImage(out)?.ext, 'jpg');
   assertEquals(Array.from(out).filter((_, i) => out[i] === 0xff && out[i + 1] === 0xe1).length, 0);
   assertEquals(stripMetadata(out, 'jpg'), out, 'stripping a clean file changes nothing');
@@ -114,6 +116,7 @@ Deno.test('stripMetadata: WebP drops EXIF and XMP, fixes the RIFF size and clear
 
 Deno.test('stripMetadata: a file that does not parse is refused, never passed through', () => {
   assertEquals(stripMetadata(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff, 1, 2, 3, 4, 5, 6]), 'jpg'), null);
+  assertEquals(stripMetadata(JPEG_GPS.slice(0, JPEG_GPS.length - 30), 'jpg'), null, 'no EOI: not a whole image');
   assertEquals(stripMetadata(PNG_GPS.slice(0, 40), 'png'), null);
   assertEquals(stripMetadata(WEBP_GPS.slice(0, 40), 'webp'), null);
 });

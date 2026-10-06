@@ -38,7 +38,7 @@ export function sniffImage(b: Uint8Array): { ext: 'jpg' | 'png' | 'webp'; mime: 
   return null;
 }
 
-/** Drops location and camera metadata without re-encoding: JPEG APP1-APP15 and COM segments, PNG eXIf/tEXt/zTXt/iTXt chunks, WebP EXIF and
+/** Drops location and camera metadata without re-encoding: JPEG APP1-APP15 (except APP14, the Adobe colour transform) and COM segments and anything after the end of the image, PNG eXIf/tEXt/zTXt/iTXt chunks, WebP EXIF and
  *  XMP chunks (RIFF size and the VP8X flags fixed). null when the structure does not parse, so a file we cannot clean is never stored. */
 export function stripMetadata(b: Uint8Array, kind: 'jpg' | 'png' | 'webp'): Uint8Array | null {
   const out: number[] = [];
@@ -52,13 +52,19 @@ export function stripMetadata(b: Uint8Array, kind: 'jpg' | 'png' | 'webp'): Uint
       while (b[i + 1] === 0xff) i++; // fill bytes
       const m = b[i + 1];
       if (m === undefined) return null;
-      if (m === 0xda) { push(i, b.length); return Uint8Array.from(out); } // scan data: copy the rest as is
+      if (m === 0xda) { // scan data: copy through the first FF D9 (it cannot occur inside entropy-coded data); trailers after it are dropped
+        let e = i + 2;
+        while (e + 1 < b.length && !(b[e] === 0xff && b[e + 1] === 0xd9)) e++;
+        if (e + 1 >= b.length) return null;
+        push(i, e + 2);
+        return Uint8Array.from(out);
+      }
       if (m === 0xd9) { out.push(0xff, 0xd9); return Uint8Array.from(out); }
       if (m === 0x01 || (m >= 0xd0 && m <= 0xd8)) { push(i, i + 2); i += 2; continue; }
       if (i + 4 > b.length) return null;
       const len = (b[i + 2] << 8) | b[i + 3];
       if (len < 2 || i + 2 + len > b.length) return null;
-      if (!((m >= 0xe1 && m <= 0xef) || m === 0xfe)) push(i, i + 2 + len);
+      if (!((m >= 0xe1 && m <= 0xef && m !== 0xee) || m === 0xfe)) push(i, i + 2 + len); // APP14 (Adobe colour transform) stays
       i += 2 + len;
     }
     return null; // no scan: not a whole image
