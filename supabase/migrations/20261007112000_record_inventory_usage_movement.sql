@@ -8,15 +8,15 @@
 --     owner/admin. The RPC itself needs only submit_cleaning (a cleaner), so a cleaner logging a controlled item got "inventory access
 --     denied" and the whole session save failed. The first controlled item would have broken the checklist's Log Usage.
 -- v3 (same signature, same return shape, same grants, same optional rows[i].usage_key replay key):
---   * EVERY usage that changes stock writes one kind='usage' movement (quantity_before -> quantity_after, the actor, a reason), inserted
---     here with the same invariants record_inventory_movement enforces and the same deterministic idempotency key as
---     inventory_apply_event_v1 ('inventory_usage' source = the usage row id). The caller's own authorization (submit_cleaning on the
---     property, checked above) is the gate, not inventory_human_authorized.
---   * Movement-controlled item: unchanged contract. The ledger must agree with qty_on_hand first ('stock reconciliation required'
---     otherwise) and insufficient stock is rejected, not clamped.
---   * Not controlled: legacy clamp at zero kept (a cleaner is never blocked), and the movement records what actually left stock
---     (before -> max(0, before - used)). No item flips to controlled (INV03 stays a human, reviewed baseline); the ledger health
---     check still judges controlled items only. A usage against an item already at 0 changes nothing and writes no movement.
+--   * Movement-controlled item: the movement is written here (kind='usage', quantity_before -> quantity_after, the actor, a reason) with the
+--     same invariants record_inventory_movement enforces and the same deterministic idempotency key as inventory_apply_event_v1
+--     ('inventory_usage' source = the usage row id). The caller's own authorization (submit_cleaning on the property, checked above) is
+--     the gate, not inventory_human_authorized, so a cleaner can log it. Contract unchanged: the ledger must agree with qty_on_hand first
+--     ('stock reconciliation required' otherwise) and insufficient stock is rejected, not clamped.
+--   * Not controlled: exactly the legacy behaviour (clamp at zero, a cleaner is never blocked) and NO movement. Fable audit (G3): a movement
+--     on an uncontrolled item would make the "last movement == qty_on_hand" gate of dashboard Adjust / forecast pass by coincidence, the
+--     next receipt or /count would break the chain again, and a negative legacy qty would trip quantity_before >= 0 and refuse a cleaner's
+--     save. inventory_usage is the audit row for those items; INV03 stays a human, reviewed baseline.
 -- Rollback: supabase/rollbacks/20261007_money_fixes.sql (restores v2 byte for byte from migration 20260913120000; movement rows already
 -- written stay as history).
 
@@ -77,10 +77,10 @@ begin
 
     update public.inventory_items set qty_on_hand = v_after where id = v_item;
 
-    if v_after <> v_before then
+    if v_controlled and v_after <> v_before then
       insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key)
       values (v_item, p_property_id, 'usage', v_before, v_after,
-              'Usage ' || p_session_date::text || coalesce(' by ' || v_who, '') || case when v_before < v_qty then ' (stock was short by ' || (v_qty - v_before)::text || ')' else '' end,
+              'Usage ' || p_session_date::text || coalesce(' by ' || v_who, ''),
               auth.uid(),
               left('evt-' || encode(extensions.digest('inventory_usage|' || v_usage_id::text || '|' || v_item::text || '|usage', 'sha256'), 'hex'), 80))
       returning id into v_move;
@@ -96,6 +96,6 @@ $$;
 revoke all on function public.record_inventory_usage(uuid, date, text, text, jsonb) from public, anon;
 grant execute on function public.record_inventory_usage(uuid, date, text, text, jsonb) to authenticated, service_role;
 comment on function public.record_inventory_usage(uuid, date, text, text, jsonb) is
-  'v3 (G3, 2026-10-07): same contract. Every usage that changes stock writes a kind=usage inventory_stock_movements row (actor, before, after). Controlled items reject insufficient stock and need the ledger to agree; others keep the clamp at zero. Needs submit_cleaning, not inventory_human_authorized. Optional rows[i].usage_key makes retries replay-safe.';
+  'v3 (G3, 2026-10-07): same contract. Movement-controlled items write a kind=usage inventory_stock_movements row (actor, before, after), reject insufficient stock and need the ledger to agree; others keep the legacy clamp at zero and write no movement. Needs submit_cleaning, not inventory_human_authorized. Optional rows[i].usage_key makes retries replay-safe.';
 
 commit;

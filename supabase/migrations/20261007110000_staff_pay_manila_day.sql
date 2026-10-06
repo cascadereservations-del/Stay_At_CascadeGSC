@@ -7,7 +7,7 @@
 -- The two functions are patched from their LIVE bodies (pg_get_functiondef, then the one expression replaced) instead of vendored
 -- here: hand-applied schema is invisible to CI (memory: cascade-sql-dir-schema-is-invisible-to-ci), and a copied 150-line body could
 -- silently revert a hand edit. Nothing else in either function changes; grants, owner and search_path are kept by CREATE OR REPLACE.
--- Idempotent: a body with no cleaned_at::date left is skipped. A function that is missing stops the release.
+-- Idempotent: a body that already has the Manila form is skipped; a body with neither form, or a missing function, stops the release.
 -- Not changed here (not staff pay, reported in the release note): stay_chains.sql:327 and the health-check cleaned_at::date joins.
 
 begin;
@@ -18,7 +18,8 @@ declare
 begin
   foreach v_fn in array array['public.staff_pay_candidates_v1()', 'public.staff_pay_request_create_v1(jsonb, uuid[], jsonb, text)'] loop
     v_def := pg_get_functiondef(v_fn::regprocedure);   -- raises if the function does not exist
-    if v_def !~ 'cleaned_at::date' then continue; end if;
+    if v_def ~ 'cleaned_at at time zone ''Asia/Manila''' then continue; end if;   -- already patched (re-run)
+    if v_def !~ 'cleaned_at::date' then raise exception 'staff pay Manila day: % has neither the UTC nor the Manila form', v_fn; end if;
     -- (alias.)cleaned_at::date  ->  (alias.cleaned_at at time zone 'Asia/Manila')::date
     v_new := regexp_replace(v_def, '(\w+\.)?cleaned_at::date', '(\1cleaned_at at time zone ''Asia/Manila'')::date', 'g');
     if v_new = v_def or v_new ~ 'cleaned_at::date' then

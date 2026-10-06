@@ -1,9 +1,9 @@
--- Session 74, lane G3: release money_fixes_20261007 part 3. record_inventory_usage (same signature) writes one kind=usage stock
--- movement for every usage that changes stock, for a cleaner (submit_cleaning) as well as an admin. Synthetic rows (uuids
+-- Session 74, lane G3: release money_fixes_20261007 part 3. record_inventory_usage (same signature): a movement-controlled item gets a
+-- kind=usage stock movement even when a cleaner (submit_cleaning) logs it; a not-controlled item keeps the legacy clamp and gets NO movement. Synthetic rows (uuids
 -- e7800000-...); everything rolls back. Fixture rows and the final reads run as the owner role (a --no-acl restore gives
 -- authenticated no table grants); only the RPC calls run as the cleaner.
 begin;
-select plan(22);
+select plan(19);
 
 create function pg_temp.as_user(u uuid) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', u, 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true),
@@ -36,41 +36,32 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
 insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key) values
   ('e7800000-0000-4000-8000-0000000000c4', 'e7800000-0000-4000-8000-0000000000a1', 'reconcile', 5, 5, 'zz baseline count', 'e7800000-0000-4000-8000-000000000001', 'zz-g3-baseline-c4-0001');
 
--- 1. not controlled, within stock: one usage movement 10 -> 7 -------------------------------------------------------------------
+-- 1. not controlled, within stock: the legacy decrement 10 -> 7 and NO movement (Fable G3: inventory_usage is the audit row) --------
 select pg_temp.as_user('e7800000-0000-4000-8000-000000000001');
 insert into _t select 'u1', public.record_inventory_usage('e7800000-0000-4000-8000-0000000000a1', date '2026-10-07', 'Honey', null,
   '[{"item_id":"e7800000-0000-4000-8000-0000000000c1","used_qty":3,"usage_key":"zz-g3-usage-1"}]'::jsonb);
 reset role;
 select is((select v->>'ok' from _t where k = 'u1'), 'true', 'a cleaner logs usage of a not-controlled item');
 select is((select qty_on_hand from public.inventory_items where id = 'e7800000-0000-4000-8000-0000000000c1'), 7::numeric, 'stock goes 10 -> 7');
-select is((select count(*)::int from public.inventory_stock_movements where item_id = 'e7800000-0000-4000-8000-0000000000c1'), 1, 'exactly one movement row was written');
-select ok((select m.kind = 'usage' and m.quantity_before = 10 and m.quantity_after = 7 and m.actor_user_id = 'e7800000-0000-4000-8000-000000000001'
-              and m.property_id = 'e7800000-0000-4000-8000-0000000000a1' and m.reason like 'Usage 2026-10-07 by Honey%' and char_length(m.idempotency_key) between 16 and 160
-             from public.inventory_stock_movements m where m.item_id = 'e7800000-0000-4000-8000-0000000000c1'),
-  'the movement is kind usage, 10 -> 7, by the cleaner, with a reason and a key');
-select is((select jsonb_array_length(v->'movements') from _t where k = 'u1'), 1, 'the return value lists the movement id');
-select is((select m.id::text from public.inventory_stock_movements m where m.item_id = 'e7800000-0000-4000-8000-0000000000c1'), (select v->'movements'->>0 from _t where k = 'u1'),
-  'and it is the row that was written');
+select is((select count(*)::int from public.inventory_stock_movements where item_id = 'e7800000-0000-4000-8000-0000000000c1'), 0, 'no movement row is written for a not-controlled item');
+select is((select jsonb_array_length(v->'movements') from _t where k = 'u1'), 0, 'and the return value lists no movement');
 
--- 2. replay with the same usage_key: no second usage row, no second movement ------------------------------------------------------
+-- 2. replay with the same usage_key: no second usage row ----------------------------------------------------------------------------
 select pg_temp.as_user('e7800000-0000-4000-8000-000000000001');
 insert into _t select 'u1b', public.record_inventory_usage('e7800000-0000-4000-8000-0000000000a1', date '2026-10-07', 'Honey', null,
   '[{"item_id":"e7800000-0000-4000-8000-0000000000c1","used_qty":3,"usage_key":"zz-g3-usage-1"}]'::jsonb);
 reset role;
 select is((select qty_on_hand from public.inventory_items where id = 'e7800000-0000-4000-8000-0000000000c1'), 7::numeric, 'a replay leaves 7');
-select is((select count(*)::int from public.inventory_stock_movements where item_id = 'e7800000-0000-4000-8000-0000000000c1'), 1, 'a replay writes no second movement');
 select is((select count(*)::int from public.inventory_usage where item_id = 'e7800000-0000-4000-8000-0000000000c1'), 1, 'and no second usage row');
 
--- 3. not controlled, more than the shelf holds: clamp at zero, the movement records what actually left -----------------------------
+-- 3. not controlled, more than the shelf holds: clamp at zero, still no movement ------------------------------------------------
 select pg_temp.as_user('e7800000-0000-4000-8000-000000000001');
 insert into _t select 'u2', public.record_inventory_usage('e7800000-0000-4000-8000-0000000000a1', date '2026-10-07', 'Honey', null,
   '[{"item_id":"e7800000-0000-4000-8000-0000000000c2","used_qty":5}]'::jsonb);
 reset role;
 select is((select qty_on_hand from public.inventory_items where id = 'e7800000-0000-4000-8000-0000000000c2'), 0::numeric, 'stock clamps at 0, the log is not refused');
-select ok((select m.quantity_before = 2 and m.quantity_after = 0 and m.reason like '%short by 3%'
-             from public.inventory_stock_movements m where m.item_id = 'e7800000-0000-4000-8000-0000000000c2'),
-  'the movement is 2 -> 0 and says the stock was short by 3');
 select is((select used_qty from public.inventory_usage where item_id = 'e7800000-0000-4000-8000-0000000000c2'), 5::numeric, 'the usage row keeps the 5 the cleaner logged');
+select is((select count(*)::int from public.inventory_stock_movements where item_id = 'e7800000-0000-4000-8000-0000000000c2'), 0, 'no movement row for the clamped item either');
 
 -- 4. not controlled, already at zero: nothing changes, no movement ---------------------------------------------------------------
 select pg_temp.as_user('e7800000-0000-4000-8000-000000000001');
