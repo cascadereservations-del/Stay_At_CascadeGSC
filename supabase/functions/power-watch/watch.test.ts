@@ -799,10 +799,15 @@ Deno.test('D-306: money-shaped values around a booking never reach the OPS card 
     booking('ab-m1', '2026-10-14', '2026-10-15', '₱2,800 Anna', { total: 'PHP 4,550', total_amount: '₱2,800', raw_summary: 'Reserved PHP 4,550 payout' }),
     booking('ab-m2', '2026-10-15', '2026-10-16', '+639171234567 Zed', { rate: '₱2,800' }),
     booking('ab-m3', '2026-10-15', '2026-10-16', 'a@b.co Yan'),
+    booking('ab-m4', '2026-10-15', '2026-10-16', 'PHP 4,550 Anna'),
   );
   await w.run([found('2026-10-15', '06:00:00', 11, 100)]);
   const cards = bookingCards(w);
-  assertEquals(cards.length, 3);
-  for (const c of cards) { assertNotMatch(c.text, MONEY); assertNotMatch(c.text, /@|\+?63\d{6,}|\d{7,}/); assertStringIncludes(c.text, 'A guest booked the night'); }
+  assertEquals(cards.length, 4);
+  for (const c of cards) {
+    // The poster link (last line) carries long digit runs in real filenames; check the card body only.
+    const body = c.text.split('\n').filter((l) => !l.includes('notice: http')).join('\n');
+    assertNotMatch(c.text, MONEY); assertNotMatch(body, /@|\+?63\d{6,}|\d{7,}/); assertStringIncludes(c.text, 'A guest booked the night');
+  }
   assertEquals(w.fin.length, 0, 'nothing goes to the Finance chat');
 });

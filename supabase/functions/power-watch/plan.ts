@@ -238,7 +238,7 @@ export type HeldBooking = { uid: string; name: string; nights: string[]; checkin
 /** First name only, and only if it looks like a name: a phone number, an e-mail or a money-shaped first word is dropped (staff chat, D-306). */
 const firstName = (full: string | null | undefined) => {
   const w = String(full ?? '').trim().split(/\s+/)[0] ?? '';
-  return /^\p{L}[\p{L}'’.-]{0,29}$/u.test(w) && !/^reserved$/i.test(w) ? w : '';
+  return /^\p{L}[\p{L}'’.-]{0,29}$/u.test(w) && !/^(reserved|php|peso|pesos)$/i.test(w) ? w : '';
 };
 /**
  * Guest bookings that cover a night this ACTIVE notice still holds (st.blocked). A guest who was already in the house when the notice was
