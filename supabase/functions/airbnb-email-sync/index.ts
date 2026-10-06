@@ -48,6 +48,7 @@ import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.t
 import { welcomeBack } from '../messenger-concierge/persona.ts';
 import { dmRange } from '../messenger-concierge/booking.ts';
 import { maskMoney } from '../_shared/ops-money.ts'; // D-306: OPS never shows booking money, guest-history free text included
+import { gateMessages, handleMessage, logRow, type MessageEvent } from './message.ts'; // session 72: guest-message e-mails -> one /guest review card in OPS
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -92,10 +93,18 @@ Deno.serve(withObservability({ functionName: 'airbnb-email-sync', route: 'ops' }
       { status: 400, headers: { ...CORS, 'Content-Type': 'application/json' } });
   }
 
-  const events: EmailEvent[] = body?.events ?? [];
-  if (!Array.isArray(events) || events.length === 0)
+  const all: EmailEvent[] = body?.events ?? [];
+  if (!Array.isArray(all) || all.length === 0)
     return new Response(JSON.stringify({ inserted: 0, skipped: 0, errors: [] }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } });
+
+  // Session 72: this function is verify_jwt=false, so a message event (it can make an OPS card) must carry the shared secret. The 3 old types are not gated yet:
+  // gate them too once Lloyd has set AIRBNB_SYNC_SECRET and the GAS patch sends the header.
+  const { events, refused } = gateMessages(all, req.headers.get('x-airbnb-sync-secret'), Deno.env.get('AIRBNB_SYNC_SECRET'));
+  if (refused) console.warn(`airbnb-email-sync message_secret_refused count=${refused}`); // no card, no text logged
+  if (!events.length)
+    return new Response(JSON.stringify({ error: 'Unauthorized' }),
+      { status: 401, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
   const results = { inserted: 0, skipped: 0, errors: [] as string[] };
   for (const event of events) {
@@ -109,7 +118,7 @@ Deno.serve(withObservability({ functionName: 'airbnb-email-sync', route: 'ops' }
 // ── Types ──────────────────────────────────────────────────────────────────
 interface EmailEvent {
   gmail_message_id:  string;
-  email_type:        'booking'|'payout'|'cancellation';
+  email_type:        'booking'|'payout'|'cancellation'|'message';
   email_date:        string;
   subject:           string;
   guest_name?:       string;
@@ -128,6 +137,7 @@ interface EmailEvent {
   cancelled_dates?:  string;
   guest_first_name?: string;
   refund_type?:      string;
+  text?:             string; // message events only: the guest's words. Read in memory, never stored or logged.
 }
 interface PayoutDetail {
   guest_name:        string;
@@ -175,14 +185,17 @@ async function processEvent(
   event: EmailEvent,
   results: { inserted: number; skipped: number; errors: string[] }
 ): Promise<void> {
-  const { error: logErr } = await supabase.from('airbnb_email_events').insert({
+  // Session 72: a message event logs only who it names (first name, code); the counts are added after it is read. The text is never stored.
+  const row = event.email_type === 'message' ? logRow(event as MessageEvent, PROPERTY_ID) : {
     property_id:      PROPERTY_ID,
     gmail_message_id: event.gmail_message_id,
     email_type:       event.email_type,
     email_date:       event.email_date,
     subject:          event.subject,
     raw_payload:      event,
-  });
+  };
+  if (!row) { results.skipped++; return; }
+  const { error: logErr } = await supabase.from('airbnb_email_events').insert(row);
   if (logErr) {
     if (logErr.code === '23505') { results.skipped++; return; }
     throw new Error(`log insert: ${logErr.message}`);
@@ -191,8 +204,30 @@ async function processEvent(
     case 'booking':      await handleBooking(supabase, event);      break;
     case 'payout':       await handlePayout(supabase, event);       break;
     case 'cancellation': await handleCancellation(supabase, event); break;
+    case 'message':      await processMessage(supabase, event);     break;
   }
   results.inserted++;
+}
+
+// ── Message handler (session 72, SPEC-42 section 2) ────────────────────────
+async function processMessage(supabase: LegacyDatabaseClient, event: EmailEvent): Promise<void> {
+  const opsChat = Number(TELEGRAM_OPS_CHAT_ID);
+  const log = await handleMessage({
+    db: supabase, propertyId: PROPERTY_ID, opsChatId: TELEGRAM_OPS_CHAT_ID && Number.isFinite(opsChat) ? opsChat : null, esc,
+    today: new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10), // Manila date
+    post: async (chatId, text, reply_markup) => {
+      if (!TELEGRAM_BOT_TOKEN) return false;
+      try {
+        const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup }),
+        });
+        return r.ok;
+      } catch (_) { return false; }
+    },
+  }, event as MessageEvent);
+  await supabase.from('airbnb_email_events').update({ raw_payload: log }).eq('gmail_message_id', event.gmail_message_id);
+  console.log(`airbnb-email-sync message matched=${log.matched} phone=${log.has_phone} names=${log.names_count} carded=${log.carded}`); // counts only: no name, number or text
 }
 
 // ── Booking handler ────────────────────────────────────────────────────────
