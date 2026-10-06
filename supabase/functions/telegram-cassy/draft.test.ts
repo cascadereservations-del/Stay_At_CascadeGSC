@@ -261,5 +261,13 @@ Deno.test('s73 R2-6: the Airbnb prompt says Airbnb, not Messenger, and keeps no 
   assert(!/\bfee\b/i.test(p));
   const ls = p.split('\n');
   ls.forEach((l, i) => { if (/^Q:/.test(l)) assert(/^A:/.test(ls.slice(i + 1).find((x) => x.trim()) ?? ''), l); });
-  assertStringIncludes(p, 'Q: Is there a parking?'); // answered examples stay
+  assertStringIncludes(p, 'Q: Late check out 3pm?'); // a whole, clean example stays
+});
+
+Deno.test('s73 R3: an example that would lose ANY sentence goes whole - "How do I book?" is Messenger-only', () => {
+  const air = draftSystem(SEED_CARD, true, false), msg = draftSystem(SEED_CARD, false);
+  assert(!air.includes('Q: How do I book?') && !air.includes('A: Hi Mara.'));
+  assertStringIncludes(msg, 'Q: How do I book?');
+  assert(!air.includes('Q: Is there a parking?') && msg.includes('Q: Is there a parking?')); // its answer ends on the site link
+  assertStringIncludes(air, 'Q: naa bay parking?');
 });

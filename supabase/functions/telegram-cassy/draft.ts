@@ -116,22 +116,26 @@ const SIGN_OFF = 'Marifel & The Cascade Team\nHotel Comfort. Home Warmth.';
  *  drops the direct-booking FACTS sections and every other sentence that carries a link, a figure or the direct route. */
 const AIRBNB_DROP_SECTION = /^(RATES|PROMOTION|BOOKING & PAYMENT|CONTACT)\b/;
 const DIRECT_RE = /https?:\/\/|www\.|👉|\bPHP\b|₱|\bpesos?\b|\d,\d{3}|\d\s?%|\bgcash\b|\bQR\b|\bmaya\b|instapay|unionbank|\bdirect\b|\bsite\b|\blink\b|\be-?mail\b|@|whats ?app|\+63|\b09\d{2}|\bpromo\w*|\breservation fee\b|\bfee\b|\bdeposit\b/iu;
-/** An example answer reduced to its greeting ("A: Hi Joh!") once its rate and link sentences went. */
-const GREET_ONLY_A = /^A:\s*(?:hi|hello|good \w+)\b[^.!?]*[.!?]?\s*$/i;
+/** A section heading ("REFERENCE REPLIES (...", "BEFORE YOU ANSWER - ...") ends an example. */
+const HEADING = /^[A-Z][A-Z &/,()-]{3,}/;
 export function airbnbPrompt(prompt: string): string {
-  const out = prompt.split('\n\n').filter((b) => !AIRBNB_DROP_SECTION.test(b.trim())).join('\n\n')
-    .replace('replying on Facebook Messenger to prospective guests', 'replying on Airbnb to guests').split('\n')
-    .flatMap((l) => {
-      if (!l.trim()) return [l];
-      const kept = l.split(/(?<=[.!?])\s+/).filter((s) => !DIRECT_RE.test(s)).join(' ');
-      return kept.trim() ? [kept] : [];
-    });
-  // An example question whose answer was stripped would teach the model to leave a question unanswered: it goes too.
-  return out.filter((l, i) => {
-    if (GREET_ONLY_A.test(l)) return false;
-    if (!/^Q:/.test(l)) return true;
-    const next = out.slice(i + 1).find((x) => x.trim());
-    return !!next && /^A:/.test(next) && !GREET_ONLY_A.test(next);
+  const lines = prompt.split('\n\n').filter((b) => !AIRBNB_DROP_SECTION.test(b.trim())).join('\n\n')
+    .replace('replying on Facebook Messenger to prospective guests', 'replying on Airbnb to guests').split('\n');
+  // An example (its Q: line up to the next Q: or heading) that would lose ANY sentence goes whole: a half-answer teaches
+  // the model the wrong shape.
+  const kept: string[] = [];
+  let ex: string[] | null = null;
+  const flush = () => { if (ex && !ex.some((l) => DIRECT_RE.test(l))) kept.push(...ex); ex = null; };
+  for (const l of lines) {
+    if (/^Q:/.test(l)) { flush(); ex = [l]; continue; }
+    if (ex && HEADING.test(l)) flush();
+    (ex ?? kept).push(l);
+  }
+  flush();
+  return kept.flatMap((l) => {
+    if (!l.trim()) return [l];
+    const k = l.split(/(?<=[.!?])\s+/).filter((s) => !DIRECT_RE.test(s)).join(' ');
+    return k.trim() ? [k] : [];
   }).join('\n').replace(/\n{3,}/g, '\n\n');
 }
 /** The leaks a draft is never shown with: regenerated once, then replaced by airbnbFallback. */
