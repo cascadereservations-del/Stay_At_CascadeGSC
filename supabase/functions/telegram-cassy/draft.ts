@@ -191,8 +191,8 @@ export function airbnbTone(m: string, calm: boolean): string[] {
   if (toneRules(m, 'en', true).includes('urgency')) v.push('urgency');
   // s73 round 2: a bare domain counts as a link - airbnb.com included (the register allows no link at all).
   if (/https?:\/\/|www\.|\b[\w-]+\.(?:com|ph|me|net|org|ly)\b|\S+@\S+\.\w|(?:(?:\+?63|\b0)\s?|\b)9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\bgcash\b|\bqr\b|\bmaya\b|\bbank transfer\b|\bwhats ?app\b|\bviber\b|(?<!airbnb )\bmessenger\b|\b(?:facebook|instagram|telegram|fb)\b|\bour page\b(?! on airbnb)|\boutside airbnb\b|\bon google\b|\bgoogle (?:us|it)\b/i.test(m)) v.push('off_platform');
-  if (/\bbook(?:ing)?\s+direct(?:ly)?\b(?!\s+(?:through|on|via|in) (?:the )?airbnb)|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b|\b(?:contact|message|text|call|reach|e-?mail|pay|reserve with|book with) us directly\b|\bbetter deal\b|\bdeposit\b/i.test(m)) v.push('direct_booking');
-  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\d\s?%(?!\s?(?:ready|sure|safe|clean|complete))|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night|nightly)|\b\d+(?:\.\d+)?\s?k\b/i.test(m) || /\bP\d/.test(m)) v.push('price');
+  if (/\bbook(?:ing)?\s+direct(?:ly)?\b(?!\s+(?:through|on|via|in) (?:the )?airbnb)|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b|\b(?:contact|message|text|call|reach|e-?mail|pay|reserve with|book with) (?:me|us) directly\b|\bbetter deal\b|\bdirect(?:ly)?\b[^.!?\n]{0,60}\b(?:text|message|call|whats ?app|viber|e-?mail|dm|pm) (?:me|us)\b|\b(?:pay|send|transfer|settle)\w*\s+(?:\w+\s+){0,2}deposit\b|\bdeposit\s+(?:of\s+)?(?:PHP|₱|P)?\s?\d/i.test(m)) v.push('direct_booking');
+  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\b(?!100\b)\d+(?:\.\d+)?\s?%(?!\s?(?:ready|sure|safe|clean|complete)|\s?of (?:our )?(?:guests|reviews))|\b(?:rate|price|drops? to|down to|for)\s+(?:is\s+|of\s+)?(?!20\d\d\b)\d{3,5}\b|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night|nightly)|\b\d+(?:\.\d+)?\s?k\b/i.test(m) || /\bP\d/.test(m)) v.push('price');
   if (/\b(discount of|we can (?:offer|give) (?:you )?(?:a )?(?:discount|lower|special)|(?:full|a) refund (?:is|will be)|you(?:'ll| will) be refunded|late check-?out is fine|yes,? you can (?:check out|stay) late)\b/i.test(m)) v.push('promise');
   if (!SIGN_OFF_RE.test(m)) v.push('no_sign_off');
   if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
@@ -238,6 +238,8 @@ export function draftPlatform(text: string, label?: Platform): { platform: 'airb
 export async function draftGuestReply(db: any, guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform } = {}): Promise<string[]> {
   const src = draftPlatform(guestText, thread.platform), platform = src.platform;
   guestText = src.text;
+  // A bare "messenger" / "airbnb:" marker carries no guest message: ask for it, never draft from nothing.
+  if (!guestText.trim()) return ['✍️ Please paste the guest message after the marker, for example "messenger: Hi po, available ba Oct 3?", or send a screenshot of the chat.'];
   // deno-lint-ignore no-explicit-any
   const ctx = guestName ? guestContextLines(await guestContext(db, { name: guestName }).catch(() => ({} as any))) : [];
   const brain = platform === 'airbnb' ? null : await conciergeDraft(thread.before ?? [], guestText, guestName).catch(() => null);

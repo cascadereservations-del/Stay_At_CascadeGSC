@@ -320,3 +320,31 @@ Deno.test('s73 R4-F6: valedictions and decorated sign-off lines above the real s
   for (const tail of ['Warm regards,\nMarifel & The Cascade Team\nHotel Comfort. Home Warmth.', 'Marifel 🌿', 'Marifel & The Cascade Team 💚\nHotel Comfort. Home Warmth.', 'Best regards,\nMarifel'])
     assertEquals(airbnbFinish(`${body}\n\n${tail}`, 'en', false), `${body}\n\n${SIGN}`, tail);
 });
+
+// ---- s73 round 5 (Opus re-check of 0c783f5) ----
+import { draftGuestReply } from './draft.ts';
+const leakWith = (s: string) => airbnbLeaks(WARM.replace('just send', `${s}, just send`));
+
+Deno.test('s73 R5-1: "deposit" leaks only next to pay/send/transfer/settle or a figure', () => {
+  for (const s of ['you may deposit your luggage at the porch', 'Airbnb holds any security deposit']) assertEquals(leakWith(s), [], s);
+  for (const s of ['Pay a deposit', 'send the deposit', 'a deposit of 1,000']) assert(leakWith(s).length, s);
+});
+
+Deno.test('s73 R5-2: "100%" and "% of guests/reviews" are not prices; a discount percentage still is', () => {
+  for (const s of ['the unit is 100% sanitized', 'the EcoFlow is charged to 100%', '98% of guests rate it five stars', '95% of reviews mention the quiet']) assertEquals(leakWith(s), [], s);
+  for (const s of ['10% off', 'We give 10% for 5 nights']) assert(leakWith(s).includes('price'), s);
+});
+
+Deno.test('s73 R5-3: a bare "messenger" marker with no guest text asks for the message and never calls a model', async () => {
+  const db = new Proxy({}, { get: () => { throw new Error('db used'); } });
+  for (const t of ['messenger', 'messenger:', '  airbnb:  ']) {
+    const out = await draftGuestReply(db, t, null);
+    assertEquals(out.length, 1, t);
+    assertStringIncludes(out[0], 'paste the guest');
+  }
+});
+
+Deno.test('s73 R5-4: direct offers, a bare rate figure and "directly ... text us" leak', () => {
+  for (const s of ['Message me directly and I can lower it', 'Our rate drops to 1600', 'Book directly on Airbnb or text us', 'the price is 1500']) assert(leakWith(s).length, s);
+  for (const s of ['book directly through the Airbnb app', 'see you in 2026', 'for 2 guests']) assertEquals(leakWith(s), [], s);
+});
