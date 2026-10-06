@@ -32,8 +32,8 @@ export function promoCases(card: RateCard, now = new Date(), booked: Set<string>
     const tot = (v: number) => new RegExp(v.toLocaleString('en-US'));
     if (inOpen) out.push({ id: 'promo-inside-flow-en', group: 'promo', turns: [{ say: `Hi, is ${inside} available? 2 adults`, kind: 'flow', lang: 'en', must: [new RegExp(p.name), pr, base, tot(inQ.total), /hold (that night|those dates) for you/i], mustNot: no }] });
     if (stOpen) out.push({ id: 'promo-straddle-flow-tl', group: 'promo', turns: [{ say: `Available po ba ang ${straddle}? 2 kami`, kind: 'flow', lang: 'tl', must: [pr, tot(stQ.total), tot(stQ.tier_rate)], mustNot: no }] });
+    if (stOpen) out.push({ id: 'promo-rate-dated-en', group: 'promo', turns: [m(`How much would ${straddle} cost?`, 'en', { must: [tot(stQ.total), pr], mustNot: no })] }); // R2-8: same nights
     out.push(
-      { id: 'promo-rate-dated-en', group: 'promo', turns: [m(`How much would ${straddle} cost?`, 'en', { must: [tot(stQ.total), pr], mustNot: no })] },
       { id: 'promo-ask-en', group: 'promo', turns: [m('Do you have any promo this month or next?', 'en', { must: [pr, new RegExp(p.name, 'i')], mustNot: [...no, /\bno (current |ongoing )?promo/i] })] },
       { id: 'promo-ask-tl', group: 'promo', turns: [m('May promo po ba kayo ngayong October?', 'tl', { must: [pr], mustNot: [...no, /walang promo/i] })] },
     );

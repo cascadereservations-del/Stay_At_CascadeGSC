@@ -345,7 +345,7 @@ export function lintReply(reply: string, guestText = '', opts: { firstTurn?: boo
     const firstPara = (ps.length > 1 && GREET_ONLY_RE.test(ps[0]) ? ps[1] : ps[0]) ?? '';
     // D-173: a disclosure answers the bot question; without this every "are you a bot?" turn logged a false no_answer.
     // Golden AFTER 2026-09-30: Bislish answers ("Naa, Ben.", "Ang Cascade kay hilom...") read as no answer.
-    const answers = /\b(yes|yes po|oo|opo|naa|naay|kay|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|\bi'?m cassy\b|\bako(?: po)? si cassy\b|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim());
+    const answers = /\b(yes|yes po|oo|opo|naa|naay|kay|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|not open|na-?book|we have|meron|wala|it is|it's|we can|we're|we are|\bi'?m cassy\b|\bako(?: po)? si cassy\b|the (rate|nearest|nightly|unit|home)|₱|php)\b/i.test(firstPara) && !/\?\s*$/.test(firstPara.trim().split(/(?<=[.!?])\s+/)[0] ?? ''); // R2-7: the opening sentence asks back, as golden-score R1 reads it - an answer that closes on the hold question still answers
     if (!answers) v.push('no_answer');
   }
   return v;

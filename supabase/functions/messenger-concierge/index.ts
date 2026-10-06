@@ -17,7 +17,7 @@ import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { CANCEL_RE, PAY_HOW_RE, payHowReply, answer, isChatYes, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { CANCEL_RE, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
 import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
@@ -111,22 +111,40 @@ export function stayAnchor(text: string, lang = 'english'): string {
     : [`for ${n} nights your direct rate comes down to ${peso(tier.rate)} per night from the standard ${peso(std)}`, `about ${peso(n * tier.rate)} for the stay instead of ${peso(n * std)}`, `so you keep about ${peso(n * (std - tier.rate))}`, extras.slice(2)];
   return `[Stay anchor for ${n} nights - say it in THIS order, in one warm paragraph: (1) "${q[0]}", (2) "${q[1]}", (3) "${q[2]}"${q[3] ? `, (4) "${q[3]}"` : ''}. Do not state the percentage; do not use the word "discount" more than once. If their dates are not known, put the question about which dates they are looking at in "ask".] `;
 }
-/** s73 F2 (golden first-two-months: "details regarding our booking good for two months" got no figures): a rate word, or a
- *  month-scale stay named, is a price question - the stay figures ride on it. */
-export const rateAsked = (text: string): boolean => /\b(rate|price|magkano|how much|pila|tagpila)\b/i.test(text) || (stayNights(text) ?? 0) >= 28;
-/** SPEC-34 (D-262) + s73 F1 (golden fu-chat-yes-en: "how much for Oct 19 to 21?" got no figures and the model said PHP 5,073,
- *  three nights, for two): a dated stay gets code's figures (rateLine), promo or not, so the model never does the arithmetic.
- *  A length named beside a single date ("Oct 19, 3 nights") keeps the length's anchor - one date alone reads as one night. */
-export function priceAnchor(guestTexts: string[], now: Date, lang = 'english'): string {
-  const said = guestTexts.slice(-3), stay = stayFrom(said, now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null, named = stayNights(said.join(' '));
-  if (stay && sq && sq.nights <= 60 && (sq.q.promo_nights > 0 || !named || named === sq.nights))
-    return `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3Of(lang) } as Flow, now)}" Never mention any other "was" or "usual" price.] `;
-  return stayAnchor(said.join(' '), lang);
+/** s73 F2/R2-3: a price asked in words - booking.ts PRICE_RE (how much, magkano, rate, cost, hm...) and the plurals, "total",
+ *  "pricing", "presyo", "bayad" ("Hi, what would Oct 19 to 21 cost for 2?" got no figures). */
+export const priceAsked = (text: string): boolean => PRICE_RE.test(text) || /\b(rates|prices|pricing|costs?|total|presyo|bayad)\b/i.test(text);
+/** s73 F2 (golden first-two-months: "details regarding our booking good for two months" got no figures): a price asked, or a
+ *  month-scale stay named, gets the stay figures. Only priceAsked closes on the hold question (R2-8). */
+export const rateAsked = (text: string): boolean => priceAsked(text) || (stayNights(text) ?? 0) >= 28;
+/** s73 R2-1: the stay being priced, from the guest's last three messages. The newest dated message wins: two dates are the stay
+ *  whatever length word sits beside them ("Oct 19 to 21, 3 days 2 nights" is 2 nights); one date takes the length named
+ *  ("Oct 19, 3 nights"), else one night. null with no future date. */
+export function pricedStay(guestTexts: string[], now: Date): { checkin: string; checkout: string } | null {
+  const said = guestTexts.slice(-3), today = dayStr(new Date(now.getTime() + 8 * 3_600_000)); // Manila
+  for (const t of [...said].reverse()) {
+    const d = parseDates(t, now);
+    if (!d[0] || d[0] < today) continue;
+    if (d[1] && d[1] > d[0]) return { checkin: d[0], checkout: d[1] };
+    const n = stayNights(t) ?? stayNights(said.join(' '));
+    return { checkin: d[0], checkout: addDays(d[0], n && n >= 2 && n <= 60 ? n : 1) };
+  }
+  return null;
 }
-/** s73 F7 (golden fu-checkout-steps: the steps came without the time): what to do before check-out starts with when. A late
- *  check-out ask is not this - FACTS answer it against the calendar. */
+/** SPEC-34 (D-262) + s73 F1 (golden fu-chat-yes-en: "how much for Oct 19 to 21?" got no figures and the model said PHP 5,073,
+ *  three nights, for two): a dated stay gets code's figures (rateLine), promo or not, so the model never does the arithmetic;
+ *  with no date, a named length gets stayAnchor. `total` is the stay total said, for the D-270 "already given" check. */
+export function priceAnchor(guestTexts: string[], now: Date, lang = 'english'): { text: string; total: number | null } {
+  const said = guestTexts.slice(-3), stay = pricedStay(said, now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null;
+  if (stay && sq && sq.nights <= 60)
+    return { text: `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3Of(lang) } as Flow, now)}" Never mention any other "was" or "usual" price.] `, total: sq.total };
+  const text = stayAnchor(said.join(' '), lang), n = stayNights(said.join(' '));
+  return { text, total: text && n ? n * tierRate(currentCard(), n) : null };
+}
+/** s73 F7 (golden fu-checkout-steps: the steps came without the time): what to do before check-out starts with when. R2-8: only
+ *  a question about leaving ("before check out", "check-out steps") - not "check out the steps to book", not a late check-out. */
 export const checkoutHint = (text: string): string =>
-  /\bcheck[- ]?out\b/i.test(text) && /\b(before|need to do|steps?|what (do|should)|gagawin|bago|buhaton|unsa(y|on)?|procedure|instructions?|reminders?)\b/i.test(text) && !/\b(late|extend|extension|after)\b/i.test(text)
+  /\b(before|bago|prior to|upon)\s+(?:(?:i|we|kami|ako|mo)\s+)?(?:mag-?\s*)?check(?:ing)?[- ]?out\b|\bcheck(?:ing)?[- ]?out\s+(?:steps?|procedures?|process|instructions?|reminders?|rules?|checklist)\b/i.test(text) && !/\b(late|extend|extension|after)\b/i.test(text)
     ? '[Check-out is by 12:00 noon: say the time in your first sentence, then the steps from FACTS.] ' : '';
 /** SPEC-39 3.3 (D-300.4): a discount ask or a price objection ("medyo mahal po", "a bit expensive") - the host gets the card.
  *  "hindi naman mahal" / "not expensive at all" says the opposite and is not one. */
@@ -1020,7 +1038,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       thread.history.filter((h) => h.role === 'guest').map((h) => h.text), thread.history.filter((h) => h.role === 'bot').slice(-1)[0]?.text ?? '', now))) {
     flow = start(startText, now); // session 49: a dated "can I book" and a yes to our own chat offer both start here (bookingStart)
     // s73 F5: a yes to our offer started from an earlier message whose question was already answered - only the flow speaks.
-    if (startText !== text && isChatYes(text)) flow = { ...flow, asked: null, question: false };
+    // R2-4: the stay is the one we quoted and offered to hold (pricedStay: one date = one night unless a length was named).
+    if (startText !== text && isChatYes(text)) {
+      const held = flow.checkin && !flow.checkout ? pricedStay(thread.history.filter((h) => h.role === 'guest').map((h) => h.text), now) : null;
+      flow = { ...flow, asked: null, question: false, ...(held && held.checkin === flow.checkin ? { checkout: held.checkout, step: 'pax' as const } : {}) };
+    }
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
     // D-222: the calendar is read whenever both dates are known, not only on an "available" word - "book Oct 10 to 12
@@ -1085,18 +1107,21 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const context = (await availabilityBlock(db)) + (await pendingBlock(db, psid)) + guestDatesBlock(guestTexts) + stateBlock + (house ? `\n\n${houseBlock(house.rows)}` : '');
       // The dates also ride on the guest turn: the system-side block alone was ignored for a
       // Bisaya late check-out question (live 2026-09-13) and the model asked for dates again.
+      // SPEC-34 (D-262) + s73 F1: the stay being priced (pricedStay) gets code's figures, so the model never does the arithmetic.
+      const stay = pricedStay(guestTexts, now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null;
       const datesKnown = [...new Set(guestTexts.join(' \n ').match(DATES_RE) ?? [])].slice(-3);
+      // s73 R2-6: a day-first date ("19 to 21 Oct") is outside DATES_RE but read by parseDates - the dates are known all the same.
+      if (!datesKnown.length && stay) datesKnown.push(dmRange(stay.checkin, stay.checkout));
       const datesHint = datesKnown.length ? `[Guest's dates already given: ${datesKnown.join('; ')} - answer for these days, do not ask for dates.] ` : '';
       // Capacity rides on the guest turn too: "pwede 5 adults?" got "we can accommodate 5 adults" (live 2026-09-13).
       const capHint = /\b([4-9]|1\d)\s*(adults?|pax|persons?|people|guests?|tao|matanda)\b/i.test(text) ? '[Capacity is a hard limit: 3 adults, or 3 adults + 1 child, or 2 adults + 2 children. This group does not fit - say so warmly and suggest a larger place; never say we can accommodate them.] ' : '';
-      // SPEC-34 (D-262) + s73 F1: a dated stay gets code's figures (priceAnchor), so the model never does the arithmetic.
-      const stay = stayFrom(guestTexts.slice(-3), now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null;
-      const rawAnchor = priceAnchor(guestTexts, now, lang);
+      const priced = priceAnchor(guestTexts, now, lang);
       // D-270 (live probe 2026-09-28: "Can you do 1,500?" repeated the whole month quote given one turn earlier): figures or a
       // promotion already said in the last three replies are referred to, not said again (protocol rule 4, no repetition).
       const recentBot = thread.history.filter((h) => h.role === 'bot').slice(-3).map((h) => h.text).join('\n');
-      const figures = (rawAnchor.match(/PHP [\d,]+/g) ?? []).filter((a) => a !== peso(currentCard().base));
-      const anchor = figures.some((a) => recentBot.includes(a)) ? '[The stay figures were already given in this chat: refer to them in a few words, do not repeat them.] ' : rawAnchor;
+      // s73 R2-2: matched on the stay TOTAL - a shared per-night rate ("PHP 1,691" for Oct 19-21 and Oct 26-29) is not the same quote.
+      const quotedTotal = priced.total, given = !!quotedTotal && (recentBot.includes(peso(quotedTotal)) || recentBot.includes(`₱${quotedTotal.toLocaleString('en-US')}`));
+      const anchor = given ? '[The stay figures were already given in this chat: refer to them in a few words, do not repeat them.] ' : priced.text;
       const houseMixed = negotiate && houseAsk; // D-270/271: a house rule (keyword or Jev) the canned line does not cover - the rule, then everything else
       // D-300.4 (Lloyd 2026-10-05, "medyo mahal po"): empathy first, one value line with the stay TOTAL only, the host line
       // (code, English), and one soft question - never a rate lecture, a percentage or a saving.
@@ -1221,7 +1246,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // s73 F5 (D-297.3; golden fu-chat-yes-en: a dated price answer closed on nothing, so "Yes please" had no offer to accept):
       // it closes on the flow's own hold question, which bookingStart's CHAT_OFFER_RE knows - only while the calendar shows
       // the stay open (never an offer to hold a taken night).
-      let holdQ = stay && sq && !flow && !hostAsk && !promoAsk && !quiet && rateAsked(text) ? holdOffer(sq.nights === 1, l3, false) : null;
+      let holdQ = stay && sq && sq.nights <= 60 && !capHint && !flow && !hostAsk && !promoAsk && !quiet && priceAsked(text) ? // R2-5, R2-8
+         holdOffer(sq.nights === 1, l3, false) : null;
       if (holdQ) { const n = await bookedNightsFor(db, { ...stay } as Flow); if (!n || n.size) holdQ = null; }
       let composed = compose({ answer, ask: holdQ ?? out.ask ?? null }, frame(l3));
       // Lloyd 2026-09-30 ("if it's too long then use the english reply"; D-245: English passes for a Taglish guest): a Taglish

@@ -60,7 +60,7 @@ const AVAIL_RE = /\b(available|avail|vacant|bakante|open|free|may (?:vacancy|slo
 const OFFER_YES_RE = /^\W*(yes|yes please|yes po|sure|of course|ok(ay)?( po)?|sige( po)?|oo( po)?|opo|go|please do|proceed|set (it|them) aside)\b/i;
 const OFFER_NO_RE = /^\W*(no|not (yet|now)|hindi( po)?|dili|wala( pa)?|later|maybe later)\b/i;
 const ASK_RE = /\?|\b(magkano|how much|pwede|can (i|we)|is (it|there)|are there|meron)\b/i;
-const PRICE_RE = /\b(how much|magkano|tagpila|pila|price|rate|cost|hm)\b/i;
+export const PRICE_RE = /\b(how much|magkano|tagpila|pila|price|rate|cost|hm)\b/i;
 const QUESTION_WORD_RE = /\b(magkano|how|what|where|when|which|why|do you|does|can|could|pwede|puwede|is (it|there)|are there|meron|ano|saan|paano|asa|unsa)\b/i;
 /** Moved here from voice.ts (which imports this file) so start() can use it without an import cycle. */
 export const AMENITY_RE = /\b(amenities|amenity|included|inclusions|photos?|pictures?|pics|wifi|wi-fi|internet|aircon|air-?con|\bac\b|kitchen|tv|netflix|washing|laundry|parking)\b|what'?s (it|the place|the unit|the home) like/i;
@@ -162,7 +162,7 @@ export function isChatYes(text: string): boolean {
 const PAY_ASK_RE = /\b(payment (link|details?|options?|methods?|instructions?)|pay(ment)? (via|thru|through|using)|how (do|can|will|should) (i|we) pay|where (do|can|should) (i|we) (pay|send)|gcash (number|no|details?|account|qr)|(send|give)( me| us)?( the)? (qr|account|bank|gcash|payment)|qr ?code|account (details?|number|name)|bank details?|paano (po )?(mag ?bayad|magbayad|mag-bayad)|saan (po )?(mag ?bayad|magbabayad)|asa (mi )?(mo ?bayad|magbayad))\b/i;
 // SPEC-39: a first reply with the dates known no longer carries the chat invitation (D-299.10), so the model's own offer to
 // hold or book those dates is an offer a "yes please" accepts too.
-const CHAT_OFFER_RE = /\b(arrange\b[^.\n]{0,60}\b(in (the|this) chat|here in (the )?chat|sa chat)|(right )?here in (the|this) chat|dito (po )?sa chat|diri sa chat|(hold|reserve|book|set aside) (those|these|the|your) (dates|nights?)|i-?hold\b[^.?!\n]{0,20}\bdates)\b/i;
+const CHAT_OFFER_RE = /\b(arrange\b[^.\n]{0,60}\b(in (the|this) chat|here in (the )?chat|sa chat)|(right )?here in (the|this) chat|dito (po )?sa chat|diri sa chat|(hold|reserve|book|set aside) (those|these|that|the|your) (dates|nights?)|i-?hold\b[^.?!\n]{0,20}\b(dates|night))\b/i; // R2-4: holdOffer's one-night form too
 
 /**
  * Should this message start the in-chat booking flow, and from which guest text? Null means no.

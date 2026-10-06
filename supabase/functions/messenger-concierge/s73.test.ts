@@ -2,7 +2,7 @@
 // Session 73 (GOLDEN-RUN-2026-10-06-spec39-after, 63/82): each golden failure reproduced through the real handle() with the
 // probe effects, an in-memory db and a stubbed model reply (the deployed code path, no network), or through the pure piece.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { parsePax, start, type Flow } from './booking.ts';
+import { bookingStart, parsePax, start, type Flow } from './booking.ts';
 import * as P from './persona.ts';
 import { lintReply, paragraphs } from './voice.ts';
 import { promoCases } from './golden.ts';
@@ -10,7 +10,7 @@ import { SEED_CARD } from '../_shared/cascade-core/pricing.ts';
 import { setProviderKey } from '../_shared/cascade-core/providers.ts';
 
 (Deno as unknown as { serve: unknown }).serve = () => ({ finished: Promise.resolve(), shutdown: () => Promise.resolve() });
-const { checkoutHint, handle, priceAnchor, probeEffects, rateAsked } = await import('./index.ts');
+const { checkoutHint, handle, priceAnchor, priceAsked, probeEffects, rateAsked } = await import('./index.ts');
 
 const now = new Date('2026-10-06T06:00:00Z');
 const ago = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
@@ -51,11 +51,11 @@ async function turn(text: string, bf: Flow | null, history: Array<[string, strin
 const DIGIT_P1 = /^(?:(?!\n\s*\n)[\s\S])*\d/; // golden s63-month: no figure in the greeting's paragraph
 
 Deno.test('s73 F1: a dated price question with no promo night gets code figures - 2 nights, PHP 3,382, never 5,073', async () => {
-  const a = priceAnchor(['Hi, how much for Oct 19 to 21?'], now);
+  const a = priceAnchor(['Hi, how much for Oct 19 to 21?'], now).text;
   assert(a.includes('2 nights') && a.includes('PHP 3,382') && a.includes('PHP 1,691') && !a.includes('5,073'), a);
-  assert(priceAnchor(['magkano po Oct 19 to 21?'], now, 'taglish').includes('PHP 3,382'));
-  // a length named beside one date keeps the length's anchor (one date alone reads as one night)
-  assert(priceAnchor(['Oct 19 po, how much for 3 nights?'], now).includes('3 nights'));
+  assert(priceAnchor(['magkano po Oct 19 to 21?'], now, 'taglish').text.includes('PHP 3,382'));
+  // a length named beside one date is that many nights from it (one date alone reads as one night)
+  assert(priceAnchor(['Oct 19 po, how much for 3 nights?'], now).text.includes('3 nights'));
   // and it reaches the model through handle(): the turn's prompt carries the figures
   const m = stubModel('For Oct 19 to 21, booking directly brings your 2 nights to PHP 1,691 per night, PHP 3,382 for the stay.');
   try {
@@ -145,4 +145,80 @@ Deno.test('s73 F8: promo flow cases pick open promo nights, and step aside when 
   const full = new Set([...nights(11, 19)]);
   assertEquals(ids(full).includes('promo-inside-flow-en') || ids(full).includes('promo-straddle-flow-tl'), false);
   assertEquals(ids(full).includes('promo-ask-en'), true); // the free questions stay
+});
+
+// ---- Round 2 (Fable review of 4a87ba5) ----
+Deno.test('s73 R2-1: two dates are the stay whatever length word sits beside them; a length is read only beside one date', () => {
+  for (const t of ['Oct 19 to 21, 3 days 2 nights, how much?', 'how much for Oct 19 to 21, 3 days?', 'Oct 19 to 21 for a week?']) {
+    const a = priceAnchor([t], now).text;
+    assert(a.includes('PHP 3,382') && !a.includes('5,073') && !/7 nights/.test(a), `${t}: ${a}`);
+  }
+  const a = priceAnchor(['how much for 5 nights?', 'ok what about Oct 19 to 21?'], now).text;
+  assert(a.includes('PHP 3,382') && !/5 nights/.test(a), a);
+  assertEquals(priceAnchor(['how much for 5 nights?'], now).text.includes('5 nights'), true); // no date: the length's anchor
+});
+
+Deno.test('s73 R2-2: "already given" matches the stay total, not a per-night rate two stays share', async () => {
+  const m = stubModel('For Oct 26 to 29 your 3 nights come to PHP 5,073.');
+  try {
+    const prior: Array<[string, string]> = [['how much for Oct 19 to 21?', 'Booking directly with us brings your 2 nights to PHP 1,691 per night instead of the standard PHP 1,780 — PHP 3,382 for the stay.']];
+    await turn('how much for Oct 26 to 29?', null, prior);
+    assert(m.seen[0].includes('PHP 5,073') && !m.seen[0].includes('stay figures were already given'), m.seen[0].slice(0, 300));
+    await turn('how much again for Oct 19 to 21?', null, prior);
+    assert(m.seen[1].includes('stay figures were already given'), m.seen[1].slice(0, 300));
+  } finally { m.restore(); }
+});
+
+Deno.test('s73 R2-3: cost, total, rates, presyo and bayad are price questions', () => {
+  for (const t of ['Hi, what would Oct 19 to 21 cost for 2?', 'total for Oct 19 to 21?', 'your rates po?', 'pricing?', 'magkano presyo?', 'pila ang bayad?', 'hm po'])
+    assertEquals(priceAsked(t), true, t);
+  assert(priceAnchor(['Hi, what would Oct 19 to 21 cost for 2?'], now).text.includes('PHP 3,382'));
+});
+
+Deno.test('s73 R2-4: a yes to the one-night hold starts the flow in every register, for that one night', async () => {
+  for (const l of ['en', 'tl', 'bis'] as const) {
+    const offerLine = `For Oct 19 the rate is PHP 1,780.\n\n${P.holdOffer(true, l, false)}`;
+    assertEquals(bookingStart(l === 'en' ? 'Yes please' : 'opo', ['how much for Oct 19?'], offerLine, now), 'how much for Oct 19?', l);
+  }
+  const m = stubModel('For Oct 19 the rate is PHP 1,780 for the night.');
+  try {
+    const t1 = await turn('how much for Oct 19?', null);
+    assert(/Shall we hold that night for you\?/.test(t1.reply), t1.reply);
+    const t2 = await turn('Yes please', null, [['how much for Oct 19?', t1.reply]]);
+    assertEquals([t2.saved.booking_flow.checkin, t2.saved.booking_flow.checkout, t2.saved.booking_flow.step], ['2026-10-19', '2026-10-20', 'pax']);
+  } finally { m.restore(); }
+});
+
+Deno.test('s73 R2-5/R2-8: no hold offered to a group that does not fit, past 60 nights, or without a price asked', async () => {
+  const m = stubModel('Here is what we can share for those dates.');
+  try {
+    for (const t of ['how much for Oct 19 to 21 for 5 adults?', 'how much for Oct 10 to Dec 20?', 'Oct 10 to Nov 10, is it quiet?']) {
+      const r = await turn(t, null);
+      assert(!/hold (those dates|that night)/.test(r.reply), `${t}: ${r.reply}`);
+    }
+  } finally { m.restore(); }
+});
+
+Deno.test('s73 R2-6: a day-first date counts as known - figures and no dates question', async () => {
+  const m = stubModel('For Oct 19 to 21, your 2 nights come to PHP 3,382.');
+  try {
+    const r = await turn('how much for 19 to 21 Oct?', null);
+    assert(m.seen[0].includes('PHP 3,382') && m.seen[0].includes("dates already given"), m.seen[0].slice(0, 300));
+    assert(!/which dates|dates are you looking at/i.test(r.reply), r.reply);
+  } finally { m.restore(); }
+});
+
+Deno.test('s73 R2-7: a dated first reply whose answer closes on the hold question is not logged no_answer', () => {
+  const r = P.compose({ answer: 'For Oct 19 to 21, your 2 nights come to PHP 3,382.', ask: P.holdOffer(false, 'en', false) },
+    { lang: 'en', name: 'Ben', greet: true, greetNow: true, followUp: false, flowFollowUp: null, hostLine: '', quiet: false, look: '', decision: false, linkTurn: false, siteShown: false, datesKnown: true, held: { dates: true, pax: false, name: true }, prevBot: '' }).reply;
+  assertEquals(lintReply(r, 'how much for Oct 19 to 21?', { firstTurn: true }), [], r);
+  assert(lintReply('Your mobile number po?', 'is Oct 3 to 4 available?').includes('no_answer')); // a question back still is
+});
+
+Deno.test('s73 R2-8: checkoutHint needs a question about leaving; promo-rate-dated-en steps aside with the straddle', () => {
+  for (const t of ['can I check out the steps to book?', 'check out your page', 'Can we check out late, before 3 pm?']) assertEquals(checkoutHint(t), '', t);
+  for (const t of ['What are the check-out instructions?', 'anything to do before checking out?']) assert(checkoutHint(t).includes('12:00 noon'), t);
+  const full = new Set(Array.from({ length: 9 }, (_, i) => `2026-10-${String(11 + i).padStart(2, '0')}`));
+  assertEquals(promoCases(SEED_CARD, new Date('2026-10-01T00:00:00Z'), full).some((c) => c.id === 'promo-rate-dated-en'), false);
+  assertEquals(promoCases(SEED_CARD, new Date('2026-10-01T00:00:00Z'), null).some((c) => c.id === 'promo-rate-dated-en'), true);
 });
