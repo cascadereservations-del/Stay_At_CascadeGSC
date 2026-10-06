@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your booking — Cascade Hideaway</title>
+<meta name="description" content="Private status page for a Cascade Hideaway direct booking.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#1F1D1A">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Manrope:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/css/legal.css">
+<style>
+  .st-wrap { width: min(41rem, 100% - 2rem); margin: 0 auto; padding: 2.5rem 0 4rem; }
+  .st-brand { font-size: 0.8rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ch-gold-muted); margin: 0 0 1rem; }
+  .st-brand a { color: inherit; text-decoration: none; }
+  h1 { font-family: var(--ch-font-display); font-weight: 400; font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.05; margin: 0 0 1.5rem; color: var(--ch-ink); }
+  .st-card { border: 1px solid var(--ch-line); background: rgb(255 255 255 / 0.6); padding: 1.5rem; margin: 0 0 1.5rem; }
+  .st-card h2 { margin-top: 0; }
+  .st-card h2::before { display: none; }
+  .st-state { font-family: var(--ch-font-display); font-size: clamp(1.7rem, 4vw, 2.2rem); line-height: 1.15; margin: 0 0 0.6rem; color: var(--ch-ink); }
+  .st-ref { font-size: 0.8rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ch-gold-muted); font-weight: 600; margin: 0 0 1rem; }
+  .st-hold { margin: 0 0 1rem; padding: 0.75rem 1rem; background: rgb(201 150 58 / 0.12); border-left: 3px solid var(--ch-gold); font-weight: 500; }
+  .st-grid { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1.25rem; }
+  .st-grid dt { color: var(--ch-muted); }
+  .st-grid dd { margin: 0; color: var(--ch-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .st-steps { list-style: none; margin: 0; padding: 0; }
+  .st-steps li { display: flex; gap: 0.75rem; align-items: baseline; margin: 0.45rem 0; color: var(--ch-muted); }
+  .st-steps li::before { content: ""; flex: none; width: 0.7rem; height: 0.7rem; border: 2px solid var(--ch-warm-stone); border-radius: 50%; transform: translateY(0.05rem); }
+  .st-steps li.done { color: var(--ch-ink); font-weight: 500; }
+  .st-steps li.done::before { background: var(--ch-gold); border-color: var(--ch-gold); }
+  .st-steps small { font-weight: 400; color: var(--ch-muted); }
+  .st-btn { display: inline-block; padding: 0.8em 1.5em; background: var(--ch-cognac); color: var(--ch-cream); border: 0; font: inherit; font-weight: 600; cursor: pointer; }
+  .st-btn:disabled { opacity: 0.55; cursor: default; }
+  .st-note { font-size: 0.92rem; color: var(--ch-muted); }
+  .st-err { color: #8a2b1d; font-weight: 500; }
+  .st-neutral { text-align: center; padding: 2.5rem 1.5rem; }
+  .st-neutral .st-state { margin-bottom: 0.8rem; }
+  @media (max-width: 480px) { .st-grid { grid-template-columns: 1fr; gap: 0; } .st-grid dd { margin-bottom: 0.6rem; } }
+</style>
+</head>
+<body>
+<main class="st-wrap">
+  <p class="st-brand"><a href="index.html">Cascade Hideaway</a> &middot; General Santos City</p>
+  <h1>Your booking</h1>
+  <div id="stView" aria-live="polite"><p class="st-note">Loading your booking&hellip;</p></div>
+
+  <section class="st-card" id="stPolicy" hidden>
+    <h2>Good to know</h2>
+    <p>Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon).</p>
+    <p>A 50% reservation fee, reviewed against availability, secures your requested dates once verified. The remaining balance and a &#x20B1;1,000 refundable security deposit are due at least one day before check-in.</p>
+    <ul>
+      <li>5 or more days before check-in: the reservation fee is fully refunded.</li>
+      <li>Under 5 days before check-in: the reservation fee is retained to cover the reserved dates.</li>
+    </ul>
+    <p class="st-note">Full terms: <a href="booking-terms.html">Booking terms</a>.</p>
+  </section>
+
+  <div class="legal-foot">
+    <a href="index.html">&larr; Back to booking</a>
+    <span>Questions? <a href="tel:+639918538269">+63 991 853 8269</a> &middot; <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a></span>
+  </div>
+</main>
+<script>
+(function () {
+  'use strict';
+  var FN = 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/';
+  var view = document.getElementById('stView');
+  var policy = document.getElementById('stPolicy');
+  var timers = [];
+  var TEXT = {
+    held: ['Your dates are held', 'We are holding your dates while you send the reservation fee. Once you have paid, upload your receipt below. If nothing arrives before the hold ends, the hold is released and nothing is owed.'],
+    awaiting_payment: ['Waiting for your payment', 'Your request is in. Send your payment, then upload your receipt below so we can review it.'],
+    under_review: ['We have your receipt', 'We are matching it against your booking and current availability. This page refreshes on its own.'],
+    confirmed: ['Your booking is confirmed', 'Your reservation payment has been verified. Your exact address, gate code and directions arrive in your personal confirmation message.'],
+    released: ['This hold has ended', 'The hold ended before a payment reached us, so the dates were released. If you would still like to stay, book again or message us and we will check the dates for you.'],
+    cancelled: ['This request is closed', 'This booking request was cancelled. If that is a surprise, contact us with your reference.']
+  };
+  var STEPS = { requested: 'Request sent', paid: 'Payment sent', confirmed: 'Booking confirmed', arrival: 'Arrival details' };
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = text;
+    return n;
+  }
+  function token() {
+    var m = /^#t=([A-Za-z0-9_-]{43})$/.exec(window.location.hash);
+    return m ? m[1] : '';
+  }
+  function peso(n) { return typeof n === 'number' && isFinite(n) ? '₱' + n.toLocaleString('en-PH') : '—'; }
+  function day(iso) {
+    var d = new Date(iso + 'T00:00:00');
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-PH', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  function clearTimers() { timers.forEach(function (t) { clearTimeout(t); clearInterval(t); }); timers = []; }
+  function setView(node) { clearTimers(); view.textContent = ''; view.appendChild(node); }
+
+  function neutral(title, message, retry) {
+    var card = el('section', 'st-card st-neutral');
+    card.appendChild(el('p', 'st-state', title));
+    card.appendChild(el('p', '', message));
+    if (retry) {
+      var b = el('button', 'st-btn', 'Try again');
+      b.type = 'button';
+      b.addEventListener('click', load);
+      card.appendChild(b);
+    }
+    policy.hidden = true;
+    setView(card);
+  }
+
+  function row(grid, label, value) { grid.appendChild(el('dt', '', label)); grid.appendChild(el('dd', '', value)); }
+
+  function holdLine(iso, serverNow) {
+    var end = Date.parse(iso);
+    var skew = Date.parse(serverNow) - Date.now(); /* the server clock decides when the hold ends, not this device */
+    var box = el('p', 'st-hold');
+    var fired = false;
+    function tick() {
+      var left = end - (Date.now() + (isFinite(skew) ? skew : 0));
+      if (left <= 0) { if (!fired) { fired = true; timers.push(setTimeout(load, 2000)); } return; }
+      var mins = Math.floor(left / 60000);
+      var when = new Date(end).toLocaleString('en-PH', { timeZone: 'Asia/Manila', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+      box.textContent = 'Held until ' + when + ' (Philippine time) — about ' + Math.floor(mins / 60) + ' h ' + (mins % 60) + ' min left.';
+    }
+    tick();
+    timers.push(setInterval(tick, 30000));
+    return box;
+  }
+
+  function uploadBlock(s) {
+    var wrap = el('div', '');
+    wrap.appendChild(el('h2', '', 'Upload your receipt'));
+    wrap.appendChild(el('p', 'st-note', 'A screenshot or PDF of your payment, up to 10 MB. We review it personally; it is stored privately.'));
+    var input = el('input', '');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/png,image/webp,application/pdf';
+    input.setAttribute('aria-label', 'Payment receipt file');
+    var btn = el('button', 'st-btn', 'Upload receipt');
+    btn.type = 'button';
+    var msg = el('p', 'st-note');
+    msg.setAttribute('role', 'status');
+    btn.addEventListener('click', function () {
+      var file = input.files && input.files[0];
+      if (!file) { msg.className = 'st-err'; msg.textContent = 'Choose your receipt file first.'; return; }
+      if (file.size > 10 * 1024 * 1024) { msg.className = 'st-err'; msg.textContent = 'That file is over 10 MB. Please send a smaller screenshot.'; return; }
+      btn.disabled = true; msg.className = 'st-note'; msg.textContent = 'Uploading…';
+      fetch(FN + 'upload-booking-receipt', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + s.receipt_upload_token, 'Content-Type': file.type || 'application/octet-stream', 'X-Receipt-Filename': file.name },
+        body: file
+      }).then(function (r) {
+        if (r.ok || r.status === 409) { msg.textContent = 'Receipt received. Thank you.'; timers.push(setTimeout(load, 1200)); return; }
+        btn.disabled = false; msg.className = 'st-err';
+        msg.textContent = r.status === 413 || r.status === 400 ? 'We could not accept that file. Please send a JPG, PNG, WebP or PDF under 10 MB.' : 'The upload did not go through. Please try again, or message us.';
+      }).catch(function () { btn.disabled = false; msg.className = 'st-err'; msg.textContent = 'The upload did not go through. Please check your connection and try again.'; });
+    });
+    wrap.appendChild(input); wrap.appendChild(el('br')); wrap.appendChild(btn); wrap.appendChild(msg);
+    return wrap;
+  }
+
+  function render(s) {
+    var copy = TEXT[s.state];
+    if (!copy) { neutral('We could not read this booking', 'Please contact us with your reference and we will help.', false); return; }
+    var frag = document.createDocumentFragment();
+
+    var card = el('section', 'st-card');
+    card.appendChild(el('p', 'st-ref', 'Reference ' + s.ref));
+    card.appendChild(el('p', 'st-state', copy[0]));
+    if (s.state === 'held' && s.hold_expires_at) card.appendChild(holdLine(s.hold_expires_at, s.server_now));
+    card.appendChild(el('p', '', copy[1]));
+    var grid = el('dl', 'st-grid');
+    row(grid, 'Check-in', day(s.checkin_date) + ' from ' + s.checkin_time);
+    row(grid, 'Check-out', day(s.checkout_date) + ' by ' + s.checkout_time);
+    if (s.nights !== null) row(grid, 'Nights', String(s.nights));
+    if (s.pax !== null) row(grid, 'Guests', String(s.pax));
+    card.appendChild(grid);
+    frag.appendChild(card);
+
+    if (s.money) {
+      var m = s.money, pay = el('section', 'st-card');
+      pay.appendChild(el('h2', '', 'Payment'));
+      var g = el('dl', 'st-grid');
+      row(g, 'Total stay', peso(m.total));
+      row(g, 'Reservation payment', peso(m.reservation_payment) + (s.state === 'confirmed' ? ' — verified' : s.state === 'under_review' ? ' — under review' : ' — due now'));
+      var rest = (typeof m.total === 'number' && typeof m.reservation_payment === 'number') ? Math.max(0, m.total - m.reservation_payment) : null;
+      var today = new Date(isFinite(Date.parse(s.server_now)) ? Date.parse(s.server_now) : Date.now()).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+      var settled = s.state === 'confirmed' && typeof m.balance_due_date === 'string' && m.balance_due_date < today; /* due date passed: a settled guest is not told they owe */
+      if (!settled) row(g, s.state === 'confirmed' ? 'Balance due' : 'Remaining balance', rest === null ? '—' : (rest === 0 ? 'None' : peso(rest) + ' by ' + day(m.balance_due_date)));
+      row(g, 'Security deposit', peso(m.security_deposit) + ' refundable' + (m.balance_due_date ? ', by ' + day(m.balance_due_date) : ''));
+      pay.appendChild(g);
+      frag.appendChild(pay);
+    }
+
+    if (s.timeline) {
+      var tl = el('section', 'st-card');
+      tl.appendChild(el('h2', '', 'Where things stand'));
+      var ol = el('ol', 'st-steps');
+      s.timeline.forEach(function (step) {
+        var li = el('li', step.done ? 'done' : '', STEPS[step.key] || step.key);
+        if (step.key === 'arrival') li.appendChild(el('small', '', ' — sent to you personally once your booking is confirmed'));
+        ol.appendChild(li);
+      });
+      tl.appendChild(ol);
+      frag.appendChild(tl);
+    }
+
+    if (s.can_upload_receipt && s.receipt_upload_token) {
+      var up = el('section', 'st-card');
+      up.appendChild(uploadBlock(s));
+      frag.appendChild(up);
+    }
+
+    var holder = document.createElement('div');
+    holder.appendChild(frag);
+    setView(holder);
+    policy.hidden = !s.money;
+    if (s.state === 'under_review') timers.push(setTimeout(load, 60000));
+  }
+
+  function load() {
+    var t = token();
+    if (!t) { neutral('We could not find this booking', 'Open the private link from your booking confirmation. If you need help, contact us with your reference.', false); return; }
+    fetch(FN + 'guest-access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t, view: 'status' }) })
+      .then(function (r) {
+        if (r.status === 404) { neutral('We could not find this booking', 'This link may be incomplete or no longer active. Check that you copied the whole link, or contact us with your reference.', false); return null; }
+        if (!r.ok) { neutral('We could not load your booking just now', 'This is on our side. Please try again in a moment.', true); return null; }
+        return r.json();
+      })
+      .then(function (data) {
+        if (data === null) return;
+        if (data && data.status) render(data.status);
+        else neutral('We could not load your booking just now', 'This is on our side. Please try again in a moment.', true);
+      })
+      .catch(function () { neutral('We could not load your booking just now', 'Please check your connection and try again.', true); });
+  }
+
+  window.addEventListener('hashchange', load);
+  load();
+})();
+</script>
+</body>
+</html>

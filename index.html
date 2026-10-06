@@ -7201,6 +7201,8 @@
 
       <!-- D: Footer — warm gold CTA + personal host signature -->
       <div class="success-footer">
+        <!-- SPEC-42 s6: private status link from submit-booking (status_url); shown only when the server returned one -->
+        <a class="success-cal-btn" id="successTrackLink" href="stay.html" rel="noopener noreferrer" hidden>Track your booking</a>
         <a class="success-cal-btn" id="successCalBtn" href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener noreferrer"
            aria-label="Add a follow-up reminder to Google Calendar">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
@@ -8895,6 +8897,14 @@
             'Bria Homes, General Santos City 9500' +
             '<p class="stay-address-note">Your exact address, gate code and directions arrive in your personal confirmation message once payment is matched.<\/p>';
           addrBlock.dataset.populated = '1';
+        }
+        /* SPEC-42 s6: the private status link. The token sits in the URL fragment, so no server or referrer ever sees it. */
+        var trackLink = document.getElementById('successTrackLink');
+        if (trackLink) {
+          var statusUrl = data.status_url;
+          if (typeof statusUrl === 'string' && statusUrl.indexOf('https://cascadereservations-del.github.io/Stay_At_CascadeGSC/stay.html#t=') === 0) {
+            trackLink.href = statusUrl; trackLink.hidden = false;
+          } else { trackLink.hidden = true; }
         }
         var wazeBtn = document.getElementById('stayWazeBtn');
         if (wazeBtn) wazeBtn.href = 'https://waze.com/ul?q=Bria%20Homes%20General%20Santos%20City&navigate=yes';
