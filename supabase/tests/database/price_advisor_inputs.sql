@@ -22,12 +22,12 @@ insert into public.staff_access_profiles(user_id, role) values ('e7600000-0000-4
 insert into public.staff_property_access(user_id, property_id) values ('e7600000-0000-4000-8000-0000000000a2', 'e7500000-0000-4000-8000-0000000000a1');
 
 -- Property A, last year Feb-Mar 2025 (night = the date a guest sleeps; a stay 03 -> 08 holds nights 3,4,5,6,7).
-insert into public.airbnb_reservations(property_id, confirmation_code, status, checkin_date, checkout_date, nights, guest_paid, host_service_fee, host_payout) values
-  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV1', 'confirmed', '2025-02-03', '2025-02-08', 5, 8500, 1000, 7000),   -- Feb nights 3-7 = 5; pays 7000 / 5 = 1400 a night
-  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV2', 'confirmed', '2025-02-21', '2025-02-23', 2, null, null, null),   -- Feb nights 21,22 = 2 (Friday and Saturday: a weekend night counts like any other); payout UNKNOWN (null, not 0)
-  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV3', 'confirmed', '2025-03-30', '2025-04-02', 3, 3500, 500, 3000),    -- Mar nights 30,31 = 2 (Apr 1 is April); 3000 / 3 = 1000 a night
-  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV4', 'cancelled', '2025-02-25', '2025-02-27', 2, null, null, null),   -- cancelled: counts for nothing
-  ('e7500000-0000-4000-8000-0000000000a2', 'ZADV5', 'confirmed', '2025-02-12', '2025-02-14', 2, 1100, 99, 999);     -- property B: must not reach A
+insert into public.airbnb_reservations(property_id, confirmation_code, status, checkin_date, checkout_date, guest_paid, host_service_fee, host_payout) values
+  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV1', 'confirmed', '2025-02-03', '2025-02-08', 8500, 1000, 7000),   -- Feb nights 3-7 = 5; pays 7000 / 5 = 1400 a night
+  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV2', 'confirmed', '2025-02-21', '2025-02-23', null, null, null),   -- Feb nights 21,22 = 2 (Friday and Saturday: a weekend night counts like any other); payout UNKNOWN (null, not 0)
+  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV3', 'confirmed', '2025-03-30', '2025-04-02', 3500, 500, 3000),    -- Mar nights 30,31 = 2 (Apr 1 is April); 3000 / 3 = 1000 a night
+  ('e7500000-0000-4000-8000-0000000000a1', 'ZADV4', 'cancelled', '2025-02-25', '2025-02-27', null, null, null),   -- cancelled: counts for nothing
+  ('e7500000-0000-4000-8000-0000000000a2', 'ZADV5', 'confirmed', '2025-02-12', '2025-02-14', 1100, 99, 999);     -- property B: must not reach A
 -- One direct stay recorded twice (inquiry + calendar row): nights 10,11 = 2, counted once.
 insert into public.booking_inquiries(property_id, guest_name, guest_phone, checkin_date, checkout_date, source, status, total_amount)
   values ('e7500000-0000-4000-8000-0000000000a1', 'Synthetic Guest', '0000000000', '2025-02-10', '2025-02-12', 'direct', 'confirmed', 3000);
