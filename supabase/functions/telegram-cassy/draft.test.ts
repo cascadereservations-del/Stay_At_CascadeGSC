@@ -234,7 +234,7 @@ Deno.test('s74 (Fable re-check): echoed figures, banks, rails, socials, contact 
     'search for us online', 'email us', 'send us an e-mail', 'give us a call', 'text me', 'DM us', 'cascade.co', 'cascade.app',
     'reserve directly with us', 'avoid the Airbnb service fee', 'cheaper if you stay with us', 'save on fees'])
     assert(airbnbLeaks(WARM.replace('just send', `${s}, just send`)).length, s);
-  for (const s of ['check-out is 12:00 noon', 'Oct 20-22 for 2 guests', 'on-site parking', 'book directly through Airbnb', 'see you in 2026', 'the Airbnb website'])
+  for (const s of ['check-out is 12:00 noon', 'Oct 20-22 for 2 guests', 'on-site parking', 'book directly through Airbnb', 'see you in 2026', 'the Airbnb website', 'You may call me Marifel', 'Longer stays are cheaper on Airbnb', 'Palawan is a lovely island', 'Hi Maya, welcome'])
     assertEquals(airbnbLeaks(WARM.replace('just send', `${s}, just send`)), [], s);
 });
 
