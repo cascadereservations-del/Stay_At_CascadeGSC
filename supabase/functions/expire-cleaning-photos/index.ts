@@ -1,8 +1,8 @@
 // expire-cleaning-photos v1 (session 72, SPEC-42 section 3 / SPEC-15 phase 2).
 // Weekly, Monday 06:00 Manila (Sunday 22:00 UTC), from pg_cron through pg_net with x-cascade-cron-secret read from Vault.
 // Moves nothing to Drive (Code.gs already did): it only removes the Supabase Storage copy of cleaning photos that are older than
-// 90 days AND confirmed archived in Drive (expire.ts has the full rule). Deletes go through the Storage API, never SQL
-// (a delete from storage.objects removes the row and leaves the bytes). At most 10 sessions per run.
+// 180 days (six months, Lloyd 2026-10-07) AND confirmed archived in Drive (expire.ts has the full rule). Deletes go through the Storage API, never SQL
+// (a delete from storage.objects removes the row and leaves the bytes). At most 30 sessions / 500 photos per run; hitting a cap sends its own OPS line.
 //   POST                 dry run: reports what WOULD go, deletes and tells nobody.
 //   POST ?delete=1       the real run. This is what the cron calls.
 // Silent in OPS when nothing moved.
@@ -58,7 +58,7 @@ Deno.serve(withObservability({ functionName: 'expire-cleaning-photos', route: 'o
       },
       notify: tgOps,
     }, { dry });
-    console.log('expire_cleaning_photos_run', JSON.stringify({ dry, considered: result.considered, expired: result.expired.length, kept: result.kept.length, keptReasons: result.keptReasons, failed: result.failed.length, freedBytes: result.freedBytes }));
+    console.log('expire_cleaning_photos_run', JSON.stringify({ dry, considered: result.considered, expired: result.expired.length, kept: result.kept.length, keptReasons: result.keptReasons, failed: result.failed.length, freedBytes: result.freedBytes, capHit: result.capHit }));
     if (!dry) await (result.failed.length > 0 ? hb('failed', 'REMOVE_FAILED') : hb('succeeded'));
     return json({ ok: result.failed.length === 0, ...result });
   } catch (e) {

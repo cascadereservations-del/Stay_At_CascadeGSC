@@ -1,6 +1,6 @@
 // expire-cleaning-photos: the decision and the run, with no Deno, Supabase or Telegram import so a test drives it whole.
 // SPEC-15 phase 2 / SPEC-42 section 3. A cleaning session's photos leave Supabase Storage only when ALL of these hold:
-//   1. the session is older than 90 days;
+//   1. the session is older than RETENTION_DAYS (180, six months: Lloyd's decision 2026-10-07; it was 90 in SPEC-15);
 //   2. Code.gs recorded its Drive archive: session_folder_id is set and drive_files holds total_photo_count entries,
 //      every one with a Drive file id, and total_photo_count > 0;
 //   3. its meter photos are no longer needed: no meter reading, or a vision verdict that is neither empty nor 'error'
@@ -15,8 +15,9 @@
 
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 
-export const RETENTION_DAYS = 90;
-export const MAX_SESSIONS_PER_RUN = 10;
+export const RETENTION_DAYS = 180;   // six months, Lloyd 2026-10-07 (SPEC-15 first said 90). Nothing here is deleted before this age.
+export const MAX_SESSIONS_PER_RUN = 30;   // wall-clock guard (Edge 150 s); about 11 cleanings a week arrive, so this keeps up
+export const MAX_OBJECTS_PER_RUN = 500;   // hard cap on photos removed in one run; hitting it is reported to OPS and the rest waits a week
 export const CANDIDATE_LIMIT = 300;
 export const BUCKET = 'cleaning-photos';
 
@@ -117,7 +118,9 @@ export interface RunResult {
   keptReasons: Record<string, number>;   // kept, counted per reason, so a permanent keep shows in the response and the run log
   failed: { session: string; error: string }[];
   freedBytes: number;
+  capHit: boolean;   // an eligible session was left for next week because the session or object cap was reached
   opsLine: string | null;
+  capLine: string | null;
 }
 
 const id8 = (id: string) => String(id).slice(0, 8);
@@ -125,11 +128,10 @@ const id8 = (id: string) => String(id).slice(0, 8);
 /** Dry by default. A real delete needs `dry: false`, which the HTTP layer only passes for ?delete=1. */
 export async function runExpiry(deps: Deps, opts: { dry?: boolean } = {}): Promise<RunResult> {
   const dry = opts.dry !== false;
-  const out: RunResult = { dry, considered: 0, expired: [], kept: [], keptReasons: {}, failed: [], freedBytes: 0, opsLine: null };
-  let attempted = 0;   // sessions that reached removeObjects (or would, on a dry run): moved, failed or short, all count against the cap
+  const out: RunResult = { dry, considered: 0, expired: [], kept: [], keptReasons: {}, failed: [], freedBytes: 0, capHit: false, opsLine: null, capLine: null };
+  let attempted = 0, planned = 0;   // sessions / objects that reached removeObjects (or would, on a dry run): moved, failed or short, all count against the caps
   const candidates = await deps.fetchCandidates(cutoffIso(deps.now), CANDIDATE_LIMIT);
   for (const s of candidates) {
-    if (attempted >= MAX_SESSIONS_PER_RUN) break;
     out.considered += 1;
     const g = gate(s, deps.now);
     if (!g.ok) { out.kept.push({ session: id8(s.id), reason: g.reason }); continue; }
@@ -142,7 +144,9 @@ export async function runExpiry(deps: Deps, opts: { dry?: boolean } = {}): Promi
     const stored = new Map<string, number>();
     for (const o of files) { const k = fileSection(o.name); stored.set(k, (stored.get(k) ?? 0) + 1); }
     if (stored.has('other') || [...stored].some(([k, n]) => n > (g.sections.get(k) ?? 0))) { out.kept.push({ session: id8(s.id), reason: 'section_not_archived' }); continue; }
-    attempted += 1;
+    // The cap is checked only for a session that WOULD go, so a pile of permanent keeps never raises the alert.
+    if (attempted >= MAX_SESSIONS_PER_RUN || planned + files.length > MAX_OBJECTS_PER_RUN) { out.capHit = true; break; }
+    attempted += 1; planned += files.length;
     const paths = files.map((o) => `${g.prefix}/${o.name}`);
     if (dry) {
       out.expired.push({ session: id8(s.id), objects: files.length, bytes: files.reduce((n, o) => n + (Number.isFinite(o.size) ? Number(o.size) : 0), 0) });
@@ -164,6 +168,10 @@ export async function runExpiry(deps: Deps, opts: { dry?: boolean } = {}): Promi
     out.opsLine = opsLine(out.expired.length, out.freedBytes, deps.now);
     if (deps.notify) await deps.notify(out.opsLine);
   }
+  if (!dry && out.capHit) {
+    out.capLine = capLine();
+    if (deps.notify) await deps.notify(out.capLine);
+  }
   return out;
 }
 
@@ -176,6 +184,11 @@ export function opsLine(sessions: number, bytes: number, now: Date): string {
   const n = Math.floor(finiteOr0(sessions));
   const mb = Math.round(finiteOr0(bytes) / 1e5) / 10;   // one decimal
   const day = WEEKDAY[new Date(now.getTime() + 8 * 3_600_000).getUTCDay()];   // Manila weekday
-  const what = n === 1 ? '1 cleaning older than 90 days moved off Supabase (it was already in Drive).' : `${n} cleanings older than 90 days moved off Supabase (all ${n} already in Drive).`;
+  const what = n === 1 ? '1 cleaning older than 6 months moved off Supabase (it was already in Drive).' : `${n} cleanings older than 6 months moved off Supabase (all ${n} already in Drive).`;
   return `📦 Photo archive tidy-up — ${day}. ${what} Freed ${mb.toFixed(1)} MB. Nothing else touched.`;
 }
+
+/** The OPS line when a run stopped at its cap. No numbers at all: ops-money hides any 3+ digit number from OPS (D-306), so a count of 500 would read as money.
+ *  The next Monday run carries on from where this one stopped. */
+export const capLine = (): string =>
+  '📦 Photo archive tidy-up reached its weekly limit. More old cleanings are waiting and go next Monday. Nothing is wrong; if this repeats for weeks, tell Lloyd.';
