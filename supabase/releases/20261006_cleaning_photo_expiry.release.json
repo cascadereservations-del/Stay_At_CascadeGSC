@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s72/l9-photo-expiry",
-    "commit": "64f328446dfbff743e5dca0568bead741fedd260"
+    "commit": "97d7a923c01ea9c20a375ceea3450c0e6fe9c804"
   },
   "migrations": [
     "20261006160000_cleaning_photo_expiry.sql"
   ],
   "migration_sha256": {
-    "20261006160000_cleaning_photo_expiry.sql": "554045bdabd8ffbd69b1c72e3ee24e7ed22b611173035efc0bed38f85e12115e"
+    "20261006160000_cleaning_photo_expiry.sql": "5f0516f8d7f976967af7b6d5b82a7f5573e01aa1d6c738b8f2c67bc3b6ccdb56"
   },
   "backup": {
     "required": true,
