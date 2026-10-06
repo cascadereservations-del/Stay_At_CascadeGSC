@@ -3,7 +3,7 @@
 -- Synthetic rows only (psid zz-conv-*, users e7200000-*), every assertion about rows filters on them, so a restored production copy
 -- never interferes. Everything goes with the closing rollback.
 begin;
-select plan(22);
+select plan(23);
 
 select has_function('public', 'concierge_conversations_v1', array['integer'], 'concierge_conversations_v1(int) exists');
 select has_function('public', 'concierge_thread_v1', array['text'], 'concierge_thread_v1(text) exists');
@@ -68,14 +68,16 @@ select is((select last_role || ':' || length(last_text) from public.concierge_co
 select is((select psid_short from public.concierge_conversations_v1(100) where psid = 'zz-conv-new'), left(md5('zz-conv-new'), 8), 'the display handle is 8 characters of the md5');
 select is((select count(*)::int from public.concierge_conversations_v1(1)), 1, 'p_limit caps the list');
 
--- One thread, as the admin.
+-- The admin lists and reads one thread.
 set local request.jwt.claims = '{"sub":"e7200000-0000-4000-8000-0000000006a2","aal":"aal1"}';
+select is((select count(*)::int from public.concierge_conversations_v1(100) where psid like 'zz-conv-%'), 3, 'an active admin can list the conversations too');
 select is((select jsonb_array_length(public.concierge_thread_v1('zz-conv-new') -> 'history')), 4, 'the admin gets the whole history');
 select is((select array_agg(h ->> 'status') from jsonb_array_elements(public.concierge_thread_v1('zz-conv-old-open') -> 'handoffs') h), array['sent', 'open'], 'the thread carries its handoffs, oldest first');
 select is(public.concierge_thread_v1('zz-conv-no-such-thread'), null, 'an unknown thread is null, not an error');
 reset role;
 
--- The rollback body removes both functions.
+-- The two drops below mirror supabase/rollbacks/20261006_concierge_conversations.sql line for line (same order, same signatures).
+-- This copy leaves out "if exists" on purpose: a function that was never created fails here instead of passing silently.
 drop function public.concierge_conversations_v1(int);
 drop function public.concierge_thread_v1(text);
 select is((select count(*)::int from pg_proc where pronamespace = 'public'::regnamespace and proname in ('concierge_conversations_v1', 'concierge_thread_v1')), 0, 'the rollback drops both functions');
