@@ -5,6 +5,9 @@
 --   2. pg_cron 'expire-cleaning-photos-weekly': Sunday 22:00 UTC = Monday 06:00 Manila, calling the function with ?delete=1 and the
 --      Vault cron secret (same pattern as power-watch-hourly; the secret is read when the job runs and is never in this file).
 -- The function deletes nothing without ?delete=1, never a photo without a Drive archive record, and at most 10 sessions a run.
+-- Related finding F2 (2026-09-29 13:46Z turnover with no session_folder_id / drive_files, so nothing here ever expires it): proximate cause:
+-- Edge 150 s wall clock; Code.gs outcome unconfirmed - owner reads the Code.gs execution log for 2026-09-29 13:46Z before any resend.
+-- (submit-cleaning now aborts the GAS wait from a request-start deadline, leaving the Finance alert at least 10 s.)
 -- No table changes. pg_cron is absent from rehearsal and CI copies; the block skips there (same pattern as 20260913160000).
 begin;
 
