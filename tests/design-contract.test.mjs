@@ -14,7 +14,7 @@ test('defines the approved design tokens', () => {
   for (const token of [
     '--ch-ink: #1d1712', '--ch-mahogany: #2b1713',
     '--ch-parchment: #f2ece2', '--ch-bone: #fbf8f2',
-    '--ch-brass: #9b7443', '--ch-line:'
+    '--ch-brass: #7a5a2b', '--ch-line:'
   ]) assert.ok(css.includes(token), `missing ${token}`);
 });
 

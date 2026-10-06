@@ -204,12 +204,12 @@
     :root {
       /* ── Warm Espresso Palette (v3) ── */
       --ch-mahogany:        #1C1006;   /* warm dark espresso — H=57, L=6% */
-      --ch-cognac:          #8B5030;   /* mid-tone bridge — H=53, L=40% */
+      --ch-cognac:          #6E4F22;   /* bronze text (shared palette, D-312) */
       --ch-gold:            #C9963A;
       --ch-warm-stone:      #D4B896;   /* limestone/sand — decorative only on dark */
-      --ch-cream:           #F7F2E8;   /* warm cream surface */
+      --ch-cream:           #F9F6F0;   /* warm cream surface (shared palette, D-312) */
       --ch-parchment:       #FBF7EE;   /* warm parchment */
-      --ch-text:            #1A100A;   /* warm near-black body text */
+      --ch-text:            #2A1F16;   /* warm near-black body text (shared palette, D-312) */
 
       --ch-mahogany-oklch:  oklch(6% 0.04 57);
       --ch-gold-oklch:      oklch(65% 0.12 65);
@@ -220,13 +220,11 @@
       --ch-mahogany-40:     rgb(28 16 6 / 0.40);
       --ch-gold-dim:        oklch(65% 0.12 65 / 20%);
       --ch-gold-hover:      oklch(70% 0.13 65);
-      --ch-gold-muted:      #A07830;
+      --ch-gold-muted:      #6E4F22;   /* small gold text on light: bronze, AA */
       --ch-gold-light:      #E8B84B;
-      --ch-cream-70:        rgb(247 242 232 / 0.70);
-      --ch-cream-45:        rgb(247 242 232 / 0.45);
+      --ch-cream-70:        rgb(249 246 240 / 0.70);
 
       --ch-gold-gradient:   linear-gradient(135deg, #C9963A 0%, #E8B84B 40%, #C9963A 70%, #A07830 100%);
-      --ch-gold-text-grad:  linear-gradient(135deg, #C9963A, #F0C86A, #C9963A);
 
       --ch-font-display:    'Cormorant Garamond', Georgia, serif;
       --ch-font-body:       'Manrope', system-ui, sans-serif;
@@ -263,8 +261,8 @@
       --ch-shadow-card:  0 4px 24px oklch(6% 0.04 57 / 25%);
       --ch-shadow-float: 0 12px 48px oklch(6% 0.04 57 / 35%);
 
-      /* Part 5 addition — warm terracotta error token */
-      --ch-error: #B85840;
+      /* Part 5 addition — error token (shared palette red, D-312) */
+      --ch-error: #B3261E;
     }
 
     /* ── 2. RESET ── */
@@ -770,7 +768,7 @@
       height: 100%;
       padding: 0 1.1em;
       font-family: var(--ch-font-body);
-      font-size: 0.60rem;
+      font-size: var(--step--2);
       font-weight: 500;
       letter-spacing: 0.14em;
       text-transform: uppercase;
@@ -1384,7 +1382,7 @@
 
     .payment-methods { display: flex; flex-wrap: wrap; gap: 0.45em; margin-top: 0.3em; }
     .payment-chip {
-      font-family: var(--ch-font-body); font-size: 0.60rem;
+      font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
       color: var(--ch-gold); border: 1px solid rgb(201 150 58 / 0.30);
       padding: 0.2em 0.6em;
@@ -1819,8 +1817,8 @@
     /* ── Inline error banner ── */
     .booking-error-banner {
       padding: var(--space-s) var(--space-m);
-      background: rgb(184 88 64 / 0.12);
-      border: 1px solid rgb(184 88 64 / 0.35);
+      background: rgb(179 38 30 / 0.12);
+      border: 1px solid rgb(179 38 30 / 0.35);
       border-inline-start: 2px solid var(--ch-error);
       color: rgb(247 242 232 / 0.82);
       font-family: var(--ch-font-body);
@@ -1869,7 +1867,7 @@
     }
     /* Cream-paper dialog — lighter, "done" emotional register */
     .success-dialog {
-      background: #F7F2E8;
+      background: #F9F6F0;
       border: 1px solid rgb(28 16 6 / 0.10);
       box-shadow:
         0 0 0 1px rgb(201 150 58 / 0.12) inset,
@@ -1930,7 +1928,7 @@
     .success-next-steps {
       padding: var(--space-m) var(--space-l);
       display: flex; flex-direction: column; gap: 0.85em;
-      background: #F7F2E8;
+      background: #F9F6F0;
       border-block-end: 1px solid rgb(28 16 6 / 0.09);
     }
     .success-steps-eyebrow {
@@ -1960,7 +1958,7 @@
     .success-reach {
       padding: var(--space-s) var(--space-l);
       display: flex; flex-direction: column; gap: var(--space-xs);
-      background: #F7F2E8;
+      background: #F9F6F0;
       border-block-end: 1px solid rgb(28 16 6 / 0.09);
     }
     .success-reach-label {
@@ -2106,7 +2104,7 @@
       display: block; font-weight: 600; color: rgb(247 242 232 / 0.75); margin-bottom: 0.2em;
     }
     .stay-address-note {
-      font-family: var(--ch-font-body); font-size: 10px; font-weight: 600;
+      font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 600;
       letter-spacing: 0.12em; text-transform: uppercase;
       color: rgb(201 150 58 / 0.50); margin-top: 0.5em;
     }
@@ -2289,8 +2287,8 @@
     /* Error / info banner */
     .cal-error-banner {
       padding: var(--space-s) var(--space-m);
-      background: rgb(184 88 64 / 0.10);
-      border: 1px solid rgb(184 88 64 / 0.30);
+      background: rgb(179 38 30 / 0.10);
+      border: 1px solid rgb(179 38 30 / 0.30);
       border-inline-start: 2px solid var(--ch-error);
       color: rgb(247 242 232 / 0.72);
       font-size: var(--step--1);
@@ -3086,12 +3084,12 @@
     .pay-gcash-delay-note {
       display: flex; align-items: flex-start; gap: 0.75em;
       padding: 0.85em 1em;
-      background: rgb(184 88 64 / 0.10);
-      border: 1px solid rgb(184 88 64 / 0.28);
-      border-left: 3px solid #B85840;
+      background: rgb(179 38 30 / 0.10);
+      border: 1px solid rgb(179 38 30 / 0.28);
+      border-left: 3px solid #B3261E;
     }
     .pay-gcash-delay-icon {
-      flex-shrink: 0; color: #B85840;
+      flex-shrink: 0; color: #B3261E;
       width: 1.1em; height: 1.1em; margin-top: 0.1em;
     }
     .pay-gcash-delay-icon svg { width: 100%; height: 100%; }
@@ -3103,7 +3101,7 @@
       font-family: var(--ch-font-body);
       font-size: var(--step--2); font-weight: 700;
       letter-spacing: 0.04em;
-      color: rgb(184 88 64 / 0.90);
+      color: rgb(179 38 30 / 0.90);
       margin-bottom: 0.3em;
     }
     .pay-gcash-delay-body p {
@@ -4021,12 +4019,12 @@
       max-width: 62ch;
     }
     .faq-answer a {
-      color: var(--ch-cognac, #8B5030);
+      color: var(--ch-cognac, #6E4F22);
       text-decoration: underline;
       text-decoration-color: rgb(139 80 48 / 0.35);
       text-underline-offset: 2px;
     }
-    .faq-answer a:hover { text-decoration-color: var(--ch-cognac, #8B5030); }
+    .faq-answer a:hover { text-decoration-color: var(--ch-cognac, #6E4F22); }
 
     /* ── FAQ tier table — dark embedded card (table uses cream-on-dark colors) ── */
     .faq-tier-card {
@@ -4284,7 +4282,7 @@
       border-color: rgb(201 150 58 / 0.60);
       background: rgb(247 242 232 / 0.09);
     }
-    .qbw-input.is-invalid { border-color: var(--ch-error, #b85840); }
+    .qbw-input.is-invalid { border-color: var(--ch-error, #B3261E); }
     /* Date input calendar icon tint */
     .qbw-input[type="date"]::-webkit-calendar-picker-indicator {
       filter: invert(0.65) sepia(0.4) hue-rotate(5deg) saturate(1.2);
@@ -4372,8 +4370,8 @@
       padding: 0.25em 0.65em;
       border-radius: 3px;
     }
-    .qbw-pay-badge--gcash    { color: #0C7EE3; border: 1px solid rgb(12 126 227 / 0.35); }
-    .qbw-pay-badge--unionbank{ color: #E0A030; border: 1px solid rgb(224 160 48 / 0.35); }
+    .qbw-pay-badge--gcash    { color: #0A62B0; border: 1px solid rgb(10 98 176 / 0.35); }
+    .qbw-pay-badge--unionbank{ color: #8A5A00; border: 1px solid rgb(138 90 0 / 0.35); }
     .qbw-pay-badge--cash     { color: rgb(247 242 232 / 0.45); border: 1px solid rgb(247 242 232 / 0.15); }
 
     /* Error message */
@@ -4490,7 +4488,7 @@
       padding-right: 1.2em;
       text-align: center; text-align-last: center;
     }
-    .hero-bk-select option { background: #1C1006; color: #F7F2E8; }
+    .hero-bk-select option { background: #1C1006; color: #F9F6F0; }
 
     /* Live estimate + error */
     .hero-bk-estimate {
@@ -5000,7 +4998,7 @@
 
   <!-- Quiet Urban Luxury design system — loaded last so its rules win the
        cascade over the legacy inline styles above without needing !important. -->
-  <link rel="stylesheet" href="assets/css/cascade-luxury.css?v=20260825h">
+  <link rel="stylesheet" href="assets/css/cascade-luxury.css?v=20261007a">
 </head>
 
 <body class="theme-quiet-luxury">
@@ -5183,10 +5181,9 @@
 
         <article class="why-direct-item ch-reveal" role="listitem">
           <span class="why-direct-num" aria-hidden="true">02</span>
-          <h3 class="why-direct-item-heading">Talk to the actual host</h3>
+          <h3 class="why-direct-item-heading">Answers right away, a host behind it</h3>
           <p class="why-direct-item-body">
-            Every message reaches Marifel and the team directly.
-            No ticket queues, no chatbot &#x2014; a person who knows this home answers.
+            Cassy, our concierge, answers right away, and Marifel and the team see every message.
           </p>
         </article>
 

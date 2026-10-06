@@ -11,9 +11,9 @@
   --ch-mahogany-soft: #3a211c;
   --ch-parchment: #f2ece2;
   --ch-bone: #fbf8f2;
-  --ch-brass: #9b7443;
+  --ch-brass: #7a5a2b;
   --ch-brass-dark: #76552f;
-  --ch-stone: #766b61;
+  --ch-stone: #5c4d3f;
   --ch-line: rgb(43 23 19 / 14%);
   --ch-success: #2f6b45;
   --ch-danger: #9f3a33;
@@ -314,6 +314,12 @@
   .theme-quiet-luxury .hero-bk { margin: 1.75rem 1.25rem 3rem; }
   .theme-quiet-luxury .luxury-hero-copy .hero-title { font-size: clamp(3.5rem, 17vw, 5.5rem); }
   .theme-quiet-luxury .hero-proof { align-items: flex-start; flex-direction: column; }
+  /* Phone: the thin italic tagline sat on the pale cushion and nearly vanished. */
+  .theme-quiet-luxury .luxury-hero-copy .hero-tagline {
+    color: #fff;
+    font-weight: 500;
+    text-shadow: 0 1px 3px rgb(17 9 7 / .85), 0 0 14px rgb(17 9 7 / .65);
+  }
 }
 
 /* Keep the location line inside the booking card so it never sits behind it. */
@@ -546,7 +552,7 @@
 .theme-quiet-luxury .footer-legal-links,
 .theme-quiet-luxury .footer-legal-links a { color: rgb(247 242 232 / 0.82); }
 .theme-quiet-luxury .footer-legal-links a:hover,
-.theme-quiet-luxury .footer-legal-links a:focus-visible { color: var(--ch-brass); }
+.theme-quiet-luxury .footer-legal-links a:focus-visible { color: #e5c384; }
 
 .theme-quiet-luxury .booking-legal-note {
   margin: .75rem 0 0;
