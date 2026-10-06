@@ -50,6 +50,8 @@ import {
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
 //   cleaning session is recorded first; work-order failures only warn.
 import { withHeader, autoKeyboard } from '../_shared/cascade-core/format.ts';
+import { feeDueText, payDay } from '../_shared/cleaning-fee.ts';
+import { resolveFee } from './fee.ts';
 import { raiseWorkOrder, suggestFix, workOrderCard } from '../_shared/cascade-core/workorders.ts';
 
 // This recovered function predates generated database types. Keep its helper
@@ -141,32 +143,7 @@ function typeLabelOf(cleaningType: string): string {
 }
 
 
-// Resolve cleaner fee from the real cleaner_rate_schedule schema.
-// Latest effective_from <= today; general_rate for deep clean, regular_rate otherwise.
-async function resolveFee(
-  supabase:     LegacyDatabaseClient,
-  propertyId:   string | null,
-  cleaningType: string,
-): Promise<number> {
-  const FALLBACK = 500;
-  try {
-    let q = supabase
-      .from('cleaner_rate_schedule')
-      .select('regular_rate, general_rate, effective_from')
-      .lte('effective_from', new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }))
-      .order('effective_from', { ascending: false })
-      .limit(1);
-    if (propertyId) q = q.eq('property_id', propertyId);
-    const { data: row } = await q.maybeSingle();
-    if (!row) return FALLBACK;
-    const amt = cleaningType === 'deep_clean'
-      ? Number(row.general_rate ?? row.regular_rate)
-      : Number(row.regular_rate);
-    return Number.isFinite(amt) && amt > 0 ? amt : FALLBACK;
-  } catch (_) {
-    return FALLBACK;
-  }
-}
+// The cleaner fee (D-301) lives in ./fee.ts: the schedule row of the clean's pay day, or "rate missing" / "rate could not be read".
 
 async function dispatchTelegram(
   token:        string,
@@ -259,13 +236,15 @@ async function dispatchFinanceCard(
   aftercleanCount: number,
   meterCount:     number,
   totalPhotoCount: number,
+  checkInDate:    string | null,
+  checkOutDate:   string | null,
 ): Promise<void> {
   if (!tgToken || !tgFinanceId) return;
 
   const typeLabel = typeLabelOf(cleaningType);
 
   if (isComplete) {
-    const feeAmount = await resolveFee(supabase, propertyId, cleaningType);
+    const feeAmount = await resolveFee(supabase, propertyId, cleaningType, payDay({ checkout_date: checkOutDate, checkin_date: checkInDate, cleaned_at: new Date().toISOString() }, cleaningDate));
 
     const lines = [
       `\uD83E\uDDF9 *Cleaning Complete \u2014 ${unitName}*`,
@@ -275,7 +254,7 @@ async function dispatchFinanceCard(
       `\uD83D\uDCF7 Photos: ${totalPhotoCount} total  (pre:${precleanCount} | after:${aftercleanCount} | meter:${meterCount})`,
       `\u2705 Completion: 100%`,
       ``,
-      `\uD83D\uDCB0 *Fee due: \u20B1${feeAmount}*`,
+      `\uD83D\uDCB0 *Fee due: ${feeDueText(feeAmount)}*`,
       `\u2139\uFE0F Send /payclean to issue payment card.`,
     ];
     await tgPost(tgToken, 'sendMessage', {
@@ -721,6 +700,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         cleanerName, unitName, cleaningDate, cleaningType,
         isComplete, reasons,
         precleanCount, aftercleanCount, meterCount, totalPhotoCount,
+        checkInDate, checkOutDate,
       ).catch(err => console.warn('[finance-card] non-fatal:', err));
     }
 
