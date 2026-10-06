@@ -10,7 +10,7 @@ import { SEED_CARD } from '../_shared/cascade-core/pricing.ts';
 import { setProviderKey } from '../_shared/cascade-core/providers.ts';
 
 (Deno as unknown as { serve: unknown }).serve = () => ({ finished: Promise.resolve(), shutdown: () => Promise.resolve() });
-const { checkoutHint, handle, priceAnchor, priceAsked, probeEffects, rateAsked } = await import('./index.ts');
+const { checkoutHint, handle, priceAnchor, priceAsked, pricedStay, probeEffects, rateAsked } = await import('./index.ts');
 
 const now = new Date('2026-10-06T06:00:00Z');
 const ago = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
@@ -221,4 +221,39 @@ Deno.test('s73 R2-8: checkoutHint needs a question about leaving; promo-rate-dat
   const full = new Set(Array.from({ length: 9 }, (_, i) => `2026-10-${String(11 + i).padStart(2, '0')}`));
   assertEquals(promoCases(SEED_CARD, new Date('2026-10-01T00:00:00Z'), full).some((c) => c.id === 'promo-rate-dated-en'), false);
   assertEquals(promoCases(SEED_CARD, new Date('2026-10-01T00:00:00Z'), null).some((c) => c.id === 'promo-rate-dated-en'), true);
+});
+
+// ---- Round 3 (Fable re-review of 345b8b8) ----
+const stayOf = (texts: string[]) => { const s = pricedStay(texts, now); return s ? `${s.checkin}..${s.checkout}` : null; };
+Deno.test('s73 R3-1: one incidental date inside the quoted range keeps the range; a yes holds the quoted stay', async () => {
+  const q = 'how much for Oct 19 to 21?';
+  for (const later of ['our flight lands Oct 19 at 2 pm, can we check in early?', 'we leave on Oct 21', 'we leave Oct 21 early, ok?'])
+    assertEquals(stayOf([q, later, 'so how much in total?']), '2026-10-19..2026-10-21', later);
+  assert(priceAnchor([q, 'we leave on Oct 21', 'so how much in total?'], now).text.includes('PHP 3,382'));
+  const r = await turn('Yes please', null, [[q, 'For Oct 19 to 21 your 2 nights come to PHP 3,382.'], ['we leave Oct 21 early, ok?', 'Of course. Shall we hold those dates for you?']]);
+  assertEquals([r.saved.booking_flow.checkin, r.saved.booking_flow.checkout, r.saved.booking_flow.step], ['2026-10-19', '2026-10-21', 'pax']);
+});
+
+Deno.test('s73 R3-2: a date the guest takes back is not the stay', async () => {
+  assertEquals(stayOf(['sorry not Oct 19, Oct 20']), '2026-10-20..2026-10-21');
+  assertEquals(stayOf(['not Oct 19 to 21, Oct 20 to 22 please']), '2026-10-20..2026-10-22');
+  assertEquals(stayOf(['how much for Oct 19 to 21?', 'hindi po Oct 19 to 21, Oct 23 to 25 po']), '2026-10-23..2026-10-25');
+  assertEquals(stayOf(['available po ba Oct 19 to 21? hindi po ba fully booked?']), '2026-10-19..2026-10-21'); // a question tag, not a correction
+  const r = await turn('Yes please', null, [['not Oct 19 to 21, Oct 20 to 22 please, how much?', 'Your 2 nights come to PHP 3,382. Shall we hold those dates for you?']]);
+  assertEquals([r.saved.booking_flow.checkin, r.saved.booking_flow.checkout], ['2026-10-20', '2026-10-22']);
+});
+
+Deno.test('s73 R3-3: a past stay told about is not priced as next year; a 12 noon check-in question still is', () => {
+  assertEquals(stayOf(['last time we stayed Sep 5 to 7, how much now?']), null);
+  assertEquals(stayOf(['we stayed Oct 1 to 3 last year']), null);
+  assertEquals(stayOf(['Oct 19 to 21, can we check in 12 noon? how much?']), '2026-10-19..2026-10-21');
+});
+
+Deno.test('s73 R3-4: past 60 nights the model is told to quote no total, and no hold is offered', async () => {
+  for (const t of ['how much for Oct 10 to Dec 20?', 'how much for 3 months?']) assertEquals(priceAnchor([t], now).text, '[Over 60 nights: quote no total; the host prices long stays.] ', t);
+  const m = stubModel('Our host prices stays this long personally.');
+  try {
+    const r = await turn('how much for Oct 10 to Dec 20?', null);
+    assert(m.seen[0].includes('Over 60 nights: quote no total') && !/hold those dates/.test(r.reply), m.seen[0].slice(0, 200));
+  } finally { m.restore(); }
 });

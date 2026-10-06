@@ -117,16 +117,25 @@ export const priceAsked = (text: string): boolean => PRICE_RE.test(text) || /\b(
 /** s73 F2 (golden first-two-months: "details regarding our booking good for two months" got no figures): a price asked, or a
  *  month-scale stay named, gets the stay figures. Only priceAsked closes on the hold question (R2-8). */
 export const rateAsked = (text: string): boolean => priceAsked(text) || (stayNights(text) ?? 0) >= 28;
-/** s73 R2-1: the stay being priced, from the guest's last three messages. The newest dated message wins: two dates are the stay
- *  whatever length word sits beside them ("Oct 19 to 21, 3 days 2 nights" is 2 nights); one date takes the length named
- *  ("Oct 19, 3 nights"), else one night. null with no future date. */
+/** s73 R3-2: a date the guest takes back ("not Oct 19, Oct 20", "hindi Oct 19 to 21") - the negation directly before a date. */
+const NEGATED_DATE_RE = /\b(?:not|hindi|dili|instead of)\s+(?:po\s+)?(?:on\s+|sa\s+|ang\s+)?(?=(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*\d|\d)[^,.;]+[,;]?/gi;
+/** s73 R3-3: a past stay told about ("last time we stayed Sep 5 to 7") - parseDates would roll it into next year. "noon" is left
+ *  out on purpose: "check in 12 noon on Oct 19" is a stay question. */
+const PAST_STAY_RE = /\b(last (time|year|month)|stayed|dati)\b/i;
+/** s73 R2-1 / R3: the stay being priced, from the guest's last three messages. The newest dated message wins: two dates are the
+ *  stay whatever length word sits beside them ("Oct 19 to 21, 3 days 2 nights" is 2 nights). One date inside a range an older
+ *  message gave ("we leave Oct 21 early") is that range; otherwise it takes the length named ("Oct 19, 3 nights"), else one
+ *  night. A date taken back or a past stay does not count. null with no future date. */
 export function pricedStay(guestTexts: string[], now: Date): { checkin: string; checkout: string } | null {
   const said = guestTexts.slice(-3), today = dayStr(new Date(now.getTime() + 8 * 3_600_000)); // Manila
-  for (const t of [...said].reverse()) {
-    const d = parseDates(t, now);
+  const dates = said.map((t) => PAST_STAY_RE.test(t) ? [] : parseDates(t.replace(NEGATED_DATE_RE, ' '), now));
+  for (let i = said.length - 1; i >= 0; i--) {
+    const d = dates[i];
     if (!d[0] || d[0] < today) continue;
     if (d[1] && d[1] > d[0]) return { checkin: d[0], checkout: d[1] };
-    const n = stayNights(t) ?? stayNights(said.join(' '));
+    const range = dates.slice(0, i).reverse().find((r) => r[1] && r[0] <= d[0] && d[0] <= r[1] && r[0] >= today);
+    if (range) return { checkin: range[0], checkout: range[1] };
+    const n = stayNights(said[i]) ?? stayNights(said.join(' '));
     return { checkin: d[0], checkout: addDays(d[0], n && n >= 2 && n <= 60 ? n : 1) };
   }
   return null;
@@ -136,9 +145,14 @@ export function pricedStay(guestTexts: string[], now: Date): { checkin: string; 
  *  with no date, a named length gets stayAnchor. `total` is the stay total said, for the D-270 "already given" check. */
 export function priceAnchor(guestTexts: string[], now: Date, lang = 'english'): { text: string; total: number | null } {
   const said = guestTexts.slice(-3), stay = pricedStay(said, now), sq = stay ? quoteTotal(stay.checkin, stay.checkout) : null;
-  if (stay && sq && sq.nights <= 60)
+  // s73 R3-4: past 60 nights code quotes nothing (the tiers stop at 60) and neither may the model.
+  const long = '[Over 60 nights: quote no total; the host prices long stays.] ';
+  if (stay && sq && sq.nights > 60) return { text: long, total: null };
+  if (stay && sq)
     return { text: `[Stay figures computed by code for ${dmRange(stay.checkin, stay.checkout)} - say exactly these figures in one warm paragraph: "${rateLine({ checkin: stay.checkin, checkout: stay.checkout, lang: l3Of(lang) } as Flow, now)}" Never mention any other "was" or "usual" price.] `, total: sq.total };
-  const text = stayAnchor(said.join(' '), lang), n = stayNights(said.join(' '));
+  const n = stayNights(said.join(' '));
+  if (!stay && n && n > 60) return { text: long, total: null };
+  const text = stayAnchor(said.join(' '), lang);
   return { text, total: text && n ? n * tierRate(currentCard(), n) : null };
 }
 /** s73 F7 (golden fu-checkout-steps: the steps came without the time): what to do before check-out starts with when. R2-8: only
@@ -1038,10 +1052,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       thread.history.filter((h) => h.role === 'guest').map((h) => h.text), thread.history.filter((h) => h.role === 'bot').slice(-1)[0]?.text ?? '', now))) {
     flow = start(startText, now); // session 49: a dated "can I book" and a yes to our own chat offer both start here (bookingStart)
     // s73 F5: a yes to our offer started from an earlier message whose question was already answered - only the flow speaks.
-    // R2-4: the stay is the one we quoted and offered to hold (pricedStay: one date = one night unless a length was named).
+    // R2-4 / R3-1: the stay is the one we quoted and offered to hold - pricedStay over the same messages, both dates, so an
+    // incidental later date ("we leave Oct 21 early") or a corrected one never becomes the held night.
     if (startText !== text && isChatYes(text)) {
-      const held = flow.checkin && !flow.checkout ? pricedStay(thread.history.filter((h) => h.role === 'guest').map((h) => h.text), now) : null;
-      flow = { ...flow, asked: null, question: false, ...(held && held.checkin === flow.checkin ? { checkout: held.checkout, step: 'pax' as const } : {}) };
+      const held = flow.checkin ? pricedStay(thread.history.filter((h) => h.role === 'guest').map((h) => h.text), now) : null;
+      flow = { ...flow, asked: null, question: false, ...(held ? { checkin: held.checkin, checkout: held.checkout, step: flow.pax ? 'offer' as const : 'pax' as const } : {}) };
     }
     // Protocol rule 1 - answer what was asked before asking anything. Availability is answered from the
     // calendar here (exact, no model); any other question goes to the model with the flow's ask appended.
