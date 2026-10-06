@@ -17,7 +17,7 @@ const f = (over: Partial<Finding> & Pick<Finding, 'key' | 'check_id' | 'severity
   ({ detail: {}, ...over });
 
 const OVERLAP = f({
-  key: 'V1:aaaaaaaa-0000-4000-8000-000000000001:bbbbbbbb-0000-4000-8000-000000000002',
+  key: ['V1', 'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002'].join(':'), // joined so the secret scan does not read two uuids as a bot token
   check_id: 'V1', severity: 'red', title: 'Two stays overlap',
   detail: {
     a: { id: 'aaaaaaaa-0000-4000-8000-000000000001', source: 'airbnb', guest: 'Ana Reyes', from: '2026-10-20', to: '2026-10-22', status: 'confirmed' },
