@@ -114,8 +114,8 @@ export function stayAnchor(text: string, lang = 'english'): string {
 /** SPEC-39 3.3 (D-300.4): a discount ask or a price objection ("medyo mahal po", "a bit expensive") - the host gets the card.
  *  "hindi naman mahal" / "not expensive at all" says the opposite and is not one. */
 export const priceObjection = (text: string): boolean =>
-  /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo|mahal|expensive|pricey)\b/i.test(text)
-  && !/\b(hindi|not|dili|wala)\b[^.?!]{0,12}\b(mahal|expensive|pricey)/i.test(text);
+  /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text) // a discount ask counts whatever else is said
+  || (/\b(mahal|expensive|pricey)\b/i.test(text) && !/\b(hindi|not|dili|wala)\b[^.?!]{0,12}\b(mahal|expensive|pricey)/i.test(text));
 /** D-300.2 trigger 1: how to book, or the site itself, asked for. */
 export const HOW_BOOK_RE = /\b(how (?:do|can|should) (?:i|we) (?:book|reserve)|how to book|paano (?:po )?(?:mag-?book|mag-?reserve|ma-?book)|unsaon (?:pag-?)?book|book(?:ing)? link|(?:your |the |ang |inyong )?(?:site|website|link|page)\b|where (?:do|can) (?:i|we) book|san (?:po )?(?:pwede|puwede) mag-?book)\b/i;
 /** D-300.2 (Lloyd 2026-10-05): the site link only as applicable - how to book or the site itself, the home or its photos,

@@ -62,3 +62,9 @@ Deno.test('SPEC-39 audit: "hindi naman mahal" and "not expensive at all" are not
   for (const t of ['hindi naman mahal po', 'not expensive at all', 'dili man mahal', 'wala namang mahal']) assertEquals(priceObjection(t), false, t);
   for (const t of ['medyo mahal po', 'a bit expensive for us', 'any discount?', 'May discount po ba?', 'can you do cheaper?']) assertEquals(priceObjection(t), true, t);
 });
+
+Deno.test('SPEC-39 audit round 2: the negation covers only "mahal/expensive" - a discount ask beside it still counts', async () => {
+  const { priceObjection } = await import('./index.ts');
+  for (const t of ['hindi naman mahal, may discount pa ba?', 'not that expensive, but is there a discount?', 'dili kaayo mahal pero naa bay discount?']) assertEquals(priceObjection(t), true, t);
+  for (const t of ['hindi naman mahal po', 'not expensive at all']) assertEquals(priceObjection(t), false, t);
+});

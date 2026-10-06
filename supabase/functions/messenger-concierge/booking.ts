@@ -49,7 +49,7 @@ const FULL_RE = /\b(full|buo|buong|lahat|whole|everything|total|bayaran (ko )?la
 const FEE_RE = /^\W*(?:the\s+)?(?:fee|reservation fee|deposit|dp|down ?payment|half|kalahati|50%?)\b/i;
 const PAY_FULL_RE = /^\W*(?:full|in full|buo)\b|\b(?:pay|bayad\w*|bayaran|magbayad|settle|make it)\b[^.?!\n]{0,20}\b(?:in full|full|buo|lahat)\b/i;
 /** A request to move the stay (after the hold, new dates alone are not one). */
-const CHANGE_RE = /\b(move|change|instead|rather|make it|reschedule|resched|ilipat|lipat|palit|usab|baguhin|ibahin)\b/i;
+const CHANGE_RE = /\b(move|change|instead|rather|make it|reschedule|resched|extend|shorten|adjust|switch|baguhin|ibahin|palit\w*|ilis\w*|usb\w*|usab|ilipat|lipat\w*)\b/i;
 /** A guest-count word: a number beside it is a correction of the party, not a phone or a date. */
 const PAX_WORD_RE = /\b(guest|pax|person|people|tao|tawo|adult|kami|kabuok|mi\b|kids?|child|children)/i;
 const AVAIL_RE = /\b(available|avail|vacant|bakante|open|free|may (?:vacancy|slot)|meron pa)\b/i;
@@ -630,8 +630,12 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       // "Can we check in at 2pm on Oct 20?", "I'll send the payment on Oct 8", "pay the balance on Oct 19?" are not changes.
       const d = parseDates(text.replace(/\b(today|tonight|ngayon|karon|tomorrow|tmrw|bukas|ugma)\b/gi, ' '), now);
       const newDates = !!d[0] && d[0] >= today && (d[0] !== f.checkin || (!!d[1] && d[1] !== f.checkout));
-      if (newDates && CHANGE_RE.test(text)) return { flow: f, reply: null, action: 'change' };
       const wantsFull = PAY_FULL_RE.test(text);
+      // "na lang" moves the stay only with a date RANGE ("Oct 21 to 23 na lang po"); with one date it is usually the payment day,
+      // as is any single date beside a payment word ("Pwede Oct 10 na lang bayad instead?").
+      const asks = CHANGE_RE.test(text) || (d.length === 2 && /\b(na ?lang|nalang)\b/i.test(text));
+      const payDay = d.length < 2 && /\b(pay|paid|payment|bayad\w*|balance|send|transfer|gcash)\b/i.test(text);
+      if (newDates && asks && !wantsFull && !payDay) return { flow: f, reply: null, action: 'change' };
       if (text.includes('?') && !wantsFull) return { flow: f, reply: null, action: 'passthrough' };
       const who = P.first(f.name ?? name), full = (f.deposit ?? 0) >= (f.total ?? 0);
       if (wantsFull && full) return ask(P.feeAckLine(who, peso(f.deposit ?? 0), true, L));

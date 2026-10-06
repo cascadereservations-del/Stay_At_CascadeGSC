@@ -106,7 +106,8 @@ export function guestTextSince(history: Turn[] | null | undefined, submittedAt: 
 }
 /** A site request's notes with the `via Messenger (psid …)` marker removed; null when nothing is left. */
 export function siteNotes(notes: string | null | undefined): string | null {
-  const s = String(notes ?? '').replace(/via Messenger\s*\(psid[^)]*\)/gi, '').replace(/\s+/g, ' ').trim();
+  // SPEC-39: a Messenger booking may carry the party split after the marker ("· 2 adults, 1 child"); the separator goes.
+  const s = String(notes ?? '').replace(/via Messenger\s*\(psid[^)]*\)/gi, '').replace(/\s+/g, ' ').trim().replace(/^[\s·;,-]+/, '');
   return s ? cut(s, 160) : null;
 }
 /** The one line the cards show: the guest's message(s) joined, or null. */

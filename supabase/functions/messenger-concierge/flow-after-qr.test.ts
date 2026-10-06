@@ -243,6 +243,13 @@ Deno.test('SPEC-39 audit: the children split follows the Messenger marker, so th
   const { siteNotes } = await import('../_shared/cascade-core/inquiry.ts');
   const n = submitNotes('p1', flow({ pax: 3, children: 1 }));
   assertEquals(n, 'via Messenger (psid p1) · 2 adults, 1 child');
-  assertEquals(siteNotes(n), '· 2 adults, 1 child');
+  assertEquals(siteNotes(n), '2 adults, 1 child'); // the separator is not shown
+  const { financeCard } = await import('../_shared/cascade-core/inquiry.ts');
+  const view = { id: '00000000-1111-4222-8333-444455556666', ref: 'DIR-T1', guest_name: 'Ana Cruz', guest_email: 'ana@example.com', guest_phone: '09171234567', checkin_date: '2026-11-17', checkout_date: '2026-11-19',
+    nights: 2, pax: 3, total_amount: 3382, deposit_amount: 1691, notes: n, submitted_at: '2026-10-04T14:40:00Z', status: 'pending', has_receipt: false, hold_expires_at: null, held_by: null, held_at: null, conflict: false };
+  // deno-lint-ignore no-explicit-any
+  const text = financeCard(view as any, { lastMessage: siteNotes(n) });
+  assertEquals(text.includes('Guest wrote: "2 adults, 1 child"'), true, text);
+  assertEquals(/"·|psid/.test(text), false, text);
   assertEquals(submitNotes('p1', flow()), 'via Messenger (psid p1)');
 });

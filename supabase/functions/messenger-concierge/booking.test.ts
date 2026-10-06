@@ -348,3 +348,16 @@ Deno.test('SPEC-39 audit: after the QR only a requested move of the dates is a c
   assertEquals(answer(f, 'pwede po ba ilipat sa Oct 25 to 27?', now).action, 'change');
   assertEquals(answer(f, 'can we change it to Oct 20 to 22?', now).action === 'change', false); // the same dates are no change
 });
+
+Deno.test('SPEC-39 audit round 2: the Taglish, Bisaya and English change idioms after the hold are changes; a payment day is not', () => {
+  const f = held(start('book Oct 20 to 22 for 2', now), { name: 'Ben Munez', phone: '09475977727', email: 'ben@example.com' });
+  for (const t of ['pwede ba Oct 21 to 23 na lang?', 'Oct 21 to 23 na lang po', 'ilisan nalang sa Oct 25 to 27', 'palitan po natin, Oct 27-29', 'usbon nako sa Oct 24 to 26', 'can we extend to Oct 23?'])
+    assertEquals(answer(f, t, now).action, 'change', t);
+  // round 1 stays green: a date in passing is not a change
+  for (const t of ['Can we check in at 2pm on Oct 20?', 'I will send the payment on Oct 8 po', 'Can I pay the balance on Oct 19?', 'wait, Oct 20 is the check-in right?'])
+    assertEquals(answer(f, t, now).action === 'change', false, t);
+  // a single date with "na lang", or beside a payment word, is the payment day; "full" wins over any date
+  assertEquals(answer(f, 'Pwede Oct 10 na lang bayad instead?', now).action === 'change', false);
+  assertEquals(answer(f, 'Oct 10 na lang po', now).action === 'change', false);
+  assertEquals(answer(f, 'make it full, I will pay by Oct 19', now).action, 'requote_full');
+});
