@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { CAPTION_MAX, guestFollowUp, hostDoLine, overpaymentLines, priorUseLines, verdictOf, type Lang, type PriorUse } from './followup.ts';
 import { hasVisionKey, visionExtractText, parseModelJson } from '../_shared/cascade-core/vision.ts';
+import { storePayer } from './payer.ts';
 import {
   buildReceiptObjectPath,
   validateReceiptUpload,
@@ -123,6 +124,8 @@ async function produceEvidence(db: any, bookingId: string, nonce: string, bytes:
         channel: j.channel ? String(j.channel).slice(0, 40) : null, confidence: Math.max(0, Math.min(1, Number(j.confidence) || 0)) };
     } catch (e) { note = 'OCR failed: ' + String(e).slice(0, 80); console.error('[upload-booking-receipt] ocr', String(e)); }
   } else note = mime.startsWith('application/pdf') ? 'PDF — not read automatically' : 'no vision key';
+  // SPEC-42 9a: keep who paid (first receipt wins) so /refund can be checked against it.
+  await storePayer(db, bookingId, read);
   const { data: candId, error: cErr } = await db.rpc('record_payment_evidence_candidate', {
     p_booking_id: bookingId, p_source_type: 'receipt_ocr', p_source_artifact_id: `receipt:${nonce}`, p_content_hash: await sha256Hex(bytes),
     p_idempotency_key: `receipt-ocr:${bookingId}:${nonce}`, p_parser_version: 'receipt-ocr-v1', p_observed_at: new Date().toISOString(),
