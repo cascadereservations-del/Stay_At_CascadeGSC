@@ -216,3 +216,50 @@ Deno.test('s73 D4: a calm draft thanks the guest for their understanding; the ca
   assertEquals(airbnbFinish(owned, 'en', true), `${owned}\n\n${SIGN}`); // never a second thank-you
   assert(!airbnbFinish('Hi Emma! Yes, there is parking.', 'en', false).includes('understanding')); // warm drafts untouched
 });
+
+// ---- s73 round 2 (Fable review of 158d1c5) ----
+Deno.test('s73 R2-1: bare domains, spaced phones, Maya, bank transfer, socials, outside-Airbnb and bare figures all leak', () => {
+  for (const s of ['Visit cascadehideaway.com', 'see tinyurl.com/Stay-at-Cascade', 'm.me/cascade', 'fb.me/cascade', 'call +63 917 123 4567', 'call 0917.123.4567',
+    'pay via Maya', 'a bank transfer works', 'Message us on Facebook', 'on Instagram', 'on Telegram', 'Check our page', 'book outside Airbnb',
+    'it is 1,602 per night', 'it is 1602 per night', 'it is P1,602', 'that is 10 percent off'])
+    assert(airbnbLeaks(WARM.replace('just send', `${s}, just send`)).length, s);
+  for (const s of ['check-in is at 2:00 PM', 'check-out is 12 noon', 'Oct 20-22 for 2 guests', 'we are at Block 47 Lot 39'])
+    assertEquals(airbnbLeaks(WARM.replace('just send', `${s}, just send`)), [], s);
+});
+
+Deno.test('s73 R2-3: "100% ready" and "the booking page on Airbnb" are not leaks (they used to force the fallback)', () => {
+  assertEquals(airbnbLeaks(WARM.replace('just send', 'we are 100% ready for you, just send')), []);
+  assertEquals(airbnbLeaks(WARM.replace('just send', 'the booking page on Airbnb shows the total, just send')), []);
+  assertEquals(airbnbLeaks(WARM.replace('just send', 'it is 10% off, just send')), ['price']);
+});
+
+Deno.test('s73 R2-2: the courtesy "po" goes at a sentence end, never inside "Oct.", "P.M." or "e.g."', () => {
+  assertEquals(airbnbFinish("Hi Dale! I will check Oct. 20-22 for you. We'd be glad to host you.", 'tl', false).split('\n')[0], "Hi Dale! I will check Oct. 20-22 for you po. We'd be glad to host you.");
+  assertEquals(airbnbFinish('Hi Dale! Check-in is 2:00 P.M. and check-out is noon.', 'tl', false).split('\n')[0], 'Hi Dale! Check-in is 2:00 P.M. and check-out is noon po.');
+  assertEquals(airbnbFinish('Hi Dale! Bring snacks, e.g. chips, for the trip.', 'tl', false).split('\n')[0], 'Hi Dale! Bring snacks, e.g. chips, for the trip po.');
+});
+
+Deno.test('s73 R2-4: a sign-off in another case, dashed, or on one line is replaced, never doubled', () => {
+  const body = 'Hi Emma! Thank you for your message.';
+  for (const tail of ['Marifel & the Cascade Team\nHotel comfort, home warmth.', '- Marifel', 'Marifel & The Cascade Team Hotel Comfort. Home Warmth.', '— Marifel & The Cascade Team\nHotel Comfort. Home Warmth'])
+    assertEquals(airbnbFinish(`${body}\n\n${tail}`, 'en', false), `${body}\n\n${SIGN}`, tail);
+});
+
+Deno.test('s73 R2-5: "wrong" alone is not a calm moment; our mistake and the aircon still are', () => {
+  assertEquals(calmMoment('Is there anything wrong with arriving at 3?', 'routine'), false);
+  assertEquals(calmMoment('We took a wrong turn, we are lost', 'routine'), false);
+  assertEquals(calmMoment('I think there was a mistake with the reminder', 'routine'), true);
+  assertEquals(calmMoment('Something went wrong with the door', 'routine'), true);
+  assertEquals(calmMoment("The aircon stopped working, it's so hot", 'routine'), true);
+});
+
+Deno.test('s73 R2-6: the Airbnb prompt says Airbnb, not Messenger, and keeps no example question without its answer', () => {
+  const p = draftSystem(SEED_CARD, true, false).split('You are drafting for the HOST')[0];
+  assert(!/facebook|on messenger/i.test(p)); // "Messenger or Airbnb chat" in the native-language tests may stay
+  assertStringIncludes(p, 'replying on Airbnb to guests');
+  assert(!p.includes('Hm po per night?') && !p.includes('magkano po kung 3 nights?') && !p.includes('What if we need to cancel?'));
+  assert(!/\bfee\b/i.test(p));
+  const ls = p.split('\n');
+  ls.forEach((l, i) => { if (/^Q:/.test(l)) assert(/^A:/.test(ls.slice(i + 1).find((x) => x.trim()) ?? ''), l); });
+  assertStringIncludes(p, 'Q: Is there a parking?'); // answered examples stay
+});

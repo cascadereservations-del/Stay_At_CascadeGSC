@@ -115,14 +115,24 @@ const SIGN_OFF = 'Marifel & The Cascade Team\nHotel Comfort. Home Warmth.';
  *  the site link, GCash, the e-mail - and quoted them. Airbnb forbids steering a guest off the platform, so the Airbnb prompt
  *  drops the direct-booking FACTS sections and every other sentence that carries a link, a figure or the direct route. */
 const AIRBNB_DROP_SECTION = /^(RATES|PROMOTION|BOOKING & PAYMENT|CONTACT)\b/;
-const DIRECT_RE = /https?:\/\/|www\.|👉|\bPHP\b|₱|\bpesos?\b|\d,\d{3}|\d\s?%|\bgcash\b|\bQR\b|\bmaya\b|instapay|unionbank|\bdirect\b|\bsite\b|\blink\b|\be-?mail\b|@|whats ?app|\+63|\b09\d{2}|\bpromo\w*|\breservation fee\b|\bdeposit\b/iu;
+const DIRECT_RE = /https?:\/\/|www\.|👉|\bPHP\b|₱|\bpesos?\b|\d,\d{3}|\d\s?%|\bgcash\b|\bQR\b|\bmaya\b|instapay|unionbank|\bdirect\b|\bsite\b|\blink\b|\be-?mail\b|@|whats ?app|\+63|\b09\d{2}|\bpromo\w*|\breservation fee\b|\bfee\b|\bdeposit\b/iu;
+/** An example answer reduced to its greeting ("A: Hi Joh!") once its rate and link sentences went. */
+const GREET_ONLY_A = /^A:\s*(?:hi|hello|good \w+)\b[^.!?]*[.!?]?\s*$/i;
 export function airbnbPrompt(prompt: string): string {
-  return prompt.split('\n\n').filter((b) => !AIRBNB_DROP_SECTION.test(b.trim())).join('\n\n').split('\n')
+  const out = prompt.split('\n\n').filter((b) => !AIRBNB_DROP_SECTION.test(b.trim())).join('\n\n')
+    .replace('replying on Facebook Messenger to prospective guests', 'replying on Airbnb to guests').split('\n')
     .flatMap((l) => {
       if (!l.trim()) return [l];
       const kept = l.split(/(?<=[.!?])\s+/).filter((s) => !DIRECT_RE.test(s)).join(' ');
       return kept.trim() ? [kept] : [];
-    }).join('\n').replace(/\n{3,}/g, '\n\n');
+    });
+  // An example question whose answer was stripped would teach the model to leave a question unanswered: it goes too.
+  return out.filter((l, i) => {
+    if (GREET_ONLY_A.test(l)) return false;
+    if (!/^Q:/.test(l)) return true;
+    const next = out.slice(i + 1).find((x) => x.trim());
+    return !!next && /^A:/.test(next) && !GREET_ONLY_A.test(next);
+  }).join('\n').replace(/\n{3,}/g, '\n\n');
 }
 /** The leaks a draft is never shown with: regenerated once, then replaced by airbnbFallback. */
 const LEAKS = ['off_platform', 'direct_booking', 'price'];
@@ -135,8 +145,10 @@ export function airbnbFallback(name: string | null, calm: boolean): string {
 /** s73 D2-D4, in code rather than hoped for from the model: a Taglish guest's draft carries a courtesy "po" (one or two,
  *  thinPo as everywhere else); a calm draft thanks the guest for their understanding (playbook 5.5); the sign-off is
  *  written exactly once, at the end. */
+/** Any sign-off line the model wrote, in any case, dashed or on one line ("- Marifel", "Hotel comfort, home warmth"). */
+const SIGN_OFF_LINE = /^[ \t]*[-–—]?[ \t]*(?:Marifel(?:\s*&\s*the Cascade Team)?(?:[ \t,.]*Hotel Comfort[.,]?[ \t]*Home Warmth\.?)?|Hotel Comfort[.,]?[ \t]*Home Warmth\.?)[ \t]*$/gim;
 export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
-  let body = m.replace(/^[ \t]*(?:Marifel & The Cascade Team|Hotel Comfort\. Home Warmth\.)[ \t]*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  let body = m.replace(SIGN_OFF_LINE, '').replace(/\n{3,}/g, '\n\n').trim();
   if (lang === 'bis') body = thinPo(body, 0);
   if (lang === 'tl') body = /\bpo\b/i.test(body) ? thinPo(body, 2) : courtesyPo(body);
   if (calm && !/\bunderstanding\b/i.test(body)) body += '\n\nThank you for your understanding.';
@@ -147,7 +159,7 @@ function courtesyPo(body: string): string {
   const g = /^(?:hi|hello)\b[^\n!.]*[!.]\s*/i.exec(body)?.[0] ?? '', rest = body.slice(g.length);
   const lead = /^(yes|salamat|thank you)\b/i.exec(rest);
   if (lead) return g + lead[0] + ' po' + rest.slice(lead[0].length);
-  const i = rest.search(/[.?](?=\s|$)/);
+  const i = rest.search(/[.?](?=\s+[A-Z]|\s*$)/); // a sentence end, never "Oct. 20", "2:00 P.M. and" or "e.g."
   return i < 0 ? body : g + rest.slice(0, i) + ' po' + rest.slice(i);
 }
 /** Generate, finish, and refuse a leak: one stricter regeneration, then the code-written fallback (never the leaking text). */
@@ -162,16 +174,17 @@ export async function airbnbGuard(gen: (strict: boolean) => Promise<string>, fin
 /** The calm list (Q5 default): a complaint, safety, access, refund, cancellation or payment matter, or our own mistake. */
 export function calmMoment(guestText: string, risk: string): boolean {
   return ['complaint', 'safety', 'access', 'refund', 'cancellation', 'payment'].includes(risk)
-    || /\b(mistake|by mistake|in error|wrong|error|confus\w*|(?:do|did) (?:i|we) (?:have|need) to check ?out|don'?t (?:have|need) to check ?out|not working|stopped working|broken|sira|hindi gumagana|madumi|dirty|disappoint\w*)\b/i.test(guestText);
+    || /\b((?:by|our|a|an|the) (?:mistake|error)|in error|went wrong|something wrong|confus\w*|(?:do|did) (?:i|we) (?:have|need) to check ?out|don'?t (?:have|need) to check ?out|not working|stopped working|broken|sira|hindi gumagana|madumi|dirty|disappoint\w*)\b/i.test(guestText);
 }
 /** The Airbnb register checked in code (as voice.ts toneRules checks Cassy's). [] = clean. */
 export function airbnbTone(m: string, calm: boolean): string[] {
   const v: string[] = [], lines = m.trim().split('\n');
   v.push(...lintReply(m).filter((x) => x === 'exclaim' || x === 'boilerplate'));
   if (toneRules(m, 'en', true).includes('urgency')) v.push('urgency');
-  if (/https?:\/\/|www\.|\S+@\S+\.\w|(?:\+63|\b0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}\b|\bgcash\b|\bqr\b|\bwhats ?app\b|\bviber\b|\bmessenger\b|\b(?:facebook|fb) page\b/i.test(m)) v.push('off_platform');
-  if (/\bbook(?:ing)?\s+direct(?:ly)?\b|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b|\bbooking (?:site|page)\b/i.test(m)) v.push('direct_booking');
-  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\d\s?%/i.test(m)) v.push('price');
+  // s73 round 2: a bare domain counts as a link - airbnb.com included (the register allows no link at all).
+  if (/https?:\/\/|www\.|\b[\w-]+\.(?:com|ph|me|net|org|ly)\b|\S+@\S+\.\w|(?:\+63|\b0)\s?9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\bgcash\b|\bqr\b|\bmaya\b|\bbank transfer\b|\bwhats ?app\b|\bviber\b|\bmessenger\b|\b(?:facebook|instagram|telegram|fb)\b|\bour page\b|\boutside airbnb\b/i.test(m)) v.push('off_platform');
+  if (/\bbook(?:ing)?\s+direct(?:ly)?\b|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b/i.test(m)) v.push('direct_booking');
+  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\d\s?%\s?(?:off|discount|less)|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night)/i.test(m) || /\bP\d/.test(m)) v.push('price');
   if (/\b(discount of|we can (?:offer|give) (?:you )?(?:a )?(?:discount|lower|special)|(?:full|a) refund (?:is|will be)|you(?:'ll| will) be refunded|late check-?out is fine|yes,? you can (?:check out|stay) late)\b/i.test(m)) v.push('promise');
   if (!SIGN_OFF_RE.test(m)) v.push('no_sign_off');
   if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
