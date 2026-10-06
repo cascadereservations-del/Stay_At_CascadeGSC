@@ -36,6 +36,7 @@
     <tr><td>Requested dates</td><td>To check availability and calculate your rate.</td></tr>
     <tr><td>Notes you provide</td><td>To accommodate reasonable requests (early check-in, accessibility, etc.).</td></tr>
     <tr><td>Payment proof (screenshot/receipt)</td><td>To verify your reservation-fee or full payment.</td></tr>
+    <tr><td>Photo of a government ID (optional, before arrival)</td><td>To verify identity at check-in; stored privately, visible to our team only.</td></tr>
   </table>
 
   <h2 id="how-we-use-it">How we use it</h2>
@@ -44,7 +45,7 @@
   <h2 id="who-processes-it-on-our-behalf">Who processes it on our behalf</h2>
   <table>
     <tr><th>Provider</th><th>Role</th></tr>
-    <tr><td>Supabase</td><td>Database and file storage for booking records and payment receipts (system of record).</td></tr>
+    <tr><td>Supabase</td><td>Database and file storage for booking records, payment receipts and optional ID photos (system of record).</td></tr>
     <tr><td>Google (Drive, Calendar, Maps)</td><td>Property imagery, operational calendar projection, and location display.</td></tr>
     <tr><td>n8n</td><td>Sends booking notifications and reminders on our behalf from server-side events; it never receives your data directly from your browser.</td></tr>
     <tr><td>Meta (Messenger), WhatsApp Business Platform, Gmail</td><td>Optional communication channels you may choose to contact us through, or that we use to confirm your stay.</td></tr>
@@ -56,7 +57,7 @@
   <p>To stop the concierge from replying to you, ask for a host in the chat. To delete your Messenger data, send the message "delete my data" to the Page or email <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a>; we confirm once the deletion is complete.</p>
 
   <h2 id="retention">Retention</h2>
-  <p>Messenger conversation history is kept for up to 12 months after the last message, or deleted sooner on request. Booking records are retained for as long as needed for guest-history, tax, and dispute-resolution purposes, and are then deleted or anonymized. Payment receipt images are retained only as long as needed to verify the associated booking and are stored in a private, access-controlled location — not a public link.</p>
+  <p>Messenger conversation history is kept for up to 12 months after the last message, or deleted sooner on request. Booking records are retained for as long as needed for guest-history, tax, and dispute-resolution purposes, and are then deleted or anonymized. Payment receipt images are retained only as long as needed to verify the associated booking and are stored in a private, access-controlled location — not a public link. Photos of a government ID are kept in private storage that only our team can open, and you can ask us to remove yours at any time. A removed photo is deleted from storage about a week after we remove it, and it leaves our encrypted backup copies one to two months after that.</p>
 
   <h2 id="your-rights">Your rights</h2>
   <p>You may ask us to access, correct, or delete the personal data we hold about you, or to explain how it is used, by emailing <a href="mailto:cascadereservations@gmail.com">cascadereservations@gmail.com</a>. We will respond within a reasonable time.</p>

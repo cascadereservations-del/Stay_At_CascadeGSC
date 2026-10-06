@@ -42,3 +42,17 @@ test('the success overlay links the private status page only from the server-ret
   assert.match(index, /id="successTrackLink" href="stay\.html"[^>]*hidden>Track your booking</);
   assert.match(index, /statusUrl\.indexOf\('https:\/\/cascadereservations-del\.github\.io\/Stay_At_CascadeGSC\/stay\.html#t='\) === 0/);
 });
+
+test('the Before you arrive form asks for a name, a mobile, an ID type and a photo, and never an ID number, birthday or address', () => {
+  const form = stay.slice(stay.indexOf('SPEC-42 s4b'), stay.indexOf('function render(s)'));
+  assert.ok(form.length > 1000, 'the intake form code is present');
+  assert.doesNotMatch(form, /birth|address/i);
+  assert.deepEqual([...form.matchAll(/field\('([^']+)'/g)].map((m) => m[1]), ['Full name', 'Mobile number', 'ID type'], 'the only typed fields');
+  assert.match(form, /we never record the ID number/);
+  assert.match(form, /guest-intake/);
+  assert.match(form, /'Content-Type': 'application\/json' \}, body: JSON\.stringify\(\{ token: t, action: 'context' \}\)/);
+  assert.match(form, /headers: \{ 'x-guest-token': t \}/, 'the token travels in a header, never the URL or the form');
+  assert.doesNotMatch(form, /fd\.append\('token'/);
+  assert.match(form, /done\(b \|\| file\)/, 'the re-encoded copy (no camera metadata) is always the one sent');
+  assert.match(stay, /if \(s\.state === 'confirmed'\) loadIntake\(token\(\), ''\);/, 'the form is asked for only on a confirmed booking');
+});

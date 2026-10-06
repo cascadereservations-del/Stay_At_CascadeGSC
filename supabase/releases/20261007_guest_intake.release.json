@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "release_id": "guest_intake_20261007",
+  "phase": "expand",
+  "source": {
+    "branch": "s74/g5-intake",
+    "commit": "6370bc8eb6545440bbd8fd0fedc5d4a2729b31af"
+  },
+  "migrations": [
+    "20261007130000_guest_intake.sql"
+  ],
+  "migration_sha256": {
+    "20261007130000_guest_intake.sql": "49551f98d772cf7a6d1d1899b7290bf60af7a7e51b2e91331ea567fc5e366d39"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Expand only: five new functions (intake_resolve_v1, intake_uploads_today_v1 owner-only; intake_guest_context_v1, intake_save_guest_details_v1, intake_save_guest_companion_v1 service_role only), all security definer with an empty search_path. No table, column, policy, bucket or data change; the guest-id-photos bucket, its three staff policies and the SPEC-40 purge trigger are untouched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "five_functions_definer_empty_search_path",
+      "query": "select count(*) = 5 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('intake_resolve_v1','intake_uploads_today_v1','intake_guest_context_v1','intake_save_guest_details_v1','intake_save_guest_companion_v1')",
+      "expect": true
+    },
+    {
+      "name": "three_rpcs_service_role_only",
+      "query": "select has_function_privilege('service_role','public.intake_guest_context_v1(text)','execute') and has_function_privilege('service_role','public.intake_save_guest_details_v1(text,jsonb)','execute') and has_function_privilege('service_role','public.intake_save_guest_companion_v1(text,text,text,text,text)','execute') and not has_function_privilege('anon','public.intake_guest_context_v1(text)','execute') and not has_function_privilege('authenticated','public.intake_save_guest_companion_v1(text,text,text,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "internal_helpers_not_callable_and_public_holds_nothing",
+      "query": "select not has_function_privilege('service_role','public.intake_resolve_v1(text)','execute') and not has_function_privilege('service_role','public.intake_uploads_today_v1(uuid,text)','execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.pronamespace = 'public'::regnamespace and p.proname like 'intake\\_%' and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "unknown_token_hash_reads_nothing",
+      "query": "select public.intake_guest_context_v1(repeat('0', 64)) is null",
+      "expect": true
+    },
+    {
+      "name": "id_photo_bucket_and_policies_unchanged",
+      "query": "select (select not public and file_size_limit = 10485760 from storage.buckets where id = 'guest-id-photos') and (select count(*) = 3 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'guest id photos %')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Apply supabase/rollbacks/20261007_guest_intake.sql with run-sql-on-host.sh: it drops the five functions. Companions, ID photos and history rows the form already wrote stay (staff see them in the dashboard). Roll the stay-site (stay.html) and the guest-intake function back too."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "sql_then_function_then_site",
+      "required_state": "Apply this release FIRST, then deploy guest-intake (verify_jwt false; config.toml and edge-auth-manifest entries are in the waves commit), then publish stay-site. An out-of-order deploy fails safe: stay.html asks guest-intake for the form, and any 404, 503 or network error simply leaves the Before you arrive section out; the status page is unchanged. guest-access, submit-booking and telegram-expense are not touched. guest-intake bundles _shared/guest-access-token.ts, _shared/observability.ts and _shared/cascade-core/format.ts: redeploy it if any of those change (Hard Rule 9)."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "PENDING - run pgTAP guest_intake (57 tests) and the rollback body on a restored backup before apply. Expected on a --no-acl restore (B103): the function-EXECUTE assertions (tests 2-5) fail by design because that backup cannot carry grants; the CI database job proves them. Do not weaken the suite. The suite was written without a local Postgres (Docker was down), so this rehearsal is its first run: read any failure as a possible test bug first.",
+    "evidence": "Read from the repo 2026-10-07: guest_access_tokens (booking_type direct or airbnb, token_hash unique, RLS on, service_role only), booking_inquiries.guest_id is set by upsert_guest_for_booking at submit, guest_companions and guest_profile_details shapes and their history tables (changed_by nullable), the guest-id-photos bucket (private, 10 MB, JPEG/PNG/WebP) with three manage_operations policies (migration 20260914260000) and the purge trigger (20261005130000). The RPCs reuse the telegram_save_guest_* validation (names, contact, ID type, path pattern, 12 people cap) and add the token gate."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP guest_intake.sql green on this commit",
+    "guest-intake is deployed before this release is applied"
+  ]
+}

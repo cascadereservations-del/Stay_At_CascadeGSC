@@ -19,6 +19,8 @@ const status = (over) => ({
   },
 });
 async function mock(page, body, code = 200, seen = []) {
+  // SPEC-42 s4b: a confirmed booking also asks guest-intake for the "Before you arrive" form; these tests are about the status card.
+  await page.route('**/functions/v1/guest-intake', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"invalid_guest_access"}' }));
   await page.route('**/functions/v1/guest-access', async (route) => {
     seen.push({ method: route.request().method(), body: route.request().postDataJSON(), url: route.request().url() });
     await route.fulfill({ status: code, contentType: 'application/json', body: JSON.stringify(body) });
