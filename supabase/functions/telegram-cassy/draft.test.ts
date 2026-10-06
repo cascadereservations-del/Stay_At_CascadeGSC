@@ -430,3 +430,22 @@ Deno.test('s74 G2: a number followed by a non-money unit is not a price; prices,
   for (const s of ['it is 1,602 per night', 'P1602', 'about 1.6k a night', '1602 per night', 'it is 1602', 'for 12000', 'the rate is 1500', 'PHP 300 per hour', '₱2,000 mah', 'it is 80% off', 'a 10% discount', 'you will be charged 10% extra'])
     assert(leakWith(s).includes('price'), s);
 });
+
+// ---- s74 G2 audit fixes (Opus, 936764b) ----
+Deno.test('s74 G2 fix: "w/" and "min" are not units; a space after P keeps the figure a price; $/USD/"cost 500"/"1 500" leak', () => {
+  for (const s of ['rate is 1500 w/ breakfast', '1,500 w/ breakfast', 'it is 1,602 w/ aircon', '1500 min per night', '1,800 min. stay', 'P 1500 mins', 'P 1,500 w/ breakfast',
+    'it is $50', 'about USD 40', 'in dollars', 'it costs 500', 'it is 1 500 a stay'])
+    assert(leakWith(s).includes('price'), s);
+  for (const s of ['a 1200 W inverter', 'about 90 mins', 'Block 47 Lot 39', 'a 2 300 Mbps line', 'we are at Block 47 Lot 39 for 2 guests'])
+    assertEquals(leakWith(s), [], s);
+});
+
+Deno.test('s74 G2 fix: disguised domains and handles leak (reply and history); dates, titles and abbreviations do not', () => {
+  for (const s of ['see cascade-hideaway.xyz', 'visit cascadehideaway . com', 'find @cascadehideaway', 'email ana at gmail dot com'])
+    assert(leakWith(s).includes('off_platform'), s);
+  for (const s of ['we can check Oct. 20', 'St. Elizabeth Hospital is near', 'check-in is 2:00 P.M.', 'bring snacks, e.g. chips', 'stay. We will check', 'Visit us. Co-hosts are here', 'That is fine. Online check-in is easy'])
+    assertEquals(leakWith(s), [], s);
+  const b = historyBlock([{ from: 'guest', text: 'we are at cascade-hideaway.xyz and cascadehideaway . com, @cascadehideaway, ana at gmail dot com. Oct. 20 is fine, e.g. chips' }]);
+  for (const secret of ['xyz', 'cascadehideaway', 'gmail']) assert(!b.includes(secret), secret);
+  assertStringIncludes(b, 'Oct. 20 is fine, e.g. chips');
+});

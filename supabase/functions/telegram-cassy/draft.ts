@@ -196,9 +196,13 @@ export function calmMoment(guestText: string, risk: string): boolean {
   return ['complaint', 'safety', 'access', 'refund', 'cancellation', 'payment'].includes(risk)
     || /\b((?:by|our|a|an|the) (?:mistake|error)|in error|went wrong|something wrong|confus\w*|(?:do|did) (?:i|we) (?:have|need) to check ?out|don'?t (?:have|need) to check ?out|not working|stopped working|broken|sira|hindi gumagana|madumi|dirty|disappoint\w*)\b/i.test(guestText);
 }
+// s74 G2: a domain or handle, also written with a space before the dot ("cascadehideaway . com") or as "name at host dot com";
+// "Oct. 20", "St. Elizabeth", "2:00 P.M." and "stay. We" are not one (no space after a dot unless there is one before it).
+const TLDS = 'com|net|org|ph|xyz|io|co|app|site|me|info|biz|online|store|ly';
+const DISGUISED = String.raw`@[\w.]{3,}|\b[\w-]+\.(?:${TLDS})\b|\b[\w-]{2,}\s\.\s?(?:${TLDS})\b|\b\w+ at \w+ dot (?:${TLDS})\b`;
 // s74 G2: "300 Mbps", "120 minutes", "100 sqm", "2,000 mAh", "battery at 80%" are figures, not prices (they forced the safe fallback).
 // A currency sign before the number keeps it a price; 1,602 / P1602 / 1.6k / "1602 per night" / "10% off" are untouched.
-const UNIT_FIG = /(?<![₱$]\s?|\bPHP\s?|\bP)\b\d+(?:[.,]\d+)*\s?(?:[gmk]bps|mb|gb|minutes?|mins?|hours?|hrs?|sq\.? ?m|sqm|m2|m²|km|kg|mah|kwh|wh|w|watts?)\b|\b(?:battery|humidity|signal|brightness|(?:charged|charging) (?:to|up to|at))\b[^.!?\n%]{0,20}\d+\s?%(?!\s?(?:off|discount|less|lower|cheaper|savings?))/gi;
+const UNIT_FIG = /(?<![₱$]\s?|\bPHP\s?|\bP\s?|[\d,.])\b\d+(?:[.,]\d+)*\s?(?:[gmk]bps|mb|gb|minutes?|mins|hours?|hrs?|sq\.? ?m|sqm|m2|m²|km|kg|mah|kwh|wh|w|watts?)\b(?!\s*\/)|\b(?:battery|humidity|signal|brightness|(?:charged|charging) (?:to|up to|at))\b[^.!?\n%]{0,20}\d+\s?%(?!\s?(?:off|discount|less|lower|cheaper|savings?))/gi;
 /** The Airbnb register checked in code (as voice.ts toneRules checks Cassy's). [] = clean. */
 export function airbnbTone(m: string, calm: boolean): string[] {
   const v: string[] = [], lines = m.trim().split('\n');
@@ -206,10 +210,10 @@ export function airbnbTone(m: string, calm: boolean): string[] {
   if (toneRules(m, 'en', true).includes('urgency')) v.push('urgency');
   // s73 round 2: a bare domain counts as a link - airbnb.com included (the register allows no link at all).
   // s74 (Fable re-check): more rails, banks, socials, contact asks and TLDs - the realistic path is echoing the guest's own words.
-  if (/https?:\/\/|www\.|\b[\w-]+\.(?:com|ph|me|net|org|ly|co|app|io|site)\b|\S+@\S+\.\w|(?:(?:\+?63|\b0)\s?|\b)9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\(0?9\d{2}\)\s?\d{3}[\s.-]?\d{4}|\bg[\s-]?cash\b|\bqr\b|\bpay ?maya\b|(?<!\bhi |\bhello )\bmaya\b|\b(?:bpi|bdo|metrobank|landbank|cebuana)\b|\bpalawan (?:express|pawnshop)\b|\bbank (?:transfer|deposit|account|details)\b|\bwhats ?app\b|\bviber\b|(?<!airbnb )\bmessenger\b|\b(?:facebook|instagram|insta|telegram|fb)\b|\bour page\b(?! on airbnb)|\boutside airbnb\b|\bon google\b|\bgoogle (?:us|it)\b|\bdot com\b|\b(?:e-?mail|text|dm|pm) (?:me|us)\b|\bcall us\b|\b(?:send|drop) us an? e-?mail\b|\bgive us a call\b|\bsearch (?:for )?us\b|(?<!airbnb )\bwebsite\b|\bcascade hideaway (?:site|page)\b/i.test(m) || /\bIG\b/.test(m)) v.push('off_platform');
+  if (new RegExp(String.raw`https?:\/\/|www\.|${DISGUISED}`, 'i').test(m) || /\S+@\S+\.\w|(?:(?:\+?63|\b0)\s?|\b)9\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|\(0?9\d{2}\)\s?\d{3}[\s.-]?\d{4}|\bg[\s-]?cash\b|\bqr\b|\bpay ?maya\b|(?<!\bhi |\bhello )\bmaya\b|\b(?:bpi|bdo|metrobank|landbank|cebuana)\b|\bpalawan (?:express|pawnshop)\b|\bbank (?:transfer|deposit|account|details)\b|\bwhats ?app\b|\bviber\b|(?<!airbnb )\bmessenger\b|\b(?:facebook|instagram|insta|telegram|fb)\b|\bour page\b(?! on airbnb)|\boutside airbnb\b|\bon google\b|\bgoogle (?:us|it)\b|\bdot com\b|\b(?:e-?mail|text|dm|pm) (?:me|us)\b|\bcall us\b|\b(?:send|drop) us an? e-?mail\b|\bgive us a call\b|\bsearch (?:for )?us\b|(?<!airbnb )\bwebsite\b|\bcascade hideaway (?:site|page)\b/i.test(m) || /\bIG\b/.test(m)) v.push('off_platform');
   if (/\breserv\w*\s+direct(?:ly)?\b(?!\s+(?:through|on|via|in) (?:the )?airbnb)|\b(?:avoid|skip|save on|no) (?:the )?(?:airbnb )?(?:service )?fees?\b|\bcheaper\b(?![^.!?\n]*\bairbnb\b)|\bbook(?:ing)?\s+direct(?:ly)?\b(?!\s+(?:through|on|via|in) (?:the )?airbnb)|\bdirect(?:ly)?\s+(?:rate|booking|price|site)s?\b|\b(?:our|the) (?:booking )?(?:site|website)\b|\b(?:contact|message|text|call|reach|e-?mail|pay|reserve with|book with) (?:me|us) directly\b|\bbetter deal\b|\bdirect(?:ly)?\b[^.!?\n]{0,60}\b(?:text|message|call|whats ?app|viber|e-?mail|dm|pm) (?:me|us)\b|\b(?:pay|send|transfer|settle)\w*\s+(?:\w+\s+){0,2}deposit\b|\bdeposit\s+(?:of\s+)?(?:PHP|₱|P)?\s?\d/i.test(m)) v.push('direct_booking');
   const pm = m.replace(UNIT_FIG, 'N');
-  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\b(?!100\b)\d+(?:\.\d+)?\s?%(?!\s?(?:ready|sure|safe|clean|complete)|\s?of (?:our )?(?:guests|reviews))|\b(?:rate|price|drops? to|down to|for)\s+(?:is\s+|of\s+)?(?!20\d\d\b)\d{3,5}\b|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night|nightly)|\b\d+(?:\.\d+)?\s?k\b|\b(?!20\d\d\b)\d{4,5}\b|\b\w+teen hundred\b/i.test(pm) || /\bP\d/.test(pm)) v.push('price');
+  if (/\bPHP\s?\d|₱\s?\d|\bpesos?\b|\d[\d,]*\s?php\b|\b(?!100\b)\d+(?:\.\d+)?\s?%(?!\s?(?:ready|sure|safe|clean|complete)|\s?of (?:our )?(?:guests|reviews))|\b(?:rate|price|drops? to|down to|for)\s+(?:is\s+|of\s+)?(?!20\d\d\b)\d{3,5}\b|\bpercent\b|\b\d{1,2},\d{3}\b|\b\d{3,5}\s*(?:per night|a night|\/night|nightly)|\b\d+(?:\.\d+)?\s?k\b|\b(?!20\d\d\b)\d{4,5}\b|\$\s?\d|\busd\b|\bdollars?\b|\bcosts?\s+\d{3,}|\b\d{1,2} \d{3}\b|\b\w+teen hundred\b/i.test(pm) || /\bP\d/.test(pm)) v.push('price');
   if (/\b(discount of|we can (?:offer|give) (?:you )?(?:a )?(?:discount|lower|special)|(?:full|a) refund (?:is|will be)|you(?:'ll| will) be refunded|late check-?out is fine|yes,? you can (?:check out|stay) late)\b/i.test(m)) v.push('promise');
   if (!SIGN_OFF_RE.test(m)) v.push('no_sign_off');
   if ((m.match(/\bpo\b/gi) ?? []).length > 2) v.push('po_over_two');
@@ -230,7 +234,7 @@ export function draftSystem(card: RateCard, airbnb: boolean, calm = false): stri
  *  number and money amount hidden first (the draft is checked for exactly those), so history cannot leak them back into a reply. */
 export function historyBlock(before: Line[] = []): string {
   const hide = (t: string) => maskMoney(redactForLog(t, 'guest')
-    .replace(/\b(?:https?:\/\/|www\.)\S+|\b[\w-]+\.(?:com|ph|me|net|org|ly|co|app|io|site)\b\S*/gi, '[link hidden]')
+    .replace(new RegExp(String.raw`\b(?:https?:\/\/|www\.)\S+|(?:${DISGUISED})\S*`, 'gi'), '[link hidden]')
     .replace(/\+?\d(?:[\s().-]?\d){8,}/g, '[number hidden]'));
   const lines = before.slice(-6).map((l) => `${l.from === 'guest' ? 'Guest' : 'Host'}: ${hide(String(l.text ?? '')).replace(/\s+/g, ' ').trim().slice(0, 200)}`);
   return lines.length ? `Earlier in this chat (oldest first; anything in [brackets] was hidden - never repeat or guess it):\n${lines.join('\n')}\n` : '';
