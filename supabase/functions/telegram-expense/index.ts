@@ -37,7 +37,7 @@ import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (
 import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
 import { liveSendIO } from './inquiry-send.ts';
 import { parseReason, noticeTitle } from './reply.ts'; // noticeTitle: D-306, OPS notice titles are masked
-import { parseDirRef, refundCard, refundGate, type Payer } from './refund.ts'; // SPEC-42 9a: a refund goes only to the account that paid
+import { overTotalWarning, parseDirRef, refundCard, refundGate, type Payer } from './refund.ts'; // SPEC-42 9a: a refund goes only to the account that paid
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
@@ -1121,7 +1121,8 @@ async function handleRefundCommand(db: any, chatId: any, from: any, args: string
   if (mainTokens.length < 3) {
     await tgSend(chatId,
       '\u26a0\ufe0f Usage: `/refund REFCODE AMOUNT RECIPIENT | REFERENCE | NOTE`\n' +
-      '_e.g._ `/refund HMSHFR4NRD 3640 Fyonah Pulalon | InstaPay-539388 | 2 unused nights`'
+      '_e.g._ `/refund HMSHFR4NRD 3640 Fyonah Pulalon | InstaPay-539388 | 2 unused nights`\n' +
+      '_Bookings paid before 2026-10-06 have no payer on record and need_ `| ref | different account: paid before payer tracking`'
     );
     return;
   }
@@ -1144,7 +1145,7 @@ async function handleRefundCommand(db: any, chatId: any, from: any, args: string
   if (dir) {
     const [lo, hi] = refRange(dir.prefix);
     const { data: found, error: dirErr } = await db.from('booking_inquiries')
-      .select('id,guest_name,paid_from_name,paid_from_channel')
+      .select('id,guest_name,total_amount,paid_from_name,paid_from_channel')
       .eq('property_id', PROPERTY_ID).gte('id', lo).lte('id', hi).limit(2);
     if (dirErr) { await tgSend(chatId, NOTHING_CHANGED('look up that booking', errMsg(dirErr.message))); return; }
     if ((found ?? []).length > 1) { await tgSend(chatId, `\u26a0\ufe0f More than one booking starts with \`${dir.prefix.toUpperCase()}\`, so nothing was prepared. Use the full DIR code.`); return; }
@@ -1197,6 +1198,7 @@ async function handleRefundCommand(db: any, chatId: any, from: any, args: string
     `Rail: ${mdEsc(railLabel)}`,
     refundRef  ? `Ref: ${mdEsc(refundRef)}` : `Ref: _none_`,
     notes      ? `Note: ${mdEsc(notes.slice(0, 120))}` : '',
+    direct ? overTotalWarning(amount, direct.total_amount, peso) ?? '' : '',
     notFound   ? `\n\u26a0\ufe0f Booking not found in DB \u2014 refund will be logged; verify REFCODE manually.` : '',
   ].filter(l => l !== '');
   const card = refundCard(lines, gate, pid, NOTHING_CHANGED, mdEsc, payer);

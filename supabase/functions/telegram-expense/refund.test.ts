@@ -1,6 +1,6 @@
 // deno test -A supabase/functions/telegram-expense/refund.test.ts - SPEC-42 9a: /refund destination rule, the dead Confirm button (F1), D-306.
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { differentAccountReason, foldName, parseDirRef, refundCard, refundGate } from './refund.ts';
+import { differentAccountReason, foldName, overTotalWarning, parseDirRef, refundCard, refundGate } from './refund.ts';
 
 const nothingChanged = (verb: string, why: string) => `⚠️ Could not ${verb}, so nothing was changed. ${why}`;
 const mdEsc = (s: unknown) => String(s ?? '').replace(/([_*`\[])/g, '\\$1');
@@ -71,6 +71,17 @@ Deno.test('card mismatch: warning, the way out, and no Confirm button', () => {
   assertStringIncludes(c.text, 'different account:');
   assertEquals(c.keyboard, null);
   assert(!c.text.includes('refund_ok'));
+});
+
+Deno.test('over the booking total: a warning line, never a block; no total or an amount within it says nothing', () => {
+  const peso = (n: number) => n.toLocaleString('en-US');
+  assertEquals(overTotalWarning(5000, 4200, peso), '⚠️ More than the booking total of ₱4,200.');
+  assertEquals(overTotalWarning(4200, 4200, peso), null);
+  assertEquals(overTotalWarning(5000, null, peso), null);
+  assertEquals(overTotalWarning(5000, 0, peso), null);
+  const c = refundCard([...facts, overTotalWarning(5000, 4200, peso)!], refundGate('Synthetic Payer', payer, null), 'pend-1', nothingChanged, mdEsc, payer);
+  assertStringIncludes(c.text, 'More than the booking total');
+  assertEquals(c.keyboard![0][0].callback_data, 'refund_ok:pend-1');
 });
 
 Deno.test('F1: when the pending row could not be saved the card says nothing was changed and has no Confirm button', () => {

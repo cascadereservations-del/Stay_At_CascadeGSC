@@ -38,6 +38,12 @@ export function refundGate(recipient: string, payer: Payer, note: string | null 
   return { state: known ? 'mismatch' : 'unknown', canConfirm: false, warning };
 }
 
+// Advisory only: Confirm stays, the host decides. No total on record, no warning.
+export function overTotalWarning(amount: number, total: unknown, peso: (n: number) => string): string | null {
+  const t = Number(total);
+  return Number.isFinite(t) && t > 0 && amount > t ? `⚠️ More than the booking total of ₱${peso(t)}.` : null;
+}
+
 export const DIFFERENT_ACCOUNT_HINT = 'To send it elsewhere, add a note after the second bar that starts with `different account:` and says why.';
 
 // The card for a refund. `lines` are the facts already built by the caller; this adds the payer line, the warning and the buttons.
