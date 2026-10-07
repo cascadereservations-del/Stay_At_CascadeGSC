@@ -17,7 +17,7 @@
     "scope": "production",
     "restore_point": "PENDING",
     "verified_at": "1970-01-01T00:00:00Z",
-    "production_rule": "Function replacement only: health_checks_core_v1(uuid, boolean), patched from its LIVE body (md5(prosrc) 7564fc5c867a11ecc73df9ace925a018, read 2026-10-07, equal to 20260923030000_inventory_check_controlled_items_only.sql). One block changes: cleaner_fees_settled. fail = fee_paid_at set and fee_txn_id missing or not a live (non-void) transaction; warn = fee NULL or > 0, fee_paid_at null, cleaned more than 14 days ago; explicit 0 = no fee. Revoke re-asserted (service_role EXECUTE only). No table, column, row or other function touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+    "production_rule": "Function replacement only: health_checks_core_v1(uuid, boolean), patched from its LIVE body (md5(prosrc) 7564fc5c867a11ecc73df9ace925a018, read 2026-10-07, equal to 20260923030000_inventory_check_controlled_items_only.sql). One block changes: cleaner_fees_settled. fail = fee_paid_at set and fee_txn_id missing or not a live (non-void) transaction; warn = fee NULL or > 0, fee_paid_at null, cleaned more than 14 days ago; explicit 0 = no fee. Revoke from public, anon, authenticated re-asserted; create or replace keeps the live ACL (service_role EXECUTE from Supabase default privileges; the definer wrapper run_health_checks_service_v1 calls the core as owner). No table, column, row or other function touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
     {
@@ -31,8 +31,8 @@
       "expect": true
     },
     {
-      "name": "core_keeps_definer_search_path_and_grants",
-      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and p.provolatile = 'v' and has_function_privilege('service_role', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and not has_function_privilege('anon', 'public.health_checks_core_v1(uuid,boolean)', 'execute') from pg_proc p where p.oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
+      "name": "core_keeps_definer_search_path_and_no_client_grant",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and p.provolatile = 'v' and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and not has_function_privilege('anon', 'public.health_checks_core_v1(uuid,boolean)', 'execute') from pg_proc p where p.oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
       "expect": true
     }
   ],

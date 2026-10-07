@@ -7,10 +7,9 @@ select plan(11);
 
 select ok((select prosecdef and proconfig = array['search_path=""'] from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure),
   'the core stays security definer with an empty search_path');
-select ok(has_function_privilege('service_role', 'public.health_checks_core_v1(uuid,boolean)', 'execute')
-      and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid,boolean)', 'execute')
+select ok(not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid,boolean)', 'execute')
       and not has_function_privilege('anon', 'public.health_checks_core_v1(uuid,boolean)', 'execute'),
-  'the core is still service_role only');
+  'no client role can call the core');
 
 insert into public.properties(id, name, is_active) values
   ('e7610000-0000-4000-8000-0000000000a1', 'Synthetic Fee Check A', true),
