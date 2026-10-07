@@ -28,7 +28,7 @@ Deno.test('warmth: the live blunt replies are cold, the protocol-voice examples 
   const blunt1834 = 'Ben, yes, October 27 to 29 is open for your stay. We also provide fiber Wi-Fi in the unit, which is suitable for remote work, video calls, and streaming.\n\nOr you may check and secure your dates directly on our site:\n\n👉 https://tinyurl.com/Stay-at-Cascade\n\nDirect bookings enjoy our best rates, with savings that grow the longer you stay.';
   assertEquals(isCold(blunt1834), true);
   const examples = VOICE.split('MID-CONVERSATION EXAMPLES')[1].split('REFERENCE REPLIES')[0].split(/\nQ: /).slice(1).map((b) => b.slice(b.indexOf('\nA: ') + 4).trim());
-  assertEquals(examples.length, 4);
+  assertEquals(examples.length, 6); // D-311: + how to book on a follow-up, + the haggle reply
   for (const a of examples) { assertEquals(isCold(a), false); assertEquals(lintReply(a), []); }
   assertEquals(isCold('Yes, parking is available in front of the unit.'), false); // a short direct answer is fine (protocol 08 section 23)
 });
@@ -127,16 +127,18 @@ Deno.test('Taglish register mirrors the guest and passes the lint (Lloyd 11:15)'
   assertEquals(lintReply(mid, 'Oct 3 to 4 po, available pa po ba?'), []);
 });
 
-Deno.test('Bisaya register: Bislish, no po, passes the lint (Lloyd 12:15, D-169)', () => {
+Deno.test('Bisaya register: a Bisaya guest gets English (D-311.8); the Bislish lines that remain still pass the lint (D-169)', () => {
   const guest = 'Available pa ba ang Oct 20 to 22? Gusto namo mag-book, duha mi';
   assertEquals(detectLang(guest), 'bis');
   assertEquals(detectLang('naa moy parking?'), 'bis');
-  // Lloyd 2026-09-17 14:40: English and Taglish first; Bislish only once the guest KEEPS replying in Bisaya.
+  // D-311.8 (Lloyd 2026-10-07): Bisaya and Bislish guests get ENGLISH - the first Bisaya turn no longer gets Taglish, the
+  // second no longer Bislish (was Lloyd 2026-09-17 14:40).
   const f0 = start('Available pa ba ang Oct 20 to 22? Gusto namo mag-book para sa 2', now);
-  assertEquals([f0.lang, f0.bis_turns, f0.pax, f0.asked], ['tl', 1, 2, 'availability']); // first Bisaya turn: Taglish
-  assertEquals(answer(f0, '09171234567 ben@example.com', now).flow.lang, 'tl');           // a neutral turn changes nothing
-  assertEquals(answer(f0, 'naa moy parking?', now).flow.lang, 'bis');                     // second Bisaya turn: Bislish
+  assertEquals([f0.lang, f0.bis_turns, f0.pax, f0.asked], ['en', 1, 2, 'availability']); // first Bisaya turn: English
+  assertEquals(answer(f0, '09171234567 ben@example.com', now).flow.lang, 'en');           // a neutral turn changes nothing
+  assertEquals(answer(f0, 'naa moy parking?', now).flow.lang, 'en');                      // second Bisaya turn: still English
   assertEquals(answer(f0, 'may parking po ba?', now).flow.bis_turns, 0);                  // a Tagalog turn resets the count
+  assertEquals(answer(f0, 'may parking po ba?', now).flow.lang, 'tl');                    // and a Taglish guest gets Taglish
   const f = { ...f0, lang: 'bis' as const, bis_turns: 2 };
   const first =opener(f, 'Ben', availabilityLine(f, new Set())) + prompt(f, 'Ben');
   assertEquals(first.startsWith('Hi Ben! Salamat sa pag-message sa Cascade Hideaway. Available ang Oct 20 to 22, and looking forward mi to have the two of you.'), true);
@@ -192,7 +194,7 @@ Deno.test('mid-flow answer: echoed card, site invite and closer are dropped (liv
   }
   // live 13:12, second Bisaya run: parsePax read it, the confirm step's guest-word gate did not
   const atConfirm = answer({ ...base, lang: 'bis', step: 'confirm', total: 3382, deposit: 1691 }, 'Pwede usbon sa Oct 25 to 27? 3 mi', now).flow;
-  assertEquals([atConfirm.pax, atConfirm.checkin, atConfirm.lang], [3, '2026-10-25', 'bis']);
+  assertEquals([atConfirm.pax, atConfirm.checkin, atConfirm.lang], [3, '2026-10-25', 'en']); // D-311.8: a Bisaya turn is answered in English
 });
 
 // Session 30: a FAILED calendar read (null) must never read as available, in any register, and stays lint-clean.

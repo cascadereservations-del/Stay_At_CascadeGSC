@@ -449,6 +449,66 @@ export const DISCOUNT_HOST_PAST: Record<Lang, string> = {
   bis: `Personal pud nga gitan-aw sa among host ang special requests, so na-share na namo ang inyong message.`,
 };
 
+/** D-311.6 (Lloyd 2026-10-07): every discount or haggle request ("can you do 1,500 a night?", "may discount po ba?", "medyo
+ *  mahal po") is met simply - we understand and will do our best - with NO rate explanation; the host line and the hold
+ *  question follow. "completely understand" is allowed again (it had been banned in the checker). */
+export const haggleLine = (lang?: Lang) => by(lang, {
+  en: `We completely understand, and we'll do our best to accommodate your request.`,
+  tl: `We completely understand po, and we'll do our best to accommodate your request.`,
+  bis: `We completely understand, and we'll do our best to accommodate your request.`, // D-311.8: a Bisaya guest gets English
+});
+/** The hold question after the host line: the stay's dates when we know them and they are open, else the dates asked. */
+export const haggleHold = (dates: string | null, lang?: Lang) => dates ? by(lang, {
+  en: `Would you like us to hold ${dates} for you in the meantime?`,
+  tl: `Gusto po ba ninyong i-hold muna namin ang ${dates} para sa inyo in the meantime?`,
+  bis: `Would you like us to hold ${dates} for you in the meantime?`,
+}) : by(lang, {
+  en: `May we know your dates, so we can hold them for you in the meantime?`,
+  tl: `Maaari po ba naming malaman ang dates ninyo, para ma-hold namin ang mga ito para sa inyo in the meantime?`,
+  bis: `May we know your dates, so we can hold them for you in the meantime?`,
+});
+
+/** D-311.1 (golden promo-ask-en: the TL reply named the Anniversary Promotion, the EN reply did not): a promo question names
+ *  the live promotions from the rate card in its first paragraph, AND says booking direct is itself the better price. */
+export const directBetter = (lang?: Lang) => by(lang, {
+  en: `Booking direct is itself the better price, too: our direct rates are lower than on Airbnb and the other booking apps.`,
+  tl: `Mas mababa rin po ang direct rates namin kaysa sa Airbnb at sa ibang booking apps, kaya booking direct is itself the better price.`,
+  bis: `Booking direct is itself the better price, too: our direct rates are lower than on Airbnb and the other booking apps.`,
+});
+export const DIRECT_BETTER_RE = /lower than (?:on )?airbnb|kaysa sa airbnb|other booking apps|ibang booking apps/i;
+export type PromoFacts = { name: string; when: string; rate: string; base: string };
+/** Facts sealed by index.ts (the live card): name, nights ("Oct 11 to 17"), the promo rate and the standard, as "PHP 1,543". */
+export function promoLine(ps: PromoFacts[], lang?: Lang): string {
+  if (!ps.length) return directBetter(lang);
+  const each = ps.map((p) => by(lang, {
+    en: `our ${p.name} brings the nights of ${p.when} to ${p.rate} per night instead of our standard ${p.base}`,
+    tl: `ang ${p.name} namin ay ${p.rate} per night para sa nights ng ${p.when}, imbes na ang standard ${p.base}`,
+    bis: `our ${p.name} brings the nights of ${p.when} to ${p.rate} per night instead of our standard ${p.base}`,
+  })).join('; ');
+  return `${by(lang, { en: 'Yes, ', tl: 'Opo, ', bis: 'Yes, ' })}${each}. ${directBetter(lang)}`;
+}
+/** The promo answer leads with the promotions and the direct-price point: the model's answer is kept when its first paragraph
+ *  already names every promo rate (the direct sentence joins it if missing); otherwise code's line opens the answer and only
+ *  the model's last sentence follows - its sentence of care (OUTPUT_ANSWER) - so nothing is said twice and the message stays
+ *  under 700 characters (a first try kept every other sentence: 757). */
+export function promoFirst(answer: string, ps: PromoFacts[], lang?: Lang): string {
+  const paras = answer.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const nums = ps.map((p) => p.rate.replace(/^\D+/, ''));
+  if (paras[0] && nums.every((n) => paras[0].includes(n))) {
+    return DIRECT_BETTER_RE.test(answer) ? paras.join('\n\n') : [`${paras[0]} ${directBetter(lang)}`, ...paras.slice(1)].join('\n\n');
+  }
+  const care = paras.flatMap((p) => sentencesOf(p)).map((s) => s.trim()).filter((s) => s && !nums.some((n) => s.includes(n)) && !DIRECT_BETTER_RE.test(s)).pop();
+  return [promoLine(ps, lang), care ?? ''].filter(Boolean).join('\n\n');
+}
+
+/** D-311.8 (golden reg-bot-bis: "Pila ang rate kada gabii?" got a bare rate and a question): a short rate answer with no
+ *  marker of care still cold after the one rewrite gets this clause (R3). */
+export const warmClause = (lang?: Lang) => by(lang, {
+  en: `We'd be glad to work out the exact total for you once your dates are set.`,
+  tl: `Iche-check namin agad ang exact total para sa inyo once may dates na kayo.`,
+  bis: `We'd be glad to work out the exact total for you once your dates are set.`,
+});
+
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => by(lang, {
   en: `Of course, and there's no rush at all. Nothing has been sent, so nothing is committed. Whenever you'd like to continue, just send your dates again and we'll pick up right where we left off. 🌿`,
@@ -776,9 +836,11 @@ export function nextStep(c: ComposeCtx, ask: string | null): string {
   if (c.flowFollowUp || c.quiet) return '';                                   // 1-2: the flow's card, or the answer alone
   if (c.greet) return c.datesKnown ? '' : firstDatesNudge(c.lang);            // 6: first contact - their dates, no link
   if (c.look) return lookStep(c.look, c);                                     // 3: look before you book (photos, reviews)
+  // D-311.4 (golden fu-howtobook-en: a follow-up "How do I book?" got the model's dates question and no link): the guest asked
+  // for the ways to book, so the two ways - this chat or the site - come before any question of the model's.
+  if (c.linkTurn && !c.siteShown) return c.datesKnown ? nudgeReady(c.lang) : nudgeSite(c.lang); // 6b: the site, asked for
   if (ask && !asksHeld(ask, c.held)) return ask.trim();                       // 4: the model's one question
   if (c.decision) return decisionInvite(c.lang, SITE_URL);                    // 5: a decision moment
-  if (c.linkTurn && !c.siteShown) return c.datesKnown ? nudgeReady(c.lang) : nudgeSite(c.lang); // 6b: the site, asked for
   // 7 - their dates, never the same dates line twice in a row (golden AFTER 2026-09-30, R8); no unprompted link
   if (!c.datesKnown) return unpo(c.prevBot).trimEnd().endsWith(unpo(nudgeDates(c.lang))) ? '' : nudgeDates(c.lang);
   return '';
@@ -884,6 +946,8 @@ export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx
   let reply = [head.trim(), step, close].filter(Boolean).join('\n\n');
   reply = thinPo(reply, c.lang === 'bis' ? 0 : 2);
   if (c.flowFollowUp) reply = [reply, c.seeHome ?? '', c.flowFollowUp].filter(Boolean).join('\n\n');
+  // D-311.5 (golden first-two-months-tl: four "po" once the flow's ask followed the answer): three at most in the whole message.
+  if (c.lang === 'tl') reply = thinPo(reply, 3);
   reply = capName(reply, c.name, c.greet && !c.flowFollowUp ? 1 : 2);
   // Nothing left (an answer that was all frame, and no step): the model's words without links or leaves, never silence.
   if (!reply.trim()) reply = m.answer.split('\n').filter((l) => !URL_LINE_RE.test(l)).join('\n').replace(/[ \t]*🌿/gu, '').trim();

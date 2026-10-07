@@ -50,6 +50,7 @@ const NEXT_CASES: Array<Partial<P.ComposeCtx>> = [
 const PAYF: P.PayFacts = { deposit: '₱1,691', total: '₱3,382', fullOnly: false, dates: 'Oct 20 to 22', name: 'Ben', party: 'the two of you' };
 const HELD: P.CardFacts = { ...card, ref: 'DIR-1', hold: true, until: 'Oct 7 at 2:00 PM', rel: 'tomorrow' };
 const TONES = ['brisk', 'warm', 'gentle'] as const;
+const PROMO: P.PromoFacts = { name: 'Anniversary Promotion', when: 'Oct 11 to 17', rate: 'PHP 1,543', base: 'PHP 1,780' };
 
 /** Every guest-facing move, with the fact shapes it is called with. Fragments (partyName, datesOpen, relDayWord) are
  *  linted inside the sentences that carry them. */
@@ -103,6 +104,13 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   relDayWord: (l) => [P.paymentMessage({ ...pay, rel: P.relDayWord(0, l) }, l)],
   houseRule: (l) => (['party', 'pets', 'guests'] as const).map((k) => P.houseRule(k, l)),
   discountHostLine: (l) => [`Booking directly gives our best rate, and the nightly rate goes down the longer you stay. ${P.discountHostLine(l)}`],
+  // D-311.6 / D-311.1 / D-311.8 (session 75): the haggle reply, the promo answer and the warm clause on a short rate answer.
+  haggleLine: (l) => [`${P.haggleLine(l)} ${P.discountHostLine(l)}\n\n${P.haggleHold('Oct 26 to 29', l)}`],
+  haggleHold: (l) => [P.haggleHold('Oct 26 to 29', l), P.haggleHold(null, l)],
+  directBetter: (l) => [P.directBetter(l)],
+  promoLine: (l) => [P.promoLine([PROMO], l), P.promoLine([], l)],
+  promoFirst: (l) => [P.promoFirst('We completely understand wanting the best value for your stay.', [PROMO], l)],
+  warmClause: (l) => [`Our direct rate starts at PHP 1,780 per night. ${P.warmClause(l)}`],
   // Session 58: the fixed turns index.ts sends.
   HANDOFF: () => Object.values(P.HANDOFF).filter(Boolean),
   ATTACHMENT_REPLY: () => [P.ATTACHMENT_REPLY],
@@ -142,7 +150,7 @@ const VOICE_LINES = (l: Lang) => [decisionInvite(l, SITE_URL),
   turnoverCheckinLine('Oct 2', l), lookNudge('may pictures po ba?', l, { site: false, reviews: false }), lookNudge('legit ba ni?', l, { site: true, reviews: false })];
 
 Deno.test('every persona export has samples, so a new move cannot skip the tone gate', () => {
-  const skip = new Set(['pick', 'CAPACITY', 'LAST_MINUTE', 'first', 'echoOf']); // helpers, not guest lines
+  const skip = new Set(['pick', 'CAPACITY', 'LAST_MINUTE', 'first', 'echoOf', 'DIRECT_BETTER_RE']); // helpers, not guest lines
   for (const k of Object.keys(P)) if (!skip.has(k)) assert(k in SAMPLES, `persona.ts exports ${k} with no samples in persona.test.ts`);
 });
 

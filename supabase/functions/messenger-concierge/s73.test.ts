@@ -117,15 +117,19 @@ Deno.test('s73 F5: a dated price answer closes on the hold question, and "Yes pl
 });
 
 const offer = (lang: 'en' | 'tl'): Flow => ({ step: 'offer', checkin: '2026-10-26', checkout: '2026-10-29', pax: 2, lang, started_at: ago(5), updated_at: ago(5) });
-Deno.test('s73 F6: a price proposal or objection keeps its policy_exception card when the model is unsure, and the model is told code says the host line', async () => {
+// D-311.6 (Lloyd 2026-10-07) replaces the s73 F6 hint: code writes the haggle answer - no model call, no rate explanation.
+Deno.test('s73 F6 / D-311.6: a price proposal or objection keeps its policy_exception card, and code answers it: we understand, the host line, the hold question', async () => {
   for (const [text, lang] of [['can you do 1,500 a night?', 'en'], ['medyo mahal po', 'tl']] as const) {
     const m = stubModel('We understand. Your three nights come to PHP 5,073 at the direct rate.', 'Shall we hold your dates while our host takes a look?', true);
     try {
       const r = await turn(text, offer(lang), [['Hi, is Oct 26 to 29 available? 2 adults', 'Oct 26 to 29 is available.\n\nShall we hold those dates for you?']]);
       assertEquals(r.calls.filter((c) => c.fx === 'handoff').map((c) => c.detail.risk), ['policy_exception'], text);
       assert(/"handoff"[^}]*policy_exception/.test(JSON.stringify(r.calls.filter((c) => c.fx !== 'send'))), text);
-      assert(m.seen[0].includes('Do not say you will forward'), m.seen[0].slice(0, 300));
+      assertEquals(m.seen.length, 0, 'no model call for a haggle');
+      assert(r.reply.startsWith(P.haggleLine(lang)), r.reply);
       assertEquals((r.reply.match(/Our host also looks/g) ?? []).length, 1, r.reply);
+      assert(r.reply.trimEnd().endsWith(P.haggleHold('Oct 26 to 29', 'en')), r.reply); // "medyo mahal po" reads as English with a courtesy po
+      assert(!/PHP|₱|%|per night/.test(r.reply), r.reply);
     } finally { m.restore(); }
   }
 });

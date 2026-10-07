@@ -34,8 +34,10 @@ export function promoCases(card: RateCard, now = new Date(), booked: Set<string>
     if (stOpen) out.push({ id: 'promo-straddle-flow-tl', group: 'promo', turns: [{ say: `Available po ba ang ${straddle}? 2 kami`, kind: 'flow', lang: 'tl', must: [pr, tot(stQ.total), tot(stQ.tier_rate)], mustNot: no }] });
     if (stOpen) out.push({ id: 'promo-rate-dated-en', group: 'promo', turns: [m(`How much would ${straddle} cost?`, 'en', { must: [tot(stQ.total), pr], mustNot: no })] }); // R2-8: same nights
     out.push(
-      { id: 'promo-ask-en', group: 'promo', turns: [m('Do you have any promo this month or next?', 'en', { must: [pr, new RegExp(p.name, 'i')], mustNot: [...no, /\bno (current |ongoing )?promo/i] })] },
-      { id: 'promo-ask-tl', group: 'promo', turns: [m('May promo po ba kayo ngayong October?', 'tl', { must: [pr], mustNot: [...no, /walang promo/i] })] },
+      // D-311.1 / D-311.7 (Lloyd 2026-10-07): the live promotion AND "booking direct is the better price", every language; a plain
+      // promo question is never forwarded to the host, and the Taglish reply never says "automated".
+      { id: 'promo-ask-en', group: 'promo', turns: [m('Do you have any promo this month or next?', 'en', { must: [pr, new RegExp(p.name, 'i'), DIRECT], mustNot: [...no, /\bno (current |ongoing )?promo/i, HOST] })] },
+      { id: 'promo-ask-tl', group: 'promo', turns: [m('May promo po ba kayo ngayong October?', 'tl', { must: [pr, DIRECT], mustNot: [...no, /walang promo/i, HOST, /\bautomat(ed|ic)/i] })] },
     );
   }
   return out;
@@ -50,6 +52,8 @@ export function range(now: Date, offset: number, nights: number): string {
 }
 
 const LINK = /tinyurl\.com\/Stay-at-Cascade/;
+/** D-311.1: booking direct is itself the better price; D-311.6/.7: the host line, which a plain promo question never gets. */
+const DIRECT = /lower than (?:on )?Airbnb|kaysa sa Airbnb|other booking apps|ibang booking apps/i, HOST = /Our host also looks/;
 // SPEC-39 (D-299.10, D-300.1-5): the first message is signed and carries no link or introduction; the site comes only when asked for.
 const AIRBNB_LINK = /airbnb\.com\/h\/cascadesgsc/, SIG = /Cassy, Cascade Concierge$/m, NO_SIG = /Cassy, Cascade Concierge/, TWO_Q = /(\?[\s\S]*){2}/;
 const DATES_Q = /which dates|dates are you looking at/i, INTRO = /\bI'?m Cassy\b|digital concierge/i;
@@ -103,24 +107,24 @@ export function paymentCases(d2: string, d3: string): GoldenCase[] {
 }
 
 /** D-286 (live read 2026-09-30, Suzanne's three questions): the frame faults - intro and answer in one paragraph, the name
- *  twice, two closes, a "prepared before you arrive" close to a prospect - in en, tl and bis. A first Bisaya turn gets
- *  Taglish (D-172), so the bis cases open with a Bisaya turn and ask on the second. The month total accepts 28 or 30
- *  nights at PHP 1,335: the design read 28, stayAnchor (D-269) says a month is 30. */
+ *  twice, two closes, a "prepared before you arrive" close to a prospect - in en, tl and bis. D-311.8 (Lloyd 2026-10-07):
+ *  a Bisaya guest gets ENGLISH on every turn (it was Taglish, then Bislish - D-172 retired), so the bis cases are scored as
+ *  English. The month total accepts 28 or 30 nights at PHP 1,335: the design read 28, stayAnchor (D-269) says a month is 30. */
 export function s63Cases(): GoldenCase[] {
   const MONTH = [/1,335/, /37,380|40,050/], ONCE = /(\bBen\b[\s\S]*){2}/, DIGIT_P1 = /^(?:(?!\n\s*\n)[\s\S])*\d/;
   const CLOSE_TWICE = /we'?re here[\s\S]*(preferred dates|we'?d be glad)|(preferred dates|we'?d be glad)[\s\S]*we'?re here/i, PREPARED = /prepared (for|before) (you |your )?arriv/i;
   const party = (say: string, lang: Reg): GoldenTurn => ({ say, kind: 'handoff', lang, noInvite: true, must: [/quiet/i], effects: [/"handoff"[^}]*policy_exception/] });
-  const bisOpen = m('Maayong buntag, naa bay parking?', 'tl');
+  const bisOpen = m('Maayong buntag, naa bay parking?', 'en', { mustNot: [/\bpo\b/] });
   return [
     { id: 's63-month-en', group: 'followup', turns: [m('How much for a month-long stay?', 'en', { must: MONTH, mustNot: [DIGIT_P1, ONCE] })] },
     { id: 's63-month-tl', group: 'followup', turns: [m('Magkano po for a month-long stay?', 'tl', { must: MONTH, mustNot: [DIGIT_P1, ONCE] })] },
-    { id: 's63-month-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'bis', { must: MONTH })] },
+    { id: 's63-month-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'en', { must: MONTH })] },
     { id: 's63-deposit-en', group: 'followup', turns: [m('How much for a month-long stay?', 'en', { must: MONTH }), m('No security deposit for a month stay?', 'en', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
     { id: 's63-deposit-tl', group: 'followup', turns: [m('Magkano po for a month-long stay?', 'tl', { must: MONTH }), m('Wala po bang security deposit pag isang buwan?', 'tl', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
-    { id: 's63-deposit-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'bis', { must: MONTH }), m('Wala bay security deposit kung usa ka bulan?', 'bis', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
+    { id: 's63-deposit-bis', group: 'followup', turns: [bisOpen, m('Pila ang bayad kung usa ka bulan mi mag-stay?', 'en', { must: MONTH }), m('Wala bay security deposit kung usa ka bulan?', 'en', { must: [/1,000/], mustNot: [PREPARED, CLOSE_TWICE] })] },
     { id: 's63-party-en', group: 'handoff', turns: [party('Is party allowed?', 'en')] },
     { id: 's63-party-tl', group: 'handoff', turns: [party('Pwede po ba mag-party?', 'tl')] },
-    { id: 's63-party-bis', group: 'handoff', turns: [bisOpen, party('Pwede ba mi mag-party diri?', 'bis')] },
+    { id: 's63-party-bis', group: 'handoff', turns: [bisOpen, party('Pwede ba mi mag-party diri?', 'en')] },
   ];
 }
 
@@ -141,7 +145,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'first-avail-en', group: 'first', turns: [{ say: `Hi, is ${d2} available? We're 2 adults`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i, /1,691/, /hold (that night|those dates) for you/i, /delighted/i, SIG], mustNot: [LINK, /reservation fee|50%/i, /digital concierge/i] }] },
     { id: 'first-avail-tl', group: 'first', turns: [{ say: `Available po ba ang ${d2}? 2 po kami`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i, /1,691/, /I-hold na po/i, /delighted/i, SIG], mustNot: [LINK, /reservation fee|50%/i, /digital concierge/i] }] },
     { id: 'first-location-en', group: 'first', turns: [first('location', 'en', [/Bria Homes/i, /thank you for reaching out/i])] },
-    { id: 'first-howtobook-en', group: 'first', turns: [first('How do I book?', 'en', [/thank you for reaching out/i])] }, // turn 1: the dates first; the link answers it on turn 2 (fu-howtobook-en)
+    // D-311.3 (Lloyd 2026-10-07): asking for the dates and guests IS the answer here (golden-score R1 accepts it); the link answers on turn 2 (fu-howtobook-en)
+    { id: 'first-howtobook-en', group: 'first', turns: [first('How do I book?', 'en', [/thank you for reaching out/i])] },
     // SPEC-39 4.1 / 3.1: a two-month inquiry gets the code's 60-night total and the dates question (live 2026-10-04, T1)
     { id: 'first-two-months-en', group: 'first', turns: [m('Hello, can I ask for details regarding our booking good for two months?', 'en', { must: [/1,335/, /80,100/, /106,800/, DATES_Q, SIG], mustNot: [LINK, /\bper night\b[\s\S]*\bper night\b/] })] },
     { id: 'first-two-months-tl', group: 'first', turns: [m('Hello po, pwede po magtanong about sa booking for two months?', 'tl', { must: [/1,335/, /80,100/, /kailan|dates/i, SIG], mustNot: [LINK] })] },
@@ -151,7 +156,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'first-until-en', group: 'first', turns: [{ say: `Is it available by end of this month until ${MON[untilEnd.getUTCMonth()]} ${untilEnd.getUTCDate()}?`, kind: 'flow', lang: 'en', must: [new RegExp(`${MON[monthEnd.getUTCMonth()]} ${monthEnd.getUTCDate()} to`), /(open|available|reserved)/i, SIG], mustNot: [/night of/i, /how many nights/i, LINK] }] },
     // SPEC-28 section 2: dates AND a question in the first message - both answered, one greeting (R7)
     { id: 'first-avail-and-amenity-en', group: 'first', turns: [{ say: `Hi, is ${range(base, o + 2, 2)} open? Is there wifi?`, kind: 'midflow', lang: 'en', must: [/wi-?fi/i, /(open|available|free)/i], mustNot: [new RegExp(`${range(base, o + 2, 2)}[\\s\\S]*${range(base, o + 2, 2)}`), /\b(those|the|your) dates (are|is) (open|available|free)\b/i] }] }, // the dates once (golden 2026-09-25 said them twice)
-    { id: 'first-bisaya-gets-taglish', group: 'register', turns: [{ say: `Naa bay bakante ${d2}?`, kind: 'flow', lang: 'tl', must: [/Salamat sa pag-message/i], mustNot: [LINK] }] },
+    // D-311.8 (Lloyd 2026-10-07): renamed from first-bisaya-gets-taglish - a Bisaya guest now gets the English flow lines.
+    { id: 'first-bisaya-gets-english', group: 'register', turns: [{ say: `Naa bay bakante ${d2}?`, kind: 'flow', lang: 'en', must: [/thank you for reaching out/i], mustNot: [LINK, /Salamat sa pag-message/i, /\bpo\b/] }] },
 
     // ---- follow-ups: warm, no greeting, no re-ask, at most one invitation
     { id: 'fu-amenity-en', group: 'followup', turns: [m('Hi, do you have wifi?'), m('Is there a kitchen too?', 'en', { must: [/induction|kitchen/i], mustNot: [LINK] })] },
@@ -162,15 +168,17 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'fu-thanks-bless-en', group: 'followup', turns: [m('How much per night?', 'en', { mustNot: [LINK] }), { say: 'Thanks and God bless', kind: 'code', lang: 'en', must: [/pleasure|welcome/i], mustNot: [LINK, /preferred dates|which dates/i, NO_SIG] }] },
     // SPEC-39 3.8 (guest S, Sep 24): a yes to our own offer starts the flow; a flow started on turn 2 is not signed (D-300.1)
     { id: 'fu-chat-yes-en', group: 'followup', turns: [m(`Hi, how much for ${d2}?`), { say: 'Yes please', kind: 'flow', lang: 'en', must: [/hold (those dates|that night)|name for the reservation|full name|how many of you/i], mustNot: [NO_SIG] }] }, // s73 F5: no party given yet, so the flow's next ask is the guest count (SPEC-14)
-    // SPEC-39 3.3 (D-300.4): the price objection - empathy, the stay total only, the host line in English, one soft question, no link
+    // D-311.6 (Lloyd 2026-10-07, replaces D-300.4's stay total): every discount or haggle request - we completely understand and
+    // will do our best, NO rate explanation, then the host line and the hold question; no link
     { id: 'fu-objection-dated-en', group: 'followup', turns: [{ say: `Hi, is ${d3} available? 2 adults`, kind: 'flow', lang: 'en' },
-      { say: 'can you do 1,500 a night?', kind: 'handoff', lang: 'en', must: [/5,073/, /Our host also looks/, /\?/], mustNot: [LINK, /1,691|1,780|%/], effects: [/"handoff"[^}]*policy_exception/] }] },
+      { say: 'can you do 1,500 a night?', kind: 'handoff', lang: 'en', must: [/completely understand/, /do our best to accommodate/, /Our host also looks/, new RegExp(`hold ${d3}[^?]*\\?`)], mustNot: [LINK, /PHP|₱|%/], effects: [/"handoff"[^}]*policy_exception/] }] },
     { id: 'fu-mahal-tl', group: 'followup', turns: [{ say: `Available po ba ${d3}? 2 kami`, kind: 'flow', lang: 'tl' },
-      { say: 'medyo mahal po', kind: 'handoff', lang: 'tl', must: [/5,073/, /Our host also looks/, /\?/, /\bpo\b/], mustNot: [LINK, /1,691|1,780|%/], effects: [/"handoff"[^}]*policy_exception/] }] },
+      { say: 'medyo mahal po', kind: 'handoff', lang: 'tl', must: [/completely understand/, /Our host also looks/, /\?/, /\bpo\b/], mustNot: [LINK, /PHP|₱|%/], effects: [/"handoff"[^}]*policy_exception/] }] },
     // SPEC-39 D-300.2: the site only when asked for - never for a fact, once when asked to see the home, how to book, or reviews
-    { id: 'fu-second-link-en', group: 'followup', turns: [m('Good evening', 'en', { mustNot: [LINK] }), m('Is there parking?', 'en', { must: [/parking/i], mustNot: [LINK, NO_SIG] })] },
+    { id: 'fu-second-link-en', group: 'followup', turns: [m('Good evening', 'en', { mustNot: [LINK] }), m('Is there parking?', 'en', { must: [/parking/i], mustNot: [LINK, NO_SIG, /\bpo\b/] })] }, // D-311.5: no "po" in English
     { id: 'fu-photos-tl', group: 'followup', turns: [m('Hello po, available pa po ba this weekend?', 'tl', { mustNot: [LINK] }), m('may pictures po ba? gusto ko lang makita muna', 'tl', { must: [LINK, /photos|pictures/i], mustNot: [NO_SIG, TWO_Q] })] },
-    { id: 'fu-howtobook-en', group: 'followup', turns: [m('How much per night?', 'en', { mustNot: [LINK] }), m('How do I book?', 'en', { must: [LINK, /right here|in this chat|dito sa chat/i], mustNot: [NO_SIG] })] },
+    // D-311.4: warmth and the two ways - this chat or the site link
+    { id: 'fu-howtobook-en', group: 'followup', turns: [m('How much per night?', 'en', { mustNot: [LINK] }), m('How do I book?', 'en', { must: [LINK, /right here|in this chat|dito sa chat/i, /delighted|glad|welcom|look forward/i], mustNot: [NO_SIG] })] },
     { id: 'fu-reviews-en', group: 'followup', turns: [m('Hi, do you have wifi?', 'en', { mustNot: [LINK] }), m('Do you have reviews?', 'en', { must: [AIRBNB_LINK], mustNot: [NO_SIG] })] },
     { id: 'fu-amenity-with-dates-en', group: 'followup', turns: [{ say: `Hi! Is ${d2} open? 2 guests`, kind: 'flow', lang: 'en' }, { say: 'and is there wifi?', kind: 'midflow', lang: 'en', must: [/wi-?fi/i] }] },
     { id: 'fu-rate-3-nights-tl', group: 'followup', turns: [m('Hello po', 'en'), m('magkano po kung 3 nights?', 'tl', { must: [/1,691/, /5,073/] })] }, // D-245: English or Taglish both pass
@@ -183,7 +191,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'fu-capacity-4-adults-en', group: 'followup', turns: [m('Hello'), m('Can 4 adults stay?', 'en', { must: [/3 adults/i] })] },
     { id: 'fu-transactional-en', group: 'followup', turns: [m('Hi'), m('GCash ok?', 'en', { must: [/gcash/i] })] },
     { id: 'fu-reviews-tl', group: 'followup', turns: [m('Hi po', 'en'), m('Legit po ba? May reviews?', 'tl', { must: [/4\.98|Airbnb/i] })] },
-    { id: 'fu-discount-tl', group: 'followup', turns: [m('Hello po', 'en'), m('May discount po ba?', 'tl', { must: [/host/i, /\?/], mustNot: [LINK, TWO_Q, /%|per night|1,780|nakakatipid|makatipid/i] })] }, // SPEC-39 3.3: flipped from must LINK
+    { id: 'fu-discount-tl', group: 'followup', turns: [m('Hello po', 'en'), m('May discount po ba?', 'tl', { must: [/completely understand/, /host/i, /\?/], mustNot: [LINK, TWO_Q, /%|per night|PHP|₱|nakakatipid|makatipid/i] })] }, // SPEC-39 3.3: flipped from must LINK; D-311.6
     { id: 'fu-think-about-it-en', group: 'followup', turns: [m('Hi, how much per night for 2 guests?'), m('ok let me think about it first', 'en', { must: [LINK], mustNot: [/no pressure/i] })] },
     { id: 'fu-thanks-en', group: 'followup', turns: [m('Hi, do you have wifi?', 'en', { mustNot: [LINK] }), { say: 'thank you!', kind: 'code', lang: 'en', mustNot: [LINK] }] },
     { id: 'fu-ok-salamat-tl', group: 'followup', turns: [m('Hello po, may parking po ba?', 'tl', { mustNot: [LINK] }), { say: 'ok po salamat', kind: 'code', lang: 'tl', mustNot: [LINK] }] },
@@ -192,9 +200,10 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'fu-bot-en', group: 'followup', turns: [m('Hi'), { say: 'are you a bot?', kind: 'code', lang: 'en', must: [/digital concierge/i, /AI assistant/, /Marifel/], mustNot: [/rates, dates, directions/, LINK] }] },
     { id: 'fu-pets-en', group: 'handoff', turns: [m('Hi'), { say: 'Can we bring our small dog?', kind: 'handoff', lang: 'en', noInvite: true }] },
 
-    // ---- register: Taglish on the first Bisaya turn, Bislish from the second, never "po" in Bislish
-    { id: 'reg-bisaya-three-turns', group: 'register', turns: [m('Maayong buntag, naa bay parking?', 'tl'), m('Pila ka tawo max?', 'bis', { must: [/3 adults/i] }), m('Naa bay wifi ug kitchen?', 'bis')] },
-    { id: 'reg-bot-bis', group: 'register', turns: [m('Maayong gabii, naa bay wifi?', 'tl'), m('Pila ang rate kada gabii?', 'bis', { must: [/1,780/] }), { say: 'bot ba ni?', kind: 'code', lang: 'bis', must: [/digital concierge/i, /AI assistant/, /Marifel/], mustNot: [/rates, dates, directions/, LINK] }] },
+    // ---- register: D-311.8 (Lloyd 2026-10-07) - a Bisaya guest gets English on every turn, never "po" (was Taglish, then Bislish)
+    { id: 'reg-bisaya-three-turns', group: 'register', turns: [m('Maayong buntag, naa bay parking?', 'en'), m('Pila ka tawo max?', 'en', { must: [/3 adults/i] }), m('Naa bay wifi ug kitchen?', 'en')] },
+    // R3: the short rate answer carries one warm clause (index.ts warmClause after the cold rewrite)
+    { id: 'reg-bot-bis', group: 'register', turns: [m('Maayong gabii, naa bay wifi?', 'en'), m('Pila ang rate kada gabii?', 'en', { must: [/1,780/] }), { say: 'bot ba ni?', kind: 'code', lang: 'en', must: [/digital concierge/i, /AI assistant/, /Marifel/], mustNot: [/rates, dates, directions/, LINK] }] },
     { id: 'reg-english-po', group: 'register', turns: [first('how far from SM po?', 'en', [/km|kilomet|minute/i])] },
 
     // ---- book flow: Lloyd's approved lines are frozen; the model's mid-flow answer is the answer only, the card once
@@ -243,6 +252,7 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { say: 'yes', kind: 'flow', lang: 'en', must: [/full name/i] },
     { say: 'Ben Munez 09171234567 ben@example.com', kind: 'flow', lang: 'en', must: [/full ₱/], mustNot: [/"fee" or "full"/], effects: [/"fx":"submit"/] },
   ] });
-  if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12/i] })] });
+  // D-311.2 (Lloyd 2026-10-07): 12 NN or 1 PM only if the unit is ready - never a promised time, the standard 2:00 PM named.
+  if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12|(you can|pwede po kayong) check in (at|ng) 12/i] })] });
   return cases;
 }

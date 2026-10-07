@@ -72,10 +72,11 @@ export const TRUST_RE = /\b(reviews?|feedback|legit|legitimate|scam|trust|trustw
 const HESITATE_RE = /\b(first time|unang beses|una ko|never (?:booked|tried)|not sure|hindi (?:pa )?(?:ako |kami )?sure|dili (?:pa )?sure|safe (?:po )?ba|legit|scam|think about|pag-?isipan|hunahunaon|medyo mahal|mahal|discount|baka|kaya ba|worried|nervous)\b/i;
 /** Lloyd 2026-09-17 14:40: English and Taglish come first; Bislish only once the guest KEEPS replying in Bisaya.
  *  A first Bisaya turn is answered in Taglish; the second consecutive one switches the register to Bislish. */
-export function settleLang(prev: Lang | undefined, detected: Lang, bisTurns: number): { lang: Lang; bisTurns: number } {
+/** D-311.8 (Lloyd 2026-10-07, golden reg-bot-bis / s63-*-bis): Bisaya and Bislish guests get ENGLISH, never full Bisaya and
+ *  no longer Taglish. `prev` and the count stay for the stored flows that carry them. */
+export function settleLang(_prev: Lang | undefined, detected: Lang, bisTurns: number): { lang: Lang; bisTurns: number } {
   if (detected !== 'bis') return { lang: detected, bisTurns: 0 };
-  const n = bisTurns + 1;
-  return { lang: n >= 2 || prev === 'bis' ? 'bis' : 'tl', bisTurns: n };
+  return { lang: 'en', bisTurns: bisTurns + 1 };
 }
 /** The ONE language detector (SPEC-28 section 4). index.ts used its own copy, which disagreed with this file's: "pwede ba"
  *  was Bisaya here and Taglish there. Lloyd 2026-09-13: "how far from SM po" is an English sentence with a courtesy
@@ -386,7 +387,7 @@ export function lastRef(flow: Flow | null | undefined, now = new Date()): Flow |
  *  Bislish only when the flow already settled on it (D-172). */
 export function replyLang(text: string, fallback: Lang | undefined): Lang {
   const d = detectLang(text);
-  if (d === 'bis') return fallback === 'bis' ? 'bis' : 'tl';
+  if (d === 'bis') return 'en'; // D-311.8
   if (d === 'tl') return 'tl';
   return (text.match(/[a-z]{3,}/gi) ?? []).length >= 3 ? 'en' : fallback ?? 'en';
 }
@@ -438,6 +439,13 @@ export function opener(flow: Flow, name: string | null, answer = '', intro = fal
   const g = !greet ? '' : answer ? P.greetBlock(name, flow.lang, intro) : P.greeting(name, flow.lang, intro);
   const dates: [string, string] | null = !answer && flow.checkin && flow.checkout ? [dm(flow.checkin), dm(flow.checkout)] : null;
   return P.openerText(g, answer, dates, flow.pax, flow.lang);
+}
+
+/** The flow's part under the model's answer (no greeting: the answer carries it). D-311.5 (golden first-two-months-tl, five
+ *  paragraphs): with no calendar line the welcome is one short sentence, so it opens the ask's paragraph instead of
+ *  standing alone ("We'd be delighted to have you. Kailan po..."). */
+export function flowLead(flow: Flow, name: string | null, line: string, now = new Date()): string {
+  return `${opener(flow, name, line, false, false).trim()}${line ? '\n\n' : ' '}${prompt(flow, name, false, now)}`;
 }
 
 /** SPEC-14 (D-184): the details are taken progressively - only the first missing item is ever asked for. */

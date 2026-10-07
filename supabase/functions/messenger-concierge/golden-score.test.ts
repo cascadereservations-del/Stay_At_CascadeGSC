@@ -18,13 +18,13 @@ Deno.test('every example in VOICE passes the rubric: the model copies examples, 
     const [q, ...rest] = chunk.split('\nA: ');
     const reply = rest.join('\nA: ').split(/\n\nREFERENCE REPLIES \(/)[0].trim();
     const note = /\(([^)]*)\)\s*$/.exec(q)?.[1] ?? '';
-    const lang: Reg = /bisaya/i.test(note) ? 'bis' : /taglish/i.test(note) ? 'tl' : 'en';
+    const lang: Reg = /taglish/i.test(note) ? 'tl' : 'en'; // D-311.8: the Bisaya example is answered in English
     const guest = q.replace(/\s*\([^)]*\)\s*$/, '');
     const got = failures(scoreReply({ guest, reply, prevReply: null, kind: 'model', lang, firstTurn: first, siteUrl: SITE_URL, noInvite: /no invitation/i.test(note), guestUsedPo: /\bpo\b/i.test(guest), reference: true }));
     assertEquals(got, [], `example "${guest}" fails the rubric: ${got.join('; ')}`);
     seen++;
   }
-  assertEquals(seen, 16); // four mid-conversation + eleven first-contact (the turnover-day pair of example 5 included)
+  assertEquals(seen, 18); // six mid-conversation (D-311: how to book, the haggle) + twelve first-contact (the turnover-day pair included)
 });
 
 Deno.test('what Lloyd rejected live fails, rule by rule', () => {
@@ -68,7 +68,10 @@ Deno.test('the golden set is complete, unique and does not rot', () => {
   assertEquals(cases.length >= 30, true);
   assertEquals(new Set(cases.map((c) => c.id)).size, cases.length);
   for (const g of ['first', 'followup', 'register', 'flow', 'handoff']) assertEquals(cases.some((c) => c.group === g), true, g);
-  for (const l of ['en', 'tl', 'bis']) assertEquals(cases.some((c) => c.turns.some((t) => t.lang === l)), true, l);
+  for (const l of ['en', 'tl']) assertEquals(cases.some((c) => c.turns.some((t) => t.lang === l)), true, l);
+  // D-311.8 (Lloyd 2026-10-07): a Bisaya guest is answered in English, so no case expects a Bislish reply any more.
+  assertEquals(cases.some((c) => c.turns.some((t) => t.lang === 'bis')), false);
+  assertEquals(cases.some((c) => c.id === 'first-bisaya-gets-english') && !cases.some((c) => c.id === 'first-bisaya-gets-taglish'), true);
   assertEquals(range(new Date('2026-10-30T00:00:00Z'), 0, 2), 'Oct 30 to Nov 1');
   assertEquals(range(now, 40, 2), 'Feb 8 to 10'); // a year boundary
 });

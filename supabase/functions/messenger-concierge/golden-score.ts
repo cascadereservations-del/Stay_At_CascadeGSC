@@ -25,7 +25,12 @@ export type Score = Record<Rule, string | null>;
 
 const QUESTION_RE = /\?|\b(is it|is there|are there|do you|does it|can we|can i|may i|pwede|meron|naa ba|magkano|pila|tagpila|how (much|far|many|long)|available|avail|bakante)\b/i;
 const ANSWER_RE = /\b(yes|opo|oo|naa|wala|may|mayroon|meron|open|available|free|bakante|taken|booked|reserved|we have|we can|we're|we are|we'd|it's|it is|there's|you're welcome|you may|our|the (rate|home|unit|nearest|nightly)|check-?in|check-?out|for \d+ nights?)\b|₱|php|\d/i;
-const BANNED_EXTRA_RE = /\b(no pressure|walang pressure|completely understand|as an ai|language model)\b/i;
+// D-311.6 (Lloyd 2026-10-07): "completely understand" is allowed again - it opens his own discount reply.
+const BANNED_EXTRA_RE = /\b(no pressure|walang pressure|as an ai|language model)\b/i;
+/** D-311.3: a first-contact "How do I book?" answered by asking for the dates and the guests is answered - it moves the guest
+ *  into booking (Lloyd: booking seamless, the options at the right moment). */
+const HOW_BOOK_Q_RE = /\bhow (?:do|can|should) (?:i|we) (?:book|reserve)\b|\bhow to book\b|\bpaano (?:po )?mag-?book\b/i;
+const BOOK_ASK_RE = /\bdates?\b[\s\S]*\b(guests?|how many|number of|ilan|pila)\b|\b(guests?|how many|number of|ilan|pila)\b[\s\S]*\bdates?\b/i;
 const R2_RULES: Violation[] = ['form_speak', 'robot_word', 'shouting', 'command_tone', 'exclaim', 'boilerplate', 'cold_opener'];
 const CHAT_RE = /\b(chat|tell us here|let us know here|sabihin lang (po )?dito|ingna lang mi diri|share [^.?!\n]{0,20}(here|dito|diri))\b/i;
 const DATES_ASK_RE = /\b(which|what) dates\b|\b(share|send|let us know|tell us)\b[^.?!\n]{0,30}\b(your|ang|inyong) (preferred |target )?dates\b|\bkailan po\b|\bwhen (would|will|are) you\b|\bunsa(ng)? (nga )?dates?\b|\bano(ng)? (po )?(mga )?(dates?|petsa)\b/i;
@@ -104,7 +109,8 @@ export function scoreReply(c: Ctx): Score {
     // D-286: the greeting + Cassy introduction is its own paragraph, and longer than 110 characters
     const first = c.firstTurn && GREET_RE.test(paras[0]) && (paras[0].length < 110 || /\bCassy\b/.test(paras[0])) && !/\d|₱/.test(paras[0]) ? (paras[1] ?? '') : paras[0];
     const opening = first.trim().split(/(?<=[.!?])\s+/).find((x) => !(GREET_RE.test(x) && x.length < 40)) ?? '';
-    if (/\?\s*$/.test(opening)) s.R1 = 'the first sentence asks back';
+    if (c.firstTurn && HOW_BOOK_Q_RE.test(c.guest) && BOOK_ASK_RE.test(first)) { /* D-311.3: the dates and guests ARE the answer */ }
+    else if (/\?\s*$/.test(opening)) s.R1 = 'the first sentence asks back';
     else if (lint.includes('no_answer') && !ANSWER_RE.test(first)) s.R1 = 'no answer in the first paragraph';
   }
   // R2 nothing banned (the midflow composite carries the approved card: its own lines were linted at build time)
@@ -138,7 +144,8 @@ export function scoreReply(c: Ctx): Score {
   if (c.lang === 'bis') { const t = TAGALOG_ONLY_RE.exec(r)?.[0]; if (t) s.R6 = `Tagalog "${t}" in a Bislish reply`; }
   // D-245 (Lloyd 2026-09-25, "accept either"): a Taglish guest answered in clean English passes; Taglish stays the aim and
   // index.ts keeps its one off_register rewrite. Too many "po" still fails.
-  else if (c.lang === 'tl') { if (po > 2 && c.kind !== 'flow') s.R6 = `${po} "po"`; }
+  // D-311.5 (Lloyd 2026-10-07): at most three "po" in a Taglish reply (compose() thins the whole message to three).
+  else if (c.lang === 'tl') { if (po > 3 && c.kind !== 'flow') s.R6 = `${po} "po"`; }
   else if (voiced || c.kind === 'handoff') {
     if (po > (c.guestUsedPo ? 1 : 0)) s.R6 = `${po} "po" in an English reply`;
     else { const u = UNCONTRACTED_RE.exec(r)?.[0]; if (u && voiced) s.R6 = `uncontracted "${u}"`; }

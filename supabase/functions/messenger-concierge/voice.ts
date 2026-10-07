@@ -39,6 +39,24 @@ export function thinPo(text: string, keep = 2): string {
   let n = 0;
   return text.replace(/ po\b/g, (m) => (++n > keep ? '' : m));
 }
+/** D-311.5 (golden fu-second-link-en, "Ben, yes po, free parking..."): an English reply carries no "po" ("opo" is "yes");
+ *  `keep` 1 for a guest who wrote English with a courtesy "po" (D-245). */
+export const noPo = (text: string, keep = 0): string => thinPo(text.replace(/\b([Oo])po\b/g, (_m, o: string) => (o === 'O' ? 'Yes' : 'yes')), keep);
+/** D-311.7 (golden promo-ask-tl, "automated na ring bumababa"): "automated" is a robot word; a Taglish reply says "kusa". */
+export const kusang = (text: string): string =>
+  text.replace(/\b(?:automatic(?:ally)?|automated)\b(\s+na\b)?/gi, (_m, na?: string) => (na ? `kusa${na}` : 'kusang'));
+/** D-311.5 (golden s63-month-tl, "Hi Ben! ..." then "Ben, para sa 30 nights..."): when the greeting paragraph already named the
+ *  guest, a paragraph that opens on the name again loses it ("Ben, para sa" -> "Para sa"). */
+export function nameOnce(reply: string, name: string | null): string {
+  const n = name?.trim().split(/\s+/).find((t) => !/\.$/.test(t) && t.replace(/[^\p{L}]/gu, '').length > 2) ?? name?.trim().split(/\s+/)[0];
+  if (!n) return reply;
+  const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const [head, ...rest] = reply.split(/\n\s*\n/);
+  if (!rest.length || !new RegExp(`^\\s*(?:hi|hello|hey|good \\w+|maayong \\p{L}+|magandang \\p{L}+)\\b[^\\n]{0,12}\\b${esc}\\b`, 'iu').test(head)) return reply;
+  // A sentence that opens on the name, at a paragraph start or after a full stop ("We'd be delighted to have you. Ben, kailan...").
+  const lead = new RegExp(`(^|[.!?]\\s+)(?:(?:sir|ma'?am)\\s+)?${esc}(?:\\s+po)?,\\s*(\\p{L})`, 'giu');
+  return [head, ...rest.map((p) => p.replace(lead, (_m, pre: string, c: string) => pre + c.toUpperCase()))].join('\n\n');
+}
 
 const CONTRACTIONS: Array<[RegExp, string]> = [
   // Not after a preposition: "window for you would be" became "for you'd be", "how many of you will" became "of you'll" (golden run 2026-09-17).
@@ -239,6 +257,18 @@ const availSentence = (s: string) => openClaim(s) || BOOKED_CLAIM_RE.test(s);
 export function claimsOpen(reply: string): boolean {
   return reply.split('\n').some((l) => sentencesOf(l).some(openClaim));
 }
+/** D-311.5 (golden first-avail-and-amenity-en: "Yes, Ben, Oct 21 to 23 is open..." from the model, then the flow's own "Oct 21
+ *  to 23 is available, and we'd be delighted to welcome you."): when the answer already says the dates are open, the flow's
+ *  availability paragraph goes and its ask stays. Only a paragraph naming a date the answer also names, so a different
+ *  range is never dropped. */
+export function dedupeAvailability(answer: string, flowPart: string): string {
+  if (!claimsOpen(answer)) return flowPart;
+  const paras = flowPart.split(/\n\s*\n/);
+  const i = paras.findIndex((p) => claimsOpen(p));
+  const date = i >= 0 ? new RegExp(MD, 'i').exec(paras[i])?.[0] : undefined;
+  if (!date || !answer.toLowerCase().includes(date.toLowerCase()) || paras.length < 2) return flowPart;
+  return paras.filter((_, k) => k !== i).join('\n\n');
+}
 /** Every sentence that states availability for a date gives way to the code's line: the first is replaced, the rest are
  *  dropped (golden run 4: "Oct 7 is already reserved. However, Oct 8 and 9 are open" - Oct 8 was booked too). Never ''. */
 export function setAvailability(reply: string, line: string): string {
@@ -281,16 +311,20 @@ export function fixEarlyFee(reply: string, guest: string): string {
 // cost." The prompt said "12 noon at the earliest" there, so code owns the fact now, as K18 does for the fee.
 const NOON_OFFER_RE = /\b(12(:00)?\s*(noon|nn|pm)|noon|tanghali|complimentary|no extra (cost|charge)|free (early )?check[- ]?in|walang (dagdag|bayad))\b/i;
 const CHECKIN_WORD_RE = /\b(check[- ]?in|arriv\w*|dating|abot)\b/i;
-const noonOffer = (s: string) => CHECKIN_WORD_RE.test(s) && NOON_OFFER_RE.test(s) && !/\b2(:00)?\s*p\.?m\b/i.test(s) && !/\bcheck[- ]?out\b/i.test(s);
+// D-311.2 (golden s74b run 3: "Open din po ang 12:00 noon early check-in at no extra charge dahil wala pong guest na mag-che-check
+// out..." slipped through): a check-out word excuses the sentence only when it names no check-in ("Check-out is at 12 noon").
+const noonOffer = (s: string) => CHECKIN_WORD_RE.test(s) && NOON_OFFER_RE.test(s) && !/\b2(:00)?\s*p\.?m\b/i.test(s) && !(/\bcheck[- ]?out\b/i.test(s) && !/\bcheck[- ]?in\b/i.test(s));
 /** The reply offers a check-in at or before 12 noon, or a free early one. */
 export function offersEarlyCheckin(reply: string): boolean {
   return reply.split('\n').some((l) => sentencesOf(l).some(noonOffer));
 }
-/** The code's sentence for a check-in on a turnover day. `day` is already formatted ("Oct 2"). */
-export function turnoverCheckinLine(day: string, l3: 'en' | 'tl' | 'bis'): string {
-  return l3 === 'tl' ? `Sa ${day} po, ang check-in ay from 2:00 PM, dahil ihahanda pa namin ang home after ng naunang guest; sasabihan namin kayo agad kung maaga itong maging ready.`
-    : l3 === 'bis' ? `Sa ${day}, ang check-in kay from 2:00 PM, kay amo pang i-prepare ang home human sa nauna nga guest; amo dayon kamo ingnan kung ready na og sayo.`
-    : `Check-in on ${day} is from 2:00 PM, as we'll be preparing the home after the guest before you; we'll let you know right away if it's ready earlier.`;
+/** The code's sentence for a check-in on a turnover day. D-311.2 (Lloyd 2026-10-07, his model reply word for word): 12 NN or
+ *  1 PM only if the unit is already fully prepared, never a promised time; the standard 2:00 PM stands. 12 NN and 1 PM carry
+ *  no fee (the PHP 100 per started hour is before 12 noon only). D-311.8: a Bisaya guest gets the English line.
+ *  `_day` ("Oct 2") is kept for the callers; Lloyd's wording does not name the day. */
+export function turnoverCheckinLine(_day: string, l3: 'en' | 'tl' | 'bis'): string {
+  return l3 === 'tl' ? `Masaya po naming ia-accommodate ang mas maagang check-in ng 12:00 NN o 1:00 PM kung fully prepared at ready na ang unit by then. Gagawin namin ang lahat para maihanda ito bago ang standard 2:00 PM check-in, at ia-update po namin kayo once ma-confirm namin ang earliest time.`
+    : `We'll be happy to accommodate an earlier check-in at 12:00 NN or 1:00 PM if the unit is already fully prepared and ready by then. We'll do our best to have everything ready ahead of the standard 2:00 PM check-in and will keep you posted once we can confirm the earliest time.`;
 }
 /** Every sentence offering an early check-in gives way to the code's line: the first is replaced, the rest dropped. */
 export function setTurnoverCheckin(reply: string, line: string): string {

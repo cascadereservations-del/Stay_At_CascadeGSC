@@ -11,14 +11,14 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, pastStayAsk, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, pastStayAsk, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed, haggleLine, haggleHold, promoFirst, warmClause, type PromoFacts } from './persona.ts';
 import { JEV_INTENTS, jevRoute, primaryLang, routeRisk, type JevRoute } from './jev.ts'; // D-271
 import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
-import { dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
+import { BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { dedupeAvailability, kusang, nameOnce, noPo, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
@@ -50,8 +50,9 @@ const HISTORY_KEEP = 16; // 32 stored entries; 12 dropped a guest's dates after 
 // Guest-facing handoff lines, the attachment reply, ACK_SUGGEST and the dates-first answer live in persona.ts (session 58).
 // Early/late check-in-out before dates are known (see needsDatesFirst in policy.ts).
 const LOCAL_RE = /\b(po|pwede|kailan|maaga|naa|moy|kami|namin|ba|ninyo|nyo)\b/i;
-const datesFirstReply = (name: string | null, text: string, followUp: boolean, lang: string) =>
-  datesFirstLine(name, !LOCAL_RE.test(text) ? 'en' : lang === 'bisaya' ? 'bis' : 'tl', followUp);
+// D-311.8: a Bisaya guest gets the English line.
+const datesFirstReply = (name: string | null, text: string, followUp: boolean) =>
+  datesFirstLine(name, !LOCAL_RE.test(text) || guestLang(text) === 'bisaya' ? 'en' : 'tl', followUp);
 
 // Two turns that need no model (live audit 2026-09-13: the model padded "salamat po" with a
 // sales nudge and answered "are you a bot?" with "I ... just like a human host would").
@@ -63,9 +64,9 @@ const CLOSER_ONLY_RE = /^\s*(?:(?:ok(?:ay)?|sige|noted|got it|alright|copy|bye|g
 const BOT_RE = /\b(are you a (bot|robot|an? ai)|is this a bot|bot (ka|po|ba)|ai (po )?ba|robot (ka|po) ba|chatbot|real person|human ba|tao (po )?ba|automated)\b/i;
 const pick = (xs: string[]) => xs[Math.floor(Math.random() * xs.length)];
 // Voice close-out (protocol 10): three registers, no exclamation words, one or two "po", and the open door offers both
-// routes. `lang` is the SETTLED register of the turn (Bislish only after two Bisaya turns, D-172).
+// routes. `lang` is the SETTLED register of the turn. D-311.8 (Lloyd 2026-10-07): a Bisaya or Bislish guest gets English.
 type L3 = 'en' | 'tl' | 'bis';
-const l3Of = (lang: string): L3 => (lang === 'bisaya' ? 'bis' : lang === 'taglish' ? 'tl' : 'en');
+const l3Of = (lang: string): L3 => (lang === 'taglish' ? 'tl' : 'en');
 export function closingReply(name: string | null, lang: string, thanks: boolean, lastBotText: string): string {
   const l = l3Of(lang);
   const fresh = (xs: string[]) => { const ys = xs.filter((x) => !lastBotText.includes(x.replace(/^[^.]*\.\s*/, '').slice(0, 40))); return ys.length ? ys : xs; };
@@ -315,7 +316,7 @@ async function availabilityBlock(db: Db): Promise<string> {
     `BOOKED NIGHTS: ${booked.join(', ') || 'none'}`,
     `If a requested range includes a booked night, say exactly which nights are taken and which are open, then offer the open part or the nearest window. For dates beyond ${pretty(horizonEnd)}, say the host will confirm.`,
     // Turnover safeguard (live test 2026-09-12: a free 1 PM check-out was promised with no dates known).
-    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - on these days check-in stays at 2:00 PM: never offer 12 noon or any early check-in, free or paid; say we will let them know right away if the home is ready earlier.`,
+    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - on these days never promise an early check-in time (D-311): say we'll be happy to accommodate 12:00 NN or 1:00 PM if the unit is already fully prepared and ready by then, that we'll do our best to have everything ready ahead of the standard 2:00 PM check-in, and that we'll keep them posted once we can confirm the earliest time. Never "complimentary", never a time confirmed.`,
     `ANOTHER GUEST CHECKS IN ON: ${[...checkins].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - late check-out is NOT possible on these days; check-out stays at 12 noon.`,
     `Offer early check-in or late check-out ONLY when the guest's dates are known and the day in question is on neither list. Otherwise say you will gladly arrange it once their dates are set and the calendar allows.`,
   ].join('\n');
@@ -372,7 +373,8 @@ const systemPrompt = (thread: Thread, availability: string, landmarks = '', comp
 // models honour it: guestLang() in booking.ts, the one detector (SPEC-28 section 4).
 const LANG_HINT = {
   taglish: '[Reply in natural conversational Taglish with "po" - everyday Tagalog mixed with English the way a GenSan host texts, not formal Tagalog.] ',
-  bisaya: '[Tubaga sa natural nga Bislish. Reply in natural Bislish (Cebuano with English hospitality terms). Never use Tagalog "po" / "opo" or Tagalog words such as "kasya".] ',
+  // D-311.8 (Lloyd 2026-10-07): the s74 Bisaya replies mixed English price paragraphs with Bisaya, and one was full Bisaya.
+  bisaya: '[The guest wrote Bisaya. Reply in warm, natural English with contractions - Bisaya and Bislish guests get English replies (D-311). No "po", no Tagalog or Bisaya sentences.] ',
   english_po: '[The guest wrote English with a courtesy "po". Reply in warm English; one "po" is welcome, no Tagalog sentences.] ',
   english: '',
 };
@@ -930,18 +932,18 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // D-271 primary (eval 60/60 tuning, 17/20 held-out vs regex 45/60, 9/20): Jev decides the soft risks, raises what the regex
   // missed, and lowers a regex false alarm only when sure no one must act; money, danger, the door and data probes keep the
   // regex floor. A live booking flow keeps its deterministic steps.
-  const jevRisk = g0.reply && !isActive(thread.booking_flow, now) ? routeRisk(g0.risk, jev) : g0.risk;
+  // SPEC-34 (D-262) + D-311.1/.7 (Lloyd 2026-10-07): "any promo?" has a factual answer - the live promotions and that booking
+  // direct is itself the better price - so a PLAIN promo question is answered and never forwarded: Jev's "negotiation" read
+  // turned golden promo-ask-en/-tl into the host line. Haggling inside it (the regex's own policy_exception) still goes to the host.
+  // Not bare "sale": "May sale po ba sa SM?" is about the mall (second review 2026-09-26).
+  const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text);
+  const plainPromo = promoAsk && g0.risk !== 'policy_exception';
+  const jevRaw = g0.reply && !isActive(thread.booking_flow, now) ? routeRisk(g0.risk, jev) : g0.risk;
+  const jevRisk = plainPromo && jevRaw === 'policy_exception' ? g0.risk : jevRaw;
   const g = jevRisk !== g0.risk ? { ...g0, risk: jevRisk, handoff: jevRisk !== 'routine' } : g0;
   if (jev) console.log('jev_route', JSON.stringify({ psid: psid.slice(-6), regex: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), host: +jev.needsHost.toFixed(2), lang: jev.lang, ms: jev.ms, raised: jevRisk !== g0.risk }));
-  // Lloyd 2026-09-13: a discount ask gets the answer (the direct site applies the best rate
-  // automatically; the longer the stay, the higher the discount) AND the host line and card.
-  // SPEC-34 (D-262): while a promotion is live, "any promo?" has a factual answer - the promotion - so it is answered
-  // with the normal close, not sent to the host as a price request (golden 2026-09-26: the host line pushed every
-  // promo answer past 700 characters and dropped the chat route). A discount ask still goes to the host.
-  // Not bare "sale": "May sale po ba sa SM?" is about the mall (second review 2026-09-26).
-  const promoAsk = /\b(promos?|promotions?|anniversary (?:promo|rate|price|sale))\b/i.test(text) && !/\b(discount|discounted|lower price|cheaper|mas mura)\b/i.test(text) && livePromos(currentCard(), now).length > 0;
-  // SPEC-39 3.3 (D-300.4): "medyo mahal po" / "a bit expensive" is the same price objection as "any discount?".
-  const discountAsk = !promoAsk && priceObjection(text);
+  // SPEC-39 3.3 (D-300.4): "medyo mahal po" / "a bit expensive" is the same price objection as "any discount?"; it goes to the host.
+  const discountAsk = !plainPromo && priceObjection(text);
   const siteShown = thread.history.filter((h) => h.role === 'bot').slice(-4).some((h) => h.text.includes(SITE_URL)); // D-269
   // D-269 answer-then-escalate: a price proposal or special request (policy_exception that is not a house rule) is answered
   // from FACTS like a discount ask, and the host still gets the card with two options. A bare "our host will consider it"
@@ -1085,10 +1087,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = (greetNow ? greeting(thread.guest_name, flow.lang).trimEnd() + '\n\n' : '') + line; } // SPEC-28 section 3; SPEC-39 3.5 (s73 F3): the greeting is its own paragraph
       // SPEC-28 section 2: "is Oct 26 to 28 open? is there wifi?" - the model answers the wifi, then the dates line and the
       // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
-      else if (flow.asked === 'question' || flow.question) flowFollowUp = opener(flow, thread.guest_name, flow.question ? line : '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
+      else if (flow.asked === 'question' || flow.question) flowFollowUp = flowLead(flow, thread.guest_name, flow.question ? line : '', now);
       else flowReply = opener(flow, thread.guest_name, line, false, greetNow) + prompt(flow, thread.guest_name);
       // D-299.10: no introduction sentence on any first reply; the initial message is signed instead (greetNow, below).
-    } else if (flow.asked === 'question') flowFollowUp = opener(flow, thread.guest_name, '', false, false).trim() + '\n\n' + prompt(flow, thread.guest_name);
+    } else if (flow.asked === 'question') flowFollowUp = flowLead(flow, thread.guest_name, '', now);
     else flowReply = opener(flow, thread.guest_name, '', false, greetNow) + prompt(flow, thread.guest_name); // session 28: welcome first
   }
   if (flow) thread.booking_flow = flow;
@@ -1096,11 +1098,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   if (card) { handoff = true; risk = card.risk; draftNote = card.note; } // SPEC-31: the code line goes to the guest AND the host gets the card
   if (calendarDown) flagOnly = true; // OPS gets the glance card: the guest was told we will confirm the dates
 
-  // Lloyd 2026-09-17 14:40: Bislish only when the guest keeps writing Bisaya (this turn and their previous one); a lone
-  // Bisaya turn gets Taglish. Settled once per turn, so the code-owned lines follow the same register as the model.
+  // D-311.8 (Lloyd 2026-10-07): a Bisaya or Bislish guest gets English - the register D-172 settled (Taglish on the first Bisaya
+  // turn, Bislish from the second) is retired. Settled once per turn, so the code-owned lines follow the same register as the model.
   const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
   const thisLang = primaryLang(guestLang(text), jev); // D-271 hybrid: Jev overrides only an English reading, when sure
-  const turnLang = thisLang === 'bisaya' && guestLang(prevGuest) !== 'bisaya' && flow?.lang !== 'bis' ? 'taglish' : thisLang;
+  const turnLang = thisLang === 'bisaya' ? 'english' : thisLang;
   // D-282: house how-tos for the model (HOUSE block). A verified current guest reads the guest tier; anyone else reads
   // public rows, and a question whose best answer is guest-tier gets the stay check instead (never mid-booking).
   const house = text && g.reply ? matchHouse(await loadHouse(db).catch((e) => { console.error('house_load_failed', String(e).slice(0, 200)); return []; }), text, verified ? 'guest' : 'public') : null;
@@ -1114,12 +1116,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (handoff) { const rule = risk === 'policy_exception' && ruleOnly ? houseRuleKind(text) : null; reply = !text ? (hostOpen.length || thread.booking_flow?.ref ? ((msg.attachments ?? []).some((a: any) => a?.type === 'audio') ? voiceNote(l3Of(guestLang(prevGuest))) : attachmentNoted(l3Of(guestLang(prevGuest)))) : ATTACHMENT_REPLY) : rule ? houseRule(rule, l3Of(turnLang)) : urgentOpen ? handoffFollowUp(l3Of(turnLang)) : risk === 'access' ? accessVerify(l3Of(turnLang)) : HANDOFF[risk]; }
   // Session 58 live probe: "salamat" alone reads as Taglish, so a settled Bisaya thread got "It's our pleasure po". A
   // Taglish-reading closer keeps Bislish when the last two guest turns were Bisaya (D-172's own two-turn rule).
-  else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && (flow?.lang === 'bis' || (thread.history.filter((h) => h.role === 'guest').slice(-2).filter((h) => guestLang(h.text) === 'bisaya').length === 2)) ? 'bisaya' : turnLang,THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
+  // D-311.8: a thanks from a Bisaya thread is closed in English ("salamat" alone reads as Taglish, so the thread decides).
+  else if (THANKS_RE.test(text) || CLOSER_ONLY_RE.test(text)) reply = closingReply(thread.guest_name, thisLang === 'taglish' && thread.history.filter((h) => h.role === 'guest').slice(-2).some((h) => guestLang(h.text) === 'bisaya') ? 'english' : turnLang, THANKS_RE.test(text), thread.history.filter((h) => h.role === 'bot').slice(-2).map((h) => h.text).join('\n'));
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
   // s74 G1: a past stay told about and a price asked ("last time we stayed Sep 5 to 7, how much now?") - no quote, no hold, ask the new dates.
-  else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text) || /\b(available|avail|open|bakante)\b/i.test(text))) reply = pastStayAsk(turnLang === 'bisaya' ? 'bis' : turnLang === 'taglish' ? 'tl' : 'en');
-  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp, turnLang);
+  else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text) || /\b(available|avail|open|bakante)\b/i.test(text))) reply = pastStayAsk(l3Of(turnLang));
+  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
   else {
     try {
       const everAnswered = thread.history.some((h) => h.role === 'bot'); // SPEC-21: a thread fact, not a clock fact
@@ -1156,11 +1159,14 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const quotedTotal = priced.total, given = !!quotedTotal && (recentBot.includes(peso(quotedTotal)) || recentBot.includes(`₱${quotedTotal.toLocaleString('en-US')}`));
       const anchor = given ? '[The stay figures were already given in this chat: refer to them in a few words, do not repeat them.] ' : priced.text;
       const houseMixed = negotiate && houseAsk; // D-270/271: a house rule (keyword or Jev) the canned line does not cover - the rule, then everything else
-      // D-300.4 (Lloyd 2026-10-05, "medyo mahal po"): empathy first, one value line with the stay TOTAL only, the host line
-      // (code, English), and one soft question - never a rate lecture, a percentage or a saving.
-      const objTotal = stay && sq ? `[Their ${sq.nights} night${sq.nights === 1 ? '' : 's'} (${dmRange(stay.checkin, stay.checkout)}) come to ${peso(sq.total)} at the direct rate, with cleaning and drinking water included - the one figure you may say.] ` : anchorTotal(guestTexts.slice(-3).join(' '));
-      const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] ` : hostAsk ? `[The guest finds the price high. Shape: ONE sentence of understanding first (no apology, no "unfortunately"), then AT MOST ONE value sentence with the stay total only - no per-night arithmetic, no percentages, no "from PHP ${currentCard().base.toLocaleString('en-US')}", no savings figure - then code adds the host line. Put ONE soft question in "ask": whether we may hold their dates while the host takes a look (their dates if unknown). English is welcome where Tagalog would read stiff. Do not promise a special price. Do not say you will forward, pass on or share their request and do not name the host: code adds that line.] ${objTotal}`
-        : promoAsk ? `[Promo ask: answer in one or two short paragraphs - ${livePromos(currentCard(), now).map((p) => `our ${p.name} brings the nights of ${dmRange(p.first_night, p.last_night)} to ${peso(p.nightly_rate)} per night instead of the standard ${peso(currentCard().base)}`).join('; ')}; outside those nights, booking direct still lowers the nightly rate the longer the stay. Put the question about which dates they have in mind in "ask". Quote no other number and no other "was" price.] ${anchor}`
+      // D-311.6 (Lloyd 2026-10-07, replaces D-300.4's value line): a discount or haggle request gets code's answer - "We completely
+      // understand, and we'll do our best to accommodate your request." - no rate explanation, then the host line and the hold
+      // question. No model call. ponytail: a haggle that also asks something else gets this answer only; model the rest if seen live.
+      const haggle = hostAsk && !houseMixed;
+      // D-311.1: the promotions this turn's card holds, as sealed facts for the promo answer.
+      const promos: PromoFacts[] = livePromos(currentCard(), now).map((p) => ({ name: p.name, when: dmRange(p.first_night, p.last_night), rate: peso(p.nightly_rate), base: peso(currentCard().base) }));
+      const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] `
+        : promoAsk ? `[Promo ask: your FIRST sentence names ${promos.length ? promos.map((p) => `our ${p.name}, which brings the nights of ${p.when} to ${p.rate} per night instead of the standard ${p.base}`).join('; ') : 'that booking direct is itself our best price'}; then say booking direct is itself the better price: our direct rates are lower than on Airbnb and the other booking apps, and the nightly rate goes lower the longer the stay. No host, no forwarding: this is answered here. Put the question about which dates they have in mind in "ask". Quote no other number and no other "was" price.] ${anchor}`
         : (rateAsked(text) ? anchor : '');
       // SPEC-39 Q2 (default): a nameless first contact with no dates gets the dates question alone - the details step takes the name.
       const nameHint = !thread.guest_name && !followUp && datesKnown.length ? '[Guest name unknown: put one warm question for their name in "ask".] ' : '';
@@ -1176,14 +1182,20 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // Golden AFTER 2026-09-30: the rewrites below carried only the pax and dates hints, so a cold-rewritten stay quote lost
       // the code's figures and said "the site will show the total". Every rewrite now carries the same hints as the first draft.
       const hints = nameHint + intentHint(jev) + discHint + capHint + datesHint + paxHint + flowHint + payHint + checkoutHint(text);
-      let out = await draft(thread, hints + LANG_HINT[lang] + asked, context, 'full', followUp);
+      const langHint = LANG_HINT[thisLang === 'bisaya' ? 'bisaya' : lang]; // D-311.8: "reply in English" for a Bisaya guest
+      // D-311.6: the haggle hold question - the stay's dates when they are open, else the dates asked.
+      let haggleDates: string | null = null;
+      if (haggle && stay && sq && sq.nights <= 60) { const n = await bookedNightsFor(db, { ...stay } as Flow); if (n && !n.size) haggleDates = dmRange(stay.checkin, stay.checkout); }
+      // "medyo mahal po" reads as English with a courtesy "po": the line keeps that one "po"; the hold question follows the turn's register.
+      const haggleL: L3 = l3 === 'tl' || lang === 'english_po' ? 'tl' : 'en', holdL: L3 = l3;
+      let out: Draft = haggle ? { reply: haggleLine(haggleL), ask: haggleHold(haggleDates, holdL), uncertain: false } : await draft(thread, hints + langHint + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
       if (NEGATIVE_RE.test(out.reply)) {
         console.error('negative_frame_retry', out.reply.slice(0, 160));
         const fix = `[REWRITE REQUIRED. Your draft opened with a negative ("${out.reply.slice(0, 60).replace(/\n/g, ' ')}..."). The first sentence must name what we DO offer for this wish - e.g. "For swimming po, EM Jake Wave Pool is about 2 km away" instead of "Wala po kaming pool"; "The unit is best suited to 3 adults" instead of "Hindi po pwede ang 4". Do not use "wala", "hindi pwede", "sorry", "unfortunately", "cannot", "not available" anywhere in the reply.] `;
-        out = await draft(thread, fix + hints + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
+        out = await draft(thread, fix + hints + langHint + asked, context, 'full', followUp).catch(() => out);
       }
       // Session 30: a correct but cold answer is a defect (protocol 08 section 6: answer, context, next step, reassurance,
       // warm close). One rewrite, the same way a negative opener gets one; if it fails we keep the first draft.
@@ -1191,15 +1203,17 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // is decided in code, so it is checked in code: one rewrite, the same pattern as the negative opener.
       if (offRegister(out.reply, l3)) {
         console.warn('off_register_retry', l3, out.reply.slice(0, 160));
-        const fix = l3 === 'en' ? `[REWRITE REQUIRED. The guest wrote in English and your draft was in Taglish. Write the whole reply in warm, natural English with contractions${lang === 'english_po' ? ' (one courtesy "po" is welcome)' : ', no "po"'}. Keep every fact. Do not copy a reference reply.] `
+        const fix = l3 === 'en' ? `[REWRITE REQUIRED. ${thisLang === 'bisaya' ? 'Bisaya guests get English replies (D-311) and your draft was in Bisaya or Taglish' : 'The guest wrote in English and your draft was in Taglish'}. Write the whole reply in warm, natural English with contractions${lang === 'english_po' ? ' (one courtesy "po" is welcome)' : ', no "po"'}. Keep every fact. Do not copy a reference reply.] `
           : l3 === 'bis' ? `[REWRITE REQUIRED. The guest writes Bisaya and your draft used Tagalog words. Write it in natural Bislish: no "po", no "kayo", "namin", "dito", "hindi". Keep every fact.] `
           : `[REWRITE REQUIRED. The guest wrote in Tagalog / Taglish and your draft was plain English. Write it in natural Taglish with "po" once or twice, English for the hospitality and money terms. Keep every fact.] `;
-        out = await draft(thread, fix + hints + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
+        out = await draft(thread, fix + hints + langHint + asked, context, 'full', followUp).catch(() => out);
       }
       if (!flowFollowUp && isCold(out.reply)) {
         console.warn('cold_reply_retry', out.reply.slice(0, 160));
         const warm = `[REWRITE REQUIRED. Your draft was correct but read as blunt and transactional. Keep every fact. Write it the way a calm boutique-hotel concierge would type it in chat: the answer first; then one sentence that shows care or preparation done for the guest ("we'll have it ready", "so you can settle in without a second thought"). Natural contractions. No sales language, no "no pressure", no exclamation words, no second invitation.] `;
-        out = await draft(thread, warm + hints + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => out);
+        out = await draft(thread, warm + hints + langHint + asked, context, 'full', followUp).catch(() => out);
+        // D-311.8 (golden reg-bot-bis: a short rate answer stayed cold after the rewrite): one warm clause, from code.
+        if (isCold(out.reply)) out.reply = `${out.reply.trimEnd()} ${warmClause(l3)}`;
       }
       // K18 (D-182): the early check-in fee is computed in code; a contradicting peso figure is corrected (mid-flow too:
       // this runs on the answer before the flow's card is added).
@@ -1252,13 +1266,16 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         // despite the prompt rule): drop a title the model put before their name in that case.
         if (thread.guest_name && /\b(ma'?am|sir|maam)\b/i.test(text)) a = a.replace(new RegExp(`\\b(ma'?am|sir)\\s+(?=${thread.guest_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b)`, 'giu'), '');
         a = gladNotHappy(plainText(redactAddress(a)));
-        if (english) a = contractions(a); // protocol 08: natural contractions
+        if (english) a = noPo(contractions(a), lang === 'english_po' ? 1 : 0); // protocol 08: natural contractions; D-311.5: no "po" in English
+        else if (l3 === 'tl') a = kusang(a); // D-311.7: "automated" is a robot word
         if (knownPax && !flowFollowUp) a = dropPaxAsk(a);
         if (thread.guest_name) a = dropNameAsk(a); // golden run 2: the model asked a guest we already know for their name
         if (payHold) { const held = payHoldReply(a, paidClaimReply(flow!, flow!.name ?? thread.guest_name, l3), SITE_URL); if (held !== a) console.warn('pay_hold_guard', a.slice(0, 160)); a = held; }
         return a;
       };
-      const answer = guard(out.reply, lang === 'english' || lang === 'english_po');
+      let answer = guard(out.reply, lang === 'english' || lang === 'english_po');
+      if (promoAsk) answer = promoFirst(answer, promos, l3); // D-311.1: the live promotions and the direct price, first paragraph
+      if (flowFollowUp) flowFollowUp = dedupeAvailability(answer, flowFollowUp); // D-311.5: the dates said open once
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       const quiet = payHold || stayingNow || hostOpen.length > 0;
       // D-269: the discount host line is said once per thread (in any register, any wording it has had), closing the answer.
@@ -1329,6 +1346,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Kapag ready po kayo|We can arrange (the booking|everything)|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
     // D-299.10 / D-300.1: the initial message of a conversation (no bot reply in 12 h) is signed - the composed reply signs
     // itself; every other code-written initial message is signed here, on the same greetNow flag. Never a handoff, a card or a QR turn.
+    reply = nameOnce(reply, thread.guest_name); // D-311.5: the greeting named the guest, so no paragraph opens on the name again
     if (greetNow && !handoff && !flowImage) reply = signFirst(reply, true);
     lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name, cap: stayPayTurn ? STAY_PAY_CAP : undefined });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));
