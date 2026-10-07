@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "release_id": "admin_overview_unpaid_fees_20261007",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "ed9c8b07c1e4224a04123e6e0254c3712b908123"
+  },
+  "migrations": [
+    "20261007160000_admin_overview_unpaid_fees_unpriced.sql"
+  ],
+  "migration_sha256": {
+    "20261007160000_admin_overview_unpaid_fees_unpriced.sql": "636056b9827fe64c8bd47a2ee384f2e82543e38270f9e3cb2514d543573ea9a1"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Function replacement only: get_admin_overview_v1(uuid), patched from its LIVE body (md5(prosrc) 1604680f29ac95624c67d830d887627f, read 2026-10-07, equal to 20260916150000_admin_overview_handoffs_open.sql). One line changes: finance.unpaidCleanerFees counts cleaning_sessions with fee_paid_at null and (fee_amount null or > 0) instead of fee_amount > 0 and fee_paid_at null. Grants re-asserted as read live (authenticated EXECUTE only; anon, service_role, PUBLIC none). No table, column, row or other function touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "unpaid_fees_counts_unpriced_cleans",
+      "query": "select prosrc like '%c.fee_paid_at is null and (c.fee_amount is null or c.fee_amount > 0)%' and prosrc not like '%c.fee_amount > 0 and c.fee_paid_at is null%' from pg_proc where oid = 'public.get_admin_overview_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "only_the_fee_rule_changed",
+      "query": "select md5(replace(replace(prosrc, E'      -- SPEC-37: fee_amount stays NULL until the cleaner requests pay, so an unpriced clean is still owed; an explicit 0 means no fee.\\n', ''), 'c.fee_paid_at is null and (c.fee_amount is null or c.fee_amount > 0)', 'c.fee_amount > 0 and c.fee_paid_at is null')) = '1604680f29ac95624c67d830d887627f' from pg_proc where oid = 'public.get_admin_overview_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "overview_keeps_definer_search_path_and_grants",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and p.provolatile = 's' and has_function_privilege('authenticated', 'public.get_admin_overview_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.get_admin_overview_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.get_admin_overview_v1(uuid)', 'execute') from pg_proc p where p.oid = 'public.get_admin_overview_v1(uuid)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (read-only function)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261007_admin_overview_unpaid_fees_unpriced.sql with run-sql-on-host.sh: restores the 20260916150000 body (md5(prosrc) 1604680f29ac95624c67d830d887627f). Grants are untouched by create or replace."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "dashboard_unpaid_filter_same_rule",
+      "required_state": "admin-dashboard: /operations?fees=unpaid now filters fee_paid_at null and (fee_amount null or > 0), the Paid column and the cleaning detail say Unpaid (not \"no fee\") for an unpriced clean; publish that build after this release. Old dashboard + new function is harmless: the Today count is right, the linked list shows only priced rows until the build is published. No Edge Function, staff app or Apps Script reads unpaidCleanerFees."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same JSON shape; the number grows by the unpriced unpaid cleans. Production read-only 2026-10-07: cleaning_types turnover / mid_stay / deep_clean, all paid (staff_pay_candidates_v1 offers every fee_paid_at-null session, deep_clean at the general rate); 5 historic turnovers carry fee 0 and are settled; the new rule returns 2 (48e269c6 Oct 4-5, 3216c2bd Oct 7, Honey, fee NULL, no pay request), the old rule 0. Readers of unpaidCleanerFees: admin-dashboard today-page.tsx and today/api.ts only."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP admin_overview_unpaid_fees.sql green on this commit"
+  ]
+}
