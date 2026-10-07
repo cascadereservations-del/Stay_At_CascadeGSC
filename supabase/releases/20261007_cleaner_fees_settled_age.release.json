@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "main",
-    "commit": "45b2a1acd5aef3073582997d1ddb79071ae57d74"
+    "commit": "bfb5eceb69d84807f552079701581b3a3e3dcbd1"
   },
   "migrations": [
     "20261007170000_cleaner_fees_settled_age.sql"
