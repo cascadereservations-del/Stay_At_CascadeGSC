@@ -12,9 +12,9 @@ test('loads the Quiet Urban Luxury stylesheet and theme class', () => {
 
 test('defines the approved design tokens', () => {
   for (const token of [
-    '--ch-ink: #1d1712', '--ch-mahogany: #2b1713',
-    '--ch-parchment: #f2ece2', '--ch-bone: #fbf8f2',
-    '--ch-brass: #9b7443', '--ch-line:'
+    '--ch-ink: #2a1f16', '--ch-mahogany: #2b1713',
+    '--ch-parchment: #f1ebe1', '--ch-bone: #f9f6f0',
+    '--ch-brass: #7a5a2b', '--ch-line:'
   ]) assert.ok(css.includes(token), `missing ${token}`);
 });
 
@@ -63,5 +63,5 @@ test('centered hero keeps the photograph in front of its surface and the card un
 
 test('hero date fields use a subdued, legible surface without text shadows', () => {
   assert.match(css, /\.hero-bk-date-val\s*\{[^}]*color:\s*#3d332b;[^}]*text-shadow:\s*none;/s);
-  assert.match(css, /\.hero-bk-date-val\.is-placeholder\s*\{\s*color:\s*#76685d;/);
+  assert.match(css, /\.hero-bk-date-val\.is-placeholder\s*\{\s*color:\s*#5a4838;/);
 });

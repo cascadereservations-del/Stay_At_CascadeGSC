@@ -6,14 +6,14 @@
 ============================================================ */
 
 :root {
-  --ch-ink: #1d1712;
+  --ch-ink: #2a1f16;
   --ch-mahogany: #2b1713;
   --ch-mahogany-soft: #3a211c;
-  --ch-parchment: #f2ece2;
-  --ch-bone: #fbf8f2;
-  --ch-brass: #9b7443;
-  --ch-brass-dark: #76552f;
-  --ch-stone: #766b61;
+  --ch-parchment: #f1ebe1;
+  --ch-bone: #f9f6f0;
+  --ch-brass: #7a5a2b;
+  --ch-brass-dark: #7a5a2b;
+  --ch-stone: #5c4d3f;
   --ch-line: rgb(43 23 19 / 14%);
   --ch-success: #2f6b45;
   --ch-danger: #9f3a33;
@@ -226,9 +226,9 @@
   background: transparent;
 }
 .theme-quiet-luxury .hero-bk-label {
-  color: #806b56;
+  color: #5a4838;
   font-family: Manrope, system-ui, sans-serif;
-  font-size: .6rem;
+  font-size: var(--step--2);
   font-weight: 600;
   letter-spacing: .12em;
   text-shadow: none;
@@ -241,7 +241,7 @@
   line-height: 1.2;
   text-shadow: none;
 }
-.theme-quiet-luxury .hero-bk-date-val.is-placeholder { color: #76685d; }
+.theme-quiet-luxury .hero-bk-date-val.is-placeholder { color: #5a4838; }
 .theme-quiet-luxury .hero-bk-field.is-active { background: rgb(155 116 67 / .10); }
 .theme-quiet-luxury .hero-bk-sep--mid { background: rgb(94 76 58 / .20); }
 
@@ -270,7 +270,7 @@
 .theme-quiet-luxury #heroBookBar .hero-bk-inner { padding: .58rem .70rem .64rem; }
 .theme-quiet-luxury #heroBookBar .hero-bk-eyebrow {
   margin-bottom: .45rem;
-  font-size: .58rem;
+  font-size: var(--step--2);
   letter-spacing: .18em;
 }
 .theme-quiet-luxury #heroBookBar .hero-bk-field {
@@ -284,8 +284,8 @@
   box-shadow: inset 0 -2px 0 rgb(118 85 47 / .72);
 }
 .theme-quiet-luxury #heroBookBar .hero-bk-label {
-  color: #705b48;
-  font-size: .56rem;
+  color: #5a4838;
+  font-size: var(--step--2);
   font-weight: 700;
   letter-spacing: .14em;
   line-height: 1.1;
@@ -300,7 +300,7 @@
   line-height: 1.3;
   text-shadow: none !important;
 }
-.theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder { color: #6f5e50; }
+.theme-quiet-luxury #heroBookBar .hero-bk-date-val.is-placeholder { color: #5a4838; }
 .theme-quiet-luxury #heroBookBar .hero-bk-sep--mid { background: rgb(81 56 37 / .22); }
 .theme-quiet-luxury #heroBookBar .hero-bk-field:focus-visible {
   outline: 2px solid #b98745;
@@ -314,6 +314,17 @@
   .theme-quiet-luxury .hero-bk { margin: 1.75rem 1.25rem 3rem; }
   .theme-quiet-luxury .luxury-hero-copy .hero-title { font-size: clamp(3.5rem, 17vw, 5.5rem); }
   .theme-quiet-luxury .hero-proof { align-items: flex-start; flex-direction: column; }
+  /* Phone: the thin italic tagline sat on the pale cushion and nearly vanished. */
+  .theme-quiet-luxury .luxury-hero-copy .hero-tagline {
+    color: #fff;
+    font-weight: 500;
+    text-shadow: 0 1px 3px rgb(17 9 7 / .85), 0 0 14px rgb(17 9 7 / .65);
+  }
+  .theme-quiet-luxury .luxury-hero-copy .hero-trust-badge {
+    color: #f6e3b4;
+    font-weight: 600;
+    text-shadow: 0 1px 3px rgb(17 9 7 / .85), 0 0 14px rgb(17 9 7 / .65);
+  }
 }
 
 /* Keep the location line inside the booking card so it never sits behind it. */
@@ -323,7 +334,7 @@
   z-index: auto;
   justify-content: center;
   margin: .5rem auto 0;
-  font-size: .53rem;
+  font-size: var(--step--2);
   letter-spacing: .07em;
   line-height: 1.3;
   color: rgb(251 248 242 / .62);
@@ -333,7 +344,7 @@
 .theme-quiet-luxury #heroBookBar .hero-bk-cta {
   min-height: 44px;
   margin-top: .55rem;
-  font-size: .72rem;
+  font-size: var(--step--2);
 }
 
 /* Desktop hero split: the property name owns the upper half, the booking
@@ -546,14 +557,14 @@
 .theme-quiet-luxury .footer-legal-links,
 .theme-quiet-luxury .footer-legal-links a { color: rgb(247 242 232 / 0.82); }
 .theme-quiet-luxury .footer-legal-links a:hover,
-.theme-quiet-luxury .footer-legal-links a:focus-visible { color: var(--ch-brass); }
+.theme-quiet-luxury .footer-legal-links a:focus-visible { color: #e5c384; }
 
 .theme-quiet-luxury .booking-legal-note {
   margin: .75rem 0 0;
   font-size: .8125rem;
-  color: var(--ch-stone);
+  color: rgb(247 242 232 / .72);
 }
-.theme-quiet-luxury .booking-legal-note a { color: var(--ch-brass-dark); }
+.theme-quiet-luxury .booking-legal-note a { color: #e5c384; }
 
 /* ── Motion & interaction contract ───────────────────────────── */
 

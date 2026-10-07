@@ -1,7 +1,7 @@
 /* Cascade Hideaway - legal pages (privacy, booking terms). Shares the booking site's tokens. */
 :root {
-  --ch-ink: #1F1D1A; --ch-cognac: #8B5030; --ch-gold: #C9963A; --ch-gold-light: #E8B84B; --ch-gold-muted: #A07830;
-  --ch-cream: #F7F2E8; --ch-parchment: #FAF8F4; --ch-warm-stone: #D4B896; --ch-text: #1A100A;
+  --ch-ink: #1F1D1A; --ch-cognac: #6E4F22; --ch-gold: #C9963A; --ch-gold-light: #E8B84B; --ch-gold-muted: #6E4F22;
+  --ch-cream: #F9F6F0; --ch-parchment: #FAF8F4; --ch-warm-stone: #D4B896; --ch-text: #2A1F16;
   --ch-muted: #5C5650; --ch-line: rgb(31 29 26 / 0.12);
   --ch-font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
   --ch-font-body: Manrope, system-ui, -apple-system, "Segoe UI", sans-serif;
