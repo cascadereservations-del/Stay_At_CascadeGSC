@@ -393,7 +393,7 @@ function redactAddress(reply: string): string {
 const NEGATIVE_RE = /\b(unfortunately|sorry|cannot|can'?t|unable to|(don'?t|do not|doesn'?t|does not) (have|offer|allow|accept|provide)|not (available|allowed|possible|permitted)|no longer|hindi (po )?(pwede|puwede|available)|wala (po )?(kami|kaming)|bawal)\b/i;
 // Messenger renders markdown literally ("*   Robinsons", "**2:00 PM**" seen live 2026-09-13).
 /** D1 (audit 3bd0e1b): a model sentence that forwards the request or names the host - compose() adds the one host line. */
-export const dropForward = (a: string): string => a.split('\n').map((l) => sentencesOf(l).filter((x) => !/\bour host\b|\bforward|\bpass(?:ed)? (?:it|this|your)\b|\bshared your (?:message|request)\b/i.test(x)).join('').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+export const dropForward = (a: string): string => a.split('\n').map((l) => sentencesOf(l).filter((x) => !/\bour host\b|\bforward(?:ed|ing)?\s+(?:it|this|that|your|the)\b|\bpass(?:ed)? (?:it|this|your)\b|\bshared your (?:message|request)\b/i.test(x)).join('').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 const plainText = (s: string) => s.replace(/^[ \t]*[*•-][ \t]+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
 
 function draftFrom(raw: string, who: string): Draft {
@@ -1167,7 +1167,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // for 5 nights?", "is there a discount for 30 nights?" or "can you do 1,500? and is there parking?" also ask for figures or a
       // fact, so the model answers the rest and code opens with the understanding line and closes with the host line.
       const haggle = hostAsk && !houseMixed;
-      const pureHaggle = haggle && !stayNights(text) && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
+      // ponytail: a second ask with no "?" and no stay length ("discount please, parking available") still counts as pure and loses
+      // the second ask; split such messages only if guests do it in practice.
+      const pureHaggle = haggle &&!stayNights(text) && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
       // D-311.1: the promotions this turn's card holds, as sealed facts for the promo answer.
       const promos: PromoFacts[] = livePromos(currentCard(), now).map((p) => ({ name: p.name, when: dmRange(p.first_night, p.last_night), rate: peso(p.nightly_rate), base: peso(currentCard().base) }));
       const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] `

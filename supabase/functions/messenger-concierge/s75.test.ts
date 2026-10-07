@@ -12,7 +12,7 @@ import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { setProviderKey } from '../_shared/cascade-core/providers.ts';
 
 (Deno as unknown as { serve: unknown }).serve = () => ({ finished: Promise.resolve(), shutdown: () => Promise.resolve() });
-const { handle, probeEffects } = await import('./index.ts');
+const { handle, probeEffects, dropForward } = await import('./index.ts');
 
 const now = new Date('2026-10-06T06:00:00Z');
 const ago = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
@@ -259,4 +259,11 @@ Deno.test('audit D3: the Taglish "po" cap spares the flow lines', () => {
   assertEquals((out.match(/\bpo\b/g) ?? []).length, 3, out);
   const heavy = P.compose({ answer: 'May wifi po. Fibre po.', ask: null }, { ...ctx, flowFollowUp: `${flowPart} Salamat po.` }).reply;
   assert(heavy.endsWith(`${flowPart} Salamat po.`) && heavy.startsWith('May wifi. Fibre.'), heavy);
+});
+
+// Fable re-audit nit (f9e1824): dropForward removes a forward of the request, never a warm "look forward" sentence.
+Deno.test('s75 dropForward keeps "look forward" warmth and drops the forward', () => {
+  const out = dropForward('Free parking is right in front of the unit. We have forwarded your request to our team. We look forward to welcoming you.');
+  assert(out.includes('We look forward to welcoming you.'), out);
+  assert(!/forwarded your request/.test(out), out);
 });
