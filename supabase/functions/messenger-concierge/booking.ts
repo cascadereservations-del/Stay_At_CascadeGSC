@@ -58,7 +58,7 @@ const PAX_WORD_RE = /\b(guest|pax|person|people|tao|tawo|adult|kami|kabuok|mi\b|
 /** Incident 2026-10-07 (Angel, "Avajlable po oct 8-11?" started no flow, so the model said "available" alone - no rate, no
  *  party ask, no hold): the availability word as guests type it - "available", "availble", "avalable", "avajlable", "avl",
  *  "availability", "bakante", "bakanti". A letter-shape rule rather than a list; a date is still needed to start the flow. */
-const AVAIL_WORD = String.raw`av[a-z]{0,3}l[a-z]{0,3}b[a-z]{0,5}|ava[a-z]{0,2}ble|av(?:ai?)?l[a-z]*|ba?kant[ei]`;
+const AVAIL_WORD = String.raw`av[a-z]{0,3}l[a-z]{0,3}b[a-z]{0,5}|ava[a-z]{0,2}ble|avai?l|avl|ba?kant[ei]`;
 const AVAIL_RE = new RegExp(String.raw`\b(?:${AVAIL_WORD}|vacant|open|free|may (?:vacancy|slot)|meron pa)\b`, 'i');
 /** The narrower ask (no "free" or "meron pa"), for rolledPastStay and index.ts's past-stay reply - one word rule everywhere. */
 export const AVAIL_WORD_RE = new RegExp(String.raw`\b(?:${AVAIL_WORD}|open)\b`, 'i');

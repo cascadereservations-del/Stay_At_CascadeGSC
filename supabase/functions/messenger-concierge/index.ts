@@ -1368,7 +1368,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // Incident 2026-10-07 (Angel: Oct 8 confirmed open "as soon as you arrive" on another guest's check-out day): the turnover
     // notice beside the availability, once. One calendar read; a failed one leaves the line out (turnoverOn).
     if (openStay && await turnoverOn(db, openStay.checkin, 'turnover_notice')) {
-      const withNotice = addTurnoverNotice(reply, pretty(openStay.checkin), turnoverNotice(pretty(openStay.checkin), openStay.lang));
+      // Fable audit 5d73694: a Taglish flow the model answered in English takes the English notice (no mixed register).
+      const nl = openStay.lang === 'tl' && offRegister(reply, 'tl') ? 'en' : openStay.lang;
+      const withNotice = addTurnoverNotice(reply, pretty(openStay.checkin), turnoverNotice(pretty(openStay.checkin), nl));
       if (withNotice !== reply) console.log('turnover_notice', JSON.stringify({ psid, day: openStay.checkin }));
       reply = withNotice;
     }

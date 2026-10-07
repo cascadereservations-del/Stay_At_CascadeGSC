@@ -3,7 +3,7 @@
 // AVAIL_RE), so the model said "available" alone - no party ask, no hold - and "as soon as you arrive" on a day another guest
 // checks out. Replayed through the real handle() with a calendar that answers the code's filters (no network).
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { availStart, bookingStart } from './booking.ts';
+import { availStart, bookingStart, AVAIL_WORD_RE } from './booking.ts';
 import * as P from './persona.ts';
 import { addTurnoverNotice, lintReply } from './voice.ts';
 import { setProviderKey } from '../_shared/cascade-core/providers.ts';
@@ -134,4 +134,10 @@ Deno.test('a model reply calling Oct 8 to 11 open on a turnover day carries the 
   assertEquals(addTurnoverNotice('Oct 8 is available. Check-in is at 2:00 PM.', 'Oct 8', NOTICE_EN), 'Oct 8 is available. Check-in is at 2:00 PM.');
   assertEquals(addTurnoverNotice('Oct 18 is available.', 'Oct 8', NOTICE_EN), 'Oct 18 is available.');
   for (const l of ['en', 'tl'] as const) assertEquals(lintReply(P.turnoverNotice('Oct 8', l)), []);
+});
+
+// Fable audit 5d73694: the typo rule matches real misspellings only, never words that merely start with "av".
+Deno.test('s75b AVAIL_WORD_RE: typos yes (avable counts as a typo), avalanche/avlon no', () => {
+  for (const w of ['available', 'availble', 'avalable', 'avajlable', 'availabe', 'avail', 'avl', 'availability', 'bakante']) assert(AVAIL_WORD_RE.test(w), w);
+  for (const w of ['avalanche', 'avlon', 'avoidable']) assert(!AVAIL_WORD_RE.test(w), w);
 });
