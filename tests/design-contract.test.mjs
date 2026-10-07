@@ -63,5 +63,5 @@ test('centered hero keeps the photograph in front of its surface and the card un
 
 test('hero date fields use a subdued, legible surface without text shadows', () => {
   assert.match(css, /\.hero-bk-date-val\s*\{[^}]*color:\s*#3d332b;[^}]*text-shadow:\s*none;/s);
-  assert.match(css, /\.hero-bk-date-val\.is-placeholder\s*\{\s*color:\s*#76685d;/);
+  assert.match(css, /\.hero-bk-date-val\.is-placeholder\s*\{\s*color:\s*#5a4838;/);
 });

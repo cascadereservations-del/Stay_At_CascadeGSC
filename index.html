@@ -417,6 +417,9 @@
       color: var(--ch-mahogany);
       border-color: transparent;
     }
+    /* On the light gallery section, plain gold text is 2.3:1; use the bronze text token. */
+    .gallery-section .btn-outline-gold { color: var(--ch-gold-muted); border-color: var(--ch-gold-muted); }
+    .gallery-section .btn-outline-gold:hover, .gallery-section .btn-outline-gold:focus-visible { color: var(--ch-mahogany); border-color: transparent; }
 
     .btn:focus-visible { outline: 2px solid var(--ch-gold); outline-offset: 3px; }
 
@@ -470,7 +473,7 @@
     }
     /* Ensure background when revealed but not yet scrolled past threshold */
     .site-header.is-revealed:not(.is-scrolled)::before {
-      background: rgb(28 16 6 / 0.72);
+      background: rgb(28 16 6 / 0.88);
       backdrop-filter: blur(12px) saturate(1.1);
       -webkit-backdrop-filter: blur(12px) saturate(1.1);
     }
@@ -1005,7 +1008,7 @@
     .why-direct-item-body {
       font-family: var(--ch-font-body);
       font-size: var(--step--1);
-      color: color-mix(in oklch, var(--ch-mahogany) 60%, transparent);
+      color: color-mix(in oklch, var(--ch-mahogany) 72%, transparent);
       line-height: 1.72;
     }
     .why-direct-cta {
@@ -1019,7 +1022,7 @@
     .why-direct-cta-note {
       font-family: var(--ch-font-body);
       font-size: var(--step--2);
-      color: color-mix(in oklch, var(--ch-mahogany) 42%, transparent);
+      color: color-mix(in oklch, var(--ch-mahogany) 72%, transparent);
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
@@ -1481,10 +1484,10 @@
       position: absolute; inset: 0;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      background: rgb(28 16 6 / 0.52); color: var(--ch-cream); z-index: 3;
+      background: rgb(28 16 6 / 0.78); color: var(--ch-cream); z-index: 3;
       transition: background var(--ch-dur-m) var(--ch-ease);
     }
-    .gallery-cell--5:hover .gallery-view-all { background: rgb(28 16 6 / 0.65); }
+    .gallery-cell--5:hover .gallery-view-all { background: rgb(28 16 6 / 0.85); }
 
     .gallery-view-all-num {
       font-family: var(--ch-font-display); font-size: var(--step-3);
@@ -1493,7 +1496,7 @@
     .gallery-view-all-label {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 500; letter-spacing: 0.2em; text-transform: uppercase;
-      color: var(--ch-gold); margin-top: 0.4em;
+      color: var(--ch-gold-light); margin-top: 0.4em;
     }
 
     /* Lightbox */
@@ -1922,7 +1925,7 @@
     .success-subtitle {
       font-family: var(--ch-font-display); font-size: var(--step-0);
       font-style: italic; font-weight: 300;
-      color: rgb(201 150 58 / 0.75); letter-spacing: 0.01em;
+      color: var(--ch-gold); letter-spacing: 0.01em;
     }
 
     /* B: Next steps — cream paper background */
@@ -1935,7 +1938,7 @@
     .success-steps-eyebrow {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 700; letter-spacing: 0.20em; text-transform: uppercase;
-      color: rgb(28 16 6 / 0.35); margin-bottom: 0.25em;
+      color: rgb(28 16 6 / 0.65); margin-bottom: 0.25em;
     }
     .success-step {
       display: flex; align-items: flex-start; gap: 0.75em;
@@ -1965,7 +1968,7 @@
     .success-reach-label {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
-      color: rgb(28 16 6 / 0.30); margin-bottom: 0.1em;
+      color: rgb(28 16 6 / 0.65); margin-bottom: 0.1em;
     }
     .success-reach-btns {
       display: grid; grid-template-columns: 1fr 1fr; gap: 0.5em;
@@ -1975,7 +1978,7 @@
       padding: 0.65em 0.85em;
       border: 1px solid rgb(28 16 6 / 0.13);
       background: #fff; text-decoration: none;
-      color: rgb(28 16 6 / 0.55);
+      color: rgb(28 16 6 / 0.70);
       transition: background var(--ch-dur-s) var(--ch-ease),
                   border-color var(--ch-dur-s) var(--ch-ease),
                   color var(--ch-dur-s) var(--ch-ease);
@@ -2000,7 +2003,7 @@
     }
     .success-reach-btn-sub {
       font-family: var(--ch-font-body); font-size: var(--step--2);
-      font-weight: 400; opacity: 0.45;
+      font-weight: 400;
     }
 
     /* D: Footer — cal + done — cream paper */
@@ -2046,7 +2049,7 @@
     .success-signature {
       font-family: var(--ch-font-display); font-size: var(--step--1);
       font-style: italic; font-weight: 300;
-      color: rgb(28 16 6 / 0.40); text-align: center;
+      color: rgb(28 16 6 / 0.65); text-align: center;
       margin-top: 0.15em;
     }
 
@@ -2114,7 +2117,7 @@
       padding: 0.45em 0.9em;
       background: rgb(201 150 58 / 0.10); border: 1px solid rgb(201 150 58 / 0.22);
       font-family: var(--ch-font-body); font-size: var(--step--2);
-      font-weight: 500; letter-spacing: 0.06em; color: rgb(201 150 58 / 0.80);
+      font-weight: 500; letter-spacing: 0.06em; color: var(--ch-gold-light);
     }
     .stay-checkin-pill svg { width: 11px; height: 11px; flex-shrink: 0; }
     .stay-shortcuts {
@@ -3852,7 +3855,7 @@
     .review-meta { display: flex; align-items: center; gap: var(--space-xs); padding-top: var(--space-xs); border-top: 1px solid rgb(28 16 6 / 0.07); }
     .review-avatar { width: 32px; height: 32px; border-radius: 50%; background: rgb(201 150 58 / 0.12); box-shadow: inset 0 0 0 1px rgb(201 150 58 / 0.30); display: flex; align-items: center; justify-content: center; font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 700; color: rgb(28 16 6 / 0.75); flex-shrink: 0; }
     .review-author { font-family: var(--ch-font-body); font-size: var(--step--1); font-weight: 500; color: rgb(28 16 6 / 0.78); letter-spacing: 0.01em; font-style: normal; }
-    .review-source { margin-left: auto; font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: rgb(28 16 6 / 0.52); }
+    .review-source { margin-left: auto; font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: rgb(28 16 6 / 0.72); }
     /* ── New badge & card enhancements ──────────────────────── */
     .review-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }
     .review-new-badge {
@@ -3929,7 +3932,7 @@
     .section-label-text {
       font-family: var(--ch-font-body); font-size: var(--step--2);
       font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase;
-      color: rgba(201,150,58,0.75);
+      color: var(--ch-gold-muted);
     }
     .faq-heading {
       font-family: var(--ch-font-display);
@@ -4107,7 +4110,7 @@
       font-weight: 600;
       letter-spacing: 0.10em;
       text-transform: uppercase;
-      color: #8A6820;
+      color: #6E4F22;
       width: fit-content;
     }
     .desk-sidebar-divider {
