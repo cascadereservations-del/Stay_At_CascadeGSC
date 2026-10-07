@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261007T172727Z",
-    "verified_at": "2026-10-07T17:30:44.350Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261007T173429Z",
+    "verified_at": "2026-10-07T17:37:35.203Z",
     "production_rule": "Function replacement only: health_checks_core_v1(uuid, boolean), patched from its LIVE body (md5(prosrc) 7564fc5c867a11ecc73df9ace925a018, read 2026-10-07, equal to 20260923030000_inventory_check_controlled_items_only.sql). One block changes: cleaner_fees_settled. fail = fee_paid_at set and fee_txn_id missing or not a live (non-void) transaction; warn = fee NULL or > 0, fee_paid_at null, cleaned more than 14 days ago; explicit 0 = no fee. Revoke from public, anon, authenticated re-asserted; create or replace keeps the live ACL (service_role EXECUTE from Supabase default privileges; the definer wrapper run_health_checks_service_v1 calls the core as owner). No table, column, row or other function touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
