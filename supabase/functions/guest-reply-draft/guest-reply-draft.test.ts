@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
-import { handleGuestReplyDraft, MAX_IMAGE_BYTES, type Deps } from './logic.ts';
+import { appHeader, handleGuestReplyDraft, MAX_IMAGE_BYTES, type Deps } from './logic.ts';
 import type { Line, Platform, Transcript } from '../telegram-cassy/draft.ts';
 
 type Call = { guestText: string; guestName: string | null; thread: { before?: Line[]; platform?: Platform } };
@@ -12,7 +12,7 @@ function fake(over: Partial<Deps> = {}): { deps: Deps; rec: Rec } {
   const rec: Rec = { drafts: [], transcribes: [], logs: [], errors: [] };
   let clock = 1000;
   const deps: Deps = {
-    authenticate: () => Promise.resolve({ ok: true, role: 'owner' }),
+    authenticate: () => Promise.resolve({ ok: true }),
     draft: (guestText, guestName, thread) => { rec.drafts.push({ guestText, guestName, thread }); return Promise.resolve(OUT); },
     transcribe: (bytes, mime) => {
       rec.transcribes.push([bytes.length, mime]);
@@ -49,7 +49,9 @@ Deno.test('405 on GET, with CORS headers', async () => {
 
 Deno.test('401: no bearer token, and an expired session, nothing drafted', async () => {
   const a = fake();
-  assertEquals((await handleGuestReplyDraft(post({ text: GUEST }, {}), a.deps)).status, 401);
+  const nb = await handleGuestReplyDraft(post({ text: GUEST }, {}), a.deps);
+  assertEquals(nb.status, 401);
+  assertEquals((await nb.json()).error, 'authentication_required');
   const b = fake({ authenticate: () => Promise.resolve({ ok: false, status: 401, error: 'invalid_or_expired_session' }) });
   const res = await handleGuestReplyDraft(post({ text: GUEST }), b.deps);
   assertEquals(res.status, 401);
@@ -65,12 +67,10 @@ Deno.test('403: a signed-in cleaner (not owner or admin) is refused before the b
   assertEquals(rec.drafts.length + rec.transcribes.length + rec.logs.length, 0);
 });
 
-Deno.test('owner and admin both pass, and the role is what the log carries', async () => {
-  for (const role of ['owner', 'admin'] as const) {
-    const { deps, rec } = fake({ authenticate: () => Promise.resolve({ ok: true, role }) });
-    assertEquals((await handleGuestReplyDraft(post({ text: GUEST }), deps)).status, 200);
-    assertEquals(JSON.parse(rec.logs[0]).role, role);
-  }
+Deno.test('an authenticated owner or admin passes, and the log carries the generic role only', async () => {
+  const { deps, rec } = fake();
+  assertEquals((await handleGuestReplyDraft(post({ text: GUEST }), deps)).status, 200);
+  assertEquals(JSON.parse(rec.logs[0]).role, 'owner_or_admin');
 });
 
 Deno.test('400 bad_json: not JSON, and JSON that is not an object', async () => {
@@ -89,6 +89,16 @@ Deno.test('400 empty: neither, a blank text, a bare marker, and an empty-string 
     const res = await handleGuestReplyDraft(post(body), deps);
     assertEquals(res.status, 400, JSON.stringify(body));
     assertEquals((await res.json()).error, 'empty');
+    assertEquals(rec.drafts.length, 0);
+  }
+});
+
+Deno.test('400 bad_json: a platform other than messenger or airbnb, and a guest_name that is not a string', async () => {
+  for (const extra of [{ platform: 'whatsapp' }, { platform: 5 }, { guest_name: 42 }, { guest_name: { first: 'Ana' } }]) {
+    const { deps, rec } = fake();
+    const res = await handleGuestReplyDraft(post({ text: GUEST, ...extra }), deps);
+    assertEquals(res.status, 400, JSON.stringify(extra));
+    assertEquals((await res.json()).error, 'bad_json');
     assertEquals(rec.drafts.length, 0);
   }
 });
@@ -132,6 +142,26 @@ Deno.test('413 image_too_large: 4_000_001 decoded bytes refused, 4_000_000 accep
   const ok = fake();
   assertEquals((await handleGuestReplyDraft(post(img(bigB64(MAX_IMAGE_BYTES), 'image/jpeg')), ok.deps)).status, 200);
   assertEquals(ok.rec.transcribes[0], [MAX_IMAGE_BYTES, 'image/jpeg']);
+});
+
+Deno.test('image: a data: URL prefix and line breaks in the base64 are accepted and not counted', async () => {
+  const { deps, rec } = fake();
+  const b = btoa('abcdefgh');
+  const res = await handleGuestReplyDraft(post(img(`data:image/png;base64,${b.slice(0, 4)}\n${b.slice(4)}`)), deps);
+  assertEquals(res.status, 200);
+  assertEquals(rec.transcribes, [[8, 'image/png']]);
+  const big = fake(); // the prefix does not push a maximal image over the limit
+  assertEquals((await handleGuestReplyDraft(post(img('data:image/jpeg;base64,' + bigB64(MAX_IMAGE_BYTES), 'image/jpeg')), big.deps)).status, 200);
+});
+
+Deno.test('header: Telegram-only lines and phrases are removed, the rest stays', async () => {
+  const tg = ['Guest reply - Airbnb', '1 is a drafted reply.', 'Source unclear, so this is the Airbnb-safe draft. For a Messenger chat: "cassy reply messenger: ..." or a screenshot.', 'Nothing was sent. Long-press an option to copy it. Site: https://example.test'].join('\n');
+  assertEquals(appHeader(tg), ['Guest reply - Airbnb', '1 is a drafted reply.', 'Nothing was sent. Site: https://example.test'].join('\n'));
+  assertEquals(appHeader('Nothing was sent. Long-press an option to copy it.'), 'Nothing was sent.');
+  const { deps } = fake({ draft: () => Promise.resolve([tg, 'main reply']) });
+  const j = await (await handleGuestReplyDraft(post({ text: GUEST }), deps)).json();
+  assert(!/long-press|cassy reply/i.test(j.header));
+  assertEquals(j.replies, ['main reply']);
 });
 
 Deno.test('text: 200 with the contract shape, replies are everything after the header, drafting gets the pasted text and the label', async () => {
