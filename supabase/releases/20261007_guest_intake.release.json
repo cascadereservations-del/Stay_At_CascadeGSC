@@ -17,7 +17,7 @@
     "scope": "production",
     "restore_point": "C:/Cascade-Backups/cascade-supabase-20261007T005733Z",
     "verified_at": "2026-10-07T01:00:23.718Z",
-    "production_rule": "Expand only: five new functions (intake_resolve_v1, intake_uploads_today_v1 owner-only; intake_guest_context_v1, intake_save_guest_details_v1, intake_save_guest_companion_v1 service_role only), all security definer with an empty search_path. No table, column, policy, bucket or data change; the guest-id-photos bucket, its three staff policies and the SPEC-40 purge trigger are untouched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+    "production_rule": "Expand only: five new functions (intake_resolve_v1, intake_uploads_today_v1 owner-only; intake_guest_context_v1, intake_save_guest_details_v1, intake_save_guest_companion_v1 service_role only), all security definer with an empty search_path. No table, column, policy, bucket or data change; the guest-id-photos bucket, its four staff policies and the SPEC-40 purge trigger are untouched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
     {
@@ -68,7 +68,7 @@
     "old_writer": true,
     "verified": false,
     "rehearsal": "PENDING - run pgTAP guest_intake (57 tests) and the rollback body on a restored backup before apply. Expected on a --no-acl restore (B103): the function-EXECUTE assertions (tests 2-5) fail by design because that backup cannot carry grants; the CI database job proves them. Do not weaken the suite. The suite was written without a local Postgres (Docker was down), so this rehearsal is its first run: read any failure as a possible test bug first.",
-    "evidence": "Read from the repo 2026-10-07: guest_access_tokens (booking_type direct or airbnb, token_hash unique, RLS on, service_role only), booking_inquiries.guest_id is set by upsert_guest_for_booking at submit, guest_companions and guest_profile_details shapes and their history tables (changed_by nullable), the guest-id-photos bucket (private, 10 MB, JPEG/PNG/WebP) with three manage_operations policies (migration 20260914260000) and the purge trigger (20261005130000). The RPCs reuse the telegram_save_guest_* validation (names, contact, ID type, path pattern, 12 people cap) and add the token gate."
+    "evidence": "Read from the repo 2026-10-07: guest_access_tokens (booking_type direct or airbnb, token_hash unique, RLS on, service_role only), booking_inquiries.guest_id is set by upsert_guest_for_booking at submit, guest_companions and guest_profile_details shapes and their history tables (changed_by nullable), the guest-id-photos bucket (private, 10 MB, JPEG/PNG/WebP) with four policies (three manage_operations from migration 20260914260000, one staff current read) and the purge trigger (20261005130000). The RPCs reuse the telegram_save_guest_* validation (names, contact, ID type, path pattern, 12 people cap) and add the token gate."
   },
   "approvals": {
     "production_required": true,
