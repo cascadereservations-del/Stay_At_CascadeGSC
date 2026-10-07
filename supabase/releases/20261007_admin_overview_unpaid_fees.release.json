@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261007T144016Z",
+    "verified_at": "2026-10-07T14:43:11.711Z",
     "production_rule": "Function replacement only: get_admin_overview_v1(uuid), patched from its LIVE body (md5(prosrc) 1604680f29ac95624c67d830d887627f, read 2026-10-07, equal to 20260916150000_admin_overview_handoffs_open.sql). One line changes: finance.unpaidCleanerFees counts cleaning_sessions with fee_paid_at null and (fee_amount null or > 0) instead of fee_amount > 0 and fee_paid_at null. Grants re-asserted as read live (authenticated EXECUTE only; anon, service_role, PUBLIC none). No table, column, row or other function touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
