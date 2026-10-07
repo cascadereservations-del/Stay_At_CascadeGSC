@@ -44,7 +44,11 @@ const HUMAN_HOLD_MS = 24 * 3_600_000;
 // Sprint 0 (Lloyd, 2026-09-16): a host reply from the Page inbox used to mute the bot on that
 // thread for 24 h, so a routine follow-up ("what's the Wi-Fi?") an hour later went unanswered.
 // The echo hold is now 2 h; safety holds and the handoff dedupe window keep the 24 h constant.
-const ECHO_HOLD_MS = 2 * 3_600_000;
+// D-317 (Lloyd 2026-10-08, standing rule): once Marifel or Lloyd replies, Cassy sends nothing more on that thread - she only
+// notifies the host (Telegram, admin Conversations). The hold is 30 days from the latest host reply and never shortens.
+const ECHO_HOLD_MS = 30 * 24 * 3_600_000;
+/** The later of two hold times, so a short hold never cuts a longer one. */
+const laterOf = (a: string | null | undefined, ms: number) => (a && Date.parse(a) > ms ? a : new Date(ms).toISOString());
 const HISTORY_KEEP = 16; // 32 stored entries; 12 dropped a guest's dates after a 30-turn chat (2026-09-13)
 
 // Guest-facing handoff lines, the attachment reply, ACK_SUGGEST and the dates-first answer live in persona.ts (session 58).
@@ -873,7 +877,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const lastBot = [...((t?.history ?? []) as Turn[])].reverse().find((h) => h.role === 'bot');
       if (lastBot && now.getTime() - Date.parse(lastBot.at) < 3 * 60_000) { console.log('echo_ignored_meta_card', JSON.stringify({ psid: ev.recipient.id, types: msg.attachments.map((a: any) => a?.type) })); return; }
     }
-    await db.from('concierge_threads').upsert({ psid: ev.recipient.id, human_until: new Date(now.getTime() + ECHO_HOLD_MS).toISOString(), updated_at: now.toISOString() });
+    const { data: held } = await db.from('concierge_threads').select('human_until').eq('psid', ev.recipient.id).maybeSingle();
+    await db.from('concierge_threads').upsert({ psid: ev.recipient.id, human_until: laterOf(held?.human_until, now.getTime() + ECHO_HOLD_MS), updated_at: now.toISOString() });
     // Session 58 (live 2026-09-28): the host answered the lockout from the page inbox, and the handoff stayed 'open' - only
     // a Telegram card send closed one. With D-274 an open access handoff turns the guest's next question into a follow-up,
     // so a typed staff reply now closes this guest's open handoffs.
@@ -1123,7 +1128,15 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const houseLocked = !!house?.locked && !flow && !flowReply && !handoff;
   let houseAskSent = false;
 
-  if (!g.reply) { /* mode off, or a human holds this thread */ }
+  if (!g.reply) {
+    // D-317: a person is handling this chat - nothing goes to the guest; the host hears about every message instead.
+    if (mode !== 'off' && thread.human_until && Date.parse(thread.human_until) > now.getTime()) {
+      // A receipt photo still reaches Finance (the Angel incident): stored and carded, no line to the guest.
+      if (uploadOpen && attachment) { const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name); if (r.sent) flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() }; }
+      if (g.handoff) await fx.handoff(db, thread, text || '[attachment]', g.risk, link); // an emergency or the door: card + urgent alert
+      else await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`));
+    }
+  }
   else if (flowReply) reply = flowReply;
   // D-269 (live 2026-09-27: "Is party allowed?" got only the handoff line): a house-rule question is answered from FACTS,
   // and the host still gets the card.
@@ -1400,7 +1413,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // 2026-09-13 (Lloyd): no automatic hold on a handoff. The bot keeps answering the guest's
       // other questions, remembers what is pending with the host (see pendingBlock), and pauses
       // only when a human actually replies from the inbox (echo) - or on a safety report.
-      if (risk === 'safety') thread.human_until = new Date(now.getTime() + HUMAN_HOLD_MS).toISOString();
+      if (risk === 'safety') thread.human_until = laterOf(thread.human_until, now.getTime() + HUMAN_HOLD_MS); // D-317: never shortens a host hold
       if (mode === 'auto' || urgentNow) {
         if (text || card) await fx.handoff(db, thread, text || '[photo: likely a payment receipt]', risk, link, draftNote, card?.anyWording);
         else await fx.ops(withHeader(hostOpen.some((h) => h.risk === 'access' || h.risk === 'safety') ? 'alert' : 'guest', 'handoff · attachment', `🛎 Concierge handoff (attachment)\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`)); // SPEC-31 s3: a photo, not an uncertainty

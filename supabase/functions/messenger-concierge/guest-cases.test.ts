@@ -4,10 +4,10 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { classify, gate, type RiskCode } from './policy.ts';
 
-Deno.test('an emergency or a lockout gets through a human hold; other messages stay with the human; "off" stays off', () => {
+Deno.test('D-317: under a human hold Cassy sends nothing; an emergency or a lockout still raises the card; "off" stays off', () => {
   const hold = { mode: 'auto', humanUntil: new Date(Date.now() + 3_600_000).toISOString(), botTurns: 3 };
   for (const t of ['my wife fainted, need a hospital now', 'may amoy gas sa kusina', 'I forgot the door code and can\'t get in']) {
-    const g = gate(t, hold); assertEquals([g.reply, g.handoff], [true, true], t);
+    const g = gate(t, hold); assertEquals([g.reply, g.handoff], [false, true], t);
   }
   const quiet = gate('what time is check-out?', hold); assertEquals([quiet.reply, quiet.handoff], [false, false]);
   const off = gate('my wife fainted, need a hospital now', { ...hold, mode: 'off' }); assertEquals(off.reply, false);

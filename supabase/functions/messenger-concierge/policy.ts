@@ -83,7 +83,9 @@ export function gate(text: string, opts: { mode: string; humanUntil: string | nu
   // Lloyd 2026-09-28 ("verify that emergencies should be included in the notifications"): a human hold (2 h after a staff
   // reply, 24 h after a safety report) used to swallow every message - a second emergency in that window reached no one.
   // A safety or door message always goes through: the line to the guest, the card and the urgent alert to the host.
-  if (opts.humanUntil && new Date(opts.humanUntil) > now) return risk === 'safety' || risk === 'access' ? { reply: true, handoff: true, risk } : { reply: false, handoff: false, risk };
+  // D-317 (Lloyd 2026-10-08): once a person is handling the chat, Cassy sends nothing. An emergency or the door still raises
+  // the card and the urgent alert (handoff), with no line to the guest.
+  if (opts.humanUntil && new Date(opts.humanUntil) > now) return { reply: false, handoff: risk === 'safety' || risk === 'access', risk };
   if (risk !== 'routine') return { reply: true, handoff: true, risk };
   // ponytail: flat cap of 30 bot turns in one conversation (the counter resets after a 6 h gap),
   // then a human. 12 was hit by a real live chat on 2026-09-13 and turned every later message into

@@ -40,8 +40,8 @@ export function fbSendImage(psid: string, url: string): Promise<boolean> {
 
 /** The Messenger thread a direct booking came from (SPEC-33 s2), or null when it came from the site. */
 // deno-lint-ignore no-explicit-any
-export async function threadForBooking(db: any, bookingId: string): Promise<{ psid: string; guest_name: string | null; booking_flow: any; history: any[] } | null> {
-  const { data: t } = await db.from('concierge_threads').select('psid, guest_name, booking_flow, history').eq('booking_flow->>booking_id', bookingId).maybeSingle();
+export async function threadForBooking(db: any, bookingId: string): Promise<{ psid: string; guest_name: string | null; booking_flow: any; history: any[]; human_until?: string | null } | null> {
+  const { data: t } = await db.from('concierge_threads').select('psid, guest_name, booking_flow, history, human_until').eq('booking_flow->>booking_id', bookingId).maybeSingle();
   return t?.psid ? t : null;
 }
 

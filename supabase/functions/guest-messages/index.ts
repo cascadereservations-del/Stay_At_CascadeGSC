@@ -105,7 +105,10 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         const key = lockKey;
         const t = await threadForBooking(db, d.booking_id);
         const lastGuestAt = Math.max(0, ...((t?.history ?? []) as Array<{ role?: string; at?: string }>).filter((h) => h?.role === 'guest').map((h) => Date.parse(String(h.at)) || 0));
-        const hold = key === 'after_departure' && await complaintOpen(db, d.booking_id);
+        // D-317 (Lloyd 2026-10-08): once Marifel or Lloyd is handling the chat, nothing automated goes to the guest - the card
+        // carries the text for the host to send if they want it.
+        const hostHolds = !!t?.human_until && Date.parse(String(t.human_until)) > now;
+        const hold = hostHolds || (key === 'after_departure' && await complaintOpen(db, d.booking_id));
         const plan = hold ? { channel: 'card_only' as const, humanAgent: false } : channelFor(key, lastGuestAt, !!t, !!b.guest_email, body.tapped === true, now);
         if (dry) { results.push({ ref, key, channel: plan.channel, human_agent: plan.humanAgent, hold }); continue; }
 
@@ -121,12 +124,13 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         if (channel === 'email') err = await relay(b, ref, key, render(key, fields, 'email'));
         const text = render(key, fields, channel);
         const status = channel === 'card_only' ? 'skipped' : err ? 'failed' : 'sent';
-        await db.from('guest_message_log').update({ channel, status, detail: hold ? 'open complaint' : err ?? (plan.humanAgent && channel === 'messenger' ? 'human_agent' : null) })
+        await db.from('guest_message_log').update({ channel, status, detail: hostHolds ? 'host handling' : hold ? 'open complaint' : err ?? (plan.humanAgent && channel === 'messenger' ? 'human_agent' : null) })
           .eq('booking_id', d.booking_id).eq('message_key', key);
         // The booking is confirmed whatever the channel: the Messenger flow leaves the payment steps (was notifyMessengerBookingConfirmed's job).
         if (key === 'confirmation' && t) await db.from('concierge_threads').update({ booking_flow: { ...(t.booking_flow ?? {}), step: 'confirmed', updated_at: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq('psid', t.psid);
 
         const outcome = status === 'sent' ? (channel === 'messenger' ? '✅ sent on Messenger' : `✅ e-mailed to ${b.guest_email}`)
+          : hostHolds ? '✋ not sent: you are handling this chat. Send it yourself if it still helps'
           : hold ? '✋ not sent: an open complaint, please write personally'
           : status === 'skipped' ? '✋ not sent: no open chat and no e-mail, please send it' : `✋ not sent (${err}), please send it`;
         const cards = messageCards({ key, ref, name: b.guest_name, checkin: b.checkin_date, checkout: b.checkout_date, outcome, status, hold,
