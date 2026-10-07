@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "release_id": "cleaner_fees_settled_age_20261007",
+  "phase": "expand",
+  "source": {
+    "branch": "main",
+    "commit": "45b2a1acd5aef3073582997d1ddb79071ae57d74"
+  },
+  "migrations": [
+    "20261007170000_cleaner_fees_settled_age.sql"
+  ],
+  "migration_sha256": {
+    "20261007170000_cleaner_fees_settled_age.sql": "52f925dd2913d49d394595129a72d608b149c25cc6d3e12875718b2f3ef04fc2"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "Function replacement only: health_checks_core_v1(uuid, boolean), patched from its LIVE body (md5(prosrc) 7564fc5c867a11ecc73df9ace925a018, read 2026-10-07, equal to 20260923030000_inventory_check_controlled_items_only.sql). One block changes: cleaner_fees_settled. fail = fee_paid_at set and fee_txn_id missing or not a live (non-void) transaction; warn = fee NULL or > 0, fee_paid_at null, cleaned more than 14 days ago; explicit 0 = no fee. Revoke re-asserted (service_role EXECUTE only). No table, column, row or other function touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "core_body_is_the_reviewed_patch",
+      "query": "select md5(prosrc) = 'c2f531c7cf1aa2baf4d4c2d263b22ad6' from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "fee_check_warns_on_age_and_counts_unpriced",
+      "query": "select prosrc like '%(x.fee_amount is null or x.fee_amount > 0)%' and prosrc like '%x.cleaned_at < now() - interval ''14 days''%' and prosrc not like '%coalesce(x.fee_amount, 0) > 0%' from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "core_keeps_definer_search_path_and_grants",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and p.provolatile = 'v' and has_function_privilege('service_role', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and not has_function_privilege('anon', 'public.health_checks_core_v1(uuid,boolean)', 'execute') from pg_proc p where p.oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (function body only; admin_health_check_runs refreshes on the next run)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261007_cleaner_fees_settled_age.sql with run-sql-on-host.sh: restores the 20260923030000 body (md5(prosrc) 7564fc5c867a11ecc73df9ace925a018) and re-asserts the revoke."
+      }
+    ]
+  },
+  "feature_flags": [],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same check key, label and detail shape (one extra field 'paid'). Readers: run_system_verifier_v1 V10 (fail -> red, re-alert 24 h; warn -> yellow, re-alert 7 days, D-218), daily-digest Monday Finance roll-up (warn/fail lines), system-verifier cards.ts healthRows (guest, cleaned, fee; null-safe peso), admin-dashboard System health. Production read-only 2026-10-07: 16 sessions since Sep 1, all paid ones carry a confirmed fee_txn_id; unpaid = 48e269c6 (cleaned Oct 4) and 3216c2bd (Oct 7), fee NULL. Expected after apply on the next run: pass, count 0 (first warn ~Oct 18 if 48e269c6 is still unpaid)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP cleaner_fees_settled_age.sql green on this commit"
+  ]
+}
