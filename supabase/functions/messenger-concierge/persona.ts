@@ -944,10 +944,11 @@ export function compose(m: { answer: string; ask: string | null }, c: ComposeCtx
   const g = c.greet ? greeting(c.name, c.lang).trim() : '';
   const head = !g ? fit : !fit ? g : `${g}\n\n${fit}`;
   let reply = [head.trim(), step, close].filter(Boolean).join('\n\n');
-  reply = thinPo(reply, c.lang === 'bis' ? 0 : 2);
+  // D-311.5 (golden first-two-months-tl: four "po" once the flow's ask followed the answer): three at most in a Taglish message.
+  // Audit of 3bd0e1b (D3): the flow's own lines are frozen, so the cap is taken from the head (the answer) and they stay whole.
+  const flowPo = c.flowFollowUp ? (`${c.seeHome ?? ''}\n${c.flowFollowUp}`.match(/ po\b/g) ?? []).length : 0;
+  reply = thinPo(reply, c.lang === 'bis' ? 0 : c.lang === 'tl' ? Math.max(0, Math.min(2, 3 - flowPo)) : 2);
   if (c.flowFollowUp) reply = [reply, c.seeHome ?? '', c.flowFollowUp].filter(Boolean).join('\n\n');
-  // D-311.5 (golden first-two-months-tl: four "po" once the flow's ask followed the answer): three at most in the whole message.
-  if (c.lang === 'tl') reply = thinPo(reply, 3);
   reply = capName(reply, c.name, c.greet && !c.flowFollowUp ? 1 : 2);
   // Nothing left (an answer that was all frame, and no step): the model's words without links or leaves, never silence.
   if (!reply.trim()) reply = m.answer.split('\n').filter((l) => !URL_LINE_RE.test(l)).join('\n').replace(/[ \t]*🌿/gu, '').trim();

@@ -18,7 +18,7 @@ import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
-import { dedupeAvailability, kusang, nameOnce, noPo, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
+import { dedupeAvailability, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
@@ -392,6 +392,8 @@ function redactAddress(reply: string): string {
 // fixed handoff lines never pass through here).
 const NEGATIVE_RE = /\b(unfortunately|sorry|cannot|can'?t|unable to|(don'?t|do not|doesn'?t|does not) (have|offer|allow|accept|provide)|not (available|allowed|possible|permitted)|no longer|hindi (po )?(pwede|puwede|available)|wala (po )?(kami|kaming)|bawal)\b/i;
 // Messenger renders markdown literally ("*   Robinsons", "**2:00 PM**" seen live 2026-09-13).
+/** D1 (audit 3bd0e1b): a model sentence that forwards the request or names the host - compose() adds the one host line. */
+export const dropForward = (a: string): string => a.split('\n').map((l) => sentencesOf(l).filter((x) => !/\bour host\b|\bforward|\bpass(?:ed)? (?:it|this|your)\b|\bshared your (?:message|request)\b/i.test(x)).join('').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 const plainText = (s: string) => s.replace(/^[ \t]*[*•-][ \t]+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
 
 function draftFrom(raw: string, who: string): Draft {
@@ -1161,11 +1163,15 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const houseMixed = negotiate && houseAsk; // D-270/271: a house rule (keyword or Jev) the canned line does not cover - the rule, then everything else
       // D-311.6 (Lloyd 2026-10-07, replaces D-300.4's value line): a discount or haggle request gets code's answer - "We completely
       // understand, and we'll do our best to accommodate your request." - no rate explanation, then the host line and the hold
-      // question. No model call. ponytail: a haggle that also asks something else gets this answer only; model the rest if seen live.
+      // question. No model call - but only when the price ask is the WHOLE message (audit of 3bd0e1b, D1): "what is the best price
+      // for 5 nights?", "is there a discount for 30 nights?" or "can you do 1,500? and is there parking?" also ask for figures or a
+      // fact, so the model answers the rest and code opens with the understanding line and closes with the host line.
       const haggle = hostAsk && !houseMixed;
+      const pureHaggle = haggle && !stayNights(text) && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
       // D-311.1: the promotions this turn's card holds, as sealed facts for the promo answer.
       const promos: PromoFacts[] = livePromos(currentCard(), now).map((p) => ({ name: p.name, when: dmRange(p.first_night, p.last_night), rate: peso(p.nightly_rate), base: peso(currentCard().base) }));
       const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] `
+        : haggle && !pureHaggle ? `[The guest also asks for a lower price: code opens the reply with our understanding line and adds the host line. Answer only the rest - their stay figures from the STAY ANCHOR, any other question - never a percentage, a special price or a forward, and do not mention the host.] ${anchor}`
         : promoAsk ? `[Promo ask: your FIRST sentence names ${promos.length ? promos.map((p) => `our ${p.name}, which brings the nights of ${p.when} to ${p.rate} per night instead of the standard ${p.base}`).join('; ') : 'that booking direct is itself our best price'}; then say booking direct is itself the better price: our direct rates are lower than on Airbnb and the other booking apps, and the nightly rate goes lower the longer the stay. No host, no forwarding: this is answered here. Put the question about which dates they have in mind in "ask". Quote no other number and no other "was" price.] ${anchor}`
         : (rateAsked(text) ? anchor : '');
       // SPEC-39 Q2 (default): a nameless first contact with no dates gets the dates question alone - the details step takes the name.
@@ -1188,7 +1194,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       if (haggle && stay && sq && sq.nights <= 60) { const n = await bookedNightsFor(db, { ...stay } as Flow); if (n && !n.size) haggleDates = dmRange(stay.checkin, stay.checkout); }
       // "medyo mahal po" reads as English with a courtesy "po": the line keeps that one "po"; the hold question follows the turn's register.
       const haggleL: L3 = l3 === 'tl' || lang === 'english_po' ? 'tl' : 'en', holdL: L3 = l3;
-      let out: Draft = haggle ? { reply: haggleLine(haggleL), ask: haggleHold(haggleDates, holdL), uncertain: false } : await draft(thread, hints + langHint + asked, context, 'full', followUp);
+      let out: Draft = pureHaggle ? { reply: haggleLine(haggleL), ask: haggleHold(haggleDates, holdL), uncertain: false } : await draft(thread, hints + langHint + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
@@ -1215,6 +1221,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
         // D-311.8 (golden reg-bot-bis: a short rate answer stayed cold after the rewrite): one warm clause, from code.
         if (isCold(out.reply)) out.reply = `${out.reply.trimEnd()} ${warmClause(l3)}`;
       }
+      // D1: a haggle inside a wider message - code's understanding line first, the model's answer, the hold question; the host line
+      // is compose()'s alone, so any forward the model wrote anyway goes (said exactly once).
+      if (haggle && !pureHaggle) out = { ...out, reply: `${haggleLine(haggleL)}\n\n${dropForward(out.reply)}`, ask: haggleHold(haggleDates, holdL) };
       // K18 (D-182): the early check-in fee is computed in code; a contradicting peso figure is corrected (mid-flow too:
       // this runs on the answer before the flow's card is added).
       const feeFixed = fixEarlyFee(out.reply, text);

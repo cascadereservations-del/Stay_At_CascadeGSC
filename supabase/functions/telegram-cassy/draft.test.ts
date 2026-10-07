@@ -449,3 +449,15 @@ Deno.test('s74 G2 fix: disguised domains and handles leak (reply and history); d
   for (const secret of ['xyz', 'cascadehideaway', 'gmail']) assert(!b.includes(secret), secret);
   assertStringIncludes(b, 'Oct. 20 is fine, e.g. chips');
 });
+
+// D-311.8 (audit of 3bd0e1b, D2): a Bisaya guest's draft is finished in English; a stored 'bis' flow reads as English; Taglish stays.
+import { guestReg, inquiryLang } from './draft.ts';
+Deno.test('D-311.8: Bisaya guests get English drafts - guestReg and the request register', () => {
+  assertEquals(guestReg('Maayong buntag, naa bay parking?'), 'en');
+  assertEquals(guestReg('may parking po ba?'), 'tl');
+  assertEquals(guestReg('Is there parking?'), 'en');
+  assertEquals(inquiryLang('bis', 'naa bay parking?'), 'en');
+  assertEquals(inquiryLang('tl', 'ok'), 'tl');
+  assertEquals(inquiryLang(undefined, 'Pila ang rate kada gabii?'), 'en');
+  assertEquals(inquiryLang(null, ''), 'en');
+});

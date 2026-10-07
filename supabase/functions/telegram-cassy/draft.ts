@@ -154,6 +154,11 @@ export function airbnbFallback(name: string | null, calm: boolean): string {
 const SIGN_OFF_LINE = /^[ \t]*[-–—]?[ \t]*(?:Marifel(?:\s*&\s*the Cascade Team)?(?:[ \t,.]*Hotel Comfort[.,]?[ \t]*Home Warmth\.?)?|Hotel Comfort[.,]?[ \t]*Home Warmth\.?)[ \t\p{Extended_Pictographic}️!.]*$/gimu;
 /** A valediction the model put above its own sign-off ("Warm regards,"), at the very end of the body only. */
 const VALEDICTION_END = /(?:\n+[ \t]*(?:warm(?:est)? regards|kind regards|best regards|regards|best wishes|warmly|cheers|sincerely|with warmth|yours truly)[ \t]*[,.]?[ \t]*)+$/i;
+/** D-311.8 (Lloyd 2026-10-07; audit of 3bd0e1b, D2): a Bisaya or Bislish guest is answered in English, here as in the concierge.
+ *  The host's own text (rewrite, template) keeps detectLang - the host chose that register. */
+export const guestReg = (t: string): Lang => { const l = detectLang(t); return l === 'bis' ? 'en' : l; };
+/** The register of a request's draft: the stored flow's (an older 'bis' flow reads as English), else the guest's own words. */
+export const inquiryLang = (stored: unknown, guestText: string): Lang => { const l = stored ? asLang(stored) : guestReg(guestText || 'hello'); return l === 'bis' ? 'en' : l; };
 export function airbnbFinish(m: string, lang: Lang, calm: boolean): string {
   let body = m.replace(SIGN_OFF_LINE, '').replace(/\n{3,}/g, '\n\n').trim().replace(VALEDICTION_END, '').trim();
   if (lang === 'en') body = thinPo(body, 0); // a guest writing English gets plain English with no "po"
@@ -253,7 +258,7 @@ export async function modelDraft(db: any, guestText: string, guestName: string |
     return leafAtClose(String(parseModelJson<{ reply?: string }>(raw, {}).reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'));
   };
   if (!airbnb) return once(false);
-  return airbnbGuard(once, (m) => airbnbFinish(m, detectLang(guestText), calm), airbnbFallback(guestName, calm));
+  return airbnbGuard(once, (m) => airbnbFinish(m, guestReg(guestText), calm), airbnbFallback(guestName, calm));
 }
 
 /** s73 R4: the Messenger brain (direct rates, the site link) only for a source that is positively Messenger - a screenshot the
@@ -283,7 +288,7 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
   // violation named, and if it still fails the host is told before she reads it (nothing reaches a guest from here).
   const airbnb = platform === 'airbnb', calm = airbnb && calmMoment(guestText, risk);
   // A rewrite of an Airbnb draft is finished like the draft and dropped ('') if it leaks: the clean original stands.
-  const airbnbSafe = (m: string) => { const f = m ? airbnbFinish(m, detectLang(guestText), calm) : ''; return f && !airbnbLeaks(f).length ? f : ''; };
+  const airbnbSafe = (m: string) => { const f = m ? airbnbFinish(m, guestReg(guestText), calm) : ''; return f && !airbnbLeaks(f).length ? f : ''; };
   let main = brain?.reply || await modelDraft(db, guestText, guestName, ctx, airbnb, '', calm, thread.before);
   let airbnbFail = airbnb ? airbnbTone(main, calm) : [];
   if (airbnbFail.length) {
@@ -370,7 +375,7 @@ export async function draftInquiry(db: any, view: InquiryView, purpose: 'reply' 
   const ctx = replyContext(t?.history, view.submitted_at);
   const lastMessage = t ? joinMessage(ctx.latest) : siteNotes(view.notes);
   const guestText = (t ? ctx.latest.join('\n') : '') || siteNotes(view.notes) || '';
-  const lang: Lang = asLang(t?.booking_flow?.lang ?? detectLang(guestText || 'hello'));
+  const lang: Lang = inquiryLang(t?.booking_flow?.lang, guestText);
   const channel: InquiryDraft['channel'] = t ? 'Messenger' : view.guest_email ? 'e-mail' : 'no channel';
   let text = '', source: InquiryDraft['source'] = 'model';
 

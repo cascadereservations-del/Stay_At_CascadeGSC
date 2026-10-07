@@ -42,9 +42,15 @@ export function thinPo(text: string, keep = 2): string {
 /** D-311.5 (golden fu-second-link-en, "Ben, yes po, free parking..."): an English reply carries no "po" ("opo" is "yes");
  *  `keep` 1 for a guest who wrote English with a courtesy "po" (D-245). */
 export const noPo = (text: string, keep = 0): string => thinPo(text.replace(/\b([Oo])po\b/g, (_m, o: string) => (o === 'O' ? 'Yes' : 'yes')), keep);
-/** D-311.7 (golden promo-ask-tl, "automated na ring bumababa"): "automated" is a robot word; a Taglish reply says "kusa". */
+/** D-311.7 (golden promo-ask-tl, "automated na ring bumababa"): "automated" is a robot word; a Taglish reply says "kusa". Audit of
+ *  3bd0e1b (D4): "kusang" only before a verb (nag-/mag-/i- or an -um- form: "kusang bumababa"), else "kusa" ("applies kusa",
+ *  "kusa po ang discount", "kusa na ring"); a capital stays a capital. */
 export const kusang = (text: string): string =>
-  text.replace(/\b(?:automatic(?:ally)?|automated)\b(\s+na\b)?/gi, (_m, na?: string) => (na ? `kusa${na}` : 'kusang'));
+  text.replace(/\b(?:automatic(?:ally)?|automated)\b/gi, (m: string, off: number, all: string) => {
+    const next = /^\s+([\p{L}-]+)/u.exec(all.slice(off + m.length))?.[1] ?? '';
+    const w = /^(?:nag|mag|i-|[a-z]?um)[\p{L}-]/iu.test(next) ? 'kusang' : 'kusa';
+    return m[0] === 'A' ? 'K' + w.slice(1) : w;
+  });
 /** D-311.5 (golden s63-month-tl, "Hi Ben! ..." then "Ben, para sa 30 nights..."): when the greeting paragraph already named the
  *  guest, a paragraph that opens on the name again loses it ("Ben, para sa" -> "Para sa"). */
 export function nameOnce(reply: string, name: string | null): string {

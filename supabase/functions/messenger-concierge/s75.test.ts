@@ -88,7 +88,10 @@ Deno.test('D-311.1/.7: a promo question names the live promotion and the direct 
   const promo: P.PromoFacts = { name: 'Anniversary Promotion', when: 'Oct 11 to 17', rate: 'PHP 1,543', base: 'PHP 1,780' };
   assert(P.promoFirst('We understand.', [promo], 'en').startsWith(P.promoLine([promo], 'en')));
   assertEquals(P.promoFirst('Our Anniversary Promotion is PHP 1,543 a night.', [promo], 'en'), `Our Anniversary Promotion is PHP 1,543 a night. ${P.directBetter('en')}`);
-  assertEquals(kusang('automated na ring bumababa, automatic ang discount'), 'kusa na ring bumababa, kusang ang discount');
+  assertEquals(kusang('automated na ring bumababa, automatic ang discount'), 'kusa na ring bumababa, kusa ang discount');
+  // audit D4: "kusang" only before a verb; a capital stays a capital
+  assertEquals(kusang('The rate applies automatically. Automatic po ang discount, at automatic bumababa ang rate.'), 'The rate applies kusa. Kusa po ang discount, at kusang bumababa ang rate.');
+  assertEquals(kusang('automatically nag-a-apply ang rate'), 'kusang nag-a-apply ang rate');
 });
 
 // ---- 2. turnover-day early check-in: never a promised time; Lloyd's words -------------------------------------------------
@@ -207,4 +210,53 @@ Deno.test('D-311.8: a Bisaya guest is answered in English (model and flow), and 
     assert(r.reply.includes(P.warmClause('en')), r.reply);
     assertEquals(score('reg-bot-bis', 1, r.reply, prev), []);
   } finally { m.restore(); }
+});
+
+// ---- audit of 3bd0e1b ----------------------------------------------------------------------------------------------------------
+const hostLines = (r: string) => (r.match(/Our host also looks/g) ?? []).length;
+// D1: code answers alone only when the price ask is the whole message; a rate question or a second question keeps the model.
+Deno.test('audit D1: a discount ask with a stay length or another question keeps the model answer, opened by the understanding line, one host line', async () => {
+  const five = stub('For 5 nights, your direct rate comes down to PHP 1,602 per night from the standard PHP 1,780, about PHP 8,010 for the stay, so you can settle in without a second thought.');
+  try {
+    const r = await turn('what is the best price for 5 nights?');
+    assert(five.seen[0].includes('also asks for a lower price') && five.seen[0].includes('5 nights'), five.seen[0].slice(0, 300));
+    assert(r.reply.includes('8,010') && r.reply.includes(P.haggleLine('en')) && r.reply.indexOf(P.haggleLine('en')) < r.reply.indexOf('8,010'), r.reply);
+    assertEquals(hostLines(r.reply), 1, r.reply);
+    assertEquals(r.calls.filter((c) => c.fx === 'handoff').map((c) => c.detail.risk), ['policy_exception']);
+  } finally { five.restore(); }
+  const thirty = stub('For 30 nights, your direct rate comes down to PHP 1,335 per night from the standard PHP 1,780, about PHP 40,050 for the stay.');
+  try {
+    const r = await turn('is there a discount for 30 nights?');
+    assert(thirty.seen[0].includes('PHP 1,335'), thirty.seen[0].slice(0, 300));
+    assert(r.reply.includes('1,335') && r.reply.includes(P.haggleLine('en')), r.reply);
+    assertEquals(hostLines(r.reply), 1, r.reply);
+  } finally { thirty.restore(); }
+  // the model forwards anyway: its sentence goes, code's host line stays the only one
+  const park = stub("Yes, there's free parking right in front of the unit, inside the gated community. Our host will look at your rate request personally. We'll keep a space for you.");
+  try {
+    const r = await turn('can you do 1,500? and is there parking?');
+    assert(/free parking/.test(r.reply) && r.reply.startsWith('Hi Ben') && r.reply.includes(P.haggleLine('en')), r.reply);
+    assert(!/Our host will look/.test(r.reply), r.reply);
+    assertEquals(hostLines(r.reply), 1, r.reply);
+    assert(!/1,500|PHP|₱/.test(r.reply.replace(/[\s\S]*?\n\n/, '')), r.reply);
+  } finally { park.restore(); }
+  // the pure haggle stays code-only (no model call)
+  const pure = stub('should not be used');
+  try {
+    const r = await turn('can you do 1,500 a night?');
+    assertEquals(pure.seen.length, 0);
+    assert(r.reply.includes(P.haggleLine('en')) && hostLines(r.reply) === 1, r.reply);
+  } finally { pure.restore(); }
+});
+
+// D3: the three-"po" cap is taken from the answer; the flow's frozen lines keep every "po".
+Deno.test('audit D3: the Taglish "po" cap spares the flow lines', () => {
+  const flowPart = 'We\'d be delighted to have you. Kailan po ninyo gustong mag-stay? Check-in and check-out lang po (halimbawa, "Oct 13 to 15").';
+  const ctx: P.ComposeCtx = { lang: 'tl', name: 'Ben', greet: false, greetNow: false, followUp: true, flowFollowUp: flowPart, hostLine: '', quiet: false, look: '',
+    decision: false, linkTurn: false, siteShown: false, datesKnown: false, held: { dates: false, pax: false, name: true }, prevBot: '' };
+  const out = P.compose({ answer: 'Opo, may wifi po kami. Fibre po ito, at mabilis po talaga.', ask: null }, ctx).reply;
+  assert(out.endsWith(flowPart), out);
+  assertEquals((out.match(/\bpo\b/g) ?? []).length, 3, out);
+  const heavy = P.compose({ answer: 'May wifi po. Fibre po.', ask: null }, { ...ctx, flowFollowUp: `${flowPart} Salamat po.` }).reply;
+  assert(heavy.endsWith(`${flowPart} Salamat po.`) && heavy.startsWith('May wifi. Fibre.'), heavy);
 });
