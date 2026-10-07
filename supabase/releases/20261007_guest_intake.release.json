@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261007T005733Z",
+    "verified_at": "2026-10-07T01:00:23.718Z",
     "production_rule": "Expand only: five new functions (intake_resolve_v1, intake_uploads_today_v1 owner-only; intake_guest_context_v1, intake_save_guest_details_v1, intake_save_guest_companion_v1 service_role only), all security definer with an empty search_path. No table, column, policy, bucket or data change; the guest-id-photos bucket, its three staff policies and the SPEC-40 purge trigger are untouched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [

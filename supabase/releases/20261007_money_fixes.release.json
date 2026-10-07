@@ -19,8 +19,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261007T005733Z",
+    "verified_at": "2026-10-07T01:00:23.718Z",
     "production_rule": "Three independent changes, no table or column change, no data change. (1) staff_pay_candidates_v1 and staff_pay_request_create_v1 are patched from their LIVE bodies: cleaned_at::date becomes the Manila date. (2) cleaner_rate_schedule: every policy dropped, one SELECT policy (read_operations) added, anon/authenticated reduced to SELECT; admin_add_pay_rate_v1 stays the only writer. (3) record_inventory_usage v3: same signature; a movement-controlled item gets its kind=usage inventory_stock_movements row even when a cleaner logs it (v2 refused the cleaner); a not-controlled item keeps the legacy clamp and writes NO movement. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
