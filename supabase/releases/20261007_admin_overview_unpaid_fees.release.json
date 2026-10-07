@@ -27,7 +27,7 @@
     },
     {
       "name": "only_the_fee_rule_changed",
-      "query": "select md5(replace(replace(prosrc, '      -- SPEC-37: fee_amount stays NULL until the cleaner requests pay, so an unpriced clean is still owed; an explicit 0 means no fee.' || chr(10), ''), 'c.fee_paid_at is null and (c.fee_amount is null or c.fee_amount > 0)', 'c.fee_amount > 0 and c.fee_paid_at is null')) = '1604680f29ac95624c67d830d887627f' from pg_proc where oid = 'public.get_admin_overview_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(regexp_replace(prosrc, ' +-- SPEC-37: [^' || chr(10) || ']*' || chr(10), ''), 'c.fee_paid_at is null and (c.fee_amount is null or c.fee_amount > 0)', 'c.fee_amount > 0 and c.fee_paid_at is null')) = '1604680f29ac95624c67d830d887627f' from pg_proc where oid = 'public.get_admin_overview_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
