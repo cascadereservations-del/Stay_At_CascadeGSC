@@ -332,6 +332,22 @@ export function turnoverCheckinLine(_day: string, l3: 'en' | 'tl' | 'bis'): stri
   return l3 === 'tl' ? `Masaya po naming ia-accommodate ang mas maagang check-in ng 12:00 NN o 1:00 PM kung fully prepared at ready na ang unit by then. Gagawin namin ang lahat para maihanda ito bago ang standard 2:00 PM check-in, at ia-update po namin kayo once ma-confirm namin ang earliest time.`
     : `We'll be happy to accommodate an earlier check-in at 12:00 NN or 1:00 PM if the unit is already fully prepared and ready by then. We'll do our best to have everything ready ahead of the standard 2:00 PM check-in and will keep you posted once we can confirm the earliest time.`;
 }
+/** Incident 2026-10-07: "so you can settle in comfortably as soon as you arrive po" implied any hour on a turnover day. Only a
+ *  clause-final, lower-case one goes ("As soon as you arrive, the lock..." opens a sentence and stays). */
+const ARRIVE_NOW_RE = /,?\s+(?:as soon as|the moment|right when) (?:you (?:arrive|get here)|dumating kayo|kayo dumating)(?=(?:\s+po)?\s*[.!?,])/g;
+/** The turnover notice (persona.ts turnoverNotice) closes the first paragraph that calls the stay open - else the first that names
+ *  the check-in day (`day` "Oct 8"; a choice acknowledgement). Nowhere to put it, or 2:00 PM already said (the D-311.2 line): unchanged. */
+export function addTurnoverNotice(reply: string, day: string, notice: string): string {
+  if (reply.includes(notice) || /\b2(?::00)?\s*p\.?m\b/i.test(reply)) return reply;
+  const [mon, d] = day.split(' ');
+  const names = new RegExp(String.raw`\b${mon}[a-z]*\.? ?${d}\b`, 'i');
+  const paras = reply.replace(ARRIVE_NOW_RE, '').split(/\n\s*\n/);
+  let i = paras.findIndex((p) => claimsOpen(p) && names.test(p));
+  if (i < 0) i = paras.findIndex((p) => names.test(p));
+  if (i < 0) return reply;
+  paras[i] = `${paras[i].trimEnd()} ${notice}`;
+  return paras.join('\n\n');
+}
 /** Every sentence offering an early check-in gives way to the code's line: the first is replaced, the rest dropped. */
 export function setTurnoverCheckin(reply: string, line: string): string {
   if (reply.includes(line)) return reply;

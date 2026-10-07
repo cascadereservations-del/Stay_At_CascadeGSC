@@ -66,6 +66,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   CASSY_INTRO: (l) => [P.CASSY_INTRO[l]],
   partyName: (l) => [1, 2, 3, 4].map((n) => P.openAck(P.datesOpen('Oct 3 to 4', l), n, l)),
   datesOpen: (l) => [P.openAck(P.datesOpen('the night of Oct 3', l), 2, l)],
+  turnoverNotice: (l) => [`${P.openAck(P.datesOpen('Oct 8 to 11', l), 2, l)} ${P.turnoverNotice('Oct 8', l)}`], // incident 2026-10-07
   datesChecking: (l) => [P.datesChecking('Oct 3 to 4', l) + '.'],
   datesReserved: (l) => [P.datesReserved('tonight (Sep 26)', l)],
   datesReservedNearest: (l) => [true, false].flatMap((one) => [true, false].map((ask) => P.datesReservedNearest('Sep 26 to 27', one ? 'Oct 2' : 'Oct 2 to 4', one, ask, l))),

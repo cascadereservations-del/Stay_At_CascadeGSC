@@ -120,6 +120,14 @@ const welcomeParty = (who: string, lang?: Lang) => by(lang, {
 
 /** The calendar answered: open. `dates` is stayLabel's ("tonight (Sep 26)", "the night of Oct 5", "Oct 20 to 22"). */
 export const datesOpen = (dates: string, lang?: Lang) => by(lang, { en: `${cap(dates)} is available`, tl: `Available po ang ${dates}`, bis: `Available ang ${dates}` });
+/** Incident 2026-10-07 (Angel, Oct 8 to 11 confirmed with "as soon as you arrive" while another guest checked out Oct 8): an
+ *  open stay whose check-in day is another guest's check-out says so once - check-in from 2:00 PM, no earlier time promised.
+ *  `day` is "Oct 8". D-311.8: a Bisaya guest reads the English line. */
+export const turnoverNotice = (day: string, lang?: Lang) => by(lang, {
+  en: `A guest checks out that morning, so check-in on ${day} is from 2:00 PM; if the unit is ready earlier, we'll gladly let you know.`,
+  tl: `May guest pong magche-check out nang umaga ng ${day}, kaya ang check-in ay from 2:00 PM; kung ready na ang unit nang mas maaga, ia-update namin kayo agad.`,
+  bis: `A guest checks out that morning, so check-in on ${day} is from 2:00 PM; if the unit is ready earlier, we'll gladly let you know.`,
+});
 /** The calendar could not be read: never claim the dates are open (session 30). */
 export const datesChecking = (dates: string, lang?: Lang) => by(lang, {
   en: `We're checking ${dates} on our calendar and will confirm shortly`,

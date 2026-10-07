@@ -55,7 +55,13 @@ const PAY_DAY_RE = new RegExp(String.raw`(?:${A_DATE})[^.?!\n]{0,20}${PAY_WORD}|
 const CHANGE_RE = /\b(move|change|instead|rather|make it|reschedule|resched|extend|shorten|adjust|switch|baguhin|ibahin|palit\w*|ilis\w*|usb\w*|usab\w*|ibalhin\w*|ilipat|lipat\w*)\b/i;
 /** A guest-count word: a number beside it is a correction of the party, not a phone or a date. */
 const PAX_WORD_RE = /\b(guest|pax|person|people|tao|tawo|adult|kami|kabuok|mi\b|kids?|child|children)/i;
-const AVAIL_RE = /\b(available|avail|vacant|bakante|open|free|may (?:vacancy|slot)|meron pa)\b/i;
+/** Incident 2026-10-07 (Angel, "Avajlable po oct 8-11?" started no flow, so the model said "available" alone - no rate, no
+ *  party ask, no hold): the availability word as guests type it - "available", "availble", "avalable", "avajlable", "avl",
+ *  "availability", "bakante", "bakanti". A letter-shape rule rather than a list; a date is still needed to start the flow. */
+const AVAIL_WORD = String.raw`av[a-z]{0,3}l[a-z]{0,3}b[a-z]{0,5}|ava[a-z]{0,2}ble|av(?:ai?)?l[a-z]*|ba?kant[ei]`;
+const AVAIL_RE = new RegExp(String.raw`\b(?:${AVAIL_WORD}|vacant|open|free|may (?:vacancy|slot)|meron pa)\b`, 'i');
+/** The narrower ask (no "free" or "meron pa"), for rolledPastStay and index.ts's past-stay reply - one word rule everywhere. */
+export const AVAIL_WORD_RE = new RegExp(String.raw`\b(?:${AVAIL_WORD}|open)\b`, 'i');
 /** SPEC-14 (D-184): the answers to the hold offer ("Shall we hold those dates for you?") */
 const OFFER_YES_RE = /^\W*(yes|yes please|yes po|sure|of course|ok(ay)?( po)?|sige( po)?|oo( po)?|opo|go|please do|proceed|set (it|them) aside)\b/i;
 const OFFER_NO_RE = /^\W*(no|not (yet|now)|hindi( po)?|dili|wala( pa)?|later|maybe later)\b/i;
@@ -212,7 +218,7 @@ export const datesOf = (text: string, now = new Date()): string[] => { const s =
 export function rolledPastStay(text: string, now = new Date()): boolean {
   if (!PAST_REF_RE.test(text) || /\b20\d\d\b|\b(?:this coming|next year|susunod na taon|sunod nga tuig)\b/i.test(text)) return false; // a typed year or "this coming January" is the stay asked for
   // a plain booking or availability ask that merely mentions a past visit ("can I book Jan 2 to 4? we stayed before") is for the dates given; "again" says otherwise
-  if (/\b(book|reserve|available|avail|bakante|open)\b/i.test(text) && !/\b(again|ulit|balik|same dates)\b/i.test(text)) return false;
+  if ((/\b(book|reserve)\b/i.test(text) || AVAIL_WORD_RE.test(text)) &&!/\b(again|ulit|balik|same dates)\b/i.test(text)) return false;
   const d = parseDates(text, now)[0], today = dayStrOf(now);
   return !!d && d.slice(0, 4) > today.slice(0, 4) && `${today.slice(0, 4)}${d.slice(4)}` < today;
 }

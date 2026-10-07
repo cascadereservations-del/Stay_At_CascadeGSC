@@ -11,14 +11,14 @@
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, pastStayAsk, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed, haggleLine, haggleHold, promoFirst, warmClause, type PromoFacts } from './persona.ts';
+import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, pastStayAsk, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed, haggleLine, haggleHold, promoFirst, turnoverNotice, warmClause, type PromoFacts } from './persona.ts';
 import { JEV_INTENTS, jevRoute, primaryLang, routeRisk, type JevRoute } from './jev.ts'; // D-271
 import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
-import { dedupeAvailability, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
+import { AVAIL_WORD_RE, BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { addTurnoverNotice, dedupeAvailability, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
@@ -771,6 +771,15 @@ async function bookedNightsFor(db: Db, flow: Flow): Promise<Set<string> | null> 
   for (const r of rows ?? []) for (let d = r.checkin_date; d < r.checkout_date; d = addDays(d, 1)) booked.add(d);
   return booked;
 }
+/** Lloyd 2026-09-17, incident 2026-10-07: another guest checks out on `day` (cancelled excluded) and that stay is not chained on
+ *  (D-290: a junction day has no turnover). A failed read is logged and reads as no turnover, so the caller's line is left out. */
+async function turnoverOn(db: Db, day: string, where: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.from('calendar_events').select('checkout_date').neq('status', 'cancelled').eq('checkout_date', day).limit(1);
+    if (error) { console.error('calendar_read_failed', where, String(error.message ?? error).slice(0, 200)); return false; }
+    return !!data?.length && !(await stayContinues(db, PROPERTY_ID, day));
+  } catch (e) { console.error('calendar_read_failed', where, String(e).slice(0, 200)); return false; }
+}
 /** SPEC-14 (D-184): the open window nearest the guest's requested check-in that is long enough for their stay.
  *  null when the calendar cannot be read, or nothing inside the horizon fits - the reserved line then stands alone. */
 async function nearestWindow(db: Db, flow: Flow): Promise<Window | null> {
@@ -994,6 +1003,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let startText: string | null = null;
   let afterQr: ReturnType<typeof answer> | null = null; // SPEC-39 3.6b: the guest's reply after the card and QR
   const payHold = !!flow && ['await_receipt', 'receipt_sent'].includes(flow.step); // SPEC-31 s4: the QR is out; the model answers questions only
+  /** Incident 2026-10-07: the stay this turn tells the guest is open (flow line, or a model reply K18 checked) - the turnover notice. */
+  let openStay: { checkin: string; lang: Flow['lang'] } | null = null;
   let calendarDown = false; // session 30: the calendar read failed on this turn - the reply does not claim availability and a host is told
   const attachment = (msg.attachments ?? []).find((a: any) => a?.type === 'image' && a?.payload?.url);
   // SPEC-31 (REVIEW F1-F3): after the QR, code owns the cancel, the "paid na" claim and the stray photo. `booked` is the
@@ -1055,7 +1066,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const alt = nights && nights.size ? await nearestWindow(db, flow) : null;
       const line = availabilityLine(flow, nights, alt, now, true);
       if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = line; }
-      else flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`;
+      else { flowReply = `${availabilityAck(flow, line)}\n\n${s.reply ?? prompt(flow, thread.guest_name)}`; if (nights) openStay = { checkin: flow.checkin, lang: flow.lang }; }
     }
     else if (s.action === 'cancelled') flowReply = s.reply;
     else if (s.action === 'submit') {
@@ -1086,6 +1097,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const nights = await bookedNightsFor(db, probe); calendarDown = !nights;
       const alt = nights && nights.size ? await nearestWindow(db, probe) : null;
       const line = availabilityLine(probe, nights, alt, now, true);
+      if (nights && !RESERVED_RE.test(line)) openStay = { checkin: probe.checkin!, lang: flow.lang };
       if (RESERVED_RE.test(line)) { flow = { ...flow, step: 'dates', checkin: undefined, checkout: undefined, alt: alt && !alt.open_ended ? alt : undefined }; flowReply = (greetNow ? greeting(thread.guest_name, flow.lang).trimEnd() + '\n\n' : '') + line; } // SPEC-28 section 3; SPEC-39 3.5 (s73 F3): the greeting is its own paragraph
       // SPEC-28 section 2: "is Oct 26 to 28 open? is there wifi?" - the model answers the wifi, then the dates line and the
       // flow's ask follow. The model's reply carries the one greeting (ensureGreeting), so the flow's part has none.
@@ -1123,7 +1135,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   else if (BOT_RE.test(text)) reply = botReply(thread.guest_name, turnLang);
   else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
   // s74 G1: a past stay told about and a price asked ("last time we stayed Sep 5 to 7, how much now?") - no quote, no hold, ask the new dates.
-  else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text) || /\b(available|avail|open|bakante)\b/i.test(text))) reply = pastStayAsk(l3Of(turnLang));
+  else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text) || AVAIL_WORD_RE.test(text))) reply = pastStayAsk(l3Of(turnLang));
   else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
   else {
     try {
@@ -1236,14 +1248,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // Lloyd 2026-09-17: a day another guest checks out never gets the 12 noon check-in (golden run 2026-09-25 offered it).
       if (offersEarlyCheckin(out.reply)) {
         const stay = stayFrom(guestTexts, now);
-        if (stay) {
-          const { data: co, error: coErr } = await db.from('calendar_events').select('checkout_date').neq('status', 'cancelled').eq('checkout_date', stay.checkin).limit(1);
-          if (coErr) console.error('calendar_read_failed', 'turnover_guard', String(coErr.message ?? coErr).slice(0, 200));
-          // D-290: a chained stay's junction day has no turnover, so the 12 noon guard does not apply to it.
-          if (co?.length && !(await stayContinues(db, PROPERTY_ID, stay.checkin))) {
-            console.warn('turnover_noon_guard', JSON.stringify({ day: stay.checkin, reply: out.reply.slice(0, 160) }));
-            out.reply = setTurnoverCheckin(out.reply, turnoverCheckinLine(pretty(stay.checkin), l3));
-          }
+        // D-290: a chained stay's junction day has no turnover, so the 12 noon guard does not apply to it (turnoverOn).
+        if (stay && await turnoverOn(db, stay.checkin, 'turnover_guard')) {
+          console.warn('turnover_noon_guard', JSON.stringify({ day: stay.checkin, reply: out.reply.slice(0, 160) }));
+          out.reply = setTurnoverCheckin(out.reply, turnoverCheckinLine(pretty(stay.checkin), l3));
         }
       }
       // K18 (D-182): outside the book flow, a draft that calls the guest's dates open is checked against the calendar in
@@ -1264,7 +1272,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
               const re = await draft(thread, fix + paxHint + LANG_HINT[lang] + asked, context, 'full', followUp).catch(() => null);
               out.reply = re && re.reply.includes(line) && !claimsOpen(re.reply.replace(line, '')) ? re.reply : swapped; // run 8: accept only the full line, never swap it in twice
             } else { out.reply = swapped; flagOnly = true; } // OPS gets the glance card, as on the flow path
-          }
+          } else openStay = { checkin: stay.checkin, lang: l3 }; // the calendar agrees the stay is open: the turnover notice may follow
         }
       }
       // D-286 (DESIGN-model-answers-code-composes-2026-09-30): the model wrote only the answer. The fact guards above ran on
@@ -1357,6 +1365,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     if (flowFollowUp) reply = reply.split(/\n\s*\n/).filter((p) => !/^(O maaari rin po kayong mag-check|Or you may check and secure|Kapag handa na po kayo, maaari|Kapag ready po kayo|We can arrange (the booking|everything)|Whenever you feel ready|👉 |Mas mababa po ang rate kapag direct|Direct bookings enjoy our best rates)/.test(p.trim())).join('\n\n');
     // D-299.10 / D-300.1: the initial message of a conversation (no bot reply in 12 h) is signed - the composed reply signs
     // itself; every other code-written initial message is signed here, on the same greetNow flag. Never a handoff, a card or a QR turn.
+    // Incident 2026-10-07 (Angel: Oct 8 confirmed open "as soon as you arrive" on another guest's check-out day): the turnover
+    // notice beside the availability, once. One calendar read; a failed one leaves the line out (turnoverOn).
+    if (openStay && await turnoverOn(db, openStay.checkin, 'turnover_notice')) {
+      const withNotice = addTurnoverNotice(reply, pretty(openStay.checkin), turnoverNotice(pretty(openStay.checkin), openStay.lang));
+      if (withNotice !== reply) console.log('turnover_notice', JSON.stringify({ psid, day: openStay.checkin }));
+      reply = withNotice;
+    }
     reply = nameOnce(reply, thread.guest_name); // D-311.5: the greeting named the guest, so no paragraph opens on the name again
     if (greetNow && !handoff && !flowImage) reply = signFirst(reply, true);
     lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name, cap: stayPayTurn ? STAY_PAY_CAP : undefined });

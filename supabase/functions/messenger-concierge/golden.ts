@@ -254,5 +254,13 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   ] });
   // D-311.2 (Lloyd 2026-10-07): 12 NN or 1 PM only if the unit is ready - never a promised time, the standard 2:00 PM named.
   if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12|(you can|pwede po kayong) check in (at|ng) 12/i] })] });
+  // Incident 2026-10-07 (Angel): a misspelt availability ask after the rate answer starts the flow (the party ask), and a stay that
+  // starts on another guest's check-out day says so - check-in from 2:00 PM, no "as soon as you arrive". Three nights from the turnover day.
+  if (turnoverDay) {
+    const [mo, dd] = turnoverDay.split(' '), y = now.getUTCFullYear(), t = new Date(Date.UTC(y, MON.indexOf(mo), +dd));
+    const stay = range(t.getTime() < now.getTime() - 86_400_000 ? new Date(Date.UTC(y + 1, MON.indexOf(mo), +dd)) : t, 0, 3);
+    cases.push({ id: 'avail-typo-turnover-tl', group: 'flow', turns: [m('Hi po hm per night', 'tl'),
+      f(`Avajlable po ${stay}?`, 'en', { must: [/is available/i, /checks out that morning/i, /2:00 PM/, /How many/i], mustNot: [/as soon as you arrive/i, /unfortunately/i] })] });
+  }
   return cases;
 }
