@@ -39,12 +39,12 @@ export function fbSendImage(psid: string, url: string): Promise<boolean> {
 }
 
 /** The Messenger thread a direct booking came from (SPEC-33 s2), or null when it came from the site. */
-// deno-lint-ignore no-explicit-any
 /** D-317 (Lloyd 2026-10-08): once a host has replied, the bot sends nothing on that chat for 30 days from the latest host reply. */
 export const HOST_HOLD_MS = 30 * 24 * 3_600_000;
 /** The later of the stored hold and `ms`, so a hold never shortens. */
 export const laterOf = (a: string | null | undefined, ms: number): string => (a && Date.parse(a) > ms ? a : new Date(ms).toISOString());
 
+// deno-lint-ignore no-explicit-any
 export async function threadForBooking(db: any, bookingId: string): Promise<{ psid: string; guest_name: string | null; booking_flow: any; history: any[]; human_until?: string | null } | null> {
   const { data: t } = await db.from('concierge_threads').select('psid, guest_name, booking_flow, history, human_until').eq('booking_flow->>booking_id', bookingId).maybeSingle();
   return t?.psid ? t : null;

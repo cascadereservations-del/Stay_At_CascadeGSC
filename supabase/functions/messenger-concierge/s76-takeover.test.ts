@@ -100,4 +100,6 @@ Deno.test('D-317 review: a safety report alone (no host reply) still lets the ne
   const routine = await turn({ text: 'What is the Wi-Fi password?' }, null, null, open);
   assertEquals(routine.sends.length, 0, JSON.stringify(routine.calls));
   assert(!routine.calls.some((c) => c.fx === 'ops' && String(c.text).includes('You are handling this chat')), JSON.stringify(routine.calls));
+  // Opus re-review: the follow-up still reaches someone.
+  assert(routine.calls.some((c) => c.fx === 'ops' && String(c.text).includes('wrote again after a safety report')), JSON.stringify(routine.calls));
 });

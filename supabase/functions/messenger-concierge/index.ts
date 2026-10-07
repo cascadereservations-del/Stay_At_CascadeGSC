@@ -982,7 +982,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const hostOpen = await openHostRisks(db, psid, now); // G5: an attachment reads it too
   // D-317 review: a safety report holds routine chat for 24 h without counting as a host takeover - a second emergency or the
   // door still gets its line, and nothing says "you are handling this chat".
-  if (!hostHeld && g.reply && g.risk === 'routine' && hostOpen.some((h) => h.risk === 'safety' && now.getTime() - h.at < HUMAN_HOLD_MS)) g = { ...g, reply: false, handoff: false };
+  const safetyHeld = !hostHeld && g.reply && g.risk === 'routine' && hostOpen.some((h) => h.risk === 'safety' && now.getTime() - h.at < HUMAN_HOLD_MS);
+  if (safetyHeld) g = { ...g, reply: false, handoff: false };
   // Lloyd 2026-09-28 ("skip the nudge for staying guests"): someone at the residence now, this turn or in the last 24 h, gets
   // no booking pitch from code - no dates nudge, no site invite, no "arrange it here in the chat".
   // D-282 live probe 2026-09-29: a stay verified by the guide's check is a staying guest too (the Wi-Fi answer got the
@@ -1024,7 +1025,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let card: { risk: RiskCode; note: string; anyWording: boolean } | null = null;
   const uploadOpen = flow?.step === 'await_receipt' && !(flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < now.getTime());
   const guestSaid = thread.history.filter((h) => h.role === 'guest').slice(-6).map((h) => h.text).join(' ');
-  if (g.reply && uploadOpen && attachment) {
+  if (g.reply && uploadOpen && attachment && !attachment.payload?.sticker_id) {
     const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name);
     flowReply = r.reply; if (r.sent) flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() };
   } else if (g.reply && attachment && (booked || /\b(gcash|bayad|paid|receipt|deposit|payment|sent)\b/i.test(`${guestSaid} ${text}`))) {
@@ -1142,6 +1143,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const sticker = !text && !!attachment?.payload?.sticker_id; // a sticker or a like: nothing to tell the host
       if (g.handoff) await fx.handoff(db, thread, text || '[attachment]', g.risk, link); // an emergency or the door: card + urgent alert
       else if (!sticker) await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment && !attachment.payload?.sticker_id ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`));
+    } else if (mode !== 'off' && safetyHeld && !(!text && attachment?.payload?.sticker_id)) {
+      // Opus re-review: a follow-up during an open safety report (a phone number, "where are you?") must reach someone.
+      await fx.ops(withHeader('alert', 'after safety report', `🚨 ${thread.guest_name ?? 'A guest'} wrote again after a safety report. Cassy is holding routine replies until someone answers.
+> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}
+
+Reply in Messenger: ${link}`));
     }
   }
   else if (flowReply) reply = flowReply;
