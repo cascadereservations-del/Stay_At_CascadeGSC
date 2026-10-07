@@ -22,7 +22,7 @@
   "forward_verification": [
     {
       "name": "core_body_is_the_reviewed_patch",
-      "query": "select md5(prosrc) = 'c2f531c7cf1aa2baf4d4c2d263b22ad6' from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'c2f531c7cf1aa2baf4d4c2d263b22ad6' from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
       "expect": true
     },
     {
