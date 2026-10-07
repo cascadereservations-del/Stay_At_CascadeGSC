@@ -154,6 +154,12 @@ Deno.test('s76: "during your stay from Nov 18 to 20" loses the range when the fl
   assertEquals(dropPassingRange('Wi-Fi is ready for Nov 24 to 26.', flowPart), 'Wi-Fi is ready for Nov 24 to 26.');
   assertEquals(dropPassingRange(wifi, 'How many of you will be staying?'), wifi);
   assertEquals(dropPassingRange('Nov 18 to 20 works well for a quiet stay.', flowPart), 'Nov 18 to 20 works well for a quiet stay.');
+  // Fable s76: a fronted phrase and a coordinated range are left whole
+  const fronted = 'Yes, we have fast Wi-Fi.\n\nFor Nov 18 to 20, the rate is PHP 5,000 per night.';
+  assertEquals(dropPassingRange(fronted, flowPart), fronted);
+  assertEquals(dropPassingRange('Yes! For Nov 18 to 20, we have the unit ready.', flowPart), 'Yes! For Nov 18 to 20, we have the unit ready.');
+  assertEquals(dropPassingRange('Wi-Fi is included from Nov 18 to 20 and Nov 25 to 27.', flowPart), 'Wi-Fi is included from Nov 18 to 20 and Nov 25 to 27.');
+  assertEquals(dropPassingRange('The rate for Nov 18 to 20 is PHP 5,000 per night.', flowPart), 'The rate is PHP 5,000 per night.');
   const m = stub(`${wifi}\n\nWe also have an EcoFlow backup station so you can stay connected throughout your visit.`);
   try {
     const r = await turn('Hi, is Nov 18 to 20 open? Is there wifi?');

@@ -283,7 +283,9 @@ export function dropPassingRange(answer: string, flowPart: string): string {
     .find((r) => r && new RegExp(MD, 'i').test(r));
   if (!range) return answer;
   const esc = range.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return answer.replace(new RegExp(`,?\\s+(?:from|for|on|over)\\s+${esc}(?=[\\s.,!?]|$)`, 'gi'), '');
+  // Fable s76: a word must precede (never a fronted "For <range>," after a full stop or paragraph break), no newline is
+  // crossed, and a range followed by a comma or "and/or/at/<digit>" stays, so the sentence never loses its subject.
+  return answer.replace(new RegExp(`(?<=\\w),?[ \\t]+(?:from|for|on|over)[ \\t]+${esc}(?=[ \\t.!?]|$)(?![ \\t]+(?:and|or|at|\\d))`, 'gi'), '');
 }
 /** Every sentence that states availability for a date gives way to the code's line: the first is replaced, the rest are
  *  dropped (golden run 4: "Oct 7 is already reserved. However, Oct 8 and 9 are open" - Oct 8 was booked too). Never ''. */
