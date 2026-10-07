@@ -79,7 +79,7 @@ function healthRows(check: string, d: Record<string, any>): string[] {
     case 'completed_stays_paid':
       return [...take.map((r) => parts(`${str(r.guest, 'a guest')}, out ${dm(r.checkout)}`, peso(r.payout))), ...more];
     case 'cleaner_fees_settled':
-      return [...take.map((r) => parts(`${str(r.guest, 'a clean')} on ${dm(r.cleaned)}`, peso(r.fee))), ...more];
+      return [...take.map((r) => parts(`${str(r.guest, 'a clean')} on ${dm(r.cleaned)}`, peso(r.fee), r.paid ? `paid ${dm(r.paid)}` : null)), ...more];
     case 'payout_rows_linked':
       return [...take.map((r) => parts(dm(r.date), peso(r.amount))), ...more];
     case 'ledger_duplicates':

@@ -359,3 +359,23 @@ Deno.test('D-227: V13 reads limit_remaining, red under 20% or when refused, in 5
   assertEquals(budgetFinding({ status: 503, limit: null, remaining: null }), null, 'an outage is not a budget alarm');
   assertEquals(budgetFinding({ status: 401, limit: null, remaining: null })?.title, 'Model key refused');
 });
+
+// D-315: paid-with-no-ledger (fail) and unpaid-over-14-days (warn) are different problems with different people to act.
+Deno.test('cleaner_fees_settled: a paid fee with no ledger row and an overdue clean read differently', () => {
+  const defect = f({ key: 'V10:cleaner_fees_settled', check_id: 'V10', severity: 'red', title: 'x',
+    detail: { check: 'cleaner_fees_settled', status: 'fail', n: 2, d: [
+      { guest: 'Dale', cleaned: '2026-10-01', fee: 650, paid: '2026-10-05' },
+      { guest: 'Joseph Ewing', cleaned: '2026-09-20', fee: null, paid: null },
+    ] } });
+  const t = redCard(defect, NOW).text;
+  assertStringIncludes(t, '1 cleaning fee marked paid with no ledger transaction; 1 clean unpaid for more than two weeks.');
+  assertStringIncludes(t, 'Dale on 1 Oct, ₱650.00, paid 5 Oct');
+  assertStringIncludes(t, 'Joseph Ewing on 20 Sep\n');
+  assert(!t.includes(HEALTH_LABELS.cleaner_fees_settled), t);
+
+  const late = f({ key: 'V10:cleaner_fees_settled', check_id: 'V10', severity: 'yellow', title: 'x',
+    detail: { check: 'cleaner_fees_settled', status: 'warn', n: 2, d: [{ guest: 'Dale', cleaned: '2026-09-20', fee: null, paid: null }, { guest: 'Ana', cleaned: '2026-09-21', fee: 650, paid: null }] } });
+  const y = yellowCard([late], [], 'finance', NOW, TODAY)!.text;
+  assertStringIncludes(y, '2 cleans unpaid for more than two weeks.');
+  assert(!y.includes('marked paid'), y);
+});

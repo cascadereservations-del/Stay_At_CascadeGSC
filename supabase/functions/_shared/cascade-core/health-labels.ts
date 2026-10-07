@@ -44,6 +44,19 @@ export function problemSubject(check: string): string {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/** D-315: the rows carry `paid` (fee_paid_at::date or null). Paid with no ledger transaction is a ledger defect;
+ *  unpaid is a clean waiting more than 14 days. They need different people, so they never share a sentence. */
+function feeSentence(n: number, d?: Record<string, any> | null): string {
+  const rows: any[] = Array.isArray(d?.d) ? d.d : [];
+  if (!rows.length) return `${plural(n, 'cleaning fee is', 'cleaning fees are')} not settled in the ledger.`;
+  const paid = rows.filter((r) => r?.paid).length;
+  const late = rows.length - paid;
+  return [
+    paid && `${plural(paid, 'cleaning fee', 'cleaning fees')} marked paid with no ledger transaction`,
+    late && `${plural(late, 'clean', 'cleans')} unpaid for more than two weeks`,
+  ].filter(Boolean).join('; ') + '.';
+}
+
 /** One sentence that states the PROBLEM with its number in it. `d` is the stored detail; the scalar
  *  checks read their amount from d.d and say nothing about an amount they cannot read. */
 export function problemSentence(check: string, n: number, d?: Record<string, any> | null): string {
@@ -54,7 +67,7 @@ export function problemSentence(check: string, n: number, d?: Record<string, any
     case 'completed_stays_paid':        return `${plural(n, 'completed stay has', 'completed stays have')} no payout row.`;
     case 'payout_totals_agree':         return diff ? `Reservation payouts and payout e-mails disagree by ${diff}.` : 'Reservation payouts and payout e-mails disagree.';
     case 'checkouts_cleaned':           return `${plural(n, 'checkout in the last 90 days has', 'checkouts in the last 90 days have')} no cleaning logged.`;
-    case 'cleaner_fees_settled':        return `${plural(n, 'cleaning fee is', 'cleaning fees are')} owed and not settled in the ledger.`;
+    case 'cleaner_fees_settled':        return feeSentence(n, d);
     case 'meter_readings_reviewed':     return `${plural(n, 'odd meter reading has', 'odd meter readings have')} not been reviewed.`;
     case 'inventory_ledger_consistent': return `${plural(n, 'inventory item disagrees', 'inventory items disagree')} with its own last stock movement.`;
     case 'ledger_duplicates':           return `${plural(n, 'set of duplicate ledger rows', 'sets of duplicate ledger rows')}.`;

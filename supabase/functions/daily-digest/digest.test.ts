@@ -219,3 +219,12 @@ Deno.test('D-306: the OPS digest keeps a cleaning-pay or expense title whole and
   const hide = renderReport(opsReport({ ...base, notices: [{ notice_type: 'reminder', title: 'Collect ₱3,000 balance from guest', effective_date: '2026-09-14' }] })!);
   assert(!hide.includes('3,000'), hide);
 });
+
+Deno.test('D-315: the Monday roll-up tells an overdue clean from a fee paid with no ledger row', () => {
+  const fin = weeklyFinanceReport({ today: '2026-10-19', pending: [], overdueLines: [], consoleUrl: 'u', decisions: [], warns: [
+    { check: 'cleaner_fees_settled', label: 'Cleaning fees settled in the ledger', n: 1, status: 'warn', d: { d: [{ guest: 'Dale', cleaned: '2026-10-01', fee: null, paid: null }] } },
+  ] });
+  const text = fin.lines.join('\n');
+  assert(text.includes('🟡 1 clean unpaid for more than two weeks.'), text);
+  assert(!/settled in the ledger|marked paid/.test(text), text);
+});
