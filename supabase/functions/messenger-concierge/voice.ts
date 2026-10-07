@@ -275,6 +275,16 @@ export function dedupeAvailability(answer: string, flowPart: string): string {
   if (!date || !answer.toLowerCase().includes(date.toLowerCase()) || paras.length < 2) return flowPart;
   return paras.filter((_, k) => k !== i).join('\n\n');
 }
+/** Golden s75 deploy (first-avail-and-amenity-en): "...Wi-Fi during your stay from Nov 18 to 20." then the flow's "Nov 18 to 20
+ *  is available". When the flow part says a range is open, the answer's passing "from/for/on/over <range>" goes, so the guest
+ *  reads the dates once. Only that exact range and only after one of those words; any other mention is left alone. */
+export function dropPassingRange(answer: string, flowPart: string): string {
+  const range = flowPart.split(/\n\s*\n/).map((p) => /^(.{3,40}?)\s+(?:is|are)\s+(?:open|available|free)\b/i.exec(p.trim())?.[1])
+    .find((r) => r && new RegExp(MD, 'i').test(r));
+  if (!range) return answer;
+  const esc = range.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return answer.replace(new RegExp(`,?\\s+(?:from|for|on|over)\\s+${esc}(?=[\\s.,!?]|$)`, 'gi'), '');
+}
 /** Every sentence that states availability for a date gives way to the code's line: the first is replaced, the rest are
  *  dropped (golden run 4: "Oct 7 is already reserved. However, Oct 8 and 9 are open" - Oct 8 was booked too). Never ''. */
 export function setAvailability(reply: string, line: string): string {

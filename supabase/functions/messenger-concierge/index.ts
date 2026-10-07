@@ -18,7 +18,7 @@ import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
 import { AVAIL_WORD_RE, BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
-import { addTurnoverNotice, dedupeAvailability, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
+import { addTurnoverNotice, dedupeAvailability, dropPassingRange, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
@@ -1294,7 +1294,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       };
       let answer = guard(out.reply, lang === 'english' || lang === 'english_po');
       if (promoAsk) answer = promoFirst(answer, promos, l3); // D-311.1: the live promotions and the direct price, first paragraph
-      if (flowFollowUp) flowFollowUp = dedupeAvailability(answer, flowFollowUp); // D-311.5: the dates said open once
+      if (flowFollowUp) { answer = dropPassingRange(answer, flowFollowUp); flowFollowUp = dedupeAvailability(answer, flowFollowUp); } // D-311.5: the dates said open once
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
       const quiet = payHold || stayingNow || hostOpen.length > 0;
       // D-269: the discount host line is said once per thread (in any register, any wording it has had), closing the answer.

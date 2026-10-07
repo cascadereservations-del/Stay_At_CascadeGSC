@@ -5,7 +5,7 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { start, type Flow } from './booking.ts';
 import * as P from './persona.ts';
-import { dedupeAvailability, earlyFeeFor, fixEarlyFee, kusang, lintReply, nameOnce, noPo, offersEarlyCheckin, paragraphs, setTurnoverCheckin, turnoverCheckinLine } from './voice.ts';
+import { dedupeAvailability, dropPassingRange, earlyFeeFor, fixEarlyFee, kusang, lintReply, nameOnce, noPo, offersEarlyCheckin, paragraphs, setTurnoverCheckin, turnoverCheckinLine } from './voice.ts';
 import { goldenCases, range, type GoldenTurn } from './golden.ts';
 import { failures, heldFrom, scoreReply } from './golden-score.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
@@ -142,6 +142,22 @@ Deno.test('D-311.5: "Oct 21 to 23 is open" from the model drops the flow\'s own 
   try {
     const r = await turn('Hi, is Oct 21 to 23 open? Is there wifi?');
     assertEquals((r.reply.match(/Oct 21 to 23/g) ?? []).length, 1, r.reply);
+    assert(/wi-?fi/i.test(r.reply) && /How many of you/.test(r.reply), r.reply);
+  } finally { m.restore(); }
+});
+
+// Golden s75 deploy: the dates in passing inside the Wi-Fi paragraph, then the flow's availability line - said twice.
+Deno.test('s76: "during your stay from Nov 18 to 20" loses the range when the flow line names it; other ranges stay', async () => {
+  const flowPart = "Nov 18 to 20 is available, and we'd be delighted to welcome you.\n\nHow many of you will be staying?";
+  const wifi = 'Yes, Ben, we have high-speed fiber Wi-Fi with a dedicated workspace, perfect for video calls and streaming during your stay from Nov 18 to 20.';
+  assertEquals(dropPassingRange(wifi, flowPart), 'Yes, Ben, we have high-speed fiber Wi-Fi with a dedicated workspace, perfect for video calls and streaming during your stay.');
+  assertEquals(dropPassingRange('Wi-Fi is ready for Nov 24 to 26.', flowPart), 'Wi-Fi is ready for Nov 24 to 26.');
+  assertEquals(dropPassingRange(wifi, 'How many of you will be staying?'), wifi);
+  assertEquals(dropPassingRange('Nov 18 to 20 works well for a quiet stay.', flowPart), 'Nov 18 to 20 works well for a quiet stay.');
+  const m = stub(`${wifi}\n\nWe also have an EcoFlow backup station so you can stay connected throughout your visit.`);
+  try {
+    const r = await turn('Hi, is Nov 18 to 20 open? Is there wifi?');
+    assertEquals((r.reply.match(/Nov 18 to 20/g) ?? []).length, 1, r.reply);
     assert(/wi-?fi/i.test(r.reply) && /How many of you/.test(r.reply), r.reply);
   } finally { m.restore(); }
 });
