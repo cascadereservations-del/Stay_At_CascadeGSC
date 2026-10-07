@@ -46,7 +46,12 @@
       }
     ]
   },
-  "feature_flags": [],
+  "feature_flags": [
+    {
+      "name": "no_flag_sql_only",
+      "required_state": "None. SQL-only function body; no Edge Function, dashboard build or Apps Script changes with it. Readers (V10, Monday Finance roll-up, system-verifier cards, admin System health) already handle warn and fail for this key. Card wording that separates paid-without-ledger from overdue is a later Edge release (task chip)."
+    }
+  ],
   "compatibility": {
     "mode": "additive",
     "old_reader": true,
