@@ -24,7 +24,7 @@ import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
 import { CONTACT_CHIP, contactHostChip, isStayingNow, postbackText, priorityAnswer, priorityEntry, stayIsCurrent, type PriorityEntry, type VerifyResult } from './priority.ts'; // session 59
 import { GCASH_QRPH_BASE, qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
-import { fbSendImage, fbSendImageBytes } from '../_shared/cascade-core/messenger.ts';
+import { fbSendImage, fbSendImageBytes, HOST_HOLD_MS, laterOf } from '../_shared/cascade-core/messenger.ts';
 import { AIRBNB_URL, MAYA_FACT, OUTPUT_ANSWER, SITE_URL, factsFor, voiceCompact, voiceFor } from '../_shared/cascade-core/facts.ts';
 import { currentCard, livePromos, loadCard, tierRate } from '../_shared/cascade-core/pricing.ts';
 import { chatJson, geminiBreaker, probeScope, probeTotals, setProviderKey } from '../_shared/cascade-core/providers.ts';
@@ -46,9 +46,8 @@ const HUMAN_HOLD_MS = 24 * 3_600_000;
 // The echo hold is now 2 h; safety holds and the handoff dedupe window keep the 24 h constant.
 // D-317 (Lloyd 2026-10-08, standing rule): once Marifel or Lloyd replies, Cassy sends nothing more on that thread - she only
 // notifies the host (Telegram, admin Conversations). The hold is 30 days from the latest host reply and never shortens.
-const ECHO_HOLD_MS = 30 * 24 * 3_600_000;
-/** The later of two hold times, so a short hold never cuts a longer one. */
-const laterOf = (a: string | null | undefined, ms: number) => (a && Date.parse(a) > ms ? a : new Date(ms).toISOString());
+// Our own apps (admin host-reply, the Telegram card send, the inquiry send) set the same hold themselves: their echoes carry our app id.
+const ECHO_HOLD_MS = HOST_HOLD_MS;
 const HISTORY_KEEP = 16; // 32 stored entries; 12 dropped a guest's dates after a 30-turn chat (2026-09-13)
 
 // Guest-facing handoff lines, the attachment reply, ACK_SUGGEST and the dates-first answer live in persona.ts (session 58).
@@ -697,8 +696,9 @@ export async function sendHostReply(db: Db, short: string, text: string, from: a
     if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: maskMoney(`\u26a0\ufe0f Messenger refused the reply to ${h.guest_name ?? h.psid}, so nothing was sent and this is still open. Tap again in a minute.\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}`) });
     return;
   }
-  const { data: t } = await db.from('concierge_threads').select('history').eq('psid', h.psid).maybeSingle();
-  await db.from('concierge_threads').upsert({ psid: h.psid, history: [...(t?.history ?? []), { role: 'bot', text: final, at: now }].slice(-HISTORY_KEEP * 2), updated_at: now });
+  const { data: t } = await db.from('concierge_threads').select('history, human_until').eq('psid', h.psid).maybeSingle();
+  // D-317: a person just replied from the Telegram card - Cassy stays quiet on this chat from now on.
+  await db.from('concierge_threads').upsert({ psid: h.psid, history: [...(t?.history ?? []), { role: 'bot', text: final, at: now }].slice(-HISTORY_KEEP * 2), human_until: laterOf(t?.human_until, Date.parse(now) + HOST_HOLD_MS), updated_at: now });
   if (cbId) await tgCall('answerCallbackQuery', { callback_query_id: cbId, text: `Sent as ${name}` });
   if (h.tg_message_id) await tgCall('editMessageText', { chat_id: env('TELEGRAM_CHAT_ID'), message_id: h.tg_message_id, text: maskMoney(`✅ ${name} replied to ${h.guest_name ?? h.psid}:\n${text.trim().slice(0, 600)}\n\nGuest wrote:\n> ${String(h.guest_text).slice(0, 300)}`) });
 }
@@ -877,6 +877,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       const lastBot = [...((t?.history ?? []) as Turn[])].reverse().find((h) => h.role === 'bot');
       if (lastBot && now.getTime() - Date.parse(lastBot.at) < 3 * 60_000) { console.log('echo_ignored_meta_card', JSON.stringify({ psid: ev.recipient.id, types: msg.attachments.map((a: any) => a?.type) })); return; }
     }
+    console.log('echo_hold', JSON.stringify({ psid: String(ev.recipient.id).slice(-6), app_id: msg.app_id ?? null, text: !!msg.text })); // D-317 review: a wrong echo source shows up here
     const { data: held } = await db.from('concierge_threads').select('human_until').eq('psid', ev.recipient.id).maybeSingle();
     await db.from('concierge_threads').upsert({ psid: ev.recipient.id, human_until: laterOf(held?.human_until, now.getTime() + ECHO_HOLD_MS), updated_at: now.toISOString() });
     // Session 58 (live 2026-09-28): the host answered the lockout from the page inbox, and the handoff stayed 'open' - only
@@ -915,12 +916,14 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const asked = lastAsk?.route?.priority && now.getTime() - Date.parse(lastAsk.at) < 30 * 60_000 ? Number(lastAsk.route.priority) || 0 : 0;
   const priReply = asked && said ? priorityAnswer(said, now) : null;
   if (entry && mode === 'off') return; // the tap shows in the page inbox; nothing automatic
-  if (mode !== 'off' && (entry || priReply?.date)) return await priorityTurn(db, thread, said, entry, priReply, asked, link, fx, now, msg.mid);
+  const hostHeld = !!thread.human_until && Date.parse(thread.human_until) > now.getTime(); // D-317: a person is handling this chat
+  if (mode !== 'off' && hostHeld && entry) return await fx.handoff(db, thread, 'The guest tapped Priority help (they want help now).', 'priority', link, '', true);
+  if (mode !== 'off' && !hostHeld && (entry || priReply?.date)) return await priorityTurn(db, thread, said, entry, priReply, asked, link, fx, now, msg.mid);
   // D-282: the answer to the house ask (a guests-only detail asked before the stay was verified). A match opens the guest
   // tier and the ORIGINAL question is answered on this turn; a miss retries once, then the unmatched path.
   const houseAsked = !asked && lastAsk?.route?.house && now.getTime() - Date.parse(lastAsk.at) < 30 * 60_000 ? Number(lastAsk.route.house) || 0 : 0;
   let houseQuestion = '';
-  if (mode !== 'off' && houseAsked && said) {
+  if (mode !== 'off' && !hostHeld && houseAsked && said) {
     const q = priorityAnswer(said, now), question = String(lastAsk!.route!.q ?? '');
     if (q.date) {
       if (!unmatchedRecently(thread, now) && await verifyStay(db, thread, q, now)) houseQuestion = question;
@@ -956,7 +959,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   const plainPromo = promoAsk && g0.risk !== 'policy_exception';
   const jevRaw = g0.reply && !isActive(thread.booking_flow, now) ? routeRisk(g0.risk, jev) : g0.risk;
   const jevRisk = plainPromo && jevRaw === 'policy_exception' ? g0.risk : jevRaw;
-  const g = jevRisk !== g0.risk ? { ...g0, risk: jevRisk, handoff: jevRisk !== 'routine' } : g0;
+  let g = jevRisk !== g0.risk ? { ...g0, risk: jevRisk, handoff: jevRisk !== 'routine' } : g0;
   if (jev) console.log('jev_route', JSON.stringify({ psid: psid.slice(-6), regex: g0.risk, jev: jev.intent, c: +jev.confidence.toFixed(2), host: +jev.needsHost.toFixed(2), lang: jev.lang, ms: jev.ms, raised: jevRisk !== g0.risk }));
   // SPEC-39 3.3 (D-300.4): "medyo mahal po" / "a bit expensive" is the same price objection as "any discount?"; it goes to the host.
   const discountAsk = !plainPromo && priceObjection(text);
@@ -977,6 +980,9 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // dates". A routine follow-up within 12 h of an open access or safety handoff now joins it: a new host card carries the
   // message, and the guest gets handoffFollowUp. Any open host-owned matter also mutes the booking close and look block.
   const hostOpen = await openHostRisks(db, psid, now); // G5: an attachment reads it too
+  // D-317 review: a safety report holds routine chat for 24 h without counting as a host takeover - a second emergency or the
+  // door still gets its line, and nothing says "you are handling this chat".
+  if (!hostHeld && g.reply && g.risk === 'routine' && hostOpen.some((h) => h.risk === 'safety' && now.getTime() - h.at < HUMAN_HOLD_MS)) g = { ...g, reply: false, handoff: false };
   // Lloyd 2026-09-28 ("skip the nudge for staying guests"): someone at the residence now, this turn or in the last 24 h, gets
   // no booking pitch from code - no dates nudge, no site invite, no "arrange it here in the chat".
   // D-282 live probe 2026-09-29: a stay verified by the guide's check is a staying guest too (the Wi-Fi answer got the
@@ -1130,11 +1136,12 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
 
   if (!g.reply) {
     // D-317: a person is handling this chat - nothing goes to the guest; the host hears about every message instead.
-    if (mode !== 'off' && thread.human_until && Date.parse(thread.human_until) > now.getTime()) {
-      // A receipt photo still reaches Finance (the Angel incident): stored and carded, no line to the guest.
-      if (uploadOpen && attachment) { const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name); if (r.sent) flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() }; }
+    if (mode !== 'off' && hostHeld) {
+      // A receipt photo still reaches Finance (the Angel incident): stored and carded, no line to the guest. A sticker is not a receipt.
+      if (uploadOpen && attachment && !attachment.payload?.sticker_id) { const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name); if (r.sent) { flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() }; thread.booking_flow = flow; } }
+      const sticker = !text && !!attachment?.payload?.sticker_id; // a sticker or a like: nothing to tell the host
       if (g.handoff) await fx.handoff(db, thread, text || '[attachment]', g.risk, link); // an emergency or the door: card + urgent alert
-      else await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`));
+      else if (!sticker) await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment && !attachment.payload?.sticker_id ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`));
     }
   }
   else if (flowReply) reply = flowReply;
@@ -1413,7 +1420,8 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       // 2026-09-13 (Lloyd): no automatic hold on a handoff. The bot keeps answering the guest's
       // other questions, remembers what is pending with the host (see pendingBlock), and pauses
       // only when a human actually replies from the inbox (echo) - or on a safety report.
-      if (risk === 'safety') thread.human_until = laterOf(thread.human_until, now.getTime() + HUMAN_HOLD_MS); // D-317: never shortens a host hold
+      // D-317 review: a safety report no longer sets human_until (that now means a host is handling the chat); the open safety
+      // handoff itself holds routine chat for 24 h (see hostOpen above).
       if (mode === 'auto' || urgentNow) {
         if (text || card) await fx.handoff(db, thread, text || '[photo: likely a payment receipt]', risk, link, draftNote, card?.anyWording);
         else await fx.ops(withHeader(hostOpen.some((h) => h.risk === 'access' || h.risk === 'safety') ? 'alert' : 'guest', 'handoff · attachment', `🛎 Concierge handoff (attachment)\nGuest: ${thread.guest_name ?? psid}\n> [attachment]\n\n${link}`)); // SPEC-31 s3: a photo, not an uncertainty

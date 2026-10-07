@@ -268,11 +268,12 @@ export const LABEL: Record<Key, string> = {
  *  Lloyd 2026-10-02 (hide guest money): when the text holds an amount or the payment number, OPS gets a preview with those
  *  parts masked and no 📨 (no Show as text of a masked text), and Finance gets the full card. The sent text is never changed. */
 export function messageCards(a: { key: Key; ref: string; name: string; checkin: string; checkout: string; outcome: string; status: string;
-  hold: boolean; phone?: string | null; email?: string | null; psid?: string | null; text: string }): { ops: string; finance: string | null } {
+  hold: boolean; phone?: string | null; email?: string | null; psid?: string | null; text: string; hostHolds?: boolean }): { ops: string; finance: string | null } {
   const card = (byHand: string, forRef: string, block: string) => withHeader('guest', `${a.key} ${a.ref}`, groups(
     [`${LABEL[a.key]} for ${a.name} · ${day(a.checkin)} → ${day(a.checkout)}`, a.outcome],
     [`👤 ${a.phone ?? ''}${a.email ? ` · ${a.email}` : ''}`, a.psid ? `💬 https://www.facebook.com/messages/t/${a.psid}` : null],
     [a.status === 'sent' ? 'Do: nothing; the text is below for your record.'
+      : a.hostHolds ? `Do: nothing unless it still helps - you are handling this chat, so it was not sent; ${forRef}`
       : a.hold ? `Do: write to the guest yourself once the concern is settled; ${forRef}`
       : byHand],
   )) + `\n\n${block}`;

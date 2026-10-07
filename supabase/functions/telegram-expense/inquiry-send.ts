@@ -2,7 +2,7 @@
 // e-mail through the relay otherwise, and "card only" when there is neither: the host then sends the text by hand from the card.
 // Every attempt is written to the booking's lifecycle (telegram_inquiry_message_logged_v1), delivered or not. Messages are unsigned;
 // the audit row records who tapped. All I/O is injected (SendIO) so the plan is tested without a network.
-import { threadForBooking } from '../_shared/cascade-core/messenger.ts';
+import { threadForBooking, HOST_HOLD_MS, laterOf } from '../_shared/cascade-core/messenger.ts';
 import { channelPlan, lastGuestAt, type InquiryView } from '../_shared/cascade-core/inquiry.ts';
 
 export type Delivery = { channel: 'messenger' | 'email' | 'card_only'; delivered: boolean; detail: string };
@@ -65,7 +65,8 @@ export async function deliverToGuest(io: SendIO, view: InquiryView, text: string
     if (ok) {
       const at = new Date(io.now()).toISOString();
       // The sendHostReply precedent: Cassy reads this thread next, so she must know what was said.
-      try { await io.db.from('concierge_threads').update({ history: [...(t.history ?? []), { role: 'bot', text, at }].slice(-40), updated_at: at }).eq('psid', t.psid); } catch (e) { console.error('inquiry_history', String(e).slice(0, 120)); } // supabase-js builders have no .catch
+      // D-317: a person sent this from the Telegram card - Cassy stays quiet on this chat from now on.
+      try { await io.db.from('concierge_threads').update({ history: [...(t.history ?? []), { role: 'bot', text, at }].slice(-40), human_until: laterOf((t as { human_until?: string | null }).human_until, Date.parse(at) + HOST_HOLD_MS), updated_at: at }).eq('psid', t.psid); } catch (e) { console.error('inquiry_history', String(e).slice(0, 120)); } // supabase-js builders have no .catch
       out = { channel: 'messenger', delivered: true, detail: plan.humanAgent ? 'human agent tag' : 'response' };
     } else if (view.guest_email) {
       out = { channel: 'email', delivered: false, detail: '' }; // Messenger refused: the e-mail below is the fallback (the guest-messages rule)

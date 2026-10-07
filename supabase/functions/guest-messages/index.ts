@@ -107,7 +107,8 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
         const lastGuestAt = Math.max(0, ...((t?.history ?? []) as Array<{ role?: string; at?: string }>).filter((h) => h?.role === 'guest').map((h) => Date.parse(String(h.at)) || 0));
         // D-317 (Lloyd 2026-10-08): once Marifel or Lloyd is handling the chat, nothing automated goes to the guest - the card
         // carries the text for the host to send if they want it.
-        const hostHolds = !!t?.human_until && Date.parse(String(t.human_until)) > now;
+        // A Confirm the host tapped (body.tapped) is the host deciding to tell the guest, so it still sends.
+        const hostHolds = !body.tapped && !!t?.human_until && Date.parse(String(t.human_until)) > now;
         const hold = hostHolds || (key === 'after_departure' && await complaintOpen(db, d.booking_id));
         const plan = hold ? { channel: 'card_only' as const, humanAgent: false } : channelFor(key, lastGuestAt, !!t, !!b.guest_email, body.tapped === true, now);
         if (dry) { results.push({ ref, key, channel: plan.channel, human_agent: plan.humanAgent, hold }); continue; }
@@ -134,7 +135,7 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
           : hold ? '✋ not sent: an open complaint, please write personally'
           : status === 'skipped' ? '✋ not sent: no open chat and no e-mail, please send it' : `✋ not sent (${err}), please send it`;
         const cards = messageCards({ key, ref, name: b.guest_name, checkin: b.checkin_date, checkout: b.checkout_date, outcome, status, hold,
-          phone: b.guest_phone, email: b.guest_email, psid: t?.psid, text });
+          phone: b.guest_phone, email: b.guest_email, psid: t?.psid, text, hostHolds });
         await tgSend(cards.ops);
         if (cards.finance) await tgSend(cards.finance, FINANCE_CHAT); // amounts and the GCash number live here only (Lloyd 2026-10-02)
         results.push({ ref, key, channel, status });

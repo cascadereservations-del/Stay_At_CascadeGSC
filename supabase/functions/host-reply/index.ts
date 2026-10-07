@@ -5,7 +5,7 @@
 // (open -> sent) before the send and put back if Messenger refuses; the OPS card is edited afterwards with every text through maskMoney (D-306).
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { fbSendText } from '../_shared/cascade-core/messenger.ts';
+import { fbSendText, HOST_HOLD_MS, laterOf } from '../_shared/cascade-core/messenger.ts';
 import { appendHostTurn, handleHostReply, json, staffNameFromUser, type Deps, type Turn } from './logic.ts';
 
 function realDeps(): Deps | null {
@@ -59,8 +59,9 @@ function realDeps(): Deps | null {
       // The guest already has the message. A failed write here is reported (recorded: false), never retried into a second send.
       let thread = false;
       try {
-        const { data: t } = await db.from('concierge_threads').select('history').eq('psid', psid).maybeSingle();
-        const { error } = await db.from('concierge_threads').update({ history: appendHostTurn((t?.history ?? []) as Turn[], final, nowIso), updated_at: nowIso }).eq('psid', psid);
+        const { data: t } = await db.from('concierge_threads').select('history, human_until').eq('psid', psid).maybeSingle();
+        // D-317: a person replied from the admin - Cassy stays quiet on this chat from now on (our app id, so no echo hold).
+        const { error } = await db.from('concierge_threads').update({ history: appendHostTurn((t?.history ?? []) as Turn[], final, nowIso), human_until: laterOf(t?.human_until, Date.parse(nowIso) + HOST_HOLD_MS), updated_at: nowIso }).eq('psid', psid);
         thread = !error;
       } catch (e) { console.error('host_reply_history_failed', String(e).slice(0, 120)); }
       console.log('host_reply_sent', JSON.stringify({ thread }));
