@@ -2,7 +2,7 @@
 -- (block_reason, block_label, day_flags). Synthetic property e7700000-...-b0; everything rolls back. Fixtures insert as the owner
 -- (service_role has no BYPASSRLS); roles are impersonated with request.jwt.claims as staff_home_v1.sql does.
 begin;
-select plan(48);
+select plan(54);
 
 select ok((select count(*) = 2 and bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -43,6 +43,18 @@ insert into public.calendar_events(property_id, uid, source, status, guest_name,
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-none',  'airbnb', 'blocked',   null,          current_date + 20, current_date + 21, null, null),
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-far',   'airbnb', 'blocked',   null,          current_date + 150, current_date + 151, 'brownout', null),
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-old',   'airbnb', 'blocked',   null,          current_date - 80, current_date - 79, 'maintenance', null);
+-- The guest in the house: a direct stay (uid cascade-direct-<inquiry>) whose Messenger thread is found through the inquiry.
+insert into public.guests(id, property_id, name, phone, email) values
+  ('e7700000-0000-4000-8000-0000000000c1', 'e7700000-0000-4000-8000-0000000000b0', 'Zz Cf Current', '0917 000 0099', 'zzcf@example.com');
+insert into public.booking_inquiries(id, property_id, guest_id, guest_name, guest_email, guest_phone, checkin_date, checkout_date, pax, status, source, total_amount, deposit_amount)
+values ('e7700000-0000-4000-8000-0000000000d1', 'e7700000-0000-4000-8000-0000000000b0', 'e7700000-0000-4000-8000-0000000000c1', 'Zz Cf Current',
+        'zzcf@example.com', '0917 000 0099', current_date - 1, current_date + 2, 2, 'pending', 'direct', 2000, 1000);
+insert into public.concierge_threads(psid, guest_name, history, booking_flow, updated_at)
+values ('zz-cf-psid', 'Zz Cf Current', '[]'::jsonb, '{"booking_id":"e7700000-0000-4000-8000-0000000000d1"}'::jsonb, now());
+insert into public.guest_profile_details(guest_id, property_id, messenger_link)
+values ('e7700000-0000-4000-8000-0000000000c1', 'e7700000-0000-4000-8000-0000000000b0', 'https://business.facebook.com/latest/inbox/messenger?selected_item_id=zz-cf');
+insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date) values
+  ('e7700000-0000-4000-8000-0000000000b0', 'cascade-direct-e7700000-0000-4000-8000-0000000000d1', 'direct', 'confirmed', 'Zz Cf Current', current_date - 1, current_date + 2);
 insert into public.verifier_findings(key, check_id, severity, title, status, detail) values
   ('zz-cf-v6', 'V6', 'yellow', 'zz-cf ops finding', 'open',
    '{"booking":"bd296460-0fd2-434f-aa3a-7e89dc90c14e","guest":"Zz Cf Guest","arrives":"2026-10-08","phone":"0917 123 4567","amount":650,"email":"a@b.com"}'),
@@ -57,9 +69,9 @@ insert into public.ops_notices(property_id, notice_type, title, effective_date, 
 -- staff_verifier_facts_v1 (internal helper, called as the owner): the allow-list only
 select is(public.staff_verifier_facts_v1('V10', '{"check":"ledger_duplicates","n":2,"d":[{"n":3,"payee":"Honey","amount":650}],"label":"x","note":"y"}'::jsonb),
   '{"check":"ledger_duplicates","n":2}'::jsonb, 'V10 facts: the check name and n only, never the rows (payee, amount)');
-select is(public.staff_verifier_facts_v1('V1m', '{"guest":"Ana Maria Cruz","booking":"92f94d0e-008c-4439-9c94-6d48684629da","from":"2026-10-08","to":"2026-10-11","block_from":"2026-10-08","block_to":"2026-10-12","payee":"Honey"}'::jsonb),
+select is(public.staff_verifier_facts_v1('V1', '{"block":"deb2a3ae-9431-4636-b293-a1c51cb7e8df","stay":"92f94d0e-008c-4439-9c94-6d48684629da","guest":"Ana Maria Cruz","stay_from":"2026-10-08","stay_to":"2026-10-11","block_from":"2026-10-08","block_to":"2026-10-12","payee":"Honey"}'::jsonb),
   '{"ref":"92F94D0E","guest_first":"Ana","from":"2026-10-08","to":"2026-10-11","block_from":"2026-10-08","block_to":"2026-10-12"}'::jsonb,
-  'V1m facts: ref, first name, stay dates and block dates');
+  'V1m facts (L8 keys block, stay, guest, stay_from, stay_to, block_from, block_to): ref, first name, stay dates and block dates');
 
 -- the cleaner: sees labels and the auto flags, cannot write -------------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7700000-0000-4000-8000-000000000001','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
@@ -84,11 +96,16 @@ select ok((select x->'block_reason' = 'null'::jsonb and x->'block_label' = 'null
   'a confirmed stay has null block_reason and block_label');
 select ok(not (public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')::text ~* '(0917|0918|Mang Tony|aircon|feeder 14-3|family)'),
   'no raw block_note text beyond the ref reaches the payload');
+select ok(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->>'uid' like 'cascade-direct-%'
+      and not (public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest' ?| array['phone','email','messenger']),
+  'a cleaner sees the current guest with no phone, e-mail or messenger key at all');
+select ok(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')::text !~ '(zzcf@example|zz-cf-psid|business.facebook)',
+  'no contact value or Messenger id reaches a cleaner payload');
 
 select is((select w->>'key' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'kind' = 'verifier' and w->>'title' = 'zz-cf ops finding'), 'zz-cf-v6',
   'a system-check warning carries the verifier_findings key as w.key (the key ack_verifier_finding_v1 and the Tasks list use); the finance finding stays hidden from a cleaner');
 select ok((select bool_and((w ? 'key') and (w->>'kind' = 'verifier' or w->'key' = 'null'::jsonb)) from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w) and (select w->'detail'->>'check_id' = 'V6' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'kind' = 'verifier' and w->>'title' = 'zz-cf ops finding'),
-  'every warning has a key (null unless it is a verifier warning) and detail is unchanged);
+  'every warning has a key (null unless it is a verifier warning) and detail is unchanged');
 select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'key' = 'zz-cf-v6ack'), 0,
   'an acknowledged finding is not in warnings');
 select ok((select w->'facts' = '{"ref":"BD296460","from":"2026-10-08","guest_first":"Zz"}'::jsonb and w->'acknowledged' = 'false'::jsonb
@@ -172,6 +189,17 @@ select throws_ok($$select public.calendar_day_flag_clear_v1('e7700000-0000-4000-
 -- the owner (no property row: owner is not scoped) can write too -------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7700000-0000-4000-8000-000000000003','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select ok((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0', current_date + 40, 'other', ''))->>'ok' = 'true', 'an owner sets a flag');
+
+-- the owner also gets the guest's contact, as stored, and the Messenger thread
+select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->>'email', 'zzcf@example.com', 'owner: the current guest e-mail');
+select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->>'phone',
+  (select coalesce(g.phone_e164, g.phone) from public.guests g where g.id = 'e7700000-0000-4000-8000-0000000000c1'), 'owner: the current guest phone, normalised form first');
+select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->'messenger',
+  '{"psid":"zz-cf-psid","thread_url":"https://business.facebook.com/latest/inbox/messenger?selected_item_id=zz-cf"}'::jsonb,
+  'owner: the Messenger thread is found through the guest inquiry; thread_url is the pasted profile link');
+select ok((public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'next_guest') ?& array['phone','email','messenger']
+      and public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'next_guest'->'messenger' = 'null'::jsonb,
+  'owner: an unresolved guest has the contact keys, null, and no messenger');
 
 -- existing payload keys unchanged --------------------------------------------------------------------------------------
 select is((select array_agg(k order by k) from jsonb_object_keys(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')) k),

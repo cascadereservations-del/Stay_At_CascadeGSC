@@ -99,18 +99,42 @@ grant execute on function public.calendar_day_flag_clear_v1(uuid, uuid) to authe
 create or replace function public.staff_verifier_facts_v1(p_check_id text, p_detail jsonb)
 returns jsonb language sql immutable set search_path to '' as $$
   select jsonb_strip_nulls(jsonb_build_object(
-    'ref',        upper(coalesce(substring(p_detail->>'booking' from '^[0-9a-fA-F]{8}'), substring(p_detail->>'uid' from '^cascade-direct-([0-9a-fA-F]{8})'))),
+    'ref',        upper(coalesce(substring(p_detail->>'booking' from '^[0-9a-fA-F]{8}'), substring(p_detail->>'stay' from '^[0-9a-fA-F]{8}'),
+                                 substring(p_detail->>'uid' from '^cascade-direct-([0-9a-fA-F]{8})'))),
     'guest_first', nullif(public.staff_redact_v1(split_part(btrim(coalesce(p_detail->>'guest', p_detail#>>'{a,guest}', '')), ' ', 1)), ''),
-    'from',       case when coalesce(p_detail->>'from', p_detail#>>'{a,from}', p_detail->>'arrives') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                       then coalesce(p_detail->>'from', p_detail#>>'{a,from}', p_detail->>'arrives') end,
-    'to',         case when coalesce(p_detail->>'to', p_detail#>>'{a,to}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                       then coalesce(p_detail->>'to', p_detail#>>'{a,to}') end,
+    'from',       case when coalesce(p_detail->>'from', p_detail#>>'{a,from}', p_detail->>'arrives', p_detail->>'stay_from') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                       then coalesce(p_detail->>'from', p_detail#>>'{a,from}', p_detail->>'arrives', p_detail->>'stay_from') end,
+    'to',         case when coalesce(p_detail->>'to', p_detail#>>'{a,to}', p_detail->>'stay_to') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                       then coalesce(p_detail->>'to', p_detail#>>'{a,to}', p_detail->>'stay_to') end,
     'block_from', case when p_detail->>'block_from' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p_detail->>'block_from' end,
     'block_to',   case when p_detail->>'block_to' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p_detail->>'block_to' end,
     'check',      case when p_check_id = 'V10' and p_detail->>'check' ~ '^[a-z_]{1,40}$' then p_detail->>'check' end,
     'n',          case when p_check_id = 'V10' and jsonb_typeof(p_detail->'n') = 'number' then p_detail->'n' end));
 $$;
 revoke all on function public.staff_verifier_facts_v1(text, jsonb) from public, anon, authenticated, service_role;
+
+-- How to reach the guest, for an OWNER or ADMIN session only: any other caller gets '{}' (the keys are absent, not null, so a cleaner
+-- payload never holds a contact shape). Phone as stored (normalised form first), e-mail, and the Messenger thread: the PSID is the
+-- profile's messenger_psid, else the concierge thread whose booking_flow booking_id is one of this guest's inquiries; thread_url is the
+-- link a person pasted into the guest profile (null when none; no inbox deep link is built anywhere in the code).
+create or replace function public.staff_guest_contact_v1(p_guest_id uuid)
+returns jsonb language sql stable security definer set search_path to '' as $$
+  select case when exists (select 1 from public.staff_access_profiles p
+                            where p.user_id = auth.uid() and p.role in ('owner','admin') and p.disabled_at is null)
+    then jsonb_build_object(
+      'phone', (select coalesce(g.phone_e164, g.phone) from public.guests g where g.id = p_guest_id),
+      'email', (select g.email from public.guests g where g.id = p_guest_id),
+      'messenger', (select jsonb_build_object('psid', m.psid, 'thread_url', m.link)
+                      from (select coalesce(nullif(btrim(d.messenger_psid), ''),
+                                            (select t.psid from public.concierge_threads t
+                                              where t.booking_flow->>'booking_id' in (select b.id::text from public.booking_inquiries b where b.guest_id = p_guest_id)
+                                              order by t.updated_at desc limit 1)) as psid,
+                                   nullif(btrim(d.messenger_link), '') as link
+                              from (select 1) o left join public.guest_profile_details d on d.guest_id = p_guest_id) m
+                     where m.psid is not null or m.link is not null))
+    else '{}'::jsonb end;
+$$;
+revoke all on function public.staff_guest_contact_v1(uuid) from public, anon, authenticated, service_role;
 
 create or replace function public.staff_home_v1(p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
 returns jsonb
@@ -191,12 +215,14 @@ begin
            'checkin_date', s.checkin_date, 'checkout_date', s.checkout_date, 'nights', s.nights,
            'checkin_time', s.checkin_time, 'checkout_time', s.checkout_time)
          || public.staff_guest_card_v1(p_property_id, s.guest_id, s.checkin_date)
-    into v_cur from public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'current';
+         || public.staff_guest_contact_v1(s.guest_id)
+    into v_curfrom public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'current';
   select jsonb_build_object('uid', s.uid, 'guest_name', public.staff_redact_v1(s.guest_name), 'source', s.source,
            'checkin_date', s.checkin_date, 'checkout_date', s.checkout_date, 'nights', s.nights,
            'checkin_time', s.checkin_time, 'checkout_time', s.checkout_time)
          || public.staff_guest_card_v1(p_property_id, s.guest_id, s.checkin_date)
-    into v_next from public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'next';
+         || public.staff_guest_contact_v1(s.guest_id)
+    into v_nextfrom public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'next';
 
   with w as (
     select 'brownout' kind, 'alert' severity, public.staff_redact_v1(n.title) title,

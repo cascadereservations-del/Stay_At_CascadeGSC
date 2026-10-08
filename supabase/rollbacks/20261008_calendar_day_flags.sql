@@ -7,6 +7,7 @@ begin;
 drop function if exists public.calendar_day_flag_set_v1(uuid, date, text, text);
 drop function if exists public.calendar_day_flag_clear_v1(uuid, uuid);
 drop function if exists public.staff_verifier_facts_v1(text, jsonb);
+drop function if exists public.staff_guest_contact_v1(uuid);
 
 create or replace function public.staff_home_v1(p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
 returns jsonb
