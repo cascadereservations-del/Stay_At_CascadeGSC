@@ -2,7 +2,7 @@
 -- (block_reason, block_label, day_flags). Synthetic property e7700000-...-b0; everything rolls back. Fixtures insert as the owner
 -- (service_role has no BYPASSRLS); roles are impersonated with request.jwt.claims as staff_home_v1.sql does.
 begin;
-select plan(54);
+select plan(55);
 
 select ok((select count(*) = 2 and bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -200,6 +200,13 @@ select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current
 select ok((public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'next_guest') ?& array['phone','email','messenger']
       and public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'next_guest'->'messenger' = 'null'::jsonb,
   'owner: an unresolved guest has the contact keys, null, and no messenger');
+
+-- a profile link that is not https is never passed on; the psid still is
+reset role;
+update public.guest_profile_details set messenger_link = 'javascript:alert(1)' where guest_id = 'e7700000-0000-4000-8000-0000000000c1';
+select set_config('role', 'authenticated', true);
+select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->'messenger',
+  '{"psid":"zz-cf-psid","thread_url":null}'::jsonb, 'owner: a non-https messenger_link becomes thread_url null');
 
 -- existing payload keys unchanged --------------------------------------------------------------------------------------
 select is((select array_agg(k order by k) from jsonb_object_keys(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')) k),
