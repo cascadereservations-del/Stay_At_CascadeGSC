@@ -1,5 +1,5 @@
 begin;
-select plan(10);
+select plan(11);
 
 select has_function(
   'public',
@@ -34,8 +34,11 @@ select is((select count(*) from public.booking_decisions where booking_id = '666
 
 insert into public.booking_inquiries (id, property_id, guest_name, guest_phone, checkin_date, checkout_date, source, status)
 values ('77777777-7777-4777-8777-777777777777', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Canonical Conflict', '000', current_date + 41, current_date + 43, 'direct', 'pending');
-insert into public.calendar_events (property_id, uid, source, status, checkin_date, checkout_date, recon_status)
-values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'direct:77777777-7777-4777-8777-777777777777', 'direct', 'blocked', current_date + 41, current_date + 43, 'manual_entry');
+-- s78 (calendar_events_direct_no_overlap): the overlapping second direct hold can no longer be written at all; the
+-- confirm below still meets the first booking's confirmed row and answers conflict.
+select throws_ok($$insert into public.calendar_events (property_id, uid, source, status, checkin_date, checkout_date, recon_status)
+values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'direct:77777777-7777-4777-8777-777777777777', 'direct', 'blocked', current_date + 41, current_date + 43, 'manual_entry')$$,
+  '23P01', null, 'a second direct hold over a confirmed direct stay is refused by the database');
 
 select is(
   public.decide_direct_booking_without_finance_review('77777777-7777-4777-8777-777777777777', 'confirm', 'canonical-conflict-key-01')->>'outcome',

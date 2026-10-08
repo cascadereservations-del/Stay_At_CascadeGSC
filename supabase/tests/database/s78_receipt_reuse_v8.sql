@@ -62,7 +62,7 @@ select pg_temp.ev('e8780000-0000-4000-8000-0000000000b5', 'receipt_ocr', repeat(
 select pg_temp.ev('e8780000-0000-4000-8000-0000000000b6', 'receipt_ocr', repeat('e', 64), '5550001112223', 3100, '2030-01-04 10:10+00');
 select is((select (e->'detail'->'match')::text || '|' || (e->'detail'->>'amount') from jsonb_array_elements(pg_temp.v8()) e
             where e->>'key' = 'V8:e8780000-0000-4000-8000-0000000000b5:e8780000-0000-4000-8000-0000000000b6'),
-  '["amount_time"]|3100', 'the same amount within 30 minutes, one side without a reference, is V8');
+  '["amount_time"]|3100.00', 'the same amount within 30 minutes, one side without a reference, is V8');
 
 -- Not a reuse: the same amount two hours apart; the same amount with two different references; a manual attestation hash.
 select pg_temp.bk(7, 'pending', '2030-03-01', '2030-03-02');
