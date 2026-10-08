@@ -96,7 +96,7 @@ Deno.test('D-311.1/.7: a promo question names the live promotion and the direct 
 
 // ---- 2. turnover-day early check-in: never a promised time; Lloyd's words -------------------------------------------------
 // Example: voice.ts turnoverCheckinLine (code rule) + FACTS / the AVAILABILITY block / the VOICE turnover reference reply.
-Deno.test('s78 (replaces D-311.2): on a turnover day a noon promise becomes the one fixed line - from 2:00 PM, earlier only if ready, no time named', () => {
+Deno.test('D-321 (replaces D-311.2):on a turnover day a noon promise becomes the one fixed line - from 2:00 PM, earlier only if ready, no time named', () => {
   assertEquals(turnoverCheckinLine('Oct 19', 'en'), "Check-in is from 2:00 PM, since we're preparing the unit after our earlier guest checks out. If it's ready a little sooner, we'll gladly message you right away po."); // D-321
   const live = 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway.\n\nYes, available po ang Oct 19. Open din po ang 12:00 noon early check-in at no extra charge dahil wala pong guest na mag-che-check out nung araw na iyon.\n\nCassy, Cascade Concierge';
   assert(offersEarlyCheckin(live));

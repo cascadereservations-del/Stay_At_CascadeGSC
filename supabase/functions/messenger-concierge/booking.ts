@@ -51,16 +51,22 @@ const PAID_WORD_RE = /\b(paid|sent|na[- ]?send|gi-?send|(?:nag|naka|nakapag|na)?
 const NOT_PAID_RE = /\?|^\s*(how|where|when|what|can|could|should|is|did|pwede|puwede|paano|pano|saan|kailan|unsaon|asa|unsa)\b|\b(magkano|how much|tagpila)\b|\b(not|hindi|di|wala|later|mamaya|yet)\b|\bmag-?bayad\b|\b(sent|na[- ]?send|gi-?send)\b(\s+(?:ko|na|po|nako|you|to you))*\s+(?:my|our|the|ang|akong|amo)\s+(?:valid\s+)?(?:ids?|photos?|pics?|pictures?|details|info|selfie|passport|license)\b/i;
 export const paidClaim = (t: string): boolean => PAID_WORD_RE.test(t) && !NOT_PAID_RE.test(t);
 /** s78 (Angel replay turns 13 and 19): a booked guest names WHEN they will pay - on arrival ("pay the deposit pag nasa area na",
- *  "deposit upon check-in") or later ("we will send the deposit tomorrow po"). Neither is a paid claim. A money word within 40
- *  characters of the timing, either order. */
-const PAY_MONEY = String.raw`\b(?:deposit|balance|bayad\w*|(?:ba)?bayaran|magbayad|payment|pay|dp|down ?payment|full|remaining)\b`;
+ *  "deposit upon check-in") or later ("we will send the deposit tomorrow po"). Neither is a paid claim. A PAY VERB within 40
+ *  characters of the timing, either order, and a money word in the message (Fable audit f3c4126: "Is the deposit refundable at
+ *  check-in?" and "What time is check in? We arrive tonight, is the unit full?" are questions, not timing proposals). */
+const PAY_MONEY_RE = /\b(?:deposit|balance|bayad\w*|(?:ba)?bayaran|magbayad|payment|pay|dp|down ?payment|full|remaining)\b/i;
+const PAY_VERB = String.raw`\b(?:pay|paying|send|sending|bayad\w*|(?:ba)?bayaran|magbayad|settle|transfer|i-?send|hand(?: it)? over|give|ibigay|abot)\b`;
 const PAY_ARRIVE = String.raw`\b(?:on arrival|upon arrival|arrival|pagdating|pag-?dating|pag-?abot|when (?:we|i) (?:arrive|get there|check in)|(?:at|upon|on|sa) check-?in|(?:pag|kung|when|once) (?:nasa|andyan|andito|naa|nandyan|nandito|we'?re|we are|i'?m)\b[^.?!\n]{0,15}\b(?:area|there|here|unit|place|na))\b`;
 const PAY_LATER = String.raw`\b(?:tomorrow|tmrw|bukas|later|mamaya|ugma|tonight|mamayang gabi)\b`;
 const payNear = (a: string, b: string) => new RegExp(String.raw`${a}[^.?!\n]{0,40}${b}|${b}[^.?!\n]{0,40}${a}`, 'i');
-const ARRIVE_PAY_RE = payNear(PAY_MONEY, PAY_ARRIVE), LATER_PAY_RE = payNear(PAY_MONEY, PAY_LATER);
+const ARRIVE_PAY_RE = payNear(PAY_VERB, PAY_ARRIVE), LATER_PAY_RE = payNear(PAY_VERB, PAY_LATER);
 export function payTiming(text: string): 'arrival' | 'later' | null {
+  if (!PAY_MONEY_RE.test(text)) return null;
   return ARRIVE_PAY_RE.test(text) ? 'arrival' : LATER_PAY_RE.test(text) ? 'later' : null;
 }
+/** F2 (booking site, the pay-in-full path): "you arrive with only the ₱1,000 refundable deposit to hand over" - so on that path
+ *  the deposit alone at arrival is the site's own term. True when the message is about the deposit and nothing else owed. */
+export const depositOnly = (text: string): boolean => /\bdeposit\b/i.test(text) && !/\b(balance|full|remaining|total|reservation fee|dp|down ?payment)\b/i.test(text);
 export const CANCEL_RE = /\b(cancel|stop|wag na|huwag|never ?mind|nevermind|not now|forget it|change of plans|di na tuloy|hindi na tuloy|dili na|wag na lang)\b/i;
 const YES_RE = /^\s*(yes|yes po|oo|oo po|sige|sige po|go|confirm|confirmed|ok|okay|okay po|ok po|proceed|tama|correct|yup|yep|y)\s*[.!]*\s*$/i;
 const SKIP_RE = /^\s*(skip|wala|none|no email|no)\s*[.!]*\s*$/i;
@@ -434,9 +440,11 @@ export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, cha
   return P.holdCancelLine(kind, name, dmRange(flow.checkin!, flow.checkout!), lang);
 }
 /** s78: the stay card's own payment terms for a booked guest who names another timing (payTiming). Facts from the flow. */
-export function payTermsReply(flow: Flow, name: string | null, lang: Lang): string {
-  const total = flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total, deposit = flow.deposit ?? total;
-  return P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), balance: deposit >= total ? '' : peso(total - deposit), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at });
+export function payTermsReply(flow: Flow, name: string | null, lang: Lang, text = ''): { reply: string; agreed: boolean } {
+  const total = flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total, deposit = flow.deposit ?? total, full = deposit >= total;
+  // F2: the site's two paths. Pay in Full - the deposit alone on arrival is the term (agreed); the 50% fee - balance and deposit a day before.
+  const agreed = full && payTiming(text) === 'arrival' && depositOnly(text);
+  return { agreed, reply: P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), balance: full ? '' : peso(total - deposit), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at, accept: agreed }) };
 }
 /** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
 export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): string {

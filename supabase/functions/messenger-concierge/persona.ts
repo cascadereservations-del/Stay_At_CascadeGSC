@@ -536,17 +536,23 @@ export const warmClause = (lang?: Lang, booked = false) => booked ? by(lang, {
  *  ("pay the deposit pag nasa area na", "we will send the deposit tomorrow"). The booking site is the policy source: the ₱1,000
  *  deposit is due with the balance at least a day before check-in; inside five days the full amount is paid now. `balance` ''
  *  when the full amount is the payment. Never agrees to pay on arrival. */
-export function payTermsLine(name: string | null, lang: Lang, f: { total: string; balance: string; paid: boolean }): string {
+export function payTermsLine(name: string | null, lang: Lang, f: { total: string; balance: string; paid: boolean; accept?: boolean }): string {
   const c = withName(name);
+  // F2 (Fable audit f3c4126; the booking site, Pay in Full: "covers the whole stay, and you arrive with only the ₱1,000 refundable
+  // deposit to hand over"): on the full-payment path a deposit handed over on arrival IS the term - agreed warmly, no lecture.
+  if (f.accept) return by(lang, {
+    en: `Yes, that's right${c}. With the full ${f.total} covering the whole stay, you arrive with only the ₱1,000 refundable security deposit to hand over, and it's returned after check-out. 🌿`,
+    tl: `Opo, tama po${c}. Since covered na ng full ${f.total} ang buong stay, ang ₱1,000 refundable security deposit na lang ang iaabot ninyo pagdating, at ibabalik ito after check-out. 🌿`,
+    bis: `Yes, that's right${c}. With the full ${f.total} covering the whole stay, you arrive with only the ₱1,000 refundable security deposit to hand over, and it's returned after check-out. 🌿` });
   const terms = f.balance
     ? by(lang, {
         en: `as on your stay card, the remaining ${f.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in, so everything is settled before you arrive.`,
         tl: `gaya ng nasa stay card ninyo, ang natitirang ${f.balance} balance at ang ₱1,000 refundable security deposit ay due at least a day before check-in, para settled na ang lahat bago kayo dumating.`,
         bis: `as on your stay card, the remaining ${f.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in, so everything is settled before you arrive.` })
     : by(lang, {
-        en: `as on your stay card, the full ${f.total} confirms your stay, and the ₱1,000 refundable security deposit is due before you arrive, so everything is settled ahead of check-in.`,
-        tl: `gaya ng nasa stay card ninyo, ang full ${f.total} ang nagko-confirm ng stay, at ang ₱1,000 refundable security deposit ay due before you arrive, para settled na ang lahat bago mag-check-in.`,
-        bis: `as on your stay card, the full ${f.total} confirms your stay, and the ₱1,000 refundable security deposit is due before you arrive, so everything is settled ahead of check-in.` });
+        en: `the full ${f.total} covers the whole stay and confirms it, and you arrive with only the ₱1,000 refundable security deposit to hand over.`,
+        tl: `ang full ${f.total} ang sumasaklaw sa buong stay at nagko-confirm nito, at ang ₱1,000 refundable security deposit na lang ang iaabot ninyo pagdating.`,
+        bis: `the full ${f.total} covers the whole stay and confirms it, and you arrive with only the ₱1,000 refundable security deposit to hand over.` });
   const head = by(lang, { en: `Noted${c}, thank you. Just so it's clear, `, tl: `Noted po${c}, salamat. Para malinaw, `, bis: `Noted${c}, thank you. Just so it's clear, ` });
   const tail = f.paid
     ? by(lang, { en: `Our host is reviewing what you've sent and will confirm everything here.`, tl: `Nire-review na ng host ang na-send ninyo, and they'll confirm everything here.`, bis: `Our host is reviewing what you've sent and will confirm everything here.` })

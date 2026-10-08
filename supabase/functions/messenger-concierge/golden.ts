@@ -250,6 +250,11 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   // SPEC-39 3.6b: inside five days the one-step message asks the full amount only, and the QR carries it.
   if (soonRange) cases.push({ id: 'pay-near-en', group: 'payment', turns: [f(`${soonRange} available? 2 adults`, 'en'), f('yes', 'en'),
     f(PAY, 'en', { must: [/check-in is near/, /full ₱/], mustNot: [/reservation fee holds/, LINK], effects: [/"fx":"submit"/, /"qr"/] })] });
+  // F2 (Fable audit f3c4126; the booking site, Pay in Full: "you arrive with only the ₱1,000 refundable deposit to hand over"): inside
+  // five days the deposit on arrival is the term - agreed, no lecture, no host card. The 50% path is s78-booked-turnover-tl turn 7.
+  if (soonRange) cases.push({ id: 's78-full-deposit-on-arrival-en', group: 'payment', turns: [f(`${soonRange} available? 2 adults`, 'en'), f('yes', 'en'),
+    f(PAY, 'en', { effects: [/"fx":"submit"/] }),
+    { say: 'We will pay the deposit when we arrive', kind: 'code', lang: 'en', must: [/that's right/i, /hand over/], mustNot: [/a day before|just so it's clear/i, LINK], effects: [/^(?![\s\S]*"handoff")/] }] });
   if (soonRange) cases.push({ id: 'flow-offer-fullnow-en', group: 'flow', turns: [
     // s73 F8: persona.ts LAST_MINUTE says "arriving within the next five days" and the details ask asks for "your full name"
     // (SPEC-39 3.6); the old wordings ("less than five days away", "name for the reservation") are no longer said.

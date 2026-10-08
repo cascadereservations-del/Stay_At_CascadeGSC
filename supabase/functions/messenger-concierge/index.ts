@@ -1081,8 +1081,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   } else if (g.reply && text && heldFlow && ['routine', 'payment'].includes(g.risk) && (timing = payTiming(text))) {
     // s78 (Angel replay turns 13, 19): "we will send the deposit tomorrow", "pay the deposit pag nasa area na" - the stay card's
     // terms said back by code (the model accepted a deposit on arrival). An arrival ask also reaches the host.
-    flowReply = payTermsReply(heldFlow, heldFlow.name ?? thread.guest_name, replyLang(text, heldFlow.lang));
-    if (timing === 'arrival') card = { risk: 'payment', note: holdNote(heldFlow, now, 'asked to pay on arrival'), anyWording: true };
+    const terms = payTermsReply(heldFlow, heldFlow.name ?? thread.guest_name, replyLang(text, heldFlow.lang), text);
+    flowReply = terms.reply;
+    // F2: the deposit handed over on arrival on the Pay in Full path is the site's own term - no host card for it.
+    if (timing === 'arrival' && !terms.agreed) card = { risk: 'payment', note: holdNote(heldFlow, now, 'asked to pay on arrival'), anyWording: true };
   } else if (g.reply && text && booked && ['await_receipt', 'receipt_sent', 'cancel_requested', 'receipt_declined'].includes(booked.step) && g.risk === 'payment') {
     // s2: "paid na po?" is answered from what we hold, and the host gets one payment card per 24 h.
     flowReply = paidClaimReply(booked, booked.name ?? thread.guest_name, replyLang(text, booked.lang));
@@ -1270,9 +1272,9 @@ Reply in Messenger: ${link}`));
       // s78: a booking past the flow's 24 h (lastRef) gets the same hint - its guest's questions were answered as a prospect's.
       const hf = heldFlow, hfFull = !!hf && (hf.deposit ?? 0) >= (hf.total ?? 0);
       const hfTerms = !hf ? '' : hfFull
-        ? `the full ${peso(hf.total ?? 0)} confirms the stay, and the PHP 1,000 refundable security deposit is due before arrival`
+        ? `the full ${peso(hf.total ?? 0)} covers the whole stay, and they arrive with only the PHP 1,000 refundable security deposit to hand over (the booking site's Pay in Full term)`
         : `the remaining ${peso((hf.total ?? 0) - (hf.deposit ?? 0))} balance and the PHP 1,000 refundable security deposit are due at least a day before check-in`;
-      const payHint = hf ? `[The guest has a booking: ${dmRange(hf.checkin!, hf.checkout!)} under ${hf.ref}${hf.step === 'await_receipt' && !hf.photo_at ? `, paying the ${peso(hf.deposit ?? 0)} ${hfFull ? 'full amount' : 'reservation fee'} by GCash QR` : hf.step === 'confirmed' ? ', confirmed' : ', receipt received and with the host for review'}. Answer only what they asked, from FACTS, in two or three warm sentences - never ask for their dates, never quote a total or a rate, never offer to hold or book. The stay card's payment terms are the ONLY terms: ${hfTerms}. Never agree to the balance or the deposit being paid on arrival or at check-in. Payment facts you may state: GCash QR with the amount set; ${MAYA_FACT} A UnionBank transfer only if they ask for a bank (the host sends the account by hand). Never say the booking is confirmed${hf.step === 'confirmed' ? ' unless asked (it is)' : ''}, never promise a reminder or an e-mail, never invite them to the site or to arrange the booking - it is already arranged.] ` : '';
+      const payHint = hf ? `[The guest has a booking: ${dmRange(hf.checkin!, hf.checkout!)} under ${hf.ref}${hf.step === 'await_receipt' && !hf.photo_at ? `, paying the ${peso(hf.deposit ?? 0)} ${hfFull ? 'full amount' : 'reservation fee'} by GCash QR` : hf.step === 'confirmed' ? ', confirmed' : ', receipt received and with the host for review'}. Answer only what they asked, from FACTS, in two or three warm sentences - never ask for their dates, never quote a total or a rate, never offer to hold or book. The stay card's payment terms are the ONLY terms: ${hfTerms}. ${hfFull ? 'Never agree to the stay itself being paid on arrival or at check-in.' : 'Never agree to the balance or the deposit being paid on arrival or at check-in.'} Payment facts you may state: GCash QR with the amount set; ${MAYA_FACT} A UnionBank transfer only if they ask for a bank (the host sends the account by hand). Never say the booking is confirmed${hf.step === 'confirmed' ? ' unless asked (it is)' : ''}, never promise a reminder or an e-mail, never invite them to the site or to arrange the booking - it is already arranged.] ` : '';
       // SPEC-28: with dates AND another question, the calendar line answers the dates, so the model sees only the other question.
       const asked = flow?.question && flowFollowUp ? otherQuestions(text) || text : text;
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
