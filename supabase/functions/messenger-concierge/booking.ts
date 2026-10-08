@@ -56,7 +56,7 @@ export const paidClaim = (t: string): boolean => PAID_WORD_RE.test(t) && !NOT_PA
  *  check-in?" and "What time is check in? We arrive tonight, is the unit full?" are questions, not timing proposals). */
 const PAY_MONEY_RE = /\b(?:deposit|balance|bayad\w*|(?:ba)?bayaran|magbayad|payment|pay|dp|down ?payment|full|remaining)\b/i;
 const PAY_VERB = String.raw`\b(?:pay|paying|send|sending|bayad\w*|(?:ba)?bayaran|magbayad|settle|transfer|i-?send|hand(?: it)? over|give|ibigay|abot)\b`;
-const PAY_ARRIVE = String.raw`\b(?:on arrival|upon arrival|arrival|pagdating|pag-?dating|pag-?abot|when (?:we|i) (?:arrive|get there|check in)|(?:at|upon|on|sa) check-?in|(?:pag|kung|when|once) (?:nasa|andyan|andito|naa|nandyan|nandito|we'?re|we are|i'?m)\b[^.?!\n]{0,15}\b(?:area|there|here|unit|place|na))\b`;
+const PAY_ARRIVE = String.raw`\b(?:on arrival|upon arrival|arrival|pag[- ]?dating|pag[- ]?abot|when (?:we|i) (?:arrive|get there|check in)|(?:at|upon|on|sa) check-?in|(?:pag|kung|when|once) (?:nasa|andyan|andito|naa|nandyan|nandito|we'?re|we are|i'?m)\b[^.?!\n]{0,15}\b(?:area|there|here|unit|place|na))\b`;
 const PAY_LATER = String.raw`\b(?:tomorrow|tmrw|bukas|later|mamaya|ugma|tonight|mamayang gabi)\b`;
 const payNear = (a: string, b: string) => new RegExp(String.raw`${a}[^.?!\n]{0,40}${b}|${b}[^.?!\n]{0,40}${a}`, 'i');
 const ARRIVE_PAY_RE = payNear(PAY_VERB, PAY_ARRIVE), LATER_PAY_RE = payNear(PAY_VERB, PAY_LATER);

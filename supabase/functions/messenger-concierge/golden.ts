@@ -273,7 +273,9 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
       f('Angeleen Luz Villanueva 09170000000 test.guest@example.com', 'en', { effects: [/"fx":"submit"/] }),
       { say: 'If its possible we would like to checkin early po', kind: 'midflow', lang: 'en', must: [/2:00 PM/], mustNot: [/12:00 ?NN|1:00 PM|12 noon/i, /(2:00 PM[\s\S]*){3}/] },
       { say: 'Hi good morning po may free drinking water na po sa room?', kind: 'midflow', lang: 'tl', mustNot: [/exact total|once may dates|preferred dates|which dates/i, LINK] },
-      { say: 'We will pay po the deposit pag nasa area na po', kind: 'code', lang: 'tl', must: [/before you arrive|a day before check-in/], mustNot: [/pagdating ninyo|on arrival is fine/i], effects: [/"handoff"[^}]*payment/] }] });
+      // the 50% path (a stay more than five days out; D-322 agrees the deposit on arrival only on the Pay in Full path)
+      { say: 'We will pay po the deposit pag nasa area na po', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po|on arrival is fine|hand over/i], effects: [/"handoff"[^}]*payment/] },
+      { say: 'Pag dating na lang po namin ibigay ang deposit', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po/i] }] });
   }
   // Incident 2026-10-07 (Angel): a misspelt availability ask after the rate answer starts the flow (the party ask), and a stay that
   // starts on another guest's check-out day says so - check-in from 2:00 PM, no "as soon as you arrive". Three nights from the turnover day.

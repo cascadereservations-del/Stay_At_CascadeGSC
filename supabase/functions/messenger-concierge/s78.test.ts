@@ -73,6 +73,17 @@ async function turn(text: string, o: { flow?: Flow | null; history?: Array<[stri
 const feePath = (step: Flow['step'] = 'await_receipt', ageMin = 30) => held(step, ageMin, { deposit: 2537, hold: true });
 Deno.test('s78 #1 Pay in Full path: the deposit handed over on arrival is agreed warmly (no lecture, no card); the stay itself is not', async () => {
   assertEquals(payTiming('We will pay the deposit when we arrive'), 'arrival'); // golden s78-full-deposit-on-arrival-en
+  for (const t of ['Pag dating na lang po namin ibigay ang deposit', 'pagdating na lang po namin ibigay ang deposit', 'ibigay po namin ang deposit pag-dating']) assertEquals(payTiming(t), 'arrival', t);
+  // D-322: the stay card, the "full" switch and the payment message say the same on this path; the 50% path keeps "a day before"
+  for (const l of ['en', 'tl'] as const) {
+    const full = P.payNudge({ deposit: '₱5,073', total: '₱5,073', fullOnly: true, near: true, dates: 'Oct 19 to 22', name: 'Angel' }, 'warm', l);
+    const fee = P.payNudge({ deposit: '₱2,537', total: '₱5,073', fullOnly: false, dates: 'Oct 19 to 22', name: 'Angel' }, 'warm', l);
+    assert(/hand over|iaabot/.test(full) && !/before you arrive|a day before/.test(full), full);
+    assert(/a day before check-in/.test(fee) && !/hand over|iaabot/.test(fee), fee);
+    assert(/hand over|iaabot/.test(P.fullSwitchLine('Angel', '₱5,073', l)) && !/before you arrive/.test(P.fullSwitchLine('Angel', '₱5,073', l)));
+    const pm = (f: boolean) => P.paymentMessage({ name: 'Angel', dates: 'Oct 19 to 22', ref: 'DIR-1', until: null, rel: '', hold: false, near: true, deposit: f ? '₱5,073' : '₱2,537', balance: '₱2,536', full: f }, l);
+    assert(/hand over|iaabot/.test(pm(true)) && /a day before check-in/.test(pm(false)), pm(true));
+  }
   const en = await turn('We will pay the deposit when we arrive', { flow: held() });
   assert(/^Yes, that's right/.test(en.reply) && /hand over/.test(en.reply) && !en.calls.some((c) => c.fx === 'handoff'), en.reply);
   for (const flow of [held(), held('await_receipt', 26 * 60), held('receipt_sent', 26 * 60)]) {
