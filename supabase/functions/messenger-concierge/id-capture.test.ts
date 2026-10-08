@@ -65,7 +65,12 @@ Deno.test('the OPS notice: what happened first, the ID type, match or companion,
   assert(/as a companion \(a national ID\)/.test(comp) && /does not match the booking name/.test(comp), comp);
   const no = idOpsLine(null, p(true), { ok: false, reason: 'not_confirmed' }, 'L');
   assert(no.startsWith('A guest sent an ID in Messenger; it was not saved (the booking is not confirmed yet).'), no);
-  assert(/handling this chat/.test(idOpsLine('Angel', p(true, false), { ok: true }, 'L')));
+  const held = idOpsLine('Angel', p(true, false), { ok: true }, 'L', { held: true, said: 'ID ko po, call 09171234567, paid PHP 2,500' });
+  assert(/handling this chat/.test(held) && /> ID ko po/.test(held) && !/09171234567|2,500/.test(held), held);
+  // a safety hold is quiet too, but nobody took the chat over: no "you are handling" line, no relay (the safety alert carries the text)
+  const quiet = idOpsLine('Angel', p(true, false), { ok: true }, 'L', { held: false, said: 'hello' });
+  assert(!/handling this chat|hello/.test(quiet), quiet);
+  assert(/not saved \(the name read was not accepted\)/.test(idOpsLine('Angel', p(true), { ok: false, reason: 'bad_name' }, 'L')));
   for (const t of [own, comp, no]) assert(!/Maria|Santos|Cruz|PHP|₱/.test(t), t);
 });
 Deno.test('graphPermission: (#10) and 2xx permission codes, not other Graph errors', () => {
@@ -78,13 +83,13 @@ Deno.test('graphPermission: (#10) and 2xx permission codes, not other Graph erro
 // ---- the real handle() ----------------------------------------------------------------------------------------------------
 type Call = { fx: string; text?: string; detail?: Record<string, unknown> };
 // deno-lint-ignore no-explicit-any
-function fakeDb(row: any) {
+function fakeDb(row: any, booking: any) {
   // deno-lint-ignore no-explicit-any
   const writes: Array<{ table: string; v: any }> = [];
   // deno-lint-ignore no-explicit-any
   const q = (table: string): any => new Proxy({}, { get(_t, k) {
     if (k === 'then') return (res: (x: unknown) => void) => res({ data: [], error: null });
-    if (k === 'maybeSingle' || k === 'single') return () => Promise.resolve({ data: table === 'concierge_threads' ? row : null, error: null });
+    if (k === 'maybeSingle' || k === 'single') return () => Promise.resolve({ data: table === 'concierge_threads' ? row : table === 'booking_inquiries' ? booking : null, error: null });
     // deno-lint-ignore no-explicit-any
     if (k === 'upsert' || k === 'insert' || k === 'update') return (v: any) => { writes.push({ table, v }); return q(table); };
     return () => q(table);
@@ -96,19 +101,20 @@ const ago = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
 /** A confirmed booking well past lastRef's 8 days (an ID often comes near check-in). */
 const booked = (extra: Partial<Flow> = {}): Flow => ({ step: 'confirmed', checkin: '2026-10-19', checkout: '2026-10-22', pax: 2, lang: 'en', name: GUEST, ref: 'DIR-ANGEL', booking_id: BID,
   started_at: ago(20 * 1440), updated_at: ago(15 * 1440), ...extra });
-async function photo(o: { flow?: Flow | null; idName?: string; human?: string | null; url?: string; saveFails?: string } = {}) {
+// deno-lint-ignore no-explicit-any
+async function photo(o: { flow?: Flow | null; idName?: string; human?: string | null; url?: string; saveFails?: string; booking?: any; text?: string; profile?: string } = {}) {
   globalThis.fetch = (() => Promise.resolve(new Response('{}', { status: 500 }))) as typeof fetch; // no network
   setProviderKey('test');
-  const row = { psid: 'probe:id45', guest_name: 'Angel', human_until: o.human ?? null, bot_turns: 1, last_risk: null, last_mid: null, booking_flow: o.flow === undefined ? booked() : o.flow,
+  const row = { psid: 'probe:id45', guest_name: o.profile ?? 'Angel', human_until: o.human ?? null, bot_turns: 1, last_risk: null, last_mid: null, booking_flow: o.flow === undefined ? booked() : o.flow,
     history: [{ role: 'guest', text: 'Here is my ID po', at: ago(5) }, { role: 'bot', text: 'Thank you.', at: ago(4) }] };
-  const { db, writes } = fakeDb(row);
+  const { db, writes } = fakeDb(row, o.booking === undefined ? { guest_name: GUEST, checkout_date: '2026-10-22' } : o.booking);
   const calls: Call[] = [];
   // deno-lint-ignore no-explicit-any
   const fx = probeEffects(calls as any, o.idName ?? GUEST, now);
   if (o.saveFails) fx.idSave = (_db, plan) => { calls.push({ fx: 'id_save', detail: { own: plan.own } }); return Promise.resolve({ ok: false, reason: o.saveFails }); };
   try {
     // deno-lint-ignore no-explicit-any
-    await handle(db as any, { sender: { id: 'probe:id45' }, recipient: { id: 'page' }, message: { mid: 'm-' + Math.random(), attachments: [{ type: 'image', payload: { url: o.url ?? 'https://example.invalid/id.jpg' } }] } }, 'auto', fx, now);
+    await handle(db as any, { sender: { id: 'probe:id45' }, recipient: { id: 'page' }, message: { mid: 'm-' + Math.random(), text: o.text, attachments: [{ type: 'image', payload: { url: o.url ?? 'https://example.invalid/id.jpg' } }] } }, 'auto', fx, now);
   } finally { globalThis.fetch = realFetch; setProviderKey(null); }
   const reply = calls.filter((c) => c.fx === 'send').map((c) => c.text).join('\n\n');
   const ops = calls.filter((c) => c.fx === 'ops').map((c) => c.text ?? '');
@@ -159,4 +165,27 @@ Deno.test('handle: a photo that is not an ID keeps the stray-receipt path', asyn
   assertEquals(r.calls.find((c) => c.fx === 'id_read')?.detail?.kind, 'other');
   assert(!r.calls.some((c) => c.fx === 'id_save'));
   assert(r.calls.some((c) => c.fx === 'handoff' && c.detail?.risk === 'payment'));
+  assertEquals(r.saved.booking_flow.id_reads.n, 1); // the stray-receipt branch keeps the count: the cap advances
+});
+Deno.test('handle: a booking whose stay is over, or a missing booking row - no read, no upload', async () => {
+  for (const booking of [{ guest_name: GUEST, checkout_date: '2026-10-10' }, null]) {
+    const r = await photo({ booking });
+    assert(!r.calls.some((c) => c.fx === 'id_read' || c.fx === 'id_save'), JSON.stringify(booking));
+  }
+  const today = await photo({ booking: { guest_name: GUEST, checkout_date: '2026-10-18' } }); // check-out day still counts
+  assertEquals(today.calls.find((c) => c.fx === 'id_save')?.detail?.own, true);
+});
+Deno.test('handle: no reservation name - companion only, never the Facebook profile name', async () => {
+  const r = await photo({ booking: { guest_name: null, checkout_date: '2026-10-22' }, flow: booked({ name: undefined }), profile: GUEST });
+  assertEquals(r.calls.find((c) => c.fx === 'id_save')?.detail?.own, false);
+});
+Deno.test('handle: a host-held chat - the words sent with the ID reach OPS in the notice, money and phone masked', async () => {
+  const r = await photo({ human: new Date(now.getTime() + 86_400_000).toISOString(), text: 'ID ko po, 09171234567, paid PHP 2,500' });
+  assertEquals(r.ops.length, 1);
+  assert(/> ID ko po/.test(r.ops[0]) && !/09171234567|2,500/.test(r.ops[0]), r.ops[0]);
+});
+Deno.test('handle: a bad_name refusal is not a save', async () => {
+  const r = await photo({ saveFails: 'bad_name' });
+  assert(r.reply.startsWith('Thank you, we have your file'), r.reply);
+  assert(/not saved/.test(r.ops[0]), r.ops[0]);
 });
