@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261008T104641Z",
+    "verified_at": "2026-10-08T10:50:43.448Z",
     "production_rule": "Function replacement only: run_system_verifier_v1(uuid, text, timestamptz), cut by script from 20260925010000_verifier_v7_dates_mismatch.sql after asserting the cut equals the LIVE md5(replace(prosrc, chr(13), '')) c3fd896a0938b784da3fbe2237eb8b28 (read 2026-10-08), then exact counted replacements: V2 and V3 match the calendar uid through stay_uid_inquiry_v1 (direct:<id> and cascade-direct-<id>); V1 skips an Airbnb block labelled block_reason 'direct' whose note names the overlapping direct stay's first 8 id characters; new V1m (check_id V1, yellow) when that mirror block runs past the stay. apply_verifier_run_v1 unchanged (V1 is in both scope arrays, so V1m resolves when gone). Revoke/grant re-asserted. No table, column, policy or row touched by the migration. Production read 2026-10-08 with the new predicates: V1 0, V2 0, V3 0, V1m 1 (block deb2a3ae Oct 8-12 vs stay Oct 8-11). restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [

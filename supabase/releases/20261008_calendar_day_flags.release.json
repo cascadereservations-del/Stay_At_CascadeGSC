@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261008T104641Z",
+    "verified_at": "2026-10-08T10:50:43.448Z",
     "production_rule": "S77 calendar contract. Expand only: one new table public.calendar_day_flags (RLS on, no grant to anon or authenticated, service_role only, admin_audit_row trigger), two new definer functions calendar_day_flag_set_v1 / calendar_day_flag_clear_v1 (search_path empty, authenticated only, owner/admin gate inside), and staff_home_v1(uuid) replaced from its LIVE body (md5(replace(prosrc, chr(13), '')) 7bfb1d05a9705d92cb063f2335a8c3c5, full pg_get_functiondef CR-stripped md5 58c1002541f968449c58e64af370292d, read 2026-10-08) with four additions: calendar[].block_reason, calendar[].block_label, top-level day_flags[], warnings[].key (the verifier_findings key), warnings[].acknowledged and warnings[].facts (allow-list from the new internal helper staff_verifier_facts_v1, no API grant); system-check warnings now list OPEN findings only; current_guest and next_guest gain phone, email and messenger {psid, thread_url} for owner/admin sessions only (keys absent for every other role) from the new internal helper staff_guest_contact_v1, no API grant. Same signature and grants. No existing key changes. Production read 2026-10-08 holds one direct block (note 'DIR BD296460 confirmed'), one brownout block (Oct 14) and two active brownout notices, so the first live payload carries 'Direct booking BD296460' and brownout day flags. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "rollback": {
