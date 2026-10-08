@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s77/verifier-sql",
-    "commit": "PENDING"
+    "commit": "f9edc89159c608a1615cd19c94bdbfe89a2622fd"
   },
   "migrations": [
     "20261008140000_verifier_direct_uid_and_mirror.sql"
