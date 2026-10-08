@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s77/calsql",
-    "commit": "0c9c3753c85455b8c9d17ca4083121f7206bf140"
+    "commit": "7a60764328bbce5111b30376dce9fa8674821fe1"
   },
   "migrations": [
     "20261008120000_calendar_day_flags.sql"
   ],
   "migration_sha256": {
-    "20261008120000_calendar_day_flags.sql": "86dd06496d0d5d6b08362ecb9f0bbb1e0e1cd18e45e0a9a0be36abc01fabf2c4"
+    "20261008120000_calendar_day_flags.sql": "91912024026e5b94995484025c7c43b0ff0bf34545556d7b65b6e713e9b0e83f"
   },
   "backup": {
     "required": true,
@@ -47,7 +47,7 @@
     },
     {
       "name": "staff_home_body_is_the_reviewed_one",
-      "query": "select md5(replace(p.prosrc, chr(13), '')) = '06408c5fc79d20c4d9c1c5ec3a527a49' from pg_proc p where p.oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(p.prosrc, chr(13), '')) = 'f03adb4cc7e6d68be0a717f626c67f63' from pg_proc p where p.oid = 'public.staff_home_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
