@@ -153,14 +153,14 @@ select set_config('cascade.v_daily',
   public.apply_verifier_run_v1('daily',
     public.run_system_verifier_v1('d1000000-0000-4000-8000-000000000001', 'daily', '2026-10-06T23:45:00Z')->'found',
     '2026-10-06T23:45:00Z')::text, true);
-select is((select count(*) from public.verifier_findings where check_id = 'V6' and status = 'open'),
+select is((select count(*) from public.verifier_findings where key = 'V6:d5000000-0000-4000-8000-000000000001' and status = 'open'),
   1::bigint, 'the daily run raises the missing-ID finding');
 
 select set_config('cascade.v_hourly_after',
   public.apply_verifier_run_v1('hourly',
     public.run_system_verifier_v1('d1000000-0000-4000-8000-000000000001', 'hourly', '2026-10-07T00:35:00Z')->'found',
     '2026-10-07T00:35:00Z')::text, true);
-select is((select status from public.verifier_findings where check_id = 'V6'), 'open',
+select is((select status from public.verifier_findings where key = 'V6:d5000000-0000-4000-8000-000000000001'), 'open',
   'an hourly run does NOT resolve it: it never looked for it');
 
 -- Auto-resolution: a ghost hold whose booking already expired is cancelled the
@@ -178,9 +178,9 @@ select set_config('cascade.v_auto',
     '2026-10-08T10:00:00Z')::text, true);
 select is((select status from public.calendar_events where id = 'd2000000-0000-4000-8000-00000000000c'),
   'cancelled', 'the ghost hold is released, freeing the nights');
-select is((select resolved_by from public.verifier_findings where check_id = 'V3'), 'auto',
+select is((select resolved_by from public.verifier_findings where key = 'V3:d2000000-0000-4000-8000-00000000000c'), 'auto',
   'and the finding records that a machine did it, not a person');
-select ok((select detail ? 'auto' from public.verifier_findings where check_id = 'V3'),
+select ok((select detail ? 'auto' from public.verifier_findings where key = 'V3:d2000000-0000-4000-8000-00000000000c'),
   'the card has a sentence explaining what was done');
 
 -- A hold with NO booking behind it at all is never touched: somebody may have

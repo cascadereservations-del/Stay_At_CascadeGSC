@@ -48,6 +48,8 @@ insert into public.calendar_events(property_id, uid, source, status, guest_name,
 -- The guest in the house: a direct stay (uid cascade-direct-<inquiry>) whose Messenger thread is found through the inquiry.
 insert into public.guests(id, property_id, name, phone, email) values
   ('e7700000-0000-4000-8000-0000000000c1', 'e7700000-0000-4000-8000-0000000000b0', 'Zz Cf Current', '0917 000 0099', 'zzcf@example.com');
+-- the expected phone (normalised form first), read now as the owner: the test session has no grant on guests
+select set_config('cascade.cf_phone', (select coalesce(g.phone_e164, g.phone) from public.guests g where g.id = 'e7700000-0000-4000-8000-0000000000c1'), true);
 insert into public.booking_inquiries(id, property_id, guest_id, guest_name, guest_email, guest_phone, checkin_date, checkout_date, pax, status, source, total_amount, deposit_amount)
 values ('e7700000-0000-4000-8000-0000000000d1', 'e7700000-0000-4000-8000-0000000000b0', 'e7700000-0000-4000-8000-0000000000c1', 'Zz Cf Current',
         'zzcf@example.com', '0917 000 0099', current_date - 1, current_date + 2, 2, 'pending', 'direct', 2000, 1000);
@@ -195,7 +197,7 @@ select ok((public.calendar_day_flag_set_v1('e7700000-0000-4000-8000-0000000000b0
 -- the owner also gets the guest's contact, as stored, and the Messenger thread
 select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->>'email', 'zzcf@example.com', 'owner: the current guest e-mail');
 select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->>'phone',
-  (select coalesce(g.phone_e164, g.phone) from public.guests g where g.id = 'e7700000-0000-4000-8000-0000000000c1'), 'owner: the current guest phone, normalised form first');
+  current_setting('cascade.cf_phone'), 'owner: the current guest phone, normalised form first');
 select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->'messenger',
   '{"psid":"zz-cf-psid","thread_url":"https://business.facebook.com/latest/inbox/messenger?selected_item_id=zz-cf"}'::jsonb,
   'owner: the Messenger thread is found through the guest inquiry; thread_url is the pasted profile link');
