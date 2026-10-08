@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "release_id": "s79_guest_id_20261009",
+  "phase": "backfill",
+  "source": {
+    "branch": "s79/sql",
+    "commit": "3d639ca65d16f64e3e464436e2984e835a6d00d1"
+  },
+  "migrations": [
+    "20261009030000_concierge_save_guest_id.sql",
+    "20261009040000_staff_home_companions.sql",
+    "20261009050000_verifier_v1m_prep_nights.sql",
+    "20261009060000_drop_telegram_placeholder_settings.sql"
+  ],
+  "migration_sha256": {
+    "20261009030000_concierge_save_guest_id.sql": "f35601a8b21c552f5544e7f3cbedcd99a51073151596eb6116df233cd16d6b2a",
+    "20261009040000_staff_home_companions.sql": "2595e0712be11accc302da7db7d661356550566207f59e973866d0416efeccae",
+    "20261009050000_verifier_v1m_prep_nights.sql": "0fc39fde7748a546ba4cb5b178c39c1806af57e979d3c72a2ec36e9ae9b1e3bd",
+    "20261009060000_drop_telegram_placeholder_settings.sql": "095e9fdec7e889774164add1c1dbed16a6aa40215031c98ef79db876fbbd3a60"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "2026-10-08T00:00:00.000Z",
+    "production_rule": "APPLY AFTER s78_small_sql_20261009 and s78_guards_20261009: migration 3 refuses (55000, nothing changed) unless run_system_verifier_v1 is the s78_guards body (md5 7e92365413fb7bc5a4056a96ac5bf8c5, the live body read 2026-10-08), and migration 2 refuses unless staff_home_v1 is the live f03adb4cc7e6d68be0a717f626c67f63 (= 20261008120000_calendar_day_flags.sql). Four changes. (1) One new function concierge_save_guest_id_v1 (definer, empty search_path, service_role only): files a Messenger ID photo as a guest_companions row (id = the companion id the edge function minted, notes 'Sent in Messenger') on the guest of a confirmed booking_inquiries row, optionally sets guest_profile_details.id_on_file, history rows with changed_by null and reason 'messenger-auto'; reasons come back as data. (2) TASKS #42: staff_guest_companions_v1 (internal, no API role) and staff_home_v1 = the live body plus two counted insertions; owner and admin sessions get companions [{name, has_photo}] on current_guest and next_guest, any other role gets no companions key. (3) TASKS #43: app_settings airbnb_prep_nights = 1 (insert, on conflict do nothing) and run_system_verifier_v1 = the live body with ONE counted replacement of the V1m date test (a mirror block within that many nights of the stay's check-in or check-out is not flagged). (4) Deletes app_settings telegram_bot_token and telegram_marifel_chat_id only where the value still contains PASTE (production read 2026-10-08: both are the PASTE_ placeholders; their only reader log_returning_guest_alert treats NULL like PASTE). Bodies were cut by script (cut.mjs) from the source migrations after asserting the base md5, CR stripped. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "run_system_verifier_body_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '607f4b93a6380a80a09a8b05720b4c09' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_home_body_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd04e3c492bbeba8722554ac5c951c928' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "verifier_and_concierge_grants",
+      "query": "select bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"'] and has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute')) and count(*) = 2 from pg_proc p where p.oid in ('public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure, 'public.concierge_save_guest_id_v1(uuid,uuid,text,text,text,boolean)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "staff_home_grants_unchanged_and_helper_internal",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', h.oid, 'execute') and not has_function_privilege('anon', h.oid, 'execute') and not has_function_privilege('service_role', h.oid, 'execute') from pg_proc p, pg_proc h where p.oid = 'public.staff_home_v1(uuid)'::regprocedure and h.oid = 'public.staff_guest_companions_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_home_names_no_id_or_contact_column",
+      "query": "select prosrc !~* '(id_type|id_photo_path|id_number|contact_number)' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "prep_nights_setting_present",
+      "query": "select exists (select 1 from public.app_settings where key = 'airbnb_prep_nights' and jsonb_typeof(value) = 'number')",
+      "expect": true
+    },
+    {
+      "name": "telegram_placeholders_gone",
+      "query": "select not exists (select 1 from public.app_settings where key in ('telegram_bot_token', 'telegram_marifel_chat_id') and value::text like '%PASTE%')",
+      "expect": true
+    },
+    {
+      "name": "v1m_prep_window_in_the_hourly_run",
+      "query": "select jsonb_typeof(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'hourly', now())->'found') = 'array'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (function bodies, one function drop, one setting row; companions and history rows filed through the new RPC are real guest records and stay)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261009_s79_guest_id.sql with run-sql-on-host.sh: drops concierge_save_guest_id_v1, restores staff_home_v1 (md5 f03adb4cc7e6d68be0a717f626c67f63) and drops staff_guest_companions_v1, restores run_system_verifier_v1 (md5 7e92365413fb7bc5a4056a96ac5bf8c5), re-inserts the two PASTE_ placeholder settings. The airbnb_prep_nights row stays (nothing reads it)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_sql_then_edge",
+      "required_state": "None. Ship order: this SQL, then the Edge Function that calls concierge_save_guest_id_v1 (the Messenger concierge) and the staff app that renders companions. Before they ship the new RPC and the companions key are unused: old readers ignore the new key. V1m takes effect on the next hourly run; an open V1m finding for a block inside the prep window resolves itself then."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same signatures, grants and result shapes for staff_home_v1 and run_system_verifier_v1 (one new optional key on two objects; one narrower V1m test). One new function. The settings delete removes two placeholder rows whose only reader treats NULL like PASTE. Rehearsal pending: run pgTAP s79_concierge_save_guest_id.sql, s79_staff_home_companions.sql, s79_verifier_v1m_prep_nights.sql with the neighbours calendar_day_flags.sql, verifier_direct_uid.sql, system_verifier_phase1.sql, s78_receipt_reuse_v8.sql, staff_home_v1.sql, telegram_guest_intake.sql, guest_intake.sql."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "s78_small_sql_20261009 or s78_guards_20261009 is not applied yet (migration 3 refuses with 55000)",
+    "staff_home_v1 is not the live f03adb4c... body (migration 2 refuses with 55000): re-cut it from the live body",
+    "any forward verification query returns anything other than its expected value",
+    "an md5 check fails - that is a mistyped body, not a flaky assertion",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run the three s79 pgTAP suites and their neighbours green on this commit",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}
