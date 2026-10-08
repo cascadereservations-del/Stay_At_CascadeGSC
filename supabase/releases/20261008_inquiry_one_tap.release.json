@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s76/one-tap",
-    "commit": "ca7dff40366e6bcb1e8638dba6c5bfcf049b705d"
+    "commit": "54e8b90973ac73ef39618161bed7362b80579566"
   },
   "migrations": [
     "20261008100000_inquiry_one_tap.sql"
