@@ -101,9 +101,9 @@ begin
     where m.property_id = p_property_id
       and m.source = 'airbnb' and m.status = 'blocked' and m.block_reason = 'direct'
       and m.checkout_date > p_now::date
-      and (m.checkin_date < s.checkin_date - greatest(coalesce((select case when jsonb_typeof(a.value) = 'number' then (a.value #>> '{}')::integer end
+      and (m.checkin_date < s.checkin_date - greatest(coalesce((select case when jsonb_typeof(a.value) = 'number' then floor((a.value #>> '{}')::numeric)::integer end
                          from public.app_settings a where a.key = 'airbnb_prep_nights'), 1), 0)
-           or m.checkout_date > s.checkout_date + greatest(coalesce((select case when jsonb_typeof(a.value) = 'number' then (a.value #>> '{}')::integer end
+           or m.checkout_date > s.checkout_date + greatest(coalesce((select case when jsonb_typeof(a.value) = 'number' then floor((a.value #>> '{}')::numeric)::integer end
                          from public.app_settings a where a.key = 'airbnb_prep_nights'), 1), 0))
   ), '[]'::jsonb);
 

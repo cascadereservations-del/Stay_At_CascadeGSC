@@ -2,7 +2,7 @@
 -- Synthetic property e7b00000-...-a1 and one direct stay Jan 8-11 2030; the verifier runs with p_now 2030-01-01, so nothing else on the
 -- real property is read. Everything rolls back.
 begin;
-select plan(17);
+select plan(19);
 
 select ok((select prosecdef and proconfig = array['search_path=""'] from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure),
   'the checks stay security definer with an empty search_path');
@@ -69,6 +69,11 @@ select is(pg_temp.v1m(), array['V1m:e7b00000-0000-4000-8000-0000000000c2'], 'pre
 update public.app_settings set value = '"many"'::jsonb where key = 'airbnb_prep_nights';
 select pg_temp.mv('2030-01-08', '2030-01-12');
 select is(pg_temp.v1m(), '{}'::text[], 'a non-numeric setting reads as 1: Jan 8-12 passes');
+update public.app_settings set value = '1.5'::jsonb where key = 'airbnb_prep_nights';
+select pg_temp.mv('2030-01-08', '2030-01-12');
+select is(pg_temp.v1m(), '{}'::text[], 'a 1.5 setting reads as 1 and does not abort the run: Jan 8-12 passes');
+select pg_temp.mv('2030-01-08', '2030-01-13');
+select is(pg_temp.v1m(), array['V1m:e7b00000-0000-4000-8000-0000000000c2'], 'a 1.5 setting reads as 1: Jan 8-13 is flagged');
 delete from public.app_settings where key = 'airbnb_prep_nights';
 select pg_temp.mv('2030-01-08', '2030-01-13');
 select is(pg_temp.v1m(), array['V1m:e7b00000-0000-4000-8000-0000000000c2'], 'a missing setting reads as 1: Jan 8-13 is flagged');
