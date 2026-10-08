@@ -29,6 +29,16 @@ export function first(name: string | null | undefined): string {
   const toks = (name ?? '').trim().split(/\s+/).filter(Boolean);
   return toks.find((t) => !/\.$/.test(t) && t.replace(/[^\p{L}]/gu, '').length > 2) ?? toks[0] ?? '';
 }
+/** s78 G8 (Maria Cleofe, profile name "Ma."): the name Cassy addresses the guest by, or null when the profile holds only an
+ *  abbreviation ("Ma.", "Ma", "Jr.") - "Hi Ma., thank you" read as "Hi Mom". "Ma. Cleofe" is Cleofe (first()). */
+export function addressName(name: string | null | undefined): string | null {
+  const abbr = (t: string) => /^(?:ma|mª|mr|mrs|ms|dr|jr|sr|sir|maam|ma'am)\.?$/i.test(t) || /^\p{L}\.$/u.test(t);
+  const toks = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!toks.length) return null;
+  if (!abbr(toks[0])) return toks.join(' '); // a plain name stays as the profile gives it
+  const n = first(name);
+  return n && !abbr(n) ? n : null;
+}
 
 /** REQUIRED: the capacity, said before any booking commitment (D-222). */
 export const CAPACITY: Record<Lang, string> = {
@@ -368,9 +378,10 @@ export function payNudge(p: PayFacts, tone: Tone, lang?: Lang): string {
   const L = lang ?? 'en', n = p.name, c = n ? `, ${n}` : '';
   const pay = p.fullOnly
     ? by(L, {
-        en: `${p.near ? 'As your check-in is near, the' : 'The'} full ${p.total} secures your stay: the QR below carries the exact amount, or GCash ${GCASH}. The ₱1,000 refundable deposit is due before you arrive.`,
-        tl: `${p.near ? 'Malapit na po ang check-in, kaya ang' : 'Ang'} full ${p.total} ang magse-secure ng stay: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. The ₱1,000 refundable deposit is due before you arrive.`,
-        bis: `${p.near ? 'Duol na ang check-in, so ang' : 'Ang'} full ${p.total} ang mag-secure sa stay: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. The ₱1,000 refundable deposit is due before you arrive.` })
+        // D-322 (Lloyd 2026-10-08, the booking site's Pay in Full line): the deposit is handed over on arrival on this path.
+        en: `${p.near ? 'As your check-in is near, the' : 'The'} full ${p.total} secures your stay: the QR below carries the exact amount, or GCash ${GCASH}. You arrive with only the ₱1,000 refundable deposit to hand over.`,
+        tl: `${p.near ? 'Malapit na po ang check-in, kaya ang' : 'Ang'} full ${p.total} ang magse-secure ng stay: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Pagdating ninyo, ang ₱1,000 refundable deposit na lang ang iaabot.`,
+        bis: `${p.near ? 'Duol na ang check-in, so ang' : 'Ang'} full ${p.total} ang mag-secure sa stay: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. You arrive with only the ₱1,000 refundable deposit to hand over.` })
     : tone === 'brisk' ? by(L, {
         en: `The ${p.deposit} reservation fee holds these dates: the QR below carries the exact amount, or GCash ${GCASH}. The balance and the ₱1,000 deposit follow at least a day before check-in. If you'd rather settle the full ${p.total} now, a quick "full" here brings that QR instead.`,
         tl: `Ang ${p.deposit} reservation fee ang magho-hold ng dates: naka-set na ang exact amount sa QR below, o GCash ${GCASH}. Ang balance at ang ₱1,000 deposit ay due at least a day before check-in. Kung mas gusto ninyo ang full ${p.total} ngayon, "full" lang dito at ipapadala namin ang QR na iyon.`,
@@ -401,9 +412,10 @@ export function payNudge(p: PayFacts, tone: Tone, lang?: Lang): string {
 export const fullSwitchLine = (name: string, total: string, lang?: Lang) => {
   const n = first(name), c = n ? `, ${n}` : '';
   return by(lang, {
-    en: `Of course${c}. Here is the QR for the full ${total}; only the ₱1,000 refundable deposit then remains, due before you arrive.`,
-    tl: `Sige po${c}. Ito ang QR para sa full ${total}; ang ₱1,000 refundable deposit na lang ang natitira, due before you arrive.`,
-    bis: `Sige${c}. Mao ni ang QR para sa full ${total}; ang ₱1,000 refundable deposit na lang ang nabilin, due before you arrive.`,
+    // D-322: on the Pay in Full path the deposit is handed over on arrival (the booking site's line).
+    en: `Of course${c}. Here is the QR for the full ${total}; you then arrive with only the ₱1,000 refundable deposit to hand over.`,
+    tl: `Sige po${c}. Ito ang QR para sa full ${total}; pagdating ninyo, ang ₱1,000 refundable deposit na lang ang iaabot.`,
+    bis: `Sige${c}. Mao ni ang QR para sa full ${total}; you then arrive with only the ₱1,000 refundable deposit to hand over.`,
   });
 };
 /** D-300.3: "fee" / "yes" / "ok" after the QR - nothing left to choose, and no second QR. `full`: the QR carries the full amount. */
@@ -511,11 +523,44 @@ export function promoFirst(answer: string, ps: PromoFacts[], lang?: Lang): strin
 
 /** D-311.8 (golden reg-bot-bis: "Pila ang rate kada gabii?" got a bare rate and a question): a short rate answer with no
  *  marker of care still cold after the one rewrite gets this clause (R3). */
-export const warmClause = (lang?: Lang) => by(lang, {
+export const warmClause = (lang?: Lang, booked = false) => booked ? by(lang, {
+  // s78 (Angel replay turn 17: "free drinking water?" on a booked stay closed on "exact total ... once may dates na kayo"): a guest
+  // with a booking is never sent a booking-flow line.
+  en: `We'll have everything ready for your stay.`,
+  tl: `Ihahanda po namin ang lahat para sa stay ninyo.`,
+  bis: `We'll have everything ready for your stay.`,
+}) : by(lang, {
   en: `We'd be glad to work out the exact total for you once your dates are set.`,
   tl: `Iche-check namin agad ang exact total para sa inyo once may dates na kayo.`,
   bis: `We'd be glad to work out the exact total for you once your dates are set.`,
 });
+/** s78 (TASKS #6, Angel turns 13 and 19): the stay card's payment terms, said back when a booked guest proposes another timing
+ *  ("pay the deposit pag nasa area na", "we will send the deposit tomorrow"). The booking site is the policy source: the ₱1,000
+ *  deposit is due with the balance at least a day before check-in; inside five days the full amount is paid now. `balance` ''
+ *  when the full amount is the payment. Never agrees to pay on arrival. */
+export function payTermsLine(name: string | null, lang: Lang, f: { total: string; balance: string; paid: boolean; accept?: boolean }): string {
+  const c = withName(name);
+  // F2 (Fable audit f3c4126; the booking site, Pay in Full: "covers the whole stay, and you arrive with only the ₱1,000 refundable
+  // deposit to hand over"): on the full-payment path a deposit handed over on arrival IS the term - agreed warmly, no lecture.
+  if (f.accept) return by(lang, {
+    en: `Yes, that's right${c}. With the full ${f.total} covering the whole stay, you arrive with only the ₱1,000 refundable security deposit to hand over, and it's returned after check-out. 🌿`,
+    tl: `Opo, tama po${c}. Since covered na ng full ${f.total} ang buong stay, ang ₱1,000 refundable security deposit na lang ang iaabot ninyo pagdating, at ibabalik ito after check-out. 🌿`,
+    bis: `Yes, that's right${c}. With the full ${f.total} covering the whole stay, you arrive with only the ₱1,000 refundable security deposit to hand over, and it's returned after check-out. 🌿` });
+  const terms = f.balance
+    ? by(lang, {
+        en: `as on your stay card, the remaining ${f.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in, so everything is settled before you arrive.`,
+        tl: `gaya ng nasa stay card ninyo, ang natitirang ${f.balance} balance at ang ₱1,000 refundable security deposit ay due at least a day before check-in, para settled na ang lahat bago kayo dumating.`,
+        bis: `as on your stay card, the remaining ${f.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in, so everything is settled before you arrive.` })
+    : by(lang, {
+        en: `the full ${f.total} covers the whole stay and confirms it, and you arrive with only the ₱1,000 refundable security deposit to hand over.`,
+        tl: `ang full ${f.total} ang sumasaklaw sa buong stay at nagko-confirm nito, at ang ₱1,000 refundable security deposit na lang ang iaabot ninyo pagdating.`,
+        bis: `the full ${f.total} covers the whole stay and confirms it, and you arrive with only the ₱1,000 refundable security deposit to hand over.` });
+  const head = by(lang, { en: `Noted${c}, thank you. Just so it's clear, `, tl: `Noted po${c}, salamat. Para malinaw, `, bis: `Noted${c}, thank you. Just so it's clear, ` });
+  const tail = f.paid
+    ? by(lang, { en: `Our host is reviewing what you've sent and will confirm everything here.`, tl: `Nire-review na ng host ang na-send ninyo, and they'll confirm everything here.`, bis: `Our host is reviewing what you've sent and will confirm everything here.` })
+    : by(lang, { en: `Once it's sent, a screenshot here is all we need. 🌿`, tl: `Once na-send na, screenshot lang dito ang kailangan namin. 🌿`, bis: `Once it's sent, a screenshot here is all we need. 🌿` });
+  return `${head}${terms}\n\n${tail}`;
+}
 
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => by(lang, {
@@ -592,7 +637,8 @@ export function paymentMessage(p: PaymentFacts, L: Lang | undefined): string {
     tl: `Para ma-secure ang stay, you may send the ${p.deposit} ${what} through GCash (0956 011 5744) gamit ang QR below - naka-set na ang exact amount. Once done, screenshot lang ng receipt dito ang kailangan namin.`,
     bis: `Para ma-secure ang stay, pwede na ma-send ang ${p.deposit} ${what} through GCash (0956 011 5744) gamit ang QR below - naka-set na daan ang exact amount. Once done, screenshot ra sa receipt diri ang among kinahanglan.` });
   const later = p.full
-    ? by(L, { en: `Only the ₱1,000 refundable security deposit remains, and it is due before you arrive.`, tl: `Ang ₱1,000 refundable security deposit na lang po ang natitira, and it is due before you arrive.`, bis: `Ang ₱1,000 refundable security deposit na lang ang nabilin, and it is due before you arrive.` })
+    // D-322: the Pay in Full path - the deposit is handed over on arrival (the booking site's line).
+    ? by(L, { en: `You arrive with only the ₱1,000 refundable security deposit to hand over.`, tl: `Pagdating ninyo, ang ₱1,000 refundable security deposit na lang po ang iaabot.`, bis: `You arrive with only the ₱1,000 refundable security deposit to hand over.` })
     : by(L, { en: `The remaining ${p.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.`, tl: `Ang natitirang ${p.balance} balance at ang ₱1,000 refundable security deposit ay due at least a day before check-in.`, bis: `The remaining ${p.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in.` });
   const close = by(L, { en: `Thank you${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, tl: `Salamat po${nm}. We look forward to welcoming you to Cascade Hideaway. 🌿`, bis: `Salamat${nm}. Looking forward mi sa inyong stay at Cascade Hideaway. 🌿` });
   return [head, '', pay, '', later, '', close].join('\n');
