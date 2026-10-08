@@ -137,6 +137,14 @@ Deno.test('s78 #2: an early check-in ask on a turnover day gets the one fixed li
   const en = turnoverCheckinLine('Oct 19', 'en');
   assertEquals(setTurnoverCheckin('We will do our best to have it ready before the standard 2:00 PM check-in. Wi-Fi is fast.', en), `${en} Wi-Fi is fast.`);
   assertEquals(setTurnoverCheckin('Wi-Fi is fast.', en), `${en}\n\nWi-Fi is fast.`);
+  // D-321: the line is two sentences - set again, it stays whole and once; a stray noon offer beside it still goes
+  for (const l of ['en', 'tl'] as const) {
+    const line = turnoverCheckinLine('Oct 19', l), once = setTurnoverCheckin('Yes, Oct 19 is open. Check-in at 12 noon works too.', line);
+    assertEquals(once, `Yes, Oct 19 is open. ${line}`);
+    assertEquals(setTurnoverCheckin(once, line), once);
+    assertEquals(setTurnoverCheckin(`${line} Check-in at 12 noon works too.`, line), line);
+  }
+  assertEquals(turnoverCheckinLine('Oct 19', 'bis'), turnoverCheckinLine('Oct 19', 'en'));
   assertEquals(dropRepeats('A long sentence that is said twice in this message.\n\nA long sentence that is said twice in this message.\n\nOk.'), 'A long sentence that is said twice in this message.\n\nOk.');
   assertEquals(dropRepeats('Hi Ben, thank you for reaching out to Cascade Hideaway.\n\nOct 19 is open.'), 'Hi Ben, thank you for reaching out to Cascade Hideaway.\n\nOct 19 is open.');
 });

@@ -81,7 +81,7 @@ export function contractions(text: string): string {
 // and nothing checked that care was present, so a reply could pass every lint and still be cold. This is the positive
 // check: a substantive reply shows care somewhere - anticipation, reassurance, an offer of help or a warm close
 // (protocol 08 sections 6, 12, 22; 07 and 09 equivalents).
-const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|relax|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala|gladly|makakatipid|makatipid|ihahanda|iche-check|i-share lang|i-send lang|share lang|handa na|asikasuhin|aasikasuhin|amo dayon|i-check namo|excited|delighted)\b|🌿|💚|😊|🙏|✨/i; // SPEC-32 s4 (F11); SPEC-39 (D-297.3): "delighted"
+const CARE_RE = /\b(personally|passed it along|expect a reply|glad|look(ing)? forward|welcom(e|ing)|ready for you|prepared|we'?ll (have|take care|keep|check|arrange|let you know)|we'?ve (set|prepared|arranged|included|noted)|take care of|settle in|relax|peace of mind|at your own pace|take (all the|your) time|anytime|whenever you'?re ready|feel free|you'?re welcome to|enjoy|smooth (trip|arrival)|salamat|ihanda|handa|asikuhin|andam|atimanon|ayaw kabalaka|huwag (po )?mag-alala|gladly|makakatipid|makatipid|ihahanda|inaayos|imemessage namin|iche-check|i-share lang|i-send lang|share lang|handa na|asikasuhin|aasikasuhin|amo dayon|i-check namo|excited|delighted)\b|🌿|💚|😊|🙏|✨/i; // SPEC-32 s4 (F11); SPEC-39 (D-297.3): "delighted"
 /** True when the reply is not in the register code settled for this turn (golden run 2026-09-17: an English question got
  *  the Taglish reference reply pasted whole; "Hm po per night?" got plain English). Narrow on purpose: two Tagalog markers
  *  in an English reply, any Tagalog-only word in a Bislish one, no Filipino word at all in a substantive Taglish one. */
@@ -336,13 +336,15 @@ const noonOffer = (s: string) => CHECKIN_WORD_RE.test(s) && NOON_OFFER_RE.test(s
 export function offersEarlyCheckin(reply: string): boolean {
   return reply.split('\n').some((l) => sentencesOf(l).some(noonOffer));
 }
-/** The code's sentence for a check-in on a turnover day. s78 (TASKS #6, Angel replay turn 14: the D-311.2 "12:00 NN or 1:00 PM"
- *  line read as a promise and was later withdrawn): ONE fixed line - check-in from 2:00 PM, earlier only if the unit is ready,
- *  and we message the guest. No earlier time is named. Positive frame from REVIEW-messenger-2026-10-08. D-311.8: a Bisaya guest
- *  gets the English line. `_day` ("Oct 2") is kept for the callers. */
+/** The code's line for a check-in on a turnover day. D-321 (Lloyd 2026-10-08, word for word; replaces D-311.2's "12:00 NN or
+ *  1:00 PM", which read as a promise - Angel replay turn 14): check-in from 2:00 PM, earlier only if the unit is ready, and we
+ *  message the guest. No earlier time is named. D-311.8: a Bisaya guest gets the English line. `_day` is kept for the callers. */
+export const TURNOVER_CHECKIN: Record<'en' | 'tl', string> = {
+  en: `Check-in is from 2:00 PM, since we're preparing the unit after our earlier guest checks out. If it's ready a little sooner, we'll gladly message you right away po.`,
+  tl: `Check-in po ay from 2:00 PM, kasi inaayos pa namin ang unit after mag-check out ng naunang guest. Kung ready na po siya nang mas maaga, imemessage namin kayo agad po.`,
+};
 export function turnoverCheckinLine(_day: string, l3: 'en' | 'tl' | 'bis'): string {
-  return l3 === 'tl' ? `May guest pong magche-check out nang umaga, kaya ang check-in ninyo ay from 2:00 PM; ihahanda namin ang unit, at kung ready na ito nang mas maaga, ime-message namin kayo agad.`
-    : `Another guest checks out that morning, so your check-in is from 2:00 PM; if the unit is ready earlier, we'll let you know right away.`;
+  return TURNOVER_CHECKIN[l3 === 'tl' ? 'tl' : 'en'];
 }
 /** s78: the guest asks to check in early ("we would like to checkin early po", "early checkin, around 8am?"). */
 export const asksEarlyCheckin = (text: string): boolean =>
@@ -370,12 +372,15 @@ export function addTurnoverNotice(reply: string, day: string, notice: string): s
  *  14: only the noon sentence was swapped, so the model's own "ahead of the standard 2:00 PM" sentence stayed beside the line and
  *  the message said it twice). No such sentence: the line opens the reply as its own paragraph. */
 export function setTurnoverCheckin(reply: string, line: string): string {
-  let placed = reply.includes(line);
-  const out = reply.split('\n').map((l) => {
+  // D-321: the line is two sentences, so a line already in the reply is set aside whole and only the text around it is cleaned.
+  const parts = reply.split(line);
+  let placed = parts.length > 1;
+  const clean = (t: string) => t.split('\n').map((l) => {
     const ss = sentencesOf(l);
     if (!ss.some(checkinTime)) return l;
-    return ss.map((s) => (!checkinTime(s) || s.includes(line) ? s : placed ? '' : ((placed = true), `${line} `))).join('').trim();
-  }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    return ss.map((s) => (!checkinTime(s) ? s : placed ? '' : ((placed = true), `${line} `))).join('');
+  }).join('\n');
+  const out = parts.map(clean).join(line).split('\n').map((l) => l.replace(/ {2,}/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!placed) return out ? `${line}\n\n${out}` : line;
   return out || reply;
 }

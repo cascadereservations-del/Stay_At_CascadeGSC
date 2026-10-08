@@ -5,7 +5,7 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { start, type Flow } from './booking.ts';
 import * as P from './persona.ts';
-import { dedupeAvailability, dropPassingRange, earlyFeeFor, fixEarlyFee, kusang, lintReply, nameOnce, noPo, offersEarlyCheckin, paragraphs, setTurnoverCheckin, turnoverCheckinLine } from './voice.ts';
+import { dedupeAvailability, dropPassingRange, earlyFeeFor, fixEarlyFee, kusang, lintReply, nameOnce, noPo, offersEarlyCheckin, paragraphs, setTurnoverCheckin, thinPo, turnoverCheckinLine } from './voice.ts';
 import { goldenCases, range, type GoldenTurn } from './golden.ts';
 import { failures, heldFrom, scoreReply } from './golden-score.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
@@ -97,12 +97,13 @@ Deno.test('D-311.1/.7: a promo question names the live promotion and the direct 
 // ---- 2. turnover-day early check-in: never a promised time; Lloyd's words -------------------------------------------------
 // Example: voice.ts turnoverCheckinLine (code rule) + FACTS / the AVAILABILITY block / the VOICE turnover reference reply.
 Deno.test('s78 (replaces D-311.2): on a turnover day a noon promise becomes the one fixed line - from 2:00 PM, earlier only if ready, no time named', () => {
-  assertEquals(turnoverCheckinLine('Oct 19', 'en'), "Another guest checks out that morning, so your check-in is from 2:00 PM; if the unit is ready earlier, we'll let you know right away.");
+  assertEquals(turnoverCheckinLine('Oct 19', 'en'), "Check-in is from 2:00 PM, since we're preparing the unit after our earlier guest checks out. If it's ready a little sooner, we'll gladly message you right away po."); // D-321
   const live = 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway.\n\nYes, available po ang Oct 19. Open din po ang 12:00 noon early check-in at no extra charge dahil wala pong guest na mag-che-check out nung araw na iyon.\n\nCassy, Cascade Concierge';
   assert(offersEarlyCheckin(live));
   const fixed = setTurnoverCheckin(live, turnoverCheckinLine('Oct 19', 'tl'));
   assert(fixed.includes('from 2:00 PM') && !/12:00|1:00 PM|noon|no extra charge|complimentary/i.test(fixed), fixed);
-  assertEquals(score('first-noon-checkin-on-turnover-day-tl', 0, fixed), []);
+  // scored as sent: compose() caps a Taglish message at two "po" (D-311.5), the D-321 line's three included
+  assertEquals(score('first-noon-checkin-on-turnover-day-tl', 0, thinPo(fixed, 2)), []);
   // the fee rule is unchanged: a 10 AM arrival on a day with no turnover is PHP 200
   assertEquals(earlyFeeFor('Pwede po ba check in 12 noon?'), null);
   assertEquals(fixEarlyFee(fixed, 'Pwede po ba check in 12 noon?'), fixed);

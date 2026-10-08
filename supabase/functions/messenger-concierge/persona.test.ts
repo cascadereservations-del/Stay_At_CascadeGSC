@@ -7,7 +7,7 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import * as P from './persona.ts';
 import { CAPACITY, LAST_MINUTE } from './persona.ts';
 import { rateLine, type Flow, type Lang } from './booking.ts';
-import { decisionInvite, lintReply, lookNudge, paragraphs, STAY_PAY_CAP, thinPo, toneRules, turnoverCheckinLine } from './voice.ts';
+import { decisionInvite, lintReply, lookNudge, noPo, paragraphs, STAY_PAY_CAP, thinPo, toneRules, turnoverCheckinLine } from './voice.ts';
 import { AIRBNB_URL, SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { scoreReply } from './golden-score.ts';
 
@@ -163,7 +163,9 @@ Deno.test('every persona move passes the lint and the voice rules in all three r
 });
 
 Deno.test('the lines voice.ts composes pass the same gate in all three registers', () => {
-  for (const lang of LANGS) for (const m of VOICE_LINES(lang)) assertEquals([...lintReply(m), ...toneRules(m, lang)], [], `${lang}: ${m.slice(0, 90)}`);
+  // D-321: the turnover line is Lloyd's word for word (three "po" in Taglish) - held to the approved gate, like paymentMessage.
+  // A Bisaya guest is answered in English, and the guard's noPo takes the line's "po" out before it is sent (D-311.8).
+  for (const lang of LANGS) for (const m0 of VOICE_LINES(lang)) { const m = lang === 'bis' && m0 === turnoverCheckinLine('Oct 2', lang) ? noPo(m0) : m0; assertEquals([...lintReply(m), ...toneRules(m, lang, m === turnoverCheckinLine('Oct 2', lang))], [], `${lang}: ${m.slice(0, 90)}`); }
 });
 
 Deno.test('the gate itself catches what it is for (a check that cannot fail proves nothing)', () => {

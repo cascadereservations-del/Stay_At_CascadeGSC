@@ -330,7 +330,7 @@ async function availabilityBlock(db: Db): Promise<string> {
     `BOOKED NIGHTS: ${booked.join(', ') || 'none'}`,
     `If a requested range includes a booked night, say exactly which nights are taken and which are open, then offer the open part or the nearest window. For dates beyond ${pretty(horizonEnd)}, say the host will confirm.`,
     // Turnover safeguard (live test 2026-09-12: a free 1 PM check-out was promised with no dates known).
-    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - on these days check-in is from 2:00 PM and no earlier time is named (s78): say once that another guest checks out that morning, so check-in is from 2:00 PM, and if the unit is ready earlier we will message them. Never 12 noon, 12:00 NN or 1:00 PM, never "complimentary", never a time confirmed.`,
+    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - on these days check-in is from 2:00 PM and no earlier time is named (D-321): say once, in these words, "Check-in is from 2:00 PM, since we're preparing the unit after our earlier guest checks out. If it's ready a little sooner, we'll gladly message you right away." Never 12 noon, 12:00 NN or 1:00 PM, never "complimentary", never a time confirmed.`,
     `ANOTHER GUEST CHECKS IN ON: ${[...checkins].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - late check-out is NOT possible on these days; check-out stays at 12 noon.`,
     `Offer early check-in or late check-out ONLY when the guest's dates are known and the day in question is on neither list. Otherwise say you will gladly arrange it once their dates are set and the calendar allows.`,
   ].join('\n');
