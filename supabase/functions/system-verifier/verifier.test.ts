@@ -387,5 +387,8 @@ Deno.test('s77 V1m: our own Airbnb block running past a direct stay says so, not
   assertStringIncludes(text, 'covers nights outside their stay');
   assertStringIncludes(text, 'cut the block back to 8 Oct to 11 Oct');
   assert(!text.includes('Two stays are booked'), 'never the overlap headline');
+  const red = redCard({ ...v1m, severity: 'red' }, NOW);
+  assert(!red.text.includes('Hello'), 'even as a red card, V1m never offers a guest message');
+  assertEquals(red.to, 'finance', 'V1m goes to the owner group, never OPS');
   assertStringIncludes(redCard(OVERLAP, NOW).text, 'Two stays are booked', 'a real overlap keeps its headline');
 });

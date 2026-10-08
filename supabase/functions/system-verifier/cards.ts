@@ -346,7 +346,7 @@ export function redCard(f: Finding, now: Date): Card {
   // deliberately neutral: it promises an answer, never a cancellation, because
   // which booking is the real one is exactly what nobody knows yet.
   const first = str((f.detail as any)?.a?.guest, 'the guest').split(' ')[0];
-  const sample = f.check_id === 'V1'
+  const sample = f.check_id === 'V1' && !f.key.startsWith('V1m:') // V1m is our own block: no guest to write to
     ? doSend(
         first,
         `Hello ${first}, I am looking into the dates on your stay at Cascade Hideaway and will come back to you within the hour. Nothing on your booking has changed.`,
