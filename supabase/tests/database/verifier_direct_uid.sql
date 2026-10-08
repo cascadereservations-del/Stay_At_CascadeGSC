@@ -2,7 +2,7 @@
 -- skips our own Airbnb mirror block of a direct stay (V1, TASKS #24) and raises V1m when that block runs past the stay.
 -- Synthetic rows only: uuids e8770000-..., everything rolls back.
 begin;
-select plan(10);
+select plan(13);
 
 select ok((select prosecdef and proconfig = array['search_path=""'] from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure),
   'the checks stay security definer with an empty search_path');
@@ -42,6 +42,17 @@ update public.calendar_events set checkout_date = '2030-01-09' where id = 'e8770
 select is(pg_temp.keys('V1'), array['V1m:e8770000-0000-4000-8000-0000000000c2'], 'V1m: the mirror block runs past the stay');
 select is((select e->>'severity' || '|' || (e->'detail'->>'block_to') from jsonb_array_elements(public.run_system_verifier_v1('e8770000-0000-4000-8000-0000000000a1', 'hourly', '2030-01-01 02:00+00')->'found') e where e->>'key' like 'V1m:%'),
   'yellow|2030-01-09', 'V1m is yellow and carries the block dates');
+
+-- V1m goes through apply_verifier_run_v1 under check_id V1 (in both scope arrays), so it opens and resolves with no change there.
+select is(public.apply_verifier_run_v1('hourly', public.run_system_verifier_v1('e8770000-0000-4000-8000-0000000000a1', 'hourly', '2030-01-01 02:00+00')->'found', '2030-01-01 02:00+00')
+            -> 'new' @> jsonb_build_array(jsonb_build_object('key', 'V1m:e8770000-0000-4000-8000-0000000000c2')), true,
+  'apply: a first-seen V1m is new (alerted)');
+select is((select status || '|' || check_id from public.verifier_findings where key = 'V1m:e8770000-0000-4000-8000-0000000000c2'), 'open|V1',
+  'apply: the V1m finding is stored open under check_id V1');
+update public.calendar_events set checkout_date = '2030-01-08' where id = 'e8770000-0000-4000-8000-0000000000c2';
+select public.apply_verifier_run_v1('hourly', public.run_system_verifier_v1('e8770000-0000-4000-8000-0000000000a1', 'hourly', '2030-01-01 03:00+00')->'found', '2030-01-01 03:00+00');
+select is((select status || '|' || resolved_by from public.verifier_findings where key = 'V1m:e8770000-0000-4000-8000-0000000000c2'), 'resolved|auto',
+  'apply: once the block is cut back to the stay, the hourly run resolves V1m');
 
 -- A direct-labelled block whose note names ANOTHER booking is not this stay's mirror: the overlap still raises V1.
 update public.calendar_events set checkout_date = '2030-01-08', block_note = 'DIR FFFFFFFF confirmed' where id = 'e8770000-0000-4000-8000-0000000000c2';
