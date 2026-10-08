@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s79/sql",
-    "commit": "3d639ca65d16f64e3e464436e2984e835a6d00d1"
+    "commit": "7915c20bcbae1ceeb9401c83537bda2d4884201b"
   },
   "migrations": [
     "20261009030000_concierge_save_guest_id.sql",
@@ -15,7 +15,7 @@
   "migration_sha256": {
     "20261009030000_concierge_save_guest_id.sql": "f35601a8b21c552f5544e7f3cbedcd99a51073151596eb6116df233cd16d6b2a",
     "20261009040000_staff_home_companions.sql": "2595e0712be11accc302da7db7d661356550566207f59e973866d0416efeccae",
-    "20261009050000_verifier_v1m_prep_nights.sql": "0fc39fde7748a546ba4cb5b178c39c1806af57e979d3c72a2ec36e9ae9b1e3bd",
+    "20261009050000_verifier_v1m_prep_nights.sql": "34e1dc83261132a03df4b088143ac3586aef825ae8a66be89f339ba368a80c59",
     "20261009060000_drop_telegram_placeholder_settings.sql": "095e9fdec7e889774164add1c1dbed16a6aa40215031c98ef79db876fbbd3a60"
   },
   "backup": {
@@ -28,7 +28,7 @@
   "forward_verification": [
     {
       "name": "run_system_verifier_body_is_the_reviewed_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '607f4b93a6380a80a09a8b05720b4c09' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'f6ee12c87627234664caabf690409558' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
       "expect": true
     },
     {
@@ -63,7 +63,7 @@
     },
     {
       "name": "v1m_prep_window_in_the_hourly_run",
-      "query": "select jsonb_typeof(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'hourly', now())->'found') = 'array'",
+      "query": "select not exists (select 1 from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd','hourly',now())->'found') e where e->>'key' = 'V1m:deb2a3ae-9431-4636-b293-a1c51cb7e8df')",
       "expect": true
     }
   ],
