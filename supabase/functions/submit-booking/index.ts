@@ -1,4 +1,5 @@
-// submit-booking v17 (SPEC-34: the stored rate card is authoritative for the stored total and deposit)
+// submit-booking v18 (s78: hourly cap per hashed caller; calendar hold written first, 23P01 answered as dates_unavailable)
+// v17 (SPEC-34: the stored rate card is authoritative for the stored total and deposit)
 // Creates the booking request and returns a short-lived, booking-scoped token
 // for the optional private receipt upload. The browser never supplies a
 // Storage path or URL and cannot write to booking-receipts directly.
@@ -21,6 +22,7 @@ import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.t
 // v17 (session 55, SPEC-34, D-262): the stored rate card is authoritative. The client's total is ignored (it only
 // chooses fee or full: pay_full); the server stores and returns its own total and deposit.
 import { FULL_PAY_WITHIN_DAYS, loadCard, serverAmounts } from '../_shared/cascade-core/pricing.ts';
+import { callerHash, clientIp } from './caller.ts'; // v18 (s78, TASKS #21): the hourly cap per caller
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -111,6 +113,21 @@ Deno.serve(async (req) => {
   if (nights > maxNights)
     return json({ error: 'above_maximum_nights', max_nights: maxNights }, 400);
 
+  // v18 (s78, TASKS #21): at most 10 requests an hour from one caller, counted before anything is written. Only an HMAC
+  // of the address is stored (booking_submit_attempts). Messenger requests all come from the Concierge's Edge Function,
+  // so they share one address; at Cascade's volume 10 an hour is far above a real day. A failed count lets the request
+  // through: the cap is against floods and must never cost a guest their booking.
+  const callerIp = clientIp(req.headers);
+  if (!callerIp) console.warn(JSON.stringify({ event: 'submit_cap_no_ip' }));
+  else {
+    const { data: allowed, error: capErr } = await db.rpc('booking_submit_allowed_v1', { p_ip_hash: await callerHash(SERVICE_KEY, callerIp) });
+    if (capErr) console.warn('[submit-booking] booking_submit_allowed_v1 failed (request allowed):', capErr.message);
+    else if (allowed === false) {
+      console.log(JSON.stringify({ event: 'submit_capped' }));
+      return json({ error: 'too_many_requests' }, 429);
+    }
+  }
+
   const card = await loadCard(db);
   const depositPct = card.deposit_pct;
   const amounts = serverAmounts(card, checkinStr, checkoutStr, { payFull: body.pay_full, total: clientTotal, deposit: clientDeposit });
@@ -134,7 +151,30 @@ Deno.serve(async (req) => {
   if (!avail.available)
     return json({ error: 'dates_unavailable', conflicts: avail.conflicts }, 409);
 
+  // ── Calendar hold FIRST (blocks dates immediately; pending until approved) ──
+  // v18 (s78, TASKS #20b): calendar_events_direct_no_overlap refuses a second live direct row on any night (23P01). Two
+  // requests racing past check_availability both used to get a hold; now the loser is told the dates are gone before its
+  // request exists, so no Finance card, e-mail or income row is made for it. The id is chosen here so the uid can
+  // name the request before the request row is written.
+  const bookingId = crypto.randomUUID();
+  const { error: ce } = await db.from('calendar_events').insert({
+    property_id:   PROPERTY_ID,
+    uid:           'direct:' + bookingId,
+    source:        'direct',
+    status:        'blocked',
+    recon_status:  'manual_entry',
+    checkin_date:  checkinStr,
+    checkout_date: checkoutStr,
+    guest_name:    guestName,
+    guest_phone:   guestPhone,
+    raw_summary:   'Direct booking (pending review) - ' + guestName,
+  });
+  if (ce?.code === '23P01') return json({ error: 'dates_unavailable', conflicts: [] }, 409);
+  if (ce && ce.code !== '23505')
+    console.error('[submit-booking] calendar hold failed:', ce.message);
+
   const { data: inquiry, error: ie } = await db.from('booking_inquiries').insert({
+    id:                 bookingId,
     property_id:        PROPERTY_ID,
     guest_id:           null,
     guest_name:         guestName,
@@ -150,7 +190,11 @@ Deno.serve(async (req) => {
     notes,
     receipt_image_path: null,
   }).select('id').single();
-  if (ie || !inquiry) return json({ error: 'booking_failed', detail: ie?.message }, 500);
+  if (ie || !inquiry) {
+    // The hold above has no request behind it: release the nights rather than leave a ghost block (V3).
+    if (!ce) await db.from('calendar_events').update({ status: 'cancelled' }).eq('property_id', PROPERTY_ID).eq('uid', 'direct:' + bookingId);
+    return json({ error: 'booking_failed', detail: ie?.message }, 500);
+  }
 
   const { data: identity, error: identityError } = await db.rpc('upsert_guest_for_booking', {
     p_property_id: PROPERTY_ID,
@@ -189,24 +233,6 @@ Deno.serve(async (req) => {
   const receiptUploadToken = receiptUploadSecret
     ? await issueReceiptUploadToken({ bookingId: inquiry.id, nonce: crypto.randomUUID(), expiresAt: receiptUploadExpiresAt }, receiptUploadSecret)
     : null;
-
-  // ── Calendar hold (blocks dates immediately; pending until approved) ──
-  {
-    const { error: ce } = await db.from('calendar_events').insert({
-      property_id:   PROPERTY_ID,
-      uid:           'direct:' + inquiry.id,
-      source:        'direct',
-      status:        'blocked',
-      recon_status:  'manual_entry',
-      checkin_date:  checkinStr,
-      checkout_date: checkoutStr,
-      guest_name:    guestName,
-      guest_phone:   guestPhone,
-      raw_summary:   'Direct booking (pending review) - ' + guestName,
-    });
-    if (ce && ce.code !== '23505')
-      console.error('[submit-booking] calendar hold failed:', ce.message);
-  }
 
   // ── Write pending_review income transaction (non-blocking) ──
   db.from('transactions').insert({

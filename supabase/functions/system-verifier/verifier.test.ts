@@ -392,3 +392,24 @@ Deno.test('s77 V1m: our own Airbnb block running past a direct stay says so, not
   assertEquals(red.to, 'finance', 'V1m goes to the owner group, never OPS');
   assertStringIncludes(redCard(OVERLAP, NOW).text, 'Two stays are booked', 'a real overlap keeps its headline');
 });
+
+Deno.test('s78 V8: one receipt on two live bookings names both, how they match, and one Do, in Finance', () => {
+  const v8 = f({ key: ['V8', 'aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000002'].join(':'), check_id: 'V8', severity: 'red',
+    title: 'One receipt on two bookings',
+    detail: { match: ['image', 'reference'], reference: '1012345678901', amount: 1750,
+      a: { booking: 'aaaaaaaa-0000-4000-8000-000000000001', guest: 'Ana Reyes', status: 'confirmed', from: '2026-10-20', to: '2026-10-22' },
+      b: { booking: 'bbbbbbbb-0000-4000-8000-000000000002', guest: 'Ben Cruz', status: 'pending', from: '2026-11-02', to: '2026-11-04' } } });
+  const [card, ...rest] = buildCards({ new: [v8], remind: [], resolved: [] }, NOW, TODAY);
+  assertEquals(rest.length, 0, 'one red finding, one card');
+  assertEquals(card.to, 'finance', 'money goes to Finance, never OPS');
+  assertEquals(card.ackKey, v8.key);
+  assertStringIncludes(card.text, 'The same payment receipt is on two live bookings, Ana Reyes and Ben Cruz');
+  assertStringIncludes(card.text, 'Matched on the same image, the same reference 1012345678901');
+  assertStringIncludes(card.text, 'Ben Cruz · pending · 2 Nov to 4 Nov · id BBBBBBBB');
+  assertEquals(card.text.split('\n').filter((l) => l.startsWith('Do:')).length, 1, 'exactly one Do');
+  assertStringIncludes(card.text, 'bookings');
+  assert(!/[a-z]!/i.test(card.text), 'no exclamation');
+  const amountOnly = redCard({ ...v8, detail: { ...v8.detail, match: ['amount_time'], reference: null } }, NOW).text;
+  assertStringIncludes(amountOnly, 'Matched on the same amount uploaded within 30 minutes');
+  assert(!amountOnly.includes('reference null'), 'a missing reference is not printed');
+});

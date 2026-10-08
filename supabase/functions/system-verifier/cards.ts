@@ -224,6 +224,8 @@ function headline(f: Finding, now: Date): string {
       return 'The Airbnb calendar and the booking e-mail disagree on dates, and this one could not be corrected automatically.';
     case 'V7b':
       return `An Airbnb stay ${dm(d.from)} to ${dm(d.to)} has no booking e-mail after 24 hours.`;
+    case 'V8':
+      return `The same payment receipt is on two live bookings, ${str(d.a?.guest, 'one guest')} and ${str(d.b?.guest, 'another guest')}, so one payment may be counted twice.`;
     case 'V13':
       return d.refused
         ? 'The OpenRouter key was refused, so guest replies and receipt reads are failing.'
@@ -274,6 +276,14 @@ function facts(f: Finding): string[] {
       ];
     case 'V7b':
       return [`Code ${str(d.code, 'unknown')}, first seen ${dm(d.since)}.`, airbnbUrl(d.code)];
+    case 'V8': {
+      // s78 (TASKS #20a): which sameness was found, in words; the reference in full, because it is what the wallet shows.
+      const m: string[] = Array.isArray(d.match) ? d.match : [];
+      const how = [m.includes('image') ? 'the same image' : '', m.includes('reference') ? `the same reference ${str(d.reference)}` : '',
+        m.includes('amount_time') ? 'the same amount uploaded within 30 minutes' : ''].filter(Boolean).join(', ');
+      const one = (x: any) => `${str(x?.guest, 'unnamed')} · ${str(x?.status, 'unknown')} · ${dm(x?.from)} to ${dm(x?.to)} · id ${str(x?.booking).slice(0, 8).toUpperCase()}`;
+      return [how ? `Matched on ${how}${peso(d.amount) ? `, ${peso(d.amount)}` : ''}.` : '', one(d.a), one(d.b)];
+    }
     case 'V10': {
       // Not a key=value dump, and not silence either: the first live run said
       // "1 to look at" and named nothing, so nobody could act without opening
@@ -303,6 +313,7 @@ function action(f: Finding): string {
     case 'V6': return 'ask for the ID before they arrive.';
     case 'V7': return 'check the reservation on Airbnb and correct whichever side is wrong; the card clears on the next hourly run once they agree.';
     case 'V7b': return 'check the cascadereservations inbox for the confirmation, or the reservation on Airbnb.';
+    case 'V8': return 'check the wallet or bank for this payment. If it covers only one booking, ask the other guest for their own receipt before confirming theirs.';
     case 'V13': return (f.detail as any)?.refused
       ? 'check the key at openrouter.ai/settings/keys.'
       : 'raise the key limit at openrouter.ai/settings/keys if today needs more; it resets by itself at 08:00 Manila.';
@@ -320,6 +331,7 @@ const LINK: Record<string, string> = {
   V4: `${DASH_URL}concierge`,
   V5: `${DASH_URL}concierge`,
   V6: `${DASH_URL}bookings`,
+  V8: `${DASH_URL}bookings`,
   V10: `${DASH_URL}settings`,
   V11: `${DASH_URL}settings`,
   V12: `${DASH_URL}calendar`,
