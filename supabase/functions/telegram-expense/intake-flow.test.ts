@@ -45,7 +45,7 @@ Deno.test('/intake from an unlinked Telegram: refused', async () => {
 Deno.test('/intake in Finance: one button per stay, no token yet', async () => {
   const f = fake(); await startIntake(f.d, msg(FIN));
   const kb = f.sent[0].x.reply_markup.inline_keyboard;
-  assertEquals(kb.length, 1); assertEquals(kb[0][0].callback_data, `int:${B1}`); assert(kb[0][0].text.includes('Nora Sample'));
+  assertEquals(kb.length, 1); assertEquals(kb[0][0].callback_data, `int:${B1}`); assert(kb[0][0].text.includes('Nora Sample') && kb[0][0].text.includes('Oct 9 to Oct 12'));
   assertEquals(f.inserted.length, 0);
 });
 
@@ -63,7 +63,7 @@ Deno.test('tap: mints a hashed direct token, card holds no token, link goes in o
   const link = f.sent[0].t.match(/stay\.html#t=([A-Za-z0-9_-]{43})/);
   assert(link, 'link with a 43-char token');
   assertEquals(row.token_hash, await hashGuestAccessToken(link![1]));
-  assert(f.sent[0].t.startsWith(`\`Hello Nora`));
+  assert(f.sent[0].t.startsWith('Hello Nora') && f.sent[0].t.includes('on Oct 9'));assertFalse(f.sent[0].t.includes('`'));
   assertFalse(f.edits[0].t.includes(link![1]));
   assertEquals(f.sent[0].c, FIN); // the same Finance chat, never OPS
   assertFalse(f.sent[0].t.includes('!'));

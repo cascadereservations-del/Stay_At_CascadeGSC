@@ -3,6 +3,7 @@
 // the button carries the booking id, so there is no pending row to expire. Every tap re-checks the tapper, re-reads the stay and mints a
 // fresh token (only the SHA-256 is stored, same as submit-booking). guest-intake resolves direct, confirmed stays only, so only those are offered.
 import { withHeader } from '../_shared/cascade-core/format.ts';
+import { monthDay } from '../_shared/cascade-core/brownout.ts';
 import { mintStatusToken, type TokenStore } from '../_shared/guest-access-token.ts';
 
 export const STAY_PAGE = 'https://cascadereservations-del.github.io/Stay_At_CascadeGSC/stay.html#t=';
@@ -23,10 +24,12 @@ export type Deps = {
 export type Stay = { id: string; name: string; checkin: string; checkout: string };
 
 /** Stays the guest form can serve: confirmed direct bookings with a guest record that have not checked out. Nearest first, max 8. */
-export async function openStays(d: Deps): Promise<Stay[] | null> {
-  const { data, error } = await d.db.from('booking_inquiries').select('id,guest_id,checkin_date,checkout_date')
+export async function openStays(d: Deps, onlyId?: string): Promise<Stay[] | null> {
+  let q = d.db.from('booking_inquiries').select('id,guest_id,checkin_date,checkout_date')
     .eq('property_id', d.propertyId).eq('source', 'direct').eq('status', 'confirmed').not('guest_id', 'is', null)
-    .gte('checkout_date', d.today()).order('checkin_date', { ascending: true }).limit(8);
+    .gte('checkout_date', d.today());
+  if (onlyId) q = q.eq('id', onlyId); // a tap checks that one stay with the same filters, not the 8-item list
+  const { data, error } = await q.order('checkin_date', { ascending: true }).limit(8);
   if (error) return null;
   const rows = (data ?? []) as any[];
   if (!rows.length) return [];
@@ -36,8 +39,7 @@ export async function openStays(d: Deps): Promise<Stay[] | null> {
   return rows.map((r) => ({ id: r.id, name: names.get(r.guest_id) || 'Guest', checkin: r.checkin_date, checkout: r.checkout_date }));
 }
 
-const short = (iso: string) => `${iso.slice(5, 7)}-${iso.slice(8, 10)}`;
-export const stayLabel = (s: Stay, today: string) => `${s.name.slice(0, 24)} · ${short(s.checkin)} to ${short(s.checkout)}${s.checkin <= today ? ' · in house' : ''}`;
+export const stayLabel = (s: Stay, today: string) => `${s.name.slice(0, 24)} · ${monthDay(s.checkin)} to ${monthDay(s.checkout)}${s.checkin <= today ? ' · in house' : ''}`;
 export const parseIntakeTap = (data: string): string | null => (data.startsWith('int:') && UUID.test(data.slice(4)) ? data.slice(4) : null);
 
 /** Owner/admin check through the existing candidates RPC (telegram_staff_actor_v1 is not callable by service_role); fails closed. */
@@ -71,13 +73,14 @@ export async function onIntakeTap(d: Deps, cq: any): Promise<void> {
   if (!id) { await d.answer(cq.id, 'That button is not valid. Nothing was made.'); return; }
   if (!d.isFinance(chatId)) { await d.answer(cq.id, 'Finance group only. Nothing was made.'); return; }
   if (!(await isOwnerAdmin(d, cq.from?.id))) { await d.answer(cq.id, 'Only the owner or admin can make a guest link. Nothing was made.'); return; }
-  const stay = (await openStays(d))?.find((s) => s.id === id);
+  const stay = (await openStays(d, id))?.[0];
   if (!stay) { await d.answer(cq.id, 'That stay is no longer open. Nothing was made.'); return; }
+  // Each tap mints a new token on purpose; older ones simply expire at check-out + 7 days.
   const token = await mintStatusToken(d.db.from('guest_access_tokens') as TokenStore, { propertyId: d.propertyId, bookingId: stay.id, checkoutDate: stay.checkout });
   if (!token) { await d.answer(cq.id, 'I could not make the link. Nothing was made.'); return; }
   await d.answer(cq.id);
   // The card in the thread never holds the token; the link goes in one separate message that can be forwarded or copied.
   await d.edit(chatId, mid, withHeader('guest', 'guest link', `Link made for ${d.esc(stay.name)}, ${stay.checkin} to ${stay.checkout}. It is in the next message.`));
   const first = stay.name.replace(/`/g, '').split(/\s+/)[0] || 'there';
-  await d.send(chatId, `\`${guestLine(first, stay.checkin, STAY_PAGE + token)}\``);
+  await d.send(chatId, guestLine(first, monthDay(stay.checkin), STAY_PAGE + token));
 }
