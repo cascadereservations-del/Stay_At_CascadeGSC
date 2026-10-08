@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "release_id": "s78_small_sql_20261009",
+  "phase": "expand",
+  "source": {
+    "branch": "s78/small",
+    "commit": "PENDING-set-at-merge"
+  },
+  "migrations": [
+    "20261009000000_verifier_v1m_uid_ref.sql",
+    "20261009010000_drop_w01_dispatch.sql"
+  ],
+  "migration_sha256": {
+    "20261009000000_verifier_v1m_uid_ref.sql": "2fe4f4a72645119e83fa6dedb66ea8999ea3ea85f2beacf529df4311364f61c1",
+    "20261009010000_drop_w01_dispatch.sql": "13491bc947238534fd4452dec348f8c2dd0acef91639983f4f546be3d9311dce"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Two small changes. (1) TASKS #35a: run_system_verifier_v1 V1m detail gains 'uid' (the stay's calendar uid) and staff_verifier_facts_v1 reads the 8-character ref from uid first (cascade-direct-<id> or direct:<id>), then booking, then stay; each body cut from its source file after asserting the cut equals the LIVE md5(replace(prosrc, chr(13), '')) (run_system_verifier_v1 d803b9fd248dce1fe4795032bae7efcf, staff_verifier_facts_v1 3ba47c71d13c6d845d8709ba1f274b77, read 2026-10-08), one exact counted replacement each; grants re-asserted. (2) TASKS #19: DROP TRIGGER automation_outbox_dispatch_w01 and DROP FUNCTION dispatch_w01_booking_requested() (nothing consumes n8n W01; the webhook 404s on every booking.requested insert). The vault secrets cascade_n8n_w01_webhook_secret and cascade_cf_w01_client_* are NOT touched. No table, column, policy or row touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "run_system_verifier_body_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '471e8af96bbdc4259b98665deeecc738' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_verifier_facts_body_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '780343df61977048e64a4940406cb0d3' from pg_proc where oid = 'public.staff_verifier_facts_v1(text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "verifier_grants_unchanged",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') from pg_proc p where p.oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_facts_helper_still_internal_only",
+      "query": "select not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('service_role', p.oid, 'execute') from pg_proc p where p.oid = 'public.staff_verifier_facts_v1(text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "facts_ref_prefers_the_uid",
+      "query": "select public.staff_verifier_facts_v1('V1', '{\"stay\":\"92f94d0e-008c-4439-9c94-6d48684629da\",\"uid\":\"cascade-direct-bd296460-0fd2-434f-aa3a-7e89dc90c14e\"}'::jsonb)->>'ref' = 'BD296460'",
+      "expect": true
+    },
+    {
+      "name": "w01_trigger_and_function_absent",
+      "query": "select not exists (select 1 from pg_trigger where tgname = 'automation_outbox_dispatch_w01' and not tgisinternal) and to_regprocedure('public.dispatch_w01_booking_requested()') is null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (function bodies and one trigger; no data changed)",
+    "steps": [
+      {
+        "name": "restore_verifier_bodies",
+        "action": "apply supabase/rollbacks/20261009_verifier_v1m_uid_ref.sql with run-sql-on-host.sh: restores run_system_verifier_v1 (md5 d803b9fd248dce1fe4795032bae7efcf) and staff_verifier_facts_v1 (md5 3ba47c71d13c6d845d8709ba1f274b77) and re-asserts the grants."
+      },
+      {
+        "name": "restore_w01_dispatcher",
+        "action": "apply supabase/rollbacks/20261009_drop_w01_dispatch.sql with run-sql-on-host.sh: recreates dispatch_w01_booking_requested() (md5 d85d10f1d5d28fc809ad57b6f6458b5e, owner-only execute) and the AFTER INSERT trigger from the live definitions read 2026-10-08."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_sql_only",
+      "required_state": "None. A V1m finding already stored keeps its key V1m:<block id>; the new detail.uid appears on the next hourly run. Staff cards show the booking ref instead of the calendar row id from then on."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same signatures and result shape; detail gains one key. The W01 drop removes a trigger whose only effect was a failing HTTP call that the function swallowed: automation_outbox rows are still written pending by the same writers (pgTAP w01_dispatch.sql inserts a booking.requested row after the drop). Rehearsal pending."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "an md5 check fails - that is a mistyped body, not a flaky assertion",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP calendar_day_flags.sql, verifier_direct_uid.sql, system_verifier_phase1.sql and w01_dispatch.sql green on this commit",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}

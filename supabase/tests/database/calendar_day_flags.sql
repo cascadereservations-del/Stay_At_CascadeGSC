@@ -2,7 +2,7 @@
 -- (block_reason, block_label, day_flags). Synthetic property e7700000-...-b0; everything rolls back. Fixtures insert as the owner
 -- (service_role has no BYPASSRLS); roles are impersonated with request.jwt.claims as staff_home_v1.sql does.
 begin;
-select plan(55);
+select plan(56);
 -- the suite reads the audit log as the test session (same pattern as d301_pay_rates_tasks.sql); rolled back with everything else
 grant select on public.admin_audit_log to authenticated;
 
@@ -77,6 +77,9 @@ select is(public.staff_verifier_facts_v1('V1', '{"block":"deb2a3ae-9431-4636-b29
   '{"ref":"92F94D0E","guest_first":"Ana","from":"2026-10-08","to":"2026-10-11","block_from":"2026-10-08","block_to":"2026-10-12"}'::jsonb,
   'V1m facts (L8 keys block, stay, guest, stay_from, stay_to, block_from, block_to): ref, first name, stay dates and block dates');
 
+select is(public.staff_verifier_facts_v1('V1', '{"block":"deb2a3ae-9431-4636-b293-a1c51cb7e8df","stay":"92f94d0e-008c-4439-9c94-6d48684629da","uid":"cascade-direct-bd296460-0fd2-434f-aa3a-7e89dc90c14e","guest":"Ana Maria Cruz"}'::jsonb)->>'ref',
+  'BD296460', 'V1m facts (s78): the ref comes from detail.uid (the booking id), not from the calendar row id in detail.stay');
+
 -- the cleaner: sees labels and the auto flags, cannot write -------------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7700000-0000-4000-8000-000000000001','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select set_config('role', 'authenticated', true);
@@ -98,7 +101,7 @@ select is((select x->>'block_reason' from jsonb_array_elements(public.staff_home
 select ok((select x->'block_reason' = 'null'::jsonb and x->'block_label' = 'null'::jsonb
              from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'calendar') x where x->>'uid' = 'zz-cf-conf'),
   'a confirmed stay has null block_reason and block_label');
-select ok(not (public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')::text ~* '(0917|0918|Mang Tony|aircon|feeder 14-3|family)'),
+select ok(not ((public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0') - 'generated_at')::text ~* '(0917|0918|Mang Tony|aircon|feeder 14-3|family)'),
   'no raw block_note text beyond the ref reaches the payload');
 select ok(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest'->>'uid' like 'cascade-direct-%'
       and not (public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current_guest' ?| array['phone','email','messenger']),

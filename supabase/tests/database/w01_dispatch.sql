@@ -1,35 +1,21 @@
 begin;
-select plan(7);
+select plan(4);
 
+-- s78 (TASKS #19): the W01 dispatcher was dropped by 20261009010000_drop_w01_dispatch.sql; nothing consumes n8n W01.
 select ok(
-  to_regprocedure('public.dispatch_w01_booking_requested()') is not null,
-  'W01 dispatcher trigger function exists'
+  to_regprocedure('public.dispatch_w01_booking_requested()') is null,
+  'W01 dispatcher function is gone'
 );
 
 select ok(
-  not has_function_privilege('anon', 'public.dispatch_w01_booking_requested()', 'execute'),
-  'anonymous clients cannot execute the trigger function as an RPC'
-);
-
-select ok(
-  not has_function_privilege('authenticated', 'public.dispatch_w01_booking_requested()', 'execute'),
-  'authenticated clients cannot execute the trigger function as an RPC'
-);
-
-select ok(
-  not has_function_privilege('service_role', 'public.dispatch_w01_booking_requested()', 'execute'),
-  'service role cannot bypass the outbox by executing the trigger function'
-);
-
-select ok(
-  exists (
+  not exists (
     select 1
     from pg_trigger
     where tgrelid = 'public.automation_outbox'::regclass
       and tgname = 'automation_outbox_dispatch_w01'
       and not tgisinternal
   ),
-  'automation outbox has the W01 dispatcher trigger'
+  'automation outbox has no W01 dispatcher trigger'
 );
 
 insert into public.automation_outbox (
@@ -55,13 +41,16 @@ select ok(
     where id = '22222222-2222-4222-8222-222222222222'::uuid
       and status = 'pending'
   ),
-  'dispatch attempt never prevents durable pending outbox storage'
+  'a booking.requested outbox insert still succeeds and stays pending'
 );
 
 select ok(
-  position('X-Cascade-Webhook-Secret' in pg_get_functiondef('public.dispatch_w01_booking_requested()'::regprocedure)) > 0
-  and position('CF-Access-Client-Secret' in pg_get_functiondef('public.dispatch_w01_booking_requested()'::regprocedure)) > 0,
-  'dispatcher uses the required n8n and Cloudflare authentication headers'
+  not exists (
+    select 1 from pg_trigger
+    where tgrelid = 'public.automation_outbox'::regclass and not tgisinternal
+      and tgfoid::regproc::text like '%w01%'
+  ),
+  'no remaining outbox trigger calls a W01 function'
 );
 
 select * from finish();
