@@ -137,6 +137,7 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   priorityVerified: (l) => [P.priorityVerified('Allyssa', l), P.priorityVerified('Guest', l), P.priorityVerified(null, l)],
   priorityUnmatched: (l) => [P.priorityUnmatched(l)],
   attachmentNoted: (l) => [P.attachmentNoted(l)],
+  idThanks: (l) => [P.idThanks(l)], // SPEC-45
   voiceNote: (l) => [P.voiceNote(l)],
   welcomeBack: () => [P.welcomeBack('Joseph', 'Oct 2 to 4'), P.welcomeBack('there', '')],
   // D-286: the frame compose() writes around the model's answer - every shape it can emit.

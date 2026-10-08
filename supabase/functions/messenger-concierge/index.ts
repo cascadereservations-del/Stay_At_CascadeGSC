@@ -34,6 +34,11 @@ import { withHeader } from '../_shared/cascade-core/format.ts';
 import { cardMarkup, financeCard, type InquiryView, PAID_BUMP, staleReason, viaOf } from '../_shared/cascade-core/inquiry.ts'; // SPEC-44: the paid-claim bump
 import { maskMoney } from '../_shared/ops-money.ts'; // OPS never shows guest money (Lloyd 2026-10-02); the guest text and the sent options stay whole
 import { raiseWorkOrder } from '../_shared/cascade-core/workorders.ts';
+// SPEC-45: a guest's ID photo is read once (name + ID type, D-291) and saved privately to the booking's guest.
+import { GUEST_PROMPT, type GuestRead, parseGuestRead, sniffImage } from '../telegram-expense/guest.ts';
+import { visionExtractText } from '../_shared/cascade-core/vision.ts';
+import { bookingIdOf, idOpsLine, type IdPlan, mayRead, planId } from './id-capture.ts';
+import { idThanks } from './persona.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GRAPH = 'https://graph.facebook.com/v21.0';
@@ -773,6 +778,49 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
   console.error('forward_receipt_failed', r?.status, JSON.stringify(j).slice(0, 200));
   return { sent: false, reply: receiptRetry(flow.lang) };
 }
+// SPEC-45: one guest photo, read once. The bytes stay in memory and the CDN URL is never logged or stored (D-291).
+type IdImage = { read: GuestRead; bytes: Uint8Array; ext: string; mime: string };
+async function idRead(url: string): Promise<IdImage | null> {
+  const img = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  if (!img || !img.ok) return null;
+  const bytes = new Uint8Array(await img.arrayBuffer());
+  const kind = sniffImage(bytes);
+  if (!kind) return null;
+  try { return { read: parseGuestRead(await visionExtractText(GUEST_PROMPT, bytes, kind.mime, 'Cascade Messenger ID')), bytes, ...kind }; }
+  catch (e) { console.error('id_read_failed', String(e).slice(0, 160)); return null; }
+}
+const ID_BUCKET = 'guest-id-photos';
+/** Photo first (the RPC checks the object exists), then concierge_save_guest_id_v1. A refusal removes the photo: nothing saved. */
+async function idSave(db: Db, plan: Extract<IdPlan, { act: 'save' }>, img: IdImage): Promise<{ ok: boolean; reason?: string }> {
+  const companionId = crypto.randomUUID(), path = `${companionId}/${crypto.randomUUID()}.${img.ext}`;
+  const up = await db.storage.from(ID_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: false });
+  if (up.error) { console.error('id_upload_failed', String(up.error.message ?? up.error).slice(0, 160)); return { ok: false, reason: 'upload_failed' }; }
+  const { data, error } = await db.rpc('concierge_save_guest_id_v1', { p_booking_id: plan.bookingId, p_companion_id: companionId, p_name: plan.name, p_id_type: plan.idType, p_path: path, p_mark_id_on_file: plan.own });
+  if (!error && data?.ok === true) return { ok: true };
+  const reason = error ? 'rpc_error' : String(data?.reason ?? 'refused');
+  console.error('id_save_refused', reason, error ? String(error.message ?? error).slice(0, 160) : '');
+  await db.storage.from(ID_BUCKET).remove([path]).catch(() => null); // an object no row points at helps nobody
+  return { ok: false, reason };
+}
+/** SPEC-45: read one photo; when it is an ID, save it to the booking's guest and tell OPS (text only). null: not an ID, or unreadable -
+ *  the photo keeps today's path (a stray receipt for the host). `flow` carries a booking (bookingIdOf). */
+async function captureId(db: Db, fx: Effects, flow: Flow, guest: string | null, url: string, hostHeld: boolean, link: string): Promise<{ plan: Extract<IdPlan, { act: 'save' }>; saved: { ok: boolean; reason?: string } } | null> {
+  const img = await fx.idRead(url);
+  if (img?.read.kind !== 'id') return null;
+  const bookingId = bookingIdOf(flow);
+  const plan = planId(img.read, { bookingId, bookingName: (bookingId ? await bookingGuestName(db, bookingId) : null) ?? flow.name ?? guest, hostHeld });
+  if (plan.act !== 'save') return null;
+  const saved = await fx.idSave(db, plan, img);
+  await fx.ops(withHeader('guest', 'guest ID', idOpsLine(guest, plan, saved, link)));
+  return { plan, saved };
+}
+/** The booking's own guest name, for sameName (the reservation name, not the Facebook profile). null for a probe or a failed read. */
+async function bookingGuestName(db: Db, bookingId: string): Promise<string | null> {
+  if (bookingId === 'probe') return null;
+  const { data, error } = await db.from('booking_inquiries').select('guest_name').eq('id', bookingId).maybeSingle();
+  if (error) console.error('id_booking_read_failed', String(error.message ?? error).slice(0, 160));
+  return data?.guest_name ?? null;
+}
 
 /** availabilityLine's taken-dates line in any register ("I'm sorry, ... already reserved", "Pasensya na po, reserved na"). */
 const RESERVED_RE = /already reserved|reserved na/i;
@@ -827,6 +875,9 @@ type Effects = {
   name(psid: string): Promise<string | null>;
   /** SPEC-44: re-post Finance's request card with the paid-claim line on top. true when it went out. */
   bump(db: Db, bookingId: string, said: string): Promise<boolean>;
+  /** SPEC-45: download + one vision read of a guest photo (null: unreadable), and the private save. */
+  idRead(url: string): Promise<IdImage | null>;
+  idSave(db: Db, plan: Extract<IdPlan, { act: 'save' }>, img: IdImage): Promise<{ ok: boolean; reason?: string }>;
 };
 /** SPEC-44: the guest says they paid and no receipt is in. Finance gets the request card again (Paid – confirm on it), with the
  *  claim on top; nothing when the request is no longer open or already has a receipt (staleReason). The card id is not stored, so
@@ -851,7 +902,7 @@ const liveEffects: Effects = {
     catch (e) { console.error('qr_amount_failed', String(e).slice(0, 200)); }
     if (!sent) await fbSendImage(psid, fallbackUrl);
   },
-  ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName, bump: bumpRequestCard,
+  ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName, bump: bumpRequestCard, idRead, idSave,
   // booking_inquiries is submit-booking's table; only a request still pending is touched.
   // No row updated (not pending any more, wrong id) is a failure too, so requote_full_failed / correction_after_hold_failed log.
   amend: async (db, flow, fields) => {
@@ -880,6 +931,13 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
     receipt: (flow, _url, name) => { calls.push({ fx: 'receipt' }); return Promise.resolve({ sent: true, reply: receiptThanks(name, flow.lang) }); },
     name: () => Promise.resolve(guestName),
     bump: (_db, bookingId, said) => { calls.push({ fx: 'bump', text: said, detail: { booking: bookingId } }); return Promise.resolve(true); },
+    // SPEC-45: a probe turn {image: true, kind: 'id'} sends /id.jpg - read as the probe guest's own national ID; any other photo reads 'other'.
+    idRead: (url) => {
+      const id = url.endsWith('/id.jpg');
+      calls.push({ fx: 'id_read', detail: { kind: id ? 'id' : 'other' } });
+      return Promise.resolve({ read: id ? { kind: 'id', name: guestName ?? 'Probe Guest', idType: 'national_id' } : { kind: 'other' }, bytes: new Uint8Array(0), ext: 'jpg', mime: 'image/jpeg' });
+    },
+    idSave: (_db, plan) => { calls.push({ fx: 'id_save', detail: { own: plan.own, id_type: plan.idType, guest_line: plan.guestLine } }); return Promise.resolve({ ok: true }); },
   };
 }
 
@@ -1064,7 +1122,21 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   if (mode !== 'off' && flow?.step === 'await_receipt' && flow.booking_id && (fileSent || paidClaim(text))
       && !(flow.paid_bump_at && now.getTime() - Date.parse(flow.paid_bump_at) < 3_600_000)
       && await fx.bump(db, flow.booking_id, text)) flow = { ...flow, paid_bump_at: now.toISOString() };
-  if (g.reply && uploadOpen && attachment && !attachment.payload?.sticker_id) {
+  // SPEC-45 (D-320.6): a photo that is not a receipt upload, on a thread with a booking, is read once as a possible ID (3 a day).
+  // An ID is saved privately to the booking's guest; anything else keeps the stray-receipt path below. A host-held chat (D-317)
+  // still saves, with no guest line.
+  let idCaught: Awaited<ReturnType<typeof captureId>> = null;
+  if (mode !== 'off' && attachment && !attachment.payload?.sticker_id && !uploadOpen) {
+    const may = mayRead(bookingIdOf(thread.booking_flow), thread.booking_flow?.id_reads, now);
+    if (may.ok) {
+      thread.booking_flow = { ...thread.booking_flow!, id_reads: may.next }; if (flow) flow = { ...flow, id_reads: may.next }; // updated_at untouched
+      idCaught = await captureId(db, fx, thread.booking_flow, thread.guest_name, String(attachment.payload.url), hostHeld || !g.reply, link);
+    } else if (may.reason === 'cap') console.log('id_read_capped', JSON.stringify({ psid: psid.slice(-6) }));
+  }
+  if (idCaught && g.reply) {
+    const L = replyLang(text || guestSaid.slice(-200), thread.booking_flow?.lang);
+    flowReply = idCaught.saved.ok ? idThanks(L) : attachmentNoted(L);
+  } else if (g.reply && uploadOpen && attachment && !attachment.payload?.sticker_id) {
     const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name);
     flowReply = r.reply; if (r.sent) flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() };
   } else if (g.reply && attachment && (booked || /\b(gcash|bayad|paid|receipt|deposit|payment|sent)\b/i.test(`${guestSaid} ${text}`))) {
@@ -1191,7 +1263,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       if (uploadOpen && attachment && !attachment.payload?.sticker_id) { const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name); if (r.sent) { flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() }; thread.booking_flow = flow; } }
       const sticker = !text && !!attachment?.payload?.sticker_id; // a sticker or a like: nothing to tell the host
       if (g.handoff) await fx.handoff(db, thread, text || '[attachment]', g.risk, link); // an emergency or the door: card + urgent alert
-      else if (!sticker) await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment && !attachment.payload?.sticker_id ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`));
+      else if (!sticker && !idCaught) await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment && !attachment.payload?.sticker_id ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`));
     } else if (mode !== 'off' && safetyHeld && !(!text && attachment?.payload?.sticker_id)) {
       // Opus re-review: a follow-up during an open safety report (a phone number, "where are you?") must reach someone.
       await fx.ops(withHeader('alert', 'after safety report', `🚨 ${thread.guest_name ?? 'A guest'} wrote again after a safety report. Cassy is holding routine replies until someone answers.
@@ -1543,10 +1615,11 @@ async function messengerProfile(set: boolean): Promise<Response> {
 }
 
 /** Scripted turns through the real handle() on a fresh probe: thread; every outward effect is recorded, none is made.
- *  body: { psid: "probe:<uuid>", name?: string, now?: iso, turns: Array<string | { text?: string, image?: true, advance_minutes?: number }> } */
+ *  body: { psid: "probe:<uuid>", name?: string, now?: iso, turns: Array<string | { text?: string, image?: true, kind?: 'id', advance_minutes?: number }> }
+ *  SPEC-45: {image: true, kind: 'id'} is an ID photo (seed a flow at receipt_sent so the thread has a booking). */
 async function runProbe(body: string): Promise<Response> {
   const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
-  let p: { psid?: string; name?: string; now?: string; golden?: boolean; turns?: Array<string | { text?: string; image?: boolean; advance_minutes?: number }>; history?: Array<{ role?: string; text?: string }>; flow?: unknown };
+  let p: { psid?: string; name?: string; now?: string; golden?: boolean; turns?: Array<string | { text?: string; image?: boolean; kind?: string; advance_minutes?: number }>; history?: Array<{ role?: string; text?: string }>; flow?: unknown };
   try { p = JSON.parse(body); } catch { return json({ ok: false, error: 'bad_json' }, 400); }
   const psid = String(p.psid ?? '');
   if (!/^probe:[A-Za-z0-9-]{8,64}$/.test(psid) || !Array.isArray(p.turns) || !p.turns.length || p.turns.length > 12) return json({ ok: false, error: 'probe_psid_and_1_to_12_turns_required' }, 400);
@@ -1571,7 +1644,7 @@ async function runProbe(body: string): Promise<Response> {
       const turn = typeof t === 'string' ? { text: t } : t;
       now = new Date(now.getTime() + (turn.advance_minutes ?? 1) * 60_000);
       const message: Record<string, unknown> = { mid: `probe-${i}`, text: turn.text ?? undefined };
-      if (turn.image) message.attachments = [{ type: 'image', payload: { url: 'https://example.invalid/receipt.jpg' } }];
+      if (turn.image) message.attachments = [{ type: 'image', payload: { url: `https://example.invalid/${turn.kind === 'id' ? 'id' : 'receipt'}.jpg` } }];
       const calls: ProbeCall[] = [], t0 = Date.now();
       // Session 59: "[PRIORITY]" probes the menu button (a postback, no message); "[PRIORITY:<yyyy-mm-dd>:<initial>]" the guide link.
       const pri = /^\[PRIORITY(?::([^\]]+))?\]$/.exec(turn.text ?? '');
@@ -1591,6 +1664,35 @@ async function runProbe(body: string): Promise<Response> {
     setProviderKey(null);
     await db.from('concierge_threads').delete().eq('psid', psid);
   }
+}
+
+/** SPEC-45 step 6: a guest who sent their ID before go-live. Lists the thread's messages from the Page inbox, reads the guest's own
+ *  photos (from.id === psid; the Page's and host's are skipped) until the first ID is saved. Probe-secret gated, Lloyd-run, no daily
+ *  cap. Counts only in the answer - never a URL or a name. No guest line; OPS gets the same notice as a live ID. */
+export const graphPermission = (e: { code?: number; message?: string } | undefined) => !!e && (e.code === 10 || (Number(e.code) >= 200 && Number(e.code) < 300) || /permission/i.test(e.message ?? ''));
+async function backfillId(psid: string): Promise<Response> {
+  const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } });
+  if (!/^\d{5,30}$/.test(psid)) return json({ ok: false, reason: 'bad_psid' }, 400);
+  const db: Db = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
+  const { data: t, error: tErr } = await db.from('concierge_threads').select('guest_name, booking_flow').eq('psid', psid).maybeSingle();
+  if (tErr) return json({ ok: false, reason: 'thread_read_failed' }, 500);
+  const flow = (t?.booking_flow ?? null) as Flow | null;
+  if (!flow || !bookingIdOf(flow)) return json({ ok: true, images: 0, reads: 0, saved: 0, reason: 'no_booking' });
+  const fields = 'messages.limit(100){created_time,from,attachments{image_data}}';
+  const r = await fetch(`${GRAPH}/${PAGE_ID}/conversations?user_id=${encodeURIComponent(psid)}&fields=${encodeURIComponent(fields)}&access_token=${env('META_PAGE_TOKEN')}`, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  if (j?.error) return json({ ok: false, reason: graphPermission(j.error) ? 'graph_permission' : 'graph_error' }, graphPermission(j.error) ? 403 : 502);
+  if (!r?.ok) return json({ ok: false, reason: 'graph_error' }, 502);
+  const urls: string[] = (j?.data?.[0]?.messages?.data ?? [])
+    .filter((m: any) => String(m?.from?.id ?? '') === psid)
+    .flatMap((m: any) => (m?.attachments?.data ?? []).map((a: any) => a?.image_data?.url).filter((u: unknown): u is string => typeof u === 'string' && u.startsWith('https://')));
+  let reads = 0;
+  for (const url of urls.slice(0, 12)) { // ponytail: 12 photos max per run; raise it if a guest ever sent more before go-live
+    reads++;
+    const got = await captureId(db, liveEffects, flow, t?.guest_name ?? null, url, false, `https://www.facebook.com/messages/t/${psid}`);
+    if (got) return json({ ok: true, images: urls.length, reads, saved: got.saved.ok ? 1 : 0, reason: got.saved.ok ? (got.plan.own ? 'saved_own' : 'saved_companion') : (got.saved.reason ?? 'refused') });
+  }
+  return json({ ok: true, images: urls.length, reads, saved: 0, reason: urls.length ? 'no_id' : 'no_images' });
 }
 
 Deno.serve(async (req) => {
@@ -1616,6 +1718,7 @@ Deno.serve(async (req) => {
   // Probe: header-gated, probe: psids only, sends nothing. A missing or wrong header falls through to the HMAC check,
   // which rejects it, so the probe adds no unauthenticated surface.
   const probeSecret = env('CASCADE_PROBE_SECRET'), probeHeader = req.headers.get('x-cascade-probe');
+  if (probeSecret.length >= 24 && probeHeader === probeSecret && url.searchParams.get('backfill')) return await backfillId(url.searchParams.get('backfill')!);
   if (probeSecret.length >= 24 && probeHeader === probeSecret) return url.searchParams.get('profile') ? await messengerProfile(url.searchParams.get('profile') === 'set') : await probeScope(() => runProbe(body));
   if (!(await hmacOk(env('META_APP_SECRET'), body, req.headers.get('x-hub-signature-256')))) return new Response('bad signature', { status: 401 });
 

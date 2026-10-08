@@ -723,6 +723,12 @@ export const attachmentNoted = (lang: Lang) => by(lang, {
   tl: `Salamat po, received na namin ang file at nasa host na ito kasama ng nauna ninyong message. If urgent, a few words typed here ang pinakamabilis na paraan.`,
   bis: `Salamat, na-receive na namo ang file ug naa na ni sa host uban sa inyong nauna nga message. If urgent, a few words typed here ang pinakapaspas nga paagi.`,
 });
+/** SPEC-45: the guest's ID photo was saved to the reservation. Never the name read, never a number. */
+export const idThanks = (lang: Lang) => by(lang, {
+  en: `Thank you, we have your ID for the reservation. It is kept privately and only the host sees it.`,
+  tl: `Salamat po, natanggap na namin ang ID ninyo para sa reservation. Pribado po itong nakatago at ang host lang ang nakakakita nito.`,
+  bis: `Salamat, nadawat na namo ang inyong ID para sa reservation. Pribado kini nga gitipigan ug ang host ra ang makakita niini.`,
+});
 /** G5: a voice note (common on a borrowed phone) - the host reads the chat as text. */
 export const voiceNote = (lang: Lang) => by(lang, {
   en: `Thank you for the voice note. Our host reads this chat as text, so a few typed words about what you need will reach them right away.`,

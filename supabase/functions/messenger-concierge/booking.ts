@@ -40,6 +40,8 @@ export type Flow = {
   children?: number;
   /** SPEC-39 3.6b: the guest's tone, read once when the details complete (toneOf), so a re-shown card keeps its voice. */
   tone?: P.Tone;
+  /** SPEC-45: ID reads of guest photos today (Manila day), capped per thread (id-capture.ts). */
+  id_reads?: { day: string; n: number };
 };
 
 export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i-?book|mag-?reserve|hold (the|my|our) dates|arrange (it|the booking)|(do|settle) it here|here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i; // session 30: invitations now offer the chat route, so its natural answers start the flow
