@@ -1210,7 +1210,8 @@ Reply in Messenger: ${link}`));
   else if (houseLocked) { reply = houseVerifyAsk(l3Of(turnLang)); houseAskSent = true; } // D-282: never says what the fact is
   // s74 G1: a past stay told about and a price asked ("last time we stayed Sep 5 to 7, how much now?") - no quote, no hold, ask the new dates.
   else if (rolledPastStay(text, now) && (priceAsked(text) || BOOK_RE.test(text) || AVAIL_WORD_RE.test(text))) reply = pastStayAsk(l3Of(turnLang));
-  else if (needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
+  // s78: a booked guest's dates are the booking's - never "share your dates"
+  else if (!heldFlow && needsDatesFirst(text, thread.history.filter((h) => h.role === 'guest').map((h) => h.text).join(' '))) reply = datesFirstReply(thread.guest_name, text, followUp);
   else {
     try {
       const everAnswered = thread.history.some((h) => h.role === 'bot'); // SPEC-21: a thread fact, not a clock fact

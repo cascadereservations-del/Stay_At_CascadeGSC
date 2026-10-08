@@ -127,6 +127,12 @@ Deno.test('s78 #2: an early check-in ask on a turnover day gets the one fixed li
       assertEquals(r.reply, dropRepeats(r.reply));
     } finally { m.restore(); }
   }
+  // the stored history holds no date (older turns rolled off): the booking's dates still count - no "share your dates" reply
+  const m2 = stub('Sige po, gagawin namin ang aming makakaya.');
+  try {
+    const r = await turn('we would like to checkin early po', { flow: held(), history: [['Yes pls', 'Thank you. May we have your full name...']] });
+    assert(m2.seen.length > 0 && !/dates ninyo|your dates|share/i.test(r.reply) && /2:00 PM/.test(r.reply), r.reply);
+  } finally { m2.restore(); }
   // pure: the line replaces every check-in-time sentence, and an untouched reply gets it as its first paragraph
   const en = turnoverCheckinLine('Oct 19', 'en');
   assertEquals(setTurnoverCheckin('We will do our best to have it ready before the standard 2:00 PM check-in. Wi-Fi is fast.', en), `${en} Wi-Fi is fast.`);
