@@ -4,20 +4,20 @@
   "phase": "expand",
   "source": {
     "branch": "s77/calsql",
-    "commit": "176bcd47dcbea1044fb1b326a056f8777b12ca99"
+    "commit": "66cdbe1cfbd1bfce9957ead1aa6c4c85a771857c"
   },
   "migrations": [
     "20261008120000_calendar_day_flags.sql"
   ],
   "migration_sha256": {
-    "20261008120000_calendar_day_flags.sql": "834a2df398caaeee8edaa78e6edd259263f0281c1cfbda27f8af8da4bc4a9277"
+    "20261008120000_calendar_day_flags.sql": "4cde803103cf7254ec366f1ac4e8ce1385663dd090856183001f7e0399c7aa5c"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "S77 calendar contract. Expand only: one new table public.calendar_day_flags (RLS on, no grant to anon or authenticated, service_role only, admin_audit_row trigger), two new definer functions calendar_day_flag_set_v1 / calendar_day_flag_clear_v1 (search_path empty, authenticated only, owner/admin gate inside), and staff_home_v1(uuid) replaced from its LIVE body (md5(replace(prosrc, chr(13), '')) 7bfb1d05a9705d92cb063f2335a8c3c5, full pg_get_functiondef CR-stripped md5 58c1002541f968449c58e64af370292d, read 2026-10-08) with four additions: calendar[].block_reason, calendar[].block_label, top-level day_flags[], warnings[].key (the verifier_findings key; null for non-verifier warnings). Same signature and grants. No existing key changes. Production read 2026-10-08 holds one direct block (note 'DIR BD296460 confirmed'), one brownout block (Oct 14) and two active brownout notices, so the first live payload carries 'Direct booking BD296460' and brownout day flags. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+    "production_rule": "S77 calendar contract. Expand only: one new table public.calendar_day_flags (RLS on, no grant to anon or authenticated, service_role only, admin_audit_row trigger), two new definer functions calendar_day_flag_set_v1 / calendar_day_flag_clear_v1 (search_path empty, authenticated only, owner/admin gate inside), and staff_home_v1(uuid) replaced from its LIVE body (md5(replace(prosrc, chr(13), '')) 7bfb1d05a9705d92cb063f2335a8c3c5, full pg_get_functiondef CR-stripped md5 58c1002541f968449c58e64af370292d, read 2026-10-08) with four additions: calendar[].block_reason, calendar[].block_label, top-level day_flags[], warnings[].key (the verifier_findings key), warnings[].acknowledged and warnings[].facts (allow-list from the new internal helper staff_verifier_facts_v1, no API grant); system-check warnings now list OPEN findings only. Same signature and grants. No existing key changes. Production read 2026-10-08 holds one direct block (note 'DIR BD296460 confirmed'), one brownout block (Oct 14) and two active brownout notices, so the first live payload carries 'Direct booking BD296460' and brownout day flags. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "rollback": {
     "strategy": "compensating",
@@ -47,12 +47,17 @@
     },
     {
       "name": "staff_home_body_is_the_reviewed_one",
-      "query": "select md5(replace(p.prosrc, chr(13), '')) = 'c0e9bc26e88aa0c28d59710a5242532e' from pg_proc p where p.oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(p.prosrc, chr(13), '')) = '1bef0b351969d8dde234eee5539938a6' from pg_proc p where p.oid = 'public.staff_home_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
       "name": "rpc_bodies_pin_owner_admin_gate",
       "query": "select count(*) = 2 and bool_and(p.prosrc like '%admin_require(''read_operations'', p_property_id)%' and p.prosrc like '%p.role in (''owner'',''admin'')%') from pg_proc p where p.oid in ('public.calendar_day_flag_set_v1(uuid,date,text,text)'::regprocedure, 'public.calendar_day_flag_clear_v1(uuid,uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "verifier_facts_helper_internal_and_allow_listed",
+      "query": "select not has_function_privilege('anon','public.staff_verifier_facts_v1(text,jsonb)','execute') and not has_function_privilege('authenticated','public.staff_verifier_facts_v1(text,jsonb)','execute') and public.staff_verifier_facts_v1('V10', '{\"check\":\"ledger_duplicates\",\"n\":2,\"d\":[{\"payee\":\"Honey\"}]}'::jsonb) = '{\"check\":\"ledger_duplicates\",\"n\":2}'::jsonb",
       "expect": true
     },
     {
@@ -87,7 +92,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Readers: staff_home_v1 keeps every existing top-level and calendar key (pinned by pgTAP calendar_day_flags.sql); four keys are added. Writers: nothing writes calendar_day_flags except the two new RPCs. The 20261005 staff_home_v1 forward checks (no money or contact column named in the source, cleaner payload has no money/phone/e-mail shape) are re-run here. Rehearsal and pgTAP are owed: the workstation has no Docker and the rehearsal runs on the Alfred host over SSH (scripts/recovery/p6/migration-rehearsal-on-host.sh)."
+    "evidence": "Readers: staff_home_v1 keeps every existing top-level and calendar key (pinned by pgTAP calendar_day_flags.sql); seven keys are added. Writers: nothing writes calendar_day_flags except the two new RPCs. The 20261005 staff_home_v1 forward checks (no money or contact column named in the source, cleaner payload has no money/phone/e-mail shape) are re-run here. Rehearsal and pgTAP are owed: the workstation has no Docker and the rehearsal runs on the Alfred host over SSH (scripts/recovery/p6/migration-rehearsal-on-host.sh)."
   },
   "approvals": {
     "production_required": true,
