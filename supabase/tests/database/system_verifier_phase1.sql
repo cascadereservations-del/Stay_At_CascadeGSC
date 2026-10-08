@@ -116,7 +116,7 @@ values ('d3000000-0000-4000-8000-000000000001', 'owner', 991001)
 on conflict(user_id) do update set role = 'owner', telegram_user_id = 991001, disabled_at = null;
 
 select is(public.telegram_ack_verifier_finding_v1(991001,
-    (select key from public.verifier_findings where check_id = 'V1'))->>'ok',
+    (select key from public.verifier_findings where check_id = 'V1' and key like 'V1:d2000000-%'))->>'ok',
   'true', 'the owner can say it is known');
 select is(public.telegram_ack_verifier_finding_v1(4242424242, 'V1:whatever')->>'reason',
   'unmapped_telegram_user', 'a stranger tapping the button changes nothing');
@@ -135,7 +135,7 @@ select set_config('cascade.v_apply5',
     '2026-10-06T11:00:00Z')::text, true);
 select is((select jsonb_array_length(current_setting('cascade.v_apply5')::jsonb->'resolved')), 1,
   'when the overlap goes, it says so - an acknowledged finding still resolves');
-select is((select status from public.verifier_findings where check_id = 'V1'), 'resolved',
+select is((select status from public.verifier_findings where check_id = 'V1' and key like 'V1:d2000000-%'), 'resolved',
   'and the row says resolved');
 
 -- The scope rule: an HOURLY run must never resolve a DAILY finding.

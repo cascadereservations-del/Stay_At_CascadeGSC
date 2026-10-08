@@ -3,6 +3,8 @@
 -- (service_role has no BYPASSRLS); roles are impersonated with request.jwt.claims as staff_home_v1.sql does.
 begin;
 select plan(55);
+-- the suite reads the audit log as the test session (same pattern as d301_pay_rates_tasks.sql); rolled back with everything else
+grant select on public.admin_audit_log to authenticated;
 
 select ok((select count(*) = 2 and bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
