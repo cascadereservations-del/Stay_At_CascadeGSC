@@ -35,3 +35,11 @@ Deno.test('D-240: an expected 409 is recorded but never alerts', () => {
   assertEquals(alertable(parseReport({ ...live, detail: { ...live.detail, status: 409 } })!), false);
   assertEquals(alertable(parseReport(live)!), true);
 });
+
+Deno.test('TASKS #25: Facebook / Android in-app browser noise is recorded but never alerts', () => {
+  const e = (message: string, extra: Record<string, unknown> = {}) =>
+    parseReport({ app: 'booking_site', kind: 'error', message, detail: { path: '/', ...extra } })!;
+  assertEquals(alertable(e('Java object is gone')), false);
+  assertEquals(alertable(e('Script error', { stack: 'at navigation_performance_logger_android.js:1' })), false);
+  assertEquals(alertable(e('Cannot read properties of undefined')), true);
+});

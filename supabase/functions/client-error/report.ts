@@ -42,7 +42,11 @@ export async function fingerprint(r: Report): Promise<string> {
 }
 
 /** A 409 is a refusal the page expects and explains to the person (dates taken, meter backwards): record, no card. */
-export const alertable = (r: Report) => !(r.kind === 'http' && Number(r.detail.status) === 409);
+/** TASKS #25: Facebook / Android in-app browsers throw these from their own injected scripts, not from our pages: record, no card. */
+const IN_APP_NOISE = /java object is gone|navigation_performance_logger_android/i;
+export const alertable = (r: Report) =>
+  !(r.kind === 'http' && Number(r.detail.status) === 409) &&
+  !IN_APP_NOISE.test(`${r.message} ${r.detail.src ?? ''} ${r.detail.stack ?? ''}`);
 
 const WHERE: Record<App, string> = { checklist: 'The cleaning checklist', booking_site: 'The direct booking site' };
 
