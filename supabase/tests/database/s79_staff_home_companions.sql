@@ -46,8 +46,8 @@ select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current
   '[{"name":"Zz Sh First","has_photo":false},{"name":"Zz Sh Second","has_photo":true}]'::jsonb, 'owner: current guest companions, ordered by creation, name and has_photo only');
 select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions',
   '[{"name":"Zz Sh Third","has_photo":true}]'::jsonb, 'owner: next guest companions');
-select ok(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|\.jpg)',
-  'owner: no photo path and no ID type anywhere in the payload');
+select ok(jsonb_build_array(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions', public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|\.jpg)',
+  'owner: no photo path and no ID type in the companions lists (the guest id_photo_path is the s78 ID box, unchanged)');
 select is((select count(*)::int from jsonb_object_keys((public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions'->0))), 2,
   'owner: each companion has exactly two keys');
 select ok(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest' ? 'phone', 'owner: the D-319 contact fields are still there');
@@ -58,8 +58,8 @@ select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current
   '[{"name":"Zz Sh First","has_photo":false},{"name":"Zz Sh Second","has_photo":true}]'::jsonb, 'admin: current guest companions');
 select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions',
   '[{"name":"Zz Sh Third","has_photo":true}]'::jsonb, 'admin: next guest companions');
-select ok(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|\.jpg)',
-  'admin: no photo path and no ID type anywhere in the payload');
+select ok(jsonb_build_array(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions', public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|\.jpg)',
+  'admin: no photo path and no ID type in the companions lists (the guest id_photo_path is the s78 ID box, unchanged)');
 
 -- the cleaner: the key is absent --------------------------------------------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7a00000-0000-4000-8000-000000000001','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
