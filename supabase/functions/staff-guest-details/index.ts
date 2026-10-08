@@ -31,13 +31,13 @@ function realDeps(): Deps | null {
           async loadGuest(guestId): Promise<OnFile | null> {
             const [g, d, c] = await Promise.all([
               me.from('guests').select('id, name, email').eq('id', guestId).maybeSingle(),
-              me.from('guest_profile_details').select('contact_number, id_on_file, id_type, stay_preferences, version').eq('guest_id', guestId).maybeSingle(),
+              me.from('guest_profile_details').select('contact_number, id_on_file, id_type, version').eq('guest_id', guestId).maybeSingle(),
               me.from('guest_companions').select('id, name, id_photo_path').eq('guest_id', guestId).order('created_at'),
             ]);
             if (g.error || !g.data || d.error || c.error) return null;
             return {
               guestId, name: g.data.name, email: g.data.email ?? null, phone: d.data?.contact_number ?? null, idOnFile: !!d.data?.id_on_file,
-              idType: d.data?.id_type ?? null, notes: d.data?.stay_preferences ?? null, version: d.data?.version ?? null,
+              idType: d.data?.id_type ?? null, version: d.data?.version ?? null,
               companions: (c.data ?? []).map((x) => ({ id: x.id, name: x.name, hasPhoto: !!x.id_photo_path })),
             };
           },

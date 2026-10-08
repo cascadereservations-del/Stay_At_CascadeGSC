@@ -28,13 +28,13 @@ export const REASON = 'staff app: Add guest details';
 
 export const READ_PROMPT = `You read guest details for a small guesthouse host in the Philippines. Return JSON only:
 {"kind":"id"|"chat"|"other","name":string|null,"id_type":"passport"|"drivers_license"|"national_id"|"other"|null,"nationality":string|null,"names":[string],"phone":string|null,"email":string|null,"guests":number|null}
-- kind "id": a photo of a passport, driver's licence, national ID or other government or professional ID card. Fill "name" with the holder's full name as given names then surname, "id_type", and "nationality" when the card shows it.
+- kind "id": a photo of a passport, driver's licence, national ID or other government or professional ID card. Fill "name" with the holder's full name as given names then surname, and "id_type". Leave "nationality" null for an ID.
 - kind "chat": a conversation or a message the guest wrote. Fill "names" with the full names of the people who will stay (not the host), "phone" and "email" with what the guest typed, exactly as written, "guests" with the number of people staying when it is stated, and "nationality" only when it is stated.
 - kind "other": anything else, or not readable.
 STRICT: never output an ID, passport, licence or card number, a birth date, an address or a signature. The only digits you may output are a phone number the guest typed and the number of guests. If you are unsure, use null.`;
 
 export type Read =
-  | { kind: 'id'; name: string; idType: IdType; nationality: string | null }
+  | { kind: 'id'; name: string; idType: IdType }
   | { kind: 'chat'; names: string[]; phone: string | null; email: string | null; guests: number | null; nationality: string | null }
   | { kind: 'other' };
 
@@ -64,7 +64,7 @@ export function parseRead(raw: string): Read {
   } catch { return { kind: 'other' }; }
   if (j?.kind === 'id') {
     const name = cleanName(j.name);
-    return name ? { kind: 'id', name, idType: toIdType(j.id_type), nationality: cleanNationality(j.nationality) } : { kind: 'other' };
+    return name ? { kind: 'id', name, idType: toIdType(j.id_type) } : { kind: 'other' }; // D-291: name + ID type only from an ID
   }
   if (j?.kind === 'chat') {
     const names = [...new Set((Array.isArray(j.names) ? j.names : []).map(cleanName).filter((n: string | null): n is string => !!n))].slice(0, 12) as string[];
@@ -76,7 +76,7 @@ export function parseRead(raw: string): Read {
 
 export type OnFile = {
   guestId: string; name: string; email: string | null; phone: string | null; idOnFile: boolean; idType: string | null;
-  notes: string | null; version: number | null; companions: Array<{ id: string; name: string; hasPhoto: boolean }>;
+  version: number | null; companions: Array<{ id: string; name: string; hasPhoto: boolean }>;
 };
 export type Stay = { uid: string; guestId: string | null; guestName: string | null; checkin: string; checkout: string; source: string | null };
 export type Proposal = {
@@ -86,7 +86,8 @@ export type Proposal = {
   images: Array<'id' | 'chat' | 'other'>;
 };
 
-/** Every read for one stay merged into one proposal for the review sheet. The first value found wins; an ID's nationality beats a chat's. */
+/** Every read for one stay merged into one proposal for the review sheet. The first value found wins. Guest count and nationality
+ *  come from the guest's own text only and are shown, never saved (no safe column or write path; s77 orchestrator ruling). */
 export function propose(reads: Array<{ image: number | null; read: Read }>, g: OnFile): Proposal {
   const p: Proposal = { phone: null, email: null, guests: null, nationality: null, companions: [], ids: [], images: [] };
   const known = (n: string) => sameName(n, g.name) || g.companions.some((c) => sameName(n, c.name)) || p.companions.some((c) => sameName(n, c));
@@ -94,7 +95,6 @@ export function propose(reads: Array<{ image: number | null; read: Read }>, g: O
     if (image !== null) p.images[image] = read.kind;
     if (read.kind === 'id' && image !== null) {
       p.ids.push({ image, name: read.name, id_type: read.idType, own: sameName(read.name, g.name) });
-      if (read.nationality) p.nationality = read.nationality;
       if (!known(read.name)) p.companions.push(read.name);
     } else if (read.kind === 'chat') {
       p.phone ??= read.phone; p.email ??= read.email; p.guests ??= read.guests; p.nationality ??= read.nationality;
@@ -104,17 +104,6 @@ export function propose(reads: Array<{ image: number | null; read: Read }>, g: O
   return p;
 }
 
-/** The note line the guest card shows: "<check-in>: 3 guests | Nationality Filipino". null when there is nothing to say. */
-export function noteLine(checkin: string, guests: number | null, nationality: string | null): string | null {
-  const bits = [guests ? `${guests} guest${guests === 1 ? '' : 's'}` : '', nationality ? `Nationality ${nationality}` : ''].filter(Boolean);
-  return bits.length ? `${checkin}: ${bits.join(' | ')}` : null;
-}
-/** stay_preferences with the line appended once (' || ' is the group separator the staff card parses). */
-export function appendNote(current: string | null, line: string | null): string | null {
-  const cur = (current ?? '').trim();
-  if (!line || cur.includes(line)) return null;
-  return cur ? `${cur} || ${line}` : line;
-}
 
 export type RpcOut = { data: unknown; error: { message: string; code?: string } | null };
 export interface Ops {
@@ -208,19 +197,19 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
       return fail('read_failed', 502);
     }
   }
-  return save(body, stay, g, ops, deps);
+  return save(body, g, ops, deps);
 }
 
 type Saved = { what: string; ok: boolean; reason?: string };
 
 // deno-lint-ignore no-explicit-any
-async function save(body: any, stay: Stay, g: OnFile, ops: Ops, deps: Deps): Promise<Response> {
+async function save(body: any, g: OnFile, ops: Ops, deps: Deps): Promise<Response> {
   // Every field is checked again here: the sheet is editable, so nothing from the client is trusted as the model's clean output.
   const phone = body.phone == null || body.phone === '' ? null : cleanPhone(body.phone);
   const email = body.email == null || body.email === '' ? null : normalizeEmail(body.email);
-  const guests = body.guests == null || body.guests === '' ? null : cleanGuests(body.guests);
-  const nationality = body.nationality == null || body.nationality === '' ? null : cleanNationality(body.nationality);
-  if ((body.phone && !phone) || (body.email && !email) || (body.guests && !guests) || (body.nationality && !nationality)) return fail('bad_field', 400);
+  // Guest count and nationality are display-only in the sheet: no safe existing write path, so they are never saved (s77 ruling).
+  if (body.guests != null || body.nationality != null) return fail('not_saved_field', 400);
+  if ((body.phone && !phone) || (body.email && !email)) return fail('bad_field', 400);
   const names = Array.isArray(body.companions) ? body.companions : [];
   const ids = Array.isArray(body.ids) ? body.ids : [];
   if (names.length > 12 || ids.length > MAX_IMAGES) return fail('too_many', 400);
@@ -235,7 +224,7 @@ async function save(body: any, stay: Stay, g: OnFile, ops: Ops, deps: Deps): Pro
     if (!kind || !clean) return fail('bad_image', 400); // a file we cannot clean is never stored
     photos.push({ name, idType: toIdType(it?.id_type), bytes: clean, ext: kind.ext, mime: kind.mime });
   }
-  if (!phone && !email && !guests && !nationality && !companions.length && !photos.length) return fail('empty', 400);
+  if (!phone && !email && !companions.length && !photos.length) return fail('empty', 400);
 
   const out: Saved[] = [];
   const err = (r: RpcOut) => r.error ? (r.error.code === '42501' ? 'denied' : r.error.code === '40001' ? 'changed' : 'save_failed') : null;
@@ -277,8 +266,6 @@ async function save(body: any, stay: Stay, g: OnFile, ops: Ops, deps: Deps): Pro
   if (phone && phone !== g.phone) patch.contact_number = phone;
   if (anyPhoto && !g.idOnFile) patch.id_on_file = true;
   if (ownType) patch.id_type = ownType;
-  const notes = appendNote(g.notes, noteLine(stay.checkin, guests, nationality));
-  if (notes) patch.stay_preferences = notes;
   if (Object.keys(patch).length) {
     const r = await ops.saveProfile(g.guestId, patch, g.version);
     out.push({ what: 'profile', ok: !err(r), ...(err(r) ? { reason: err(r)! } : {}) });

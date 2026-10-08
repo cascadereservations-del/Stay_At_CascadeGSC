@@ -1,11 +1,11 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
-import { appendNote, cleanPhone, handle, noteLine, parseRead, propose, type Deps, type OnFile, type Ops, type RpcOut, type Stay } from './logic.ts';
+import { cleanPhone, handle, parseRead, propose, type Deps, type OnFile, type Ops, type RpcOut, type Stay } from './logic.ts';
 
 const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0x4a, 0x46, 0xff, 0xda, 0, 2, 1, 2, 3, 0xff, 0xd9]);
 const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
 const IMG = { base64: b64(JPEG), mime: 'image/jpeg' };
 const STAY: Stay = { uid: 'cascade-direct-x', guestId: 'g1', guestName: 'Ana Reyes', checkin: '2026-10-08', checkout: '2026-10-11', source: 'direct' };
-const GUEST: OnFile = { guestId: 'g1', name: 'Ana Maria Reyes', email: null, phone: null, idOnFile: false, idType: null, notes: 'old note', version: 3,
+const GUEST: OnFile = { guestId: 'g1', name: 'Ana Maria Reyes', email: null, phone: null, idOnFile: false, idType: null, version: 3,
   companions: [{ id: 'c-old', name: 'Ben Cruz', hasPhoto: false }] };
 
 type Rec = { profile: Array<[Record<string, unknown>, number | null]>; companions: Array<[string | null, Record<string, unknown>]>; uploads: string[]; removed: string[]; emails: string[]; reads: number; logs: string[] };
@@ -39,7 +39,7 @@ const post = (body: unknown, auth = true) => new Request('https://x.test/staff-g
 
 Deno.test('parseRead keeps a name and type from an ID and drops numbers', () => {
   assertEquals(parseRead('{"kind":"id","name":"REYES, ANA MARIA","id_type":"Passport","nationality":"FILIPINO","number":"P1234567"}'),
-    { kind: 'id', name: 'Ana Maria Reyes', idType: 'passport', nationality: 'Filipino' });
+    { kind: 'id', name: 'Ana Maria Reyes', idType: 'passport' }); // D-291: no nationality from an ID
   assertEquals(parseRead('{"kind":"id","name":"P1234567 ANA","id_type":"passport"}'), { kind: 'other' });
   assertEquals(parseRead('not json'), { kind: 'other' });
 });
@@ -52,25 +52,17 @@ Deno.test('parseRead chat: phone, email, guests; junk becomes null', () => {
   assertEquals(cleanPhone('12345'), null);
 });
 
-Deno.test('propose: own ID, new companions only, ID nationality wins', () => {
+Deno.test('propose: own ID, new companions only, nationality only from text', () => {
   const p = propose([
-    { image: 0, read: { kind: 'id', name: 'Ana Maria Reyes', idType: 'national_id', nationality: 'Filipino' } },
+    { image: 0, read: { kind: 'id', name: 'Ana Maria Reyes', idType: 'national_id' } },
     { image: 1, read: { kind: 'chat', names: ['Ana Reyes', 'Ben Cruz', 'Carla Dizon'], phone: '09171234567', email: null, guests: 3, nationality: 'Korean' } },
     { image: 2, read: { kind: 'other' } },
   ], GUEST);
   assertEquals(p.ids, [{ image: 0, name: 'Ana Maria Reyes', id_type: 'national_id', own: true }]);
   assertEquals(p.companions, ['Carla Dizon']);
-  assertEquals(p.nationality, 'Filipino');
+  assertEquals(p.nationality, 'Korean');
   assertEquals(p.images, ['id', 'chat', 'other']);
   assertEquals([p.phone, p.guests], ['09171234567', 3]);
-});
-
-Deno.test('note line appends once with the group separator', () => {
-  const l = noteLine('2026-10-08', 3, 'Filipino');
-  assertEquals(l, '2026-10-08: 3 guests | Nationality Filipino');
-  assertEquals(appendNote('old', l), 'old || 2026-10-08: 3 guests | Nationality Filipino');
-  assertEquals(appendNote(`old || ${l}`, l), null);
-  assertEquals(noteLine('2026-10-08', null, null), null);
 });
 
 Deno.test('401 without a token; 403 passes through; nothing read', async () => {
@@ -110,7 +102,7 @@ Deno.test('extract refuses too many images and a bad mime', async () => {
 
 Deno.test('save: companion, own ID photo on the exact-name row, profile patch, email fill', async () => {
   const { deps, rec } = fake();
-  const res = await handle(post({ action: 'save', uid: 'u', phone: '0917 123 4567', email: 'Ana@Mail.com', guests: 3, nationality: 'filipino',
+  const res = await handle(post({ action: 'save', uid: 'u', phone: '0917 123 4567', email: 'Ana@Mail.com',
     companions: ['Carla Dizon', 'Ben Cruz', 'Ana Reyes'], ids: [{ name: 'Ana Maria Reyes', id_type: 'passport', image: IMG }] }), deps);
   assertEquals(res.status, 200);
   // Carla created; Ben exists; Ana is the guest. Own ID: a new row named exactly as the guest record, then the photo linked.
@@ -118,7 +110,7 @@ Deno.test('save: companion, own ID photo on the exact-name row, profile patch, e
   assertEquals(rec.companions[1], [null, { name: 'Ana Maria Reyes' }]);
   assertEquals(rec.companions[2], ['c-new-2', { id_photo_path: 'c-new-2/11111111-2222-3333-4444-555555555555.jpg', id_type: 'passport' }]);
   assertEquals(rec.uploads, ['c-new-2/11111111-2222-3333-4444-555555555555.jpg']);
-  assertEquals(rec.profile, [[{ contact_number: '09171234567', id_on_file: true, id_type: 'passport', stay_preferences: 'old note || 2026-10-08: 3 guests | Nationality Filipino' }, 3]]);
+  assertEquals(rec.profile, [[{ contact_number: '09171234567', id_on_file: true, id_type: 'passport' }, 3]]);
   assertEquals(rec.emails, ['ana@mail.com']);
 });
 
@@ -142,5 +134,8 @@ Deno.test('save: edited fields are checked again; a non-image ID is never stored
   const png = { base64: btoa('not really an image at all'), mime: 'image/png' };
   assertEquals((await handle(post({ action: 'save', uid: 'u', ids: [{ name: 'Dan Lim', image: png }] }), deps)).status, 400);
   assertEquals((await handle(post({ action: 'save', uid: 'u' }), deps)).status, 400);
+  // Guest count and nationality are shown in the sheet but never saved.
+  assertEquals((await (await handle(post({ action: 'save', uid: 'u', guests: 3, phone: '09171234567' }), deps)).json()).error, 'not_saved_field');
+  assertEquals((await handle(post({ action: 'save', uid: 'u', nationality: 'Filipino' }), deps)).status, 400);
   assertEquals(rec.uploads.length + rec.companions.length + rec.profile.length, 0);
 });
