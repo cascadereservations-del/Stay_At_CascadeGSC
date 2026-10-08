@@ -35,7 +35,7 @@ SSH_BIN="${CASCADE_SSH_BIN:-}"
 if [[ -z "$SSH_BIN" ]]; then
   if [[ -x /c/Windows/System32/OpenSSH/ssh.exe ]]; then SSH_BIN=/c/Windows/System32/OpenSSH/ssh.exe; else SSH_BIN=ssh; fi
 fi
-rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 "$SSH_HOST" "$@"; }
+rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 "$SSH_HOST" "$@"; }
 
 for t in openssl sha256sum node; do command -v "$t" >/dev/null || { echo "$t is required" >&2; exit 2; }; done
 [[ -f "$SET_DIR/COMPLETE" && ! -e "$SET_DIR/INCOMPLETE" ]] || { echo 'backup set is not COMPLETE' >&2; exit 2; }

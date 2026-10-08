@@ -25,7 +25,7 @@ SSH_BIN="${CASCADE_SSH_BIN:-}"
 if [[ -z "$SSH_BIN" ]]; then
   if [[ -x /c/Windows/System32/OpenSSH/ssh.exe ]]; then SSH_BIN=/c/Windows/System32/OpenSSH/ssh.exe; else SSH_BIN=ssh; fi
 fi
-rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 "$SSH_HOST" "$@"; }
+rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 "$SSH_HOST" "$@"; }
 
 command -v node >/dev/null || { echo 'node is required' >&2; exit 2; }
 [[ -s "$URL_FILE" ]] || { echo 'connection URL file is missing or empty' >&2; exit 2; }
@@ -52,7 +52,7 @@ NODE
 
 suffix="$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 remote_tmp="/opt/cascade/.sql-run-$suffix"
-cleanup() { set +e; rssh "rm -rf $remote_tmp"; }
+cleanup() { set +e; MSYS_NO_PATHCONV=1 timeout 30 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 "$SSH_HOST" "rm -rf $remote_tmp"; }
 trap cleanup EXIT
 
 rssh "docker image inspect $PG_IMAGE_ID >/dev/null" || { echo 'pinned postgres image missing on the host' >&2; exit 3; }
