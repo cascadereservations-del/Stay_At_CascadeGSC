@@ -95,7 +95,7 @@ Deno.test('Hold and send: one named RPC call, the held line to Messenger, an aud
   assertEquals([log.args.p_purpose, log.args.p_channel, log.args.p_delivered, log.args.p_idempotency_key, log.args.p_actor_name], ['hold', 'messenger', true, `tg-inquiry-msg:hold:${ID}`, 'Lloyd']);
   const e = r.edits.at(-1)!;
   assertStringIncludes(e.text, '✅ Held for Ana until Tue 6 Oct, 9:15 am, by Lloyd at 9:15 am. Sent to Ana on Messenger.');
-  assertEquals(btns(e.rm).filter((x: string) => x.startsWith('iq:')), [IQ.dec(ID), IQ.draft(ID)]); // Hold drops off once held
+  assertEquals(btns(e.rm).filter((x: string) => x.startsWith('iq:')), [IQ.dec(ID), IQ.paid(ID), IQ.draft(ID)]); // Hold drops off once held; SPEC-44 Paid stays
   const ops = r.sent.find((s) => String(s.chatId) === OPS)!;
   assertStringIncludes(ops.text, "Ana's dates, Nov 30 to Dec 4, are held until Tue 6 Oct, 9:15 am (Lloyd)");
   assert(!ops.text.includes('₱') && !ops.text.includes('0917'));

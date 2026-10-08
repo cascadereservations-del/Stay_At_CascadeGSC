@@ -163,7 +163,7 @@ export function opsCard(v: InquiryView, x: CardExtra = {}): string {
 /** Why a card whose request is no longer open cannot be acted on. null while it is still open. */
 export function staleReason(v: InquiryView | null): string | null {
   if (!v) return 'That request no longer exists.';
-  if (v.has_receipt && v.status === 'pending') return 'A receipt arrived for this request. Decide on the receipt card (🧾), not here.';
+  if (v.has_receipt && v.status === 'pending') return 'A receipt came in - confirm it on the receipt card above.'; // SPEC-44: the receipt card's Confirm is the one-tap path
   if (v.status === 'pending') return null;
   const why: Record<string, string> = {
     cancelled: 'This request was cancelled, so there is nothing to decide.',
@@ -176,7 +176,7 @@ export function staleReason(v: InquiryView | null): string | null {
 // ---- callbacks (≤ 64 bytes each) ----
 
 export type IqTap =
-  | { kind: 'hold' | 'holdok' | 'dec' | 'draft' | 'back'; id: string }
+  | { kind: 'hold' | 'holdok' | 'dec' | 'draft' | 'back' | 'paid'; id: string }
   | { kind: 'dr' | 'dx'; code: DeclineCode; id: string }
   | { kind: 'send' | 'drop'; id: string };
 
@@ -184,23 +184,25 @@ export const IQ = {
   hold: (id: string) => `iq:hold:${id}`, holdok: (id: string) => `iq:holdok:${id}`, dec: (id: string) => `iq:dec:${id}`,
   dr: (code: DeclineCode, id: string) => `iq:dr:${code}:${id}`, dx: (code: DeclineCode, id: string) => `iq:dx:${code}:${id}`,
   draft: (id: string) => `iq:draft:${id}`, send: (pid: string) => `iq:send:${pid}`, drop: (pid: string) => `iq:drop:${pid}`, back: (id: string) => `iq:back:${id}`,
+  paid: (id: string) => `iq:paid:${id}`, // SPEC-44
 };
 
 /** Every callback_data above, read back. null for anything malformed or with a non-uuid id. */
 export function parseIqTap(data: unknown): IqTap | null {
   const p = String(data ?? '').split(':');
   if (p[0] !== 'iq') return null;
-  if (p.length === 3 && ['hold', 'holdok', 'dec', 'draft', 'back', 'send', 'drop'].includes(p[1]) && isUuid(p[2])) return { kind: p[1] as 'hold', id: p[2] };
+  if (p.length === 3 && ['hold', 'holdok', 'dec', 'draft', 'back', 'send', 'drop', 'paid'].includes(p[1]) && isUuid(p[2])) return { kind: p[1] as 'hold', id: p[2] };
   if (p.length === 4 && (p[1] === 'dr' || p[1] === 'dx') && isDeclineCode(p[2]) && isUuid(p[3])) return { kind: p[1], code: p[2] as DeclineCode, id: p[3] };
   return null;
 }
 
 type Rows = Btn[][];
-/** The card's buttons. Finance: Hold / Decline (Hold drops once held) and Cassy reply when there is a message to answer.
- *  OPS: only the Cassy reply. */
+/** The card's buttons. Finance: Hold / Decline (Hold drops once held), ✅ Paid – confirm (SPEC-44) and Cassy reply when there is
+ *  a message to answer. OPS: only the Cassy reply. */
 export function inquiryKeyboard(v: Pick<InquiryView, 'id'>, surface: Surface, o: { hasMessage: boolean; state?: 'open' | 'held' }): Rows {
   const rows: Rows = [];
   if (surface === 'finance') rows.push(o.state === 'held' ? [{ text: '❌ Decline', callback_data: IQ.dec(v.id) }] : [{ text: `✅ Hold ${HOLD_HOURS} h`, callback_data: IQ.hold(v.id) }, { text: '❌ Decline', callback_data: IQ.dec(v.id) }]);
+  if (surface === 'finance') rows.push([{ text: PAID_BUTTON, callback_data: IQ.paid(v.id) }]);
   if (o.hasMessage) rows.push([{ text: '✍️ Cassy reply', callback_data: IQ.draft(v.id) }]);
   return rows;
 }
@@ -251,6 +253,74 @@ export const ALREADY_SENT = 'That reply was already sent or has expired. Nothing
 export const OPS_MONEY_REFUSED = 'This reply mentions amounts, so it is sent from Finance. Nothing was sent.';
 export const NO_REQUESTS = 'No booking requests are waiting for payment.';
 export const REASON_PROMPT = 'In a few words, why? Only Cassy reads this; the guest never sees your words.';
+
+// ---- SPEC-44: one-tap confirm (✅ Paid – confirm on the request card, Confirm on the receipt card) ----
+// Both call telegram_confirm_direct_booking_v1, which maps the tapper to a staff profile, records the review, decides the booking and
+// sends the guest's confirmation (guest-messages, tapped). Reference and amount appear only in the Finance chat (D-306).
+
+export const CONFIRM_RPC = 'telegram_confirm_direct_booking_v1';
+export const PAID_BUTTON = '✅ Paid – confirm';
+/** The line a Messenger "bayad na po" puts on top of a re-posted Finance request card. */
+export const PAID_BUMP = '💸 Guest says they paid - check GCash, then ✅ Paid – confirm.';
+/** What the engine expects, as the SQL does it: the deposit when above zero, else the total. null when neither is known. */
+export function expectedOf(v: Pick<InquiryView, 'deposit_amount' | 'total_amount'>): number | null {
+  for (const x of [v.deposit_amount, v.total_amount]) if (x !== null && x !== undefined && Number(x) > 0) return Number(x);
+  return null;
+}
+export function paidPrompt(v: Pick<InquiryView, 'guest_name'>, expected: number | null): string {
+  return `${firstName(v.guest_name) || 'The guest'}: how was it paid? Reply with the GCash reference and amount, e.g. 1234567890123 5073 - or cash 5073 - or bank <ref> 5073. `
+    + (expected ? `Amount can be left out if it is exactly ${peso(expected)}.` : 'Include the amount received.') + ' This question closes in 10 minutes.';
+}
+export const PAID_AGAIN = 'Reply to the question again with a GCash reference and amount (1234567890123 5073), cash 5073, or bank <ref> 5073; nothing was confirmed.';
+
+export type PaidReply = { method: 'messenger_gcash' | 'cash' | 'bank'; reference: string | null; amount: number | null };
+/** `5073`, `5,073`, `₱5073.50`; NaN for anything else (0 included); null when absent. */
+const amountTok = (s: string | undefined): number | null => {
+  if (s === undefined) return null;
+  const x = s.replace(/^₱/, '').replace(/,(?=\d{3}(\D|$))/g, '');
+  return /^\d+(\.\d{1,2})?$/.test(x) && Number(x) > 0 ? Number(x) : NaN;
+};
+/** Strict: `<10-16 digits> [amount]` (GCash), `cash <amount>`, `bank <ref> [amount]`. Anything else is null and the question stays open. */
+export function parsePaidReply(text: unknown): PaidReply | null {
+  const t = String(text ?? '').trim().split(/\s+/).filter(Boolean);
+  const ok = (r: PaidReply) => (Number.isNaN(r.amount) ? null : r);
+  const kw = (t[0] ?? '').toLowerCase();
+  if ((t.length === 1 || t.length === 2) && /^\d{10,16}$/.test(t[0])) return ok({ method: 'messenger_gcash', reference: t[0], amount: amountTok(t[1]) });
+  if (kw === 'cash' && t.length === 2) { const a = amountTok(t[1]); return a === null ? null : ok({ method: 'cash', reference: null, amount: a }); }
+  if (kw === 'bank' && (t.length === 2 || t.length === 3) && /^[A-Za-z0-9-]{4,40}$/.test(t[1]) && t[1].replace(/-/g, '').length >= 4) return ok({ method: 'bank', reference: t[1], amount: amountTok(t[2]) });
+  return null;
+}
+/** `…0123`: the card never shows a whole reference. */
+export const maskRef = (ref: string | null | undefined): string => `…${String(ref ?? '').replace(/[^A-Za-z0-9]/g, '').slice(-4)}`;
+/** A receipt uploaded for a Messenger request was a GCash send to the number; a site request paid by the QR. */
+export const receiptMethod = (notes: string | null | undefined): 'messenger_gcash' | 'gcash_qr' => (viaOf(notes) === 'Messenger' ? 'messenger_gcash' : 'gcash_qr');
+export const confirmedLine = (by: string, method: string, ref: string | null | undefined) =>
+  `✅ Confirmed by ${by} · ${method === 'cash' || !ref ? 'cash' : `ref ${maskRef(ref)}`}. The booking is confirmed, the calendar is updated and the guest is sent the confirmation.`;
+/** The OPS line, unchanged from the receipt-card days: no reference, no amount. */
+export const opsConfirmedLine = (bookingId: string, by: string) =>
+  `🏠 CONFIRMED · Direct ${String(bookingId).slice(0, 8).toUpperCase()}\n\nDirect booking confirmed by ${by}. Calendar is updated; turnover follows the usual schedule.`;
+const ADMIN = 'the Inquiries page in the admin';
+/** Every outcome but confirmed, as one plain line. `keep`: the receipt card keeps its buttons for another try or another person. */
+// deno-lint-ignore no-explicit-any
+export function confirmRefusal(r: any, by: string, where: 'request' | 'receipt'): { line: string; keep: boolean } {
+  const k = String(r?.outcome ?? r?.reason ?? '');
+  const again = where === 'request' ? ` Tap ${PAID_BUTTON} to try again.` : '';
+  switch (k) {
+    case 'conflict': return { line: '⚠️ Those dates are no longer free (another booking or hold overlaps), so the booking was not confirmed.', keep: false };
+    case 'invalid_state': return { line: 'ℹ️ This request is no longer waiting for payment, so nothing was confirmed.', keep: false };
+    case 'reference_reused': return { line: `⚠️ That reference was already used on booking ${r?.prior_ref || 'another booking'}, so nothing was confirmed. Check the GCash history before going further.`, keep: true };
+    case 'not_linked': return { line: `⛔ ${by}, your Telegram account is not linked to a staff profile, so nothing was confirmed. Ask Lloyd to map it, or confirm from ${ADMIN}.`, keep: true };
+    case 'denied': return { line: `⛔ ${by} is not allowed to approve payments, so nothing was confirmed.`, keep: true };
+    case 'amount_required': return where === 'receipt'
+      ? { line: `⚠️ No amount was read from this receipt, so it cannot be confirmed here. Confirm it from ${ADMIN}, where you type the amount.`, keep: true }
+      : { line: `⚠️ The amount received is needed, like cash 5073, so nothing was confirmed.${again}`, keep: true };
+    case 'reference_required': return where === 'receipt'
+      ? { line: `⚠️ No reference number was read from this receipt, so it cannot be confirmed here. Confirm it from ${ADMIN}, where you type the reference.`, keep: true }
+      : { line: `⚠️ A reference number is needed unless it was cash, so nothing was confirmed.${again}`, keep: true };
+    case 'note_required': return { line: `⚠️ A cash payment needs a note of who saw the money, so nothing was confirmed.${again}`, keep: true };
+    default: return { line: `⚠️ The booking was not confirmed (${k || 'no answer'}).${again}`, keep: true };
+  }
+}
 
 // ---- guest lines (fixed; en / tl / bis) ----
 

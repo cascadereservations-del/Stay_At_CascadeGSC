@@ -27,6 +27,8 @@ export type Flow = {
   receipt_token?: string; receipt_expires_at?: string; started_at: string; updated_at: string;
   /** SPEC-31 s3: a photo reached us outside the upload (lapsed hold, second photo); the host matches it by hand. */
   photo_at?: string;
+  /** SPEC-44: when a paid claim last re-posted Finance's request card (once an hour per booking). */
+  paid_bump_at?: string;
   /** Live 2026-09-26 (Suzanne): the nearest open window we offered after a reserved line; a plain yes takes it. */
   alt?: Window;
   /** Live 2026-09-28 (Suzanne, Lloyd: "convert the guest in the optimal number of responses"): the guest already said yes
@@ -41,6 +43,9 @@ export type Flow = {
 };
 
 export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i-?book|mag-?reserve|hold (the|my|our) dates|arrange (it|the booking)|(do|settle) it here|here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i; // session 30: invitations now offer the chat route, so its natural answers start the flow
+/** SPEC-44: "bayad na po", "sent na", "I transferred it" - a claim, not a question ("paano mag-transfer?", "nabayaran na ba?"). */
+export const paidClaim = (t: string): boolean =>
+  /\b(paid|sent|bayad|nabayaran|transfer(?:red)?)\b/i.test(t) && !/\?|^\s*(how|where|when|what|can|could|should|is|did|pwede|puwede|paano|pano|saan|kailan|unsaon|asa|unsa)\b/i.test(t);
 export const CANCEL_RE = /\b(cancel|stop|wag na|huwag|never ?mind|nevermind|not now|forget it|change of plans|di na tuloy|hindi na tuloy|dili na|wag na lang)\b/i;
 const YES_RE = /^\s*(yes|yes po|oo|oo po|sige|sige po|go|confirm|confirmed|ok|okay|okay po|ok po|proceed|tama|correct|yup|yep|y)\s*[.!]*\s*$/i;
 const SKIP_RE = /^\s*(skip|wala|none|no email|no)\s*[.!]*\s*$/i;

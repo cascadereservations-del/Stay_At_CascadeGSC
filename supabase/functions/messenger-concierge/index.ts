@@ -17,7 +17,7 @@ import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { AVAIL_WORD_RE, BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { AVAIL_WORD_RE, BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaim, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
 import { addTurnoverNotice, dedupeAvailability, dropPassingRange, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
@@ -31,6 +31,7 @@ import { chatJson, geminiBreaker, probeScope, probeTotals, setProviderKey } from
 // Session 26 (2026-09-16, Telegram plan §5/§6): OPS cards open with 💬 GUEST; a complaint or safety
 // handoff also raises a work order (guest_report) so the Today page sees it, not just this chat.
 import { withHeader } from '../_shared/cascade-core/format.ts';
+import { cardMarkup, financeCard, type InquiryView, PAID_BUMP, staleReason, viaOf } from '../_shared/cascade-core/inquiry.ts'; // SPEC-44: the paid-claim bump
 import { maskMoney } from '../_shared/ops-money.ts'; // OPS never shows guest money (Lloyd 2026-10-02); the guest text and the sent options stay whole
 import { raiseWorkOrder } from '../_shared/cascade-core/workorders.ts';
 
@@ -814,7 +815,23 @@ type Effects = {
   /** SPEC-39 3.6b: a change after the hold reaches the booking row ("full" -> deposit_amount; a corrected count or contact). */
   amend(db: Db, flow: Flow, fields: Record<string, unknown>): Promise<boolean>;
   name(psid: string): Promise<string | null>;
+  /** SPEC-44: re-post Finance's request card with the paid-claim line on top. true when it went out. */
+  bump(db: Db, bookingId: string, said: string): Promise<boolean>;
 };
+/** SPEC-44: the guest says they paid and no receipt is in. Finance gets the request card again (Paid – confirm on it), with the
+ *  claim on top; nothing when the request is no longer open or already has a receipt (staleReason). The card id is not stored, so
+ *  this is a fresh post rather than an edit. */
+async function bumpRequestCard(db: Db, bookingId: string, said: string): Promise<boolean> {
+  const chat = env('TELEGRAM_FINANCE_CHAT_ID'); if (!chat) return false;
+  const { data, error } = await db.rpc('telegram_inquiry_view_v1', { p_booking_id: bookingId });
+  if (error) { console.error('paid_bump_view', String(error.message ?? error).slice(0, 160)); return false; }
+  const v = ((Array.isArray(data) ? data[0] : null) ?? null) as InquiryView | null;
+  if (!v || staleReason(v)) return false;
+  const text = `${PAID_BUMP}\n\n${financeCard(v, { lastMessage: said ? said.replace(/\s+/g, ' ').slice(0, 160) : null, via: viaOf(v.notes) })}`;
+  const sent = await tgCall('sendMessage', { chat_id: chat, text, disable_web_page_preview: true, reply_markup: cardMarkup(v, 'finance', text, v.held_at ? 'held' : 'open') });
+  if (!sent?.ok) console.error('paid_bump_send', String(sent?.description ?? 'no answer').slice(0, 160));
+  return !!sent?.ok;
+}
 const liveEffects: Effects = {
   send: async (psid, text, chips) => { await fbSend(psid, text, false, chips ?? []); },
   // session 28: the QR carries the chosen amount (QR Ph tag 54); the static site QR is the fallback
@@ -824,7 +841,7 @@ const liveEffects: Effects = {
     catch (e) { console.error('qr_amount_failed', String(e).slice(0, 200)); }
     if (!sent) await fbSendImage(psid, fallbackUrl);
   },
-  ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName,
+  ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName, bump: bumpRequestCard,
   // booking_inquiries is submit-booking's table; only a request still pending is touched.
   // No row updated (not pending any more, wrong id) is a failure too, so requote_full_failed / correction_after_hold_failed log.
   amend: async (db, flow, fields) => {
@@ -852,6 +869,7 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
     amend: (_db, flow, fields) => { calls.push({ fx: 'amend', detail: { booking: flow.booking_id, ...fields } }); return Promise.resolve(true); },
     receipt: (flow, _url, name) => { calls.push({ fx: 'receipt' }); return Promise.resolve({ sent: true, reply: receiptThanks(name, flow.lang) }); },
     name: () => Promise.resolve(guestName),
+    bump: (_db, bookingId, said) => { calls.push({ fx: 'bump', text: said, detail: { booking: bookingId } }); return Promise.resolve(true); },
   };
 }
 
@@ -1025,6 +1043,13 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   let card: { risk: RiskCode; note: string; anyWording: boolean } | null = null;
   const uploadOpen = flow?.step === 'await_receipt' && !(flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < now.getTime());
   const guestSaid = thread.history.filter((h) => h.role === 'guest').slice(-6).map((h) => h.text).join(' ');
+  // SPEC-44: at await_receipt a file that is not a photo, or "bayad na po" (a claim, not a question), brings Finance's request card
+  // back with Paid – confirm. Once an hour per booking (paid_bump_at). No new guest line (SPEC-31 s2's stays), and a D-317 host
+  // hold still bumps: Finance checks the money whoever is talking to the guest.
+  const fileSent = !attachment && (msg.attachments ?? []).some((a: any) => a?.type && a.type !== 'image');
+  if (mode !== 'off' && flow?.step === 'await_receipt' && flow.booking_id && (fileSent || paidClaim(text))
+      && !(flow.paid_bump_at && now.getTime() - Date.parse(flow.paid_bump_at) < 3_600_000)
+      && await fx.bump(db, flow.booking_id, text)) flow = { ...flow, paid_bump_at: now.toISOString() };
   if (g.reply && uploadOpen && attachment && !attachment.payload?.sticker_id) {
     const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name);
     flowReply = r.reply; if (r.sent) flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() };

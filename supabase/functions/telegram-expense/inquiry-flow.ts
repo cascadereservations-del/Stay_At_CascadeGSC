@@ -5,9 +5,10 @@
 // are in these cards. Every Telegram and database call is injected (Deps) so the whole flow runs in inquiry-flow.test.ts.
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import {
-  ALREADY_SENT, asLang, cardMarkup, channelName, channelPlan, type CardExtra, declineKeyboard, type DeclineCode, declineLine, declinedResult, DECLINE_LABELS, declinePreview, declinePreviewKeyboard,
+  ALREADY_SENT, asLang, cardMarkup, channelName, channelPlan, type CardExtra, CONFIRM_RPC, confirmedLine, confirmRefusal, declineKeyboard, type DeclineCode, declineLine, declinedResult, DECLINE_LABELS, declinePreview, declinePreviewKeyboard,
   financeCard, firstName, fmtClock, fmtUntil, guestTextSince, heldLine, heldResult, HOLD_HOURS, holdPreview, holdPreviewKeyboard, type InquiryView, joinMessage, lastGuestAt, NO_REQUESTS,
   opsCard, OPS_MONEY_REFUSED, opsDeclinedLine, opsHeldLine, parseIqTap, REASON_PROMPT, sentLine, siteNotes, staleReason, viaOf,
+  expectedOf, isUuid, opsConfirmedLine, paidPrompt, type PaidReply, receiptMethod,
 } from '../_shared/cascade-core/inquiry.ts';
 import { hasMoney } from '../_shared/ops-money.ts';
 import { type Delivery, sendAndLog, type SendIO } from './inquiry-send.ts';
@@ -20,12 +21,16 @@ export type Deps = {
   send: (chatId: any, text: string, extra?: Record<string, unknown>) => Promise<any>;
   // deno-lint-ignore no-explicit-any
   edit: (chatId: any, mid: number, text: string, rm?: unknown) => Promise<any>;
+  /** a photo card's caption (the receipt card); the receipt card is a text message when its caption was too long */
+  // deno-lint-ignore no-explicit-any
+  editCaption: (chatId: any, mid: number, caption: string, rm?: unknown) => Promise<any>;
   answer: (cbId: string, text?: string) => Promise<unknown>;
   /** hand a synthetic Telegram update to telegram-cassy; false when it could not be reached */
   forward: (update: unknown) => Promise<boolean>;
-  /** SPEC-16: ask one person one question (a telegram_pending awaiting_reply row, then the prompt with Cancel) */
+  /** SPEC-16: ask one person one question (a telegram_pending awaiting_reply row, then the prompt with Cancel).
+   *  SPEC-44 inquiry_paid: the prompt is a force_reply (10 minutes) and only a reply to it counts. */
   // deno-lint-ignore no-explicit-any
-  ask: (chatId: any, fromId: unknown, flow: 'inquiry_reason', refs: Record<string, unknown>, text: string) => Promise<void>;
+  ask: (chatId: any, fromId: unknown, flow: 'inquiry_reason' | 'inquiry_paid', refs: Record<string, unknown>, text: string) => Promise<void>;
   io: SendIO;
   now: () => number;
   /** Finance only: today's rate-card total for the request's dates, or null */
@@ -115,6 +120,12 @@ export async function onIqTap(d: Deps, cq: any): Promise<void> {
   const orig = stripPreview(text);
 
   if (tap.kind === 'back') { await d.edit(chatId, mid, orig, rm(v, orig, heldState(v))); return; }
+  if (tap.kind === 'paid') {
+    // SPEC-44: one question to the tapper; the card stays as it is until the answer confirms.
+    const expected = expectedOf(v);
+    await d.ask(chatId, cq.from?.id, 'inquiry_paid', { booking_id: v.id, card_mid: mid, card_text: orig, expected }, paidPrompt(v, expected));
+    return;
+  }
   if (tap.kind === 'hold') {
     const { lang, plan } = await planFor(d, v);
     const until = new Date(Math.max(d.now() + HOLD_HOURS * 3_600_000, Date.parse(v.hold_expires_at ?? '') || 0)).toISOString(); // the RPC keeps a later site hold, so the preview must name the same time
@@ -212,6 +223,55 @@ export async function onInquiryReason(d: Deps, msg: any, p: { booking_id?: strin
   if (!p.booking_id) { await d.send(chatId, '⚠️ That question lost its request, so nothing was drafted.'); return; }
   const ok = await d.forward({ update_id: Number(msg.message_id) || d.now(), message: { message_id: p.card_mid ?? msg.message_id, date: Math.floor(d.now() / 1000), chat: msg.chat, from: msg.from, text: `cassy inquiry: decline ${p.booking_id} ||| ${reason}` } });
   await d.send(chatId, ok ? '✍️ Cassy is writing the message. Nothing is declined or sent until you tap Decline and send on her draft.' : '⚠️ Cassy could not be reached, so nothing was drafted or declined. Tap Decline and Other again in a minute.', { reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+}
+
+// ---- SPEC-44: confirm on the one-tap RPC ----
+
+const NOT_ON_CONFIRM = '⚠️ One-tap confirm is not switched on yet (database update pending). Nothing was confirmed; use the Inquiries page in the admin.';
+
+/** The reply to the Paid – confirm prompt, already parsed (flow inquiry_paid; index.ts consumed the question). `pid` is that question's
+ *  row: the idempotency key, so a retried update cannot confirm twice. Ref and amount stay in Finance; OPS gets the usual line. */
+// deno-lint-ignore no-explicit-any
+export async function onInquiryPaid(d: Deps, msg: any, p: { booking_id?: string; card_mid?: number; card_text?: string; expected?: number | null }, a: PaidReply, pid: string): Promise<void> {
+  const chatId = msg.chat?.id, by = who(msg.from);
+  const reply = (t: string) => d.send(chatId, t, { reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+  if (!isUuid(p.booking_id)) { await reply('⚠️ That question lost its request, so nothing was confirmed.'); return; }
+  const amount = a.amount ?? (Number(p.expected) > 0 ? Number(p.expected) : null);
+  if (amount === null) { await reply(confirmRefusal({ outcome: 'amount_required' }, by, 'request').line); return; }
+  const { data: r, error } = await d.db.rpc(CONFIRM_RPC, {
+    p_telegram_user_id: msg.from?.id ?? null, p_booking_id: p.booking_id, p_method: a.method, p_reference: a.reference, p_amount: amount,
+    p_note: a.method === 'cash' ? `cash seen by ${by}` : null, p_comparison_id: null, p_idempotency_key: `tg-paid:${pid}`,
+  });
+  if (error) { await reply(missing(error) ? NOT_ON_CONFIRM : `⚠️ ${String(error.message).slice(0, 140)}. Nothing was confirmed.`); return; }
+  if (!r?.ok || r.outcome !== 'confirmed') { await reply(confirmRefusal(r, by, 'request').line); return; }
+  if (p.card_mid) await d.edit(chatId, Number(p.card_mid), `${stripPreview(String(p.card_text ?? '')) || '📬 BOOKING · Request'}\n\n${confirmedLine(by, a.method, a.reference)}`);
+  await reply('✅ Confirmed. The request card above is updated.');
+  if (d.opsChat) await d.send(d.opsChat, opsConfirmedLine(p.booking_id, by));
+}
+
+/** The receipt card's ✅ Confirm booking (bk_ok:<comparison id>): the one-tap RPC with that comparison, the method from where the
+ *  request came from, and the reference and amount the receipt read gave. The card is a photo caption, or text when it was long. */
+// deno-lint-ignore no-explicit-any
+export async function onReceiptConfirm(d: Deps, cq: any, cmpId: string): Promise<void> {
+  const chatId = cq.message?.chat?.id, mid = cq.message?.message_id, by = who(cq.from);
+  const isCaption = typeof cq.message?.caption === 'string';
+  const body = String(cq.message?.caption ?? cq.message?.text ?? '');
+  const put = (line: string, keep: boolean) => (isCaption ? d.editCaption : d.edit)(chatId, mid, `${body}\n\n${line}`, keep ? cq.message?.reply_markup : undefined);
+  if (!isUuid(cmpId)) { await put('⚠️ That button is not valid. Nothing changed.', false); return; }
+  const { data: cmp } = await d.db.from('payment_evidence_comparisons').select('booking_id,evidence_candidate_ids').eq('id', cmpId).maybeSingle();
+  if (!cmp?.booking_id) { await put(`⚠️ That receipt check is no longer on file, so nothing was confirmed. Confirm it from the Inquiries page in the admin.`, false); return; }
+  const cid = (cmp.evidence_candidate_ids ?? [])[0];
+  const { data: cand } = cid ? await d.db.from('payment_evidence_candidates').select('normalized_amount,normalized_reference').eq('id', cid).maybeSingle() : { data: null };
+  const { data: bk } = await d.db.from('booking_inquiries').select('notes').eq('id', cmp.booking_id).maybeSingle();
+  const method = receiptMethod(bk?.notes), ref = cand?.normalized_reference ?? null;
+  const { data: r, error } = await d.db.rpc(CONFIRM_RPC, {
+    p_telegram_user_id: cq.from?.id ?? null, p_booking_id: cmp.booking_id, p_method: method, p_reference: ref,
+    p_amount: cand?.normalized_amount != null ? Number(cand.normalized_amount) : null, p_note: null, p_comparison_id: cmpId, p_idempotency_key: `tg-receipt:${cmpId}`,
+  });
+  if (error) { await put(missing(error) ? NOT_ON_CONFIRM : `⚠️ ${String(error.message).slice(0, 140)}. Nothing was confirmed.`, true); return; }
+  if (!r?.ok || r.outcome !== 'confirmed') { const f = confirmRefusal(r, by, 'receipt'); await put(f.line, f.keep); return; }
+  await put(confirmedLine(by, method, ref), false);
+  if (d.opsChat) await d.send(d.opsChat, opsConfirmedLine(String(cmp.booking_id), by));
 }
 
 /** A pending row, deleted and returned in one call: one winner. null when gone, expired, the wrong kind or from another chat. */

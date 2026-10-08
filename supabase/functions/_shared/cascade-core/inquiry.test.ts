@@ -93,14 +93,14 @@ Deno.test('financeCard: money, contact, timer and the no-timer line; the rate ca
   assert(!financeCard(view({ total_amount: null, deposit_amount: null })).includes('₱'));
 });
 
-Deno.test('keyboards: Finance has hold / dec / draft, OPS only draft, no message means no draft button; every callback ≤ 64 bytes', () => {
+Deno.test('keyboards: Finance has hold / dec / paid / draft, OPS only draft, no message means no draft button; every callback ≤ 64 bytes', () => {
   const fin = inquiryKeyboard(view(), 'finance', { hasMessage: true }).flat().map((b) => b.callback_data!);
-  assertEquals(fin, [IQ.hold(ID), IQ.dec(ID), IQ.draft(ID)]);
+  assertEquals(fin, [IQ.hold(ID), IQ.dec(ID), IQ.paid(ID), IQ.draft(ID)]); // SPEC-44: Paid – confirm, Finance only
   const ops = inquiryKeyboard(view(), 'ops', { hasMessage: true }).flat().map((b) => b.callback_data!);
   assertEquals(ops, [IQ.draft(ID)]);
   assertEquals(inquiryKeyboard(view(), 'ops', { hasMessage: false }), []);
-  assertEquals(inquiryKeyboard(view(), 'finance', { hasMessage: false }).flat().map((b) => b.callback_data!), [IQ.hold(ID), IQ.dec(ID)]);
-  assertEquals(inquiryKeyboard(view(), 'finance', { hasMessage: true, state: 'held' }).flat().map((b) => b.callback_data!), [IQ.dec(ID), IQ.draft(ID)]);
+  assertEquals(inquiryKeyboard(view(), 'finance', { hasMessage: false }).flat().map((b) => b.callback_data!), [IQ.hold(ID), IQ.dec(ID), IQ.paid(ID)]);
+  assertEquals(inquiryKeyboard(view(), 'finance', { hasMessage: true, state: 'held' }).flat().map((b) => b.callback_data!), [IQ.dec(ID), IQ.paid(ID), IQ.draft(ID)]);
   const all = [
     ...inquiryKeyboard(view(), 'finance', { hasMessage: true }), ...holdPreviewKeyboard(ID), ...declineKeyboard(ID),
     ...DECLINE_CODES.flatMap((c) => declinePreviewKeyboard(c, ID)),

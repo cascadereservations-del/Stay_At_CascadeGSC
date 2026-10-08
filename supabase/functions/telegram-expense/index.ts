@@ -35,7 +35,8 @@ import { feederFor, parseBrownoutReply, parseNoticeArgs, resolveDateOn } from '.
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
 import { type FeeResult, feeResultOf, payDay, rateNote } from '../_shared/cleaning-fee.ts'; // D-301: no guessed 500, Manila pay day
 import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
-import { onInquiryReason, onIqTap, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet
+import { onInquiryPaid, onInquiryReason, onIqTap, onReceiptConfirm, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet; SPEC-44: Paid – confirm and the receipt Confirm
+import { parsePaidReply } from '../_shared/cascade-core/inquiry.ts';
 import { liveSendIO } from './inquiry-send.ts';
 import { parseReason, noticeTitle } from './reply.ts'; // noticeTitle: D-306, OPS notice titles are masked
 import { overTotalWarning, parseDirRef, refundCard, refundGate, type Payer } from './refund.ts'; // SPEC-42 9a: a refund goes only to the account that paid
@@ -43,7 +44,7 @@ import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
-import { ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
+import { answersOpen, ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
 
 const SUPABASE_URL    = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE    = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -216,9 +217,10 @@ const iqDeps=(db:any):IqDeps=>({
   db,financeChat:FINANCE_CHAT,opsChat:OPS_CHAT,
   send:(c,t,x={})=>tgCall('sendMessage',{chat_id:c,text:t,disable_web_page_preview:true,...x}),
   edit:(c,mid,t,rm)=>tgCall('editMessageText',{chat_id:c,message_id:mid,text:t.length>4000?t.slice(0,3999)+'\u2026':t,disable_web_page_preview:true,reply_markup:rm??{inline_keyboard:[]}}),
+  editCaption:(c,mid,t,rm)=>tgEditCaption(c,mid,t,rm),
   answer:tgAnswerCB,
   forward:async(u)=>{const r=await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(u),signal:AbortSignal.timeout(20_000)}).catch(e=>{console.error('cassy inquiry forward failed:',String(e));return null;});return !!r&&r.ok;},
-  ask:(chatId,fromId,flow,refs,text)=>ask(db,chatId,fromId,flow,refs,text),
+  ask:(chatId,fromId,flow,refs,text)=>flow==='inquiry_paid'?askReply(db,chatId,fromId,flow,refs,text,'1234567890123 5073'):ask(db,chatId,fromId,flow,refs,text),
   io:liveSendIO(db,fbSendText,(k:string)=>Deno.env.get(k)??'',issueReceiptUploadToken),
   now:()=>Date.now(),
   rateToday:async(v)=>{const q=quote(await loadCard(db),v.checkin_date,v.checkout_date);return Number.isFinite(q.total)?q.total:null;},
@@ -721,6 +723,16 @@ async function ask(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string
   const r=await tgSend(chatId,text,{reply_markup:{inline_keyboard:[[...buttons,{text:'❌ Cancel',callback_data:`x:${pid}`}]]}});
   const mid=r?.result?.message_id;
   if(mid)await db.from('telegram_pending').update({payload:{flow,from_id:fromId,...refs,prompt_mid:mid}}).eq('id',pid);
+}
+/** SPEC-44: a question only a reply answers. Telegram allows one reply_markup, so the prompt is a force_reply with no Cancel button;
+ *  the row lapses after 10 minutes. Plain text: the prompt carries <ref>. */
+async function askReply(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<string,unknown>,text:string,placeholder:string){
+  const pid=fromId==null?'':await awaiting(db,chatId,fromId,flow,refs,10);
+  if(!pid){await tgSend(chatId,'⚠️ Could not open that question, so nothing was saved. Try again in a minute.');return;}
+  const r=await tgCall('sendMessage',{chat_id:chatId,text,reply_markup:{force_reply:true,input_field_placeholder:placeholder}});
+  const mid=r?.result?.message_id;
+  if(!mid){await db.from('telegram_pending').delete().eq('id',pid);console.error('askReply prompt failed',JSON.stringify({flow,error:String(r?.description??'no answer').slice(0,160)}));await tgSend(chatId,'⚠️ Could not post that question, so nothing was saved. Tap the button again in a minute.');return;}
+  await db.from('telegram_pending').update({payload:{flow,from_id:fromId,...refs,prompt_mid:mid}}).eq('id',pid);
 }
 async function consumePending(db:any,pid:string){const{data}=await db.from('telegram_pending').delete().eq('id',pid).select('payload,expires_at').maybeSingle();if(!data)return null;if(new Date(data.expires_at)<new Date())return null;return data.payload;}
 function purgePending(db:any){db.from('telegram_pending').delete().lt('expires_at',new Date().toISOString()).then(()=>{}).catch(()=>{});}
@@ -1379,21 +1391,20 @@ async function handleCallbackQueryInner(cq:any,db:any){
   // v104 (session 27, booking PRD C2 / D-160 #3): Finance taps on the receipt card. The definer RPC maps
   // cq.from.id to staff_access_profiles.telegram_user_id, records the named review and decides the booking;
   // an unmapped or unauthorized tapper is refused and the buttons stay for someone who is.
-  if(data.startsWith('bk_ok:')||data.startsWith('bk_no:')){
-    const action=data.startsWith('bk_ok:')?'confirm':'decline';const cmpId=data.slice(6);const who=cq.from?.first_name??'staff';
-    const{data:r,error}=await db.rpc('telegram_finance_decide_booking_v1',{p_telegram_user_id:cq.from?.id,p_comparison_id:cmpId,p_action:action,p_reason:`Telegram tap by ${whoFrom(cq.from)}`});
+  // SPEC-44 (s76): Confirm runs on the one-tap RPC (telegram_confirm_direct_booking_v1) with this comparison and the receipt's read;
+  // that RPC also sends the guest's confirmation (guest-messages, tapped), so nothing here calls guest-messages any more.
+  if(data.startsWith('bk_ok:')){await onReceiptConfirm(iqDeps(db),cq,data.slice(6));return;}
+  if(data.startsWith('bk_no:')){
+    const cmpId=data.slice(6);const who=cq.from?.first_name??'staff';
+    const{data:r,error}=await db.rpc('telegram_finance_decide_booking_v1',{p_telegram_user_id:cq.from?.id,p_comparison_id:cmpId,p_action:'decline',p_reason:`Telegram tap by ${whoFrom(cq.from)}`});
     let line:string,keep=false;
     if(error){keep=true;line=/does not exist|not found|could not find/i.test(error.message)?'⚠️ Telegram confirm is not switched on yet — use the Review link.':`⚠️ ${String(error.message).slice(0,150)}`;}
     else if(!r?.ok){const k=String(r?.reason??r?.outcome??'');keep=['unmapped_telegram_user','not_authorized','comparison_not_found'].includes(k);
       line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a Finance profile — ask Lloyd to map it.`,not_authorized:`⛔ ${who} is not authorized to approve payments.`,already_reviewed:`ℹ️ Already reviewed (${r?.outcome}).`,conflict:'⚠️ Those dates are no longer available — NOT confirmed.',invalid_state:'ℹ️ This request is no longer pending.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
-    else line=action==='confirm'?`✅ Confirmed by ${who} — booking confirmed, calendar updated, guest e-mailed.`:`❌ Declined by ${who} — request cancelled, ledger row voided.`;
+    else line=`❌ Declined by ${who} — request cancelled, ledger row voided.`;
     await tgEditCaption(chatId,msgId,`${cq.message?.caption??''}\n\n${line}`,keep?cq.message?.reply_markup:undefined);
-    // Session 54 (SPEC-05 message 1, REVIEW F6): guest-messages sends the confirmation on the guest's channel and posts its card;
-    // `tapped` lets it use HUMAN_AGENT on Messenger for this one message. SPEC-33 s2: a decline reaches a Messenger guest.
-    if(r?.ok&&action==='confirm')await fetch(`${SUPABASE_URL}/functions/v1/guest-messages`,{method:'POST',headers:{'Content-Type':'application/json','x-cascade-cron-secret':Deno.env.get('CASCADE_CRON_SHARED_SECRET')??''},body:JSON.stringify({booking_id:String(r.booking_id??''),tapped:true}),signal:AbortSignal.timeout(45_000)})
-      .then(async(x)=>{if(!x.ok)console.error('guest-messages confirm:',x.status,(await x.text().catch(()=>'')).slice(0,200));}).catch((e:unknown)=>console.error('guest-messages confirm:',String(e)));
-    if(r?.ok&&action==='decline')await notifyMessengerBookingDeclined(db,String(r.booking_id??'')).catch((e:unknown)=>console.error('messenger decline:',String(e)));
-    if(r?.ok&&action==='confirm'&&OPS_CHAT)await tgSend(OPS_CHAT,`🏠 CONFIRMED · Direct ${String(r.booking_id??'').slice(0,8).toUpperCase()}\n\nDirect booking confirmed by ${who}. Calendar is updated; turnover follows the usual schedule.`);
+    // SPEC-33 s2: a decline reaches a Messenger guest.
+    if(r?.ok)await notifyMessengerBookingDeclined(db,String(r.booking_id??'')).catch((e:unknown)=>console.error('messenger decline:',String(e)));
     return;
   }
   if(data.startsWith('inv:ok:')||data.startsWith('inv:no:')){
@@ -1712,6 +1723,10 @@ async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any}
       const reason=parseReason(text);if(reason===null){await bad();return;}
       await done();await onInquiryReason(iqDeps(db),msg,p,reason);return;
     }
+    case 'inquiry_paid':{ // SPEC-44: the row's id is the confirm's idempotency key
+      const a=parsePaidReply(text);if(!a){await bad();return;}
+      await done();await onInquiryPaid(iqDeps(db),msg,p,a,aw.id);return;
+    }
     case 'block_brownout': case 'block_other': await handleBlockAnswer(db,chatId,msg,aw,text);return; // SPEC-41
     default: await done(); await tgReply(chatId,msg.message_id,NOT_WAITING);
   }
@@ -1736,7 +1751,9 @@ async function handleTextMessage(msg:any,db:any){
   if(!isFinanceChat(chatId)&&!String(msg.text??'').trimStart().startsWith('/')){const ob=await findAwaiting(db,chatId,from.id);if(ob&&String(ob.payload?.flow??'').startsWith('block_')){const bt=stripBotMention(String(msg.text??'').trim());if(bt){await handleBlockAnswer(db,chatId,msg,ob,bt);return;}}} // SPEC-41: the OPS blocked-date card's follow-up answers
   if(isFinanceChat(chatId)){
     const text=stripBotMention(String(msg.text??'').trim());if(!text)return;
-    const aw=await findAwaiting(db,chatId,from.id);
+    const open=await findAwaiting(db,chatId,from.id);
+    // SPEC-44: the Paid – confirm question counts only as a reply to its own prompt; anything else this person types goes on as usual.
+    const aw=open&&answersOpen(open.payload?.flow,open.payload?.prompt_mid,msg.reply_to_message?.message_id)?open:null;
     const card=aw?null:await findCountCard(db,chatId,msg.reply_to_message?.message_id);
     const route=routeText({awaiting:!!aw,replyToCountCard:!!card,replyToBot:!!msg.reply_to_message?.from?.is_bot,text});
     if(route.kind==='flow'){await handleAnswer(db,chatId,msg,aw!,text,loggedBy);return;}

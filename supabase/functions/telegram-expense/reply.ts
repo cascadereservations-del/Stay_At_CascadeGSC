@@ -3,6 +3,7 @@
 // which Telegram is free to reformat (D-195). No I/O, unit-tested in reply.test.ts. index.ts owns the calls.
 import type { Change, CountItem } from './count.ts';
 import { maskTitle } from '../_shared/ops-money.ts';
+import { PAID_AGAIN } from '../_shared/cascade-core/inquiry.ts';
 
 /** D-306: a notice title as shown in a chat. Finance can type an amount into a title, so OPS (any chat that is not Finance) sees it masked, except a title about cleaning pay or an expense. */
 export const noticeTitle = (title: unknown, isFinance: boolean, esc: (s: unknown) => string): string => esc(isFinance ? title : maskTitle(title));
@@ -10,6 +11,7 @@ export const noticeTitle = (title: unknown, isFinance: boolean, esc: (s: unknown
 export type Flow =
   | 'count_qty' | 'expense' | 'edit_amount' | 'payclean_amount'
   | 'receipt_item_edit' | 'receipt_item_add' | 'manual_clean' | 'payreq_proof' | 'inquiry_reason' // SPEC-37 + SPEC-38 ("Other" decline reason)
+  | 'inquiry_paid' // SPEC-44: the answer to Paid – confirm (only a reply to its prompt counts)
   | 'block_brownout' | 'block_other'; // SPEC-41: the follow-ups to the OPS blocked-date card
 
 export type Route =
@@ -28,6 +30,13 @@ export function routeText(i: { awaiting: boolean; replyToCountCard: boolean; rep
   if (i.replyToCountCard) return { kind: 'count_lines' };
   if (i.replyToBot) return { kind: 'refuse' };
   return { kind: 'passthrough' };
+}
+
+/** SPEC-44: may this message answer the open question? Every flow takes the person's next text, except Paid – confirm, which counts
+ *  only as a reply to its own prompt (a money confirm must never come from a stray line). */
+export function answersOpen(flow: unknown, promptMid: unknown, replyToMid: unknown): boolean {
+  if (flow !== 'inquiry_paid') return true;
+  return promptMid != null && promptMid !== '' && String(promptMid) === String(replyToMid ?? '');
 }
 
 /** Live 2026-09-26 08:07 Manila (Lloyd): the 🤖 Ask Cassy button did nothing - the label became /cassy only after the
@@ -64,6 +73,7 @@ export function refusal(flow: Flow): string {
     manual_clean: 'Type: cleaner, date, amount, like Honey, 05-28, 500. Nothing saved yet.',
     payreq_proof: 'Send the transfer screenshot as a photo. Nothing is marked paid yet.',
     inquiry_reason: 'A few words are enough, like "guest asked for a party". Nothing was saved.',
+    inquiry_paid: PAID_AGAIN,
     block_brownout: 'Say the day, start, hours and who announced it, like: 10-11 8am 8h NGCP. Nothing saved yet.',
     block_other: 'Reply with a few words about what the block is. Nothing saved yet.',
   } as Record<Flow, string>)[flow];
