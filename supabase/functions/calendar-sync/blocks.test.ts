@@ -82,6 +82,8 @@ Deno.test('SPEC-41 5: an active hold or a live inquiry explains the block as dir
   assertEquals(explain(b, [b], [], [{ ...hold, checkin_date: '2026-10-12', checkout_date: '2026-10-14' }]), null, 'a stay starting on the checkout day does not overlap');
   const stay = row({ uid: 'direct:abcdef123', source: 'direct', status: 'confirmed', checkin_date: '2026-10-11', checkout_date: '2026-10-13' });
   assertEquals(explain(b, [b, stay], [], [])?.reason, 'direct');
+  // s77: a confirmed direct row is renamed cascade-direct-<id>; the note must still carry the booking ref, which run_system_verifier_v1 V1 matches.
+  assertEquals(explain(b, [b, { ...stay, uid: 'cascade-direct-bd296460-0fd2-434f-aa3a-7e89dc90c14e' }], [], [])?.note, 'DIR BD296460 confirmed');
   assertEquals(explain(b, [b, { ...stay, status: 'cancelled' }], [], []), null);
   const airbnbStay = row({ uid: 'a', status: 'confirmed', checkin_date: '2026-10-11', checkout_date: '2026-10-13' });
   assertEquals(explain(b, [b, airbnbStay], [], []), null, 'an Airbnb stay is not a label...');

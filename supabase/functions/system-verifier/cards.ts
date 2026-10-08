@@ -207,6 +207,8 @@ function headline(f: Finding, now: Date): string {
   if (GOVERNOR.has(f.check_id)) return governorHeadline(f);
   switch (f.check_id) {
     case 'V1':
+      // s77: V1m (same check, key V1m:) is our own Airbnb block for a direct stay running past the stay.
+      if (f.key.startsWith('V1m:')) return `Our Airbnb block for ${str(d.guest, 'a direct guest')} covers nights outside their stay, so nights nobody is staying cannot be booked.`;
       return 'Two stays are booked over the same nights. One of them has to go before either guest travels.';
     case 'V2':
       return `${str(d.guest, 'A guest')} is confirmed but holds no place on the calendar, so those nights can still be sold to somebody else.`;
@@ -247,6 +249,7 @@ function facts(f: Finding): string[] {
   if (GOVERNOR.has(f.check_id)) return governorFacts(f);
   switch (f.check_id) {
     case 'V1': {
+      if (f.key.startsWith('V1m:')) return [`direct stay ${dm(d.stay_from)} to ${dm(d.stay_to)}`, `Airbnb block ${dm(d.block_from)} to ${dm(d.block_to)}`, `block id ${str(d.block).slice(0, 8)}`];
       const one = (x: any) => `${str(x?.guest, 'unnamed')} · ${str(x?.source, 'unknown source')} · ${dm(x?.from)} to ${dm(x?.to)}`;
       return [one(d.a), one(d.b), `ids ${str(d.a?.id).slice(0, 8)} and ${str(d.b?.id).slice(0, 8)}`];
     }
@@ -290,7 +293,9 @@ function facts(f: Finding): string[] {
 function action(f: Finding): string {
   if (GOVERNOR.has(f.check_id)) return governorAction(f);
   switch (f.check_id) {
-    case 'V1': return 'open the calendar, decide which stay is real, and cancel the other.';
+    case 'V1': return f.key.startsWith('V1m:')
+      ? `open the Airbnb calendar and cut the block back to ${dm((f.detail as any)?.stay_from)} to ${dm((f.detail as any)?.stay_to)}, unless the stay changed.`
+      : 'open the calendar, decide which stay is real, and cancel the other.';
     case 'V2': return 'open the booking and put its block back on the calendar.';
     case 'V3': return 'cancel the hold, or find the booking it belongs to.';
     case 'V4': return 'open Messenger and finish the booking with them, or close the conversation.';

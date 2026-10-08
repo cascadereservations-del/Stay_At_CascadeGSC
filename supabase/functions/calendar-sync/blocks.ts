@@ -69,7 +69,7 @@ export function explain(b: CalRow, rows: CalRow[], notices: Notice[], direct: Di
   const d = direct.find(overlaps);
   if (d) return { reason: 'direct', note: `DIR ${d.ref} ${d.status}`.slice(0, 200) };
   const row = rows.find((o) => o !== b && o.source === 'direct' && o.status !== 'cancelled' && overlaps(o));
-  if (row) return { reason: 'direct', note: `DIR ${row.uid.replace(/^direct:/, '').slice(0, 8).toUpperCase()} ${row.status}` };
+  if (row) return { reason: 'direct', note: `DIR ${row.uid.replace(/^(?:direct:|cascade-direct-)/, '').slice(0, 8).toUpperCase()} ${row.status}` };
   return null;
 }
 

@@ -379,3 +379,13 @@ Deno.test('cleaner_fees_settled: a paid fee with no ledger row and an overdue cl
   assertStringIncludes(y, '2 cleans unpaid for more than two weeks.');
   assert(!y.includes('marked paid'), y);
 });
+
+Deno.test('s77 V1m: our own Airbnb block running past a direct stay says so, not "two stays"', () => {
+  const v1m = f({ key: 'V1m:deb2a3ae-9431-4636-b293-a1c51cb7e8df', check_id: 'V1', severity: 'yellow', title: 'Airbnb block runs past the direct stay',
+    detail: { block: 'deb2a3ae-9431-4636-b293-a1c51cb7e8df', guest: 'Angeleen V.', stay_from: '2026-10-08', stay_to: '2026-10-11', block_from: '2026-10-08', block_to: '2026-10-12' } });
+  const text = yellowCard([v1m], [], 'finance', NOW, TODAY)!.text;
+  assertStringIncludes(text, 'covers nights outside their stay');
+  assertStringIncludes(text, 'cut the block back to 8 Oct to 11 Oct');
+  assert(!text.includes('Two stays are booked'), 'never the overlap headline');
+  assertStringIncludes(redCard(OVERLAP, NOW).text, 'Two stays are booked', 'a real overlap keeps its headline');
+});
