@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "release_id": "inquiry_one_tap_20261008",
+  "phase": "expand",
+  "source": {
+    "branch": "s76/one-tap",
+    "commit": "12728c816ca164c1742be75a4b96c8c0be7a5bf9"
+  },
+  "migrations": [
+    "20261008100000_inquiry_one_tap.sql"
+  ],
+  "migration_sha256": {
+    "20261008100000_inquiry_one_tap.sql": "285cb7c386b8b100f4c4ba5524b8a9242052aaaafff79a15d060e53c7ccf8408"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "SPEC-44 Revision 1 (the contract). New definer functions, all search_path empty: _confirm_direct_booking_core (no grant), staff_confirm_direct_booking_v1 / staff_decline_direct_booking_v1 / staff_inquiry_payments_v1 / concierge_resume_cassy_v1 (authenticated), telegram_confirm_direct_booking_v1 (service_role), _repair_bypass_confirmed_v1 (no grant), guard_direct_booking_income_confirm + BEFORE UPDATE OF status trigger trg_guard_direct_booking_income_confirm on transactions. fn_direct_booking_cascade replaced from its LIVE body (md5(replace(prosrc, chr(13), '')) 934f4b40af823ca3e74b144698c3910e, read 2026-10-08) minus the confirm leg and its confirmEmail; the void leg is unchanged; search_path public -> empty. DATA: the migration runs _repair_bypass_confirmed_v1() once - production read 2026-10-08 found two bypass-confirmed direct bookings, BD296460 (bd296460-0fd2-434f-aa3a-7e89dc90c14e, Oct 8-11) and 92F94D0E (92f94d0e-008c-4439-9c94-6d48684629da, Jul 12-13, confirmed 2026-09-23); each gets an airbnb_reservations DIRECT: row (on conflict do nothing), its calendar row renamed to cascade-direct-<id>, linked and matched, and one booking_decisions row repair:bypass:<id> (finance_review_id null). No transactions write, no review invented, no guest message. On confirm the core queues one net.http_post to guest-messages {booking_id, tapped:true} with x-cascade-cron-secret read from Vault cascade_cron_shared_secret at call time (never stored). BEHAVIOUR CHANGE: a transactions update to confirmed on a direct_booking row whose booking is still pending now raises confirm_from_inquiries (55000); the admin Finance queue section 1 Confirm on such a row (reviewTransaction) fails until L2 ships - apply SQL first, then functions (L3), then apps (L2/L4). No table, column or policy change. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "nine_functions_definer_empty_search_path",
+      "query": "select count(*) = 9 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.oid in ('public._confirm_direct_booking_core(uuid,uuid,text,text,numeric,text,uuid,text)'::regprocedure, 'public.staff_confirm_direct_booking_v1(uuid,text,text,numeric,text,uuid,text)'::regprocedure, 'public.telegram_confirm_direct_booking_v1(bigint,uuid,text,text,numeric,text,uuid,text)'::regprocedure, 'public.staff_decline_direct_booking_v1(uuid,text,text)'::regprocedure, 'public.staff_inquiry_payments_v1(uuid)'::regprocedure, 'public.guard_direct_booking_income_confirm()'::regprocedure, 'public.fn_direct_booking_cascade()'::regprocedure, 'public._repair_bypass_confirmed_v1()'::regprocedure, 'public.concierge_resume_cassy_v1(text)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "grants_match_the_contract",
+      "query": "select has_function_privilege('authenticated', 'public.staff_confirm_direct_booking_v1(uuid,text,text,numeric,text,uuid,text)', 'execute') and not has_function_privilege('anon', 'public.staff_confirm_direct_booking_v1(uuid,text,text,numeric,text,uuid,text)', 'execute') and has_function_privilege('authenticated', 'public.staff_decline_direct_booking_v1(uuid,text,text)', 'execute') and not has_function_privilege('anon', 'public.staff_decline_direct_booking_v1(uuid,text,text)', 'execute') and has_function_privilege('authenticated', 'public.staff_inquiry_payments_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.staff_inquiry_payments_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.concierge_resume_cassy_v1(text)', 'execute') and not has_function_privilege('anon', 'public.concierge_resume_cassy_v1(text)', 'execute') and has_function_privilege('service_role', 'public.telegram_confirm_direct_booking_v1(bigint,uuid,text,text,numeric,text,uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public.telegram_confirm_direct_booking_v1(bigint,uuid,text,text,numeric,text,uuid,text)', 'execute') and not has_function_privilege('anon', 'public.telegram_confirm_direct_booking_v1(bigint,uuid,text,text,numeric,text,uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public._confirm_direct_booking_core(uuid,uuid,text,text,numeric,text,uuid,text)', 'execute') and not has_function_privilege('anon', 'public._confirm_direct_booking_core(uuid,uuid,text,text,numeric,text,uuid,text)', 'execute') and not has_function_privilege('service_role', 'public._confirm_direct_booking_core(uuid,uuid,text,text,numeric,text,uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public._repair_bypass_confirmed_v1()', 'execute') and not has_function_privilege('service_role', 'public._repair_bypass_confirmed_v1()', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "income_confirm_guard_trigger_is_live",
+      "query": "select count(*) = 1 from pg_trigger t where t.tgrelid = 'public.transactions'::regclass and t.tgname = 'trg_guard_direct_booking_income_confirm' and t.tgenabled = 'O' and t.tgfoid = 'public.guard_direct_booking_income_confirm()'::regprocedure and pg_get_triggerdef(t.oid) like '%BEFORE UPDATE OF status ON public.transactions%'",
+      "expect": true
+    },
+    {
+      "name": "cascade_body_is_the_reviewed_void_only_patch",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'e08fe137097dbb2ac4f40eafbbcbd57d' from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "core_body_is_the_reviewed_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '89caa8927fff2287d80c5e2544b88e80' from pg_proc where oid = 'public._confirm_direct_booking_core(uuid,uuid,text,text,numeric,text,uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guard_body_is_the_reviewed_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'f4d4aaea180f26415ac788c51a03f0c6' from pg_proc where oid = 'public.guard_direct_booking_income_confirm()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_confirm_body_is_the_reviewed_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'cd1ce77bdd197e0e2a01edc4cfd1cf27' from pg_proc where oid = 'public.staff_confirm_direct_booking_v1(uuid,text,text,numeric,text,uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "telegram_confirm_body_is_the_reviewed_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '50cb639e646f48b4e9bdeb268d6b26ac' from pg_proc where oid = 'public.telegram_confirm_direct_booking_v1(bigint,uuid,text,text,numeric,text,uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "cascade_trigger_unchanged_and_no_confirm_leg",
+      "query": "select (select count(*) = 1 from pg_trigger where tgrelid = 'public.transactions'::regclass and tgname = 'trg_direct_booking_cascade' and tgenabled = 'O') and (select prosrc not like '%confirmEmail%' and prosrc like '%''void''%' from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "no_bypass_confirmed_direct_booking_remains",
+      "query": "select not exists (select 1 from public.booking_inquiries x where x.source = 'direct' and x.status = 'confirmed' and not exists (select 1 from public.airbnb_reservations r where r.confirmation_code = 'DIRECT:' || x.id::text) and not exists (select 1 from public.booking_decisions d where d.booking_id = x.id and d.outcome = 'confirmed'))",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (functions and one trigger; repair rows are kept on purpose)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Roll back the L2/L3/L4 callers first, then apply supabase/rollbacks/20261008_inquiry_one_tap.sql with run-sql-on-host.sh: drops the guard trigger and the seven new functions and restores the live fn_direct_booking_cascade body (md5 934f4b40af823ca3e74b144698c3910e, confirm leg and confirmEmail back). Keeps the repair rows and every candidate/comparison/review/decision the RPCs wrote."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_rpcs_unused_until_callers_ship",
+      "required_state": "None. The new RPCs do nothing until the admin (L2), Telegram/Messenger functions (L3) and staff app (L4) call them. The guard and the cascade change are live at apply: the Finance queue income-row Confirm on a pending direct booking now refuses with the confirm_from_inquiries sentence instead of confirming without a review."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": false,
+    "verified": false,
+    "evidence": "Readers unchanged (no table, column or policy change). Old writer that breaks on purpose: admin Finance queue section 1 reviewTransaction (transactions.update status confirmed on a pending direct booking) now raises 55000 confirm_from_inquiries; L2 hides those rows and moves Confirm to Inquiries. Unaffected and covered by pgTAP inquiry_one_tap.sql: decide_direct_booking / staff_decide_direct_booking_v1 / telegram_finance_decide_booking_v1 (booking confirmed before the income flip), a second income row on a confirmed booking, admin_soft_delete_v1 void, expire_booking_holds_v1, supersede (void only). The cascade no longer sends confirmEmail; the decide path never did (it confirms the booking first), and guest-messages is called with tapped:true by the core."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP inquiry_one_tap.sql green on this commit",
+    "the Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}
