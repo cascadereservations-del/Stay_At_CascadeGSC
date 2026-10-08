@@ -1,12 +1,71 @@
--- Compensating rollback for 20261008160000_s78_guards.sql: drops calendar_events_direct_no_overlap, restores
--- run_system_verifier_v1 (live md5(replace(prosrc, chr(13), '')) d803b9fd248dce1fe4795032bae7efcf before the release) and
--- apply_verifier_run_v1 (490973908baae36a34908f6efd702936), and drops booking_submit_allowed_v1 and booking_submit_attempts
--- (hashed request counts only). Ship the submit-booking rollback first: s78 submit-booking calls booking_submit_allowed_v1,
--- though it lets a request through when the call fails. btree_gist stays installed (harmless, nothing else uses it).
--- Once V8 leaves the scope arrays no run resolves an open V8 finding, so the last statement closes them here.
+-- 20261009020000_s78_guards.sql
+-- Session 78 (wave 2, lane E): release s78_guards_20261009. Three guards on the money and booking path.
+-- ORDER: apply AFTER s78_small_sql_20261009 (20261009000000_verifier_v1m_uid_ref.sql), which also replaces
+-- run_system_verifier_v1. This body is that release's body plus V8; the first statement refuses to run on any other.
+--
+-- 1. TASKS #20b - calendar_events_direct_no_overlap: two live direct calendar rows (holds and confirmed direct stays,
+--    source 'direct', status not 'cancelled') can never cover the same night. check_availability already refuses at
+--    submit, but two submits racing past it both inserted; now the second insert fails with 23P01 and submit-booking
+--    (s78/guards, waves) answers it as dates_unavailable. Every direct writer keeps ONE row per booking (the uid is renamed
+--    direct:<id> -> cascade-direct-<id>, never duplicated), so no existing path conflicts with itself. Airbnb and manual
+--    rows are not constrained: the Airbnb feed is the truth about Airbnb and arrives after the fact (V1 still reports it).
+--    Live read 2026-10-08: 0 overlapping live direct pairs (2 live direct rows, 10 cancelled). The guard below makes the
+--    apply refuse cleanly, naming the rows and changing nothing, if a pair appeared since.
+-- 2. TASKS #20a - V8 in run_system_verifier_v1 (one receipt on two live bookings) and 'V8' in both scope arrays of
+--    apply_verifier_run_v1, so a V8 that is gone resolves. Bodies were not retyped: cut by script from s78/small's
+--    20261009000000_verifier_v1m_uid_ref.sql (asserted md5 471e8af96bbdc4259b98665deeecc738, that release's forward check;
+--    it is the live d803b9fd248dce1fe4795032bae7efcf plus 'uid' in V1m's detail) and 20261004010000_api_governor.sql
+--    (asserted = LIVE 490973908baae36a34908f6efd702936, read 2026-10-08), then exact counted insertions.
+--    Live read 2026-10-08: 0 receipt pairs across bookings.
+-- 3. TASKS #21 - booking_submit_attempts + booking_submit_allowed_v1: submit-booking counts requests per salted IP hash
+--    per hour (10 allowed). Only an HMAC of the address is stored, never the address; rows older than a day are deleted.
+
 begin;
 
-alter table public.calendar_events drop constraint if exists calendar_events_direct_no_overlap;
+-- Replacing a body other than the one this was cut from would silently undo somebody else's release.
+do $$
+begin
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc
+       where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure) <> '471e8af96bbdc4259b98665deeecc738' then
+    raise exception 'run_system_verifier_v1 is not the s78_small_sql_20261009 body: apply that release first, or re-cut this one'
+      using errcode = '55000';
+  end if;
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc
+       where oid = 'public.apply_verifier_run_v1(text,jsonb,timestamptz)'::regprocedure) <> '490973908baae36a34908f6efd702936' then
+    raise exception 'apply_verifier_run_v1 is not the body this release was cut from: re-cut it from the live body'
+      using errcode = '55000';
+  end if;
+end $$;
+
+create extension if not exists btree_gist with schema extensions;
+
+do $$
+declare
+  v_pairs text;
+begin
+  select string_agg(a.uid || ' / ' || b.uid, ', ') into v_pairs
+    from public.calendar_events a
+    join public.calendar_events b
+      on a.id < b.id
+     and a.property_id = b.property_id
+     and daterange(a.checkin_date, a.checkout_date, '[)') && daterange(b.checkin_date, b.checkout_date, '[)')
+   where a.source = 'direct' and b.source = 'direct'
+     and a.status <> 'cancelled' and b.status <> 'cancelled';
+  if v_pairs is not null then
+    raise exception 'two live direct calendar rows overlap (%): cancel the wrong one, then apply again', v_pairs
+      using errcode = '23P01';
+  end if;
+end $$;
+
+alter table public.calendar_events
+  add constraint calendar_events_direct_no_overlap
+  exclude using gist (
+    property_id extensions.gist_uuid_ops with =,
+    daterange(checkin_date, checkout_date, '[)') with &&
+  ) where (source = 'direct' and status <> 'cancelled');
+
+comment on constraint calendar_events_direct_no_overlap on public.calendar_events is
+  'Two live direct rows (holds and confirmed direct stays) never cover the same night. Checkout day = next check-in day is allowed. A refused insert or update is SQLSTATE 23P01; submit-booking answers it as dates_unavailable. s78, TASKS #20.';
 
 create or replace function public.run_system_verifier_v1(
   p_property_id uuid,
@@ -75,7 +134,7 @@ begin
       'severity', 'yellow',
       'title',    'Airbnb block runs past the direct stay',
       'detail',   jsonb_build_object(
-        'block', m.id, 'stay', s.id, 'guest', s.guest_name,
+        'block', m.id, 'stay', s.id, 'uid', s.uid, 'guest', s.guest_name,
         'stay_from', s.checkin_date, 'stay_to', s.checkout_date,
         'block_from', m.checkin_date, 'block_to', m.checkout_date)))
     from public.calendar_events m
@@ -219,6 +278,58 @@ begin
       and ce.checkout_date >= (p_now at time zone 'Asia/Manila')::date - 1
   ), '[]'::jsonb);
 
+  -- V8 - one receipt is evidence on two live bookings (s78, TASKS #20; DESIGN-conflict-verifier V8). Red: one payment
+  -- may be counted for two stays. SPEC-44 refuses only a TYPED reference already seen on another booking, at the
+  -- paid-outside confirm. This catches the rest: the same uploaded image (content_hash; Messenger receipts reach the same
+  -- table through upload-booking-receipt), a reference read off a receipt on one booking and read or typed on another,
+  -- and - when one side has no reference - the same amount uploaded within 30 minutes of each other.
+  -- Both bookings must still be live (pending or confirmed) and one of them not yet checked out: a guest who resent the
+  -- same receipt after their hold lapsed is an honest resend and stays quiet. One finding per pair of bookings, keyed by
+  -- both ids in a fixed order. Detail is ids, dates, statuses and the match only, so an acknowledgement holds until one
+  -- of those moves (a pending booking that gets confirmed re-opens it, on purpose).
+  -- manual_evidence hashes are derived from the one-tap key, never from an image, so they never match as an image.
+  v_found := v_found || coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'key',      'V8:' || p.a_id::text || ':' || p.b_id::text,
+      'check_id', 'V8',
+      'severity', 'red',
+      'title',    'One receipt on two bookings',
+      'detail',   jsonb_build_object(
+        'match',     to_jsonb(p.matches),
+        'reference', p.reference,
+        'amount',    p.amount,
+        'a', jsonb_build_object('booking', ba.id, 'guest', ba.guest_name, 'status', ba.status, 'from', ba.checkin_date, 'to', ba.checkout_date),
+        'b', jsonb_build_object('booking', bb.id, 'guest', bb.guest_name, 'status', bb.status, 'from', bb.checkin_date, 'to', bb.checkout_date)))
+      order by p.a_id, p.b_id)
+    from (
+      select x.booking_id as a_id, y.booking_id as b_id,
+             array_agg(distinct case
+               when x.content_hash = y.content_hash
+                    and x.source_type <> 'manual_evidence' and y.source_type <> 'manual_evidence' then 'image'
+               when x.normalized_reference = y.normalized_reference then 'reference'
+               else 'amount_time' end) as matches,
+             max(x.normalized_reference) filter (where x.normalized_reference = y.normalized_reference) as reference,
+             max(coalesce(x.normalized_amount, y.normalized_amount)) as amount
+        from public.payment_evidence_candidates x
+        join public.payment_evidence_candidates y
+          on y.property_id = x.property_id
+         and x.booking_id < y.booking_id
+         and (   (x.content_hash = y.content_hash
+                  and x.source_type <> 'manual_evidence' and y.source_type <> 'manual_evidence')
+              or x.normalized_reference = y.normalized_reference
+              or (x.source_type = 'receipt_ocr' and y.source_type = 'receipt_ocr'
+                  and x.normalized_amount = y.normalized_amount
+                  and (x.normalized_reference is null or y.normalized_reference is null)
+                  and x.observed_at between y.observed_at - interval '30 minutes' and y.observed_at + interval '30 minutes'))
+       where x.property_id = p_property_id
+       group by x.booking_id, y.booking_id
+    ) p
+    join public.booking_inquiries ba on ba.id = p.a_id
+    join public.booking_inquiries bb on bb.id = p.b_id
+    where ba.status in ('pending', 'confirmed') and bb.status in ('pending', 'confirmed')
+      and greatest(ba.checkout_date, bb.checkout_date) > p_now::date
+  ), '[]'::jsonb);
+
   -- V6 - arriving within three days with no ID on file. Daily only: it is a
   -- this-week job, and raising it every hour would be noise.
   if v_daily then
@@ -329,7 +440,7 @@ revoke all on function public.run_system_verifier_v1(uuid, text, timestamptz) fr
 grant execute on function public.run_system_verifier_v1(uuid, text, timestamptz) to service_role;
 
 comment on function public.run_system_verifier_v1(uuid, text, timestamptz) is
-  'SPEC-11 checks V1-V7b, V10, V11, V12 (V13 is raised by the Edge Function). Reads only, stores nothing, decides nothing about alerting. V1 skips our own Airbnb mirror of a direct stay and raises V1m (yellow) when that block runs past the stay; V2/V3 read direct:<id> and cascade-direct-<id>. V7 is yellow and auto-corrected when both rows are confirmed (D-235); checkouts_cleaned is yellow on warn (D-232). service_role only.';
+  'SPEC-11 checks V1-V8, V10, V11, V12 (V13 is raised by the Edge Function). Reads only, stores nothing, decides nothing about alerting. V1 skips our own Airbnb mirror of a direct stay and raises V1m (yellow, detail carries the stay uid) when that block runs past the stay; V2/V3 read direct:<id> and cascade-direct-<id>. V7 is yellow and auto-corrected when both rows are confirmed (D-235); V8 (red) is one receipt (image, reference, or amount within 30 minutes) on two live bookings; checkouts_cleaned is yellow on warn (D-232). service_role only.';
 
 create or replace function public.apply_verifier_run_v1(
   p_scope text,
@@ -359,8 +470,9 @@ begin
   v_checks := case p_scope
     -- V13 (model budget) is raised by the system-verifier Edge Function in both scopes (D-227).
     -- V14-V18 (API governor, D-294) are raised by the Edge Function in the daily scope; V14-V15 hourly too (urgent).
-    when 'hourly' then array['V1','V2','V3','V4','V5','V7','V7b','V11','V12','V13','V14','V15']
-    else                array['V1','V2','V3','V4','V5','V6','V7','V7b','V10','V11','V12','V13','V14','V15','V16','V17','V18']
+    -- V8 (receipt reused on two live bookings, s78) runs in both scopes, so a finding that is gone resolves either way.
+    when 'hourly' then array['V1','V2','V3','V4','V5','V7','V7b','V8','V11','V12','V13','V14','V15']
+    else                array['V1','V2','V3','V4','V5','V6','V7','V7b','V8','V10','V11','V12','V13','V14','V15','V16','V17','V18']
   end;
 
   -- Everything seen in this run: insert it, or mark it seen again. A finding
@@ -530,13 +642,52 @@ revoke all on function public.apply_verifier_run_v1(text, jsonb, timestamptz) fr
 grant execute on function public.apply_verifier_run_v1(text, jsonb, timestamptz) to service_role;
 
 comment on function public.apply_verifier_run_v1(text, jsonb, timestamptz) is
-  'Records a verifier run: what is new, what is due a reminder, what has gone. Performs the three safe auto-resolutions (V3 ghost hold, V4 dead flow, V7 reservation dates from the Airbnb calendar) and keeps one task per V7b. Resolves only checks the given scope ran (V14-V18, the API governor checks, run in the daily scope). An accepted finding (K16) is born acknowledged. service_role only.';
+  'Records a verifier run: what is new, what is due a reminder, what has gone. Performs the three safe auto-resolutions (V3 ghost hold, V4 dead flow, V7 reservation dates from the Airbnb calendar) and keeps one task per V7b. Resolves only checks the given scope ran (V8 in both scopes; V14-V18, the API governor checks, run in the daily scope). An accepted finding (K16) is born acknowledged. service_role only.';
 
-drop function if exists public.booking_submit_allowed_v1(text, integer);
-drop table if exists public.booking_submit_attempts;
+create table if not exists public.booking_submit_attempts (
+  id           bigint generated always as identity primary key,
+  ip_hash      text not null check (ip_hash ~ '^[0-9a-f]{64}$'),
+  attempted_at timestamptz not null default now()
+);
+create index if not exists booking_submit_attempts_ip_time_idx
+  on public.booking_submit_attempts (ip_hash, attempted_at desc);
+alter table public.booking_submit_attempts enable row level security;
+revoke all on table public.booking_submit_attempts from public, anon, authenticated;
+comment on table public.booking_submit_attempts is
+  'submit-booking requests per caller, for the hourly cap (TASKS #21). ip_hash is an HMAC-SHA256 of the caller address keyed by a server secret: the address itself is never stored. Rows older than a day are deleted by booking_submit_allowed_v1. No policies: service_role only, through that function.';
 
-update public.verifier_findings
-   set status = 'resolved', resolved_at = now(), resolved_by = 'rollback'
- where check_id = 'V8' and status in ('open', 'acknowledged');
+create or replace function public.booking_submit_allowed_v1(p_ip_hash text, p_max integer default 10)
+returns boolean
+language plpgsql
+volatile
+security definer
+set search_path to ''
+as $function$
+declare
+  v_recent integer;
+begin
+  if p_ip_hash is null or p_ip_hash !~ '^[0-9a-f]{64}$' then
+    raise exception 'ip hash must be 64 lowercase hex characters' using errcode = '22023';
+  end if;
+  -- Two requests from one caller at the same instant count one after the other.
+  perform pg_advisory_xact_lock(hashtextextended('cascade-booking-submit:' || p_ip_hash, 0));
+  delete from public.booking_submit_attempts where attempted_at < now() - interval '1 day';
+  select count(*) into v_recent
+    from public.booking_submit_attempts
+   where ip_hash = p_ip_hash and attempted_at > now() - interval '1 hour';
+  -- A refused request is not counted, so the hour slides and the caller is let back in as the oldest request ages out.
+  if v_recent >= greatest(1, coalesce(p_max, 10)) then
+    return false;
+  end if;
+  insert into public.booking_submit_attempts (ip_hash) values (p_ip_hash);
+  return true;
+end;
+$function$;
+
+revoke all on function public.booking_submit_allowed_v1(text, integer) from public, anon, authenticated;
+grant execute on function public.booking_submit_allowed_v1(text, integer) to service_role;
+
+comment on function public.booking_submit_allowed_v1(text, integer) is
+  'submit-booking hourly cap per caller (TASKS #21): true and counted when the hashed caller has made fewer than p_max requests in the last hour, false otherwise (not counted). Deletes attempts older than a day. service_role only.';
 
 commit;
