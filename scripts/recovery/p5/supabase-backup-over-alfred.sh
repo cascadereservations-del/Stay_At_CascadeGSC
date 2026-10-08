@@ -19,7 +19,7 @@ SSH_BIN="${CASCADE_SSH_BIN:-}"
 if [[ -z "$SSH_BIN" ]]; then
   if [[ -x /c/Windows/System32/OpenSSH/ssh.exe ]]; then SSH_BIN=/c/Windows/System32/OpenSSH/ssh.exe; else SSH_BIN=ssh; fi
 fi
-rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 "$SSH_HOST" "$@"; }
+rssh() { MSYS_NO_PATHCONV=1 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 "$SSH_HOST" "$@"; }
 
 for t in openssl sha256sum node; do command -v "$t" >/dev/null || { echo "$t is required" >&2; exit 2; }; done
 [[ -s "$URL_FILE" ]] || { echo 'connection URL file is missing or empty' >&2; exit 2; }
@@ -54,7 +54,7 @@ mkdir -p "$set_dir"
 echo 'Backup has not completed.' > "$set_dir/INCOMPLETE"
 suffix="$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 remote_tmp="/opt/cascade/.supabase-backup-$suffix"
-cleanup() { rssh "rm -rf $remote_tmp" >/dev/null 2>&1 || true; }
+cleanup() { MSYS_NO_PATHCONV=1 timeout 30 "$SSH_BIN" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 "$SSH_HOST" "rm -rf $remote_tmp" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 rssh "docker image inspect $PG_IMAGE_ID >/dev/null" || { echo 'pinned postgres image missing on Alfred' >&2; exit 3; }
