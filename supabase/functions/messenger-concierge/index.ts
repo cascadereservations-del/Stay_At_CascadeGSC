@@ -1442,6 +1442,7 @@ Reply in Messenger: ${link}`));
         // despite the prompt rule): drop a title the model put before their name in that case.
         if (thread.guest_name && /\b(ma'?am|sir|maam)\b/i.test(text)) a = a.replace(new RegExp(`\\b(ma'?am|sir)\\s+(?=${thread.guest_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b)`, 'giu'), '');
         a = gladNotHappy(plainText(redactAddress(a)));
+        a = a.replace(/[ \t]+discreetly\b|\bdiscreetly[ \t]+/gi, ''); // s79 (probe, arrival turn): "discreet" is the persona's manner, never a word said to a guest
         if (english) a = noPo(contractions(a), lang === 'english_po' ? 1 : 0); // protocol 08: natural contractions; D-311.5: no "po" in English
         else if (l3 === 'tl') a = kusang(a); // D-311.7: "automated" is a robot word
         if (knownPax && !flowFollowUp) a = dropPaxAsk(a);
