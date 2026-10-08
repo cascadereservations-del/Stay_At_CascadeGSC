@@ -12,6 +12,8 @@
 --                                                         brownout notice the warnings list already carries) and auto maintenance
 --                                                         (blocked rows with block_reason maintenance), today-30 .. today+120,
 --                                                         one row per (date, kind): manual > notice > calendar block.
+--   warnings[].key              the verifier_findings.key of a system-check warning (null for the others), the key the Tasks list
+--                               uses for source verifier_findings and ack_verifier_finding_v1(p_key) takes. detail is unchanged.
 --   calendar_day_flags          manual secondary flags per night (brownout | maintenance | deep_clean | other), RLS on, no direct grant
 --                               to any API role (service_role only), audited per row by admin_audit_row_v1.
 --   calendar_day_flag_set_v1 / calendar_day_flag_clear_v1   owner or admin only (admin_require read_operations on the property, then
@@ -178,25 +180,25 @@ begin
     select 'brownout' kind, 'alert' severity, public.staff_redact_v1(n.title) title,
            jsonb_build_object('date', n.effective_date, 'time', n.effective_time, 'hours', n.duration_hours,
                               'grid_line', public.staff_redact_v1(n.feeder), 'posted_by', public.staff_redact_v1(n.posted_by_name)) detail,
-           n.effective_date::timestamptz at_ts
+           n.effective_date::timestamptz at_ts, null::text as key
       from public.ops_notices n
      where n.property_id = p_property_id and n.is_active and n.notice_type = 'brownout'
        and coalesce(n.audience,'staff') in ('staff','all')
        and (n.expires_at is null or n.expires_at > now()) and n.effective_date >= v_today - 1
     union all
     select 'verifier', case f.severity when 'red' then 'alert' else 'warn' end, public.staff_redact_v1(f.title) title,
-           jsonb_build_object('check_id', f.check_id, 'status', f.status), f.last_seen
+           jsonb_build_object('check_id', f.check_id, 'status', f.status), f.last_seen, f.key
       from public.verifier_findings f
      where f.status in ('open','acknowledged')
        and (v_role in ('owner','admin','finance') or f.check_id = any(v_ops_checks))
     union all
     select 'inventory', 'warn', public.staff_redact_v1('Low stock: ' || i.name) title,
-           jsonb_build_object('qty', i.qty_on_hand, 'unit', i.unit, 'reorder_below', i.reorder_below), i.updated_at
+           jsonb_build_object('qty', i.qty_on_hand, 'unit', i.unit, 'reorder_below', i.reorder_below), i.updated_at, null::text
       from public.inventory_items i
      where i.property_id = p_property_id and i.is_active and i.qty_on_hand < i.reorder_below
   )
   select coalesce(jsonb_agg(jsonb_build_object('kind', kind, 'severity', severity, 'title', title,
-                                               'detail', detail, 'at', at_ts)
+                                               'detail', detail, 'at', at_ts, 'key', key)
                   order by case kind when 'brownout' then 0 when 'inventory' then 2 else 1 end, at_ts desc), '[]'::jsonb)
     into v_warn from w;
 

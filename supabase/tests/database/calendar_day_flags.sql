@@ -2,7 +2,7 @@
 -- (block_reason, block_label, day_flags). Synthetic property e7700000-...-b0; everything rolls back. Fixtures insert as the owner
 -- (service_role has no BYPASSRLS); roles are impersonated with request.jwt.claims as staff_home_v1.sql does.
 begin;
-select plan(41);
+select plan(43);
 
 select ok((select count(*) = 2 and bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -43,6 +43,7 @@ insert into public.calendar_events(property_id, uid, source, status, guest_name,
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-none',  'airbnb', 'blocked',   null,          current_date + 20, current_date + 21, null, null),
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-far',   'airbnb', 'blocked',   null,          current_date + 150, current_date + 151, 'brownout', null),
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-old',   'airbnb', 'blocked',   null,          current_date - 80, current_date - 79, 'maintenance', null);
+insert into public.verifier_findings(key, check_id, severity, title, status) values ('zz-cf-v6', 'V6', 'yellow', 'zz-cf ops finding', 'open'), ('zz-cf-v1', 'V1', 'red', 'zz-cf finance finding', 'open');
 -- A notice on the same night as the brownout block (de-duplicated: the notice label wins), one on its own night, one inactive.
 insert into public.ops_notices(property_id, notice_type, title, effective_date, is_active, audience, source) values
   ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice same night', current_date + 10, true, 'all', 'socoteco'),
@@ -73,6 +74,10 @@ select ok((select x->'block_reason' = 'null'::jsonb and x->'block_label' = 'null
 select ok(not (public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')::text ~* '(0917|0918|Mang Tony|aircon|feeder 14-3|family)'),
   'no raw block_note text beyond the ref reaches the payload');
 
+select is((select w->>'key' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'kind' = 'verifier' and w->>'title' = 'zz-cf ops finding'), 'zz-cf-v6',
+  'a system-check warning carries the verifier_findings key as w.key (the key ack_verifier_finding_v1 and the Tasks list use); the finance finding stays hidden from a cleaner');
+select ok((select bool_and((w ? 'key') and (w->>'kind' = 'verifier' or w->'key' = 'null'::jsonb)) from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w) and (select w->'detail'->>'check_id' = 'V6' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'kind' = 'verifier' and w->>'title' = 'zz-cf ops finding'),
+  'every warning has a key (null unless it is a verifier warning) and detail is unchanged);
 -- day_flags shape and content (no manual flag yet) ---------------------------------------------------------------------
 select is(jsonb_typeof(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags'), 'array', 'day_flags is an array');
 select ok((select bool_and(x ? 'date' and x ? 'kind' and x ? 'label' and x ? 'source' and x ? 'id'
