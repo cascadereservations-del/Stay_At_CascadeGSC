@@ -126,7 +126,10 @@ begin
         v_candidate := public.record_payment_evidence_candidate(
           b.id, 'manual_evidence', 'reattest:' || md5(p_idempotency_key)::uuid::text, v_hash, 'onetap-reattest:' || p_idempotency_key,
           'onetap-v1', now(), v_amount, 'PHP', v_ref, null, array['reattest', coalesce(v_method, 'receipt')], 'not_applicable', null);
-        v_comparison := public.compare_booking_payment_evidence(b.id, c.evidence_candidate_ids[1:7] || v_candidate);
+        -- The guest's receipt candidate(s) plus exactly this one attestation: earlier attestations never chain in.
+        v_comparison := public.compare_booking_payment_evidence(b.id,
+          coalesce((select array_agg(e.id order by e.created_at, e.id) from public.payment_evidence_candidates e
+                     where e.id = any (c.evidence_candidate_ids) and e.source_type <> 'manual_evidence'), '{}'::uuid[]) || v_candidate);
         select * into c from public.payment_evidence_comparisons where id = v_comparison;
         v_review := null;
       end if;
@@ -330,7 +333,8 @@ revoke all on function public.staff_decline_direct_booking_v1(uuid, text, text) 
 grant execute on function public.staff_decline_direct_booking_v1(uuid, text, text) to authenticated;
 
 -- 5. The Inquiries payment line: one row per pending direct booking. comparison_id is the newest comparison over a guest-sent
---    receipt (paid-outside attempts are left out, so "receipt present" means a real receipt).
+--    receipt (paid-outside attempts are left out, so "receipt present" means a real receipt). After a conflicted confirm it may be
+--    a re-attest comparison (the receipt + one staff attestation); candidate_amount and reference always come from the receipt.
 create or replace function public.staff_inquiry_payments_v1(p_property_id uuid)
 returns table (
   id uuid, booking_ref text, guest_name text, checkin_date date, checkout_date date, pax integer,

@@ -8,10 +8,11 @@
 --   b09 calendar conflict  b10 Telegram  b11 guard  b12 void  b13 expiry  b14 bypass-confirmed (repair)  b15 receipt + active hold
 --   b16 overlaps b15 hold (deposit 0)  b17 decline without receipt  b18 decline with receipt  b19 Telegram receipt  b20 receipt already
 --   rejected  b21 receipt vs b22 hold  b23 receipt vs an Airbnb stay (re-attest)  b24 supersede
+--   b25 receipt vs an Airbnb stay, eight conflicted retries each passing the previous comparison id (no attestation chain)
 -- pg_net and Vault are absent from a rehearsal copy: they are stubbed here (and rolled back) so the guest-messages call is observable.
 -- Where the real pg_net exists (CI) the stub is not installed and that one assertion passes vacuously.
 begin;
-select plan(91);
+select plan(95);
 
 do $$
 begin
@@ -87,7 +88,7 @@ select ('c0de7644-0000-4000-8000-0000000000' || lpad(n::text, 2, '0'))::uuid, 'e
                (16, 571, 'pending', null, 2500, 0), (17, 580, 'pending', null, 2000, 1000), (18, 585, 'pending', 'receipts/s76-b18.jpg', 2000, 1000),
                (19, 590, 'pending', 'receipts/s76-b19.jpg', 2000, 1000), (20, 595, 'pending', 'receipts/s76-b20.jpg', 2000, 1000),
                (21, 600, 'pending', 'receipts/s76-b21.jpg', 2000, 1000), (22, 600, 'pending', null, 2000, 1000),
-               (23, 610, 'pending', 'receipts/s76-b23.jpg', 2000, 1000)
+               (23, 610, 'pending', 'receipts/s76-b23.jpg', 2000, 1000), (25, 640, 'pending', 'receipts/s76-b25.jpg', 2000, 1000)
        ) v(n, d, st, rc, tot, dep);
 -- b24: the same guest (phone AND e-mail) about to re-book other dates, for supersede_pending_direct_requests_v1
 insert into public.booking_inquiries(id, property_id, guest_name, guest_email, guest_phone, checkin_date, checkout_date, pax, status, source, total_amount, deposit_amount)
@@ -98,7 +99,8 @@ select 'e4400000-0000-4000-8000-000000000044', 'direct:c0de7644-0000-4000-8000-0
   from (values (1, 500, 'blocked'), (11, 550, 'blocked'), (12, 555, 'blocked'), (13, 560, 'blocked'), (14, 565, 'confirmed'), (24, 620, 'blocked')) v(n, d, st);
 insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, guest_name) values
   ('e4400000-0000-4000-8000-000000000044', 'synthetic-s76-09@airbnb.com', 'airbnb', 'confirmed', current_date + 539, current_date + 543, 'Synthetic Airbnb'),
-  ('e4400000-0000-4000-8000-000000000044', 'synthetic-s76-23@airbnb.com', 'airbnb', 'confirmed', current_date + 609, current_date + 613, 'Synthetic Airbnb 23');
+  ('e4400000-0000-4000-8000-000000000044', 'synthetic-s76-23@airbnb.com', 'airbnb', 'confirmed', current_date + 609, current_date + 613, 'Synthetic Airbnb 23'),
+  ('e4400000-0000-4000-8000-000000000044', 'synthetic-s76-25@airbnb.com', 'airbnb', 'confirmed', current_date + 639, current_date + 643, 'Synthetic Airbnb 25');
 insert into public.transactions(id, property_id, txn_type, category, source, status, transaction_date, gross_amount, currency, booking_id, external_ref)
 select ('e4400000-0000-4000-8000-0000000007' || lpad(n::text, 2, '0'))::uuid, 'e4400000-0000-4000-8000-000000000044', 'income', 'direct_booking', 'direct_booking', st,
        current_date + 500, 1000, 'PHP', ('c0de7644-0000-4000-8000-0000000000' || lpad(n::text, 2, '0'))::uuid, 'c0de7644-0000-4000-8000-0000000000' || lpad(n::text, 2, '0')
@@ -118,7 +120,8 @@ select set_config('s76.cmp' || n, public.compare_booking_payment_evidence(b, arr
                ('19', 'c0de7644-0000-4000-8000-000000000019'::uuid, 1000, 'R19ABCDEF'),
                ('20', 'c0de7644-0000-4000-8000-000000000020'::uuid, 1000, 'R20ABCDEF'),
                ('21', 'c0de7644-0000-4000-8000-000000000021'::uuid, 1000, 'R21ABCDEF'),
-               ('23', 'c0de7644-0000-4000-8000-000000000023'::uuid, 1000, 'R23ABCDEF')) v(n, b, amt, rf);
+               ('23', 'c0de7644-0000-4000-8000-000000000023'::uuid, 1000, 'R23ABCDEF'),
+               ('25', 'c0de7644-0000-4000-8000-000000000025'::uuid, 1000, 'R25ABCDEF')) v(n, b, amt, rf);
 -- b20's receipt was already rejected in the Finance queue
 insert into public.payment_finance_reviews(property_id, booking_id, comparison_id, reviewer_user_id, outcome, reason)
 values ('e4400000-0000-4000-8000-000000000044', 'c0de7644-0000-4000-8000-000000000020', current_setting('s76.cmp20')::uuid,
@@ -278,6 +281,43 @@ select ok((select count(*) = 2 and count(distinct comparison_id) = 2 and bool_an
                   and (select evidence_candidate_ids from public.payment_evidence_comparisons where id = current_setting('s76.cmp23')::uuid) <@ c.evidence_candidate_ids
              from public.payment_evidence_comparisons c where c.id = (current_setting('s76.r23b')::jsonb ->> 'comparison_id')::uuid),
   'receipt + calendar: a fresh review on a new comparison over the receipt; one decision per review, the conflict row kept');
+
+-- eight conflicted retries, each passing the comparison id the previous one returned (what a refreshed Inquiries card holds)
+set local role authenticated;
+do $$
+declare v_cmp uuid := current_setting('s76.cmp25')::uuid; r jsonb; n int := 0;
+begin
+  for i in 1..8 loop
+    r := public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000025', null, null, 1000, null, v_cmp, 's76-onetap-key-b25-conflict-' || i);
+    if r ->> 'outcome' = 'conflict' then n := n + 1; end if;
+    v_cmp := (r ->> 'comparison_id')::uuid;
+  end loop;
+  perform set_config('s76.c25n', n::text, true);
+  perform set_config('s76.c25last', v_cmp::text, true);
+end $$;
+reset role;
+select is(current_setting('s76.c25n'), '8', 'repeated conflicts: eight retries against the Airbnb stay all answer conflict');
+select ok((select count(*) = 8 and bool_and(c.evidence_candidate_ids @> array[x.receipt]) and max(cardinality(c.evidence_candidate_ids)) <= 2
+             from public.payment_evidence_comparisons c,
+                  (select e.id as receipt from public.payment_evidence_candidates e
+                    where e.booking_id = 'c0de7644-0000-4000-8000-000000000025' and e.source_type = 'receipt_ocr') x
+            where c.booking_id = 'c0de7644-0000-4000-8000-000000000025'),
+  'repeated conflicts: every comparison holds the receipt plus at most one attestation (no chain)');
+select ok((select count(*) = 8 and count(distinct r.comparison_id) = 8 and bool_and(d.outcome = 'conflict')
+             from public.payment_finance_reviews r join public.booking_decisions d on d.finance_review_id = r.id
+            where r.booking_id = 'c0de7644-0000-4000-8000-000000000025' and r.outcome = 'approved'),
+  'repeated conflicts: eight reviews on eight comparisons, each spent on one conflict decision');
+update public.calendar_events set status = 'cancelled' where uid = 'synthetic-s76-25@airbnb.com';
+set local role authenticated;
+select set_config('s76.r25', public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000025', null, null, 1000, null,
+  current_setting('s76.c25last')::uuid, 's76-onetap-key-b25-final')::text, true);
+reset role;
+select ok(current_setting('s76.r25')::jsonb ->> 'outcome' = 'confirmed'
+      and (select c.evidence_candidate_ids @> array[(select e.id from public.payment_evidence_candidates e
+                                                      where e.booking_id = 'c0de7644-0000-4000-8000-000000000025' and e.source_type = 'receipt_ocr')]
+                  and cardinality(c.evidence_candidate_ids) = 2
+             from public.payment_evidence_comparisons c where c.id = (current_setting('s76.r25')::jsonb ->> 'comparison_id')::uuid),
+  'repeated conflicts: once the stay is gone the ninth try confirms on receipt + one attestation');
 
 -- Telegram
 set local role service_role;
