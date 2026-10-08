@@ -17,8 +17,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261008T125435Z",
+    "verified_at": "2026-10-08T12:58:48.871Z",
     "production_rule": "Two small changes. (1) TASKS #35a: run_system_verifier_v1 V1m detail gains 'uid' (the stay's calendar uid) and staff_verifier_facts_v1 reads the 8-character ref from uid first (cascade-direct-<id> or direct:<id>), then booking, then stay; each body cut from its source file after asserting the cut equals the LIVE md5(replace(prosrc, chr(13), '')) (run_system_verifier_v1 d803b9fd248dce1fe4795032bae7efcf, staff_verifier_facts_v1 3ba47c71d13c6d845d8709ba1f274b77, read 2026-10-08), one exact counted replacement each; grants re-asserted. (2) TASKS #19: DROP TRIGGER automation_outbox_dispatch_w01 and DROP FUNCTION dispatch_w01_booking_requested() (nothing consumes n8n W01; the webhook 404s on every booking.requested insert). The vault secrets cascade_n8n_w01_webhook_secret and cascade_cf_w01_client_* are NOT touched. No table, column, policy or row touched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [

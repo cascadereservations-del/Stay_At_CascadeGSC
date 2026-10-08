@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261008T125435Z",
+    "verified_at": "2026-10-08T12:58:48.871Z",
     "production_rule": "APPLY AFTER s78_small_sql_20261009: the migration refuses (55000, nothing changed) unless run_system_verifier_v1 is that release's body (md5 471e8af96bbdc4259b98665deeecc738) and apply_verifier_run_v1 is the live 490973908baae36a34908f6efd702936. Three changes. (1) TASKS #20b: btree_gist in schema extensions and exclusion constraint calendar_events_direct_no_overlap (property_id =, daterange(checkin, checkout, '[)') &&) WHERE source = 'direct' AND status <> 'cancelled'. A DO block first refuses (23P01, nothing changed) naming the uids if any live direct pair overlaps; production read 2026-10-08: 0 pairs (2 live direct rows). Every direct writer keeps one calendar row per booking (uid renamed in place), so none conflicts with itself. (2) TASKS #20a: run_system_verifier_v1 = the s78_small body plus V8 (red, one receipt - same image hash, same reference, or same amount within 30 minutes with a reference missing on one side - on two pending/confirmed bookings, one not yet checked out); apply_verifier_run_v1 gains 'V8' in both scope arrays. Bodies cut by script after md5 assertions, exact counted insertions. Production read 2026-10-08: 0 receipt pairs. (3) TASKS #21: table booking_submit_attempts (RLS on, no policies, anon/authenticated revoked) and booking_submit_allowed_v1(text, integer) (definer, service_role only). Grants re-asserted on all three functions. No existing row is changed. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
