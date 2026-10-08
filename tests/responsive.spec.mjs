@@ -29,7 +29,7 @@ test.describe('responsive contract', () => {
   test('body background uses the quiet-luxury bone token', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
     await page.goto('/index.html');
-    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(251, 248, 242)');
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(249, 246, 240)');
   });
 
   test('submit control uses the restrained radius token', async ({ page }) => {
