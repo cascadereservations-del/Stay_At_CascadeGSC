@@ -269,3 +269,72 @@ Deno.test('s78: D-317 - under a host hold none of the new paths sends anything t
     } finally { m.restore(); }
   }
 });
+
+// ==== s79 voice lane (probe replays 2026-10-08 against the s78 deploy, golden GOLDEN-RUN-s79) ======================================
+import { isCold, offersEarlyCheckin, payHoldReply } from './voice.ts';
+
+// Example: probe 13:43Z, turnover_noon_guard fired on "may complimentary drinking water na pong nakahanda ... pag-check in", so the
+// water answer became the 2:00 PM line (lint no_answer). Golden s78-booked-turnover-tl turn 6. FACTS: water from 5 nights only.
+Deno.test('s79 #1: a drinking-water answer on a turnover-day booking is kept - "complimentary" beside "check-in" is not an early offer', async () => {
+  const water = 'Opo, may complimentary drinking water po na nakahanda pagdating ninyo sa check-in.';
+  assertEquals(offersEarlyCheckin(water), false);
+  assertEquals(offersEarlyCheckin('Complimentary early check-in from 12 noon works on Oct 9.'), true);
+  assertEquals(offersEarlyCheckin('Early check-in is at no extra cost that day.'), true);
+  const m = stub(water);
+  try {
+    const r = await turn('Hi good morning po may free drinking water na po sa room?', { flow: held() });
+    assert(/drinking water/.test(r.reply), r.reply);
+    assert(!/2:00 PM/.test(r.reply), r.reply);
+  } finally { m.restore(); }
+});
+
+// Example: probe "2 nights lng po ang pwde mabook :(" after Oct 19 to 22 was offered - the 3-night PHP 5,073 was quoted again.
+Deno.test('s79 #2: at the offer, a shorter night count is acknowledged, priced for those nights and offered', async () => {
+  const offer: Flow = { step: 'offer', checkin: '2026-10-19', checkout: '2026-10-22', pax: 2, lang: 'tl', started_at: ago(5), updated_at: ago(5) };
+  const s = answer(offer, '2 nights lng po ang pwde mabook :(', now);
+  assertEquals(s.flow.checkout, '2026-10-21');
+  assert(s.reply && /Oct 19 to 21/.test(s.reply) && /3,382/.test(s.reply) && !/5,073/.test(s.reply), s.reply ?? '');
+  assertEquals(lintReply(s.reply!), []);
+  assertEquals(answer(offer, 'yes po', now).flow.step, 'contact'); // the yes is unchanged
+  const m = stub('unused');
+  try {
+    const r = await turn('2 nights lng po ang pwde mabook :(', { flow: offer });
+    assert(/3,382/.test(r.reply) && !/5,073/.test(r.reply), r.reply);
+  } finally { m.restore(); }
+});
+
+// Example: golden s78-booked-turnover-tl turn 5 said "we'll gladly message you right away" twice (the D-321 line + the model's own).
+Deno.test('s79 #3: the model\'s "we\'ll message you if it\'s ready sooner" beside the D-321 line goes', () => {
+  for (const l of ['en', 'tl'] as const) {
+    const line = turnoverCheckinLine('Oct 19', l);
+    assertEquals(setTurnoverCheckin(`${line} If our team finishes a little sooner, we'll gladly message you right away so you can settle in early.`, line), line);
+    assertEquals(setTurnoverCheckin('If the unit is ready earlier, we will let you know. Wi-Fi is fast.', line), `${line} Wi-Fi is fast.`);
+  }
+});
+
+// Example: probe arrival turn "We're here na po, waiting nlng for confirmation..." (receipt with the host) - "discreetly" and "your
+// smart lock PIN is ready na" before the host reviewed the receipt.
+Deno.test('s79 #4: before confirmation no "discreetly" and no ready PIN / go-in-now; the receipt status line says where it stands', async () => {
+  assertEquals(lintReply('We will discreetly check with our host.'), ['boilerplate']);
+  const m = stub('Welcome po, Angel. We will discreetly check with our host, and your smart lock PIN is ready na para makapasok kayo. Pahinga lang po muna kayo.');
+  try {
+    const r = await turn("We're here na po, waiting nlng for confirmation if pwde na nagcheck in", { flow: held('receipt_sent') });
+    assert(!/discreet/i.test(r.reply), r.reply);
+    assert(!/PIN[^.]*ready/i.test(r.reply), r.reply);
+    assert(/receipt is with us|host/i.test(r.reply), r.reply);
+    assertEquals(m.seen.length, 1, 'the model answered; code cleaned it');
+  } finally { m.restore(); }
+  // the PIN fact itself (how it works) stays; only a ready / go-in-now claim becomes the status line
+  const status = 'STATUS.';
+  for (const how of ['The smart lock PIN is sent by our host once they confirm the booking.', 'The PIN will be ready after our host confirms.']) assertEquals(payHoldReply(how, status, 'x'), how);
+  assertEquals(payHoldReply('Your door code is all set. Wi-Fi is fast.', status, 'x'), 'STATUS. Wi-Fi is fast.');
+  assertEquals(payHoldReply('Pwede na po kayong pumasok ngayon.', status, 'x'), 'STATUS.');
+});
+
+// Example: golden reg-bot-bis turn 2 (GOLDEN-RUN-s79, R3) - the warmth sat in the sentence that ended "enjoy our best rates".
+// D-311.8 holds: a Bisaya guest gets English (the case is lang 'en'); the miss was R3, not the register.
+Deno.test('s79 #5: a model sentence carrying "glad" is not dropped for its "enjoy our best rates" tagline', () => {
+  const live = "Ben, our rate starts at PHP 1,780 per night for a single night, and the nightly rate goes down the longer you stay. We'd be glad to work out the exact direct total for you once your dates are set, so you can enjoy our best rates.\n\nWhich dates are you thinking of staying with us?";
+  assertEquals(isCold(live), false);
+  assertEquals(isCold("Our rate starts at PHP 1,780 per night, and the nightly rate goes down the longer you stay. The exact direct total depends on the dates, so you can enjoy our best rates.\n\nWhich dates are you thinking of staying with us?"), true);
+});

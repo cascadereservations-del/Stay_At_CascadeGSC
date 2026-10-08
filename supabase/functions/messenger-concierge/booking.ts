@@ -668,6 +668,13 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       if (OFFER_NO_RE.test(text)) return { flow: { ...f, step: 'cancelled' }, reply: P.cancelReply(L), action: 'cancelled' };
       // SPEC-39 3.6: the yes may carry a thank-you or a good night - returned before the details ask.
       if (OFFER_YES_RE.test(text)) { f.step = 'contact'; return ask(f.name || f.phone || f.email ? undefined : P.detailsAsk(P.first(name), L, true, P.echoOf(text))); }
+      // s79 (probe 2026-10-08: "2 nights lng po ang pwde mabook :(" after Oct 19 to 22 was offered got the 3-night price again): a
+      // shorter count with no dates is the same check-in for that many nights - acknowledged, priced and offered (a subset of an open stay).
+      const n = parseDates(text, now)[0] ? null : nightsIn(text);
+      if (n && n < nights(f.checkin!, f.checkout!)) {
+        f.checkout = addDay(f.checkin!, n);
+        return ask(`${P.choiceAck(n === 1 ? dm(f.checkin!) : dmRange(f.checkin!, f.checkout), L)} ${prompt(f, null, false, now)}`);
+      }
       return { flow: f, reply: null, action: 'passthrough' }; // anything else: the model answers and the offer is asked again
     }
     case 'contact': {

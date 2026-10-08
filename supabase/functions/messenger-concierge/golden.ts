@@ -100,6 +100,9 @@ export function paymentCases(d2: string, d3: string): GoldenCase[] {
       must: [/QR below/, /\bpo\b/], mustNot: [LINK, /will send you a QR/i], effects: [/"fx":"qr"/] }]],
     // SPEC-39 3.6b: the nudge follows the guest's tone - brisk (short, plain turns), gentle (a first-timer, a trust question)
     ['pay-brisk-en', [f(`${d2} available? 2`, 'en'), f('yes', 'en'), f('Maria Santos 09171234567 m@example.com', 'en', { must: [/holds these dates/, /quick "full"/], mustNot: [/delighted|No rush/, LINK], effects: [/"fx":"submit"/, /"qr"/] })]],
+    // s79 (probe 2026-10-08): arrived while the receipt is with the host - never "discreetly", never a ready PIN or "go in now"
+    ['s79-arrival-before-confirm-tl', [...full(), img('flow', 'tl'), { say: "We're here na po, waiting nlng for confirmation if pwde na nagcheck in", kind: 'midflow', lang: 'tl',
+      must: [/receipt|host/i], mustNot: [LINK, /discreet/i, /\b(PIN|door code|passcode)\b[^.\n]{0,50}\b(ready|all set)\b/i, /pwede na (po )?(kayong |kayo )?(pumasok|mag-?check)/i, /\byou (can|may) (now )?(go in|enter|check in)\b/i] }]],
     ['pay-gentle-en', [{ say: `Hi, is ${d2} available for 2? first time booking online, is it safe?`, kind: 'midflow', lang: 'en' }, f('yes', 'en'),
       f(PAY, 'en', { must: [/No rush at all/, /Marifel and the team/], mustNot: [/quick "full"/, LINK], effects: [/"fx":"submit"/, /"qr"/] })]],
   ];
@@ -224,6 +227,8 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
       { say: `Hello, is ${d3} available? 2 adults`, kind: 'flow', lang: 'en', must: [/hold (that night|those dates) for you/i] },
       { say: 'not now', kind: 'flow', lang: 'en', must: [/send your dates again/i], mustNot: [LINK] },
     ] },
+    // s79 (probe 2026-10-08): "2 nights lng po ang pwde mabook :(" after a 3-night offer - the 2 nights from the same check-in, priced and offered
+    { id: 's79-two-nights-tl', group: 'flow', turns: [f(`Available po ba ang ${d3}? 2 kami`, 'tl'), f('2 nights lng po ang pwde mabook :(', 'tl', { must: [/3,382/, /\?/], mustNot: [/5,073/, LINK] })] },
     { id: 'flow-cancel-tl', group: 'flow', turns: [{ say: `Pa-book po ${d1}, 2 po kami`, kind: 'flow', lang: 'tl' }, { say: 'cancel po', kind: 'flow', lang: 'tl', mustNot: [LINK] }] },
 
     // ---- handoffs: warmth and a person, nothing to click
@@ -271,8 +276,9 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     const stay = range(t.getTime() < now.getTime() - 86_400_000 ? new Date(Date.UTC(y + 1, MON.indexOf(mo), +dd)) : t, 0, 3);
     cases.push({ id: 's78-booked-turnover-tl', group: 'payment', turns: [f(`I would like to book ${stay}`, 'en'), f('2 adults', 'en'), f('Yes pls', 'en'),
       f('Angeleen Luz Villanueva 09170000000 test.guest@example.com', 'en', { effects: [/"fx":"submit"/] }),
-      { say: 'If its possible we would like to checkin early po', kind: 'midflow', lang: 'en', must: [/2:00 PM/], mustNot: [/12:00 ?NN|1:00 PM|12 noon/i, /(2:00 PM[\s\S]*){3}/] },
-      { say: 'Hi good morning po may free drinking water na po sa room?', kind: 'midflow', lang: 'tl', mustNot: [/exact total|once may dates|preferred dates|which dates/i, LINK] },
+      { say: 'If its possible we would like to checkin early po', kind: 'midflow', lang: 'en', must: [/2:00 PM/], mustNot: [/12:00 ?NN|1:00 PM|12 noon/i, /(2:00 PM[\s\S]*){3}/, /(message you[\s\S]*){2}|(imemessage[\s\S]*){2}/i] }, // s79: the ready-sooner promise once
+      // s79 (probe 13:43Z: the water answer became the 2:00 PM line): water is answered, and a 3-night stay is not promised it (FACTS: 5+ nights)
+      { say: 'Hi good morning po may free drinking water na po sa room?', kind: 'midflow', lang: 'tl', must: [/water|tubig/i, /host/i], mustNot: [/exact total|once may dates|preferred dates|which dates/i, LINK, /2:00 PM/] },
       // the 50% path (a stay more than five days out; D-322 agrees the deposit on arrival only on the Pay in Full path)
       { say: 'We will pay po the deposit pag nasa area na po', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po|on arrival is fine|hand over/i], effects: [/"handoff"[^}]*payment/] },
       { say: 'Pag dating na lang po namin ibigay ang deposit', kind: 'code', lang: 'tl', must: [/a day before check-in/], mustNot: [/tama po/i] }] });

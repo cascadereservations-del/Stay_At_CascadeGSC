@@ -20,7 +20,7 @@ const COLD_RE = /^\s*(what|which|when|how many|your)\b[^.!]*\?\s*$/i;
 const COMMAND_RE = /(^|\n|[.!?]\s+)(send|reply|tap|enter|pay|scan|upload|click)\s+(me|us|the|your|a|an|₱|\d|it|here|now|deposit|full)\b/i;
 const EXCLAIM_RE = /\b(wonderful|amazing|awesome|lovely|fantastic|great news|good news|napakagandang|lubos (po )?kaming nagagalak|ikinagagalak)\b|!{2,}/i;
 // D-168 section 22: corporate / translated filler a real host would never type.
-const BOILERPLATE_RE = /\b(rest assured|please be advised|kindly|absolutely|certainly|great question|happy to help|at your earliest convenience|do not hesitate|utmost (pleasure|satisfaction)|valued (customer|guest)|esteemed guest|highly value your patronage|any inconvenience this may have caused|nagagalak|ipabatid|pahingi|pakibigay|pasayloa kami sa dakong)\b/i;
+const BOILERPLATE_RE = /\b(rest assured|please be advised|kindly|absolutely|certainly|great question|happy to help|discreetly|at your earliest convenience|do not hesitate|utmost (pleasure|satisfaction)|valued (customer|guest)|esteemed guest|highly value your patronage|any inconvenience this may have caused|nagagalak|ipabatid|pahingi|pakibigay|pasayloa kami sa dakong)\b/i;
 
 // Session 29 (live, "is there parking?" at confirm): the model echoed the stay card from history and rephrased the site
 // invite, so the card went out twice with an invite between. When the flow's own ask follows, only the answer is kept.
@@ -104,7 +104,9 @@ export function isCold(reply: string): boolean {
   // Golden run 2026-09-25 (first-greeting-tl): code's own greeting and Cassy sentence are not the model's warmth either;
   // counted, they pushed a one-line model reply over the length bar.
   const own = reply.split('\n').filter((l) => !/👉|https?:\/\//.test(l))
-    .map((l) => sentencesOf(l).filter((s) => !/best rates|on our (direct )?site|sa site namin|sa (aming|among) site/i.test(s)
+    // s79 (golden reg-bot-bis after the s78 deploy: "We'd be glad to work out the exact direct total for you ..., so you can enjoy
+    // our best rates." went whole, and its "glad" with it): from a model sentence only the tagline clause goes.
+    .map((l) => sentencesOf(l).map((s) => s.replace(/,?\s*(?:so (?:that )?you can )?enjoy (?:our|the) best rates?\b/i, '')).filter((s) => !/best rates|on our (direct )?site|sa site namin|sa (aming|among) site/i.test(s)
       && !THANKED_RE.test(s) && !/\bCassy\b/.test(s)).join('')).join('\n')
     // Golden run 2026-09-25 (reg-bot-bis): "...for you. 🌿 Nasa aming site ang photos..." - the care mark shared a sentence
     // with the site, so it went with it. A care emoji anywhere in the reply counts.
@@ -239,7 +241,9 @@ const NOT_OPEN_RE = /\b(not|isn't|aren't|no longer|hindi|dili)\s+(yet\s+)?(avail
 export const sentencesOf = (line: string): string[] => line.match(/[^.!?\n]+(?:[.!?]+|$)\s*/g) ?? [line];
 /** SPEC-31 s4 (F4, F7): a question while the hold is open. The booking is already arranged, so no invitation, no link,
  *  and never "your booking is confirmed" or a promised reminder - that sentence becomes the code's own status line. */
-const PAY_CLAIM_RE = /(is|ay) (now )?confirmed|na-confirm na|we'?ll (send|email) .{0,30}(reminder|receipt)/i;
+// s79 (probe 2026-10-08, arrival turn on receipt_sent: "the smart lock PIN is ready na"): before the host confirms, the door is
+// never ready and the guest is never told to go in - that sentence becomes the receipt status line too.
+const PAY_CLAIM_RE = /(is|ay) (now )?confirmed|na-confirm na|we'?ll (send|email) .{0,30}(reminder|receipt)|\b(pin|door code|passcode|smart lock)\b(?![^.!?\n]*\b(once|after|kapag|pagka|before|bago|when)\b)[^.!?\n]{0,50}\b(ready|all set|naka-?set na|active na)\b|\byou (?:can|may) now (?:go in|enter|head in|check in)\b|\byou (?:can|may) (?:go in|enter|head in|check in)\b[^.!?\n]*\bnow\b|\bpwede na(?: po)?(?: kayong| kayo)?\s+(?:pumasok|mag-?check ?in)\b/i;
 const PAY_INVITE_RE = /(arrange (the|your) booking|arrange everything|secure (your|the) dates|on our site|sa (aming|among) site|preferred dates|share (your|ang|lang)[^.?!]{0,20}dates|whenever you('re| are| feel) ready|direct bookings (carry|enjoy))/i;
 export function payHoldReply(reply: string, statusLine: string, siteUrl: string): string {
   let placed = false;
@@ -327,11 +331,14 @@ export function fixEarlyFee(reply: string, guest: string): string {
 // Lloyd 2026-09-17: on a day another guest checks out, check-in stays at 2 PM and the 12 noon check-in is never offered.
 // Golden run 2026-09-25 (Oct 2, a real Airbnb check-out): "You're welcome to check in from 12:00 noon that day at no extra
 // cost." The prompt said "12 noon at the earliest" there, so code owns the fact now, as K18 does for the fee.
-const NOON_OFFER_RE = /\b(12(:00)?\s*(noon|nn|pm)|noon|tanghali|complimentary|no extra (cost|charge)|free (early )?check[- ]?in|walang (dagdag|bayad))\b/i;
+const NOON_OFFER_RE = /\b(12(:00)?\s*(noon|nn|pm)|noon|tanghali|free (early )?check[- ]?in)\b/i;
+// s79 (probe 2026-10-08 13:43Z, turnover_noon_guard on "may complimentary drinking water na pong nakahanda ... pag-check in": the
+// water answer became the 2:00 PM line): "complimentary" / "no extra cost" offer a check-in only beside an early word.
+const FREE_EARLY_RE = /\b(complimentary|no extra (cost|charge)|walang (dagdag|bayad))\b[\s\S]*\b(early|earlier|maaga|agahan)\b|\b(early|earlier|maaga|agahan)\b[\s\S]*\b(complimentary|no extra (cost|charge)|walang (dagdag|bayad))\b/i;
 const CHECKIN_WORD_RE = /\b(check[- ]?in|arriv\w*|dating|abot)\b/i;
 // D-311.2 (golden s74b run 3: "Open din po ang 12:00 noon early check-in at no extra charge dahil wala pong guest na mag-che-check
 // out..." slipped through): a check-out word excuses the sentence only when it names no check-in ("Check-out is at 12 noon").
-const noonOffer = (s: string) => CHECKIN_WORD_RE.test(s) && NOON_OFFER_RE.test(s) && !/\b2(:00)?\s*p\.?m\b/i.test(s) && !(/\bcheck[- ]?out\b/i.test(s) && !/\bcheck[- ]?in\b/i.test(s));
+const noonOffer = (s: string) => CHECKIN_WORD_RE.test(s) && (NOON_OFFER_RE.test(s) || FREE_EARLY_RE.test(s)) && !/\b2(:00)?\s*p\.?m\b/i.test(s) && !(/\bcheck[- ]?out\b/i.test(s) && !/\bcheck[- ]?in\b/i.test(s));
 /** The reply offers a check-in at or before 12 noon, or a free early one. */
 export function offersEarlyCheckin(reply: string): boolean {
   return reply.split('\n').some((l) => sentencesOf(l).some(noonOffer));
@@ -351,7 +358,11 @@ export const asksEarlyCheckin = (text: string): boolean =>
   /\b(early|earlier|maaga|agahan|aga)\b/i.test(text) && /check.?in|arriv|dating|abot|pasok/i.test(text);
 /** s78: a sentence about WHEN check-in happens (a time, "earliest", "ready", "maaga") - on a turnover day the fixed line replaces them all. */
 const CHECKIN_TIME_RE = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m|p\.?m|nn|noon)\b|\b(?:noon|tanghali|earliest|earlier|maaga|ready|handa|prepared)\b/i;
-const checkinTime = (s: string) => noonOffer(s) || (CHECKIN_WORD_RE.test(s) && CHECKIN_TIME_RE.test(s) && !/\bcheck[- ]?out\b/i.test(s.replace(/\bcheck[- ]?out (?:that|nang|in the) (?:morning|umaga)\b/gi, '')));
+/** s79 (golden s78-booked-turnover-tl turn 5: "...we'll gladly message you right away po. If our team finishes a little sooner,
+ *  we'll gladly message you right away so you can settle in early."): the model's own "we'll message you if it's ready sooner"
+ *  restates the D-321 line's second sentence, so it goes with the check-in-time sentences. */
+const READY_PROMISE_RE = /\b(sooner|earlier|early|maaga|ready|finish\w*|tapos)\b[^.!?\n]*\b(message|let you know|inform|notify|update you|imemessage|i-?message|sasabihan)\b|\b(message|let you know|inform|notify|imemessage|i-?message|sasabihan)\b[^.!?\n]*\b(sooner|earlier|ready|maaga)\b/i;
+const checkinTime = (s: string) => noonOffer(s) || READY_PROMISE_RE.test(s) || (CHECKIN_WORD_RE.test(s) && CHECKIN_TIME_RE.test(s) && !/\bcheck[- ]?out\b/i.test(s.replace(/\bcheck[- ]?out (?:that|nang|in the) (?:morning|umaga)\b/gi, '')));
 /** Incident 2026-10-07: "so you can settle in comfortably as soon as you arrive po" implied any hour on a turnover day. Only a
  *  clause-final, lower-case one goes ("As soon as you arrive, the lock..." opens a sentence and stays). */
 const ARRIVE_NOW_RE = /,?\s+(?:as soon as|the moment|right when) (?:you (?:arrive|get here)|dumating kayo|kayo dumating)(?=(?:\s+po)?\s*[.!?,])/g;
