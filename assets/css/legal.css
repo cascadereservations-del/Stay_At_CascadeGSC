@@ -4,7 +4,7 @@
   --ch-cream: #F9F6F0; --ch-parchment: #FAF8F4; --ch-warm-stone: #D4B896; --ch-text: #2A1F16;
   --ch-muted: #5C5650; --ch-line: rgb(31 29 26 / 0.12);
   --ch-font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
-  --ch-font-body: Manrope, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ch-font-body: Raleway, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }

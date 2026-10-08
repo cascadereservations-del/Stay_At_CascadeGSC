@@ -20,8 +20,8 @@ test('defines the approved design tokens', () => {
 
 test('uses the approved type pairing', () => {
   assert.match(html, /Cormorant\+Garamond/);
-  assert.match(html, /Manrope/);
-  assert.doesNotMatch(html, /Raleway/);
+  assert.match(html, /Raleway/);
+  assert.doesNotMatch(html, /Manrope/);
 });
 
 test('does not restore rejected luxury-template patterns', () => {
