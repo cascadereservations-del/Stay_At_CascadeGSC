@@ -304,6 +304,8 @@
   }
 
   function render(s) {
+    /* D-323: an Airbnb link opens only the Before you arrive section: no booking status, no money */
+    if (s.state === 'intake_only') { setView(el('p', 'st-note', 'Your stay is booked through Airbnb. This page is only for adding your guests before you arrive.')); policy.hidden = true; loadIntake(token(), ''); return; }
     var copy = TEXT[s.state];
     if (!copy) { neutral('We could not read this booking', 'Please contact us with your reference and we will help.', false); return; }
     var frag = document.createDocumentFragment();
