@@ -44,8 +44,10 @@ async function turn(message: Record<string, unknown>, humanUntil: string | null,
 const FILE = { attachments: [{ type: 'file', payload: { url: 'https://example.invalid/receipt.pdf' } }] };
 
 Deno.test('paidClaim: claims bump, questions do not', () => {
-  for (const t of ['bayad na po', 'Sent na po', 'paid na', 'nabayaran ko na po', 'I transferred it', 'transfer done po']) assert(paidClaim(t), t);
-  for (const t of ['bayad na po?', 'paano mag-transfer', 'how do I pay', 'nabayaran na ba?', 'magbayad ako mamaya', 'what time check-in', '']) assert(!paidClaim(t), t);
+  for (const t of ['bayad na po', 'Sent na po', 'paid na', 'nabayaran ko na po', 'I transferred it', 'transfer done po',
+    'nagbayad na po', 'nakabayad na po', 'nasend ko na', 'na-send na', 'gi-send na nako', 'nabayad na', 'gcash na po', 'transferred', 'transfer done']) assert(paidClaim(t), t);
+  for (const t of ['bayad na po?', 'paano mag-transfer', 'how do I pay', 'nabayaran na ba?', 'magbayad ako mamaya', 'what time check-in', '',
+    'sent my ID po', 'nasend ko na ang ID', 'we want to transfer the dates', 'magkano bayad', 'how much bayad po', 'transfer']) assert(!paidClaim(t), t);
 });
 
 Deno.test('"bayad na po" at await_receipt bumps the request card once, then not again within the hour', async () => {
@@ -69,6 +71,10 @@ Deno.test('a file that is not a photo bumps once and not twice; a photo is a rec
   const photo = await turn({ attachments: [{ type: 'image', payload: { url: 'https://example.invalid/r.jpg' } }] }, null, FLOW);
   assertEquals(photo.bumps.length, 0);
   assertEquals(photo.calls.filter((c) => c.fx === 'receipt').length, 1);
+});
+
+Deno.test('a shared link (fallback attachment) is no payment signal', async () => {
+  assertEquals((await turn({ attachments: [{ type: 'fallback', payload: { url: 'https://example.invalid/x' } }] }, null, FLOW)).bumps.length, 0);
 });
 
 Deno.test('a question about paying is not a claim; no booking waiting for a receipt is not bumped', async () => {

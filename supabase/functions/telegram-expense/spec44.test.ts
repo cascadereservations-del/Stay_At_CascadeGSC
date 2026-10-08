@@ -2,10 +2,10 @@
 // SPEC-44 (s76): ✅ Paid – confirm on the request card and the receipt card's Confirm, both on telegram_confirm_direct_booking_v1.
 // Recording fakes for Telegram and the database. Synthetic names, numbers and ids only (public repo).
 import { assert, assertEquals, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { type Deps, onInquiryPaid, onIqTap, onReceiptConfirm } from './inquiry-flow.ts';
+import { type Deps, NO_ANSWER, onInquiryPaid, onIqTap, onReceiptConfirm } from './inquiry-flow.ts';
 import { answersOpen, refusal } from './reply.ts';
 import type { SendIO } from './inquiry-send.ts';
-import { confirmRefusal, CONFIRM_RPC, IQ, type InquiryView, maskRef, PAID_AGAIN, paidPrompt, parsePaidReply } from '../_shared/cascade-core/inquiry.ts';
+import { confirmedLine, confirmRefusal, CONFIRM_RPC, IQ, type InquiryView, maskRef, PAID_AGAIN, paidPrompt, parsePaidReply } from '../_shared/cascade-core/inquiry.ts';
 
 const FIN = '-100111', OPS = '-100222';
 const ID = '00a49c5e-1111-4222-8333-444455556666';
@@ -22,7 +22,7 @@ const view = (o: Partial<InquiryView> = {}): InquiryView => ({
 const CARD = '📬 BOOKING · Request from Ana Cruz · not paid yet\n\nAna Cruz asked for Mon 30 Nov to Fri 4 Dec.';
 
 // deno-lint-ignore no-explicit-any
-function setup(o: { views?: InquiryView[]; confirm?: (a: any) => any; rows?: Record<string, any> } = {}) {
+function setup(o: { views?: InquiryView[]; confirm?: (a: any) => any; rows?: Record<string, any>; rpcError?: unknown; rpcThrows?: boolean } = {}) {
   // deno-lint-ignore no-explicit-any
   const r = { sent: [] as any[], edits: [] as any[], captions: [] as any[], answers: [] as any[], asked: [] as any[], rpcs: [] as any[] };
   const rows = o.rows ?? {};
@@ -35,6 +35,8 @@ function setup(o: { views?: InquiryView[]; confirm?: (a: any) => any; rows?: Rec
     rpc: async (fn: string, args: any) => {
       r.rpcs.push({ fn, args });
       if (fn === 'telegram_inquiry_view_v1') return { data: (o.views ?? [view()]).filter((v) => v.id === args.p_booking_id) };
+      if (fn === CONFIRM_RPC && o.rpcThrows) throw new Error('fetch failed');
+      if (fn === CONFIRM_RPC && o.rpcError) return { data: null, error: o.rpcError };
       if (fn === CONFIRM_RPC) return { data: o.confirm ? o.confirm(args) : { ok: true, outcome: 'confirmed', booking_ref: '00A49C5E', guest_name: 'Ana Cruz', checkin: '2026-11-30', checkout: '2026-12-04' } };
       return { data: null };
     },
@@ -74,6 +76,15 @@ Deno.test('parser: every rejected shape asks again', () => {
     'bank REF1 5073 more', 'gcash 1234567890123 5073', '5073 1234567890123', 'cash 5073.123']) {
     assertEquals(parsePaidReply(t), null, t);
   }
+  // Fable audit: a leading zero is a phone number; a figure far above the stay is a typo
+  assertEquals(parsePaidReply('1234567890123 09171234567'), null);
+  assertEquals(parsePaidReply('cash 0917'), null);
+  assertEquals(parsePaidReply('1234567890123 5073', 6200)?.amount, 5073);
+  assertEquals(parsePaidReply('1234567890123 18600', 6200)?.amount, 18600); // exactly 3x is still accepted
+  assertEquals(parsePaidReply('1234567890123 18601', 6200), null);
+  assertEquals(parsePaidReply('cash 200000'), { method: 'cash', reference: null, amount: 200000 });
+  assertEquals(parsePaidReply('cash 200001'), null);
+  assertEquals(parsePaidReply('bank BPI77 99999', 6200), null);
   assertEquals(refusal('inquiry_paid'), PAID_AGAIN);
   plain(PAID_AGAIN);
   assertEquals(PAID_AGAIN.split(/[.;]\s/).length <= 2, true);
@@ -199,6 +210,26 @@ Deno.test('each refusal reaches the person who replied, as a reply; the card kee
   }
 });
 
+Deno.test('confirmedLine: cash says cash, a reference is masked, a GCash receipt without one says GCash (never cash)', () => {
+  assertStringIncludes(confirmedLine('Lloyd', 'cash', null), '· cash.');
+  assertStringIncludes(confirmedLine('Lloyd', 'messenger_gcash', REF), '· ref …0123.');
+  assertStringIncludes(confirmedLine('Lloyd', 'messenger_gcash', null), '· GCash.');
+  assertStringIncludes(confirmedLine('Lloyd', 'gcash_qr', null), '· GCash QR.');
+  assertStringIncludes(confirmedLine('Lloyd', 'bank', null), '· bank transfer.');
+});
+
+Deno.test('a lost answer never claims nothing was confirmed; a missing RPC does', async () => {
+  for (const o of [{ rpcThrows: true }, { rpcError: { message: 'upstream timeout', code: '57014' } }]) {
+    const { d, r } = setup(o);
+    await onInquiryPaid(d, reply(`${REF} 6200`), { booking_id: ID, card_mid: 900, card_text: CARD, expected: 6200 }, parsePaidReply(`${REF} 6200`)!, PID);
+    assertEquals(r.sent.map((s) => s.text), [NO_ANSWER]);
+    assert(!/nothing was confirmed/i.test(NO_ANSWER));
+  }
+  const gone = setup({ rpcError: { message: 'function does not exist', code: '42883' } });
+  await onInquiryPaid(gone.d, reply(`${REF} 6200`), { booking_id: ID, card_mid: 900, card_text: CARD, expected: 6200 }, parsePaidReply(`${REF} 6200`)!, PID);
+  assertStringIncludes(gone.r.sent[0].text, 'not switched on yet');
+});
+
 // ---- the receipt card ----
 
 Deno.test('receipt Confirm: the one-tap RPC with the comparison id, the read reference and amount, Messenger method; caption edited; OPS line', async () => {
@@ -232,6 +263,19 @@ Deno.test('receipt Confirm: a site request pays by QR; a text card (long caption
   assertStringIncludes(r.edits[0].text, 'Joy, your Telegram account is not linked');
   assertEquals(r.edits[0].rm, rm);
   assertEquals(r.sent.filter((s) => String(s.chatId) === OPS), []);
+});
+
+Deno.test('receipt Confirm: a replay (already_processed) posts no second OPS line; a lost answer keeps the buttons', async () => {
+  const rows = { payment_evidence_comparisons: { booking_id: ID, evidence_candidate_ids: [CAND] }, payment_evidence_candidates: { normalized_amount: 6200, normalized_reference: REF }, booking_inquiries: { notes: null } };
+  const tap = { id: 'cb5', from: { id: 5, first_name: 'Joy' }, message: { chat: { id: Number(FIN) }, message_id: 780, caption: 'c', reply_markup: { inline_keyboard: [[{ text: 'k', callback_data: `bk_ok:${CMP}` }]] } } };
+  const again = setup({ rows, confirm: () => ({ ok: true, outcome: 'confirmed', already_processed: true }) });
+  await onReceiptConfirm(again.d, tap, CMP);
+  assertEquals(again.r.sent.filter((s) => String(s.chatId) === OPS), []);
+  assertStringIncludes(again.r.captions[0].text, '✅ Confirmed by Joy');
+  const lost = setup({ rows, rpcThrows: true });
+  await onReceiptConfirm(lost.d, tap, CMP);
+  assertStringIncludes(lost.r.captions[0].text, NO_ANSWER);
+  assertEquals(lost.r.captions[0].rm, tap.message.reply_markup);
 });
 
 Deno.test('receipt Confirm: a comparison that is gone confirms nothing and calls no RPC', async () => {

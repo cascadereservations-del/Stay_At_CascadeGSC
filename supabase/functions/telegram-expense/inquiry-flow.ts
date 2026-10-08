@@ -228,6 +228,17 @@ export async function onInquiryReason(d: Deps, msg: any, p: { booking_id?: strin
 // ---- SPEC-44: confirm on the one-tap RPC ----
 
 const NOT_ON_CONFIRM = '⚠️ One-tap confirm is not switched on yet (database update pending). Nothing was confirmed; use the Inquiries page in the admin.';
+/** Fable audit (s76): a lost answer may still have confirmed, so it never says nothing was. */
+export const NO_ANSWER = '⚠️ The answer did not come back; check the booking on the Inquiries page before trying again.';
+/** The one-tap RPC. `said`: the line to show when it errored or never answered (a missing function is the only sure "nothing"). */
+// deno-lint-ignore no-explicit-any
+async function callConfirm(d: Deps, args: Record<string, unknown>): Promise<{ r: any; said: string | null }> {
+  try {
+    const { data, error } = await d.db.rpc(CONFIRM_RPC, args);
+    if (error) return { r: null, said: missing(error) ? NOT_ON_CONFIRM : NO_ANSWER };
+    return { r: data, said: null };
+  } catch (e) { console.error('confirm_rpc', String(e).slice(0, 160)); return { r: null, said: NO_ANSWER }; }
+}
 
 /** The reply to the Paid – confirm prompt, already parsed (flow inquiry_paid; index.ts consumed the question). `pid` is that question's
  *  row: the idempotency key, so a retried update cannot confirm twice. Ref and amount stay in Finance; OPS gets the usual line. */
@@ -238,15 +249,15 @@ export async function onInquiryPaid(d: Deps, msg: any, p: { booking_id?: string;
   if (!isUuid(p.booking_id)) { await reply('⚠️ That question lost its request, so nothing was confirmed.'); return; }
   const amount = a.amount ?? (Number(p.expected) > 0 ? Number(p.expected) : null);
   if (amount === null) { await reply(confirmRefusal({ outcome: 'amount_required' }, by, 'request').line); return; }
-  const { data: r, error } = await d.db.rpc(CONFIRM_RPC, {
+  const { r, said } = await callConfirm(d, {
     p_telegram_user_id: msg.from?.id ?? null, p_booking_id: p.booking_id, p_method: a.method, p_reference: a.reference, p_amount: amount,
     p_note: a.method === 'cash' ? `cash seen by ${by}` : null, p_comparison_id: null, p_idempotency_key: `tg-paid:${pid}`,
   });
-  if (error) { await reply(missing(error) ? NOT_ON_CONFIRM : `⚠️ ${String(error.message).slice(0, 140)}. Nothing was confirmed.`); return; }
+  if (said) { await reply(said); return; }
   if (!r?.ok || r.outcome !== 'confirmed') { await reply(confirmRefusal(r, by, 'request').line); return; }
   if (p.card_mid) await d.edit(chatId, Number(p.card_mid), `${stripPreview(String(p.card_text ?? '')) || '📬 BOOKING · Request'}\n\n${confirmedLine(by, a.method, a.reference)}`);
   await reply('✅ Confirmed. The request card above is updated.');
-  if (d.opsChat) await d.send(d.opsChat, opsConfirmedLine(p.booking_id, by));
+  if (d.opsChat && !r.already_processed) await d.send(d.opsChat, opsConfirmedLine(p.booking_id, by)); // a replay posts nothing twice
 }
 
 /** The receipt card's ✅ Confirm booking (bk_ok:<comparison id>): the one-tap RPC with that comparison, the method from where the
@@ -264,14 +275,14 @@ export async function onReceiptConfirm(d: Deps, cq: any, cmpId: string): Promise
   const { data: cand } = cid ? await d.db.from('payment_evidence_candidates').select('normalized_amount,normalized_reference').eq('id', cid).maybeSingle() : { data: null };
   const { data: bk } = await d.db.from('booking_inquiries').select('notes').eq('id', cmp.booking_id).maybeSingle();
   const method = receiptMethod(bk?.notes), ref = cand?.normalized_reference ?? null;
-  const { data: r, error } = await d.db.rpc(CONFIRM_RPC, {
+  const { r, said } = await callConfirm(d, {
     p_telegram_user_id: cq.from?.id ?? null, p_booking_id: cmp.booking_id, p_method: method, p_reference: ref,
     p_amount: cand?.normalized_amount != null ? Number(cand.normalized_amount) : null, p_note: null, p_comparison_id: cmpId, p_idempotency_key: `tg-receipt:${cmpId}`,
   });
-  if (error) { await put(missing(error) ? NOT_ON_CONFIRM : `⚠️ ${String(error.message).slice(0, 140)}. Nothing was confirmed.`, true); return; }
+  if (said) { await put(said, true); return; }
   if (!r?.ok || r.outcome !== 'confirmed') { const f = confirmRefusal(r, by, 'receipt'); await put(f.line, f.keep); return; }
   await put(confirmedLine(by, method, ref), false);
-  if (d.opsChat) await d.send(d.opsChat, opsConfirmedLine(String(cmp.booking_id), by));
+  if (d.opsChat && !r.already_processed) await d.send(d.opsChat, opsConfirmedLine(String(cmp.booking_id), by)); // a second tap posts nothing twice
 }
 
 /** A pending row, deleted and returned in one call: one winner. null when gone, expired, the wrong kind or from another chat. */

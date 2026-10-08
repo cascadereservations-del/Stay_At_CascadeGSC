@@ -1724,7 +1724,7 @@ async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any}
       await done();await onInquiryReason(iqDeps(db),msg,p,reason);return;
     }
     case 'inquiry_paid':{ // SPEC-44: the row's id is the confirm's idempotency key
-      const a=parsePaidReply(text);if(!a){await bad();return;}
+      const a=parsePaidReply(text,Number(p.expected)||null);if(!a){await bad();return;}
       await done();await onInquiryPaid(iqDeps(db),msg,p,a,aw.id);return;
     }
     case 'block_brownout': case 'block_other': await handleBlockAnswer(db,chatId,msg,aw,text);return; // SPEC-41

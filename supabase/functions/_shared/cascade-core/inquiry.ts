@@ -274,16 +274,20 @@ export function paidPrompt(v: Pick<InquiryView, 'guest_name'>, expected: number 
 export const PAID_AGAIN = 'Reply to the question again with a GCash reference and amount (1234567890123 5073), cash 5073, or bank <ref> 5073; nothing was confirmed.';
 
 export type PaidReply = { method: 'messenger_gcash' | 'cash' | 'bank'; reference: string | null; amount: number | null };
-/** `5073`, `5,073`, `₱5073.50`; NaN for anything else (0 included); null when absent. */
+/** No stay here costs more; a bigger figure is a typo or a phone number. */
+export const PAID_MAX = 200_000;
+/** `5073`, `5,073`, `₱5073.50`; NaN for anything else (0 and a leading zero included: 09171234567 is a phone); null when absent. */
 const amountTok = (s: string | undefined): number | null => {
   if (s === undefined) return null;
   const x = s.replace(/^₱/, '').replace(/,(?=\d{3}(\D|$))/g, '');
-  return /^\d+(\.\d{1,2})?$/.test(x) && Number(x) > 0 ? Number(x) : NaN;
+  return /^[1-9]\d*(\.\d{1,2})?$/.test(x) ? Number(x) : NaN;
 };
-/** Strict: `<10-16 digits> [amount]` (GCash), `cash <amount>`, `bank <ref> [amount]`. Anything else is null and the question stays open. */
-export function parsePaidReply(text: unknown): PaidReply | null {
+/** Strict: `<10-16 digits> [amount]` (GCash), `cash <amount>`, `bank <ref> [amount]`. Anything else is null and the question stays open.
+ *  An amount above PAID_MAX, or above 3x the expected figure when one is known, is refused the same way (Fable audit, s76). */
+export function parsePaidReply(text: unknown, expected?: number | null): PaidReply | null {
   const t = String(text ?? '').trim().split(/\s+/).filter(Boolean);
-  const ok = (r: PaidReply) => (Number.isNaN(r.amount) ? null : r);
+  const cap = Math.min(PAID_MAX, expected && expected > 0 ? 3 * expected : PAID_MAX);
+  const ok = (r: PaidReply) => (r.amount !== null && (Number.isNaN(r.amount) || r.amount > cap) ? null : r);
   const kw = (t[0] ?? '').toLowerCase();
   if ((t.length === 1 || t.length === 2) && /^\d{10,16}$/.test(t[0])) return ok({ method: 'messenger_gcash', reference: t[0], amount: amountTok(t[1]) });
   if (kw === 'cash' && t.length === 2) { const a = amountTok(t[1]); return a === null ? null : ok({ method: 'cash', reference: null, amount: a }); }
@@ -294,8 +298,9 @@ export function parsePaidReply(text: unknown): PaidReply | null {
 export const maskRef = (ref: string | null | undefined): string => `…${String(ref ?? '').replace(/[^A-Za-z0-9]/g, '').slice(-4)}`;
 /** A receipt uploaded for a Messenger request was a GCash send to the number; a site request paid by the QR. */
 export const receiptMethod = (notes: string | null | undefined): 'messenger_gcash' | 'gcash_qr' => (viaOf(notes) === 'Messenger' ? 'messenger_gcash' : 'gcash_qr');
+const METHOD_WORDS: Record<string, string> = { messenger_gcash: 'GCash', gcash_qr: 'GCash QR', bank: 'bank transfer', cash: 'cash', other: 'other payment' };
 export const confirmedLine = (by: string, method: string, ref: string | null | undefined) =>
-  `✅ Confirmed by ${by} · ${method === 'cash' || !ref ? 'cash' : `ref ${maskRef(ref)}`}. The booking is confirmed, the calendar is updated and the guest is sent the confirmation.`;
+  `✅ Confirmed by ${by} · ${method === 'cash' ? 'cash' : ref ? `ref ${maskRef(ref)}` : METHOD_WORDS[method] ?? 'payment'}. The booking is confirmed, the calendar is updated and the guest is sent the confirmation.`;
 /** The OPS line, unchanged from the receipt-card days: no reference, no amount. */
 export const opsConfirmedLine = (bookingId: string, by: string) =>
   `🏠 CONFIRMED · Direct ${String(bookingId).slice(0, 8).toUpperCase()}\n\nDirect booking confirmed by ${by}. Calendar is updated; turnover follows the usual schedule.`;

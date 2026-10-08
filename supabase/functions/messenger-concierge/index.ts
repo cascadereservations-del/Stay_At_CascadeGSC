@@ -1046,7 +1046,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // SPEC-44: at await_receipt a file that is not a photo, or "bayad na po" (a claim, not a question), brings Finance's request card
   // back with Paid – confirm. Once an hour per booking (paid_bump_at). No new guest line (SPEC-31 s2's stays), and a D-317 host
   // hold still bumps: Finance checks the money whoever is talking to the guest.
-  const fileSent = !attachment && (msg.attachments ?? []).some((a: any) => a?.type && a.type !== 'image');
+  const fileSent = !attachment && (msg.attachments ?? []).some((a: any) => a?.type && a.type !== 'image' && a.type !== 'fallback'); // a shared link is no payment signal
   if (mode !== 'off' && flow?.step === 'await_receipt' && flow.booking_id && (fileSent || paidClaim(text))
       && !(flow.paid_bump_at && now.getTime() - Date.parse(flow.paid_bump_at) < 3_600_000)
       && await fx.bump(db, flow.booking_id, text)) flow = { ...flow, paid_bump_at: now.toISOString() };
