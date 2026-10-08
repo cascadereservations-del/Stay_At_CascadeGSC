@@ -14,6 +14,9 @@
 --                                                         one row per (date, kind): manual > notice > calendar block.
 --   warnings[].key              the verifier_findings.key of a system-check warning (null for the others), the key the Tasks list
 --                               uses for source verifier_findings and ack_verifier_finding_v1(p_key) takes. detail is unchanged.
+--   warnings[].acknowledged / .facts   system-check warnings now list OPEN findings only (an acknowledged one no longer shows);
+--                               acknowledged is false on every row it is still sent on; facts is the allow-list of
+--                               staff_verifier_facts_v1 (null for non-verifier warnings).
 --   calendar_day_flags          manual secondary flags per night (brownout | maintenance | deep_clean | other), RLS on, no direct grant
 --                               to any API role (service_role only), audited per row by admin_audit_row_v1.
 --   calendar_day_flag_set_v1 / calendar_day_flag_clear_v1   owner or admin only (admin_require read_operations on the property, then
@@ -89,6 +92,25 @@ revoke all on function public.calendar_day_flag_set_v1(uuid, date, text, text) f
 revoke all on function public.calendar_day_flag_clear_v1(uuid, uuid) from public, anon, service_role;
 grant execute on function public.calendar_day_flag_set_v1(uuid, date, text, text) to authenticated;
 grant execute on function public.calendar_day_flag_clear_v1(uuid, uuid) to authenticated;
+
+-- Safe facts of a system-check finding for staff: an allow-list read out of verifier_findings.detail. 8-character booking ref, guest FIRST
+-- name only (redacted), ISO dates, block_from / block_to (V1m), the V10 check name and count n. Never a payee, a code, a phone, an
+-- e-mail or an amount: V10 detail rows are not read at all.
+create or replace function public.staff_verifier_facts_v1(p_check_id text, p_detail jsonb)
+returns jsonb language sql immutable set search_path to '' as $$
+  select jsonb_strip_nulls(jsonb_build_object(
+    'ref',        upper(coalesce(substring(p_detail->>'booking' from '^[0-9a-fA-F]{8}'), substring(p_detail->>'uid' from '^cascade-direct-([0-9a-fA-F]{8})'))),
+    'guest_first', nullif(public.staff_redact_v1(split_part(btrim(coalesce(p_detail->>'guest', p_detail#>>'{a,guest}', '')), ' ', 1)), ''),
+    'from',       case when coalesce(p_detail->>'from', p_detail#>>'{a,from}', p_detail->>'arrives') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                       then coalesce(p_detail->>'from', p_detail#>>'{a,from}', p_detail->>'arrives') end,
+    'to',         case when coalesce(p_detail->>'to', p_detail#>>'{a,to}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                       then coalesce(p_detail->>'to', p_detail#>>'{a,to}') end,
+    'block_from', case when p_detail->>'block_from' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p_detail->>'block_from' end,
+    'block_to',   case when p_detail->>'block_to' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then p_detail->>'block_to' end,
+    'check',      case when p_check_id = 'V10' and p_detail->>'check' ~ '^[a-z_]{1,40}$' then p_detail->>'check' end,
+    'n',          case when p_check_id = 'V10' and jsonb_typeof(p_detail->'n') = 'number' then p_detail->'n' end));
+$$;
+revoke all on function public.staff_verifier_facts_v1(text, jsonb) from public, anon, authenticated, service_role;
 
 create or replace function public.staff_home_v1(p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
 returns jsonb
@@ -180,25 +202,25 @@ begin
     select 'brownout' kind, 'alert' severity, public.staff_redact_v1(n.title) title,
            jsonb_build_object('date', n.effective_date, 'time', n.effective_time, 'hours', n.duration_hours,
                               'grid_line', public.staff_redact_v1(n.feeder), 'posted_by', public.staff_redact_v1(n.posted_by_name)) detail,
-           n.effective_date::timestamptz at_ts, null::text as key
+           n.effective_date::timestamptz at_ts, null::text as key, false as acked, null::jsonb as facts
       from public.ops_notices n
      where n.property_id = p_property_id and n.is_active and n.notice_type = 'brownout'
        and coalesce(n.audience,'staff') in ('staff','all')
        and (n.expires_at is null or n.expires_at > now()) and n.effective_date >= v_today - 1
     union all
     select 'verifier', case f.severity when 'red' then 'alert' else 'warn' end, public.staff_redact_v1(f.title) title,
-           jsonb_build_object('check_id', f.check_id, 'status', f.status), f.last_seen, f.key
+           jsonb_build_object('check_id', f.check_id, 'status', f.status), f.last_seen, f.key, f.status = 'acknowledged', public.staff_verifier_facts_v1(f.check_id, f.detail)
       from public.verifier_findings f
-     where f.status in ('open','acknowledged')
+     where f.status = 'open'
        and (v_role in ('owner','admin','finance') or f.check_id = any(v_ops_checks))
     union all
     select 'inventory', 'warn', public.staff_redact_v1('Low stock: ' || i.name) title,
-           jsonb_build_object('qty', i.qty_on_hand, 'unit', i.unit, 'reorder_below', i.reorder_below), i.updated_at, null::text
+           jsonb_build_object('qty', i.qty_on_hand, 'unit', i.unit, 'reorder_below', i.reorder_below), i.updated_at, null::text, false, null::jsonb
       from public.inventory_items i
      where i.property_id = p_property_id and i.is_active and i.qty_on_hand < i.reorder_below
   )
   select coalesce(jsonb_agg(jsonb_build_object('kind', kind, 'severity', severity, 'title', title,
-                                               'detail', detail, 'at', at_ts, 'key', key)
+                                               'detail', detail, 'at', at_ts, 'key', key, 'acknowledged', acked, 'facts', facts)
                   order by case kind when 'brownout' then 0 when 'inventory' then 2 else 1 end, at_ts desc), '[]'::jsonb)
     into v_warn from w;
 

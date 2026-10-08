@@ -2,7 +2,7 @@
 -- (block_reason, block_label, day_flags). Synthetic property e7700000-...-b0; everything rolls back. Fixtures insert as the owner
 -- (service_role has no BYPASSRLS); roles are impersonated with request.jwt.claims as staff_home_v1.sql does.
 begin;
-select plan(43);
+select plan(48);
 
 select ok((select count(*) = 2 and bool_and(p.prosecdef and p.proconfig = array['search_path=""'])
              from pg_proc p where p.pronamespace = 'public'::regnamespace
@@ -43,12 +43,23 @@ insert into public.calendar_events(property_id, uid, source, status, guest_name,
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-none',  'airbnb', 'blocked',   null,          current_date + 20, current_date + 21, null, null),
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-far',   'airbnb', 'blocked',   null,          current_date + 150, current_date + 151, 'brownout', null),
   ('e7700000-0000-4000-8000-0000000000b0', 'zz-cf-old',   'airbnb', 'blocked',   null,          current_date - 80, current_date - 79, 'maintenance', null);
-insert into public.verifier_findings(key, check_id, severity, title, status) values ('zz-cf-v6', 'V6', 'yellow', 'zz-cf ops finding', 'open'), ('zz-cf-v1', 'V1', 'red', 'zz-cf finance finding', 'open');
+insert into public.verifier_findings(key, check_id, severity, title, status, detail) values
+  ('zz-cf-v6', 'V6', 'yellow', 'zz-cf ops finding', 'open',
+   '{"booking":"bd296460-0fd2-434f-aa3a-7e89dc90c14e","guest":"Zz Cf Guest","arrives":"2026-10-08","phone":"0917 123 4567","amount":650,"email":"a@b.com"}'),
+  ('zz-cf-v6ack', 'V6', 'yellow', 'zz-cf acked finding', 'acknowledged', '{"booking":"bd296460-0fd2-434f-aa3a-7e89dc90c14e"}'),
+  ('zz-cf-v1', 'V1', 'red', 'zz-cf finance finding', 'open', '{}');
 -- A notice on the same night as the brownout block (de-duplicated: the notice label wins), one on its own night, one inactive.
 insert into public.ops_notices(property_id, notice_type, title, effective_date, is_active, audience, source) values
   ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice same night', current_date + 10, true, 'all', 'socoteco'),
   ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice own night',  current_date + 25, true, 'staff', 'ngcp'),
   ('e7700000-0000-4000-8000-0000000000b0', 'brownout', 'zz-cf notice inactive',   current_date + 30, false, 'staff', 'staff');
+
+-- staff_verifier_facts_v1 (internal helper, called as the owner): the allow-list only
+select is(public.staff_verifier_facts_v1('V10', '{"check":"ledger_duplicates","n":2,"d":[{"n":3,"payee":"Honey","amount":650}],"label":"x","note":"y"}'::jsonb),
+  '{"check":"ledger_duplicates","n":2}'::jsonb, 'V10 facts: the check name and n only, never the rows (payee, amount)');
+select is(public.staff_verifier_facts_v1('V1m', '{"guest":"Ana Maria Cruz","booking":"92f94d0e-008c-4439-9c94-6d48684629da","from":"2026-10-08","to":"2026-10-11","block_from":"2026-10-08","block_to":"2026-10-12","payee":"Honey"}'::jsonb),
+  '{"ref":"92F94D0E","guest_first":"Ana","from":"2026-10-08","to":"2026-10-11","block_from":"2026-10-08","block_to":"2026-10-12"}'::jsonb,
+  'V1m facts: ref, first name, stay dates and block dates');
 
 -- the cleaner: sees labels and the auto flags, cannot write -------------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7700000-0000-4000-8000-000000000001','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
@@ -78,6 +89,15 @@ select is((select w->>'key' from jsonb_array_elements(public.staff_home_v1('e770
   'a system-check warning carries the verifier_findings key as w.key (the key ack_verifier_finding_v1 and the Tasks list use); the finance finding stays hidden from a cleaner');
 select ok((select bool_and((w ? 'key') and (w->>'kind' = 'verifier' or w->'key' = 'null'::jsonb)) from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w) and (select w->'detail'->>'check_id' = 'V6' from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'kind' = 'verifier' and w->>'title' = 'zz-cf ops finding'),
   'every warning has a key (null unless it is a verifier warning) and detail is unchanged);
+select is((select count(*)::int from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'key' = 'zz-cf-v6ack'), 0,
+  'an acknowledged finding is not in warnings');
+select ok((select w->'facts' = '{"ref":"BD296460","from":"2026-10-08","guest_first":"Zz"}'::jsonb and w->'acknowledged' = 'false'::jsonb
+             from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'key' = 'zz-cf-v6'),
+  'an open system-check warning carries acknowledged false and facts: ref, first name and date, with no phone, e-mail or amount');
+select ok((select bool_and(w->'facts' = 'null'::jsonb and w->'acknowledged' = 'false'::jsonb)
+             from jsonb_array_elements(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'warnings') w where w->>'kind' <> 'verifier'),
+  'warnings that are not system checks have facts null');
+
 -- day_flags shape and content (no manual flag yet) ---------------------------------------------------------------------
 select is(jsonb_typeof(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'day_flags'), 'array', 'day_flags is an array');
 select ok((select bool_and(x ? 'date' and x ? 'kind' and x ? 'label' and x ? 'source' and x ? 'id'
