@@ -6,17 +6,22 @@ import { hashGuestAccessToken } from '../_shared/guest-access-token.ts';
 
 const FIN = -100500, OPS = -100600, B1 = 'e2000000-0000-4000-8000-0000000000b1';
 const STAY = { id: B1, guest_id: 'g1', checkin_date: '2026-10-09', checkout_date: '2026-10-12' };
+const A1 = 'e2000000-0000-4000-8000-0000000000a1';
+const ABNB = { id: A1, guest_id: 'g2', checkin_date: '2026-10-08', checkout_date: '2026-10-10' };
 
-function fake(opts: { linked?: boolean; stays?: any[]; insertError?: boolean; staysError?: boolean } = {}) {
-  const inserted: any[] = [], rpcs: any[] = [];
-  const stays = opts.stays ?? [STAY];
-  const q: any = {
-    select: () => q, eq: () => q, not: () => q, gte: () => q, order: () => q, in: () => q,
-    limit: () => Promise.resolve(opts.staysError ? { data: null, error: { message: 'x' } } : { data: stays, error: null }),
-    then: (res: any) => Promise.resolve({ data: [{ id: 'g1', name: 'Nora Sample' }], error: null }).then(res),
+function fake(opts: { linked?: boolean; stays?: any[]; airbnb?: any[]; insertError?: boolean; staysError?: boolean } = {}) {
+  const inserted: any[] = [], rpcs: any[] = [], filters: Record<string, string[]> = {};
+  const rows: Record<string, any[]> = { booking_inquiries: opts.stays ?? [STAY], airbnb_reservations: opts.airbnb ?? [] };
+  const query = (t: string) => {
+    const f: string[] = (filters[t] ??= []);
+    const q: any = {};
+    for (const op of ['select', 'eq', 'not', 'gte', 'order', 'in', 'is']) q[op] = (...a: unknown[]) => { f.push(`${op}:${a.map(String).join(',')}`); return q; };
+    q.limit = () => Promise.resolve(opts.staysError ? { data: null, error: { message: 'x' } } : { data: rows[t] ?? [], error: null });
+    q.then = (res: any) => Promise.resolve({ data: [{ id: 'g1', name: 'Nora Sample' }, { id: 'g2', name: 'Ada Synth' }], error: null }).then(res);
+    return q;
   };
   const db = {
-    from: (t: string) => t === 'guest_access_tokens' ? { insert: async (r: any) => { inserted.push(r); return { error: opts.insertError ? { message: 'x' } : null }; } } : q,
+    from: (t: string) => t === 'guest_access_tokens' ? { insert: async (r: any) => { inserted.push(r); return { error: opts.insertError ? { message: 'x' } : null }; } } : query(t),
     rpc: async (fn: string, args: any) => { rpcs.push({ fn, args }); return { data: { ok: opts.linked !== false, guests: [] }, error: null }; },
   };
   const sent: any[] = [], edits: any[] = [], answers: any[] = [];
@@ -27,7 +32,7 @@ function fake(opts: { linked?: boolean; stays?: any[]; insertError?: boolean; st
     answer: async (id, t) => { answers.push({ id, t }); return {}; },
     esc: (s) => s, today: () => '2026-10-08',
   };
-  return { d, sent, edits, answers, inserted, rpcs };
+  return { d, sent, edits, answers, inserted, rpcs, filters };
 }
 const msg = (chat: number) => ({ chat: { id: chat }, from: { id: 906700001 } });
 const tap = (chat: number, data = `int:${B1}`) => ({ id: 'cb', data, from: { id: 906700001 }, message: { chat: { id: chat }, message_id: 9 } });
@@ -85,6 +90,40 @@ Deno.test('token insert failure: no link sent', async () => {
 });
 
 Deno.test('parseIntakeTap and guestLine', () => {
-  assertEquals(parseIntakeTap(`int:${B1}`), B1); assertEquals(parseIntakeTap('int:x'), null); assertEquals(parseIntakeTap('gst:pick'), null);
+  assertEquals(parseIntakeTap(`int:${B1}`), { id: B1, kind: 'direct' }); assertEquals(parseIntakeTap(`int:a:${A1}`), { id: A1, kind: 'airbnb' });
+  assertEquals(parseIntakeTap('int:x'), null); assertEquals(parseIntakeTap('int:a:x'), null); assertEquals(parseIntakeTap('gst:pick'), null);
   assertMatch(guestLine('Nora', '2026-10-09', STAY_PAGE + 'T'), /^Hello Nora, before you arrive on 2026-10-09/);
+});
+
+Deno.test('D-323 /intake lists confirmed Airbnb stays too, labelled Airbnb, nearest first, with the resolver filters', async () => {
+  const f = fake({ airbnb: [ABNB] }); await startIntake(f.d, msg(FIN));
+  const kb = f.sent[0].x.reply_markup.inline_keyboard;
+  assertEquals(kb.map((r: any) => r[0].callback_data), [`int:a:${A1}`, `int:${B1}`]);
+  assert(kb[0][0].text.includes('Ada Synth') && kb[0][0].text.includes('· Airbnb') && kb[0][0].text.includes('in house'));
+  assertFalse(kb[1][0].text.includes('Airbnb'));
+  const a = f.filters.airbnb_reservations.join(' ');
+  for (const want of ['eq:property_id,p1', 'is:cancelled_at,null', 'eq:status,confirmed', 'not:guest_id,is,null', 'gte:checkout_date,2026-10-08']) assert(a.includes(want), want);
+  assertFalse(a.includes('source'));
+  assertEquals(f.inserted.length, 0);
+});
+
+Deno.test('D-323 Airbnb tap: mints an airbnb token, reads only the Airbnb table, the card reminds the host the link is theirs to share', async () => {
+  const f = fake({ airbnb: [ABNB] }); await onIntakeTap(f.d, tap(FIN, `int:a:${A1}`));
+  assertEquals(f.inserted.length, 1);
+  assertEquals([f.inserted[0].booking_type, f.inserted[0].booking_id, f.inserted[0].property_id], ['airbnb', A1, 'p1']);
+  assertEquals(f.filters.booking_inquiries, undefined);
+  assert(f.filters.airbnb_reservations.includes(`eq:id,${A1}`));
+  const link = f.sent[0].t.match(/stay\.html#t=([A-Za-z0-9_-]{43})/);
+  assertEquals(f.inserted[0].token_hash, await hashGuestAccessToken(link![1]));
+  assert(f.sent[0].t.startsWith('Hello Ada'));
+  assert(f.edits[0].t.includes('yours to share with the guest when you choose'));
+  assertFalse(f.edits[0].t.includes(link![1])); assertFalse(f.edits[0].t.includes('!'));
+  assertFalse(f.sent[0].t.includes('Airbnb')); // the host note is in the card only, never in the line that goes to the guest
+});
+
+Deno.test('a direct tap never reads the Airbnb table and its card carries no host note', async () => {
+  const f = fake({ airbnb: [ABNB] }); await onIntakeTap(f.d, tap(FIN));
+  assertEquals(f.inserted[0].booking_type, 'direct');
+  assertEquals(f.filters.airbnb_reservations, undefined);
+  assertFalse(f.edits[0].t.includes('yours to share'));
 });

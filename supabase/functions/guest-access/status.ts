@@ -84,3 +84,9 @@ export function statusView(f: StatusFacts, nowMs: number) {
     can_upload_receipt: state === 'held' || state === 'awaiting_payment',
   };
 }
+
+/** D-323: an Airbnb token (no direct status facts) opens only the intake section. The reply carries the state and nothing else:
+ *  no ref, dates, status or money. guest-intake serves the section itself through the same token. */
+export function intakeOnlyView(ctx: { can_save?: unknown } | null | undefined): { state: 'intake_only' } | null {
+  return ctx?.can_save === true ? { state: 'intake_only' } : null;
+}
