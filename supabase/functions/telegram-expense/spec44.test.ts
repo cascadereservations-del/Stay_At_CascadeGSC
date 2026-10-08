@@ -62,8 +62,8 @@ const plain = (s: string) => { assert(!s.includes('!'), s); assert(!/unfortunate
 
 Deno.test('parser: every accepted shape', () => {
   assertEquals(parsePaidReply('1234567890123 5073'), { method: 'messenger_gcash', reference: '1234567890123', amount: 5073 });
-  assertEquals(parsePaidReply('1234567890'), { method: 'messenger_gcash', reference: '1234567890', amount: null }); // 10 digits, amount defaults later
-  assertEquals(parsePaidReply('1234567890123456 ₱5,073.50'), { method: 'messenger_gcash', reference: '1234567890123456', amount: 5073.5 });
+  assertEquals(parsePaidReply('1234567890123'), { method: 'messenger_gcash', reference: '1234567890123', amount: null }); // amount defaults later
+  assertEquals(parsePaidReply('1234567890123 ₱5,073.50'), { method: 'messenger_gcash', reference: '1234567890123', amount: 5073.5 });
   assertEquals(parsePaidReply('  cash 5073 '), { method: 'cash', reference: null, amount: 5073 });
   assertEquals(parsePaidReply('Cash 6,200'), { method: 'cash', reference: null, amount: 6200 });
   assertEquals(parsePaidReply('bank BPI-77A1 5073'), { method: 'bank', reference: 'BPI-77A1', amount: 5073 });
@@ -71,6 +71,8 @@ Deno.test('parser: every accepted shape', () => {
 });
 
 Deno.test('parser: every rejected shape asks again', () => {
+  // Opus round 2: a GCash reference is exactly 13 digits; a mobile number is never one
+  for (const t of ['09171234567 5073', '09171234567', '+639171234567 5073', '639171234567 5073', '1234567890', '123456789012', '12345678901234', '1234567890123456 5073']) assertEquals(parsePaidReply(t), null, t);
   for (const t of ['', 'paid', '123456789', '12345678901234567', '1234 567 890123', '1234567890123 5073 extra', '1234567890123 abc', '1234567890123 0',
     '1234567890123 -5', '1234567890123 50,73', 'cash', 'cash five thousand', 'cash 0', 'cash 5073 now', 'bank', 'bank ab', 'bank --12', 'bank REF!1 5073',
     'bank REF1 5073 more', 'gcash 1234567890123 5073', '5073 1234567890123', 'cash 5073.123']) {
@@ -242,7 +244,7 @@ Deno.test('receipt Confirm: the one-tap RPC with the comparison id, the read ref
   await onReceiptConfirm(d, tap, CMP);
   const c = r.rpcs.filter((x) => x.fn === CONFIRM_RPC);
   assertEquals(c.length, 1);
-  assertEquals(c[0].args, { p_telegram_user_id: 907000001, p_booking_id: ID, p_method: 'messenger_gcash', p_reference: REF, p_amount: 6200, p_note: null, p_comparison_id: CMP, p_idempotency_key: `tg-receipt:${CMP}` });
+  assertEquals(c[0].args, { p_telegram_user_id: 907000001, p_booking_id: ID, p_method: 'messenger_gcash', p_reference: REF, p_amount: 6200, p_note: null, p_comparison_id: CMP, p_idempotency_key: `tg-receipt:${CMP}:cb2` });
   assertEquals(r.captions.length, 1);
   assertStringIncludes(r.captions[0].text, '🧾 receipt 00A49C5E\n\n✅ Confirmed by Lloyd · ref …0123.');
   const ops = r.sent.filter((s) => String(s.chatId) === OPS);
@@ -276,6 +278,20 @@ Deno.test('receipt Confirm: a replay (already_processed) posts no second OPS lin
   await onReceiptConfirm(lost.d, tap, CMP);
   assertStringIncludes(lost.r.captions[0].text, NO_ANSWER);
   assertEquals(lost.r.captions[0].rm, tap.message.reply_markup);
+});
+
+Deno.test('receipt Confirm: a new tap gets a new key (a refused tap never pins its outcome); the same tap redelivered reuses its key', async () => {
+  const rows = { payment_evidence_comparisons: { booking_id: ID, evidence_candidate_ids: [CAND] }, payment_evidence_candidates: { normalized_amount: 6200, normalized_reference: REF }, booking_inquiries: { notes: null } };
+  let n = 0;
+  const { d, r } = setup({ rows, confirm: () => (++n === 1 ? { ok: false, outcome: 'conflict' } : { ok: true, outcome: 'confirmed' }) });
+  const tap = (id: string) => ({ id, from: { id: 5, first_name: 'Joy' }, message: { chat: { id: Number(FIN) }, message_id: 781, caption: 'c' } });
+  await onReceiptConfirm(d, tap('4401'), CMP);
+  await onReceiptConfirm(d, tap('4401'), CMP); // Telegram redelivers the same callback
+  await onReceiptConfirm(d, tap('4402'), CMP); // a later, separate tap
+  const keys = r.rpcs.filter((x) => x.fn === CONFIRM_RPC).map((x) => x.args.p_idempotency_key as string);
+  assertEquals(keys, [`tg-receipt:${CMP}:4401`, `tg-receipt:${CMP}:4401`, `tg-receipt:${CMP}:4402`]);
+  for (const k of keys) assert(k.length >= 16 && k.length <= 120, k);
+  assertStringIncludes(r.captions.at(-1)!.text, '✅ Confirmed by Joy');
 });
 
 Deno.test('receipt Confirm: a comparison that is gone confirms nothing and calls no RPC', async () => {

@@ -45,9 +45,11 @@ const FILE = { attachments: [{ type: 'file', payload: { url: 'https://example.in
 
 Deno.test('paidClaim: claims bump, questions do not', () => {
   for (const t of ['bayad na po', 'Sent na po', 'paid na', 'nabayaran ko na po', 'I transferred it', 'transfer done po',
-    'nagbayad na po', 'nakabayad na po', 'nasend ko na', 'na-send na', 'gi-send na nako', 'nabayad na', 'gcash na po', 'transferred', 'transfer done']) assert(paidClaim(t), t);
+    'nagbayad na po', 'nakabayad na po', 'nasend ko na', 'na-send na', 'gi-send na nako', 'nabayad na', 'gcash na po', 'transferred', 'transfer done',
+    'okay na po, nakapagbayad na', 'na send na po', 'na-gcash ko na po']) assert(paidClaim(t), t);
   for (const t of ['bayad na po?', 'paano mag-transfer', 'how do I pay', 'nabayaran na ba?', 'magbayad ako mamaya', 'what time check-in', '',
-    'sent my ID po', 'nasend ko na ang ID', 'we want to transfer the dates', 'magkano bayad', 'how much bayad po', 'transfer']) assert(!paidClaim(t), t);
+    'sent my ID po', 'nasend ko na ang ID', 'we want to transfer the dates', 'magkano bayad', 'how much bayad po', 'transfer',
+    'not paid yet', 'hindi pa ako nakabayad', 'mag-bayad ako mamaya', 'bayad later po', 'wala pa bayad', 'di pa nasend']) assert(!paidClaim(t), t);
 });
 
 Deno.test('"bayad na po" at await_receipt bumps the request card once, then not again within the hour', async () => {

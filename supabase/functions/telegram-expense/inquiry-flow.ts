@@ -277,7 +277,10 @@ export async function onReceiptConfirm(d: Deps, cq: any, cmpId: string): Promise
   const method = receiptMethod(bk?.notes), ref = cand?.normalized_reference ?? null;
   const { r, said } = await callConfirm(d, {
     p_telegram_user_id: cq.from?.id ?? null, p_booking_id: cmp.booking_id, p_method: method, p_reference: ref,
-    p_amount: cand?.normalized_amount != null ? Number(cand.normalized_amount) : null, p_note: null, p_comparison_id: cmpId, p_idempotency_key: `tg-receipt:${cmpId}`,
+    p_amount: cand?.normalized_amount != null ? Number(cand.normalized_amount) : null, p_note: null, p_comparison_id: cmpId,
+    // A key per tap (the callback query id; Telegram redelivers the same tap with the same id), so a refused tap - dates taken,
+    // a hold in the way - never pins its outcome on this card for later taps (Fable SQL-lane audit, s76).
+    p_idempotency_key: `tg-receipt:${cmpId}:${String(cq.id ?? 'tap').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60)}`,
   });
   if (said) { await put(said, true); return; }
   if (!r?.ok || r.outcome !== 'confirmed') { const f = confirmRefusal(r, by, 'receipt'); await put(f.line, f.keep); return; }

@@ -282,14 +282,15 @@ const amountTok = (s: string | undefined): number | null => {
   const x = s.replace(/^₱/, '').replace(/,(?=\d{3}(\D|$))/g, '');
   return /^[1-9]\d*(\.\d{1,2})?$/.test(x) ? Number(x) : NaN;
 };
-/** Strict: `<10-16 digits> [amount]` (GCash), `cash <amount>`, `bank <ref> [amount]`. Anything else is null and the question stays open.
+/** Strict: `<13 digits> [amount]` (GCash), `cash <amount>`, `bank <ref> [amount]`. Anything else is null and the question stays open.
  *  An amount above PAID_MAX, or above 3x the expected figure when one is known, is refused the same way (Fable audit, s76). */
 export function parsePaidReply(text: unknown, expected?: number | null): PaidReply | null {
   const t = String(text ?? '').trim().split(/\s+/).filter(Boolean);
   const cap = Math.min(PAID_MAX, expected && expected > 0 ? 3 * expected : PAID_MAX);
   const ok = (r: PaidReply) => (r.amount !== null && (Number.isNaN(r.amount) || r.amount > cap) ? null : r);
   const kw = (t[0] ?? '').toLowerCase();
-  if ((t.length === 1 || t.length === 2) && /^\d{10,16}$/.test(t[0])) return ok({ method: 'messenger_gcash', reference: t[0], amount: amountTok(t[1]) });
+  // A GCash reference is 13 digits (Opus round 2): a mobile number (09171234567, +639...) or any other length is never one.
+  if ((t.length === 1 || t.length === 2) && /^\d{13}$/.test(t[0])) return ok({ method: 'messenger_gcash', reference: t[0], amount: amountTok(t[1]) });
   if (kw === 'cash' && t.length === 2) { const a = amountTok(t[1]); return a === null ? null : ok({ method: 'cash', reference: null, amount: a }); }
   if (kw === 'bank' && (t.length === 2 || t.length === 3) && /^[A-Za-z0-9-]{4,40}$/.test(t[1]) && t[1].replace(/-/g, '').length >= 4) return ok({ method: 'bank', reference: t[1], amount: amountTok(t[2]) });
   return null;

@@ -45,9 +45,10 @@ export type Flow = {
 export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i-?book|mag-?reserve|hold (the|my|our) dates|arrange (it|the booking)|(do|settle) it here|here in (the|this) chat|dito (po )?sa chat|diri sa chat)\b/i; // session 30: invitations now offer the chat route, so its natural answers start the flow
 /** SPEC-44: "bayad na po", "nagbayad na", "nasend ko na", "gi-send na nako", "gcash na po", "I transferred it" - a claim, not a
  *  question ("paano mag-transfer?", "nabayaran na ba?", "magkano bayad"), not something else sent ("sent my ID po"), and not a bare
- *  "transfer" ("we want to transfer the dates"). Fable audit (s76) widened the words and added the exclusions. */
-const PAID_WORD_RE = /\b(paid|sent|na-?send|nasend|gi-?send|(?:nag|naka|na)?bayad|nabayaran|bayran|gcash na|transferred|transfer done)\b/i;
-const NOT_PAID_RE = /\?|^\s*(how|where|when|what|can|could|should|is|did|pwede|puwede|paano|pano|saan|kailan|unsaon|asa|unsa)\b|\b(magkano|how much|tagpila)\b|\b(sent|na-?send|nasend|gi-?send)\b(\s+(?:ko|na|po|nako|you|to you))*\s+(?:my|our|the|ang|akong|amo)\s+(?:valid\s+)?(?:ids?|photos?|pics?|pictures?|details|info|selfie|passport|license)\b/i;
+ *  "transfer" ("we want to transfer the dates"). Fable audit (s76) widened the words and added the exclusions. Opus round 2: a
+ *  negation or a later payment never fires ("not paid yet", "hindi pa ako nakabayad", "mag-bayad ako mamaya", "bayad later po"). */
+const PAID_WORD_RE = /\b(paid|sent|na[- ]?send|gi-?send|(?:nag|naka|nakapag|na)?bayad|nabayaran|bayran|gcash na|na-?gcash|transferred|transfer done)\b/i;
+const NOT_PAID_RE = /\?|^\s*(how|where|when|what|can|could|should|is|did|pwede|puwede|paano|pano|saan|kailan|unsaon|asa|unsa)\b|\b(magkano|how much|tagpila)\b|\b(not|hindi|di|wala|later|mamaya|yet)\b|\bmag-?bayad\b|\b(sent|na[- ]?send|gi-?send)\b(\s+(?:ko|na|po|nako|you|to you))*\s+(?:my|our|the|ang|akong|amo)\s+(?:valid\s+)?(?:ids?|photos?|pics?|pictures?|details|info|selfie|passport|license)\b/i;
 export const paidClaim = (t: string): boolean => PAID_WORD_RE.test(t) && !NOT_PAID_RE.test(t);
 export const CANCEL_RE = /\b(cancel|stop|wag na|huwag|never ?mind|nevermind|not now|forget it|change of plans|di na tuloy|hindi na tuloy|dili na|wag na lang)\b/i;
 const YES_RE = /^\s*(yes|yes po|oo|oo po|sige|sige po|go|confirm|confirmed|ok|okay|okay po|ok po|proceed|tama|correct|yup|yep|y)\s*[.!]*\s*$/i;
