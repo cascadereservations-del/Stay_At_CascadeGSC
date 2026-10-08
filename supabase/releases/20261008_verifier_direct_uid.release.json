@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "release_id": "verifier_direct_uid_20261008",
+  "phase": "expand",
+  "source": {
+    "branch": "s77/verifier-sql",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20261008140000_verifier_direct_uid_and_mirror.sql"
+  ],
+  "migration_sha256": {
+    "20261008140000_verifier_direct_uid_and_mirror.sql": "c7359ad6fd5adea34d63ebd5880b399e27e8bd08550238f2eb875b803cdc0f62"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "Function replacement only: run_system_verifier_v1(uuid, text, timestamptz), cut by script from 20260925010000_verifier_v7_dates_mismatch.sql after asserting the cut equals the LIVE md5(replace(prosrc, chr(13), '')) c3fd896a0938b784da3fbe2237eb8b28 (read 2026-10-08), then exact counted replacements: V2 and V3 match the calendar uid through stay_uid_inquiry_v1 (direct:<id> and cascade-direct-<id>); V1 skips an Airbnb block labelled block_reason 'direct' whose note names the overlapping direct stay's first 8 id characters; new V1m (check_id V1, yellow) when that mirror block runs past the stay. apply_verifier_run_v1 unchanged (V1 is in both scope arrays, so V1m resolves when gone). Revoke/grant re-asserted. No table, column, policy or row touched by the migration. Production read 2026-10-08 with the new predicates: V1 0, V2 0, V3 0, V1m 1 (block deb2a3ae Oct 8-12 vs stay Oct 8-11). restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_checks_body_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd803b9fd248dce1fe4795032bae7efcf' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path_service_role_only",
+      "query": "select p.prosecdef and p.proconfig = array['search_path=\"\"'] and has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') from pg_proc p where p.oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "no_confirmed_direct_stay_reads_as_unblocked",
+      "query": "select not exists (select 1 from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'hourly', now())->'found') e where e->>'check_id' in ('V2', 'V3') and (e->'detail'->>'booking' = 'bd296460-0fd2-434f-aa3a-7e89dc90c14e' or e->'detail'->>'uid' = 'cascade-direct-bd296460-0fd2-434f-aa3a-7e89dc90c14e'))",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (function body only; verifier_findings refresh on the next run)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261008_verifier_direct_uid.sql with run-sql-on-host.sh: restores the 20260925010000 body (md5 c3fd896a0938b784da3fbe2237eb8b28) and re-asserts the grants. The next run reopens V2/V3 on confirmed direct stays (the bug) and resolves V1m rows."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_sql_only",
+      "required_state": "None. The system-verifier card for V1m reads its own headline once the s77/verifier Edge change ships; before that, the V1 card headline says 'Two stays are booked over the same nights' for a V1m finding (the staff app and admin show the SQL title, which is right). Ship order: SQL, then system-verifier + calendar-sync."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same function signature and result shape. Readers of verifier_findings (staff_home_v1, tasks_list_v1, admin System health, system-verifier cards, daily-digest) print the stored title; V1m uses a new key prefix under check_id V1. Expected after apply on the next hourly run: V2:bd296460 and V3:70dac902 resolve (auto, gone), V1:70dac902:deb2a3ae resolves, V1m:deb2a3ae opens yellow until the Airbnb block is cut back to Oct 11."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the md5 check fails - that is a mistyped body, not a flaky assertion",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP verifier_direct_uid.sql and system_verifier_phase1.sql green on this commit",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}
