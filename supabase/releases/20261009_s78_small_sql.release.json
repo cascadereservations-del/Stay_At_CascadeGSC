@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s78/small",
-    "commit": "PENDING-set-at-merge"
+    "commit": "4dc3813959a84f92e2fa38bfa5ef9dabd918b641"
   },
   "migrations": [
     "20261009000000_verifier_v1m_uid_ref.sql",
