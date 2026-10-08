@@ -30,7 +30,7 @@
   margin: 0;
   color: var(--ch-ink);
   background: var(--ch-bone);
-  font-family: Manrope, system-ui, sans-serif;
+  font-family: Raleway, system-ui, sans-serif;
   font-size: 1rem;
   line-height: 1.65;
 }
@@ -134,7 +134,7 @@
   font-weight: 600;
   letter-spacing: .16em;
   text-transform: uppercase;
-  font-family: Manrope, system-ui, sans-serif;
+  font-family: Raleway, system-ui, sans-serif;
 }
 
 .theme-quiet-luxury .luxury-hero-copy .hero-title {
@@ -227,7 +227,7 @@
 }
 .theme-quiet-luxury .hero-bk-label {
   color: #5a4838;
-  font-family: Manrope, system-ui, sans-serif;
+  font-family: Raleway, system-ui, sans-serif;
   font-size: var(--step--2);
   font-weight: 600;
   letter-spacing: .12em;
@@ -235,7 +235,7 @@
 }
 .theme-quiet-luxury .hero-bk-date-val {
   color: #3d332b;
-  font-family: Manrope, system-ui, sans-serif;
+  font-family: Raleway, system-ui, sans-serif;
   font-size: .94rem;
   font-weight: 500;
   line-height: 1.2;
@@ -475,7 +475,7 @@
     pointer-events: none;
   }
   .theme-quiet-luxury .sticky-book-cta-rate {
-    font-family: Manrope, system-ui, sans-serif;
+    font-family: Raleway, system-ui, sans-serif;
     font-size: .8125rem;
     color: var(--ch-stone);
   }
