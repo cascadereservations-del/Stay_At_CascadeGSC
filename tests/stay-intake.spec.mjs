@@ -147,4 +147,19 @@ test.describe('guest intake form', () => {
     const btn = await page.getByRole('button', { name: 'Send to Cascade' }).boundingBox();
     expect(btn.height).toBeGreaterThanOrEqual(44);
   });
+
+  test('D-323 Airbnb link: only the Before you arrive section, no status, payment, timeline or policy', async ({ page }) => {
+    const seen = await mock(page, { status: { ok: true, status: { state: 'intake_only' } }, intake: context({ ref: 'HMZZS79A' }) });
+    await page.goto(`/stay.html#t=${TOKEN}`);
+    await expect(page.getByRole('heading', { name: 'Before you arrive' })).toBeVisible();
+    await expect(page.locator('.ai-person')).toHaveCount(2);
+    await expect(page.getByRole('heading', { name: 'Payment' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Where things stand' })).toHaveCount(0);
+    await expect(page.locator('#stPolicy')).toBeHidden();
+    await expect(page.locator('#stView')).toContainText('booked through Airbnb');
+    await expect(page.locator('#stView')).not.toContainText('₱');
+    await expect(page.locator('#stArrive')).not.toContainText('₱');
+    expect(seen.context).toHaveLength(1);
+    expect(seen.errors).toEqual([]);
+  });
 });
