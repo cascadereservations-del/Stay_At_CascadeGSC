@@ -129,7 +129,7 @@ returns jsonb language sql stable security definer set search_path to '' as $$
                                             (select t.psid from public.concierge_threads t
                                               where t.booking_flow->>'booking_id' in (select b.id::text from public.booking_inquiries b where b.guest_id = p_guest_id)
                                               order by t.updated_at desc limit 1)) as psid,
-                                   nullif(btrim(d.messenger_link), '') as link
+                                   case when btrim(d.messenger_link) ~ '^https://' then btrim(d.messenger_link) end as link
                               from (select 1) o left join public.guest_profile_details d on d.guest_id = p_guest_id) m
                      where m.psid is not null or m.link is not null))
     else '{}'::jsonb end;
@@ -216,13 +216,13 @@ begin
            'checkin_time', s.checkin_time, 'checkout_time', s.checkout_time)
          || public.staff_guest_card_v1(p_property_id, s.guest_id, s.checkin_date)
          || public.staff_guest_contact_v1(s.guest_id)
-    into v_curfrom public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'current';
+    into v_cur from public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'current';
   select jsonb_build_object('uid', s.uid, 'guest_name', public.staff_redact_v1(s.guest_name), 'source', s.source,
            'checkin_date', s.checkin_date, 'checkout_date', s.checkout_date, 'nights', s.nights,
            'checkin_time', s.checkin_time, 'checkout_time', s.checkout_time)
          || public.staff_guest_card_v1(p_property_id, s.guest_id, s.checkin_date)
          || public.staff_guest_contact_v1(s.guest_id)
-    into v_nextfrom public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'next';
+    into v_next from public.staff_current_next_stays_v1(p_property_id) s where s.slot = 'next';
 
   with w as (
     select 'brownout' kind, 'alert' severity, public.staff_redact_v1(n.title) title,
@@ -267,5 +267,8 @@ end $$;
 
 revoke all on function public.staff_home_v1(uuid) from public, anon;
 grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
+
+comment on function public.staff_home_v1(uuid) is
+  'Cascade Staff home (SPEC-36, S77, D-319): calendar with block_reason/block_label, day_flags, current/next guest with returning marker and notes, open system-check warnings with key/acknowledged/facts, weather. Owner and admin sessions also get the current/next guest phone, e-mail and Messenger thread; never money; cleaners and other roles never get contact details (D-289).';
 
 commit;
