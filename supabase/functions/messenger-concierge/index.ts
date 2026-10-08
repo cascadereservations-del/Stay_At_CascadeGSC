@@ -37,7 +37,7 @@ import { raiseWorkOrder } from '../_shared/cascade-core/workorders.ts';
 // SPEC-45: a guest's ID photo is read once (name + ID type, D-291) and saved privately to the booking's guest.
 import { GUEST_PROMPT, type GuestRead, parseGuestRead, sniffImage } from '../telegram-expense/guest.ts';
 import { visionExtractText } from '../_shared/cascade-core/vision.ts';
-import { bookingIdOf, idOpsLine, type IdPlan, mayRead, planId } from './id-capture.ts';
+import { bookingIdOf, idOpsLine, type IdPlan, mayRead, planId, stayNotOver } from './id-capture.ts';
 import { idThanks } from './persona.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -781,14 +781,21 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
 // SPEC-45: one guest photo, read once. The bytes stay in memory and the CDN URL is never logged or stored (D-291).
 type IdImage = { read: GuestRead; bytes: Uint8Array; ext: string; mime: string };
 async function idRead(url: string): Promise<IdImage | null> {
-  const img = await fetch(url, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  const img = await fetch(url, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
   if (!img || !img.ok) return null;
   const bytes = new Uint8Array(await img.arrayBuffer());
   const kind = sniffImage(bytes);
   if (!kind) return null;
-  try { return { read: parseGuestRead(await visionExtractText(GUEST_PROMPT, bytes, kind.mime, 'Cascade Messenger ID')), bytes, ...kind }; }
-  catch (e) { console.error('id_read_failed', String(e).slice(0, 160)); return null; }
+  // The webhook answers before its 200: the read gets 15 s, then the photo keeps today's path. ponytail: visionExtractText takes no
+  // signal, so a slow call finishes in the background; add a timeout parameter to vision.ts if that ever costs.
+  const late = new Promise<null>((r) => setTimeout(() => r(null), ID_READ_MS));
+  try {
+    const raw = await Promise.race([visionExtractText(GUEST_PROMPT, bytes, kind.mime, 'Cascade Messenger ID'), late]);
+    if (raw === null) { console.warn('id_read_slow'); return null; }
+    return { read: parseGuestRead(raw), bytes, ...kind };
+  } catch (e) { console.error('id_read_failed', String(e).slice(0, 160)); return null; }
 }
+const ID_READ_MS = 15_000;
 const ID_BUCKET = 'guest-id-photos';
 /** Photo first (the RPC checks the object exists), then concierge_save_guest_id_v1. A refusal removes the photo: nothing saved. */
 async function idSave(db: Db, plan: Extract<IdPlan, { act: 'save' }>, img: IdImage): Promise<{ ok: boolean; reason?: string }> {
@@ -804,22 +811,25 @@ async function idSave(db: Db, plan: Extract<IdPlan, { act: 'save' }>, img: IdIma
 }
 /** SPEC-45: read one photo; when it is an ID, save it to the booking's guest and tell OPS (text only). null: not an ID, or unreadable -
  *  the photo keeps today's path (a stray receipt for the host). `flow` carries a booking (bookingIdOf). */
-async function captureId(db: Db, fx: Effects, flow: Flow, guest: string | null, url: string, hostHeld: boolean, link: string): Promise<{ plan: Extract<IdPlan, { act: 'save' }>; saved: { ok: boolean; reason?: string } } | null> {
+async function captureId(db: Db, fx: Effects, flow: Flow, guest: string | null, url: string, o: { held: boolean; quiet: boolean; said: string; now: Date }, link: string): Promise<{ plan: Extract<IdPlan, { act: 'save' }>; saved: { ok: boolean; reason?: string } } | null> {
+  // The booking row first: none, unreadable, or its stay over - no read, no upload, nothing saved.
+  const id = bookingIdOf(flow), booking = id ? await bookingRow(db, id, o.now) : null;
+  if (!id || !booking) return null;
   const img = await fx.idRead(url);
   if (img?.read.kind !== 'id') return null;
-  const bookingId = bookingIdOf(flow);
-  const plan = planId(img.read, { bookingId, bookingName: (bookingId ? await bookingGuestName(db, bookingId) : null) ?? flow.name ?? guest, hostHeld });
+  // The reservation name only (the row, else the name the guest typed in the flow); never the Facebook profile - unknown is a companion.
+  const plan = planId(img.read, { bookingId: id, bookingName: booking.name ?? flow.name ?? null, hostHeld: o.held || o.quiet });
   if (plan.act !== 'save') return null;
   const saved = await fx.idSave(db, plan, img);
-  await fx.ops(withHeader('guest', 'guest ID', idOpsLine(guest, plan, saved, link)));
+  await fx.ops(withHeader('guest', 'guest ID', idOpsLine(guest, plan, saved, link, { held: o.held, said: o.said })));
   return { plan, saved };
 }
-/** The booking's own guest name, for sameName (the reservation name, not the Facebook profile). null for a probe or a failed read. */
-async function bookingGuestName(db: Db, bookingId: string): Promise<string | null> {
-  if (bookingId === 'probe') return null;
-  const { data, error } = await db.from('booking_inquiries').select('guest_name').eq('id', bookingId).maybeSingle();
+/** The thread's booking for an ID: its reservation name, or null when the row is missing, unreadable or its stay is over (Manila). */
+async function bookingRow(db: Db, bookingId: string, now: Date): Promise<{ name: string | null } | null> {
+  if (bookingId === 'probe') return { name: null };
+  const { data, error } = await db.from('booking_inquiries').select('guest_name, checkout_date').eq('id', bookingId).maybeSingle();
   if (error) console.error('id_booking_read_failed', String(error.message ?? error).slice(0, 160));
-  return data?.guest_name ?? null;
+  return data && stayNotOver(data.checkout_date, now) ? { name: data.guest_name ?? null } : null;
 }
 
 /** availabilityLine's taken-dates line in any register ("I'm sorry, ... already reserved", "Pasensya na po, reserved na"). */
@@ -1130,7 +1140,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     const may = mayRead(bookingIdOf(thread.booking_flow), thread.booking_flow?.id_reads, now);
     if (may.ok) {
       thread.booking_flow = { ...thread.booking_flow!, id_reads: may.next }; if (flow) flow = { ...flow, id_reads: may.next }; // updated_at untouched
-      idCaught = await captureId(db, fx, thread.booking_flow, thread.guest_name, String(attachment.payload.url), hostHeld || !g.reply, link);
+      idCaught = await captureId(db, fx, thread.booking_flow, thread.guest_name, String(attachment.payload.url), { held: hostHeld, quiet: !g.reply, said: text, now }, link);
     } else if (may.reason === 'cap') console.log('id_read_capped', JSON.stringify({ psid: psid.slice(-6) }));
   }
   if (idCaught && g.reply) {
@@ -1143,7 +1153,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     // s3: a photo with no live upload (hold lapsed, second photo, never booked) is a receipt for the host to match.
     flowReply = strayReceiptReply(booked?.name ?? thread.guest_name, replyLang(text || guestSaid.slice(-200), booked?.lang));
     card = { risk: 'payment', note: booked ? holdNote(booked, now) : 'No booking on this thread; the guest mentioned payment.', anyWording: true };
-    if (booked) { const seen: Flow = { ...booked, photo_at: now.toISOString() }; thread.booking_flow = seen; if (flow) flow = seen; } // updated_at untouched: a lapsed flow stays lapsed
+    if (booked) { const seen: Flow = { ...booked, id_reads: thread.booking_flow?.id_reads, photo_at: now.toISOString() }; thread.booking_flow = seen; if (flow) flow = seen; } // updated_at untouched: a lapsed flow stays lapsed; SPEC-45: id_reads kept, so the cap advances
   } else if (g.reply && text && flow && ['await_receipt', 'receipt_sent'].includes(flow.step) && CANCEL_RE.test(text) && ['routine', 'cancellation'].includes(g.risk)) {
     // s1: never "we'll cancel it" from the model - the host releases the hold (telegram-expense bk_no) from this card.
     const change = (parseDates(text, now)[0] ?? '') >= dayStr(new Date(now.getTime() + 8 * 3_600_000));
@@ -1677,7 +1687,8 @@ async function backfillId(psid: string): Promise<Response> {
   const { data: t, error: tErr } = await db.from('concierge_threads').select('guest_name, booking_flow').eq('psid', psid).maybeSingle();
   if (tErr) return json({ ok: false, reason: 'thread_read_failed' }, 500);
   const flow = (t?.booking_flow ?? null) as Flow | null;
-  if (!flow || !bookingIdOf(flow)) return json({ ok: true, images: 0, reads: 0, saved: 0, reason: 'no_booking' });
+  const bid = bookingIdOf(flow);
+  if (!flow || !bid || !(await bookingRow(db, bid, new Date()))) return json({ ok: true, images: 0, reads: 0, saved: 0, reason: 'no_booking' });
   const fields = 'messages.limit(100){created_time,from,attachments{image_data}}';
   const r = await fetch(`${GRAPH}/${PAGE_ID}/conversations?user_id=${encodeURIComponent(psid)}&fields=${encodeURIComponent(fields)}&access_token=${env('META_PAGE_TOKEN')}`, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
   const j = r ? await r.json().catch(() => ({})) : {};
@@ -1689,7 +1700,7 @@ async function backfillId(psid: string): Promise<Response> {
   let reads = 0;
   for (const url of urls.slice(0, 12)) { // ponytail: 12 photos max per run; raise it if a guest ever sent more before go-live
     reads++;
-    const got = await captureId(db, liveEffects, flow, t?.guest_name ?? null, url, false, `https://www.facebook.com/messages/t/${psid}`);
+    const got = await captureId(db, liveEffects, flow, t?.guest_name ?? null, url, { held: false, quiet: false, said: '', now: new Date() }, `https://www.facebook.com/messages/t/${psid}`);
     if (got) return json({ ok: true, images: urls.length, reads, saved: got.saved.ok ? 1 : 0, reason: got.saved.ok ? (got.plan.own ? 'saved_own' : 'saved_companion') : (got.saved.reason ?? 'refused') });
   }
   return json({ ok: true, images: urls.length, reads, saved: 0, reason: urls.length ? 'no_id' : 'no_images' });

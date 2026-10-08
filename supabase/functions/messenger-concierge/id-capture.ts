@@ -2,6 +2,8 @@
 // in id-capture.test.ts); index.ts owns the download, the one vision read, the upload and the RPC. Privacy (D-291): the reader is
 // telegram-expense's GUEST_PROMPT - name and ID type only, never a number. The read name never reaches the guest or OPS (D-319).
 import { type GuestRead, type IdType, idLabel, sameName } from '../telegram-expense/guest.ts';
+import { maskMoney } from '../_shared/ops-money.ts';
+import { redactForLog } from '../_shared/redaction.ts';
 
 /** At most this many ID reads per thread per Manila day (one vision call each). Stored on booking_flow.id_reads. */
 export const ID_READS_PER_DAY = 3;
@@ -15,6 +17,9 @@ export function bookingIdOf(flow: { booking_id?: string } | null | undefined): s
   const id = flow?.booking_id ?? '';
   return UUID_RE.test(id) || id === 'probe' ? id : null;
 }
+
+/** The booking still counts for an ID: its stay has not ended (check-out today or later, Manila). A past stay is no booking. */
+export const stayNotOver = (checkout: string | null | undefined, now: Date) => !!checkout && checkout >= manilaDay(now);
 
 /** May this photo be read as an ID? Never without a booking (nothing could be saved), never past the day's cap. */
 export function mayRead(bookingId: string | null, reads: IdReads | null | undefined, now: Date): { ok: true; next: IdReads } | { ok: false; reason: 'no_booking' | 'cap' } {
@@ -38,17 +43,20 @@ export function planId(read: GuestRead, ctx: { bookingId: string | null; booking
 
 const REASON: Record<string, string> = {
   no_booking: 'the booking could not be found', not_confirmed: 'the booking is not confirmed yet', too_many: 'the guest already has the most companions allowed',
-  bad_id_type: 'the ID type was not accepted', bad_path: 'the photo could not be stored', photo_missing: 'the photo could not be stored', upload_failed: 'the photo could not be stored',
+  bad_id_type: 'the ID type was not accepted', bad_name: 'the name read was not accepted', bad_path: 'the photo could not be stored', photo_missing: 'the photo could not be stored', upload_failed: 'the photo could not be stored',
 };
 const withArticle = (t: IdType) => `${t === 'other' ? 'an' : 'a'} ${idLabel(t)}`;
 
-/** The OPS host notice: what happened first, text only - no image, no money (D-306), no contact data, no name from the ID (D-319). */
-export function idOpsLine(guest: string | null, plan: Extract<IdPlan, { act: 'save' }>, saved: { ok: boolean; reason?: string }, link: string): string {
+/** The OPS host notice: what happened first, text only - no image, no money (D-306), no contact data, no name from the ID (D-319).
+ *  `held`: a host is handling the chat (D-317) - this notice replaces the host-handling relay, so the guest's words with the photo
+ *  ride along, money and contacts masked. */
+export function idOpsLine(guest: string | null, plan: Extract<IdPlan, { act: 'save' }>, saved: { ok: boolean; reason?: string }, link: string, o: { held?: boolean; said?: string } = {}): string {
   const who = guest || 'A guest';
   const head = !saved.ok
     ? `${who} sent an ID in Messenger; it was not saved (${REASON[saved.reason ?? ''] ?? 'the save was refused'}). Do: save it by hand with /guest in Telegram.`
     : plan.own
     ? `${who} sent an ID in Messenger; saved to the guest record as ${withArticle(plan.idType)}. The name on it matches the booking, so ID on file is marked.`
     : `${who} sent an ID in Messenger; saved to the guest record as a companion (${withArticle(plan.idType)}). The name on it does not match the booking name, so ID on file is not marked.`;
-  return `${head}${plan.guestLine ? '' : '\nYou are handling this chat, so Cassy sent the guest nothing.'}\n\nMessenger: ${link}`;
+  const said = o.held && o.said ? `\n> ${redactForLog(maskMoney(o.said), 'ops').slice(0, 300)}` : '';
+  return `${head}${o.held ? '\nYou are handling this chat, so Cassy sent the guest nothing.' : ''}${said}\n\nMessenger: ${link}`;
 }
