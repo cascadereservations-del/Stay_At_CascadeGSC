@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s76/one-tap",
-    "commit": "3725be280faf75f5460e707752eeab6f7edff68d"
+    "commit": "6f57df1c637b8dda2065d68c150a7f168e1deb63"
   },
   "migrations": [
     "20261008100000_inquiry_one_tap.sql"
   ],
   "migration_sha256": {
-    "20261008100000_inquiry_one_tap.sql": "285cb7c386b8b100f4c4ba5524b8a9242052aaaafff79a15d060e53c7ccf8408"
+    "20261008100000_inquiry_one_tap.sql": "6ce297a765a1b4aacb3508a8ce4c7e486791a5b027252b5527fbd46d6c318282"
   },
   "backup": {
     "required": true,
@@ -42,7 +42,7 @@
     },
     {
       "name": "core_body_is_the_reviewed_one",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '89caa8927fff2287d80c5e2544b88e80' from pg_proc where oid = 'public._confirm_direct_booking_core(uuid,uuid,text,text,numeric,text,uuid,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '716d47ef088ef766b655db57a01bee44' from pg_proc where oid = 'public._confirm_direct_booking_core(uuid,uuid,text,text,numeric,text,uuid,text)'::regprocedure",
       "expect": true
     },
     {

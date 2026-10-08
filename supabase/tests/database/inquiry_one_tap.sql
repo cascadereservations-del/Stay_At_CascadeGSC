@@ -6,11 +6,12 @@
 --   F finance (tg 944000001)  C cleaner (tg 944000002)  I inspector  A admin (tg 944000004)  tg 944000099 mapped to nobody
 --   b01 receipt path  b02-b06 paid outside (messenger_gcash, gcash_qr, bank, cash, other)  b07 validation  b08 reference reuse + roles
 --   b09 calendar conflict  b10 Telegram  b11 guard  b12 void  b13 expiry  b14 bypass-confirmed (repair)  b15 receipt + active hold
---   b16 overlaps b15's hold (deposit 0)  b17 decline without receipt  b18 decline with receipt
+--   b16 overlaps b15 hold (deposit 0)  b17 decline without receipt  b18 decline with receipt  b19 Telegram receipt  b20 receipt already
+--   rejected  b21 receipt vs b22 hold  b23 receipt vs an Airbnb stay (re-attest)  b24 supersede
 -- pg_net and Vault are absent from a rehearsal copy: they are stubbed here (and rolled back) so the guest-messages call is observable.
 -- Where the real pg_net exists (CI) the stub is not installed and that one assertion passes vacuously.
 begin;
-select plan(71);
+select plan(91);
 
 do $$
 begin
@@ -57,8 +58,8 @@ select ok(not has_function_privilege('anon', 'public._confirm_direct_booking_cor
   'core and repair: no client role may execute');
 select is((select count(*)::int from pg_trigger where tgrelid = 'public.transactions'::regclass and tgname = 'trg_guard_direct_booking_income_confirm'
              and tgenabled = 'O' and pg_get_triggerdef(oid) like '%BEFORE UPDATE OF status%'), 1, 'the income-confirm guard is a BEFORE UPDATE OF status trigger');
-select ok((select prosrc not like '%confirmEmail%' and prosrc not like '%''confirmed''%' and prosrc like '%''void''%'
-             from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure), 'the cascade has no confirm leg and keeps void');
+select ok((select prosrc not like '%confirmEmail%' from pg_proc where oid = 'public.fn_direct_booking_cascade()'::regprocedure),
+  'the cascade no longer sends confirmEmail');
 
 -- fixtures
 insert into public.properties(id, name, is_active) values ('e4400000-0000-4000-8000-000000000044', 'Synthetic One Tap 76', true);
@@ -83,28 +84,45 @@ select ('c0de7644-0000-4000-8000-0000000000' || lpad(n::text, 2, '0'))::uuid, 'e
                (7, 530, 'pending', null, 2000, 1000), (8, 535, 'pending', null, 2000, 1000), (9, 540, 'pending', null, 2000, 1000),
                (10, 545, 'pending', null, 2000, 1000), (11, 550, 'pending', null, 2000, 1000), (12, 555, 'pending', null, 2000, 1000),
                (13, 560, 'pending', null, 2000, 1000), (14, 565, 'confirmed', null, 2000, 1000), (15, 570, 'pending', 'receipts/s76-b15.jpg', 3000, 1500),
-               (16, 571, 'pending', null, 2500, 0), (17, 580, 'pending', null, 2000, 1000), (18, 585, 'pending', 'receipts/s76-b18.jpg', 2000, 1000)
+               (16, 571, 'pending', null, 2500, 0), (17, 580, 'pending', null, 2000, 1000), (18, 585, 'pending', 'receipts/s76-b18.jpg', 2000, 1000),
+               (19, 590, 'pending', 'receipts/s76-b19.jpg', 2000, 1000), (20, 595, 'pending', 'receipts/s76-b20.jpg', 2000, 1000),
+               (21, 600, 'pending', 'receipts/s76-b21.jpg', 2000, 1000), (22, 600, 'pending', null, 2000, 1000),
+               (23, 610, 'pending', 'receipts/s76-b23.jpg', 2000, 1000)
        ) v(n, d, st, rc, tot, dep);
+-- b24: the same guest (phone AND e-mail) about to re-book other dates, for supersede_pending_direct_requests_v1
+insert into public.booking_inquiries(id, property_id, guest_name, guest_email, guest_phone, checkin_date, checkout_date, pax, status, source, total_amount, deposit_amount)
+values ('c0de7644-0000-4000-8000-000000000024', 'e4400000-0000-4000-8000-000000000044', 'Synthetic 24', 'b24@example.com', '09170000024',
+        current_date + 620, current_date + 622, 2, 'pending', 'direct', 2000, 1000);
 insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, guest_name)
 select 'e4400000-0000-4000-8000-000000000044', 'direct:c0de7644-0000-4000-8000-0000000000' || lpad(n::text, 2, '0'), 'direct', st, current_date + d, current_date + d + 2, 'Synthetic ' || n
-  from (values (1, 500, 'blocked'), (11, 550, 'blocked'), (12, 555, 'blocked'), (13, 560, 'blocked'), (14, 565, 'confirmed')) v(n, d, st);
-insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, guest_name)
-values ('e4400000-0000-4000-8000-000000000044', 'synthetic-s76-09@airbnb.com', 'airbnb', 'confirmed', current_date + 539, current_date + 543, 'Synthetic Airbnb');
+  from (values (1, 500, 'blocked'), (11, 550, 'blocked'), (12, 555, 'blocked'), (13, 560, 'blocked'), (14, 565, 'confirmed'), (24, 620, 'blocked')) v(n, d, st);
+insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date, guest_name) values
+  ('e4400000-0000-4000-8000-000000000044', 'synthetic-s76-09@airbnb.com', 'airbnb', 'confirmed', current_date + 539, current_date + 543, 'Synthetic Airbnb'),
+  ('e4400000-0000-4000-8000-000000000044', 'synthetic-s76-23@airbnb.com', 'airbnb', 'confirmed', current_date + 609, current_date + 613, 'Synthetic Airbnb 23');
 insert into public.transactions(id, property_id, txn_type, category, source, status, transaction_date, gross_amount, currency, booking_id, external_ref)
 select ('e4400000-0000-4000-8000-0000000007' || lpad(n::text, 2, '0'))::uuid, 'e4400000-0000-4000-8000-000000000044', 'income', 'direct_booking', 'direct_booking', st,
        current_date + 500, 1000, 'PHP', ('c0de7644-0000-4000-8000-0000000000' || lpad(n::text, 2, '0'))::uuid, 'c0de7644-0000-4000-8000-0000000000' || lpad(n::text, 2, '0')
-  from (values (1, 'pending_review'), (9, 'pending_review'), (11, 'pending_review'), (12, 'pending_review'), (13, 'pending_review'), (14, 'confirmed')) v(n, st);
+  from (values (1, 'pending_review'), (9, 'pending_review'), (11, 'pending_review'), (12, 'pending_review'), (13, 'pending_review'), (14, 'confirmed'), (24, 'pending_review')) v(n, st);
 insert into public.booking_holds(property_id, booking_id, checkin_date, checkout_date, expires_at, status, idempotency_key)
 values ('e4400000-0000-4000-8000-000000000044', 'c0de7644-0000-4000-8000-000000000013', current_date + 560, current_date + 562, now() - interval '1 hour', 'active',
         'hold:c0de7644-0000-4000-8000-000000000013');
 select public.open_booking_hold_v1('c0de7644-0000-4000-8000-000000000015', 24);
--- guest-sent receipts for b01, b15, b18
+select public.open_booking_hold_v1('c0de7644-0000-4000-8000-000000000022', 24);
+-- guest-sent receipts for b01, b15, b18, b19, b20, b21, b23
 select set_config('s76.cmp' || n, public.compare_booking_payment_evidence(b, array[public.record_payment_evidence_candidate(
          b, 'receipt_ocr', 'receipt:s76-' || n || '-0000', encode(extensions.digest('s76-receipt-' || n, 'sha256'), 'hex'), 's76-receipt-candidate-' || n,
          'ocr-v1', now(), amt, 'PHP', rf)])::text, true)
   from (values ('01', 'c0de7644-0000-4000-8000-000000000001'::uuid, 1780, '7001234567890'),
                ('15', 'c0de7644-0000-4000-8000-000000000015'::uuid, 1500, 'R15ABCDEF'),
-               ('18', 'c0de7644-0000-4000-8000-000000000018'::uuid, 1000, 'R18ABCDEF')) v(n, b, amt, rf);
+               ('18', 'c0de7644-0000-4000-8000-000000000018'::uuid, 1000, 'R18ABCDEF'),
+               ('19', 'c0de7644-0000-4000-8000-000000000019'::uuid, 1000, 'R19ABCDEF'),
+               ('20', 'c0de7644-0000-4000-8000-000000000020'::uuid, 1000, 'R20ABCDEF'),
+               ('21', 'c0de7644-0000-4000-8000-000000000021'::uuid, 1000, 'R21ABCDEF'),
+               ('23', 'c0de7644-0000-4000-8000-000000000023'::uuid, 1000, 'R23ABCDEF')) v(n, b, amt, rf);
+-- b20's receipt was already rejected in the Finance queue
+insert into public.payment_finance_reviews(property_id, booking_id, comparison_id, reviewer_user_id, outcome, reason)
+values ('e4400000-0000-4000-8000-000000000044', 'c0de7644-0000-4000-8000-000000000020', current_setting('s76.cmp20')::uuid,
+        'e4400000-0000-4000-8000-0000000000a1', 'rejected', 'synthetic: amount not received');
 insert into public.concierge_threads(psid, guest_name, human_until) values ('synthetic-psid-s76-0001', 'Synthetic Guest', now() + interval '1 day');
 
 -- receipt path, as Finance F
@@ -190,6 +208,11 @@ select ok((select count(*) = 1 from public.payment_evidence_candidates where boo
             where r.booking_id = 'c0de7644-0000-4000-8000-000000000002'),
   'retry: no second candidate, review or decision, and the same review is reported');
 select is(current_setting('s76.r01b')::jsonb ->> 'already_processed', 'true', 'retry: the receipt path is idempotent too');
+select ok(case when current_setting('s76.stub') = 'on' then
+            (select count(*) = 1 from net.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000001')
+            and (select count(*) = 1 from net.s76_calls where body ->> 'booking_id' = 'c0de7644-0000-4000-8000-000000000002')
+          else true end,
+  'retry: a replay with the same key does not queue guest-messages a second time');
 select is(current_setting('s76.r08')::jsonb - 'booking_id' - 'guest_name' - 'checkin' - 'checkout',
   '{"ok": false, "outcome": "reference_reused", "booking_ref": "C0DE7644", "prior_ref": "C0DE7644"}'::jsonb,
   'reference reuse: b02''s GCash reference (typed with dashes) on b08 is refused');
@@ -214,8 +237,47 @@ select ok((select status = 'pending' from public.booking_inquiries where id = 'c
 select is(current_setting('s76.r16')::jsonb ->> 'outcome' || '/' || (current_setting('s76.r16')::jsonb ->> 'reason'), 'conflict/active_hold',
   'conflict: another request''s active hold answers conflict (active_hold)');
 select ok((select status = 'pending' from public.booking_inquiries where id = 'c0de7644-0000-4000-8000-000000000016')
-      and not exists (select 1 from public.booking_decisions where booking_id = 'c0de7644-0000-4000-8000-000000000016'),
-  'conflict: nothing of the b16 decision persisted');
+      and not exists (select 1 from public.booking_decisions where booking_id = 'c0de7644-0000-4000-8000-000000000016')
+      and not exists (select 1 from public.payment_finance_reviews where booking_id = 'c0de7644-0000-4000-8000-000000000016'),
+  'conflict: nothing of the b16 decision persisted, not even its review');
+
+-- receipt conflicts, then the same receipt confirms with a new key
+select set_config('request.jwt.claims', json_build_object('sub', 'e4400000-0000-4000-8000-0000000000a1', 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
+set local role authenticated;
+select set_config('s76.r21a', public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000021', null, null, 1000, null,
+  current_setting('s76.cmp21')::uuid, 's76-onetap-key-b21-hold-a')::text, true);
+select set_config('s76.r23a', public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000023', null, null, 1000, null,
+  current_setting('s76.cmp23')::uuid, 's76-onetap-key-b23-cal-a')::text, true);
+reset role;
+select is(current_setting('s76.r21a')::jsonb ->> 'outcome' || '/' || (current_setting('s76.r21a')::jsonb ->> 'reason'), 'conflict/active_hold',
+  'receipt + hold: b21 overlaps b22''s active hold -> conflict (active_hold)');
+select ok(not exists (select 1 from public.payment_finance_reviews where booking_id = 'c0de7644-0000-4000-8000-000000000021')
+      and not exists (select 1 from public.booking_decisions where booking_id = 'c0de7644-0000-4000-8000-000000000021'),
+  'receipt + hold: no orphan review and no decision are left');
+select is(current_setting('s76.r23a')::jsonb ->> 'outcome', 'conflict', 'receipt + calendar: b23 overlaps an Airbnb stay -> conflict');
+update public.booking_holds set status = 'released', updated_at = now() where booking_id = 'c0de7644-0000-4000-8000-000000000022' and status = 'active';
+update public.calendar_events set status = 'cancelled' where uid = 'synthetic-s76-23@airbnb.com';
+set local role authenticated;
+select set_config('s76.r21b', public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000021', null, null, 1000, null,
+  current_setting('s76.cmp21')::uuid, 's76-onetap-key-b21-hold-b')::text, true);
+select set_config('s76.r23b', public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000023', null, null, 1000, null,
+  current_setting('s76.cmp23')::uuid, 's76-onetap-key-b23-cal-b')::text, true);
+reset role;
+select is(current_setting('s76.r21b')::jsonb ->> 'outcome' || '/' || (current_setting('s76.r21b')::jsonb ->> 'comparison_id') || '/' || (current_setting('s76.r21b')::jsonb ->> 'reattested'),
+  'confirmed/' || current_setting('s76.cmp21') || '/false', 'receipt + hold: once the hold is released the SAME comparison confirms with a new key');
+select is((select count(*)::int from public.payment_finance_reviews where booking_id = 'c0de7644-0000-4000-8000-000000000021' and outcome = 'approved'), 1,
+  'receipt + hold: exactly one approved review, on the receipt comparison');
+select is(current_setting('s76.r23b')::jsonb ->> 'outcome' || '/' || (current_setting('s76.r23b')::jsonb ->> 'reattested'), 'confirmed/true',
+  'receipt + calendar: once the stay is gone the same receipt confirms with a new key (re-attested)');
+select ok((select count(*) = 2 and count(distinct comparison_id) = 2 and bool_and(reviewer_user_id = 'e4400000-0000-4000-8000-0000000000a1')
+             from public.payment_finance_reviews where booking_id = 'c0de7644-0000-4000-8000-000000000023' and outcome = 'approved')
+      and (select count(*) = 2 and count(distinct finance_review_id) = 2 and bool_and(finance_review_id is not null)
+             and bool_or(outcome = 'conflict') and bool_or(outcome = 'confirmed')
+             from public.booking_decisions where booking_id = 'c0de7644-0000-4000-8000-000000000023')
+      and (select current_setting('s76.cmp23')::uuid <> c.id
+                  and (select evidence_candidate_ids from public.payment_evidence_comparisons where id = current_setting('s76.cmp23')::uuid) <@ c.evidence_candidate_ids
+             from public.payment_evidence_comparisons c where c.id = (current_setting('s76.r23b')::jsonb ->> 'comparison_id')::uuid),
+  'receipt + calendar: a fresh review on a new comparison over the receipt; one decision per review, the conflict row kept');
 
 -- Telegram
 set local role service_role;
@@ -224,7 +286,26 @@ select is(public.telegram_confirm_direct_booking_v1(944000099, 'c0de7644-0000-40
 select is(public.telegram_confirm_direct_booking_v1(944000002, 'c0de7644-0000-4000-8000-000000000010', 'messenger_gcash', '1010234567890', 1000, null, null, 's76-onetap-key-b10-tg-cleaner') ->> 'outcome',
   'denied', 'telegram: a mapped cleaner is denied');
 select set_config('s76.r10', public.telegram_confirm_direct_booking_v1(944000001, 'c0de7644-0000-4000-8000-000000000010', 'messenger_gcash', '1010234567890', 1000, null, null, 's76-onetap-key-b10-tg-finance')::text, true);
+select set_config('s76.r19', public.telegram_confirm_direct_booking_v1(944000004, 'c0de7644-0000-4000-8000-000000000019', null, null, 1000, null,
+  current_setting('s76.cmp19')::uuid, 's76-onetap-key-b19-tg-receipt')::text, true);
 reset role;
+select is(current_setting('s76.r19')::jsonb ->> 'outcome' || '/' || (current_setting('s76.r19')::jsonb ->> 'comparison_id') || '/' || (current_setting('s76.r19')::jsonb ->> 'reviewer_role'),
+  'confirmed/' || current_setting('s76.cmp19') || '/admin', 'telegram: admin A''s receipt-card tap confirms b19 on the receipt comparison');
+select ok(exists (select 1 from public.payment_finance_reviews r join public.booking_decisions d on d.finance_review_id = r.id
+                   where r.comparison_id = current_setting('s76.cmp19')::uuid and r.outcome = 'approved'
+                     and r.reviewer_user_id = 'e4400000-0000-4000-8000-0000000000a4' and d.outcome = 'confirmed'),
+  'telegram: the receipt review names A and authorizes the confirmed decision');
+select set_config('request.jwt.claims', json_build_object('sub', 'e4400000-0000-4000-8000-0000000000a1', 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
+set local role authenticated;
+select is(public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000020', null, null, 1000, null,
+  current_setting('s76.cmp20')::uuid, 's76-onetap-key-b20-rejected') ->> 'reason', 'already_rejected',
+  'receipt: a comparison already rejected in Finance refuses (already_rejected)');
+select is(public.staff_confirm_direct_booking_v1('c0de7644-0000-4000-8000-000000000001', null, null, null, null, null, 's76-onetap-key-b01-again') ->> 'reason',
+  'not_pending', 'state first: a confirmed booking answers not_pending even with no amount and no method');
+reset role;
+select ok((select status = 'pending' from public.booking_inquiries where id = 'c0de7644-0000-4000-8000-000000000020')
+      and not exists (select 1 from public.booking_decisions where booking_id = 'c0de7644-0000-4000-8000-000000000020'),
+  'receipt: the rejected b20 stays pending with no decision');
 select is(current_setting('s76.r10')::jsonb ->> 'outcome' || '/' || (current_setting('s76.r10')::jsonb ->> 'reviewer_user_id') || '/' || (current_setting('s76.r10')::jsonb ->> 'reviewer_role'),
   'confirmed/e4400000-0000-4000-8000-0000000000a1/finance', 'telegram: Finance F''s tap confirms b10 as F');
 
@@ -260,6 +341,25 @@ select is((select b.status || '/' || t.status || '/' || h.status from public.boo
 select ok((select status = 'pending' from public.booking_inquiries where id = 'c0de7644-0000-4000-8000-000000000015')
       and exists (select 1 from public.booking_holds where booking_id = 'c0de7644-0000-4000-8000-000000000015' and status = 'active'),
   'expiry: b15''s live hold is left alone');
+select is(public.supersede_pending_direct_requests_v1('e4400000-0000-4000-8000-000000000044', 'b24@example.com', '09170000024', current_date + 630, current_date + 632),
+  '{"superseded": ["c0de7644-0000-4000-8000-000000000024"], "reason": "released"}'::jsonb, 'supersede: the guest''s earlier request is released');
+select is((select b.status || '/' || t.status || '/' || c.status from public.booking_inquiries b
+             join public.transactions t on t.id = 'e4400000-0000-4000-8000-000000000724'
+             join public.calendar_events c on c.uid = 'direct:' || b.id::text
+            where b.id = 'c0de7644-0000-4000-8000-000000000024'), 'cancelled/void/cancelled', 'supersede: request, income row and calendar block cancelled as before');
+select set_config('request.jwt.claims', json_build_object('sub', 'e4400000-0000-4000-8000-0000000000a1', 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
+set local role authenticated;
+select is(public.admin_transactions_bulk_v1('e4400000-0000-4000-8000-000000000044', array['e4400000-0000-4000-8000-000000000711']::uuid[], 'hide') ->> 'changed',
+  '1', 'bulk: hiding a pending booking''s income row still works');
+select throws_ok($$select public.admin_transactions_bulk_v1('e4400000-0000-4000-8000-000000000044', array['e4400000-0000-4000-8000-000000000711']::uuid[], 'archive', 'synthetic archive')$$,
+  '22023', 'a direct booking payment cannot be archived while the booking is live; cancel the booking instead', 'bulk: archiving a live booking''s row is refused as before');
+select is(public.admin_transactions_bulk_v1('e4400000-0000-4000-8000-000000000044', array['e4400000-0000-4000-8000-000000000712']::uuid[], 'archive', 'synthetic archive') ->> 'changed',
+  '1', 'bulk: archiving the voided b12 row works');
+select is(public.admin_transactions_bulk_v1('e4400000-0000-4000-8000-000000000044', array['e4400000-0000-4000-8000-000000000712']::uuid[], 'restore', 'synthetic restore') ->> 'changed',
+  '1', 'bulk: restoring it works');
+reset role;
+select is((select status || '/' || coalesce(archived_at::text, 'live') from public.transactions where id = 'e4400000-0000-4000-8000-000000000712'), 'void/live',
+  'bulk: the restored row is back to void');
 
 -- decline
 select set_config('request.jwt.claims', json_build_object('sub', 'e4400000-0000-4000-8000-0000000000a1', 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
@@ -333,8 +433,8 @@ select ok(exists (select 1 from public.staff_inquiry_payments_v1('e4400000-0000-
 select ok(exists (select 1 from public.staff_inquiry_payments_v1('e4400000-0000-4000-8000-000000000044') r
                    where r.id = 'c0de7644-0000-4000-8000-000000000009' and r.comparison_id is null and r.candidate_amount is null),
   'payments: b09''s conflicted paid-outside candidate does not show as a receipt');
-select is((select count(*)::int from public.staff_inquiry_payments_v1('e4400000-0000-4000-8000-000000000044')), 6,
-  'payments: only the six pending requests (b07, b08, b09, b11, b15, b16) are listed');
+select is((select count(*)::int from public.staff_inquiry_payments_v1('e4400000-0000-4000-8000-000000000044')), 8,
+  'payments: only the eight pending requests (b07, b08, b09, b11, b15, b16, b20, b22) are listed');
 select set_config('request.jwt.claims', json_build_object('sub', 'e4400000-0000-4000-8000-0000000000a2', 'role', 'authenticated', 'iat', extract(epoch from now())::bigint)::text, true);
 select throws_ok($$select * from public.staff_inquiry_payments_v1('e4400000-0000-4000-8000-000000000044')$$, '42501', null, 'payments: a cleaner is refused');
 reset role;

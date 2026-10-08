@@ -45,6 +45,8 @@ declare
   v_res jsonb;
   v_secret text;
   v_base jsonb;
+  v_reattest boolean := false;
+  v_inserted boolean := false;
 begin
   if p_idempotency_key is null or char_length(p_idempotency_key) not between 16 and 120 then
     raise exception using errcode = '22023', message = 'idempotency key must be 16 to 120 characters';
@@ -70,12 +72,21 @@ begin
                                         'finance_review_id', v_dec.finance_review_id);
   end if;
 
+  -- State before input: a booking that is no longer pending answers not_pending whatever was typed.
+  if b.status <> 'pending' then
+    return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'not_pending', 'status', b.status);
+  end if;
+
   if p_amount is null or p_amount <= 0 then
     return v_base || jsonb_build_object('ok', false, 'outcome', 'amount_required');
   end if;
   v_amount := round(p_amount, 2);
   if v_method is not null and v_method not in ('messenger_gcash', 'gcash_qr', 'bank', 'cash', 'other') then
     raise exception using errcode = '22023', message = 'method must be messenger_gcash, gcash_qr, bank, cash or other';
+  end if;
+  -- Optional on the receipt and cash paths: a malformed reference there is dropped, not stored.
+  if v_ref is not null and v_ref !~ '^[A-Z0-9]{4,64}$' and (p_comparison_id is not null or v_method = 'cash') then
+    v_ref := null;
   end if;
   if p_comparison_id is null then
     if v_method is null then
@@ -85,20 +96,40 @@ begin
       if v_note is null or char_length(v_note) < 3 then
         return v_base || jsonb_build_object('ok', false, 'outcome', 'note_required');
       end if;
-      if v_ref is not null and v_ref !~ '^[A-Z0-9]{4,64}$' then v_ref := null; end if;
     elsif v_ref is null or v_ref !~ '^[A-Z0-9]{4,64}$' then
       return v_base || jsonb_build_object('ok', false, 'outcome', 'reference_required');
     end if;
-  end if;
-
-  if b.status <> 'pending' then
-    return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'not_pending', 'status', b.status);
   end if;
 
   if p_comparison_id is not null then
     select * into c from public.payment_evidence_comparisons where id = p_comparison_id;
     if not found or c.booking_id <> b.id then
       return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'comparison_not_for_booking');
+    end if;
+    select * into v_review from public.payment_finance_reviews
+     where comparison_id = c.id and outcome in ('approved', 'rejected')
+     order by created_at desc, id limit 1 for share;
+    if found then
+      if v_review.outcome <> 'approved' then
+        return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'already_rejected', 'comparison_id', c.id);
+      end if;
+      if exists (select 1 from public.booking_decisions d where d.finance_review_id = v_review.id and d.outcome = 'confirmed') then
+        -- Defensive only: a confirmed decision means a confirmed booking, which not_pending has already answered.
+        return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'review_already_used', 'comparison_id', c.id);
+      end if;
+      if exists (select 1 from public.booking_decisions d where d.finance_review_id = v_review.id) then
+        -- The approval was spent on an attempt that did not confirm (a calendar conflict). A comparison takes one final review
+        -- (payment_finance_review_one_final_idx) and a review one decision, so the receipt is re-attested: a key-derived
+        -- manual_evidence candidate joins the receipt's candidates in a NEW comparison, and the fresh review below goes on that.
+        v_reattest := true;
+        v_hash := encode(extensions.digest('onetap-reattest-v1|' || b.id::text || '|' || p_idempotency_key, 'sha256'), 'hex');
+        v_candidate := public.record_payment_evidence_candidate(
+          b.id, 'manual_evidence', 'reattest:' || md5(p_idempotency_key)::uuid::text, v_hash, 'onetap-reattest:' || p_idempotency_key,
+          'onetap-v1', now(), v_amount, 'PHP', v_ref, null, array['reattest', coalesce(v_method, 'receipt')], 'not_applicable', null);
+        v_comparison := public.compare_booking_payment_evidence(b.id, c.evidence_candidate_ids[1:7] || v_candidate);
+        select * into c from public.payment_evidence_comparisons where id = v_comparison;
+        v_review := null;
+      end if;
     end if;
   else
     -- A typed reference already seen on another booking of the property is refused (the receipt path keeps prior use advisory).
@@ -117,31 +148,36 @@ begin
       'onetap-v1', now(), v_amount, 'PHP', v_ref, null, array['paid_outside', v_method], 'not_applicable', null);
     v_comparison := public.compare_booking_payment_evidence(b.id, array[v_candidate]);
     select * into c from public.payment_evidence_comparisons where id = v_comparison;
+    -- A paid-outside comparison is new to this key, so a final review on it can only be this key's own, from an earlier
+    -- attempt that did not decide (none survives a 23P01, see below); reject anything else.
+    select * into v_review from public.payment_finance_reviews
+     where comparison_id = c.id and outcome in ('approved', 'rejected')
+     order by created_at desc, id limit 1 for share;
+    if found and v_review.outcome <> 'approved' then
+      return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'already_rejected', 'comparison_id', c.id);
+    end if;
+    if found and exists (select 1 from public.booking_decisions d where d.finance_review_id = v_review.id) then
+      return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'review_already_used', 'comparison_id', c.id);
+    end if;
   end if;
 
   v_reason := left(concat_ws(' / ', 'One-tap confirm', coalesce(v_method, 'receipt'), 'ref ' || v_ref,
                              'PHP ' || to_char(v_amount, 'FM999999990.00'), 'note ' || v_note), 500);
-  select * into v_review from public.payment_finance_reviews
-   where comparison_id = c.id and outcome in ('approved', 'rejected') for share;
-  if found then
-    if v_review.outcome <> 'approved' then
-      return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'already_rejected', 'comparison_id', c.id);
-    end if;
-    if exists (select 1 from public.booking_decisions d where d.finance_review_id = v_review.id) then
-      -- One decision per review: an approval already spent on an earlier attempt (e.g. a conflict) cannot authorize another.
-      return v_base || jsonb_build_object('ok', false, 'outcome', 'invalid_state', 'reason', 'review_already_used', 'comparison_id', c.id);
-    end if;
-  else
-    insert into public.payment_finance_reviews (property_id, booking_id, comparison_id, reviewer_user_id, outcome, reason)
-    values (c.property_id, c.booking_id, c.id, p_actor, 'approved', v_reason)
-    returning * into v_review;
-  end if;
-
+  -- The review insert and the decision share one subtransaction: an active-hold refusal (23P01) leaves neither behind, so a
+  -- retry with a new key records a fresh review on the same comparison. A calendar conflict is a stored decision (the engine's
+  -- audit row) holding its review; the re-attest branch above handles the retry.
   begin
+    if v_review.id is null then
+      insert into public.payment_finance_reviews (property_id, booking_id, comparison_id, reviewer_user_id, outcome, reason)
+      values (c.property_id, c.booking_id, c.id, p_actor, 'approved', v_reason)
+      returning * into v_review;
+      v_inserted := true;
+    end if;
     v_res := public.decide_direct_booking(b.id, 'confirm', v_key, v_review.id);
   exception when sqlstate '23P01' then
     -- guard_direct_booking_lifecycle_transition: another request's active hold overlaps. Nothing of the decision persists.
     v_res := jsonb_build_object('ok', false, 'outcome', 'conflict', 'reason', 'active_hold', 'already_processed', false);
+    if v_inserted then v_review := null; end if;
   end;
 
   if v_res ->> 'outcome' = 'confirmed' and coalesce((v_res ->> 'already_processed')::boolean, false) is not true then
@@ -164,6 +200,7 @@ begin
   end if;
 
   return v_base || v_res || jsonb_build_object('booking_id', b.id, 'comparison_id', c.id, 'comparison_outcome', c.comparison_outcome,
+                                               'reattested', v_reattest,
                                                'finance_review_id', v_review.id, 'reviewer_user_id', v_review.reviewer_user_id);
 end $$;
 revoke all on function public._confirm_direct_booking_core(uuid, uuid, text, text, numeric, text, uuid, text)
