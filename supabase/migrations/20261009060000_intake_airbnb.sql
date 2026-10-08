@@ -1,6 +1,6 @@
 -- Session 79, D-323: the "Before you arrive" intake link for a confirmed Airbnb stay. Owners/admins make it from Telegram /intake (Finance
 -- group only) and the host shares it by hand; Cassy's Airbnb drafts never carry a link. intake_resolve_v1 now also resolves a
--- booking_type 'airbnb' token to ONE airbnb_reservations row that is confirmed (status 'confirmed', no cancelled_at), has a guest_id and
+-- booking_type 'airbnb' token to ONE airbnb_reservations row with source 'airbnb' (never a DIRECT:<uuid> mirror row) that is confirmed (status 'confirmed', no cancelled_at), has a guest_id and
 -- has not checked out (Manila date). ref = confirmation_code. Same eight columns, so intake_guest_context_v1 and both save RPCs work
 -- unchanged (they key on guest_id and property_id). The direct branch is the 20261007130000 text, unchanged.
 -- guest_access_tokens_booking_type_check already allows 'airbnb' (checked live 2026-10-09), so no constraint change.
@@ -22,7 +22,7 @@ language sql stable security definer set search_path = '' as $$
   union all
   select a.id, a.property_id, a.guest_id, a.confirmation_code, a.checkin_date, a.checkout_date, a.guest_count, g.name
     from public.guest_access_tokens t
-    join public.airbnb_reservations a on a.id = t.booking_id
+    join public.airbnb_reservations a on a.id = t.booking_id and a.source = 'airbnb'
     join public.guests g on g.id = a.guest_id
    where p_token_hash ~ '^[a-f0-9]{64}$'
      and t.token_hash = p_token_hash and t.booking_type = 'airbnb' and t.revoked_at is null and t.expires_at > now()
