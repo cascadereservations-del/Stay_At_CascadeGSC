@@ -781,12 +781,12 @@ async function forwardReceipt(flow: Flow, url: string, name: string | null): Pro
 // SPEC-45: one guest photo, read once. The bytes stay in memory and the CDN URL is never logged or stored (D-291).
 type IdImage = { read: GuestRead; bytes: Uint8Array; ext: string; mime: string };
 async function idRead(url: string): Promise<IdImage | null> {
-  const img = await fetch(url, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  const img = await fetch(url, { signal: AbortSignal.timeout(4_000) }).catch(() => null);
   if (!img || !img.ok) return null;
   const bytes = new Uint8Array(await img.arrayBuffer());
   const kind = sniffImage(bytes);
   if (!kind) return null;
-  // The webhook answers before its 200: the read gets 15 s, then the photo keeps today's path. ponytail: visionExtractText takes no
+  // The webhook awaits this turn before its 200: the read gets 8 s, then the photo keeps today's path. ponytail: visionExtractText takes no
   // signal, so a slow call finishes in the background; add a timeout parameter to vision.ts if that ever costs.
   const late = new Promise<null>((r) => setTimeout(() => r(null), ID_READ_MS));
   try {
@@ -795,7 +795,7 @@ async function idRead(url: string): Promise<IdImage | null> {
     return { read: parseGuestRead(raw), bytes, ...kind };
   } catch (e) { console.error('id_read_failed', String(e).slice(0, 160)); return null; }
 }
-const ID_READ_MS = 15_000;
+const ID_READ_MS = 8_000; // s79 re-audit M1: download 4 s + read 8 s stays under the ~20 s after which Meta re-delivers (a re-delivery would read again)
 const ID_BUCKET = 'guest-id-photos';
 /** Photo first (the RPC checks the object exists), then concierge_save_guest_id_v1. A refusal removes the photo: nothing saved. */
 async function idSave(db: Db, plan: Extract<IdPlan, { act: 'save' }>, img: IdImage): Promise<{ ok: boolean; reason?: string }> {
