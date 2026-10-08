@@ -3,6 +3,8 @@
 -- Synthetic rows only: uuids e8770000-..., everything rolls back.
 begin;
 select plan(13);
+-- s79 (#43): pin Airbnb prep nights to 0 so this suite keeps testing the bare V1m rule (s79_verifier_v1m_prep_nights.sql covers the window).
+insert into public.app_settings(key, value) values ('airbnb_prep_nights', '0'::jsonb) on conflict (key) do update set value = excluded.value;
 
 select ok((select prosecdef and proconfig = array['search_path=""'] from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure),
   'the checks stay security definer with an empty search_path');
