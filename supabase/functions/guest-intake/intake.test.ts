@@ -108,3 +108,13 @@ Deno.test('OPS line: who and what first, the stay, no action; no phone, money, l
   assertEquals(opsCard(ctx, [{ name: 'Ben Cruz', ok: false, photo: false, reason: 'save_failed' }]), null);
   assert(opsCard(ctx, [{ name: 'Ben Cruz', ok: true, photo: false }])!.includes('1 guest name (no ID photos yet)'));
 });
+
+Deno.test('D-323 Airbnb stay: the context ref is the confirmation code; the save and the OPS line work the same, with no money or link', async () => {
+  const airbnb: Context = { ...ctx, ref: 'HMZZS79A' };
+  const r = rig();
+  const results = await savePeople(r.deps, 'h'.repeat(64), airbnb, [person()]);
+  assertEquals(results, [{ name: 'Ben Cruz', ok: true, photo: true }]);
+  const card = opsCard(airbnb, results)!;
+  assert(card.includes('HMZZS79A') && card.includes('Ben Cruz sent 1 ID before arrival.'), card);
+  assert(!/₱|\b(php|paid|payment|deposit|balance|fee|receipt|airbnb\.com)\b|https?:/i.test(card), 'no money or link in OPS');
+});

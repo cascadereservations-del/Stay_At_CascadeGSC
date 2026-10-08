@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { hashGuestAccessToken } from '../_shared/guest-access-token.ts';
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
-import { statusView, type StatusFacts } from './status.ts';
+import { intakeOnlyView, statusView, type StatusFacts } from './status.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type', 'Content-Type': 'application/json' };
 const json = (body: Record<string, unknown>, status = 200) => new Response(JSON.stringify(body), { status, headers: CORS });
@@ -22,7 +22,12 @@ Deno.serve(async (request) => {
   if (view === 'status') {
     const { data: facts, error } = await db.rpc('guest_booking_status_v1', { p_token_hash: tokenHash });
     if (error) return json({ error: 'guest_access_unavailable' }, 503);
-    if (!facts) return invalid();
+    if (!facts) {
+      // D-323: a token with no direct facts may be an Airbnb stay link; it opens only the intake section (no status, dates or money).
+      const { data: ctx } = await db.rpc('intake_guest_context_v1', { p_token_hash: tokenHash });
+      const only = intakeOnlyView(ctx);
+      return only ? json({ ok: true, status: only }) : invalid();
+    }
     const now = Date.now();
     const status = statusView(facts as StatusFacts, now);
     if (!status) return invalid();

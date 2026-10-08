@@ -1,7 +1,7 @@
 // deno test --allow-read guest-access/status.test.ts
 // SPEC-42 s6: the state mapping, the fields the status page may show, and the source-level guards on guest-access/index.ts.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { bookingState, SECURITY_DEPOSIT, statusView, type StatusFacts } from './status.ts';
+import { bookingState, intakeOnlyView, SECURITY_DEPOSIT, statusView, type StatusFacts } from './status.ts';
 
 const NOW = Date.parse('2026-10-06T00:00:00Z');
 const base: StatusFacts = {
@@ -89,5 +89,11 @@ Deno.test('guest-access/index.ts: the status branch reads through the RPC with t
   assert(status > 0 && table > status, 'status branch comes before the guide branch table reads');
   assert(src.includes("rpc('guest_booking_status_v1', { p_token_hash: tokenHash })"), 'RPC gets the hash, not the token');
   assert(!/console\.(log|error|warn|info|debug)/.test(src), 'no logging in guest-access');
-  assert(src.includes('if (!facts) return invalid();'), 'invalid token gets the neutral 404');
+  assert(src.includes("return only ? json({ ok: true, status: only }) : invalid();"), 'invalid token gets the neutral 404');
+  assert(src.includes("rpc('intake_guest_context_v1', { p_token_hash: tokenHash })"), 'the Airbnb check reads the intake context by hash');
+});
+
+Deno.test('D-323: an Airbnb token opens only the intake section - the state and nothing else', () => {
+  assertEquals(intakeOnlyView({ ref: 'HMZZ', checkin_date: '2026-10-16', can_save: true, people: [] }), { state: 'intake_only' });
+  for (const ctx of [null, undefined, {}, { can_save: false }, { can_save: 'true' }]) assertEquals(intakeOnlyView(ctx as never), null);
 });
