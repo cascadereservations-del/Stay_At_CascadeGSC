@@ -96,14 +96,14 @@ Deno.test('D-311.1/.7: a promo question names the live promotion and the direct 
 
 // ---- 2. turnover-day early check-in: never a promised time; Lloyd's words -------------------------------------------------
 // Example: voice.ts turnoverCheckinLine (code rule) + FACTS / the AVAILABILITY block / the VOICE turnover reference reply.
-Deno.test('D-311.2: on a turnover day a noon promise becomes Lloyd\'s line - 12 NN or 1 PM only if ready, no fee, 2:00 PM named', () => {
-  assertEquals(turnoverCheckinLine('Oct 19', 'en'), "We'll be happy to accommodate an earlier check-in at 12:00 NN or 1:00 PM if the unit is already fully prepared and ready by then. We'll do our best to have everything ready ahead of the standard 2:00 PM check-in and will keep you posted once we can confirm the earliest time.");
+Deno.test('s78 (replaces D-311.2): on a turnover day a noon promise becomes the one fixed line - from 2:00 PM, earlier only if ready, no time named', () => {
+  assertEquals(turnoverCheckinLine('Oct 19', 'en'), "Another guest checks out that morning, so your check-in is from 2:00 PM; if the unit is ready earlier, we'll let you know right away.");
   const live = 'Hi Ben! Salamat sa pag-message sa Cascade Hideaway.\n\nYes, available po ang Oct 19. Open din po ang 12:00 noon early check-in at no extra charge dahil wala pong guest na mag-che-check out nung araw na iyon.\n\nCassy, Cascade Concierge';
   assert(offersEarlyCheckin(live));
   const fixed = setTurnoverCheckin(live, turnoverCheckinLine('Oct 19', 'tl'));
-  assert(fixed.includes('12:00 NN o 1:00 PM') && fixed.includes('standard 2:00 PM') && !/no extra charge|complimentary/i.test(fixed), fixed);
+  assert(fixed.includes('from 2:00 PM') && !/12:00|1:00 PM|noon|no extra charge|complimentary/i.test(fixed), fixed);
   assertEquals(score('first-noon-checkin-on-turnover-day-tl', 0, fixed), []);
-  // the fee rule is unchanged: 12 NN and 1 PM carry no fee, a 10 AM arrival is PHP 200
+  // the fee rule is unchanged: a 10 AM arrival on a day with no turnover is PHP 200
   assertEquals(earlyFeeFor('Pwede po ba check in 12 noon?'), null);
   assertEquals(fixEarlyFee(fixed, 'Pwede po ba check in 12 noon?'), fixed);
   assertEquals(earlyFeeFor('Can we check in at 10am?'), 200);

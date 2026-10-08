@@ -111,7 +111,8 @@ const SAMPLES: Record<string, (l: Lang) => string[]> = {
   directBetter: (l) => [P.directBetter(l)],
   promoLine: (l) => [P.promoLine([PROMO], l), P.promoLine([], l)],
   promoFirst: (l) => [P.promoFirst('We completely understand wanting the best value for your stay.', [PROMO], l)],
-  warmClause: (l) => [`Our direct rate starts at PHP 1,780 per night. ${P.warmClause(l)}`],
+  warmClause: (l) => [`Our direct rate starts at PHP 1,780 per night. ${P.warmClause(l)}`, `Yes, there is a water dispenser with complimentary drinking water. ${P.warmClause(l, true)}`], // s78: and the booked variant
+  payTermsLine: (l) => [P.payTermsLine('Angel', l, { total: '₱5,073', balance: '₱2,537', paid: false }), P.payTermsLine(null, l, { total: '₱5,073', balance: '', paid: true })], // s78
   // Session 58: the fixed turns index.ts sends.
   HANDOFF: () => Object.values(P.HANDOFF).filter(Boolean),
   ATTACHMENT_REPLY: () => [P.ATTACHMENT_REPLY],
@@ -151,7 +152,7 @@ const VOICE_LINES = (l: Lang) => [decisionInvite(l, SITE_URL),
   turnoverCheckinLine('Oct 2', l), lookNudge('may pictures po ba?', l, { site: false, reviews: false }), lookNudge('legit ba ni?', l, { site: true, reviews: false })];
 
 Deno.test('every persona export has samples, so a new move cannot skip the tone gate', () => {
-  const skip = new Set(['pick', 'CAPACITY', 'LAST_MINUTE', 'first', 'echoOf', 'DIRECT_BETTER_RE']); // helpers, not guest lines
+  const skip = new Set(['pick', 'CAPACITY', 'LAST_MINUTE', 'first', 'addressName', 'echoOf', 'DIRECT_BETTER_RE']); // helpers, not guest lines
   for (const k of Object.keys(P)) if (!skip.has(k)) assert(k in SAMPLES, `persona.ts exports ${k} with no samples in persona.test.ts`);
 });
 

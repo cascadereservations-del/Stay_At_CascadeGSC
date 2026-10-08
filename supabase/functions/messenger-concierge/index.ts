@@ -10,15 +10,15 @@
 // Deploy with verify_jwt=false: Meta cannot send a Supabase JWT.
 
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, type RiskCode, type StayRow } from './policy.ts';
-import { ACK_SUGGEST, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, pastStayAsk, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed, haggleLine, haggleHold, promoFirst, turnoverNotice, warmClause, type PromoFacts } from './persona.ts';
+import { classify, draftFailureNote, gate, houseRuleKind, modeFrom, needsDatesFirst, statedName, stayLines, type RiskCode, type StayRow } from './policy.ts';
+import { ACK_SUGGEST, addressName, ATTACHMENT_REPLY, HANDOFF, holdOffer, accessVerify, attachmentNoted, houseVerifyAsk, priorityAsk, priorityRetry, priorityUnmatched, priorityVerified, closers, handoffFollowUp, voiceNote, botReply as botLine, datesFirstLine, pastStayAsk, datesTaken, discountHostLine, DISCOUNT_HOST_PAST, houseRule, compose, receiptAlready, receiptLapsed, receiptRetry, receiptThanks, seeHomeLine, signFirst, submitFailed, haggleLine, haggleHold, promoFirst, turnoverNotice, warmClause, type PromoFacts } from './persona.ts';
 import { JEV_INTENTS, jevRoute, primaryLang, routeRisk, type JevRoute } from './jev.ts'; // D-271
 import { turnStats } from './stats.ts'; // D-285
 import { needsCalendarCheck } from './booking.ts';
 import { seedFlow } from './probe-seed.ts'; // SPEC-38 s8: Cassy's reply draft seeds the booking flow (probe path only)
 // Messenger book intent (booking PRD §A, session 27): code-driven slot filling, no model in the loop.
-import { AVAIL_WORD_RE, BOOK_RE, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaim, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
-import { addTurnoverNotice, dedupeAvailability, dropPassingRange, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
+import { AMENITY_RE, AVAIL_WORD_RE, BOOK_RE, payTermsReply, payTiming, CANCEL_RE, datesOf, rolledPastStay, stayFromPhrase, PAY_HOW_RE, payHowReply, answer, isChatYes, PRICE_RE, availabilityAck, availabilityLine, bookingStart, dmRange, flowLead, greeting, guestLang, holdCancelReply, holdNote, lastMinute, lastRef, otherQuestions, isActive, opener, openWindows, paidClaim, paidClaimReply, parseDates, paymentPromise, prompt, quoteTotal, rateLine, replyLang, SEE_RE, start, stayPayMessage, strayReceiptReply, toneOf, trimWindow, TRUST_RE, type Flow, type Window } from './booking.ts';
+import { addTurnoverNotice, asksEarlyCheckin, dedupeAvailability, dropRepeats, dropPassingRange, kusang, nameOnce, noPo, sentencesOf, dropBankUnlessAsked, payHoldReply, claimsOpen, contractions, dropNameAsk, dropPaxAsk, fixEarlyFee, gladNotHappy, isCold, parseDraftJson, offersEarlyCheckin, setTurnoverCheckin, turnoverCheckinLine, lintReply, offRegister, setAvailability, lookNudge, STAY_PAY_CAP } from './voice.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { dropJunctionDays, fetchChains, stayContinues } from '../_shared/cascade-core/chains.ts'; // D-290
 import { houseBlock, loadHouse, matchHouse } from '../_shared/cascade-core/house.ts'; // D-282
@@ -64,7 +64,9 @@ const datesFirstReply = (name: string | null, text: string, followUp: boolean) =
 // closer that ends on a link reads as a pitch.
 // SPEC-39 3.8 (live 2026-10-04: "Thanks and God bless" got the dates nudge from the model): a blessing or a farewell may follow.
 export const THANKS_RE = /^\s*(ok(ay)?|sige|noted|got it|great|nice)?( po)?[,.! ]*(thank(s| you)( so much| very much)?|salamat( po)?( ulit)?|maraming salamat( po)?|ty|tysm)[,.! ]*(po|talaga)?(?:,?\s*(?:and\s+)?(?:god bless|ingat|take care|good ?night)(?: po)?)?[,.! ]*$/i; // "sige po, salamat" went to the model (v57 check)
-const CLOSER_ONLY_RE = /^\s*(?:(?:ok(?:ay)?|sige|noted|got it|alright|copy|bye|good ?bye|ingat|see you|talk (?:to you )?later|ttyl|good night|goodnight)(?: po)?(?: na)?[,.! ]*){1,3}$/i;
+// s78 G9 (Hazel, "welcome te, ya" after our thanks re-sent the whole offer): a "you're welcome" back, Bisaya/Tagalog address
+// words and a trailing "ya" included, is a closer too. "ya" alone is not (it may answer a hold question).
+const CLOSER_ONLY_RE = /^\s*(?:(?:ok(?:ay)?|sige|noted|got it|alright|copy|bye|good ?bye|ingat|see you|talk (?:to you )?later|ttyl|good night|goodnight|(?:you'?re |your |ur )?(?:most )?welcome(?: (?:te|ate|day|dong|ma'?am|maam|sir|kaayo))?(?:[,.! ]+(?:ya|yah|yeah))?)(?: po)?(?: na)?[,.! ]*){1,3}$/i;
 const BOT_RE = /\b(are you a (bot|robot|an? ai)|is this a bot|bot (ka|po|ba)|ai (po )?ba|robot (ka|po) ba|chatbot|real person|human ba|tao (po )?ba|automated)\b/i;
 const pick = (xs: string[]) => xs[Math.floor(Math.random() * xs.length)];
 // Voice close-out (protocol 10): three registers, no exclamation words, one or two "po", and the open door offers both
@@ -176,6 +178,14 @@ export const checkoutHint = (text: string): string =>
 export const priceObjection = (text: string): boolean =>
   /\b(discount|discounted|lower price|best price|cheaper|mas mura|promo|may promo)\b/i.test(text) // a discount ask counts whatever else is said
   || (/\b(mahal|expensive|pricey)\b/i.test(text) && !/\b(hindi|not|dili|wala)\b[^.?!]{0,12}\b(mahal|expensive|pricey)/i.test(text));
+/** TASKS #8 (s78, haggle ceiling): the message asks for something besides the price - a clause that is not the discount or haggle
+ *  itself names an amenity, availability or a question word ("discount please, parking available"). Clauses split at punctuation
+ *  and "and" / "at saka" / "tsaka" / "also". */
+export function haggleRest(text: string): boolean {
+  return text.split(/[,.;?!\n]+|\b(?:and|also|at saka|tsaka|saka|pati)\b/i).map((c) => c.trim()).filter(Boolean)
+    .some((c) => !priceObjection(c) && classify(c) !== 'policy_exception'
+      && (AMENITY_RE.test(c) || AVAIL_WORD_RE.test(c) || /\b(how|what|where|when|which|is there|are there|meron|ano|saan|paano|asa|unsa|kailan)\b/i.test(c))); // not "pwede"/"can": "pwede pa ba bumaba?" is the haggle itself
+}
 /** D-300.2 trigger 1: how to book, or the site itself, asked for. */
 export const HOW_BOOK_RE = /\b(how (?:do|can|should) (?:i|we) (?:book|reserve)|how to book|paano (?:po )?(?:mag-?book|mag-?reserve|ma-?book)|unsaon (?:pag-?)?book|book(?:ing)? link|(?:your |the |ang |inyong )?(?:site|website|link|page)\b|where (?:do|can) (?:i|we) book|san (?:po )?(?:pwede|puwede) mag-?book)\b/i;
 /** D-300.2 (Lloyd 2026-10-05): the site link only as applicable - how to book or the site itself, the home or its photos,
@@ -320,7 +330,7 @@ async function availabilityBlock(db: Db): Promise<string> {
     `BOOKED NIGHTS: ${booked.join(', ') || 'none'}`,
     `If a requested range includes a booked night, say exactly which nights are taken and which are open, then offer the open part or the nearest window. For dates beyond ${pretty(horizonEnd)}, say the host will confirm.`,
     // Turnover safeguard (live test 2026-09-12: a free 1 PM check-out was promised with no dates known).
-    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - on these days never promise an early check-in time (D-311): say we'll be happy to accommodate 12:00 NN or 1:00 PM if the unit is already fully prepared and ready by then, that we'll do our best to have everything ready ahead of the standard 2:00 PM check-in, and that we'll keep them posted once we can confirm the earliest time. Never "complimentary", never a time confirmed.`,
+    `ANOTHER GUEST CHECKS OUT ON: ${[...checkouts].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - on these days check-in is from 2:00 PM and no earlier time is named (s78): say once that another guest checks out that morning, so check-in is from 2:00 PM, and if the unit is ready earlier we will message them. Never 12 noon, 12:00 NN or 1:00 PM, never "complimentary", never a time confirmed.`,
     `ANOTHER GUEST CHECKS IN ON: ${[...checkins].filter((d) => d >= today).sort().map(pretty).join(', ') || 'none'} - late check-out is NOT possible on these days; check-out stays at 12 noon.`,
     `Offer early check-in or late check-out ONLY when the guest's dates are known and the day in question is on neither list. Otherwise say you will gladly arrange it once their dates are set and the calendar allows.`,
   ].join('\n');
@@ -924,7 +934,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     return;
   }
 
-  if (!thread.guest_name) thread.guest_name = await fx.name(psid);
+  thread.guest_name = addressName(thread.guest_name ?? await fx.name(psid)); // s78 G8: "Ma." alone is no name to address
 
   const said: string = (msg.text ?? '').trim();
   const link = `https://www.facebook.com/messages/t/${psid}`;
@@ -1041,6 +1051,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // thread's booking whatever its step, readable 8 days (lastRef); a card's risk and note are applied after flowReply.
   const booked = lastRef(thread.booking_flow, now);
   let card: { risk: RiskCode; note: string; anyWording: boolean } | null = null;
+  // s78 (TASKS #6, Angel replay turns 13-20): the booking that exists on this thread - the live pay hold, or (after the flow's 24 h)
+  // a booking still awaiting or holding a receipt, or confirmed. Its guest gets answers from facts and the card's terms only.
+  const heldFlow: Flow | null = payHold ? flow : booked && ['await_receipt', 'receipt_sent', 'confirmed'].includes(booked.step) ? booked : null;
+  let timing: ReturnType<typeof payTiming> = null;
   const uploadOpen = flow?.step === 'await_receipt' && !(flow.receipt_expires_at && Date.parse(flow.receipt_expires_at) < now.getTime());
   const guestSaid = thread.history.filter((h) => h.role === 'guest').slice(-6).map((h) => h.text).join(' ');
   // SPEC-44: at await_receipt a file that is not a photo, or "bayad na po" (a claim, not a question), brings Finance's request card
@@ -1064,6 +1078,11 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
     flowReply = holdCancelReply(flow, flow.name ?? thread.guest_name, replyLang(text, flow.lang), change);
     card = { risk: 'cancellation', note: holdNote(flow, now, change ? 'change requested' : ''), anyWording: false };
     flow = { ...flow, step: 'cancel_requested', updated_at: now.toISOString() };
+  } else if (g.reply && text && heldFlow && ['routine', 'payment'].includes(g.risk) && (timing = payTiming(text))) {
+    // s78 (Angel replay turns 13, 19): "we will send the deposit tomorrow", "pay the deposit pag nasa area na" - the stay card's
+    // terms said back by code (the model accepted a deposit on arrival). An arrival ask also reaches the host.
+    flowReply = payTermsReply(heldFlow, heldFlow.name ?? thread.guest_name, replyLang(text, heldFlow.lang));
+    if (timing === 'arrival') card = { risk: 'payment', note: holdNote(heldFlow, now, 'asked to pay on arrival'), anyWording: true };
   } else if (g.reply && text && booked && ['await_receipt', 'receipt_sent', 'cancel_requested', 'receipt_declined'].includes(booked.step) && g.risk === 'payment') {
     // s2: "paid na po?" is answered from what we hold, and the host gets one payment card per 24 h.
     flowReply = paidClaimReply(booked, booked.name ?? thread.guest_name, replyLang(text, booked.lang));
@@ -1152,7 +1171,10 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
   // D-311.8 (Lloyd 2026-10-07): a Bisaya or Bislish guest gets English - the register D-172 settled (Taglish on the first Bisaya
   // turn, Bislish from the second) is retired. Settled once per turn, so the code-owned lines follow the same register as the model.
   const prevGuest = thread.history.filter((h) => h.role === 'guest').slice(-1)[0]?.text ?? '';
-  const thisLang = primaryLang(guestLang(text), jev); // D-271 hybrid: Jev overrides only an English reading, when sure
+  const readLang = primaryLang(guestLang(text), jev); // D-271 hybrid: Jev overrides only an English reading, when sure
+  // s78 G10 (Angel replay turn 20: "We are here na po, waiting for confirmation" got English on a Taglish thread): English with a
+  // courtesy "po" keeps the thread's Taglish when one of the guest's last two turns was Taglish.
+  const thisLang = readLang === 'english_po' && thread.history.filter((h) => h.role === 'guest').slice(-2).some((h) => guestLang(h.text) === 'taglish') ? 'taglish' : readLang;
   const turnLang = thisLang === 'bisaya' ? 'english' : thisLang;
   // D-282: house how-tos for the model (HOUSE block). A verified current guest reads the guest tier; anyone else reads
   // public rows, and a question whose best answer is guest-tier gets the stay check instead (never mid-booking).
@@ -1231,9 +1253,8 @@ Reply in Messenger: ${link}`));
       // for 5 nights?", "is there a discount for 30 nights?" or "can you do 1,500? and is there parking?" also ask for figures or a
       // fact, so the model answers the rest and code opens with the understanding line and closes with the host line.
       const haggle = hostAsk && !houseMixed;
-      // ponytail: a second ask with no "?" and no stay length ("discount please, parking available") still counts as pure and loses
-      // the second ask; split such messages only if guests do it in practice.
-      const pureHaggle = haggle &&!stayNights(text) && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1;
+      // TASKS #8 (s78): a second ask with no "?" ("discount please, parking available") is not pure either - haggleRest reads it.
+      const pureHaggle = haggle && !stayNights(text) && !parseDates(text, now).length && (text.match(/\?/g) ?? []).length <= 1 && !haggleRest(text);
       // D-311.1: the promotions this turn's card holds, as sealed facts for the promo answer.
       const promos: PromoFacts[] = livePromos(currentCard(), now).map((p) => ({ name: p.name, when: dmRange(p.first_night, p.last_night), rate: peso(p.nightly_rate), base: peso(currentCard().base) }));
       const discHint = houseMixed ? `[A house rule is asked (${ruleKind ?? 'pets, parties or guests'}): state it warmly from FACTS, then answer every other question in the message, dates from AVAILABILITY. The host decides exceptions; never grant one.] `
@@ -1245,7 +1266,12 @@ Reply in Messenger: ${link}`));
       // Lloyd 2026-09-17 14:30: mid-flow answers read bland and transactional. The model is told where it is and what follows.
       const flowHint = flowFollowUp ? '[The guest is in the middle of booking with us, and their booking summary follows your answer. Reply in two or three warm, unhurried sentences: the answer first, then the one reassurance or offer of help that fits it. No stay details, no amounts, no link, no closing question.] ' : '';
       // SPEC-31 s4 (F4, F7): the hold is open and the QR is out - the booking is arranged; the model answers the question only.
-      const payHint = payHold ? `[The guest holds ${dmRange(flow!.checkin!, flow!.checkout!)} under ${flow!.ref} and is paying the ${peso(flow!.deposit ?? 0)} ${(flow!.deposit ?? 0) >= (flow!.total ?? 0) ? 'full amount' : 'reservation fee'} by GCash QR. Answer only what they asked in two or three warm sentences. Payment facts you may state: GCash QR with the amount set; ${MAYA_FACT} A UnionBank transfer only if they ask for a bank (the host sends the account by hand). Never say the booking is confirmed, never promise a reminder or an e-mail, never invite them to the site or to arrange the booking - it is already arranged.] ` : '';
+      // s78: a booking past the flow's 24 h (lastRef) gets the same hint - its guest's questions were answered as a prospect's.
+      const hf = heldFlow, hfFull = !!hf && (hf.deposit ?? 0) >= (hf.total ?? 0);
+      const hfTerms = !hf ? '' : hfFull
+        ? `the full ${peso(hf.total ?? 0)} confirms the stay, and the PHP 1,000 refundable security deposit is due before arrival`
+        : `the remaining ${peso((hf.total ?? 0) - (hf.deposit ?? 0))} balance and the PHP 1,000 refundable security deposit are due at least a day before check-in`;
+      const payHint = hf ? `[The guest has a booking: ${dmRange(hf.checkin!, hf.checkout!)} under ${hf.ref}${hf.step === 'await_receipt' && !hf.photo_at ? `, paying the ${peso(hf.deposit ?? 0)} ${hfFull ? 'full amount' : 'reservation fee'} by GCash QR` : hf.step === 'confirmed' ? ', confirmed' : ', receipt received and with the host for review'}. Answer only what they asked, from FACTS, in two or three warm sentences - never ask for their dates, never quote a total or a rate, never offer to hold or book. The stay card's payment terms are the ONLY terms: ${hfTerms}. Never agree to the balance or the deposit being paid on arrival or at check-in. Payment facts you may state: GCash QR with the amount set; ${MAYA_FACT} A UnionBank transfer only if they ask for a bank (the host sends the account by hand). Never say the booking is confirmed${hf.step === 'confirmed' ? ' unless asked (it is)' : ''}, never promise a reminder or an e-mail, never invite them to the site or to arrange the booking - it is already arranged.] ` : '';
       // SPEC-28: with dates AND another question, the calendar line answers the dates, so the model sees only the other question.
       const asked = flow?.question && flowFollowUp ? otherQuestions(text) || text : text;
       // Session 30 (live): the chat already held "2 guests" from an earlier booking attempt and the model asked again.
@@ -1263,6 +1289,7 @@ Reply in Messenger: ${link}`));
       let out: Draft = pureHaggle ? { reply: haggleLine(haggleL), ask: haggleHold(haggleDates, holdL), uncertain: false } : await draft(thread, hints + langHint + asked, context, 'full', followUp);
       // A name the guest states ("Hi, this is Ben") wins over the Facebook profile name (live
       // 2026-09-13: profile said Löyd, guest said Ben).
+      out.guest_name = addressName(out.guest_name); // s78 G8
       if (out.guest_name && out.guest_name !== thread.guest_name) { console.log('guest_name_from_conversation', out.guest_name, 'was', thread.guest_name); thread.guest_name = out.guest_name; }
       if (NEGATIVE_RE.test(out.reply)) {
         console.error('negative_frame_retry', out.reply.slice(0, 160));
@@ -1285,7 +1312,7 @@ Reply in Messenger: ${link}`));
         const warm = `[REWRITE REQUIRED. Your draft was correct but read as blunt and transactional. Keep every fact. Write it the way a calm boutique-hotel concierge would type it in chat: the answer first; then one sentence that shows care or preparation done for the guest ("we'll have it ready", "so you can settle in without a second thought"). Natural contractions. No sales language, no "no pressure", no exclamation words, no second invitation.] `;
         out = await draft(thread, warm + hints + langHint + asked, context, 'full', followUp).catch(() => out);
         // D-311.8 (golden reg-bot-bis: a short rate answer stayed cold after the rewrite): one warm clause, from code.
-        if (isCold(out.reply)) out.reply = `${out.reply.trimEnd()} ${warmClause(l3)}`;
+        if (isCold(out.reply)) out.reply = `${out.reply.trimEnd()} ${warmClause(l3, !!heldFlow)}`; // s78: never a booking-flow line to a booked guest
       }
       // D1: a haggle inside a wider message - code's understanding line first, the model's answer, the hold question; the host line
       // is compose()'s alone, so any forward the model wrote anyway goes (said exactly once).
@@ -1298,12 +1325,15 @@ Reply in Messenger: ${link}`));
       const bankless = dropBankUnlessAsked(out.reply, text);
       if (bankless !== out.reply) { console.warn('bank_unasked_dropped', out.reply.slice(0, 160)); out.reply = bankless; }
       // Lloyd 2026-09-17: a day another guest checks out never gets the 12 noon check-in (golden run 2026-09-25 offered it).
-      if (offersEarlyCheckin(out.reply)) {
-        const stay = stayFrom(guestTexts, now);
+      // s78 (Angel replay turn 14): an early check-in ask on a turnover day gets the one fixed line even when the model named no time.
+      let turnoverFixed = false;
+      if (offersEarlyCheckin(out.reply) || asksEarlyCheckin(text)) {
+        const stay = heldFlow?.checkin ? { checkin: heldFlow.checkin } : stayFrom(guestTexts, now);
         // D-290: a chained stay's junction day has no turnover, so the 12 noon guard does not apply to it (turnoverOn).
         if (stay && await turnoverOn(db, stay.checkin, 'turnover_guard')) {
           console.warn('turnover_noon_guard', JSON.stringify({ day: stay.checkin, reply: out.reply.slice(0, 160) }));
           out.reply = setTurnoverCheckin(out.reply, turnoverCheckinLine(pretty(stay.checkin), l3));
+          turnoverFixed = true;
         }
       }
       // K18 (D-182): outside the book flow, a draft that calls the guest's dates open is checked against the calendar in
@@ -1341,14 +1371,14 @@ Reply in Messenger: ${link}`));
         else if (l3 === 'tl') a = kusang(a); // D-311.7: "automated" is a robot word
         if (knownPax && !flowFollowUp) a = dropPaxAsk(a);
         if (thread.guest_name) a = dropNameAsk(a); // golden run 2: the model asked a guest we already know for their name
-        if (payHold) { const held = payHoldReply(a, paidClaimReply(flow!, flow!.name ?? thread.guest_name, l3), SITE_URL); if (held !== a) console.warn('pay_hold_guard', a.slice(0, 160)); a = held; }
+        if (heldFlow && heldFlow.step !== 'confirmed') { const held = payHoldReply(a, paidClaimReply(heldFlow, heldFlow.name ?? thread.guest_name, l3), SITE_URL); if (held !== a) console.warn('pay_hold_guard', a.slice(0, 160)); a = held; }
         return a;
       };
       let answer = guard(out.reply, lang === 'english' || lang === 'english_po');
       if (promoAsk) answer = promoFirst(answer, promos, l3); // D-311.1: the live promotions and the direct price, first paragraph
       if (flowFollowUp) { answer = dropPassingRange(answer, flowFollowUp); flowFollowUp = dedupeAvailability(answer, flowFollowUp); } // D-311.5: the dates said open once
       const reviewsShown = thread.history.filter((h) => h.role === 'bot').some((h) => h.text.includes(AIRBNB_URL));
-      const quiet = payHold || stayingNow || hostOpen.length > 0;
+      const quiet = !!heldFlow || stayingNow || hostOpen.length > 0; // s78: a booked guest gets the answer alone, no dates nudge
       // D-269: the discount host line is said once per thread (in any register, any wording it has had), closing the answer.
       const hostSaid = thread.history.some((h) => h.role === 'bot' && (Object.values(DISCOUNT_HOST_PAST).some((x) => h.text.includes(x)) || h.text.includes(HANDOFF.policy_exception)));
       if (hostAsk) { handoff = true; risk = 'policy_exception'; }
@@ -1378,7 +1408,7 @@ Reply in Messenger: ${link}`));
       if (l3 === 'tl' && composed.reply.length > 700) {
         const en = await draft(thread, `[Your Taglish answer made the message too long for chat. Write the whole answer in warm, natural English with contractions and no "po". Keep every fact and figure exactly.] ${hints}${asked}`, context, 'full', followUp).catch(() => null);
         const enAnswer = en ? guard(fixEarlyFee(dropBankUnlessAsked(en.reply, text), text), true) : '';
-        if (en && enAnswer && !claimsOpen(enAnswer) && !offersEarlyCheckin(enAnswer)) {
+        if (en && enAnswer && !turnoverFixed && !claimsOpen(enAnswer) && !offersEarlyCheckin(enAnswer)) {
           const c2 = compose({ answer: enAnswer, ask: holdQ ? holdOffer(sq!.nights === 1, 'en', false) : en.ask ?? null }, frame('en'));
           if (c2.reply.length < composed.reply.length) { console.warn('tl_too_long_english', JSON.stringify({ psid, tl: composed.reply.length, en: c2.reply.length })); composed = c2; }
         }
@@ -1426,7 +1456,7 @@ Reply in Messenger: ${link}`));
       if (withNotice !== reply) console.log('turnover_notice', JSON.stringify({ psid, day: openStay.checkin }));
       reply = withNotice;
     }
-    reply = nameOnce(reply, thread.guest_name); // D-311.5: the greeting named the guest, so no paragraph opens on the name again
+    reply = dropRepeats(nameOnce(reply, thread.guest_name)); // D-311.5; s78: nothing said twice in one message: the greeting named the guest, so no paragraph opens on the name again
     if (greetNow && !handoff && !flowImage) reply = signFirst(reply, true);
     lint = flowFollowUp ? [] : lintReply(reply, text, { firstTurn: !thread.history.length, name: thread.guest_name, cap: stayPayTurn ? STAY_PAY_CAP : undefined });
     if (lint.length) console.warn('voice_lint', JSON.stringify({ psid, lint, reply: reply.slice(0, 160) }));

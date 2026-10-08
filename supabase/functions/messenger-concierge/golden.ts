@@ -230,6 +230,11 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
     { id: 'handoff-complaint-en', group: 'handoff', turns: [{ say: 'Hi, we checked in yesterday and the aircon is not working', kind: 'handoff', lang: 'en', noInvite: true }] },
     { id: 'handoff-payment-en', group: 'handoff', turns: [{ say: 'I already sent the GCash payment, please confirm', kind: 'handoff', lang: 'en', noInvite: true }] },
     { id: 'handoff-refund-en', group: 'handoff', turns: [{ say: 'We need to cancel our booking next week, can we get a refund?', kind: 'handoff', lang: 'en', noInvite: true }] },
+    // s78 (TASKS #6 / #8, REVIEW-messenger-2026-10-08 G9, G11): a "you're welcome" back is a closer; a haggle with a second ask and
+    // no "?" answers both; "di na po available ang <day>?" at the party ask is a date question, never a party of <day>.
+    { id: 's78-welcome-te', group: 'followup', turns: [m(`Hi, how much for ${d2}?`), { say: 'Salamat po', kind: 'code', lang: 'tl', mustNot: [LINK] }, { say: 'welcome te, ya', kind: 'code', lang: 'en', mustNot: [/1,691|3,382|\bhold\b|which dates/i, LINK] }] },
+    { id: 's78-haggle-parking-en', group: 'followup', turns: [m('Hi, how much per night?', 'en', { mustNot: [LINK] }), { say: 'discount please, parking available', kind: 'handoff', lang: 'en', must: [/completely understand/, /park/i, HOST], mustNot: [LINK, /%/], effects: [/"handoff"[^}]*policy_exception/] }] },
+    { id: 's78-avail-day-at-pax-tl', group: 'flow', turns: [f(`Available po ba ang ${d3}?`, 'tl'), { say: `Hi po, di na po available ang ${d3.split(' ').pop()}??`, kind: 'midflow', lang: 'tl', must: [/Ilan po|How many/i], mustNot: [/mas malaking place|larger place|For \d{1,2},/i] }] },
     ...paymentCases(d2, d3),
     ...promoCases(SEED_CARD, now, bookedNights),
     ...s63Cases(),
@@ -254,6 +259,17 @@ export function goldenCases(now = new Date(), bookedRange: string | null = null,
   ] });
   // D-311.2 (Lloyd 2026-10-07): 12 NN or 1 PM only if the unit is ready - never a promised time, the standard 2:00 PM named.
   if (turnoverDay) cases.push({ id: 'first-noon-checkin-on-turnover-day-tl', group: 'first', turns: [m(`Hello po, available po ba ang ${turnoverDay}? Pwede po ba check in 12 noon?`, 'tl', { must: [/2(:00)? ?PM/i], mustNot: [/complimentary|no extra cost|free early|welcome to check in (from|at) 12|(you can|pwede po kayong) check in (at|ng) 12/i] })] });
+  // s78 (TASKS #6, Angel's turns 13-19 replayed): after the card, an early check-in ask on the turnover day gets the one fixed line
+  // (never 12 NN / 1 PM, nothing twice), a fact question gets no booking-flow line, and "deposit pag nasa area" gets the card's terms.
+  if (turnoverDay) {
+    const [mo, dd] = turnoverDay.split(' '), y = now.getUTCFullYear(), t = new Date(Date.UTC(y, MON.indexOf(mo), +dd));
+    const stay = range(t.getTime() < now.getTime() - 86_400_000 ? new Date(Date.UTC(y + 1, MON.indexOf(mo), +dd)) : t, 0, 3);
+    cases.push({ id: 's78-booked-turnover-tl', group: 'payment', turns: [f(`I would like to book ${stay}`, 'en'), f('2 adults', 'en'), f('Yes pls', 'en'),
+      f('Angeleen Luz Villanueva 09170000000 test.guest@example.com', 'en', { effects: [/"fx":"submit"/] }),
+      { say: 'If its possible we would like to checkin early po', kind: 'midflow', lang: 'en', must: [/2:00 PM/], mustNot: [/12:00 ?NN|1:00 PM|12 noon/i, /(2:00 PM[\s\S]*){3}/] },
+      { say: 'Hi good morning po may free drinking water na po sa room?', kind: 'midflow', lang: 'tl', mustNot: [/exact total|once may dates|preferred dates|which dates/i, LINK] },
+      { say: 'We will pay po the deposit pag nasa area na po', kind: 'code', lang: 'tl', must: [/before you arrive|a day before check-in/], mustNot: [/pagdating ninyo|on arrival is fine/i], effects: [/"handoff"[^}]*payment/] }] });
+  }
   // Incident 2026-10-07 (Angel): a misspelt availability ask after the rate answer starts the flow (the party ask), and a stay that
   // starts on another guest's check-out day says so - check-in from 2:00 PM, no "as soon as you arrive". Three nights from the turnover day.
   if (turnoverDay) {

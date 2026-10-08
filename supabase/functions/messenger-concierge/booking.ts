@@ -50,6 +50,17 @@ export const BOOK_RE = /\b(book(ing)?|reserve|reservation|magpa-?book|pa-?book|i
 const PAID_WORD_RE = /\b(paid|sent|na[- ]?send|gi-?send|(?:nag|naka|nakapag|na)?bayad|nabayaran|bayran|gcash na|na-?gcash|transferred|transfer done)\b/i;
 const NOT_PAID_RE = /\?|^\s*(how|where|when|what|can|could|should|is|did|pwede|puwede|paano|pano|saan|kailan|unsaon|asa|unsa)\b|\b(magkano|how much|tagpila)\b|\b(not|hindi|di|wala|later|mamaya|yet)\b|\bmag-?bayad\b|\b(sent|na[- ]?send|gi-?send)\b(\s+(?:ko|na|po|nako|you|to you))*\s+(?:my|our|the|ang|akong|amo)\s+(?:valid\s+)?(?:ids?|photos?|pics?|pictures?|details|info|selfie|passport|license)\b/i;
 export const paidClaim = (t: string): boolean => PAID_WORD_RE.test(t) && !NOT_PAID_RE.test(t);
+/** s78 (Angel replay turns 13 and 19): a booked guest names WHEN they will pay - on arrival ("pay the deposit pag nasa area na",
+ *  "deposit upon check-in") or later ("we will send the deposit tomorrow po"). Neither is a paid claim. A money word within 40
+ *  characters of the timing, either order. */
+const PAY_MONEY = String.raw`\b(?:deposit|balance|bayad\w*|(?:ba)?bayaran|magbayad|payment|pay|dp|down ?payment|full|remaining)\b`;
+const PAY_ARRIVE = String.raw`\b(?:on arrival|upon arrival|arrival|pagdating|pag-?dating|pag-?abot|when (?:we|i) (?:arrive|get there|check in)|(?:at|upon|on|sa) check-?in|(?:pag|kung|when|once) (?:nasa|andyan|andito|naa|nandyan|nandito|we'?re|we are|i'?m)\b[^.?!\n]{0,15}\b(?:area|there|here|unit|place|na))\b`;
+const PAY_LATER = String.raw`\b(?:tomorrow|tmrw|bukas|later|mamaya|ugma|tonight|mamayang gabi)\b`;
+const payNear = (a: string, b: string) => new RegExp(String.raw`${a}[^.?!\n]{0,40}${b}|${b}[^.?!\n]{0,40}${a}`, 'i');
+const ARRIVE_PAY_RE = payNear(PAY_MONEY, PAY_ARRIVE), LATER_PAY_RE = payNear(PAY_MONEY, PAY_LATER);
+export function payTiming(text: string): 'arrival' | 'later' | null {
+  return ARRIVE_PAY_RE.test(text) ? 'arrival' : LATER_PAY_RE.test(text) ? 'later' : null;
+}
 export const CANCEL_RE = /\b(cancel|stop|wag na|huwag|never ?mind|nevermind|not now|forget it|change of plans|di na tuloy|hindi na tuloy|dili na|wag na lang)\b/i;
 const YES_RE = /^\s*(yes|yes po|oo|oo po|sige|sige po|go|confirm|confirmed|ok|okay|okay po|ok po|proceed|tama|correct|yup|yep|y)\s*[.!]*\s*$/i;
 const SKIP_RE = /^\s*(skip|wala|none|no email|no)\s*[.!]*\s*$/i;
@@ -99,7 +110,7 @@ export function settleLang(_prev: Lang | undefined, detected: Lang, bisTurns: nu
 export function guestLang(text: string): 'taglish' | 'bisaya' | 'english_po' | 'english' {
   const t = ` ${text.toLowerCase()} `;
   if (/\b(naa|unsa|asa|kanus-a|pila|maayong|salamat kaayo|ba mo|mo ba|nimo|karon|kaayo|kini|namo|nako|unya|gani|diri|didto|wala'y|walay|palihog|tagpila|pila ka|usbon|usba|mi|kabuok|tawo|ug|og|dili|among|ugma|gahapon|muabot|moabot)\b/.test(t)) return 'bisaya';
-  if (/\b(ang|ng|mga|kayo|ninyo|magkano|pwede|puwede|salamat|meron|kailan|saan|paano|bukas|ngayon|opo|hindi|kasi|namin|natin|sige|okay lang|ayos|kami|ako|niyo|nyo|gusto|bakante|kaming|muna)\b/.test(t)) return 'taglish';
+  if (/\b(ang|ng|mga|kayo|ninyo|magkano|pwede|puwede|salamat|meron|kailan|saan|paano|bukas|ngayon|opo|hindi|kasi|namin|natin|sige|okay lang|ayos|kami|ako|niyo|nyo|gusto|bakante|kaming|muna|lng|pwde|nasa|yung|dito)\b/.test(t)) return 'taglish'; // s78 G10: text-speak Taglish ("2 nights lng po ang pwde", "pag nasa area na")
   const particles = (t.match(/\b(po|ba|lang|naman|opo)\b/g) ?? []).length;
   if (particles >= 2 || /\bhm po\b|\bhm\b[^.?!]{0,20}\b(night|gabi|rate)\b/.test(t)) return 'taglish';      // "may parking po ba?"; "hm po per night?" is Filipino text-speak (golden run 2026-09-17: it got plain English)
   if (particles === 1) return 'english_po';  // "how far from SM po"
@@ -422,6 +433,11 @@ export function holdCancelReply(flow: Flow, name: string | null, lang: Lang, cha
   const kind = change ? 'change' : flow.step === 'receipt_sent' ? 'receipt' : 'cancel';
   return P.holdCancelLine(kind, name, dmRange(flow.checkin!, flow.checkout!), lang);
 }
+/** s78: the stay card's own payment terms for a booked guest who names another timing (payTiming). Facts from the flow. */
+export function payTermsReply(flow: Flow, name: string | null, lang: Lang): string {
+  const total = flow.total ?? quoteTotal(flow.checkin!, flow.checkout!).total, deposit = flow.deposit ?? total;
+  return P.payTermsLine(P.first(flow.name ?? name) || null, lang, { total: peso(total), balance: deposit >= total ? '' : peso(total - deposit), paid: flow.step === 'receipt_sent' || flow.step === 'confirmed' || !!flow.photo_at });
+}
 /** SPEC-31 s2 (REVIEW F2): "paid na po?" once a booking exists. No timing promise: nothing measures the host. */
 export function paidClaimReply(flow: Flow, name: string | null, lang: Lang): string {
   // SPEC-33 s2: after a decline the receipt is no longer "with us" - the await_receipt line asks for the screenshot again.
@@ -619,6 +635,9 @@ export function answer(flow: Flow, text: string, now = new Date(), name: string 
       f.checkout = d[0]; f.step = f.pax ? 'offer' : 'pax'; return ask();
     }
     case 'pax': {
+      // s78 G11 (Angel replay turn 4, "di na po available ang 11??" read as a party of 11): an availability question with no guest
+      // word is a question about a date, not the count - the model answers it from AVAILABILITY and the party ask follows.
+      if (AVAIL_WORD_RE.test(text) && !PAX_WORD_RE.test(text)) return { flow: f, reply: null, action: 'passthrough' };
       const p = parsePax(text);
       if (!p) return retry('guests');
       if (overCapacity(text, p)) return ask(P.overCapacityLine(p, L));

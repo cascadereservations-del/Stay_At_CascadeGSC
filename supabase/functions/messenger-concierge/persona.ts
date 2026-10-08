@@ -29,6 +29,16 @@ export function first(name: string | null | undefined): string {
   const toks = (name ?? '').trim().split(/\s+/).filter(Boolean);
   return toks.find((t) => !/\.$/.test(t) && t.replace(/[^\p{L}]/gu, '').length > 2) ?? toks[0] ?? '';
 }
+/** s78 G8 (Maria Cleofe, profile name "Ma."): the name Cassy addresses the guest by, or null when the profile holds only an
+ *  abbreviation ("Ma.", "Ma", "Jr.") - "Hi Ma., thank you" read as "Hi Mom". "Ma. Cleofe" is Cleofe (first()). */
+export function addressName(name: string | null | undefined): string | null {
+  const abbr = (t: string) => /^(?:ma|mª|mr|mrs|ms|dr|jr|sr|sir|maam|ma'am)\.?$/i.test(t) || /^\p{L}\.$/u.test(t);
+  const toks = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (!toks.length) return null;
+  if (!abbr(toks[0])) return toks.join(' '); // a plain name stays as the profile gives it
+  const n = first(name);
+  return n && !abbr(n) ? n : null;
+}
 
 /** REQUIRED: the capacity, said before any booking commitment (D-222). */
 export const CAPACITY: Record<Lang, string> = {
@@ -511,11 +521,38 @@ export function promoFirst(answer: string, ps: PromoFacts[], lang?: Lang): strin
 
 /** D-311.8 (golden reg-bot-bis: "Pila ang rate kada gabii?" got a bare rate and a question): a short rate answer with no
  *  marker of care still cold after the one rewrite gets this clause (R3). */
-export const warmClause = (lang?: Lang) => by(lang, {
+export const warmClause = (lang?: Lang, booked = false) => booked ? by(lang, {
+  // s78 (Angel replay turn 17: "free drinking water?" on a booked stay closed on "exact total ... once may dates na kayo"): a guest
+  // with a booking is never sent a booking-flow line.
+  en: `We'll have everything ready for your stay.`,
+  tl: `Ihahanda po namin ang lahat para sa stay ninyo.`,
+  bis: `We'll have everything ready for your stay.`,
+}) : by(lang, {
   en: `We'd be glad to work out the exact total for you once your dates are set.`,
   tl: `Iche-check namin agad ang exact total para sa inyo once may dates na kayo.`,
   bis: `We'd be glad to work out the exact total for you once your dates are set.`,
 });
+/** s78 (TASKS #6, Angel turns 13 and 19): the stay card's payment terms, said back when a booked guest proposes another timing
+ *  ("pay the deposit pag nasa area na", "we will send the deposit tomorrow"). The booking site is the policy source: the ₱1,000
+ *  deposit is due with the balance at least a day before check-in; inside five days the full amount is paid now. `balance` ''
+ *  when the full amount is the payment. Never agrees to pay on arrival. */
+export function payTermsLine(name: string | null, lang: Lang, f: { total: string; balance: string; paid: boolean }): string {
+  const c = withName(name);
+  const terms = f.balance
+    ? by(lang, {
+        en: `as on your stay card, the remaining ${f.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in, so everything is settled before you arrive.`,
+        tl: `gaya ng nasa stay card ninyo, ang natitirang ${f.balance} balance at ang ₱1,000 refundable security deposit ay due at least a day before check-in, para settled na ang lahat bago kayo dumating.`,
+        bis: `as on your stay card, the remaining ${f.balance} balance and the ₱1,000 refundable security deposit are due at least a day before check-in, so everything is settled before you arrive.` })
+    : by(lang, {
+        en: `as on your stay card, the full ${f.total} confirms your stay, and the ₱1,000 refundable security deposit is due before you arrive, so everything is settled ahead of check-in.`,
+        tl: `gaya ng nasa stay card ninyo, ang full ${f.total} ang nagko-confirm ng stay, at ang ₱1,000 refundable security deposit ay due before you arrive, para settled na ang lahat bago mag-check-in.`,
+        bis: `as on your stay card, the full ${f.total} confirms your stay, and the ₱1,000 refundable security deposit is due before you arrive, so everything is settled ahead of check-in.` });
+  const head = by(lang, { en: `Noted${c}, thank you. Just so it's clear, `, tl: `Noted po${c}, salamat. Para malinaw, `, bis: `Noted${c}, thank you. Just so it's clear, ` });
+  const tail = f.paid
+    ? by(lang, { en: `Our host is reviewing what you've sent and will confirm everything here.`, tl: `Nire-review na ng host ang na-send ninyo, and they'll confirm everything here.`, bis: `Our host is reviewing what you've sent and will confirm everything here.` })
+    : by(lang, { en: `Once it's sent, a screenshot here is all we need. 🌿`, tl: `Once na-send na, screenshot lang dito ang kailangan namin. 🌿`, bis: `Once it's sent, a screenshot here is all we need. 🌿` });
+  return `${head}${terms}\n\n${tail}`;
+}
 
 /** SPEC-14 (D-184): the cancel / "not now" reply. Nothing is committed, and the dates alone reopen the flow. */
 export const cancelReply = (lang: Lang | undefined) => by(lang, {
