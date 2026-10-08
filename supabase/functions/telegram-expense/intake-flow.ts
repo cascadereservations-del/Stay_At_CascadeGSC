@@ -30,7 +30,7 @@ export type Tap = { id: string; kind: Kind };
 function stayQuery(d: Deps, kind: Kind, onlyId?: string) {
   let q = kind === 'direct'
     ? d.db.from('booking_inquiries').select('id,guest_id,checkin_date,checkout_date').eq('property_id', d.propertyId).eq('source', 'direct')
-    : d.db.from('airbnb_reservations').select('id,guest_id,checkin_date,checkout_date').eq('property_id', d.propertyId).is('cancelled_at', null);
+    : d.db.from('airbnb_reservations').select('id,guest_id,checkin_date,checkout_date').eq('property_id', d.propertyId).eq('source', 'airbnb').is('cancelled_at', null); // source: skip the DIRECT:<uuid> mirror rows
   q = q.eq('status', 'confirmed').not('guest_id', 'is', null).gte('checkout_date', d.today());
   if (onlyId) q = q.eq('id', onlyId); // a tap checks that one stay with the same filters, not the 8-item list
   return q.order('checkin_date', { ascending: true }).limit(8);

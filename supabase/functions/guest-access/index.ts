@@ -26,6 +26,7 @@ Deno.serve(async (request) => {
       // D-323: a token with no direct facts may be an Airbnb stay link; it opens only the intake section (no status, dates or money).
       const { data: ctx } = await db.rpc('intake_guest_context_v1', { p_token_hash: tokenHash });
       const only = intakeOnlyView(ctx);
+      if (only) await db.from('guest_access_tokens').update({ last_used_at: new Date().toISOString() }).eq('token_hash', tokenHash);
       return only ? json({ ok: true, status: only }) : invalid();
     }
     const now = Date.now();

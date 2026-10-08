@@ -102,8 +102,7 @@ Deno.test('D-323 /intake lists confirmed Airbnb stays too, labelled Airbnb, near
   assert(kb[0][0].text.includes('Ada Synth') && kb[0][0].text.includes('· Airbnb') && kb[0][0].text.includes('in house'));
   assertFalse(kb[1][0].text.includes('Airbnb'));
   const a = f.filters.airbnb_reservations.join(' ');
-  for (const want of ['eq:property_id,p1', 'is:cancelled_at,null', 'eq:status,confirmed', 'not:guest_id,is,null', 'gte:checkout_date,2026-10-08']) assert(a.includes(want), want);
-  assertFalse(a.includes('source'));
+  for (const want of ['eq:property_id,p1', 'eq:source,airbnb', 'is:cancelled_at,null', 'eq:status,confirmed', 'not:guest_id,is,null', 'gte:checkout_date,2026-10-08']) assert(a.includes(want), want);
   assertEquals(f.inserted.length, 0);
 });
 
