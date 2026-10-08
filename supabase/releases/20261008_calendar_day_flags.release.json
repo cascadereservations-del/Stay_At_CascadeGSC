@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "release_id": "calendar_day_flags_20261008",
+  "phase": "expand",
+  "source": {
+    "branch": "s77/calsql",
+    "commit": "91b4fd03eb2cfc12a3d7d6ff0ee1f16fb124268e"
+  },
+  "migrations": [
+    "20261008120000_calendar_day_flags.sql"
+  ],
+  "migration_sha256": {
+    "20261008120000_calendar_day_flags.sql": "ce675d75c02d9159dd64e06b3b948f462efaec8ec7e51aee0e74192cb30ab7a7"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "S77 calendar contract. Expand only: one new table public.calendar_day_flags (RLS on, no grant to anon or authenticated, service_role only, admin_audit_row trigger), two new definer functions calendar_day_flag_set_v1 / calendar_day_flag_clear_v1 (search_path empty, authenticated only, owner/admin gate inside), and staff_home_v1(uuid) replaced from its LIVE body (md5(replace(prosrc, chr(13), '')) 7bfb1d05a9705d92cb063f2335a8c3c5, full pg_get_functiondef CR-stripped md5 58c1002541f968449c58e64af370292d, read 2026-10-08) with three additions: calendar[].block_reason, calendar[].block_label, top-level day_flags[]. Same signature and grants. No existing key changes. Production read 2026-10-08 holds one direct block (note 'DIR BD296460 confirmed'), one brownout block (Oct 14) and two active brownout notices, so the first live payload carries 'Direct booking BD296460' and brownout day flags. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (the flag table is kept on purpose)",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "Roll the Cascade Staff app back first, then apply supabase/rollbacks/20261008_calendar_day_flags.sql with run-sql-on-host.sh: drops the two flag RPCs and restores the live staff_home_v1 body (prosrc md5 7bfb1d05a9705d92cb063f2335a8c3c5). calendar_day_flags and its rows are kept."
+      }
+    ]
+  },
+  "forward_verification": [
+    {
+      "name": "three_functions_definer_empty_search_path",
+      "query": "select count(*) = 3 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.oid in ('public.staff_home_v1(uuid)'::regprocedure, 'public.calendar_day_flag_set_v1(uuid,date,text,text)'::regprocedure, 'public.calendar_day_flag_clear_v1(uuid,uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "flag_rpc_grants_authenticated_only",
+      "query": "select has_function_privilege('authenticated','public.calendar_day_flag_set_v1(uuid,date,text,text)','execute') and has_function_privilege('authenticated','public.calendar_day_flag_clear_v1(uuid,uuid)','execute') and not has_function_privilege('anon','public.calendar_day_flag_set_v1(uuid,date,text,text)','execute') and not has_function_privilege('anon','public.calendar_day_flag_clear_v1(uuid,uuid)','execute') and not has_function_privilege('anon','public.staff_home_v1(uuid)','execute') and has_function_privilege('authenticated','public.staff_home_v1(uuid)','execute')",
+      "expect": true
+    },
+    {
+      "name": "flag_table_rls_on_no_api_grant_audited",
+      "query": "select c.relrowsecurity and not has_table_privilege('anon','public.calendar_day_flags','select') and not has_table_privilege('authenticated','public.calendar_day_flags','select') and not has_table_privilege('authenticated','public.calendar_day_flags','insert') and not has_table_privilege('authenticated','public.calendar_day_flags','update') and exists (select 1 from pg_trigger t where t.tgrelid = c.oid and t.tgname = 'admin_audit_row' and not t.tgisinternal) from pg_class c where c.oid = 'public.calendar_day_flags'::regclass",
+      "expect": true
+    },
+    {
+      "name": "staff_home_body_is_the_reviewed_one",
+      "query": "select md5(replace(p.prosrc, chr(13), '')) = '42967639e57b0652e3c34b2136389544' from pg_proc p where p.oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "rpc_bodies_pin_owner_admin_gate",
+      "query": "select count(*) = 2 and bool_and(p.prosrc like '%admin_require(''read_operations'', p_property_id)%' and p.prosrc like '%p.role in (''owner'',''admin'')%') from pg_proc p where p.oid in ('public.calendar_day_flag_set_v1(uuid,date,text,text)'::regprocedure, 'public.calendar_day_flag_clear_v1(uuid,uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "payload_code_still_never_selects_money_or_contact_columns",
+      "query": "select not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('staff_home_v1','staff_guest_card_v1','staff_current_next_stays_v1') and p.prosrc ~* '(guest_phone|guest_email|phone_e164|email_normalized|total_amount|deposit_amount|guest_paid|host_payout|payout_amount|raw_description|raw_summary|id_number|birthday|address)')",
+      "expect": true
+    },
+    {
+      "name": "cleaner_payload_still_has_no_money_phone_or_email_shape",
+      "query": "with c as (select set_config('request.jwt.claims', json_build_object('sub', (select p.user_id::text from public.staff_access_profiles p join public.staff_property_access a on a.user_id = p.user_id and a.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' where p.role = 'cleaner' and p.disabled_at is null order by p.user_id limit 1), 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true) cfg) select coalesce(regexp_replace(public.staff_home_v1(case when length(c.cfg) > 0 then '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid end)::text, '\"(uid|property_id|id_photo_path)\": \"[^\"]*\"', '', 'g') !~* '(amount|deposit|total|phone|email|\\+639|[0-9]{10}|(\\+?63|0)9([ .-]*[0-9]){9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\\.[A-Za-z]{2,}|\\mP\\s*[0-9]|php|pesos|piso)', false) from c",
+      "expect": true
+    },
+    {
+      "name": "payload_has_day_flags_and_block_labels",
+      "query": "with c as (select set_config('request.jwt.claims', json_build_object('sub', (select p.user_id::text from public.staff_access_profiles p join public.staff_property_access a on a.user_id = p.user_id and a.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' where p.role = 'cleaner' and p.disabled_at is null order by p.user_id limit 1), 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true) cfg), h as (select public.staff_home_v1(case when length(c.cfg) > 0 then '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid end) j from c) select jsonb_typeof(h.j->'day_flags') = 'array' and (select coalesce(bool_and(x ? 'block_reason' and x ? 'block_label'), true) from jsonb_array_elements(h.j->'calendar') x) and not exists (select 1 from jsonb_array_elements(h.j->'calendar') x where x->>'block_label' ~* '(socoteco|feeder|substation)') from h",
+      "expect": true
+    },
+    {
+      "name": "direct_ref_parse_matches_the_live_note_shape",
+      "query": "select upper(substring('DIR bd296460 confirmed' from '(?i)\\mDIR\\s+([0-9a-f]{8})\\M')) = 'BD296460' and substring('direct booking, ref unknown' from '(?i)\\mDIR\\s+([0-9a-f]{8})\\M') is null",
+      "expect": true
+    }
+  ],
+  "feature_flags": [
+    {
+      "name": "no_flag_additive_payload_keys",
+      "required_state": "None. The new payload keys are ignored by the current Cascade Staff app and used by the calendar UI lane (L3), which also works when they are absent. The flag RPCs do nothing until the app calls them. Apply SQL first, then push the staff app."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Readers: staff_home_v1 keeps every existing top-level and calendar key (pinned by pgTAP calendar_day_flags.sql); three keys are added. Writers: nothing writes calendar_day_flags except the two new RPCs. The 20261005 staff_home_v1 forward checks (no money or contact column named in the source, cleaner payload has no money/phone/e-mail shape) are re-run here. Rehearsal and pgTAP are owed: the workstation has no Docker and the rehearsal runs on the Alfred host over SSH (scripts/recovery/p6/migration-rehearsal-on-host.sh)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP calendar_day_flags.sql and staff_home_v1.sql green on this commit",
+    "the Fable 5.1 or Opus 5.5 audit of this SQL lane has not passed"
+  ]
+}
