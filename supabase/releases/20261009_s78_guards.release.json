@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "release_id": "s78_guards_20261009",
+  "phase": "backfill",
+  "source": {
+    "branch": "s78/guards",
+    "commit": "5c21bb568f6bda7b3fa65f3d203578733f7c12e7"
+  },
+  "migrations": [
+    "20261009020000_s78_guards.sql"
+  ],
+  "migration_sha256": {
+    "20261009020000_s78_guards.sql": "b6438d8b8ee690098be72afdb33a2caf2ba7995dc2f4beddfb0b722d8881b39e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "APPLY AFTER s78_small_sql_20261009: the migration refuses (55000, nothing changed) unless run_system_verifier_v1 is that release's body (md5 471e8af96bbdc4259b98665deeecc738) and apply_verifier_run_v1 is the live 490973908baae36a34908f6efd702936. Three changes. (1) TASKS #20b: btree_gist in schema extensions and exclusion constraint calendar_events_direct_no_overlap (property_id =, daterange(checkin, checkout, '[)') &&) WHERE source = 'direct' AND status <> 'cancelled'. A DO block first refuses (23P01, nothing changed) naming the uids if any live direct pair overlaps; production read 2026-10-08: 0 pairs (2 live direct rows). Every direct writer keeps one calendar row per booking (uid renamed in place), so none conflicts with itself. (2) TASKS #20a: run_system_verifier_v1 = the s78_small body plus V8 (red, one receipt - same image hash, same reference, or same amount within 30 minutes with a reference missing on one side - on two pending/confirmed bookings, one not yet checked out); apply_verifier_run_v1 gains 'V8' in both scope arrays. Bodies cut by script after md5 assertions, exact counted insertions. Production read 2026-10-08: 0 receipt pairs. (3) TASKS #21: table booking_submit_attempts (RLS on, no policies, anon/authenticated revoked) and booking_submit_allowed_v1(text, integer) (definer, service_role only). Grants re-asserted on all three functions. No existing row is changed. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "the_checks_body_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '7e92365413fb7bc5a4056a96ac5bf8c5' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "the_apply_body_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'bf1e98b80e20e1846bb56a551e91a655' from pg_proc where oid = 'public.apply_verifier_run_v1(text,jsonb,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "three_functions_definer_empty_search_path_service_role_only",
+      "query": "select bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"'] and has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute')) and count(*) = 3 from pg_proc p where p.oid in ('public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure, 'public.apply_verifier_run_v1(text,jsonb,timestamptz)'::regprocedure, 'public.booking_submit_allowed_v1(text,integer)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "direct_no_overlap_constraint_present",
+      "query": "select exists (select 1 from pg_constraint where conname = 'calendar_events_direct_no_overlap' and conrelid = 'public.calendar_events'::regclass and contype = 'x' and pg_get_constraintdef(oid) like '%source = ''direct''%')",
+      "expect": true
+    },
+    {
+      "name": "submit_attempts_private",
+      "query": "select c.relrowsecurity and not has_table_privilege('anon', c.oid, 'select') and not has_table_privilege('authenticated', c.oid, 'select') and not has_table_privilege('anon', c.oid, 'insert') from pg_class c where c.oid = 'public.booking_submit_attempts'::regclass",
+      "expect": true
+    },
+    {
+      "name": "no_receipt_reuse_on_production_today",
+      "query": "select not exists (select 1 from jsonb_array_elements(public.run_system_verifier_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'hourly', now())->'found') e where e->>'check_id' = 'V8')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (no row is changed; booking_submit_attempts holds only hashed request counts)",
+    "steps": [
+      {
+        "name": "roll_back_submit_booking_first",
+        "action": "redeploy submit-booking from the commit before s78/guards (waves): s78 submit-booking calls booking_submit_allowed_v1 and lets a request through when that call fails, so the order is a courtesy, not a requirement."
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261009_s78_guards.sql with run-sql-on-host.sh: drops calendar_events_direct_no_overlap, restores run_system_verifier_v1 (md5 471e8af96bbdc4259b98665deeecc738) and apply_verifier_run_v1 (md5 490973908baae36a34908f6efd702936), drops booking_submit_allowed_v1 and booking_submit_attempts, closes open V8 findings (resolved_by 'rollback'). btree_gist stays installed."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_sql_then_edge",
+      "required_state": "None. Ship order: s78_small_sql_20261009, then this SQL, then the waves s78/guards Edge Functions (system-verifier for the V8 card, submit-booking for the cap and the 23P01 answer). Before system-verifier ships, a V8 finding goes out with the default card (its SQL title 'One receipt on two bookings' and 'Do: open the dashboard.'). Before submit-booking ships, a race loser's calendar insert fails 23P01 and the old code logs it and keeps the request (no calendar block, the same outcome as a lost race today, minus the double hold)."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "rehearsal": "Rehearsed 2026-10-08 on cascade-supabase-20261008T104641Z (newest COMPLETE set; it predates calendar_day_flags and verifier_direct_uid, so those and s78/small 20261009000000_verifier_v1m_uid_ref were applied first, then this one): 4/4 migrations applied, forward verification 6/6, pgTAP s78_receipt_reuse_v8.sql 16/16, s78_direct_no_overlap_and_submit_cap.sql 22/22, canonical_booking_decision.sql 11/11 (patched: its overlapping second direct hold is now refused by the constraint), calendar_day_flags 56/56 (s78/small copy), system_verifier_phase1 32/32, verifier_direct_uid 13/13, verifier_v7_dates_mismatch 31/31. Neighbours that write direct calendar rows fail only on --no-acl grant assertions (booking_lifecycle, calendar_block_triage, inquiry_one_tap, payment_evidence_finance_review, price_advisor_inputs, stay_chains, supersede_pending_hold, telegram_guest_intake, telegram_inquiry_decisions, verifier_ack_dashboard) or on an unscoped count of real outbox rows (direct_booking_transition test 4: 4 real projection rows + 1); no exclusion-constraint error in any of them. Without s78/small applied first the migration refuses at line 38 (55000) and changes nothing.",
+    "evidence": "Same function signatures and result shapes; one new check id V8 (new key prefix V8:, red, Finance). Writers of calendar_events direct rows: submit-booking (insert direct:<id>), apply_direct_booking_transition / _repair_bypass_confirmed_v1 (rename in place, insert only when no row exists), decide_direct_booking_without_finance_review, record_booking_lifecycle_action (amend, already raises 23P01 on a clash), expire/decline/fn_direct_booking_cascade (cancel). _confirm_direct_booking_core already catches 23P01 as a conflict. calendar-sync, power-watch and telegram block answers write airbnb/manual rows only (unconstrained). Expected after apply: no new finding on the next hourly run (0 V8 pairs, 0 direct overlaps)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "s78_small_sql_20261009 is not applied yet (the migration refuses with 55000; apply that release first)",
+    "the migration refuses with 23P01: two live direct holds overlap - cancel the wrong one by hand, then apply again",
+    "any forward verification query returns anything other than its expected value",
+    "an md5 check fails - that is a mistyped body, not a flaky assertion",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run pgTAP s78_receipt_reuse_v8.sql and s78_direct_no_overlap_and_submit_cap.sql green on this commit, with the neighbour suites that write direct calendar rows",
+    "the Opus 5.5 / Fable 5.1 audit of this lane has not passed"
+  ]
+}
