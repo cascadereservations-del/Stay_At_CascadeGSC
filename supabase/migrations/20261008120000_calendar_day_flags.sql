@@ -140,7 +140,7 @@ begin
            'block_label', case when e.status = 'blocked' then
                              case e.block_reason
                                when 'direct' then 'Direct booking'
-                                    || coalesce(' ' || upper(substring(e.block_note from '(?i)mDIRs+([0-9a-f]{8})M')), '')
+                                    || coalesce(' ' || upper(substring(e.block_note from '(?i)\mDIR\s+([0-9a-f]{8})\M')), '')
                                when 'brownout' then 'Brownout'
                                when 'maintenance' then 'Maintenance'
                                when 'owner_use' then 'Owner use'
