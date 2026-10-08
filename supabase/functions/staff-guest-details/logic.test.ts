@@ -4,7 +4,7 @@ import { cleanPhone, handle, parseRead, propose, type Deps, type OnFile, type Op
 const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0x4a, 0x46, 0xff, 0xda, 0, 2, 1, 2, 3, 0xff, 0xd9]);
 const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
 const IMG = { base64: b64(JPEG), mime: 'image/jpeg' };
-const STAY: Stay = { uid: 'cascade-direct-x', guestId: 'g1', guestName: 'Ana Reyes', checkin: '2026-10-08', checkout: '2026-10-11', source: 'direct' };
+const STAY: Stay = { uid: 'cascade-direct-x', propertyId: 'p1', guestId: 'g1', guestName: 'Ana Reyes', checkin: '2026-10-08', checkout: '2026-10-11', source: 'direct' };
 const GUEST: OnFile = { guestId: 'g1', name: 'Ana Maria Reyes', email: null, phone: null, idOnFile: false, idType: null, version: 3,
   companions: [{ id: 'c-old', name: 'Ben Cruz', hasPhoto: false }] };
 
@@ -20,11 +20,13 @@ function fake(over: Partial<Deps> = {}, opsOver: Partial<Ops> = {}, guest: OnFil
     setEmail: (_g, e) => { rec.emails.push(e); return Promise.resolve(null); },
     upload: (p) => { rec.uploads.push(p); return Promise.resolve(null); },
     remove: (p) => { rec.removed.push(p); return Promise.resolve(); },
+    canManage: () => Promise.resolve(true),
     ...opsOver,
   };
   const deps: Deps = {
     authenticate: () => Promise.resolve({ ok: true, ops }),
     stay: () => Promise.resolve(STAY),
+    recentReads: () => Promise.resolve(0),
     readImage: () => { rec.reads++; return Promise.resolve(reply); },
     readText: () => { rec.reads++; return Promise.resolve(reply); },
     uuid: () => '11111111-2222-3333-4444-555555555555',
@@ -138,4 +140,39 @@ Deno.test('save: edited fields are checked again; a non-image ID is never stored
   assertEquals((await (await handle(post({ action: 'save', uid: 'u', guests: 3, phone: '09171234567' }), deps)).json()).error, 'not_saved_field');
   assertEquals((await handle(post({ action: 'save', uid: 'u', nationality: 'Filipino' }), deps)).status, 400);
   assertEquals(rec.uploads.length + rec.companions.length + rec.profile.length, 0);
+});
+
+Deno.test('own ID never lands on a loosely matched companion; an exact row is reused', async () => {
+  // "Ana Reyes" loosely matches the guest "Ana Maria Reyes" but may be another person: a new exact-name row is made.
+  const g = { ...GUEST, companions: [{ id: 'c-loose', name: 'Ana Reyes', hasPhoto: false }] };
+  const { deps, rec } = fake({}, {}, g);
+  const res = await handle(post({ action: 'save', uid: 'u', ids: [{ name: 'Ana Maria Reyes', id_type: 'passport', image: IMG }] }), deps);
+  assertEquals(res.status, 200);
+  assertEquals(rec.companions[0], [null, { name: 'Ana Maria Reyes' }]);
+  assert(rec.uploads[0].startsWith('c-new-1/'));
+  const e = fake({}, {}, { ...GUEST, companions: [{ id: 'c-exact', name: ' ana maria  reyes', hasPhoto: false }] });
+  await handle(post({ action: 'save', uid: 'u', ids: [{ name: 'Ana Maria Reyes', id_type: 'passport', image: IMG }] }), e.deps);
+  assertEquals(e.rec.companions[0][0], 'c-exact');
+  assert(e.rec.uploads[0].startsWith('c-exact/'));
+});
+
+Deno.test('reads over the hourly cap are refused before any model call; an unreadable count fails closed', async () => {
+  const a = fake({ recentReads: () => Promise.resolve(39) });
+  const res = await handle(post({ action: 'extract', uid: 'u', text: 'hi', images: [IMG] }), a.deps);
+  assertEquals(res.status, 429);
+  assertEquals((await res.json()).error, 'too_many_reads');
+  assertEquals(a.rec.reads, 0);
+  const b = fake({ recentReads: () => Promise.reject(new Error('db')) });
+  assertEquals((await handle(post({ action: 'extract', uid: 'u', text: 'hi' }), b.deps)).status, 429);
+  const c = fake({ recentReads: () => Promise.resolve(38) });
+  assertEquals((await handle(post({ action: 'extract', uid: 'u', text: 'hi', images: [IMG] }), c.deps)).status, 200);
+});
+
+Deno.test('no manage_operations on the stay property is 403 for every action', async () => {
+  for (const action of ['context', 'extract', 'save']) {
+    const { deps, rec } = fake({}, { canManage: () => Promise.resolve(false) });
+    const res = await handle(post({ action, uid: 'u', text: 'hi', phone: '09171234567' }), deps);
+    assertEquals(res.status, 403, action);
+    assertEquals(rec.reads + rec.profile.length, 0);
+  }
 });

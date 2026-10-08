@@ -51,6 +51,10 @@ function realDeps(): Deps | null {
           },
           upload: async (path, bytes, mime) => (await me.storage.from(BUCKET).upload(path, bytes, { contentType: mime, upsert: false })).error?.message ?? null,
           async remove(path) { await me.storage.from(BUCKET).remove([path]); },
+          async canManage(propertyId) {
+            const { data, error } = await me.rpc('current_staff_authorized', { p_action: 'manage_operations', p_property_id: propertyId });
+            return !error && data === true;
+          },
         },
       };
     },
@@ -59,7 +63,12 @@ function realDeps(): Deps | null {
         .eq('uid', uid).eq('status', 'confirmed').maybeSingle();
       if (!e) return null;
       const { data: gid } = await db.rpc('staff_stay_guest_id_v1', { p_property_id: e.property_id, p_uid: e.uid, p_linked: e.linked_reservation_id, p_checkin: e.checkin_date, p_checkout: e.checkout_date });
-      return { uid: e.uid, guestId: (gid as string | null) ?? null, guestName: e.guest_name, checkin: e.checkin_date, checkout: e.checkout_date, source: e.source };
+      return { uid: e.uid, propertyId: e.property_id, guestId: (gid as string | null) ?? null, guestName: e.guest_name, checkin: e.checkin_date, checkout: e.checkout_date, source: e.source };
+    },
+    async recentReads() {
+      const { count, error } = await db.from('llm_usage').select('id', { count: 'exact', head: true }).eq('title', TITLE).gte('at', new Date(Date.now() - 3600_000).toISOString());
+      if (error) throw error;
+      return count ?? 0;
     },
     readImage: (bytes, mime) => visionExtractText(READ_PROMPT, bytes, mime, TITLE),
     // Paid route on purpose (tier full): the free 'routine' tier must never see guest data (providers.ts routineFirst).

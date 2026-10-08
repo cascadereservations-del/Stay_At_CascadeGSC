@@ -22,6 +22,9 @@ export const CORS = {
 export const MAX_TEXT = 6000;
 export const MAX_IMAGES = 4;
 export const MAX_IMAGE_BYTES = 4_000_000;
+// ponytail: one extract holds up to 4 x 4 MB decoded (plus their base64) in memory, ~40 MB peak; the page shrinks photos to 1600 px
+// JPEG first, so real requests are ~1 MB. Stream or lower MAX_IMAGES if the worker memory limit is ever hit.
+export const MAX_READS_PER_HOUR = 40; // llm_usage has no actor column, so this counts all callers together, not one user
 const MAX_B64 = Math.ceil(MAX_IMAGE_BYTES / 3) * 4;
 const MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 export const REASON = 'staff app: Add guest details';
@@ -78,7 +81,7 @@ export type OnFile = {
   guestId: string; name: string; email: string | null; phone: string | null; idOnFile: boolean; idType: string | null;
   version: number | null; companions: Array<{ id: string; name: string; hasPhoto: boolean }>;
 };
-export type Stay = { uid: string; guestId: string | null; guestName: string | null; checkin: string; checkout: string; source: string | null };
+export type Stay = { uid: string; propertyId: string; guestId: string | null; guestName: string | null; checkin: string; checkout: string; source: string | null };
 export type Proposal = {
   phone: string | null; email: string | null; guests: number | null; nationality: string | null;
   companions: string[];                                   // new names, not the guest and not already a companion
@@ -114,12 +117,16 @@ export interface Ops {
   setEmail(guestId: string, email: string): Promise<string | null>; // an error message, or null
   upload(path: string, bytes: Uint8Array, mime: string): Promise<string | null>;
   remove(path: string): Promise<void>;
+  /** current_staff_authorized('manage_operations', property) with the caller's JWT. */
+  canManage(propertyId: string): Promise<boolean>;
 }
 export interface Deps {
   /** The caller's session -> an active owner/admin with ops bound to that session, or the HTTP status to refuse with. */
   authenticate(token: string): Promise<{ ok: true; ops: Ops } | { ok: false; status: number; error: string }>;
   /** Service key: the stay for a calendar uid and the guest it is linked to. */
   stay(uid: string): Promise<Stay | null>;
+  /** llm_usage rows this function wrote in the last hour (its X-Title), all callers. */
+  recentReads(): Promise<number>;
   readImage(bytes: Uint8Array, mime: string): Promise<string>;
   readText(text: string): Promise<string>;
   uuid(): string;
@@ -169,6 +176,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
 
   const stay = await deps.stay(body.uid.trim());
   if (!stay) return fail('stay_not_found', 404);
+  if (!(await ops.canManage(stay.propertyId))) return fail('staff_access_denied', 403); // owner/admin of THIS property, every action
   if (!stay.guestId) return fail('no_guest_record', 409);
   const g = await ops.loadGuest(stay.guestId);
   if (!g) return fail('staff_access_denied', 403); // RLS hid it: not owner/admin for this property
@@ -184,6 +192,9 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
     const decoded = imgs.map(decodeImage);
     const bad = decoded.find((d: unknown) => typeof d === 'string') as string | undefined;
     if (bad) return fail(bad, bad === 'image_too_large' ? 413 : 400);
+    // A runaway page or a shared login cannot run the paid model in a loop. Fails closed when the count cannot be read.
+    const used = await deps.recentReads().catch(() => Infinity);
+    if (used + decoded.length + (text ? 1 : 0) > MAX_READS_PER_HOUR) return fail('too_many_reads', 429);
     try {
       const reads: Array<{ image: number | null; read: Read }> = [];
       // Images one after another: four parallel vision calls would trip the provider's rate limit for no gain on one phone.
@@ -229,8 +240,13 @@ async function save(body: any, g: OnFile, ops: Ops, deps: Deps): Promise<Respons
   const out: Saved[] = [];
   const err = (r: RpcOut) => r.error ? (r.error.code === '42501' ? 'denied' : r.error.code === '40001' ? 'changed' : 'save_failed') : null;
   const list = [...g.companions];
-  const companionFor = async (name: string): Promise<{ id: string } | string> => {
-    const hit = list.find((c) => sameName(name, c.name) || c.name.toLowerCase() === name.toLowerCase());
+  const exact = (a: string, b: string) => a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase();
+  // loose: a companion's own ID may match a slightly different spelling. The guest's OWN ID never does: a loose match such as
+  // "Ana Reyes" for "Ana Maria Reyes" could be another person, and staff_primary_id_path_v1 would then show that person's photo
+  // as the guest's. Known limit: an exact namesake on the same guest (father and son, both "Jose Cruz") shares the row, the same
+  // way the database's own name match does; staff fix that in the dashboard.
+  const companionFor = async (name: string, loose = true): Promise<{ id: string } | string> => {
+    const hit = list.find((c) => exact(name, c.name) || (loose && sameName(name, c.name)));
     if (hit) return { id: hit.id };
     const r = await ops.saveCompanion(g.guestId, null, { name });
     // deno-lint-ignore no-explicit-any
@@ -250,9 +266,9 @@ async function save(body: any, g: OnFile, ops: Ops, deps: Deps): Promise<Respons
   let ownType: IdType | null = null, anyPhoto = false;
   for (const p of photos) {
     const own = sameName(p.name, g.name);
-    // The guest's own ID goes on a companion row named exactly as the guest record, so the staff card shows it first
-    // (staff_primary_id_path_v1 orders an exact name match first).
-    const c = await companionFor(own ? g.name : p.name);
+    // The guest's own ID goes on a companion row named exactly as the guest record (exact match or a new row, never a loose
+    // match), so the staff card shows it first (staff_primary_id_path_v1 orders an exact name match first).
+    const c = own ? await companionFor(g.name, false) : await companionFor(p.name);
     if (typeof c === 'string') { out.push({ what: 'id_photo', ok: false, reason: c }); continue; }
     const path = `${c.id}/${deps.uuid()}.${p.ext}`;
     if (await ops.upload(path, p.bytes, p.mime)) { out.push({ what: 'id_photo', ok: false, reason: 'upload_failed' }); continue; }
