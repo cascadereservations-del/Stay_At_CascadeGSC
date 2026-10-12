@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken immediately before this apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261012T221019Z",
+    "verified_at": "2026-10-12T22:13:50.067Z",
     "production_rule": "Policy and grant changes only, no data change, applied after the s79 release or independent of it (no shared object). Four exposures closed, read from the live catalog 2026-10-13. (A) telegram_chat_history: policy service_role_all (FOR ALL TO public USING true) dropped, service_role-only policy created, all grants revoked from public/anon/authenticated; the only code that touches it is the telegram-cassy and telegram-expense edge functions with the service key. (B) inventory_purchases: policies 'anon all' and 'authenticated all' dropped; one authenticated policy inventory_purchases_staff_all admits current_staff_authorized(manage_inventory) on the item's property (owner, admin); anon and public grants revoked, authenticated loses truncate/references/trigger. The admin dashboard Inventory purchases tab (owner/admin) is the only client reader; the cleaner checklist writes inventory_usage and reads inventory_items, both untouched. (C) inventory_audit_log: 'anon select' and 'anon insert' dropped, service_role-only policy, all grants revoked from public/anon/authenticated; no client reads it, writers are service_role and definer functions. (D) booking_inquiries_staff_read and airbnb_reservations_staff_read (read_operations) replaced by *_finance_read (read_finance: owner, admin, finance); cleaners, inspectors and maintenance lose direct API reads of guest e-mail, phone, totals, deposits, receipt paths and payouts (D-306, D-319). Owner/admin policies and service_role are untouched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
