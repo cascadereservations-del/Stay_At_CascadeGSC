@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "release_id": "s80_rls_tighten_20261013",
+  "phase": "backfill",
+  "source": {
+    "branch": "s80/rls",
+    "commit": "d7a646e66076e9c880aba1b2e7a8e0335f3d8afa"
+  },
+  "migrations": [
+    "20261013000000_s80_rls_tighten.sql"
+  ],
+  "migration_sha256": {
+    "20261013000000_s80_rls_tighten.sql": "d12b0b2f91517953e8a6eadd23263b92b82d3f08ae38d78c0cdac6110811c360"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Policy and grant changes only, no data change, applied after the s79 release or independent of it (no shared object). Four exposures closed, read from the live catalog 2026-10-13. (A) telegram_chat_history: policy service_role_all (FOR ALL TO public USING true) dropped, service_role-only policy created, all grants revoked from public/anon/authenticated; the only code that touches it is the telegram-cassy and telegram-expense edge functions with the service key. (B) inventory_purchases: policies 'anon all' and 'authenticated all' dropped; one authenticated policy inventory_purchases_staff_all admits current_staff_authorized(manage_inventory) on the item's property (owner, admin); anon and public grants revoked, authenticated loses truncate/references/trigger. The admin dashboard Inventory purchases tab (owner/admin) is the only client reader; the cleaner checklist writes inventory_usage and reads inventory_items, both untouched. (C) inventory_audit_log: 'anon select' and 'anon insert' dropped, service_role-only policy, all grants revoked from public/anon/authenticated; no client reads it, writers are service_role and definer functions. (D) booking_inquiries_staff_read and airbnb_reservations_staff_read (read_operations) replaced by *_finance_read (read_finance: owner, admin, finance); cleaners, inspectors and maintenance lose direct API reads of guest e-mail, phone, totals, deposits, receipt paths and payouts (D-306, D-319). Owner/admin policies and service_role are untouched. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "anon_holds_nothing_on_chat_history_purchases_audit_log",
+      "query": "select not exists (select 1 from (values ('telegram_chat_history'), ('inventory_purchases'), ('inventory_audit_log')) v(t) where has_table_privilege('anon', 'public.' || v.t, 'select,insert,update,delete,truncate,references,trigger'))",
+      "expect": true
+    },
+    {
+      "name": "no_anon_or_public_policy_on_the_three_tables",
+      "query": "select not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('telegram_chat_history', 'inventory_purchases', 'inventory_audit_log') and roles && array['anon', 'public']::name[])",
+      "expect": true
+    },
+    {
+      "name": "no_anon_or_public_true_policy_anywhere_in_public",
+      "query": "select not exists (select 1 from pg_policies where schemaname = 'public' and roles && array['anon', 'public']::name[] and coalesce(qual, 'true') = 'true' and coalesce(with_check, 'true') = 'true')",
+      "expect": true
+    },
+    {
+      "name": "authenticated_holds_nothing_on_chat_history_and_audit_log",
+      "query": "select not has_table_privilege('authenticated', 'public.telegram_chat_history', 'select,insert,update,delete,truncate,references,trigger') and not has_table_privilege('authenticated', 'public.inventory_audit_log', 'select,insert,update,delete,truncate,references,trigger')",
+      "expect": true
+    },
+    {
+      "name": "purchases_authenticated_dml_only_no_truncate",
+      "query": "select has_table_privilege('authenticated', 'public.inventory_purchases', 'select,insert,update,delete') and not has_table_privilege('authenticated', 'public.inventory_purchases', 'truncate,references,trigger')",
+      "expect": true
+    },
+    {
+      "name": "purchases_policy_is_manage_inventory_only",
+      "query": "select count(*) = 1 and bool_and(policyname = 'inventory_purchases_staff_all' and roles = '{authenticated}' and qual like '%manage_inventory%' and with_check like '%manage_inventory%') from pg_policies where schemaname = 'public' and tablename = 'inventory_purchases'",
+      "expect": true
+    },
+    {
+      "name": "service_role_keeps_dml_and_a_policy_on_the_three_tables",
+      "query": "select bool_and(has_table_privilege('service_role', 'public.' || v.t, 'select,insert,update,delete')) and (select count(*) from pg_policies where schemaname = 'public' and policyname in ('telegram_chat_history_service_only', 'inventory_audit_log_service_only') and roles = '{service_role}') = 2 from (values ('telegram_chat_history'), ('inventory_purchases'), ('inventory_audit_log')) v(t)",
+      "expect": true
+    },
+    {
+      "name": "booking_staff_read_is_read_finance_not_read_operations",
+      "query": "select count(*) = 2 and bool_and(qual like '%read_finance%' and qual not like '%read_operations%' and cmd = 'SELECT' and roles = '{authenticated}') from pg_policies where schemaname = 'public' and policyname in ('booking_inquiries_finance_read', 'airbnb_reservations_finance_read')",
+      "expect": true
+    },
+    {
+      "name": "old_read_operations_policies_gone",
+      "query": "select not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('booking_inquiries', 'airbnb_reservations') and qual like '%read_operations%')",
+      "expect": true
+    },
+    {
+      "name": "owner_admin_and_service_booking_policies_intact",
+      "query": "select (select count(*) from pg_policies where schemaname = 'public' and policyname in ('booking_inquiries_owner_admin_select', 'airbnb_reservations_owner_admin_all', 'service role full access') and tablename in ('booking_inquiries', 'airbnb_reservations')) = 3 and has_table_privilege('service_role', 'public.booking_inquiries', 'select,insert,update,delete') and has_table_privilege('service_role', 'public.airbnb_reservations', 'select,insert,update,delete')",
+      "expect": true
+    },
+    {
+      "name": "cleaner_submit_path_grants_untouched",
+      "query": "select has_table_privilege('authenticated', 'public.inventory_usage', 'insert') and has_table_privilege('authenticated', 'public.inventory_items', 'select') and has_table_privilege('authenticated', 'public.calendar_events', 'select')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always (policies and grants only; no data is touched). Rolling back reopens the exposures.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261013_s80_rls_tighten.sql with run-sql-on-host.sh: restores the exact prior policies (service_role_all TO public, 'anon all', 'authenticated all', 'anon select', 'anon insert', booking_inquiries_staff_read and airbnb_reservations_staff_read on read_operations) and the prior full grants to anon and authenticated on the three tables. Re-close the same day."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_policy_only",
+      "required_state": "None. No code ships with this release. Clients that read booking_inquiries / airbnb_reservations directly (admin dashboard bookings, today, search, guests, finance) are owner/admin/finance screens; a cleaner, inspector or maintenance session reaching them now gets an empty list (D-324: not a supported path). The cleaner checklist, staff app and all edge functions are unaffected."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Reader inventory 2026-10-13: telegram_chat_history is touched only by telegram-cassy and telegram-expense (service key); inventory_audit_log by apply_inventory_purchase (called by telegram-expense with the service key) and definer functions; inventory_purchases is read by the admin dashboard Inventory tab (owner/admin) and written by definer functions (record_inventory_receipt_v1, telegram inventory count) and service-key edge functions; the CH checklist, the staff app (S79) and the retired inventory app read none of the five tables directly. Rehearsal pending: run pgTAP s80_rls_tighten.sql with the neighbours operational_rls_lockdown.sql, price_history_view.sql, telegram_inventory_count.sql, accounting_foundation_v1.sql, admin_access_simplification.sql, admin_read_models_v1.sql, cleaner_rate_schedule_rls.sql, s79_staff_home_companions.sql, staff_home_v1.sql, stay_chains.sql."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run s80_rls_tighten.sql and its neighbours green on this commit",
+    "a live read after the apply shows the admin dashboard Inventory purchases tab or the bookings list empty for an owner or admin session",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}
