@@ -7,6 +7,7 @@ select plan(31);
 
 -- baseline grants: a --no-acl rehearsal restore carries none. These mirror the live ACLs the migration leaves in place; they are
 -- idempotent, roll back with the suite and change nothing on production (the forward checks prove the real grants there).
+alter role service_role bypassrls; -- production's service_role has BYPASSRLS (read live 2026-10-13); the rehearsal shim role does not
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
