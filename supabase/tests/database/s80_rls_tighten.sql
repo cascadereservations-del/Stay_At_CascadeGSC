@@ -3,7 +3,16 @@
 -- Synthetic fixtures only (uuids e8000000-...); every lookup is scoped to them. Grant assertions need ACLs, so the forward checks in the
 -- release contract repeat them (a --no-acl rehearsal cannot prove grants). Everything rolls back.
 begin;
-select plan(37);
+select plan(31);
+
+-- baseline grants: a --no-acl rehearsal restore carries none. These mirror the live ACLs the migration leaves in place; they are
+-- idempotent, roll back with the suite and change nothing on production (the forward checks prove the real grants there).
+grant usage on schema public, auth to anon, authenticated, service_role;
+grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
+grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
+grant select, insert, update, delete on public.inventory_purchases, public.inventory_items, public.inventory_usage to authenticated;
+grant select on public.booking_inquiries, public.airbnb_reservations to authenticated;
+grant all on public.telegram_chat_history, public.inventory_purchases, public.inventory_audit_log, public.booking_inquiries, public.airbnb_reservations to service_role;
 
 -- fixtures (as the superuser running the suite) ----------------------------------------------------------------------------------------
 insert into public.properties(id, name, is_active) values ('e8000000-0000-4000-8000-0000000000a1', 'Synthetic S80 Rls', true);
@@ -40,19 +49,6 @@ select is((select count(*)::int from pg_policies where schemaname = 'public' and
   and qual like '%read_finance%' and qual not like '%read_operations%'), 2, 'finance_read policies use read_finance only');
 select is((select count(*)::int from pg_policies where schemaname = 'public' and policyname in ('booking_inquiries_owner_admin_select', 'airbnb_reservations_owner_admin_all')), 2,
   'owner/admin policies are untouched');
-select ok(not has_table_privilege('anon', 'public.telegram_chat_history', 'select,insert,update,delete,truncate,references,trigger')
-      and not has_table_privilege('anon', 'public.inventory_purchases', 'select,insert,update,delete,truncate,references,trigger')
-      and not has_table_privilege('anon', 'public.inventory_audit_log', 'select,insert,update,delete,truncate,references,trigger'), 'anon holds no privilege on the three tables');
-select ok(not has_table_privilege('authenticated', 'public.telegram_chat_history', 'select,insert,update,delete,truncate,references,trigger')
-      and not has_table_privilege('authenticated', 'public.inventory_audit_log', 'select,insert,update,delete,truncate,references,trigger'), 'authenticated holds nothing on chat history and audit log');
-select ok(has_table_privilege('authenticated', 'public.inventory_purchases', 'select,insert,update,delete')
-      and not has_table_privilege('authenticated', 'public.inventory_purchases', 'truncate,references,trigger'), 'authenticated keeps RLS-gated DML on purchases, not truncate');
-select ok(has_table_privilege('service_role', 'public.telegram_chat_history', 'select,insert,update,delete')
-      and has_table_privilege('service_role', 'public.inventory_purchases', 'select,insert,update,delete')
-      and has_table_privilege('service_role', 'public.inventory_audit_log', 'select,insert,update,delete'), 'service_role keeps DML on the three tables');
-select ok(has_table_privilege('authenticated', 'public.inventory_usage', 'insert') and has_table_privilege('authenticated', 'public.inventory_items', 'select'),
-  'the cleaner submit path (inventory_usage insert, inventory_items read) is untouched');
-select ok(not has_table_privilege('anon', 'public.booking_inquiries', 'select') and not has_table_privilege('anon', 'public.airbnb_reservations', 'select'), 'anon cannot read the booking tables');
 
 -- anon ----------------------------------------------------------------------------------------------------------------------------------
 set local role anon;
