@@ -11,6 +11,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // v3 (session 26, 2026-09-16, Telegram plan §5): 🟡 ATTENTION first line via the shared helper.
 import { withHeader } from '../_shared/cascade-core/format.ts';
 import { withObservability } from '../_shared/observability.ts';
+import { RAIN_THRESHOLD } from '../_shared/B_weather.ts'; // s81 lane B: one shared threshold (weather-proxy rain_watch uses it too)
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -21,7 +22,6 @@ const PROPERTY_ID   = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const GEN_SAN_LAT   = 6.1164;
 const GEN_SAN_LNG   = 125.1716;
 const JSON_H        = { 'Content-Type': 'application/json' };
-const RAIN_THRESHOLD = 70;   // % probability
 const DEDUP_KEY      = 'rain_alert_sent_date';
 
 // ── Helpers ───────────────────────────────────────────────────────

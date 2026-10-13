@@ -1,9 +1,11 @@
+// weather-proxy v5 (s81 lane B): ADDS hourly (next 12h), hourly_source, aqi, rain_watch and code to the response; no existing key changes (the guest guide reads this).
 // weather-proxy v4
 // Sources: PirateWeather (primary) → Google Weather (secondary) → Open-Meteo (fallback)
 // Cache: 15 minutes in app_settings
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+import { B_extras } from '../_shared/B_weather.ts';
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -321,6 +323,29 @@ async function fetchOpenMeteo(today: string): Promise<any | null> {
   }
 }
 
+
+// ── Lane B additions: next-12-hours block, air quality, rain watch ─────────
+// Hours: Google Weather forecast/hours:lookup first, Open-Meteo hourly as the fallback. AQI: Open-Meteo air quality (free, no key).
+// Every fetch is best-effort: a failure leaves that key empty and never fails the response.
+async function B_getJson(url: string, label: string): Promise<any | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) { console.warn(`weather-proxy: ${label} non-ok`, res.status); return null; }
+    return await res.json();
+  } catch (err) { console.warn(`weather-proxy: ${label} failed`, String(err)); return null; }
+}
+async function B_fetchExtras(nowMs: number, conditionText: unknown) {
+  const aqiP = B_getJson('https://air-quality-api.open-meteo.com/v1/air-quality?latitude=' + GEN_SAN_LAT + '&longitude=' + GEN_SAN_LNG + '&current=us_aqi&timezone=Asia%2FManila', 'air-quality');
+  const google = GOOGLE_KEY
+    ? await B_getJson(`https://weather.googleapis.com/v1/forecast/hours:lookup?key=${GOOGLE_KEY}&location.latitude=${GEN_SAN_LAT}&location.longitude=${GEN_SAN_LNG}&hours=24`, 'google hours')
+    : null;
+  const googleRows = B_extras({ google }, nowMs, conditionText);
+  const openMeteo = googleRows.hourly.length
+    ? null
+    : await B_getJson('https://api.open-meteo.com/v1/forecast?latitude=' + GEN_SAN_LAT + '&longitude=' + GEN_SAN_LNG + '&hourly=precipitation_probability,precipitation,weather_code&timezone=Asia%2FManila&forecast_days=2', 'open-meteo hours');
+  return B_extras({ google, openMeteo, aqi: await aqiP }, nowMs, conditionText);
+}
+
 // ── Main handler ───────────────────────────────────────────────────────────
 Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -383,7 +408,8 @@ Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, 
   }
 
   const fetched_at = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Manila' }).replace(' ', 'T') + '+08:00';
-  const payload    = { ...fresh, fetched_at };
+  const extras     = await B_fetchExtras(now, fresh.current?.description);
+  const payload    = { ...fresh, ...extras, fetched_at };
 
   await db.from('app_settings').upsert(
     { key: CACHE_KEY, value: payload, updated_at: new Date().toISOString() },
