@@ -189,6 +189,7 @@ Deno.test('3.1.1: the preflight lists every header supabase-js functions.invoke 
   const allowed = new Set(B_CORS['Access-Control-Allow-Headers'].split(',').map((h) => h.trim().toLowerCase()));
   const sent = await sentBySupabaseJs();
   assert(sent.includes('apikey') && sent.includes('x-client-info'));
+  for (const h of ['x-supabase-client-platform', 'x-supabase-client-platform-version', 'x-supabase-client-runtime', 'x-supabase-client-runtime-version', 'x-supabase-api-version']) sent.push(h); // newer supabase-js
   for (const h of sent) assert(allowed.has(h), `preflight does not allow "${h}"`);
   assertEquals(B_CORS['Access-Control-Allow-Origin'], '*');
   assert(B_CORS['Access-Control-Allow-Methods'].includes('POST') && B_CORS['Access-Control-Allow-Methods'].includes('OPTIONS'));
