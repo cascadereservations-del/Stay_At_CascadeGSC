@@ -15,8 +15,10 @@ drop function if exists public.staff_pay_payout_qr_v1(uuid);
 drop function if exists public.staff_pay_admin_list_v1();
 drop function if exists public.staff_push_subscribe_v1(text, text, text, text);
 drop table if exists public.staff_push_subscriptions;
+drop table if exists public.staff_upload_hashes;
 alter table public.staff_details drop column if exists payout_bank_label;
 alter table public.staff_pay_requests drop column if exists paid_notified_at;
+alter table public.staff_pay_requests drop column if exists paying_by_user_id;
 alter table public.staff_pay_requests drop column if exists proof_path;
 
 commit;

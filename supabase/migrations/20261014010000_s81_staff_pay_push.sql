@@ -1,9 +1,11 @@
 -- Session 81, Lane C: release s81_staff_pay_push_20261014. The admin pays a staff payment request from a bank app by QR Ph, the system marks it
 -- PAID only with a stored payment screenshot, and the staff member is told three ways (in-app notice, Telegram, Web Push).
--- Additive only: two columns, one column on staff_details, one table, nine functions, one trigger. No existing function is redefined, so
+-- Additive only: three columns on staff_pay_requests, one column on staff_details, two tables, eight functions, one trigger. No existing function is redefined, so
 -- telegram-expense, notify-cleaner-payment (create) and the Finance Telegram taps keep working unchanged.
 --
---   staff_pay_requests.proof_path / paid_notified_at   where the web-uploaded screenshot is stored; the once-only "we told her" stamp.
+--   staff_pay_requests.proof_path / paid_notified_at / paying_by_user_id   where the web-uploaded screenshot is stored; the once-only "we told her" stamp;
+--                                                       who started paying in the Staff app (null while a Telegram person is paying).
+--   staff_upload_hashes                                 sha256 of every upload-photo object, written by the function itself from the bytes it received.
 --   staff_details.payout_bank_label                     the bank name used in the notice ("MariBank"). Not a secret. Set by SQL once per person.
 --   staff_push_subscriptions                            one row per phone that turned on "Tell me on this phone when I am paid". RLS: own rows only.
 --   staff_push_subscribe_v1                             upsert by endpoint (a shared phone moves to the person signed in now), keeps the newest 5.
@@ -22,6 +24,20 @@ begin;
 alter table public.staff_pay_requests add column if not exists proof_path text
   check (proof_path is null or (char_length(proof_path) <= 300 and proof_path ~ '^6ae230f4-c189-4547-84b1-cb6e0b2cc9bd/[0-9a-f-]{36}/' and position('..' in proof_path) = 0));
 alter table public.staff_pay_requests add column if not exists paid_notified_at timestamptz;
+alter table public.staff_pay_requests add column if not exists paying_by_user_id uuid references public.staff_access_profiles(user_id);
+comment on column public.staff_pay_requests.paying_by_user_id is 'Lane C: the Staff-app user who pressed Pay. Null on a paying row means Telegram started it (paying_by_tg). Only that person may unpay or settle it; staff_pay_admin_step_v1(takeover) moves it.';
+
+-- The sha256 of every object upload-photo stores, computed by the function from the bytes it holds. The screenshot hash a client reports is only
+-- cross-checked against this value; the duplicate-screenshot rule uses this one.
+create table if not exists public.staff_upload_hashes (
+  path text primary key check (char_length(path) <= 300),
+  sha256 text not null check (sha256 ~ '^[0-9a-f]{64}$'),
+  uploaded_by uuid,
+  created_at timestamptz not null default now()
+);
+alter table public.staff_upload_hashes enable row level security;
+revoke all on public.staff_upload_hashes from public, anon, authenticated;
+grant select, insert on public.staff_upload_hashes to service_role;
 comment on column public.staff_pay_requests.proof_path is 'Lane C: object in the private cleaning-photos bucket holding the payment screenshot uploaded in the Staff app. Telegram-settled requests keep proof_file_id instead.';
 comment on column public.staff_pay_requests.paid_notified_at is 'Lane C: set once by staff_pay_notice_v1(claim) so the staff member is told she was paid at most once per channel run.';
 
@@ -60,9 +76,11 @@ begin
   if v_uid is null or not exists (select 1 from public.staff_access_profiles where user_id = v_uid and disabled_at is null) then
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
-  if coalesce(p_endpoint, '') !~ '^https://' or char_length(p_endpoint) > 1000
+  -- the endpoint is a URL the server will POST to: only the browsers' push services, https, no port, no credentials, a real dot before the suffix
+  if coalesce(p_endpoint, '') !~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|([a-z0-9-]+\.)+(push\.apple\.com|notify\.windows\.com|push\.services\.mozilla\.com|pushnotifications\.push\.google\.com))(/|$)'
+     or char_length(p_endpoint) > 1000
      or char_length(coalesce(p_p256dh, '')) not between 80 and 120 or char_length(coalesce(p_auth, '')) not between 16 and 40 then
-    return jsonb_build_object('ok', false, 'reason', 'bad_request');
+    return jsonb_build_object('ok', false, 'reason', case when coalesce(p_endpoint, '') ~ '^https://' then 'endpoint_not_allowed' else 'bad_request' end);
   end if;
   -- the same phone signed in as someone else moves to that person: one endpoint, one owner
   insert into public.staff_push_subscriptions(user_id, endpoint, p256dh, auth, user_agent)
@@ -85,7 +103,7 @@ begin
   end if;
   select coalesce(jsonb_agg(jsonb_build_object(
       'id', q.id, 'ref', q.ref, 'status', q.status, 'payee_name', q.payee_name, 'total', q.total_amount, 'created_at', q.created_at,
-      'paying_by_name', q.paying_by_name, 'paying_at', q.paying_at, 'sent_said_at', q.sent_said_at, 'paid_at', q.paid_at,
+      'paying_by_name', q.paying_by_name, 'paying_by_user_id', q.paying_by_user_id, 'paying_at', q.paying_at, 'sent_said_at', q.sent_said_at, 'paid_at', q.paid_at,
       'has_proof', q.proof_file_unique_id is not null, 'bank_reference', q.proof_reference,
       'has_qr', exists (select 1 from public.staff_details d where d.user_id = q.payee_user_id and d.payout_qrph is not null),
       'lines', (select coalesce(jsonb_agg(jsonb_build_object('kind', l ->> 'kind', 'date', l ->> 'date', 'type', l ->> 'type',
@@ -113,6 +131,10 @@ begin
   select * into v_r from public.staff_pay_requests where id = p_request_id and property_id = c_prop;
   if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
   if v_r.status not in ('requested', 'paying') then return jsonb_build_object('ok', false, 'reason', 'not_open', 'status', v_r.status); end if;
+  -- a request someone else (or Telegram) is paying is not shown: two people must not both send the money
+  if v_r.status = 'paying' and v_r.paying_by_user_id is distinct from auth.uid() then
+    return jsonb_build_object('ok', false, 'reason', 'being_paid', 'paying_by_name', v_r.paying_by_name, 'paying_by_user_id', v_r.paying_by_user_id);
+  end if;
   select d.payout_qrph into v_qr from public.staff_details d where d.user_id = v_r.payee_user_id;
   return jsonb_build_object('ok', true, 'id', v_r.id, 'ref', v_r.ref, 'status', v_r.status, 'payee_name', v_r.payee_name,
                             'total', v_r.total_amount, 'payout_qrph', v_qr);
@@ -126,47 +148,72 @@ create or replace function public.staff_pay_admin_step_v1(p_request_id uuid, p_s
 language plpgsql security definer set search_path = '' as $$
 declare
   c_prop constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
-  v_name text;
+  v_uid uuid := auth.uid();
+  v_name text; v_r public.staff_pay_requests%rowtype; v_res jsonb;
 begin
-  if auth.uid() is null or not public.current_staff_authorized('approve_payment', c_prop) then
+  if v_uid is null or not public.current_staff_authorized('approve_payment', c_prop) then
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
-  if p_step not in ('pay', 'sent', 'not_sent', 'cancel') then return jsonb_build_object('ok', false, 'reason', 'bad_step'); end if;
-  if not exists (select 1 from public.staff_pay_requests where id = p_request_id and property_id = c_prop) then
-    return jsonb_build_object('ok', false, 'reason', 'not_found');
-  end if;
+  if p_step not in ('pay', 'takeover', 'not_sent', 'cancel') then return jsonb_build_object('ok', false, 'reason', 'bad_step'); end if;
+  select * into v_r from public.staff_pay_requests where id = p_request_id and property_id = c_prop for update;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
   select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''),
                   initcap(replace(split_part(coalesce(u.email, ''), '@', 1), '.', ' ')), 'Finance')
-    into v_name from auth.users u where u.id = auth.uid();
-  return public.telegram_staff_pay_step_v1(p_request_id, p_step, null, left(coalesce(v_name, 'Finance'), 30), null);
+    into v_name from auth.users u where u.id = v_uid;
+  v_name := left(coalesce(v_name, 'Finance'), 30);
+
+  if p_step = 'pay' and v_r.status = 'paying' and v_r.paying_by_user_id = v_uid then -- opening my own payment again
+    return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid);
+  end if;
+  if p_step = 'takeover' then -- "I am paying it instead": only while nobody has said the money was sent
+    if v_r.status <> 'paying' then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
+    if v_r.paying_by_user_id = v_uid then return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid); end if;
+    if v_r.sent_said_at is not null or v_r.proof_file_unique_id is not null then
+      return jsonb_build_object('ok', false, 'reason', 'money_may_be_sent', 'status', v_r.status, 'ref', v_r.ref);
+    end if;
+    perform set_config('cascade.audit_reason', 'staff pay ' || v_r.ref || ' taken over from ' || coalesce(v_r.paying_by_name, 'Telegram') || ' by ' || v_name, true);
+    update public.staff_pay_requests set paying_by_user_id = v_uid, paying_by_tg = null, paying_by_name = v_name, paying_at = now() where id = v_r.id;
+    return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid, 'took_over_from', v_r.paying_by_name);
+  end if;
+  if p_step = 'not_sent' and v_r.status = 'paying' and v_r.paying_by_user_id is distinct from v_uid then -- unpay is for my own paying state only
+    return jsonb_build_object('ok', false, 'reason', 'not_yours', 'status', v_r.status, 'ref', v_r.ref, 'paying_by_name', v_r.paying_by_name);
+  end if;
+
+  v_res := public.telegram_staff_pay_step_v1(p_request_id, p_step, null, v_name, null);
+  if coalesce((v_res ->> 'ok')::boolean, false) then
+    if p_step = 'pay' then update public.staff_pay_requests set paying_by_user_id = v_uid where id = v_r.id; v_res := v_res || jsonb_build_object('paying_by_user_id', v_uid);
+    else update public.staff_pay_requests set paying_by_user_id = null where id = v_r.id; end if;
+  end if;
+  return v_res;
 end $$;
 revoke all on function public.staff_pay_admin_step_v1(uuid, text) from public, anon, service_role;
 grant execute on function public.staff_pay_admin_step_v1(uuid, text) to authenticated;
 
--- Settle from the Staff app. p_proof = {path, sha256, amount, reference, override?}. The screenshot must already be stored (upload-photo put it
--- under <property>/<this user>/...), and its sha256, the amount read off it and the bank reference are required. An amount that is not the
--- request total is refused unless the person confirms it (override true), exactly like "Amount is right" in Telegram.
+-- Settle from the Staff app. p_proof = {path, sha256?, amount, reference, override?}. The screenshot must already be stored by upload-photo under
+-- <property>/<this user>/..., which records its sha256 in staff_upload_hashes; THAT value is used (a client value is only cross-checked and a mismatch
+-- is refused). Amount and reference are required. An amount that is not the request total is refused unless the person confirms it (override true).
+-- Only the person who started paying (paying_by_user_id) may settle. A repeat of a settle that already worked (same screenshot bytes) answers ok, replay.
 create or replace function public.staff_pay_admin_settle_v1(p_request_id uuid, p_proof jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
   c_prop constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
   v_uid uuid := auth.uid();
   v_r public.staff_pay_requests%rowtype;
-  v_path text; v_sha text; v_ref text; v_amt numeric; v_verdict text; v_other text; v_name text; v_res jsonb; v_prefix text;
+  v_path text; v_client_sha text; v_sha text; v_ref text; v_amt numeric; v_verdict text; v_other text; v_name text; v_res jsonb; v_prefix text;
 begin
   if v_uid is null or not public.current_staff_authorized('approve_payment', c_prop) then
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
   select * into v_r from public.staff_pay_requests where id = p_request_id and property_id = c_prop for update;
   if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
-  if v_r.status <> 'paying' then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
+  if v_r.status not in ('paying', 'paid') then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
 
   if p_proof is null or jsonb_typeof(p_proof) <> 'object' then return jsonb_build_object('ok', false, 'reason', 'bad_proof'); end if;
   v_path := btrim(coalesce(p_proof ->> 'path', ''));
-  v_sha := lower(coalesce(p_proof ->> 'sha256', ''));
+  v_client_sha := lower(coalesce(p_proof ->> 'sha256', ''));
   v_ref := nullif(regexp_replace(upper(coalesce(p_proof ->> 'reference', '')), '[^A-Z0-9]', '', 'g'), '');
   v_prefix := c_prop::text || '/' || v_uid::text || '/';
-  if v_sha !~ '^[0-9a-f]{64}$' or v_ref is null or char_length(v_ref) not between 4 and 64
+  if (v_client_sha <> '' and v_client_sha !~ '^[0-9a-f]{64}$') or v_ref is null or char_length(v_ref) not between 4 and 64
      or coalesce(jsonb_typeof(p_proof -> 'amount'), '') <> 'number' or char_length(v_path) not between 40 and 300
      or left(v_path, length(v_prefix)) <> v_prefix or position('..' in v_path) > 0 then
     return jsonb_build_object('ok', false, 'reason', 'bad_proof');
@@ -174,9 +221,19 @@ begin
   v_amt := round((p_proof ->> 'amount')::numeric, 2);
   if v_amt <= 0 or v_amt > 10000000 then return jsonb_build_object('ok', false, 'reason', 'bad_proof'); end if;
 
-  -- stored proof: the object must exist in the private bucket
-  if not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = v_path) then
+  -- stored proof: the object exists in the private bucket and upload-photo recorded the hash of the bytes it stored
+  select h.sha256 into v_sha from public.staff_upload_hashes h where h.path = v_path;
+  if v_sha is null or not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = v_path) then
     return jsonb_build_object('ok', false, 'reason', 'no_stored_proof', 'ref', v_r.ref);
+  end if;
+  if v_client_sha <> '' and v_client_sha <> v_sha then return jsonb_build_object('ok', false, 'reason', 'sha_mismatch', 'ref', v_r.ref); end if;
+
+  if v_r.status = 'paid' then -- a retry after a lost answer: the same screenshot bytes means it already worked
+    if v_r.proof_sha256 = v_sha then return jsonb_build_object('ok', true, 'replay', true, 'status', 'paid', 'ref', v_r.ref, 'total', v_r.total_amount); end if;
+    return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', 'paid', 'ref', v_r.ref);
+  end if;
+  if v_r.paying_by_user_id is distinct from v_uid then
+    return jsonb_build_object('ok', false, 'reason', 'not_your_payment', 'paying_by_name', v_r.paying_by_name, 'ref', v_r.ref);
   end if;
 
   select o.ref into v_other from public.staff_pay_requests o
@@ -191,7 +248,7 @@ begin
   select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''),
                   initcap(replace(split_part(coalesce(u.email, ''), '@', 1), '.', ' ')), 'Finance')
     into v_name from auth.users u where u.id = v_uid;
-  v_name := left(coalesce(v_name, 'Finance'), 30) || ' (Staff app)';
+  v_name := left(coalesce(v_name, 'Finance'), 30) || ' via Staff app';
 
   begin
     v_res := public.staff_pay_settle_v1(v_r.id, null, v_name, v_verdict,
@@ -290,6 +347,7 @@ create trigger staff_pay_notify_paid after update of status on public.staff_pay_
 do $$
 begin
   if to_regclass('public.staff_push_subscriptions') is null then raise exception 'staff_push_subscriptions missing'; end if;
+  if to_regclass('public.staff_upload_hashes') is null then raise exception 'staff_upload_hashes missing'; end if;
   if not (select relrowsecurity from pg_class where oid = 'public.staff_push_subscriptions'::regclass) then raise exception 'staff_push_subscriptions RLS not enabled'; end if;
   if has_function_privilege('anon', 'public.staff_pay_payout_qr_v1(uuid)', 'execute') then raise exception 'anon can read a payout QR'; end if;
   if has_function_privilege('authenticated', 'public.staff_pay_notice_v1(uuid,text)', 'execute') then raise exception 'authenticated can run the notice claim'; end if;
