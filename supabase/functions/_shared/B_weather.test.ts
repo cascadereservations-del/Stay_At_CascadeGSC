@@ -1,6 +1,6 @@
 // deno test supabase/functions/_shared/B_weather.test.ts - lane B weather helpers. Frozen clock, synthetic bodies only.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { B_aqi, B_extras, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
+import { B_CORS, B_aqi, B_extras, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
 
 const NOW = Date.parse('2026-10-13T04:20:00Z'); // 12:20 Manila
 const gh = (iso: string, pctv: number, mm: number | null, type = 'RAIN') => ({
@@ -168,4 +168,38 @@ Deno.test('W fix: a missing icon is not read as day; weather-proxy uses the unit
   assert(!/cur\.wind\??\.[a-z.?]*\* 3\.6|daytimeForecast\.wind\.speed\.value\) \* 3\.6/.test(src), 'no multiply-by-3.6 on a Google wind value');
   assertEquals((src.match(/B_speedKph\(/g) ?? []).length, 3);
   assert(src.includes('B_iconIsDay(cur.icon)') && !src.includes("!String(cur.icon ?? '').endsWith('-night')"));
+});
+
+// ---- 3.1.1: the browser preflight ----
+// Every header supabase-js sends from a browser. Read from the installed client where it is present (admin-dashboard/node_modules), else this list.
+async function sentBySupabaseJs(): Promise<string[]> {
+  const base = ['authorization', 'apikey', 'x-client-info', 'content-type'];
+  for (const rel of ['../../../../admin-dashboard/node_modules/@supabase/functions-js/dist/module/FunctionsClient.js', '../../../node_modules/@supabase/functions-js/dist/module/FunctionsClient.js']) {
+    try {
+      const src = await Deno.readTextFile(new URL(rel, import.meta.url));
+      const found = [...src.matchAll(/_headers\['([A-Za-z-]+)'\]/g)].map((m) => m[1].toLowerCase());
+      if (/this\.headers\.Authorization/.test(src)) found.push('authorization');
+      return [...new Set([...base, ...found])];
+    } catch { /* not installed here: use the fixed list */ }
+  }
+  return [...base, 'x-region'];
+}
+
+Deno.test('3.1.1: the preflight lists every header supabase-js functions.invoke sends (a browser blocks the POST otherwise)', async () => {
+  const allowed = new Set(B_CORS['Access-Control-Allow-Headers'].split(',').map((h) => h.trim().toLowerCase()));
+  const sent = await sentBySupabaseJs();
+  assert(sent.includes('apikey') && sent.includes('x-client-info'));
+  for (const h of ['x-supabase-client-platform', 'x-supabase-client-platform-version', 'x-supabase-client-runtime', 'x-supabase-client-runtime-version', 'x-supabase-api-version']) sent.push(h); // newer supabase-js
+  for (const h of sent) assert(allowed.has(h), `preflight does not allow "${h}"`);
+  assertEquals(B_CORS['Access-Control-Allow-Origin'], '*');
+  assert(B_CORS['Access-Control-Allow-Methods'].includes('POST') && B_CORS['Access-Control-Allow-Methods'].includes('OPTIONS'));
+});
+
+Deno.test('3.1.1: weather-proxy answers OPTIONS and every other response (405, 503, 200) with the shared CORS object, and has no list of its own', async () => {
+  const src = await Deno.readTextFile(new URL('../weather-proxy/index.ts', import.meta.url));
+  assert(src.includes('const CORS = B_CORS'));
+  assert(!/Access-Control-Allow-Headers/.test(src), 'no second header list in the function');
+  assert(/status: 204, headers: CORS/.test(src));
+  assertEquals((src.match(/headers: JSON_H/g) ?? []).length >= 4, true);
+  assert(!/Response\([^)]*\{ status: \d+ \}\)/.test(src), 'no response without headers');
 });
