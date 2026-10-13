@@ -28,6 +28,10 @@ insert into public.staff_access_profiles(user_id, role) values
 insert into public.properties(id, name, is_active) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Cascade Hideaway', true) on conflict (id) do nothing;
 insert into public.staff_property_access(user_id, property_id) select u, '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
   from unnest(array['d8200000-0000-4000-8000-0000000000a1', 'd8200000-0000-4000-8000-0000000000a2', 'd8200000-0000-4000-8000-0000000000a3', 'd8200000-0000-4000-8000-0000000000a4', 'd8200000-0000-4000-8000-0000000000a5']::uuid[]) u;
+-- notices and the home payload use a property of their own: a restored production copy has real stays and notices on the real property
+insert into public.properties(id, name, is_active) values ('d8200000-0000-4000-8000-0000000000b0', 'Zz S82 fixture property', true);
+insert into public.staff_property_access(user_id, property_id) select u, 'd8200000-0000-4000-8000-0000000000b0'
+  from unnest(array['d8200000-0000-4000-8000-0000000000a1', 'd8200000-0000-4000-8000-0000000000a3', 'd8200000-0000-4000-8000-0000000000a4', 'd8200000-0000-4000-8000-0000000000a5']::uuid[]) u;
 insert into public.cleaner_rate_schedule(property_id, effective_from, regular_rate, general_rate, note)
 select '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', date '1900-01-01', 250, 250, 'zz baseline'
 where not exists (select 1 from public.cleaner_rate_schedule where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and effective_from = date '1900-01-01');
@@ -51,8 +55,8 @@ insert into public.cleaning_expense_claims(id, property_id, cleaning_session_id,
 -- Part 1: notices_v1 url
 -- =============================================================================================================================================
 insert into public.ops_notices(id, property_id, notice_type, title, effective_date, effective_time, duration_hours, source, source_url, is_active) values
-  ('d8200000-0000-4000-8000-0000000000d1', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'brownout', 'Zz brownout', (now() at time zone 'Asia/Manila')::date + 3, '13:00', 3, 'socoteco', 'https://www.facebook.com/socoteco2.EC/posts/1', true),
-  ('d8200000-0000-4000-8000-0000000000d2', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'water', 'Zz water', (now() at time zone 'Asia/Manila')::date + 4, '08:00', 9, 'manual', null, true);
+  ('d8200000-0000-4000-8000-0000000000d1', 'd8200000-0000-4000-8000-0000000000b0', 'brownout', 'Zz brownout', (now() at time zone 'Asia/Manila')::date + 3, '13:00', 3, 'socoteco', 'https://www.facebook.com/socoteco2.EC/posts/1', true),
+  ('d8200000-0000-4000-8000-0000000000d2', 'd8200000-0000-4000-8000-0000000000b0', 'water', 'Zz water', (now() at time zone 'Asia/Manila')::date + 4, '08:00', 9, 'manual', null, true);
 select throws_ok($$insert into public.ops_notices(property_id, notice_type, title, effective_date, source_url) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'note', 'zz bad', current_date, 'javascript:alert(1)')$$,
   '23514', null, 'a notice link must be http or https');
 select throws_ok($$insert into public.ops_notices(property_id, notice_type, title, effective_date, source_url) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'note', 'zz bad', current_date, 'https://user:pw@example.com/x')$$,
@@ -60,10 +64,10 @@ select throws_ok($$insert into public.ops_notices(property_id, notice_type, titl
 select throws_ok($$insert into public.ops_notices(property_id, notice_type, title, effective_date, source_url) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'note', 'zz bad', current_date, 'https://example.com/a b')$$,
   '23514', null, 'a notice link may not hold whitespace');
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a1');
-insert into _t select 'n_cl', public.notices_v1();
+insert into _t select 'n_cl', public.notices_v1('d8200000-0000-4000-8000-0000000000b0');
 reset role;
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a3');
-insert into _t select 'n_ad', public.notices_v1();
+insert into _t select 'n_ad', public.notices_v1('d8200000-0000-4000-8000-0000000000b0');
 reset role;
 select is((select n->>'url' from _t, jsonb_array_elements(v->'notices') n where k = 'n_cl' and n->>'id' = 'd8200000-0000-4000-8000-0000000000d1'),
   'https://www.facebook.com/socoteco2.EC/posts/1', 'a cleaner sees the original post link on a notice that has one');
@@ -80,36 +84,36 @@ select ok((select jsonb_array_length(v->'notices') >= 2 and n->>'url' is not nul
 -- Part 2: staff_home_v1 arrival_ready
 -- =============================================================================================================================================
 insert into public.guests(id, property_id, name) values
-  ('d8200000-0000-4000-8000-0000000000e1', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zz Home Current'),
-  ('d8200000-0000-4000-8000-0000000000e2', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zz Home Next'),
-  ('d8200000-0000-4000-8000-0000000000e3', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zz Home Airbnb'),
-  ('d8200000-0000-4000-8000-0000000000e4', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zz Home Past');
-insert into public.guest_profile_details(guest_id, property_id, id_on_file) values ('d8200000-0000-4000-8000-0000000000e1', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', true);
+  ('d8200000-0000-4000-8000-0000000000e1', 'd8200000-0000-4000-8000-0000000000b0', 'Zz Home Current'),
+  ('d8200000-0000-4000-8000-0000000000e2', 'd8200000-0000-4000-8000-0000000000b0', 'Zz Home Next'),
+  ('d8200000-0000-4000-8000-0000000000e3', 'd8200000-0000-4000-8000-0000000000b0', 'Zz Home Airbnb'),
+  ('d8200000-0000-4000-8000-0000000000e4', 'd8200000-0000-4000-8000-0000000000b0', 'Zz Home Past');
+insert into public.guest_profile_details(guest_id, property_id, id_on_file) values ('d8200000-0000-4000-8000-0000000000e1', 'd8200000-0000-4000-8000-0000000000b0', true);
 insert into public.guest_companions(guest_id, property_id, name, id_type, id_photo_path) values
-  ('d8200000-0000-4000-8000-0000000000e3', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zz Airbnb Mate', 'passport', 'd8200000-0000-4000-8000-0000000000e3/zz.jpg');
+  ('d8200000-0000-4000-8000-0000000000e3', 'd8200000-0000-4000-8000-0000000000b0', 'Zz Airbnb Mate', 'passport', 'd8200000-0000-4000-8000-0000000000e3/zz.jpg');
 insert into public.booking_inquiries(id, property_id, guest_id, guest_name, guest_email, checkin_date, checkout_date, pax, status, source) values
-  ('d8200000-0000-4000-8000-0000000000f1', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'd8200000-0000-4000-8000-0000000000e1', 'Zz Home Current', 'zzh1@example.com', (now() at time zone 'Asia/Manila')::date - 1, (now() at time zone 'Asia/Manila')::date + 2, 2, 'confirmed', 'direct'),
-  ('d8200000-0000-4000-8000-0000000000f2', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'd8200000-0000-4000-8000-0000000000e2', 'Zz Home Next', 'zzh2@example.com', (now() at time zone 'Asia/Manila')::date + 5, (now() at time zone 'Asia/Manila')::date + 7, 2, 'confirmed', 'direct');
+  ('d8200000-0000-4000-8000-0000000000f1', 'd8200000-0000-4000-8000-0000000000b0', 'd8200000-0000-4000-8000-0000000000e1', 'Zz Home Current', 'zzh1@example.com', (now() at time zone 'Asia/Manila')::date - 1, (now() at time zone 'Asia/Manila')::date + 2, 2, 'confirmed', 'direct'),
+  ('d8200000-0000-4000-8000-0000000000f2', 'd8200000-0000-4000-8000-0000000000b0', 'd8200000-0000-4000-8000-0000000000e2', 'Zz Home Next', 'zzh2@example.com', (now() at time zone 'Asia/Manila')::date + 5, (now() at time zone 'Asia/Manila')::date + 7, 2, 'confirmed', 'direct');
 insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_name, checkin_date, checkout_date, guest_id) values
-  ('d8200000-0000-4000-8000-0000000000f3', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'ZZHOME82', 'confirmed', 'Zz Home Airbnb', (now() at time zone 'Asia/Manila')::date + 10, (now() at time zone 'Asia/Manila')::date + 12, 'd8200000-0000-4000-8000-0000000000e3');
+  ('d8200000-0000-4000-8000-0000000000f3', 'd8200000-0000-4000-8000-0000000000b0', 'ZZHOME82', 'confirmed', 'Zz Home Airbnb', (now() at time zone 'Asia/Manila')::date + 10, (now() at time zone 'Asia/Manila')::date + 12, 'd8200000-0000-4000-8000-0000000000e3');
 insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date, linked_reservation_id) values
-  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'cascade-direct-d8200000-0000-4000-8000-0000000000f1', 'direct', 'confirmed', 'Zz Home Current', (now() at time zone 'Asia/Manila')::date - 1, (now() at time zone 'Asia/Manila')::date + 2, null),
-  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'cascade-direct-d8200000-0000-4000-8000-0000000000f2', 'direct', 'confirmed', 'Zz Home Next', (now() at time zone 'Asia/Manila')::date + 5, (now() at time zone 'Asia/Manila')::date + 7, null),
-  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'zz-airbnb-82', 'airbnb', 'confirmed', 'Zz Home Airbnb', (now() at time zone 'Asia/Manila')::date + 10, (now() at time zone 'Asia/Manila')::date + 12, 'd8200000-0000-4000-8000-0000000000f3'),
-  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'zz-past-82', 'airbnb', 'confirmed', 'Zz Home Past', (now() at time zone 'Asia/Manila')::date - 5, (now() at time zone 'Asia/Manila')::date - 3, null),
-  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'zz-block-82', 'manual', 'blocked', null, (now() at time zone 'Asia/Manila')::date + 20, (now() at time zone 'Asia/Manila')::date + 21, null);
+  ('d8200000-0000-4000-8000-0000000000b0', 'cascade-direct-d8200000-0000-4000-8000-0000000000f1', 'direct', 'confirmed', 'Zz Home Current', (now() at time zone 'Asia/Manila')::date - 1, (now() at time zone 'Asia/Manila')::date + 2, null),
+  ('d8200000-0000-4000-8000-0000000000b0', 'cascade-direct-d8200000-0000-4000-8000-0000000000f2', 'direct', 'confirmed', 'Zz Home Next', (now() at time zone 'Asia/Manila')::date + 5, (now() at time zone 'Asia/Manila')::date + 7, null),
+  ('d8200000-0000-4000-8000-0000000000b0', 'zz-airbnb-82', 'airbnb', 'confirmed', 'Zz Home Airbnb', (now() at time zone 'Asia/Manila')::date + 10, (now() at time zone 'Asia/Manila')::date + 12, 'd8200000-0000-4000-8000-0000000000f3'),
+  ('d8200000-0000-4000-8000-0000000000b0', 'zz-past-82', 'airbnb', 'confirmed', 'Zz Home Past', (now() at time zone 'Asia/Manila')::date - 5, (now() at time zone 'Asia/Manila')::date - 3, null),
+  ('d8200000-0000-4000-8000-0000000000b0', 'zz-block-82', 'manual', 'blocked', null, (now() at time zone 'Asia/Manila')::date + 20, (now() at time zone 'Asia/Manila')::date + 21, null);
 
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a3'); -- admin
-insert into _t select 'h_ad', public.staff_home_v1();
+insert into _t select 'h_ad', public.staff_home_v1('d8200000-0000-4000-8000-0000000000b0');
 reset role;
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a5'); -- owner
-insert into _t select 'h_ow', public.staff_home_v1();
+insert into _t select 'h_ow', public.staff_home_v1('d8200000-0000-4000-8000-0000000000b0');
 reset role;
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a1'); -- cleaner
-insert into _t select 'h_cl', public.staff_home_v1();
+insert into _t select 'h_cl', public.staff_home_v1('d8200000-0000-4000-8000-0000000000b0');
 reset role;
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a4'); -- finance
-insert into _t select 'h_fi', public.staff_home_v1();
+insert into _t select 'h_fi', public.staff_home_v1('d8200000-0000-4000-8000-0000000000b0');
 reset role;
 select is((select v->'current_guest'->'arrival_ready' from _t where k = 'h_ad'), '{"id": true, "paid": null, "door_code": null}'::jsonb,
   'admin: the in-house direct stay has its ID on file; paid and door_code have no source, so null (not invented)');
@@ -195,7 +199,7 @@ select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a3');
 insert into _t select 'l_ad', public.staff_pay_admin_list_v1();
 reset role;
 select ok((select v ? 'unrequested' and jsonb_typeof(v->'unrequested') = 'array' and v ? 'requests' from _t where k = 'l_ad'), 'the admin list keeps requests and gains unrequested');
-select is((select jsonb_array_length(v->'unrequested') from _t where k = 'l_ad'), 2, 'two staff members have unpaid work in no request');
+select is((select count(*)::int from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_ad' and e->>'payee_user_id' in ('d8200000-0000-4000-8000-0000000000a1', 'd8200000-0000-4000-8000-0000000000a2')), 2, 'both fixture staff members have unpaid work in no request (real staff may be listed too)');
 select is((select e->'sessions' from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_ad' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'),
   (select v->'sessions' from _t where k = 'cand'), 'Honey: the sessions equal staff_pay_candidates_v1 for the same rows (ids, dates, types, bases, transport)');
 select is((select e->'claims' from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_ad' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'),
@@ -204,11 +208,12 @@ select is((select (e->>'total')::numeric from _t, jsonb_array_elements(v->'unreq
   (select coalesce(sum((s->>'base')::numeric), 0) from _t, jsonb_array_elements(v->'sessions') s where k = 'cand')
   + (select coalesce(sum((c->>'amount')::numeric), 0) from _t, jsonb_array_elements(v->'claims') c where k = 'cand'),
   'Honey: total = bases + claims, summed from the candidates payload');
-select is((select (e->>'total')::numeric from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_ad' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'), 500 + 1000 + 250 + 120.50 + 80, 'Honey: 500 turnover + 1000 deep clean + 250 mid-stay on the old rate + 200.50 of claims');
+select is((select (e->>'total')::numeric from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_ad' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'), (select regular from public.staff_pay_rate_v1(date '2026-10-02')) + (select general from public.staff_pay_rate_v1(date '2026-10-03')) + (select regular from public.staff_pay_rate_v1(date '2026-09-20')) + 120.50 + 80,
+  'Honey: turnover + deep clean + mid-stay (each at the rate in force on its day: a restored production copy has the 650 era) + 200.50 of claims');
 select is((select e->>'payee_name' from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_ad' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'), 'Zzhoney Reyes', 'the name she signs with');
 select ok((select not bool_or(e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1' and s->>'id' = 'd8200000-0000-4000-8000-0000000000b4') from _t, jsonb_array_elements(v->'unrequested') e, jsonb_array_elements(e->'sessions') s where k = 'l_ad'), 'a clean already paid is not unrequested');
 select ok((select (e->>'has_qr')::boolean = false from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_ad' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'), 'has_qr is a boolean (no payout payload in the list)');
-select ok((select v::text !~* '(payout_qrph|payment_|booking|income|guest)' from _t where k = 'l_ad'), 'the admin list names no payout payload, no booking income and no guest');
+select ok((select v::text !~ 'payout_qrph' and (select coalesce(jsonb_agg(e), '[]'::jsonb)::text from jsonb_array_elements(v->'unrequested') e where e->>'payee_user_id' in ('d8200000-0000-4000-8000-0000000000a1', 'd8200000-0000-4000-8000-0000000000a2')) !~* '(payout|payment_|booking|income|guest)' from _t where k = 'l_ad'), 'the admin list names no payout payload, and the fixture entries no booking income and no guest (real staff entries are free text they typed)');
 -- 4c create
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a3');
 insert into _t select 'c_bad_key', public.staff_pay_admin_create_v1('d8200000-0000-4000-8000-0000000000a1', '[{"id":"d8200000-0000-4000-8000-0000000000b1"}]'::jsonb, '{}'::uuid[], 'short');
@@ -268,7 +273,7 @@ select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a3');
 insert into _t select 'l_after', public.staff_pay_admin_list_v1();
 reset role;
 select ok((select not exists (select 1 from jsonb_array_elements(v->'unrequested') e where e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1' and jsonb_array_length(e->'sessions') > 1) from _t where k = 'l_after'), 'after the create, Honey''s unrequested list holds only the mid-stay');
-select is((select (e->>'total')::numeric from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_after' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'), 250::numeric, 'and its total is 250');
+select is((select (e->>'total')::numeric from _t, jsonb_array_elements(v->'unrequested') e where k = 'l_after' and e->>'payee_user_id' = 'd8200000-0000-4000-8000-0000000000a1'), (select regular from public.staff_pay_rate_v1(date '2026-09-20')), 'and its total is the mid-stay base in force on its day');
 select ok((select exists (select 1 from jsonb_array_elements(v->'requests') r where r->>'id' = (select v->>'id' from _t where k = 'c_ok') and r ? 'paid_by_name') from _t where k = 'l_after'), 'every request row carries paid_by_name (null until paid)');
 -- the key is shared with the staff member's own create: her tap with the same key sees the admin's row
 select pg_temp.as_user('d8200000-0000-4000-8000-0000000000a1');

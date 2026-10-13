@@ -8,6 +8,15 @@ select plan(48);
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
+-- Supabase's service_role bypasses row level security; a rehearsal copy's stand-in role does not (rolled back with the suite)
+alter role service_role bypassrls;
+-- the table ACLs a --no-acl restore lacks (production has them; rolled back with the suite). The Telegram restock runs as service_role with invoker rights.
+grant select, update on public.inventory_items to service_role;
+grant select, insert on public.inventory_purchases to service_role;
+grant insert on public.inventory_audit_log to service_role;
+grant select on public.inventory_items to authenticated;
+grant select, insert on public.inventory_purchases to authenticated;
+grant insert on public.inventory_audit_log to authenticated;
 
 create temp table _t(k text primary key, v jsonb);
 grant all on _t to public;
