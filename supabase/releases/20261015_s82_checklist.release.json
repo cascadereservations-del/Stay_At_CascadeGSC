@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING: take a fresh backup as the LAST act before the apply and fill restore_point and verified_at (fill-restore-point.mjs)",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261013T135844Z",
+    "verified_at": "2026-10-13T14:02:34.338Z",
     "production_rule": "Additive. One internal predicate function is added (k_calendar_row_offered) and two existing functions get a new body with the SAME signature, return columns, security mode and grants: get_cleanable_bookings (SECURITY DEFINER) and get_booking_for_date (SECURITY INVOKER). No table is touched, no row is written, no new grant to a role that did not already have one on those two functions (the predicate itself is executable by anon, authenticated and service_role; its day-flag branch re-checks read_operations, so anon learns nothing). A calendar block is offered to the cleaning report only when it covers the cleaning date AND was scheduled (block_reason maintenance with source staff, or a live maintenance or deep_clean calendar_day_flags row on that date); a guest stay is returned exactly as before, with the same 10-day look-back. The only visible change for a caller: an offered block comes back from get_cleanable_bookings with kind = 'block' (was checkout, mid_stay or checkin). The migration stops itself unless the live bodies still hash to the md5 values read on 2026-10-13."
   },
   "forward_verification": [
