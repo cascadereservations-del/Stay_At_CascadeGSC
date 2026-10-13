@@ -12,7 +12,7 @@ export const STUCK_AFTER = 8; // consecutive failed runs before a poster that ne
 export type ReadOne = (url: string, cls: 'hit' | 'read') => Promise<{ notice: Notice | null; log: string }>;
 
 export async function scanPosts(
-  posts: Array<{ id: number; date?: string; date_gmt?: string; content?: { rendered?: string } }>, state: ScanState, today: string, readOne: ReadOne,
+  posts: Array<{ id: number; link?: string; date?: string; date_gmt?: string; content?: { rendered?: string } }>, state: ScanState, today: string, readOne: ReadOne,
   limits: { maxReads: number; budgetMs: number }, warn: (url: string, e: unknown) => void = () => {},
 ): Promise<{ found: Found[]; log: string[]; reads: number; stuck: string[] }> {
   forgetReads(posts, state);
@@ -33,7 +33,7 @@ export async function scanPosts(
         const { notice: n, log: line } = await readOne(url, c);
         log.push(line);
         state.ours[url] = n?.date ?? ''; // what the read said, hit posters too (a moved poster's filename carries the moved-FROM date, D-295); '' = read, not ours
-        if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id, postedAt: at });
+        if (n && (n.date >= today || (n.originalDate ?? '') >= today)) found.push({ ...n, postId: p.id, postedAt: at, link: p.link ?? null });
         state.images.push(url);
         delete fails[url];
       } catch (e) {

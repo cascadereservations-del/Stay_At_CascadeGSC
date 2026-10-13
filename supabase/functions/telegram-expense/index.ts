@@ -44,6 +44,7 @@ import { parseReason, noticeTitle } from './reply.ts'; // noticeTitle: D-306, OP
 import { overTotalWarning, parseDirRef, refundCard, refundGate, type Payer } from './refund.ts'; // SPEC-42 9a: a refund goes only to the account that paid
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
+import { S_noticeUrl } from '../_shared/S_notice-url.ts'; // s82: the link a saved notice keeps
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
 import { answersOpen, ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
@@ -1669,7 +1670,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
 async function executeNoticeFromLLM(db:any,params:any,chatId:any,from:any){
   if(!params?.notice_type||!params?.title||!params?.effective_date){await tgSend(chatId,'⚠️ Notice data incomplete.');return;}
   const postedBy=[from?.first_name,from?.username?`@${from.username}`:null].filter(Boolean).join(' ');
-  const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:params.notice_type,title:params.title,effective_date:params.effective_date,effective_time:params.effective_time??null,duration_hours:params.duration_hours??null,feeder:params.notice_type==='brownout'?feederFor(String(params.title)):null,source:params.source??(params.notice_type==='brownout'?noticeSource(String(params.title)):null),posted_by_chat_id:from?.id??null,posted_by_name:postedBy});
+  const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:params.notice_type,title:params.title,effective_date:params.effective_date,effective_time:params.effective_time??null,duration_hours:params.duration_hours??null,feeder:params.notice_type==='brownout'?feederFor(String(params.title)):null,source:params.source??(params.notice_type==='brownout'?noticeSource(String(params.title)):null),posted_by_chat_id:from?.id??null,posted_by_name:postedBy,...(S_noticeUrl(params.source_url)?{source_url:S_noticeUrl(params.source_url)}:{})});
   const icon=NOTICE_ICON[params.notice_type]??'📌';
   if(error){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error.message)}`);return;}
   await tgSend(chatId,`${icon} *Notice saved* — ${noticeTitle(params.title,isFinanceChat(chatId),mdEsc)} on ${params.effective_date}`);

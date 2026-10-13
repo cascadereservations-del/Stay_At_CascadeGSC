@@ -811,3 +811,14 @@ Deno.test('D-306: money-shaped values around a booking never reach the OPS card 
   }
   assertEquals(w.fin.length, 0, 'nothing goes to the Finance chat');
 });
+
+Deno.test('S notice url: the notice keeps the SOCOTECO post link, else the poster image; a changed poster updates it', async () => {
+  const w = world();
+  await w.run([found('2026-10-15', '06:00:00', 11, 100, { link: 'https://www.socoteco2.com/2026/10/advisory/?utm_source=x' })]);
+  assertEquals(w.db.tables.ops_notices[0].source_url, 'https://www.socoteco2.com/2026/10/advisory/');
+  const w2 = world();
+  await w2.run([found('2026-10-15', '06:00:00', 11, 100)]);
+  assertEquals(w2.db.tables.ops_notices[0].source_url, URL0, 'no post link: the poster image URL');
+  await w2.run([found('2026-10-15', '07:00:00', 10, 101, { link: 'https://www.socoteco2.com/2026/10/newer/' })], '2026-10-02T02:00:00Z');
+  assertEquals(w2.db.tables.ops_notices[0].source_url, 'https://www.socoteco2.com/2026/10/newer/');
+});
