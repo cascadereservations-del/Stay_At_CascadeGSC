@@ -1,3 +1,4 @@
+// weather-proxy v6 (s82 lane W): forecast now 7 days with a WMO `code` per day, current gains `code` and `is_day`; hourly (see B_weather.ts) is 24 rows with `temp`. Every older key is unchanged.
 // weather-proxy v5 (s81 lane B): ADDS hourly (next 12h), hourly_source, aqi, rain_watch and code to the response; no existing key changes (the guest guide reads this).
 // weather-proxy v4
 // Sources: PirateWeather (primary) → Google Weather (secondary) → Open-Meteo (fallback)
@@ -5,7 +6,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
-import { B_fetchExtras, B_textToCode } from '../_shared/B_weather.ts';
+import { B_fetchExtras, B_googleTypeToCode, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_textToCode } from '../_shared/B_weather.ts';
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -16,6 +17,7 @@ const GEN_SAN_LNG    = 125.1716;
 const LOCATION       = 'General Santos City, PH';
 const CACHE_KEY      = 'weather_proxy_cache';
 const CACHE_TTL_MS   = 15 * 60 * 1000; // 15 minutes
+const FORECAST_DAYS  = 7; // s82 lane W: was 5; the guest guide slices its own 5
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
@@ -117,9 +119,11 @@ async function fetchPirateWeather(today: string): Promise<any | null> {
       // Today's high/low from daily[0]
       today_high:  today0.temperatureHigh != null ? Math.round(Number(today0.temperatureHigh)) : null,
       today_low:   today0.temperatureLow  != null ? Math.round(Number(today0.temperatureLow))  : null,
+      code:        B_iconToCode(cur.icon) ?? B_textToCode(cur.summary),
+      is_day:      B_isDay(cur.time ?? Math.floor(Date.now() / 1000), today0.sunriseTime, today0.sunsetTime) ?? B_iconIsDay(cur.icon),
     };
 
-    const forecast = days.slice(0, 5).map((day: any, i: number) => {
+    const forecast = days.slice(0, FORECAST_DAYS).map((day: any, i: number) => {
       const date = day.time ? unixToDateStr(day.time) : addDays(today, i);
       return {
         date,
@@ -138,6 +142,7 @@ async function fetchPirateWeather(today: string): Promise<any | null> {
         wind_kph:       day.windSpeed != null ? Math.round(Number(day.windSpeed) * 3.6) : null,
         wind_gust_kph:  day.windGust  != null ? Math.round(Number(day.windGust)  * 3.6) : null,
         thunder_prob:   String(day.icon ?? '') === 'thunderstorm' ? 80 : 0,
+        code:           B_iconToCode(day.icon) ?? B_textToCode(day.summary),
         sunrise:        day.sunriseTime ? unixToManilaTime(day.sunriseTime) : null,
         sunset:         day.sunsetTime  ? unixToManilaTime(day.sunsetTime)  : null,
       };
@@ -168,7 +173,7 @@ async function fetchGoogleWeather(today: string): Promise<any | null> {
 
     const [curRes, dayRes] = await Promise.all([
       fetch(`${base}/currentConditions:lookup?${k}&${loc}`, { signal: AbortSignal.timeout(8_000) }),
-      fetch(`${base}/forecast/days:lookup?${k}&${loc}&days=5`, { signal: AbortSignal.timeout(8_000) }),
+      fetch(`${base}/forecast/days:lookup?${k}&${loc}&days=${FORECAST_DAYS}`, { signal: AbortSignal.timeout(8_000) }),
     ]);
 
     if (!curRes.ok) { console.error('Google Weather current error:', curRes.status); return null; }
@@ -191,17 +196,19 @@ async function fetchGoogleWeather(today: string): Promise<any | null> {
       uv_label:      uvLabel(Math.round(Number(cur.uvIndex ?? 0))),
       cloud_cover:   cur.cloudCover != null ? Math.round(Number(cur.cloudCover)) : null,
       rain_prob:     Math.round(Number(cur.precipitation?.probability?.percent ?? 0)),
-      wind_kph:      Math.round(Number(cur.wind?.speed?.value ?? 0) * 3.6),
-      wind_gust_kph: cur.wind?.gust?.value != null ? Math.round(Number(cur.wind.gust.value) * 3.6) : null,
+      wind_kph:      B_speedKph(cur.wind?.speed) ?? 0,
+      wind_gust_kph: B_speedKph(cur.wind?.gust),
       wind_dir:      cur.wind?.direction?.degrees != null ? Math.round(Number(cur.wind.direction.degrees)) : null,
       pressure_mb:   cur.pressureAtSeaLevel?.value != null ? Math.round(Number(cur.pressureAtSeaLevel.value)) : null,
       sunrise,
       sunset,
       today_high:    today0?.maxTemperature?.degrees != null ? Math.round(Number(today0.maxTemperature.degrees)) : null,
       today_low:     today0?.minTemperature?.degrees != null ? Math.round(Number(today0.minTemperature.degrees)) : null,
+      code:          B_googleTypeToCode(cur.weatherCondition?.type) ?? B_textToCode(cur.weatherCondition?.description?.text),
+      is_day:        typeof cur.isDaytime === 'boolean' ? cur.isDaytime : null,
     };
 
-    const forecast = (day?.forecastDays ?? []).slice(0, 5).map((fd: any, i: number) => {
+    const forecast = (day?.forecastDays ?? []).slice(0, FORECAST_DAYS).map((fd: any, i: number) => {
       const date = addDays(today, i);
       const desc = String(fd.daytimeForecast?.weatherCondition?.description?.text ?? '');
       return {
@@ -218,9 +225,10 @@ async function fetchGoogleWeather(today: string): Promise<any | null> {
         humidity:       fd.daytimeForecast?.relativeHumidity != null ? Math.round(Number(fd.daytimeForecast.relativeHumidity)) : null,
         uv_index:       fd.maxUvIndex != null ? Math.round(Number(fd.maxUvIndex)) : null,
         uv_label:       fd.maxUvIndex != null ? uvLabel(Math.round(Number(fd.maxUvIndex))) : null,
-        wind_kph:       fd.daytimeForecast?.wind?.speed?.value != null ? Math.round(Number(fd.daytimeForecast.wind.speed.value) * 3.6) : null,
+        wind_kph:       B_speedKph(fd.daytimeForecast?.wind?.speed),
         wind_gust_kph:  null,
         thunder_prob:   Math.round(Number(fd.daytimeForecast?.thunderstormProbability ?? 0)),
+        code:           B_googleTypeToCode(fd.daytimeForecast?.weatherCondition?.type) ?? B_textToCode(desc),
         sunrise:        fd.sunEvents?.sunriseTime ? utcToManilaTime(fd.sunEvents.sunriseTime) : null,
         sunset:         fd.sunEvents?.sunsetTime  ? utcToManilaTime(fd.sunEvents.sunsetTime)  : null,
       };
@@ -262,10 +270,10 @@ async function fetchOpenMeteo(today: string): Promise<any | null> {
       'https://api.open-meteo.com/v1/forecast',
       `?latitude=${GEN_SAN_LAT}&longitude=${GEN_SAN_LNG}`,
       '&current=temperature_2m,apparent_temperature,weather_code,precipitation_probability,',
-      'wind_speed_10m,wind_direction_10m,relative_humidity_2m,surface_pressure',
+      'wind_speed_10m,wind_direction_10m,relative_humidity_2m,surface_pressure,is_day',
       '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,',
       'uv_index_max,wind_speed_10m_max,sunrise,sunset',
-      '&timezone=Asia%2FManila&forecast_days=5',
+      `&timezone=Asia%2FManila&forecast_days=${FORECAST_DAYS}`,
     ].join('');
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) { console.error('Open-Meteo non-ok:', res.status); return null; }
@@ -293,9 +301,11 @@ async function fetchOpenMeteo(today: string): Promise<any | null> {
       sunset:      dly.sunset?.[0]  ? new Date(dly.sunset[0]).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace(':00 ',' ') : null,
       today_high:  dly.temperature_2m_max?.[0] != null ? Math.round(Number(dly.temperature_2m_max[0])) : null,
       today_low:   dly.temperature_2m_min?.[0] != null ? Math.round(Number(dly.temperature_2m_min[0])) : null,
+      code:        c.weather_code != null ? Number(c.weather_code) : null,
+      is_day:      c.is_day != null ? Number(c.is_day) === 1 : null,
     };
 
-    const forecast = (dly.time ?? []).slice(0, 5).map((date: string, i: number) => ({
+    const forecast = (dly.time ?? []).slice(0, FORECAST_DAYS).map((date: string, i: number) => ({
       date,
       label:          dayLabel(date, today),
       high:           dly.temperature_2m_max?.[i] != null ? Math.round(Number(dly.temperature_2m_max[i])) : 0,
@@ -312,6 +322,7 @@ async function fetchOpenMeteo(today: string): Promise<any | null> {
       wind_kph:       dly.wind_speed_10m_max?.[i] != null ? Math.round(Number(dly.wind_speed_10m_max[i])) : null,
       wind_gust_kph:  null,
       thunder_prob:   [95,96,99].includes(dly.weather_code?.[i]) ? 70 : 0,
+      code:           dly.weather_code?.[i] != null ? Number(dly.weather_code[i]) : null,
       sunrise:        dly.sunrise?.[i] ? new Date(dly.sunrise[i]).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace(':00 ',' ') : null,
       sunset:         dly.sunset?.[i]  ? new Date(dly.sunset[i]).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}).replace(':00 ',' ') : null,
     }));
