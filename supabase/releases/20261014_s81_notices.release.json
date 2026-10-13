@@ -4,20 +4,20 @@
   "phase": "expand",
   "source": {
     "branch": "s81/B-notices",
-    "commit": "255348e7d5323fda9fea03254b7b039bbef41452"
+    "commit": "4dee6ecfde9662a106b5c921defe60ddfc4ddb70"
   },
   "migrations": [
     "20261014000000_s81_notices.sql"
   ],
   "migration_sha256": {
-    "20261014000000_s81_notices.sql": "f5f5892de59d90e8c59c97b0ecda602e2f2644a4d6c804e291c168a0b3039f68"
+    "20261014000000_s81_notices.sql": "612421fedcdc70576b122c0a64d819f0aea71a707cd61f4313c469b4d5cb15cf"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING - name the backup set taken immediately before this apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Additive. Two RPCs are added (notices_v1, ops_notice_add_v1), two ops_notices check constraints are widened (old values kept), one app_settings key house_times is inserted when absent. No table is rewritten, no row is changed, no grant to anon. notices_v1 reads weather_proxy_cache, ops_notices, inventory_items, verifier_findings (owner/admin), concierge_handoffs (owner/admin) and returns an allow-list; free text goes through staff_redact_v1. ops_notice_add_v1 is owner/admin (manage_operations) and refuses phone numbers, e-mails and amounts. Deploy weather-proxy (adds hourly, hourly_source, aqi, rain_watch, code) before or after: notices_v1 reads an old-shape cache without error (hourly [], code/aqi/rain_watch null). restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+    "production_rule": "Additive. Two RPCs are added (notices_v1, ops_notice_add_v1), two ops_notices check constraints are widened (old values kept), two app_settings keys (house_times, notice_sources) are inserted when absent. No table is rewritten, no row is changed, no grant to anon. notices_v1 reads weather_proxy_cache, ops_notices, inventory_items, verifier_findings (owner/admin), concierge_handoffs (owner/admin) and returns an allow-list; free text goes through staff_redact_v1. ops_notice_add_v1 is owner/admin (manage_operations) and refuses phone numbers, e-mails and amounts. Deploy weather-proxy (adds hourly, hourly_source, aqi, rain_watch, code) before or after: notices_v1 reads an old-shape cache without error (hourly [], code/aqi/rain_watch null). restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [
     {
@@ -56,6 +56,11 @@
       "expect": true
     },
     {
+      "name": "notice_sources_is_seeded_with_both_pages",
+      "query": "select exists (select 1 from public.app_settings where key = 'notice_sources' and value ? 'water_page' and value ? 'power_page')",
+      "expect": true
+    },
+    {
       "name": "existing_brownout_notices_are_untouched_by_the_check_change",
       "query": "select not exists (select 1 from public.ops_notices where notice_type = 'brownout' and source is not null and source not in ('socoteco', 'ngcp', 'staff'))",
       "expect": true
@@ -82,7 +87,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Read 2026-10-13 from the live catalog: ops_notices_notice_type_check = brownout|holiday|event|reminder, ops_notices_source_check = socoteco|ngcp|staff, 4 live rows, all brownout/socoteco; app_settings has no house_times key and no such key under another name; neither function exists yet. Readers of ops_notices.notice_type: staff_home_v1, calendar_day_flags, admin overview (they filter brownout or list the type as text), telegram-expense /notices (filters holiday/event/reminder or lists all). A new type shows only in lists that do not filter by type. Rehearsal pending: pgTAP s81_notices.sql ran green (50/50) on a local supabase/postgres 17 harness with stand-ins for the dependent tables, NOT on a restored backup; run it on the rehearsal copy with its neighbours staff_home_v1.sql, admin_read_models_v1.sql, s80_rls_tighten.sql."
+    "evidence": "Read 2026-10-13 from the live catalog: ops_notices_notice_type_check = brownout|holiday|event|reminder, ops_notices_source_check = socoteco|ngcp|staff, 4 live rows, all brownout/socoteco; app_settings has no house_times or notice_sources key and no such key under another name; neither function exists yet. Readers of ops_notices.notice_type: staff_home_v1, calendar_day_flags, admin overview (they filter brownout or list the type as text), telegram-expense /notices (filters holiday/event/reminder or lists all). A new type shows only in lists that do not filter by type. Rehearsal pending: pgTAP s81_notices.sql ran green (56/56) on a local supabase/postgres 17 harness with stand-ins for the dependent tables, NOT on a restored backup; run it on the rehearsal copy with its neighbours staff_home_v1.sql, admin_read_models_v1.sql, s80_rls_tighten.sql."
   },
   "approvals": {
     "production_required": true,
