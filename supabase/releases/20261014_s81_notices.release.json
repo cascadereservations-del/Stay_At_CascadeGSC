@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s81/B-notices",
-    "commit": "4dee6ecfde9662a106b5c921defe60ddfc4ddb70"
+    "commit": "1c2a7dbdb5721915cde2407004c8396ec25ed94e"
   },
   "migrations": [
     "20261014000000_s81_notices.sql"
   ],
   "migration_sha256": {
-    "20261014000000_s81_notices.sql": "612421fedcdc70576b122c0a64d819f0aea71a707cd61f4313c469b4d5cb15cf"
+    "20261014000000_s81_notices.sql": "8cfc6c2ca6745a4b00a172627dcecb1023a65e01b85a5123f331d46add42e26b"
   },
   "backup": {
     "required": true,
@@ -87,7 +87,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Read 2026-10-13 from the live catalog: ops_notices_notice_type_check = brownout|holiday|event|reminder, ops_notices_source_check = socoteco|ngcp|staff, 4 live rows, all brownout/socoteco; app_settings has no house_times or notice_sources key and no such key under another name; neither function exists yet. Readers of ops_notices.notice_type: staff_home_v1, calendar_day_flags, admin overview (they filter brownout or list the type as text), telegram-expense /notices (filters holiday/event/reminder or lists all). A new type shows only in lists that do not filter by type. Rehearsal pending: pgTAP s81_notices.sql ran green (56/56) on a local supabase/postgres 17 harness with stand-ins for the dependent tables, NOT on a restored backup; run it on the rehearsal copy with its neighbours staff_home_v1.sql, admin_read_models_v1.sql, s80_rls_tighten.sql."
+    "evidence": "Read 2026-10-13 from the live catalog: ops_notices_notice_type_check = brownout|holiday|event|reminder, ops_notices_source_check = socoteco|ngcp|staff, 4 live rows, all brownout/socoteco; app_settings has no house_times or notice_sources key and no such key under another name; neither function exists yet. Readers of ops_notices.notice_type: staff_home_v1, calendar_day_flags, admin overview (they filter brownout or list the type as text), telegram-expense /notices (filters holiday/event/reminder or lists all). A new type shows only in lists that do not filter by type. Rehearsal pending: pgTAP s81_notices.sql ran green (59/59) on a local supabase/postgres 17 harness with stand-ins for the dependent tables, NOT on a restored backup; run it on the rehearsal copy with its neighbours staff_home_v1.sql, admin_read_models_v1.sql, s80_rls_tighten.sql."
   },
   "approvals": {
     "production_required": true,
