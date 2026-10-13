@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken immediately before this apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261013T064032Z",
+    "verified_at": "2026-10-13T06:44:29.588Z",
     "production_rule": "Additive. Two RPCs are added (notices_v1, ops_notice_add_v1), two ops_notices check constraints are widened (old values kept), two app_settings keys (house_times, notice_sources) are inserted when absent. No table is rewritten, no row is changed, no grant to anon. notices_v1 reads weather_proxy_cache, ops_notices, inventory_items, verifier_findings (owner/admin), concierge_handoffs (owner/admin) and returns an allow-list; free text goes through staff_redact_v1. ops_notice_add_v1 is owner/admin (manage_operations) and refuses phone numbers, e-mails and amounts. Deploy weather-proxy (adds hourly, hourly_source, aqi, rain_watch, code) before or after: notices_v1 reads an old-shape cache without error (hourly [], code/aqi/rain_watch null). restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
   },
   "forward_verification": [

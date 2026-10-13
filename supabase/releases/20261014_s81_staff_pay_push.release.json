@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken immediately before this apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261013T064032Z",
+    "verified_at": "2026-10-13T06:44:29.588Z",
     "production_rule": "Additive. Adds staff_pay_requests.proof_path, paid_notified_at and paying_by_user_id, the table staff_upload_hashes (written only by upload-photo), staff_details.payout_bank_label, the table staff_push_subscriptions (RLS, a person reads and deletes only her own rows), eight functions and one AFTER UPDATE OF status trigger on staff_pay_requests. No existing function, policy or grant is changed, so telegram-expense, the Finance taps and notify-cleaner-payment (create) behave exactly as before. staff_pay_payout_qr_v1 is the only new reader of staff_details.payout_qrph and is granted to authenticated but answers only owner/admin/finance on an open request. The trigger posts to notify-cleaner-payment through pg_net with the vault secret cascade_cron_shared_secret and does nothing where either is absent. Rehearsed 2026-10-14 on a disposable local copy (baseline plus every forward migration): s81_staff_pay_push.sql 92 of 92 and staff_pay_requests.sql 70 of 70 green; the s81 file fails on the rolled-back state. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs). After the apply, set the bank label once per payee with plain SQL (staff_details.payout_bank_label = 'MariBank'), reading the row before and after; until it is set the notice says 'your account'.",
     "notes": "Deploy order: apply this SQL, then deploy upload-photo (it writes staff_upload_hashes; until then no web settle can complete because the server hash is missing) and notify-cleaner-payment. Secrets by name: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CASCADE_CRON_SHARED_SECRET."
   },
