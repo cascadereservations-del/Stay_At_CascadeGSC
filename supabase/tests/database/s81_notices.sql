@@ -8,7 +8,7 @@
 -- Synthetic fixtures only (uuids e8100000-...); every lookup is scoped to them because a real backup holds real rows. Grants are not
 -- asserted (a --no-acl rehearsal carries none); the release contract's forward checks prove them. Everything rolls back.
 begin;
-select plan(56);
+select plan(59);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -194,6 +194,24 @@ set local role authenticated; set local request.jwt.claims = '{"sub":"e8100000-0
 select is(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'sources',
   '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb, 'sources: the same two pages when the setting is missing');
 reset role;
+
+-- sources validation (N4): only a plain Facebook page URL is used, per key
+insert into public.app_settings(key, value) values ('notice_sources', '{"water_page":"https://example.com/evil","power_page":"https://www.facebook.com/otherpage"}');
+set local role authenticated; set local request.jwt.claims = '{"sub":"e8100000-0000-4000-8000-0000000000e1"}';
+select is(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'sources',
+  '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/otherpage"}'::jsonb, 'sources: a non-Facebook value falls back for that key, a valid Facebook page is kept');
+reset role;
+update public.app_settings set value = '{"water_page":null,"power_page":"javascript:alert(1)"}' where key = 'notice_sources';
+set local role authenticated; set local request.jwt.claims = '{"sub":"e8100000-0000-4000-8000-0000000000e1"}';
+select is(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'sources',
+  '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb, 'sources: a null and a javascript: value both give the built-in pages, never nulls');
+reset role;
+update public.app_settings set value = '{"water_page":"https://www.facebook.com/a/b","power_page":"http://www.facebook.com/x"}' where key = 'notice_sources';
+set local role authenticated; set local request.jwt.claims = '{"sub":"e8100000-0000-4000-8000-0000000000e1"}';
+select is(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'sources',
+  '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb, 'sources: a path with a slash inside and an http link are refused');
+reset role;
+delete from public.app_settings where key = 'notice_sources';
 
 -- house_times fallback ----------------------------------------------------------------------------------------------------------------------------
 delete from public.app_settings where key = 'house_times';

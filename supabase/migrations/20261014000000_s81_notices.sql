@@ -12,7 +12,7 @@
 --                           and no key under another name, existed).
 -- Water source (read 2026-10-13): gensanwater.gov.ph/wp-json/wp/v2/posts is a WordPress feed of bids and awards only; its "Water Advisory"
 -- category holds 0 posts and a search for "interruption" returns nothing. So no water-watch scraper: water notices arrive by a post forwarded to
--- Cassy (Save tap, source stays null here and reads as 'manual') or by ops_notice_add_v1.
+-- Cassy (a GSCWD page link or "water notice:" text, Save tap; the row stores source gscwd) or by ops_notice_add_v1 (source manual). A source of null still reads as manual.
 --   app_settings notice_sources  {"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}, seeded
 --                           only when absent; notices_v1 returns it as `sources` so the app can link "Check the GSCWD page" / "Check the SOCOTECO II page".
 -- Fix round 1 (Opus review): a notice that started earlier and is still running stays listed (its window has not ended); low stock uses the admin
@@ -66,9 +66,11 @@ begin
     into v_times from public.app_settings s where s.key = 'house_times';
   v_times := coalesce(v_times, '{"check_out":"12:00","check_in":"14:00"}'::jsonb);
 
-  select jsonb_build_object('water_page', s.value->>'water_page', 'power_page', s.value->>'power_page')
-    into v_sources from public.app_settings s where s.key = 'notice_sources';
-  v_sources := coalesce(v_sources, '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb);
+  -- each link is used only if it is a plain Facebook page URL; a missing, malformed or non-Facebook value falls back to the built-in page for that key.
+  select jsonb_build_object(
+           'water_page', case when s.value->>'water_page' ~ '^https://(www\.)?facebook\.com/[A-Za-z0-9.]+/?$' then s.value->>'water_page' else 'https://www.facebook.com/gscwaterdistrict/' end,
+           'power_page', case when s.value->>'power_page' ~ '^https://(www\.)?facebook\.com/[A-Za-z0-9.]+/?$' then s.value->>'power_page' else 'https://www.facebook.com/socoteco2.EC/' end)
+    into v_sources from (select 1) o left join public.app_settings s on s.key = 'notice_sources';
 
   -- weather: the weather-proxy cache, only while it is under 60 minutes old; an allow-list of display fields.
   select s.value, s.updated_at into c, c_at from public.app_settings s where s.key = 'weather_proxy_cache';
