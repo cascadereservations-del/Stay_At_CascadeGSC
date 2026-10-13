@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "release_id": "s81_staff_pay_push_20261014",
+  "phase": "backfill",
+  "source": {
+    "branch": "s81/C-pay",
+    "commit": "0fa8e2a6f589107ff2cbaeae4cd245eba53e1078"
+  },
+  "migrations": [
+    "20261014010000_s81_staff_pay_push.sql"
+  ],
+  "migration_sha256": {
+    "20261014010000_s81_staff_pay_push.sql": "7e0ea0c23785c9d13a1af148412b69eba7bdb22688e7900a3a87854b3695f67d"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Additive. Adds staff_pay_requests.proof_path and paid_notified_at, staff_details.payout_bank_label, the table staff_push_subscriptions (RLS, a person reads and deletes only her own rows), eight functions and one AFTER UPDATE OF status trigger on staff_pay_requests. No existing function, policy or grant is changed, so telegram-expense, the Finance taps and notify-cleaner-payment (create) behave exactly as before. staff_pay_payout_qr_v1 is the only new reader of staff_details.payout_qrph and is granted to authenticated but answers only owner/admin/finance on an open request. The trigger posts to notify-cleaner-payment through pg_net with the vault secret cascade_cron_shared_secret and does nothing where either is absent. Rehearsed 2026-10-14 on a disposable local copy (baseline plus every forward migration): s81_staff_pay_push.sql 59 of 59 and staff_pay_requests.sql 70 of 70 green; the s81 file fails on the rolled-back state. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs). After the apply, set the bank label once per payee with plain SQL (staff_details.payout_bank_label = 'MariBank'), reading the row before and after; until it is set the notice says 'your account'.",
+    "notes": "Deploy notify-cleaner-payment AFTER this apply and set the secrets VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CASCADE_CRON_SHARED_SECRET (names only)."
+  },
+  "forward_verification": [
+    {
+      "name": "new_columns_and_table_present",
+      "query": "select to_regclass('public.staff_push_subscriptions') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'proof_path') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'paid_notified_at') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_details' and column_name = 'payout_bank_label')",
+      "expect": true
+    },
+    {
+      "name": "exactly_eight_new_functions",
+      "query": "select count(*) = 8 from pg_proc where pronamespace = 'public'::regnamespace and proname in ('staff_push_subscribe_v1', 'staff_pay_admin_list_v1', 'staff_pay_payout_qr_v1', 'staff_pay_admin_step_v1', 'staff_pay_admin_settle_v1', 'staff_pay_my_requests_v1', 'staff_pay_notice_v1', 'staff_pay_notify_paid_trg')",
+      "expect": true
+    },
+    {
+      "name": "anon_executes_none_of_the_new_functions",
+      "query": "select not (has_function_privilege('anon', 'public.staff_push_subscribe_v1(text,text,text,text)', 'execute') or has_function_privilege('anon', 'public.staff_pay_admin_list_v1()', 'execute') or has_function_privilege('anon', 'public.staff_pay_payout_qr_v1(uuid)', 'execute') or has_function_privilege('anon', 'public.staff_pay_admin_step_v1(uuid,text)', 'execute') or has_function_privilege('anon', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute') or has_function_privilege('anon', 'public.staff_pay_my_requests_v1()', 'execute') or has_function_privilege('anon', 'public.staff_pay_notice_v1(uuid,text)', 'execute'))",
+      "expect": true
+    },
+    {
+      "name": "authenticated_runs_six_and_not_the_notice_claim",
+      "query": "select has_function_privilege('authenticated', 'public.staff_push_subscribe_v1(text,text,text,text)', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_admin_list_v1()', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_payout_qr_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_admin_step_v1(uuid,text)', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_my_requests_v1()', 'execute') and not has_function_privilege('authenticated', 'public.staff_pay_notice_v1(uuid,text)', 'execute') and has_function_privilege('service_role', 'public.staff_pay_notice_v1(uuid,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "push_table_rls_on_own_rows_only",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.staff_push_subscriptions'::regclass) and not has_table_privilege('anon', 'public.staff_push_subscriptions', 'select,insert,update,delete') and not has_table_privilege('authenticated', 'public.staff_push_subscriptions', 'insert,update,truncate') and (select count(*) from pg_policies where schemaname = 'public' and tablename = 'staff_push_subscriptions' and roles = '{authenticated}' and qual like '%auth.uid()%') = 2",
+      "expect": true
+    },
+    {
+      "name": "payout_payload_is_owner_admin_only_by_policy",
+      "query": "select not has_table_privilege('anon', 'public.staff_details', 'select') and exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'staff_details' and cmd = 'SELECT' and roles = '{authenticated}' and qual like '%manage_staff%') and (select count(*) from pg_policies where schemaname = 'public' and tablename = 'staff_details' and cmd in ('SELECT', 'ALL')) = 1",
+      "expect": true
+    },
+    {
+      "name": "paid_still_needs_a_stored_screenshot",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.staff_pay_requests'::regclass and conname = 'staff_pay_paid_needs_proof' and convalidated)",
+      "expect": true
+    },
+    {
+      "name": "paid_trigger_installed",
+      "query": "select exists (select 1 from pg_trigger where tgname = 'staff_pay_notify_paid' and tgrelid = 'public.staff_pay_requests'::regclass and not tgisinternal)",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. The rollback drops only what this release added; Telegram settles and the existing pay functions are untouched. Rows in staff_push_subscriptions and the new columns are lost.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261014_s81_staff_pay_push.sql with run-sql-on-host.sh. Then redeploy notify-cleaner-payment from the previous commit (the paid action and the push sender disappear)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_probe_and_hide",
+      "required_state": "None. The Staff app probes each new RPC and hides the feature on PGRST202, so the site can ship before or after this release. The paid notice reaches the cleaner by Telegram and the in-app card at once; Web Push starts when the VAPID secrets are set and she turns the toggle on."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Rehearsed on a disposable local copy 2026-10-14: the existing staff_pay_requests.sql suite (70 tests) passes with this migration applied; no existing function is redefined. Neighbour release objects touched by name only: staff_pay_settle_v1 (called, not changed), telegram_staff_pay_step_v1 (called, not changed), staff_pay_requests (two nullable columns, one trigger). Live read pending: after the apply, settle nothing; read staff_pay_admin_list_v1 as an admin session and staff_pay_my_requests_v1 as Honey."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal has not run s81_staff_pay_push.sql and staff_pay_requests.sql green on this commit",
+    "the vault secret cascade_cron_shared_secret is missing (the paid notice would silently not be queued)",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}
