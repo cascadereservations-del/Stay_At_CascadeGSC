@@ -21,6 +21,13 @@
 --                   unchanged). s_weekly_sweep_v1 + pg_cron job s82-pay-weekly-sweep (Sunday 22:30 UTC = Monday 06:30 Manila): asks notify-cleaner-payment
 --                   once more for any request paid in the last 7 days whose notice was never claimed, deletes staff_upload_hashes older than 90 days and
 --                   cleaning_progress rows older than 14 days. Secret: the existing Vault cascade_cron_shared_secret.
+--   6. Inventory (owner decision 2026-10-15, "inventory: move to app counts")
+--                   apply_inventory_purchase (the Telegram receipt restock): on a movement-controlled item it now writes the matching 'receipt' movement
+--                   through s_inventory_purchase_movement_v1 (idempotent on p_txn_id there); uncontrolled items behave exactly as before.
+--                   inventory_shopping_list: authenticated loses the cost columns (estimated_cost, unit_cost, supplier); get_shopping_list_v1 returns them
+--                   only to finance_human_authorized sessions (the get_inventory_catalogue_v1 pattern). save_shopping_item_v1: without manage_inventory a
+--                   person may only create rows and edit or cancel proposed rows she proposed herself.
+-- SINGLE SHOT: the guards below compare the live bodies with the bodies this release was cut from, so a second run stops on its own md5 guard by design.
 -- Needs the s81 releases applied first (s81_notices_20261014 and s81_staff_pay_push_20261014): the guards below stop the release otherwise.
 -- Rollback: supabase/rollbacks/20261015_s82_staff_31.sql
 
@@ -35,7 +42,9 @@ begin
     ('public.staff_home_v1(uuid)',          'd04e3c492bbeba8722554ac5c951c928'),
     ('public.notices_v1(uuid)',             'f3f0653167ffaa39fa155287a13b913a'),
     ('public.staff_pay_admin_list_v1()',    '067d97c248b17221574c7d4b8b57a3f9'),
-    ('public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)', 'dda64b4a8f57fdf1b3d036ca458482d7')) v(a, b) loop
+    ('public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)', 'dda64b4a8f57fdf1b3d036ca458482d7'),
+    ('public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid)', 'e71d6a691a9af5e8fd5677a2857d9cd2'),
+    ('public.save_shopping_item_v1(uuid,jsonb,text)', '4429199a1b728c79cf82d86c01b17903')) v(a, b) loop
     select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure(v_fn);
     if v_got is null then raise exception 's82 staff 3.1: % does not exist (apply the s81 releases first)', v_fn using errcode = '55000'; end if;
     if v_got <> v_want then
@@ -402,7 +411,7 @@ begin
       join public.staff_access_profiles p on p.user_id = w.uid
   )
   select coalesce(jsonb_agg(jsonb_build_object(
-      'payee_user_id', w.uid, 'payee_name', w.name,
+      'payee_user_id', w.uid, 'payee_name', w.name, 'self', w.uid = auth.uid(),
       'has_qr', exists (select 1 from public.staff_details d where d.user_id = w.uid and d.payout_qrph is not null),
       'total', coalesce((select sum(s.base) from ses s where s.uid = w.uid), 0) + coalesce((select sum(k.amount) from clm k where k.uid = w.uid), 0),
       'sessions', coalesce((select jsonb_agg(jsonb_build_object('id', s.id, 'date', s.d, 'type', s.typ, 'base', s.base, 'transport', s.transport)
@@ -484,6 +493,158 @@ begin
   return jsonb_build_object('ok', true, 'status', 'paid', 'ref', v_r.ref, 'total', v_r.total_amount, 'verdict', p_verdict);
 end $$;
 revoke all on function public.staff_pay_settle_v1(uuid, bigint, text, text, jsonb) from public, anon, authenticated, service_role;
+-- 9. save_shopping_item_v1 (cut from the 20260913120000 body) ----------------------------------------------------------------------------------------------
+create or replace function public.save_shopping_item_v1(p_property_id uuid, p_item jsonb, p_idempotency_key text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare v_row public.inventory_shopping_list%rowtype; v_id uuid; v_status text;
+begin
+  perform public.admin_require('read_operations', p_property_id);
+  if p_idempotency_key is null or char_length(p_idempotency_key) not between 16 and 160 then raise exception using errcode = '22023', message = 'idempotency key required'; end if;
+  v_id := nullif(p_item->>'id', '')::uuid;
+  if v_id is null then
+    select * into v_row from public.inventory_shopping_list where idempotency_key = p_idempotency_key;
+    if found then return jsonb_build_object('ok', true, 'id', v_row.id, 'replayed', true); end if;
+    insert into public.inventory_shopping_list(property_id, item_id, item_name, quantity, purchase_unit, estimated_cost, reason, proposed_by, idempotency_key)
+    values (p_property_id, nullif(p_item->>'item_id', '')::uuid, p_item->>'item_name', (p_item->>'quantity')::numeric, p_item->>'purchase_unit', nullif(p_item->>'estimated_cost', '')::numeric, p_item->>'reason', auth.uid(), p_idempotency_key)
+    returning * into v_row;
+  else
+    v_status := p_item->>'status';
+    if v_status in ('approved','rejected') then perform public.admin_require('manage_inventory', p_property_id); end if;
+    select * into v_row from public.inventory_shopping_list where id = v_id and property_id = p_property_id for update;
+    if not found then raise exception using errcode = 'P0002', message = 'shopping item not found'; end if;
+    -- S82: without manage_inventory: only a row she proposed herself, only while it is still proposed, only to edit it or cancel it, never an approval note
+    if not public.current_staff_authorized('manage_inventory', p_property_id)
+       and (v_row.proposed_by is distinct from auth.uid() or v_row.status <> 'proposed' or coalesce(v_status, 'proposed') not in ('proposed', 'cancelled') or p_item ? 'approval_note') then
+      raise exception using errcode = '42501', message = 'manage_inventory denied';
+    end if;
+    if v_status = 'received' then raise exception using errcode = '22023', message = 'use record_inventory_receipt_v1 to receive goods'; end if;
+    update public.inventory_shopping_list set
+      status = coalesce(v_status, status), quantity = coalesce(nullif(p_item->>'quantity', '')::numeric, quantity), reason = coalesce(p_item->>'reason', reason),
+      approved_by = case when v_status in ('approved','rejected') then auth.uid() else approved_by end,
+      approved_at = case when v_status in ('approved','rejected') then now() else approved_at end,
+      approval_note = coalesce(p_item->>'approval_note', approval_note), version = version + 1, updated_at = now()
+    where id = v_id returning * into v_row;
+  end if;
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status, 'version', v_row.version);
+end;
+$$;
+revoke all on function public.save_shopping_item_v1(uuid, jsonb, text) from public, anon, service_role;
+grant execute on function public.save_shopping_item_v1(uuid, jsonb, text) to authenticated;
+
+-- 10. inventory: the Telegram receipt restock on a movement-controlled item (owner decision 2026-10-15, staff count in the app) ------------------------
+-- reconcile_inventory_baseline_v1 makes an item movement-controlled, one way: from then on qty_on_hand must equal the last inventory_stock_movements row,
+-- or inventory_ledger_consistent goes red and every movement RPC refuses with "stock reconciliation required". apply_inventory_purchase used to write
+-- qty_on_hand alone. For a controlled item it now writes the same 'receipt' movement record_inventory_receipt_v1 writes (through the internal helper below,
+-- which locks the item, checks the ledger is consistent, and keys the movement on the purchase row so it can never be written twice). An uncontrolled item
+-- runs exactly the old statements. A controlled item with the same p_txn_id seen before answers {ok, replayed} and writes nothing (the old function had no
+-- such guard; uncontrolled items keep that old behaviour). The movement's actor is the signed-in person, else the person who reconciled the item (a service
+-- role has no user; actor_user_id is NOT NULL). The helper is callable by the service role and by a signed-in owner/admin only.
+create or replace function public.s_inventory_purchase_movement_v1(p_item_id uuid, p_units numeric, p_reason text, p_source_ref text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare i public.inventory_items%rowtype; m public.inventory_stock_movements%rowtype; v_after numeric; v_actor uuid; v_id uuid;
+begin
+  select * into i from public.inventory_items where id = p_item_id for update;
+  if not found then raise exception using errcode = 'P0002', message = 'item not found'; end if;
+  if not (coalesce(auth.role(), '') = 'service_role' or public.inventory_human_authorized(i.property_id)) then
+    raise exception using errcode = '42501', message = 'inventory access denied';
+  end if;
+  if i.movement_controlled_at is null then raise exception using errcode = '22023', message = 'item is not movement controlled'; end if;
+  if p_units is null or p_units <= 0 or p_units >= 100000000 then raise exception using errcode = '22023', message = 'invalid quantity'; end if;
+  select * into m from public.inventory_stock_movements where item_id = i.id order by sequence_no desc limit 1;
+  if not found or m.quantity_after is distinct from i.qty_on_hand or m.property_id is distinct from i.property_id then
+    raise exception using errcode = '22023', message = 'stock reconciliation required';
+  end if;
+  v_actor := coalesce(auth.uid(), i.baseline_reviewed_by);
+  if v_actor is null then raise exception using errcode = '22023', message = 'no actor for this movement'; end if;
+  v_after := i.qty_on_hand + p_units;
+  insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key)
+  values (i.id, i.property_id, 'receipt', i.qty_on_hand, v_after, btrim(p_reason), v_actor,
+          left('evt-' || encode(extensions.digest('inventory_purchases|' || p_source_ref || '|' || i.id::text || '|receipt', 'sha256'), 'hex'), 80))
+  returning id into v_id;
+  update public.inventory_items set qty_on_hand = v_after where id = i.id;
+  return jsonb_build_object('before', i.qty_on_hand, 'after', v_after, 'movement_id', v_id);
+end;
+$$;
+revoke all on function public.s_inventory_purchase_movement_v1(uuid, numeric, text, text) from public, anon;
+grant execute on function public.s_inventory_purchase_movement_v1(uuid, numeric, text, text) to authenticated, service_role;
+
+create or replace function public.apply_inventory_purchase(p_item_id uuid, p_qty numeric, p_unit_cost numeric default null::numeric, p_supplier text default null::text, p_purchased_at date default current_date, p_txn_id uuid default null::uuid)
+returns jsonb language plpgsql set search_path = public as $$
+declare
+  v_upp numeric; v_before numeric; v_after numeric; v_pid uuid; v_name text; v_controlled boolean; v_mv jsonb;
+begin
+  select coalesce(units_per_purchase, 1), qty_on_hand, name, movement_controlled_at is not null
+    into v_upp, v_before, v_name, v_controlled
+  from inventory_items where id = p_item_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'item_not_found');
+  end if;
+
+  -- S82: a movement-controlled item with this receipt transaction already restocked is answered, not added twice
+  if v_controlled and p_txn_id is not null then
+    select id into v_pid from inventory_purchases where item_id = p_item_id and notes like '%(txn ' || p_txn_id::text || ')%' limit 1;
+    if found then
+      return jsonb_build_object('ok', true, 'replayed', true, 'name', v_name, 'purchase_id', v_pid, 'qty_before', v_before, 'qty_after', v_before, 'added', 0);
+    end if;
+  end if;
+
+  insert into inventory_purchases(item_id, qty, unit_cost, supplier, purchased_at, units_per_purchase, notes)
+  values (p_item_id, p_qty, p_unit_cost, p_supplier, coalesce(p_purchased_at, current_date), v_upp,
+          'Auto-restock from receipt OCR' || case when p_txn_id is not null then ' (txn ' || p_txn_id::text || ')' else '' end)
+  returning id into v_pid;
+
+  if v_controlled then
+    v_mv := public.s_inventory_purchase_movement_v1(p_item_id, p_qty * v_upp,
+              'Auto-restock from receipt OCR' || case when p_txn_id is not null then ' (txn ' || p_txn_id::text || ')' else '' end, v_pid::text);
+    v_before := (v_mv ->> 'before')::numeric;
+    v_after := (v_mv ->> 'after')::numeric;
+  else
+    v_after := coalesce(v_before, 0) + (p_qty * v_upp);
+    update inventory_items set qty_on_hand = v_after where id = p_item_id;
+  end if;
+
+  insert into inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+  values ('inventory_items', p_item_id, 'ocr_restock',
+          jsonb_build_object('qty_on_hand', v_before),
+          jsonb_build_object('qty_on_hand', v_after, 'purchase_id', v_pid, 'qty_added', p_qty * v_upp),
+          'telegram-ocr');
+
+  return jsonb_build_object('ok', true, 'name', v_name, 'purchase_id', v_pid,
+                            'qty_before', v_before, 'qty_after', v_after, 'added', p_qty * v_upp);
+end; $$;
+revoke execute on function public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid) from public, anon;
+grant execute on function public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid) to authenticated, service_role;
+
+-- 11. inventory_shopping_list: costs and edits ----------------------------------------------------------------------------------------------------
+-- A column grant cannot tell an owner from a cleaner (both are `authenticated`), so the table loses its cost columns for direct reads and a definer read
+-- model, get_shopping_list_v1, hands them to finance_human_authorized sessions only (the same test get_inventory_catalogue_v1 uses for unitCost).
+-- WIRING: the admin dashboard's purchases page reads this table with select('*'), which now fails; it must call get_shopping_list_v1 (see the report).
+revoke select on public.inventory_shopping_list from authenticated;
+do $$
+declare v_cols text;
+begin
+  select string_agg(format('%I', c.column_name), ', ' order by c.ordinal_position) into v_cols
+    from information_schema.columns c
+   where c.table_schema = 'public' and c.table_name = 'inventory_shopping_list' and c.column_name not in ('estimated_cost', 'unit_cost', 'supplier');
+  execute format('grant select (%s) on public.inventory_shopping_list to authenticated', v_cols);
+end $$;
+
+create or replace function public.get_shopping_list_v1(p_property_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare v_fin boolean; v_rows jsonb;
+begin
+  perform public.admin_require('read_operations', p_property_id);
+  v_fin := public.finance_human_authorized(p_property_id);
+  select coalesce(jsonb_agg(case when v_fin then to_jsonb(l) else to_jsonb(l) - 'estimated_cost' - 'unit_cost' - 'supplier' end order by l.proposed_at desc), '[]'::jsonb)
+    into v_rows
+    from (select * from public.inventory_shopping_list where property_id = p_property_id order by proposed_at desc limit 200) l;
+  return jsonb_build_object('ok', true, 'rows', v_rows);
+end;
+$$;
+revoke all on function public.get_shopping_list_v1(uuid) from public, anon, service_role;
+grant execute on function public.get_shopping_list_v1(uuid) to authenticated;
+comment on function public.get_shopping_list_v1(uuid) is 'S82: the shopping list for read_operations sessions. estimated_cost, unit_cost and supplier only for finance_human_authorized sessions (the table no longer grants them for direct reads).';
+
 
 -- 5. cleaning progress ------------------------------------------------------------------------------------------------------------------------
 -- A cleaner (anyone who may submit a cleaning) records where she is: step of of, with the section name. One row per (property, her, Manila day).
@@ -570,11 +731,19 @@ begin
   if v_uid is null or not public.current_staff_authorized('approve_payment', c_prop) then
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
+  if p_payee_user_id is not null and p_payee_user_id = v_uid then
+    return jsonb_build_object('ok', false, 'reason', 'self'); -- nobody makes a pay request for her own work through the admin door
+  end if;
   if p_payee_user_id is null or p_idempotency_key is null or char_length(p_idempotency_key) not between 8 and 80 then
     return jsonb_build_object('ok', false, 'reason', 'bad_request');
   end if;
   if not exists (select 1 from public.staff_access_profiles where user_id = p_payee_user_id) then
     return jsonb_build_object('ok', false, 'reason', 'payee_not_found');
+  end if;
+  -- the payee must be a current member of staff who may submit cleanings (not disabled, not a role without that right)
+  if not exists (select 1 from public.staff_access_profiles p where p.user_id = p_payee_user_id and p.disabled_at is null
+                  and public.staff_access_allowed(p.role, 'submit_cleaning', p.disabled_at, null)) then
+    return jsonb_build_object('ok', false, 'reason', 'payee_not_allowed');
   end if;
   -- the same lock key the staff member's own create takes, so her tap and this one cannot both write
   perform pg_advisory_xact_lock(hashtextextended('staff_pay_create:' || p_payee_user_id::text || ':' || p_idempotency_key, 0));

@@ -16,11 +16,79 @@ begin
 end $$;
 delete from public.job_heartbeats where job_name = 'pay-weekly-sweep';
 
+drop function if exists public.get_shopping_list_v1(uuid);
 drop function if exists public.s_weekly_sweep_v1();
 drop function if exists public.s_paid_unnotified_v1();
 drop function if exists public.staff_pay_admin_create_v1(uuid, jsonb, uuid[], text);
 drop function if exists public.cleaning_progress_v1();
 drop function if exists public.cleaning_progress_set_v1(integer, integer, text);
+
+-- 0. inventory: the shopping list is readable again with all its columns; both functions go back to the bodies this release was cut from
+grant select on public.inventory_shopping_list to authenticated;
+create or replace function public.save_shopping_item_v1(p_property_id uuid, p_item jsonb, p_idempotency_key text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare v_row public.inventory_shopping_list%rowtype; v_id uuid; v_status text;
+begin
+  perform public.admin_require('read_operations', p_property_id);
+  if p_idempotency_key is null or char_length(p_idempotency_key) not between 16 and 160 then raise exception using errcode = '22023', message = 'idempotency key required'; end if;
+  v_id := nullif(p_item->>'id', '')::uuid;
+  if v_id is null then
+    select * into v_row from public.inventory_shopping_list where idempotency_key = p_idempotency_key;
+    if found then return jsonb_build_object('ok', true, 'id', v_row.id, 'replayed', true); end if;
+    insert into public.inventory_shopping_list(property_id, item_id, item_name, quantity, purchase_unit, estimated_cost, reason, proposed_by, idempotency_key)
+    values (p_property_id, nullif(p_item->>'item_id', '')::uuid, p_item->>'item_name', (p_item->>'quantity')::numeric, p_item->>'purchase_unit', nullif(p_item->>'estimated_cost', '')::numeric, p_item->>'reason', auth.uid(), p_idempotency_key)
+    returning * into v_row;
+  else
+    v_status := p_item->>'status';
+    if v_status in ('approved','rejected') then perform public.admin_require('manage_inventory', p_property_id); end if;
+    select * into v_row from public.inventory_shopping_list where id = v_id and property_id = p_property_id for update;
+    if not found then raise exception using errcode = 'P0002', message = 'shopping item not found'; end if;
+    if v_status = 'received' then raise exception using errcode = '22023', message = 'use record_inventory_receipt_v1 to receive goods'; end if;
+    update public.inventory_shopping_list set
+      status = coalesce(v_status, status), quantity = coalesce(nullif(p_item->>'quantity', '')::numeric, quantity), reason = coalesce(p_item->>'reason', reason),
+      approved_by = case when v_status in ('approved','rejected') then auth.uid() else approved_by end,
+      approved_at = case when v_status in ('approved','rejected') then now() else approved_at end,
+      approval_note = coalesce(p_item->>'approval_note', approval_note), version = version + 1, updated_at = now()
+    where id = v_id returning * into v_row;
+  end if;
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status, 'version', v_row.version);
+end;
+$$;
+revoke all on function public.save_shopping_item_v1(uuid, jsonb, text) from public, anon, service_role;
+grant execute on function public.save_shopping_item_v1(uuid, jsonb, text) to authenticated;
+
+create or replace function public.apply_inventory_purchase(p_item_id uuid, p_qty numeric, p_unit_cost numeric default null::numeric, p_supplier text default null::text, p_purchased_at date default current_date, p_txn_id uuid default null::uuid)
+returns jsonb language plpgsql set search_path = public as $$
+declare
+  v_upp numeric; v_before numeric; v_after numeric; v_pid uuid; v_name text;
+begin
+  select coalesce(units_per_purchase, 1), qty_on_hand, name
+    into v_upp, v_before, v_name
+  from inventory_items where id = p_item_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'item_not_found');
+  end if;
+
+  insert into inventory_purchases(item_id, qty, unit_cost, supplier, purchased_at, units_per_purchase, notes)
+  values (p_item_id, p_qty, p_unit_cost, p_supplier, coalesce(p_purchased_at, current_date), v_upp,
+          'Auto-restock from receipt OCR' || case when p_txn_id is not null then ' (txn ' || p_txn_id::text || ')' else '' end)
+  returning id into v_pid;
+
+  v_after := coalesce(v_before, 0) + (p_qty * v_upp);
+  update inventory_items set qty_on_hand = v_after where id = p_item_id;
+
+  insert into inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+  values ('inventory_items', p_item_id, 'ocr_restock',
+          jsonb_build_object('qty_on_hand', v_before),
+          jsonb_build_object('qty_on_hand', v_after, 'purchase_id', v_pid, 'qty_added', p_qty * v_upp),
+          'telegram-ocr');
+
+  return jsonb_build_object('ok', true, 'name', v_name, 'purchase_id', v_pid,
+                            'qty_before', v_before, 'qty_after', v_after, 'added', p_qty * v_upp);
+end; $$;
+revoke execute on function public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid) from public, anon;
+grant execute on function public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid) to authenticated, service_role;
+drop function if exists public.s_inventory_purchase_movement_v1(uuid, numeric, text, text);
 
 -- 1. staff_pay_settle_v1 back to the 20261005110000 body
 create or replace function public.staff_pay_settle_v1(p_id uuid, p_actor_tg bigint, p_actor text, p_verdict text, p_proof jsonb)
