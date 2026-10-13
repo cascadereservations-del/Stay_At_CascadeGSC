@@ -13,8 +13,11 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
-import { financeCaption, financeKeyboard, opsRequestText, type PayReq, peso } from '../_shared/cascade-core/staffpay.ts';
+import { financeCaption, financeKeyboard, opsPaidKeyboard, opsRequestText, type PayReq, peso } from '../_shared/cascade-core/staffpay.ts';
+import { cronSecretMatches } from '../_shared/cron-auth.ts';
+import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
 import { parseRequest } from './request.ts';
+import { type NoticeData, runPaid } from './paid.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -25,7 +28,7 @@ const OPS_CHAT      = Deno.env.get('TELEGRAM_CHAT_ID') ?? '';
 const PROPERTY_ID   = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const CORS_H = {
   'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cascade-cron-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -69,16 +72,72 @@ async function postReceipts(db: any, requestId: string, financeMessageId: number
   if (!res?.ok) console.warn('receipt photos not posted:', String(res?.description ?? 'no answer').slice(0, 120));
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** action "paid" (Lane C, s81): tell the staff member she was paid. The database trigger asks with the cron secret; the Staff app asks with an
+ *  owner/admin/finance session right after it settles. Either way the notice is claimed once, so two asks send one set of messages. */
+async function handlePaid(req: Request, body: Record<string, unknown>): Promise<Response> {
+  if (!cronSecretMatches(Deno.env.get('CASCADE_CRON_SHARED_SECRET'), req.headers.get('x-cascade-cron-secret'))) {
+    try { await requireStaffAccess(req, 'approve_payment', PROPERTY_ID); }
+    catch (e) { const r = staffAuthResponse(e, CORS_H); if (r) return r; throw e; }
+  }
+  const id = typeof body.request_id === 'string' ? body.request_id : '';
+  if (!UUID.test(id)) return reply({ ok: false, reason: 'bad_request' }, 400);
+  if (!TG_TOKEN || !SERVICE_ROLE) return reply({ ok: false, reason: 'not_configured' }, 500);
+  const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  const vapid = vapidFromEnv((k) => Deno.env.get(k));
+  const out = await runPaid(id, {
+    claim: async (rid) => {
+      const { data, error } = await db.rpc('staff_pay_notice_v1', { p_request_id: rid, p_action: 'claim' });
+      if (error || !data) { console.error('staff_pay_notice_v1 failed:', error?.code); return { ok: false, reason: 'rpc_failed' }; }
+      return data as NoticeData | { ok: false; reason: string };
+    },
+    tg: (method, b) => tgJson(method, b),
+    opsChat: OPS_CHAT,
+    financeCard: async (rid) => {
+      const { data: row } = await db.from('staff_pay_requests').select('*').eq('id', rid).maybeSingle();
+      if (!row) return null;
+      const r = row as PayReq;
+      return {
+        chat_id: Number(r.finance_chat_id) || 0, message_id: Number(r.finance_message_id) || 0, text: financeCaption(r, true), reply_markup: financeKeyboard(r),
+        ops_keyboard: opsPaidKeyboard(r),
+      };
+    },
+    subs: async (uid) => {
+      const { data } = await db.from('staff_push_subscriptions').select('id,endpoint,p256dh,auth').eq('user_id', uid);
+      return (data ?? []) as Array<{ id: string; endpoint: string; p256dh: string; auth: string }>;
+    },
+    deleteSub: async (sid) => { await db.from('staff_push_subscriptions').delete().eq('id', sid); },
+    touchSub: async (sid) => { await db.from('staff_push_subscriptions').update({ last_ok_at: new Date().toISOString() }).eq('id', sid); },
+    push: vapid ? (s, m) => sendPush(s, m, vapid, { nowSec: Math.floor(Date.now() / 1000) }) : null,
+    log: (m) => console.warn(m),
+  });
+  return reply(out, out.ok ? 200 : 404);
+}
+
+/** action "vapid_key": the public key a phone subscribes with. Public by design; the private key never leaves the secrets. */
+async function handleVapidKey(req: Request): Promise<Response> {
+  try { await requireStaffAccess(req, 'submit_cleaning', PROPERTY_ID); }
+  catch (e) { const r = staffAuthResponse(e, CORS_H); if (r) return r; throw e; }
+  const key = vapidFromEnv((k) => Deno.env.get(k))?.publicKey;
+  return key ? reply({ ok: true, key }) : reply({ ok: false, reason: 'push_not_configured' });
+}
+
 Deno.serve(withObservability({ functionName: 'notify-cleaner-payment', route: 'ops' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_H });
   if (req.method !== 'POST') return reply({ ok: false, reason: 'method_not_allowed' }, 405);
+
+  const raw = await req.json().catch(() => null);
+  const action = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>).action : undefined;
+  if (action === 'paid') return handlePaid(req, raw as Record<string, unknown>);
+  if (action === 'vapid_key') return handleVapidKey(req);
 
   let identity;
   try { identity = await requireStaffAccess(req, 'submit_cleaning', PROPERTY_ID); }
   catch (e) { const r = staffAuthResponse(e, CORS_H); if (r) return r; throw e; }
   if (!TG_TOKEN || !FINANCE_CHAT || !SUPABASE_ANON) return reply({ ok: false, reason: 'not_configured' }, 500);
 
-  const parsed = parseRequest(await req.json().catch(() => null));
+  const parsed = parseRequest(raw);
   if (!parsed.ok) return reply({ ok: false, reason: parsed.reason }, 400);
   const { key, sessions, claim_ids, extras } = parsed.value;
 
