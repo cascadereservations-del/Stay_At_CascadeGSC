@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "release_id": "s81_notices_20261014",
+  "phase": "expand",
+  "source": {
+    "branch": "s81/B-notices",
+    "commit": "255348e7d5323fda9fea03254b7b039bbef41452"
+  },
+  "migrations": [
+    "20261014000000_s81_notices.sql"
+  ],
+  "migration_sha256": {
+    "20261014000000_s81_notices.sql": "f5f5892de59d90e8c59c97b0ecda602e2f2644a4d6c804e291c168a0b3039f68"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Additive. Two RPCs are added (notices_v1, ops_notice_add_v1), two ops_notices check constraints are widened (old values kept), one app_settings key house_times is inserted when absent. No table is rewritten, no row is changed, no grant to anon. notices_v1 reads weather_proxy_cache, ops_notices, inventory_items, verifier_findings (owner/admin), concierge_handoffs (owner/admin) and returns an allow-list; free text goes through staff_redact_v1. ops_notice_add_v1 is owner/admin (manage_operations) and refuses phone numbers, e-mails and amounts. Deploy weather-proxy (adds hourly, hourly_source, aqi, rain_watch, code) before or after: notices_v1 reads an old-shape cache without error (hourly [], code/aqi/rain_watch null). restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs)."
+  },
+  "forward_verification": [
+    {
+      "name": "notice_type_check_has_the_four_new_types_and_the_old_four",
+      "query": "select pg_get_constraintdef(oid) ~ 'water' and pg_get_constraintdef(oid) ~ 'maintenance' and pg_get_constraintdef(oid) ~ 'deep_clean' and pg_get_constraintdef(oid) ~ 'note' and pg_get_constraintdef(oid) ~ 'brownout' and pg_get_constraintdef(oid) ~ 'holiday' and pg_get_constraintdef(oid) ~ 'event' and pg_get_constraintdef(oid) ~ 'reminder' from pg_constraint where conrelid = 'public.ops_notices'::regclass and conname = 'ops_notices_notice_type_check'",
+      "expect": true
+    },
+    {
+      "name": "source_check_has_the_three_new_sources_and_the_old_three",
+      "query": "select pg_get_constraintdef(oid) ~ 'gscwd' and pg_get_constraintdef(oid) ~ 'manual' and pg_get_constraintdef(oid) ~ 'system' and pg_get_constraintdef(oid) ~ 'socoteco' and pg_get_constraintdef(oid) ~ 'ngcp' and pg_get_constraintdef(oid) ~ 'staff' from pg_constraint where conrelid = 'public.ops_notices'::regclass and conname = 'ops_notices_source_check'",
+      "expect": true
+    },
+    {
+      "name": "house_times_is_seeded_with_both_keys",
+      "query": "select exists (select 1 from public.app_settings where key = 'house_times' and value ? 'check_out' and value ? 'check_in')",
+      "expect": true
+    },
+    {
+      "name": "both_functions_are_definer_with_an_empty_search_path",
+      "query": "select count(*) = 2 and bool_and(prosecdef) and bool_and(proconfig @> array['search_path=\"\"']) from pg_proc where oid in ('public.notices_v1(uuid)'::regprocedure, 'public.ops_notice_add_v1(text, text, date, time, numeric, text, uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "authenticated_and_service_role_may_run_both_anon_may_not",
+      "query": "select has_function_privilege('authenticated', 'public.notices_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.ops_notice_add_v1(text, text, date, time, numeric, text, uuid)', 'execute') and has_function_privilege('service_role', 'public.notices_v1(uuid)', 'execute') and has_function_privilege('service_role', 'public.ops_notice_add_v1(text, text, date, time, numeric, text, uuid)', 'execute') and not has_function_privilege('anon', 'public.notices_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.ops_notice_add_v1(text, text, date, time, numeric, text, uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "notices_v1_source_names_no_money_or_contact_column",
+      "query": "select prosrc !~* 'm(payout|price|gross_amount|guest_email|guest_phone|psid|payout_qrph)M' from pg_proc where oid = 'public.notices_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "redaction_helper_is_still_internal_only",
+      "query": "select to_regprocedure('public.staff_redact_v1(text)') is not null and not has_function_privilege('authenticated', 'public.staff_redact_v1(text)', 'execute') and not has_function_privilege('anon', 'public.staff_redact_v1(text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "existing_brownout_notices_are_untouched_by_the_check_change",
+      "query": "select not exists (select 1 from public.ops_notices where notice_type = 'brownout' and source is not null and source not in ('socoteco', 'ngcp', 'staff'))",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time. Rolling back deletes notices of type water, maintenance, deep_clean or note saved after the release and nulls source gscwd/manual/system; take a backup first if any matter.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261014_s81_notices.sql with run-sql-on-host.sh: drops both functions, restores the two original check lists (deleting rows of the four new types first), removes house_times only while it still equals the seed. The Staff v5 app hides Notices when notices_v1 is absent."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "app_probe_hides_feature",
+      "required_state": "None. The Staff v5 app probes notices_v1 and ops_notice_add_v1 and hides the Notices screen and the Add a notice form on PGRST202 (LANE-RULES rule 7). Nothing reads the new check values until a water, maintenance, deep_clean or note notice is saved."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Read 2026-10-13 from the live catalog: ops_notices_notice_type_check = brownout|holiday|event|reminder, ops_notices_source_check = socoteco|ngcp|staff, 4 live rows, all brownout/socoteco; app_settings has no house_times key and no such key under another name; neither function exists yet. Readers of ops_notices.notice_type: staff_home_v1, calendar_day_flags, admin overview (they filter brownout or list the type as text), telegram-expense /notices (filters holiday/event/reminder or lists all). A new type shows only in lists that do not filter by type. Rehearsal pending: pgTAP s81_notices.sql ran green (50/50) on a local supabase/postgres 17 harness with stand-ins for the dependent tables, NOT on a restored backup; run it on the rehearsal copy with its neighbours staff_home_v1.sql, admin_read_models_v1.sql, s80_rls_tighten.sql."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal on a restored backup has not run s81_notices.sql green on this commit",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}
