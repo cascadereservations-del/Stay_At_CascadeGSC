@@ -4,26 +4,26 @@
   "phase": "backfill",
   "source": {
     "branch": "s81/C-pay",
-    "commit": "0fa8e2a6f589107ff2cbaeae4cd245eba53e1078"
+    "commit": "23445d9ecfbe54a2f01195171d7b42e6ce1d719e"
   },
   "migrations": [
     "20261014010000_s81_staff_pay_push.sql"
   ],
   "migration_sha256": {
-    "20261014010000_s81_staff_pay_push.sql": "7e0ea0c23785c9d13a1af148412b69eba7bdb22688e7900a3a87854b3695f67d"
+    "20261014010000_s81_staff_pay_push.sql": "3754b17e122c1c9739249ba060046c5187da2d3d9bd72e3f693b03402121f376"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING - name the backup set taken immediately before this apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Additive. Adds staff_pay_requests.proof_path and paid_notified_at, staff_details.payout_bank_label, the table staff_push_subscriptions (RLS, a person reads and deletes only her own rows), eight functions and one AFTER UPDATE OF status trigger on staff_pay_requests. No existing function, policy or grant is changed, so telegram-expense, the Finance taps and notify-cleaner-payment (create) behave exactly as before. staff_pay_payout_qr_v1 is the only new reader of staff_details.payout_qrph and is granted to authenticated but answers only owner/admin/finance on an open request. The trigger posts to notify-cleaner-payment through pg_net with the vault secret cascade_cron_shared_secret and does nothing where either is absent. Rehearsed 2026-10-14 on a disposable local copy (baseline plus every forward migration): s81_staff_pay_push.sql 59 of 59 and staff_pay_requests.sql 70 of 70 green; the s81 file fails on the rolled-back state. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs). After the apply, set the bank label once per payee with plain SQL (staff_details.payout_bank_label = 'MariBank'), reading the row before and after; until it is set the notice says 'your account'.",
-    "notes": "Deploy notify-cleaner-payment AFTER this apply and set the secrets VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CASCADE_CRON_SHARED_SECRET (names only)."
+    "production_rule": "Additive. Adds staff_pay_requests.proof_path, paid_notified_at and paying_by_user_id, the table staff_upload_hashes (written only by upload-photo), staff_details.payout_bank_label, the table staff_push_subscriptions (RLS, a person reads and deletes only her own rows), eight functions and one AFTER UPDATE OF status trigger on staff_pay_requests. No existing function, policy or grant is changed, so telegram-expense, the Finance taps and notify-cleaner-payment (create) behave exactly as before. staff_pay_payout_qr_v1 is the only new reader of staff_details.payout_qrph and is granted to authenticated but answers only owner/admin/finance on an open request. The trigger posts to notify-cleaner-payment through pg_net with the vault secret cascade_cron_shared_secret and does nothing where either is absent. Rehearsed 2026-10-14 on a disposable local copy (baseline plus every forward migration): s81_staff_pay_push.sql 82 of 82 and staff_pay_requests.sql 70 of 70 green; the s81 file fails on the rolled-back state. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs). After the apply, set the bank label once per payee with plain SQL (staff_details.payout_bank_label = 'MariBank'), reading the row before and after; until it is set the notice says 'your account'.",
+    "notes": "Deploy order: apply this SQL, then deploy upload-photo (it writes staff_upload_hashes; until then no web settle can complete because the server hash is missing) and notify-cleaner-payment. Secrets by name: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CASCADE_CRON_SHARED_SECRET."
   },
   "forward_verification": [
     {
       "name": "new_columns_and_table_present",
-      "query": "select to_regclass('public.staff_push_subscriptions') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'proof_path') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'paid_notified_at') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_details' and column_name = 'payout_bank_label')",
+      "query": "select to_regclass('public.staff_push_subscriptions') is not null and to_regclass('public.staff_upload_hashes') is not null and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'paying_by_user_id') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'proof_path') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'paid_notified_at') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_details' and column_name = 'payout_bank_label')",
       "expect": true
     },
     {
@@ -59,6 +59,11 @@
     {
       "name": "paid_trigger_installed",
       "query": "select exists (select 1 from pg_trigger where tgname = 'staff_pay_notify_paid' and tgrelid = 'public.staff_pay_requests'::regclass and not tgisinternal)",
+      "expect": true
+    },
+    {
+      "name": "upload_hashes_closed_to_api_roles",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.staff_upload_hashes'::regclass) and not has_table_privilege('anon', 'public.staff_upload_hashes', 'select,insert,update,delete') and not has_table_privilege('authenticated', 'public.staff_upload_hashes', 'select,insert,update,delete') and has_table_privilege('service_role', 'public.staff_upload_hashes', 'select,insert')",
       "expect": true
     }
   ],
@@ -97,6 +102,7 @@
     "the rehearsal has not run s81_staff_pay_push.sql and staff_pay_requests.sql green on this commit",
     "the vault secret cascade_cron_shared_secret is missing (the paid notice would silently not be queued)",
     "notify-cleaner-payment is not deployed with verify_jwt off (the paid trigger sends no user JWT; read the function's setting in the dashboard, supabase/config.toml does not list it)",
+    "upload-photo has not been redeployed from this branch (a payment screenshot would have no server-side hash and the settle would answer no_stored_proof)",
     "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
   ]
 }
