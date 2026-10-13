@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s82/C-checklist",
-    "commit": "da5418b57dad84b39903ef8aad9e0c3954e31103"
+    "commit": "0873eb9654ce0292b642344e449fa084223f3f89"
   },
   "migrations": [
     "20261015010000_s82_checklist.sql"
