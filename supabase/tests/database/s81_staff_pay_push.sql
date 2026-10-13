@@ -2,7 +2,7 @@
 -- notice and the Web Push table. Synthetic fixtures only (uuids c5100000-...); every lookup is scoped to them. The payout payload is a made-up
 -- string that is not a QR Ph payment. Grant assertions need ACLs, so they live in the release's forward checks. Everything rolls back.
 begin;
-select plan(82);
+select plan(92);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite; the forward checks prove the real ACLs)
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
@@ -185,6 +185,44 @@ insert into _t select 'a_take_back', public.staff_pay_admin_step_v1((select (v->
 reset role;
 select is((select paying_by_user_id::text from public.staff_pay_requests where id = (select (v->>'request_id')::uuid from _t where k = 'r1')), 'c5100000-0000-4000-8000-0000000000a3', 'A takes it back; the row records the current payer');
 
+-- M-A: the web payer says the money was sent (Save QR, Open bank app, Copy amount, screenshot picked); after that nobody can take over or cancel
+select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a5');
+insert into _t select 'x_b_sent', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'sent');
+reset role;
+select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a3');
+insert into _t select 'x_a_sent', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'sent');
+reset role;
+insert into _t select 'x_first_sent', to_jsonb(sent_said_at) from public.staff_pay_requests where id = (select (v->>'request_id')::uuid from _t where k = 'r1');
+select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a3');
+insert into _t select 'x_a_sent2', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'sent');
+reset role;
+select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a5');
+insert into _t select 'x_b_take', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'takeover');
+insert into _t select 'x_b_cancel', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'cancel');
+insert into _t select 'x_b_list', public.staff_pay_admin_list_v1();
+reset role;
+select is((select v->>'reason' from _t where k = 'x_b_sent'), 'not_yours', 'a non-payer cannot say the money was sent');
+select is((select v->>'ok' from _t where k = 'x_a_sent'), 'true', 'the payer can');
+select ok((select sent_said_at is not null and sent_said_at = (select (v #>> '{}')::timestamptz from _t where k = 'x_first_sent') from public.staff_pay_requests where id = (select (v->>'request_id')::uuid from _t where k = 'r1')), 'and saying it again is idempotent (the first time stays)');
+select is((select v->>'reason' from _t where k = 'x_b_take'), 'money_may_be_sent', 'after sent, the other admin cannot take over');
+select is((select v->>'reason' from _t where k = 'x_b_cancel'), 'money_may_be_sent', 'and a cancel is refused too');
+select ok((select r->'sent_said_at' <> 'null'::jsonb and r->>'paying_by_user_id' = 'c5100000-0000-4000-8000-0000000000a3' from _t, jsonb_array_elements(v->'requests') r where k = 'x_b_list' and r->>'payee_name' = 'Zzhoney Reyes'), 'the list tells the other admin that she may already have sent it');
+select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a3');
+insert into _t select 'x_a_unsent', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'not_sent');
+reset role;
+select ok((select status = 'requested' and sent_said_at is null and paying_by_user_id is null from public.staff_pay_requests where id = (select (v->>'request_id')::uuid from _t where k = 'r1')), 'the payer steps back with "I have not sent it": sent is cleared and the request is open again');
+update public.staff_pay_requests set paying_by_user_id = 'c5100000-0000-4000-8000-0000000000a5' where id = (select (v->>'request_id')::uuid from _t where k = 'r1');
+select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a5');
+insert into _t select 'x_stale_list', public.staff_pay_admin_list_v1();
+insert into _t select 'x_b_pay', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'pay');
+reset role;
+select ok((select r->'paying_by_user_id' = 'null'::jsonb from _t, jsonb_array_elements(v->'requests') r where k = 'x_stale_list' and r->>'payee_name' = 'Zzhoney Reyes'), 'a stale paying_by_user_id on a request that is not paying never leaves the list');
+select is((select v->>'paying_by_user_id' from _t where k = 'x_b_pay'), 'c5100000-0000-4000-8000-0000000000a5', 'the reopened request can be taken by the other admin as a plain Pay');
+select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a3');
+insert into _t select 'x_a_back', public.staff_pay_admin_step_v1((select (v->>'request_id')::uuid from _t where k = 'r1'), 'takeover');
+reset role;
+select is((select v->>'paying_by_user_id' from _t where k = 'x_a_back'), 'c5100000-0000-4000-8000-0000000000a3', 'and A can take it back because nothing was sent');
+
 -- 40-49 the real settle
 select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a3');
 insert into _t select 's_mismatch', public.staff_pay_admin_settle_v1((select (v->>'request_id')::uuid from _t where k = 'r1'),
@@ -259,13 +297,14 @@ select is((select count(*)::int from public.staff_push_subscriptions where user_
 select pg_temp.as_user('c5100000-0000-4000-8000-0000000000a1');
 insert into _t select 'ep_' || n, public.staff_push_subscribe_v1(u, repeat('p', 87), repeat('a', 22), null)
   from unnest(array['https://fcm.googleapis.com.evil.example/x', 'https://evilfcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x', 'https://user@fcm.googleapis.com/x',
-                    'https://x.push.apple.com.evil.example/x', 'https://push.apple.com/x', 'https://127.0.0.1/x', 'https://fcm.googleapis.com@evil.example/x']) with ordinality t(u, n);
+                    'https://x.push.apple.com.evil.example/x', 'https://Evilfcm.googleapis.com/x', 'https://push.apple.com/x', 'https://127.0.0.1/x', 'https://fcm.googleapis.com@evil.example/x']) with ordinality t(u, n);
+insert into _t select 'ep_ok_upper', public.staff_push_subscribe_v1('https://FCM.GoogleAPIs.com/fcm/send/zzupper', repeat('p', 87), repeat('a', 22), null);
 insert into _t select 'ep_ok_apple', public.staff_push_subscribe_v1('https://web.push.apple.com/zzapple', repeat('p', 87), repeat('a', 22), null);
 insert into _t select 'ep_ok_moz', public.staff_push_subscribe_v1('https://updates.push.services.mozilla.com/wpush/v2/zz', repeat('p', 87), repeat('a', 22), null);
 insert into _t select 'ep_ok_win', public.staff_push_subscribe_v1('https://db5p.notify.windows.com/?token=zz', repeat('p', 87), repeat('a', 22), null);
 reset role;
-select is((select count(*)::int from _t where k like 'ep\_%' and k not like 'ep\_ok%' and v->>'reason' = 'endpoint_not_allowed'), 8, 'look-alike, ported, credentialed and bare hosts are refused with a plain reason');
-select ok((select bool_and((v->>'ok')::boolean) from _t where k like 'ep\_ok%'), 'apple, mozilla and windows push hosts are accepted');
+select is((select count(*)::int from _t where k like 'ep\_%' and k not like 'ep\_ok%' and v->>'reason' = 'endpoint_not_allowed'), 9, 'look-alike, ported, credentialed and bare hosts are refused with a plain reason');
+select ok((select bool_and((v->>'ok')::boolean) from _t where k like 'ep\_ok%'), 'apple, mozilla, windows and an upper-case fcm host are accepted');
 select is((select v->>'ok' from _t where k = 'sub1'), 'true', 'and fcm.googleapis.com is accepted');
 
 -- H1 on a payment a Telegram person started: no user id on the row, treated as "being paid in Telegram"

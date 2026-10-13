@@ -77,7 +77,7 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
   -- the endpoint is a URL the server will POST to: only the browsers' push services, https, no port, no credentials, a real dot before the suffix
-  if coalesce(p_endpoint, '') !~ '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|([a-z0-9-]+\.)+(push\.apple\.com|notify\.windows\.com|push\.services\.mozilla\.com|pushnotifications\.push\.google\.com))(/|$)'
+  if coalesce(p_endpoint, '') !~* '^https://(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|([a-z0-9-]+\.)+(push\.apple\.com|notify\.windows\.com|push\.services\.mozilla\.com|pushnotifications\.push\.google\.com))(/|$)'
      or char_length(p_endpoint) > 1000
      or char_length(coalesce(p_p256dh, '')) not between 80 and 120 or char_length(coalesce(p_auth, '')) not between 16 and 40 then
     return jsonb_build_object('ok', false, 'reason', case when coalesce(p_endpoint, '') ~ '^https://' then 'endpoint_not_allowed' else 'bad_request' end);
@@ -103,7 +103,7 @@ begin
   end if;
   select coalesce(jsonb_agg(jsonb_build_object(
       'id', q.id, 'ref', q.ref, 'status', q.status, 'payee_name', q.payee_name, 'total', q.total_amount, 'created_at', q.created_at,
-      'paying_by_name', q.paying_by_name, 'paying_by_user_id', q.paying_by_user_id, 'paying_at', q.paying_at, 'sent_said_at', q.sent_said_at, 'paid_at', q.paid_at,
+      'paying_by_name', q.paying_by_name, 'paying_by_user_id', case when q.status = 'paying' then q.paying_by_user_id end, 'paying_at', q.paying_at, 'sent_said_at', q.sent_said_at, 'paid_at', q.paid_at,
       'has_proof', q.proof_file_unique_id is not null, 'bank_reference', q.proof_reference,
       'has_qr', exists (select 1 from public.staff_details d where d.user_id = q.payee_user_id and d.payout_qrph is not null),
       'lines', (select coalesce(jsonb_agg(jsonb_build_object('kind', l ->> 'kind', 'date', l ->> 'date', 'type', l ->> 'type',
@@ -154,7 +154,7 @@ begin
   if v_uid is null or not public.current_staff_authorized('approve_payment', c_prop) then
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
-  if p_step not in ('pay', 'takeover', 'not_sent', 'cancel') then return jsonb_build_object('ok', false, 'reason', 'bad_step'); end if;
+  if p_step not in ('pay', 'sent', 'takeover', 'not_sent', 'cancel') then return jsonb_build_object('ok', false, 'reason', 'bad_step'); end if;
   select * into v_r from public.staff_pay_requests where id = p_request_id and property_id = c_prop for update;
   if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
   select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''),
@@ -164,6 +164,12 @@ begin
 
   if p_step = 'pay' and v_r.status = 'paying' and v_r.paying_by_user_id = v_uid then -- opening my own payment again
     return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid);
+  end if;
+  if p_step = 'sent' then -- the payer has scanned, copied or saved: from now on a take-over or a Telegram cancel is refused (money_may_be_sent)
+    if v_r.status <> 'paying' then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
+    if v_r.paying_by_user_id is distinct from v_uid then return jsonb_build_object('ok', false, 'reason', 'not_yours', 'status', v_r.status, 'ref', v_r.ref, 'paying_by_name', v_r.paying_by_name); end if;
+    update public.staff_pay_requests set sent_said_at = coalesce(sent_said_at, now()) where id = v_r.id;
+    return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid, 'sent', true);
   end if;
   if p_step = 'takeover' then -- "I am paying it instead": only while nobody has said the money was sent
     if v_r.status <> 'paying' then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
