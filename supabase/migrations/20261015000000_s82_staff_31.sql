@@ -23,7 +23,7 @@
 --                   cleaning_progress rows older than 14 days. Secret: the existing Vault cascade_cron_shared_secret.
 --   6. Inventory (owner decision 2026-10-15, "inventory: move to app counts")
 --                   apply_inventory_purchase (the Telegram receipt restock): on a movement-controlled item it now writes the matching 'receipt' movement
---                   through s_inventory_purchase_movement_v1 (idempotent on p_txn_id there); uncontrolled items behave exactly as before.
+--                   through s_inventory_purchase_movement_v1 (a repeat of the same receipt transaction is answered by a notes match in apply_inventory_purchase, controlled items only); uncontrolled items behave exactly as before.
 --                   inventory_shopping_list: authenticated loses the cost columns (estimated_cost, unit_cost, supplier); get_shopping_list_v1 returns them
 --                   only to finance_human_authorized sessions (the get_inventory_catalogue_v1 pattern). save_shopping_item_v1: without manage_inventory a
 --                   person may only create rows and edit or cancel proposed rows she proposed herself.
@@ -535,9 +535,11 @@ grant execute on function public.save_shopping_item_v1(uuid, jsonb, text) to aut
 -- reconcile_inventory_baseline_v1 makes an item movement-controlled, one way: from then on qty_on_hand must equal the last inventory_stock_movements row,
 -- or inventory_ledger_consistent goes red and every movement RPC refuses with "stock reconciliation required". apply_inventory_purchase used to write
 -- qty_on_hand alone. For a controlled item it now writes the same 'receipt' movement record_inventory_receipt_v1 writes (through the internal helper below,
--- which locks the item, checks the ledger is consistent, and keys the movement on the purchase row so it can never be written twice). An uncontrolled item
--- runs exactly the old statements. A controlled item with the same p_txn_id seen before answers {ok, replayed} and writes nothing (the old function had no
--- such guard; uncontrolled items keep that old behaviour). The movement's actor is the signed-in person, else the person who reconciled the item (a service
+-- which locks the item, checks the ledger is consistent, and refuses unless a purchase row with that id exists for that item). The helper's key (derived from
+-- the purchase row id) only stops a second movement for the same purchase row. Replay protection on p_txn_id is NOT the helper's: it is the notes match in
+-- apply_inventory_purchase itself, for controlled items only: a controlled item whose purchases already carry '(txn <p_txn_id>)' answers {ok, replayed} and
+-- writes nothing (the old function had no such guard; uncontrolled items keep that old behaviour). The helper stays executable by authenticated and
+-- service_role because apply_inventory_purchase runs with the caller's rights; the purchase-row guard is what keeps it from being called on its own. The movement's actor is the signed-in person, else the person who reconciled the item (a service
 -- role has no user; actor_user_id is NOT NULL). The helper is callable by the service role and by a signed-in owner/admin only.
 create or replace function public.s_inventory_purchase_movement_v1(p_item_id uuid, p_units numeric, p_reason text, p_source_ref text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
@@ -550,6 +552,9 @@ begin
   end if;
   if i.movement_controlled_at is null then raise exception using errcode = '22023', message = 'item is not movement controlled'; end if;
   if p_units is null or p_units <= 0 or p_units >= 100000000 then raise exception using errcode = '22023', message = 'invalid quantity'; end if;
+  if not exists (select 1 from public.inventory_purchases p where p.id::text = p_source_ref and p.item_id = i.id) then
+    raise exception using errcode = '22023', message = 'no purchase for this movement';
+  end if;
   select * into m from public.inventory_stock_movements where item_id = i.id order by sequence_no desc limit 1;
   if not found or m.quantity_after is distinct from i.qty_on_hand or m.property_id is distinct from i.property_id then
     raise exception using errcode = '22023', message = 'stock reconciliation required';

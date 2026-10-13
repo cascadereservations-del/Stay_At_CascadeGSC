@@ -3,7 +3,7 @@
 -- transaction), an uncontrolled item behaves as before; (3b) a cleaner cannot read inventory_shopping_list cost columns or edit other people's rows.
 -- Synthetic fixtures only (uuids d8300000-...). Everything rolls back.
 begin;
-select plan(46);
+select plan(48);
 
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -107,6 +107,15 @@ select is((select count(*)::int from public.inventory_purchases where item_id = 
 update public.inventory_items set qty_on_hand = 99 where id = 'd8300000-0000-4000-8000-0000000000c1';
 select pg_temp.as_service();
 select throws_ok($$select public.apply_inventory_purchase('d8300000-0000-4000-8000-0000000000c1', 1, null, null, current_date, null)$$, '22023', 'stock reconciliation required', 'an item whose ledger disagrees is refused, not made worse');
+reset role;
+
+-- the helper is not a door of its own: no purchase row, no movement (the item's ledger is consistent again here)
+update public.inventory_items set qty_on_hand = 12 where id = 'd8300000-0000-4000-8000-0000000000c1';
+select pg_temp.as_user('d8300000-0000-4000-8000-0000000000a5');
+select throws_ok($$select public.s_inventory_purchase_movement_v1('d8300000-0000-4000-8000-0000000000c1', 5, 'zz direct call', 'made-up-ref')$$, '22023', 'no purchase for this movement', 'an owner calling the helper directly with an arbitrary source ref is refused');
+reset role;
+select pg_temp.as_service();
+select throws_ok($$select public.s_inventory_purchase_movement_v1('d8300000-0000-4000-8000-0000000000c1', 5, 'zz direct call', (select id::text from public.inventory_purchases where item_id = 'd8300000-0000-4000-8000-0000000000c2' limit 1))$$, '22023', 'no purchase for this movement', 'nor with the purchase of another item');
 reset role;
 
 -- =============================================================== 3b. inventory_shopping_list
