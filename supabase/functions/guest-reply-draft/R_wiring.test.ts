@@ -27,6 +27,6 @@ Deno.test('limited path, real wiring: only get_rate_card_v1 and the app_settings
     assert(!reads.some((r) => r.startsWith('forbidden:')), reads.join());
     assert(reads.every((r) => r === 'rpc:get_rate_card_v1' || r === 'from:app_settings'), reads.join());
     assert(!urls.some((u) => u.includes('messenger-concierge') || u.includes('/rest/v1/')), urls.join());
-    assertEquals(urls.filter((u) => u.includes('openrouter')).length, 2); // draft + options, nothing else
+    assertEquals(urls.filter((u) => u.includes('openrouter')).length, 1); // the limited path is ONE structured call (Warm, Short, With details)
   } finally { globalThis.fetch = real; }
 });

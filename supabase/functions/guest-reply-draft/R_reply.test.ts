@@ -105,7 +105,7 @@ function impl(over: Partial<Impl> = {}): Impl & { calls: string[]; modelArgs: un
   return {
     calls, modelArgs,
     guestReply: () => { calls.push('guestReply'); return Promise.resolve(['header', MAIN, '']); },
-    model: (...a) => { calls.push('model'); modelArgs.push(a.slice(2)); return Promise.resolve(MAIN); },
+    modelAll: (...a) => { calls.push('modelAll'); modelArgs.push(a.slice(2)); return Promise.resolve({ main: MAIN, variants: { short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Bags can be left with us before the unit is ready. The house is a few minutes from the airport.' } }); },
     variants: () => { calls.push('variants'); return Promise.resolve({ short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Bags can be left with us before the unit is ready. The house is a few minutes from the airport.' }); },
     ...over,
   };
@@ -135,23 +135,22 @@ Deno.test('limited path (faked model): draftOptions itself reads no db, skips dr
   const m = impl();
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: { before: [{ from: 'host', text: 'Hello' }] }, access: 'limited' }, m);
   assert(!m.calls.includes('guestReply'));
-  assertEquals(m.calls, ['model', 'variants']);
-  const [name, ctx, airbnb] = m.modelArgs[0];
-  assertEquals([name, ctx, airbnb], ['Ana', [], true]);
+  assertEquals(m.calls, ['modelAll']); // one structured call: no separate variants call
+  assertEquals(m.modelArgs[0][0], 'Ana'); // modelAll has no guest-context parameter at all
   assert(out.options.length >= 2);
   assert(!/balance|deposit|PHP|@/i.test(out.header));
 });
 
 Deno.test('cleaner: a phone, e-mail or amount that was not in her own input never reaches the response', async () => {
   const leak = `Hi Ana! Yes po. Your balance is PHP 3,500, call 0917 123 4567 or write guest@mail.com.${SIGN}`;
-  const m = impl({ model: () => Promise.resolve(leak), variants: () => Promise.resolve({ short: 'Hi Ana! Please send PHP 1,000 to 0917 555 1212.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM.' }) });
+  const m = impl({ modelAll: () => Promise.resolve({ main: leak, variants: { short: 'Hi Ana! Please send PHP 1,000 to 0917 555 1212.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM.' } }) });
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'limited' }, m);
   const all = out.options.map((o) => o.text).join('\n') + out.header;
   assert(!/PHP|0917|@mail|3,500/.test(all), all);
   assert(out.options.length >= 1);
   // the same amount IS fine when she supplied it herself
   const mine = await draftOptions(NO_DB, { guestText: 'Is PHP 3,500 the right total?', guestName: 'Ana', thread: {}, access: 'limited' },
-    impl({ model: () => Promise.resolve(`Hi Ana! Yes po, I will check the PHP 3,500 total and confirm here.${SIGN}`), variants: () => Promise.resolve({}) }));
+    impl({ modelAll: () => Promise.resolve({ main: `Hi Ana! Yes po, I will check the PHP 3,500 total and confirm here.${SIGN}`, variants: {} }) }));
   assert(mine.options[0].text.includes('PHP 3,500'));
   assert(introducesData('call 09171234567', 'nothing') && !introducesData('call 0917 123 4567', 'my number 09171234567'));
 });
@@ -191,4 +190,15 @@ Deno.test('a variant that is a near-duplicate of Warm (Jaccard above 0.9) is dro
   const near = MAIN.replace('Early arrivals', 'Early arrival');
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, impl({ variants: () => Promise.resolve({ short: near, details: null }) }));
   assertEquals(out.options.map((o) => o.label), ['Warm']);
+});
+
+Deno.test('time budget: a variants call that outlives the budget is abandoned, Warm goes out alone and the event is logged', async () => {
+  const logs: string[] = [];
+  const slow = impl({ variants: () => new Promise((r) => setTimeout(() => r({ short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.' }), 500)) });
+  const t0 = performance.now();
+  const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, slow, { budgetMs: 40, log: (l) => logs.push(l) });
+  assert(performance.now() - t0 < 300);
+  assertEquals(out.options.map((o) => o.label), ['Warm']);
+  assertEquals(logs.map((l) => JSON.parse(l).event), ['variants_budget_exceeded']);
+  await new Promise((r) => setTimeout(r, 520)); // let the abandoned call settle inside the test
 });

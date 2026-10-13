@@ -5,7 +5,8 @@
 // draftGuestReply entirely (that reads guestContext = booking, balance, contact, and calls the concierge probe) and uses only
 // modelDraft with ctx = [] in the Airbnb-safe register (no rates, no links, no payment details), then drops any option that carries
 // a phone, e-mail or amount that was not in the text or screenshot she supplied.
-import { airbnbFallback, airbnbFinish, airbnbTone, calmMoment, draftGuestReply, draftPlatform, draftSystem, guestReg, modelDraft, type Line, type Platform } from '../telegram-cassy/draft.ts';
+import { airbnbFallback, airbnbFinish, airbnbGuard, airbnbTone, calmMoment, draftGuestReply, draftPlatform, draftSystem, guestReg, historyBlock, type Line, type Platform } from '../telegram-cassy/draft.ts';
+import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { classify } from '../messenger-concierge/policy.ts';
 import { leafAtClose, lintReply, toneRules } from '../messenger-concierge/voice.ts';
 import { loadCard } from '../_shared/cascade-core/pricing.ts';
@@ -20,13 +21,34 @@ type Variants = { short?: unknown; details?: unknown };
 
 export interface Impl {
   guestReply(db: unknown, text: string, name: string | null, thread: Thread): Promise<string[]>;
-  model(db: unknown, text: string, name: string | null, ctx: string[], airbnb: boolean, hint: string, calm: boolean, before: Line[]): Promise<string>;
+  /** Limited path: Warm, Short and With details in ONE model call (no guest context; Airbnb-safe register). */
+  modelAll(db: unknown, text: string, name: string | null, calm: boolean, before: Line[], lang: string): Promise<{ main: string; variants: Variants }>;
   variants(db: unknown, main: string, guestText: string, airbnb: boolean, calm: boolean): Promise<Variants>;
 }
 
+/** Mirrors modelDraft's date guard (telegram-cassy/draft.ts): the limited path cannot see the calendar or any reservation. */
+const DATES_ASKED = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s*\d{1,2}|\d{1,2}[/-]\d{1,2}|\b(?:available|avail|vacant|bakante|free)\b|\bcheck-?\s?(?:in|out)\b|\b(?:today|tomorrow|tonight|extend|another night)\b/i;
+const DATES_HINT = "[The guest mentions dates, availability or their stay. You cannot see the calendar or this guest's reservation: never say dates are available or taken, and never state or confirm which day or date their own stay starts or ends; say you will check the booking and confirm here. The house check-in and check-out times in FACTS may be stated.] ";
+const STRICT = '[AIRBNB RULE - the last draft broke it: no link or URL, no phone, no e-mail, no GCash or QR, no peso, PHP or percentage figure, and never "book directly", "direct rate" or "our site". For a price or discount question, say you will check and confirm here on the listing, with no number. If dates are asked, say you will check and confirm.] ';
+const ALL_FORMAT = `\nThis answer format replaces the {"reply"} one: return ONLY JSON {"reply": string, "short": string, "details": string|null}. "reply": the warm reply. "short": a real two-sentence reply (the answer, then one warm closing sentence), not a cut-down copy; keep the greeting line and the two sign-off lines. "details": only when the guest asked something that has a factual answer in FACTS worth spelling out (times, how something works, what is included): the same reply with that answer expanded, five sentences at most; otherwise null. Same language and register in all three; nothing new that is not in FACTS.`;
+
 export const REAL: Impl = {
   guestReply: (db, t, n, th) => draftGuestReply(db, t, n, th),
-  model: (db, t, n, ctx, a, h, c, b) => modelDraft(db, t, n, ctx, a, h, c, b),
+  async modelAll(db, text, name, calm, before, lang) {
+    const [card] = await Promise.all([loadCard(db as never), loadContact(db as never)]); // house facts side by side, not one after the other
+    const system = draftSystem(card, true, calm);
+    const q = `${DATES_ASKED.test(text) ? DATES_HINT : ''}${historyBlock(before)}${name ? `Guest name: ${name}\n` : ''}Guest wrote:\n"""${text.slice(0, 1500)}"""`;
+    let v: Variants = {};
+    const gen = async (strict: boolean) => {
+      const raw = await chatJson({ system, history: [], question: (strict ? STRICT : '') + q + (strict ? '' : ALL_FORMAT), title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: strict ? 500 : 1100, timeoutMs: 30_000 });
+      const j = parseModelJson<{ reply?: string } & Variants>(raw, {});
+      if (!strict) v = { short: j.short, details: j.details };
+      return leafAtClose(String(j.reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'));
+    };
+    // Same gate as modelDraft: a leaking Warm draft is regenerated once (reply only), then replaced by the code-written fallback.
+    const main = await airbnbGuard(gen, (m) => airbnbFinish(m, lang as 'en' | 'tl' | 'bis', calm), airbnbFallback(name, calm));
+    return { main, variants: v };
+  },
   async variants(db, main, guestText, airbnb, calm) {
     const card = await loadCard(db as never);
     const question = `The host will probably send this reply:\n"""${main.slice(0, 1500)}"""\nThe guest wrote:\n"""${guestText.slice(0, 1500)}"""\n` +
@@ -63,7 +85,15 @@ const jaccard = (a: string, b: string) => {
   return A.size + Bs.size - n ? n / (A.size + Bs.size - n) : 1;
 };
 
-export async function draftOptions(db: unknown, a: { guestText: string; guestName: string | null; thread: Thread; access: Access }, impl: Impl = REAL): Promise<DraftOut> {
+/** The user never waits longer than this for Short / With details: after it the response goes out with what is ready (Warm). */
+export const VARIANTS_BUDGET_MS = 8000;
+async function withBudget(p: Promise<Variants>, ms: number, onTimeout: () => void): Promise<Variants> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<Variants>((res) => { timer = setTimeout(() => { onTimeout(); res({}); }, ms); });
+  try { return await Promise.race([p, late]); } finally { clearTimeout(timer); }
+}
+
+export async function draftOptions(db: unknown, a: { guestText: string; guestName: string | null; thread: Thread; access: Access }, impl: Impl = REAL, opts: { budgetMs?: number; log?: (line: string) => void } = {}): Promise<DraftOut> {
   const { guestText, guestName, thread, access } = a;
   const src = draftPlatform(guestText, thread.platform);
   const limited = access !== 'full'; // anything that is not positively 'full' is treated as limited
@@ -71,9 +101,11 @@ export async function draftOptions(db: unknown, a: { guestText: string; guestNam
   const calm = airbnb && calmMoment(src.text, classify(src.text, { hasBooking: true }));
   const lang = guestReg(src.text);
   let header: string, main: string, legacyShort = '';
+  let vp: Promise<Variants> | undefined; // the Short / With details texts, already on their way (limited) or started below (full)
 
   if (limited) {
-    main = await impl.model(db, src.text, guestName, [], true, '', calm, thread.before ?? []);
+    const r = await impl.modelAll(db, src.text, guestName, calm, thread.before ?? [], lang);
+    main = r.main; vp = Promise.resolve(r.variants);
     header = [`✍️ Guest reply${guestName ? ` · ${guestName}` : ''}`, 'These are drafted from what you shared only: dates, rates and bookings were not checked.', 'Nothing was sent.'].join('\n');
   } else {
     const out = await impl.guestReply(db, guestText, guestName, thread);
@@ -81,9 +113,10 @@ export async function draftOptions(db: unknown, a: { guestText: string; guestNam
     header = header.split('\n').filter((l) => !/^2️⃣/.test(l)).join('\n').replace(/^1️⃣ is /m, 'The Warm option is ');
   }
   if (!main.trim()) throw new Error('no_replies');
+  vp ??= impl.variants(db, main, src.text, airbnb, calm);
 
   // One call for Short and With details. A failure here costs the extra options, never the main reply.
-  const v = await impl.variants(db, main, src.text, airbnb, calm).catch(() => ({} as Variants));
+  const v = await withBudget(vp.catch(() => ({} as Variants)), opts.budgetMs ?? VARIANTS_BUDGET_MS, () => opts.log?.(JSON.stringify({ fn: 'guest_reply_draft', event: 'variants_budget_exceeded', ms: opts.budgetMs ?? VARIANTS_BUDGET_MS })));
   const pass = (m: unknown): string => {
     const t = typeof m === 'string' ? m.trim() : '';
     if (!t) return '';
