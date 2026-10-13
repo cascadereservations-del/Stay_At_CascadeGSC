@@ -3,6 +3,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 import { MAX_UPLOAD_BYTES, parseUploadRequest, safeFileName } from './parse-request.ts';
+import { recordUploadHash, sha256Hex } from './hash.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -64,7 +65,11 @@ Deno.serve(withObservability({ functionName: 'upload-photo', route: 'ops' }, asy
       .createSignedUrl(data.path, 900);
     if (signedError) throw signedError;
 
-    return json({ ok: true, path: data.path, signedUrl: signed.signedUrl });
+    // Lane C (s81): the server's own sha256 of the bytes it stored, kept for the payment-proof rule and returned as an additive key.
+    const sha256 = await sha256Hex(bytes);
+    await recordUploadHash(supabase, { path: data.path, sha256, uploaded_by: identity.userId });
+
+    return json({ ok: true, path: data.path, signedUrl: signed.signedUrl, sha256 });
 
   } catch (err) {
     const authResponse = staffAuthResponse(err, CORS);
