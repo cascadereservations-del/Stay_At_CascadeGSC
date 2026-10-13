@@ -4,26 +4,26 @@
   "phase": "backfill",
   "source": {
     "branch": "s82/S-server",
-    "commit": "54cb847a027dd9a8c9b705c739303aba7a1e3477"
+    "commit": "51dd0e768edfe0318f7a853a7e69ebcb223021d9"
   },
   "migrations": [
     "20261015000000_s82_staff_31.sql"
   ],
   "migration_sha256": {
-    "20261015000000_s82_staff_31.sql": "b8cb827a24b8218f52fb7b826c8dd09dbf53b3b40f45184f349d66e1604896bd"
+    "20261015000000_s82_staff_31.sql": "e935f12b90c854964e9ca5347b1243b458343836139a564e3f767766162029ec"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Apply AFTER s81_notices_20261014 and s81_staff_pay_push_20261014 (and the s79 and s78 releases they follow): the first block of the migration stops (55000, nothing changed) unless staff_home_v1, notices_v1, staff_pay_admin_list_v1 and staff_pay_settle_v1 are exactly the bodies this release was cut from (md5 of prosrc, CR stripped: staff_home d04e3c492bbeba8722554ac5c951c928, notices f3f0653167ffaa39fa155287a13b913a, admin_list 067d97c248b17221574c7d4b8b57a3f9, settle dda64b4a8f57fdf1b3d036ca458482d7). Additive except four function bodies: (1) ops_notices.source_url (nullable, http/https check) and notices_v1 returns it as url; (2) staff_home_v1 = the live body plus counted insertions that add arrival_ready {id, paid, door_code} for owner/admin sessions only (cleaner and finance payloads byte-identical: the key is absent, not null); paid is true only for Airbnb stays and door_code is null, because no source exists (the balance is not recorded and the PIN is set by hand); (3) table cleaning_progress (RLS, no grants) with cleaning_progress_set_v1 (submit_cleaning) and cleaning_progress_v1 (manage_operations: owner/admin); (4) MONEY: staff_pay_admin_list_v1 gains unrequested and paid_by_name; staff_pay_admin_create_v1 makes a normal requested row for a staff member (approve_payment), same rate rule, guards, row locks and line shapes as staff_pay_request_create_v1, idempotent on (payee, key), marked staff_pay_requests.created_by_user_id; staff_pay_candidates_v1 and staff_pay_request_create_v1 are NOT touched; (5) staff_pay_settle_v1: a settle from the Staff app (no Telegram id, actor ending \" via Staff app\") is logged \"<name> via Staff app\" and its claim note says so; Telegram settles keep \"Telegram: <name>\"; plus s_weekly_sweep_v1 and the pg_cron job s82-pay-weekly-sweep (Sunday 22:30 UTC) which asks notify-cleaner-payment once more for requests paid in the last 7 days whose notice was never claimed (the function claims once) and deletes staff_upload_hashes older than 90 days and cleaning_progress rows older than 14 days. Uses the existing Vault secret cascade_cron_shared_secret; no new secret. Rehearsed 2026-10-15 on a disposable local copy (recovery baseline plus every forward migration, applied as postgres): s82_staff_31.sql 101 of 101; the s81, s79, staff_pay_requests, staff_home_v1, calendar_day_flags and ops_notices_rls suites green after the apply and again after the rollback; the s82 file is red on the rolled-back state. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs).",
-    "notes": "Deploy order: apply this SQL first, then deploy power-watch, telegram-cassy and telegram-expense (they write ops_notices.source_url only when a link exists; before the SQL a link would make the insert fail). Secrets by name: CASCADE_CRON_SHARED_SECRET (existing)."
+    "production_rule": "SINGLE SHOT: the migration is not re-runnable. A second run stops on its own md5 guard by design (the four bodies are no longer the ones it was cut from); to undo, apply the rollback. Apply AFTER s81_notices_20261014 and s81_staff_pay_push_20261014 (and the s79 and s78 releases they follow): the first block of the migration stops (55000, nothing changed) unless staff_home_v1, notices_v1, staff_pay_admin_list_v1 and staff_pay_settle_v1 are exactly the bodies this release was cut from (md5 of prosrc, CR stripped: apply_inventory_purchase e71d6a691a9af5e8fd5677a2857d9cd2, save_shopping_item_v1 4429199a1b728c79cf82d86c01b17903, staff_home d04e3c492bbeba8722554ac5c951c928, notices f3f0653167ffaa39fa155287a13b913a, admin_list 067d97c248b17221574c7d4b8b57a3f9, settle dda64b4a8f57fdf1b3d036ca458482d7). Additive except six function bodies and one grant: (1) ops_notices.source_url (nullable, http/https check) and notices_v1 returns it as url; (2) staff_home_v1 = the live body plus counted insertions that add arrival_ready {id, paid, door_code} for owner/admin sessions only (cleaner and finance payloads byte-identical: the key is absent, not null); paid is true only for Airbnb stays and door_code is null, because no source exists (the balance is not recorded and the PIN is set by hand); (3) table cleaning_progress (RLS, no grants) with cleaning_progress_set_v1 (submit_cleaning) and cleaning_progress_v1 (manage_operations: owner/admin); (4) MONEY: staff_pay_admin_list_v1 gains unrequested and paid_by_name; staff_pay_admin_create_v1 makes a normal requested row for a staff member (approve_payment), same rate rule, guards, row locks and line shapes as staff_pay_request_create_v1, idempotent on (payee, key), marked staff_pay_requests.created_by_user_id; staff_pay_candidates_v1 and staff_pay_request_create_v1 are NOT touched; (5) staff_pay_settle_v1: a settle from the Staff app (no Telegram id, actor ending \" via Staff app\") is logged \"<name> via Staff app\" and its claim note says so; Telegram settles keep \"Telegram: <name>\"; (6) INVENTORY (owner decision 2026-10-15, staff count in the app): apply_inventory_purchase (Telegram receipt restock) writes the matching receipt movement through s_inventory_purchase_movement_v1 when the item is movement-controlled (idempotent on p_txn_id there; actor = the signed-in person, else the person who reconciled the item; refuses an item whose ledger disagrees), uncontrolled items run the old statements unchanged; inventory_shopping_list: authenticated loses SELECT on estimated_cost, unit_cost and supplier (direct reads of those columns now fail, so select(*) fails) and the new definer get_shopping_list_v1 returns them only to finance_human_authorized sessions; save_shopping_item_v1: without manage_inventory a person may only create rows and edit or cancel proposed rows she proposed herself. Also (7) staff_pay_admin_create_v1 refuses the caller as payee (reason self) and a disabled or ineligible payee (payee_not_allowed); staff_pay_admin_list_v1 marks each unrequested entry self (true for the caller only, still listed for other admins); plus s_weekly_sweep_v1 and the pg_cron job s82-pay-weekly-sweep (Sunday 22:30 UTC) which asks notify-cleaner-payment once more for requests paid in the last 7 days whose notice was never claimed (the function claims once) and deletes staff_upload_hashes older than 90 days and cleaning_progress rows older than 14 days. Uses the existing Vault secret cascade_cron_shared_secret; no new secret. Rehearsed 2026-10-15 on a disposable local copy (recovery baseline plus every forward migration, applied as postgres): s82_staff_31.sql 101 of 101, s82_staff_31_fix.sql 46 of 46 (red on the first version of this release); the s81, s79, staff_pay_requests, staff_home_v1, calendar_day_flags and ops_notices_rls suites green after the apply and again after the rollback; the s82 file is red on the rolled-back state. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs).",
+    "notes": "Deploy order: deploy the admin dashboard build that reads the shopping list through get_shopping_list_v1 (its purchases page used select(*) on inventory_shopping_list, which this SQL breaks), then apply this SQL, then deploy power-watch, telegram-cassy and telegram-expense (they write ops_notices.source_url only when a link exists; before the SQL a link would make the insert fail). Secrets by name: CASCADE_CRON_SHARED_SECRET (existing)."
   },
   "forward_verification": [
     {
-      "name": "new_columns_table_and_eight_functions_present",
-      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ops_notices' and column_name = 'source_url') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'created_by_user_id') and to_regclass('public.cleaning_progress') is not null and (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('s_pay_day_v1', 's_pay_price_v1', 's_arrival_ready_v1', 'cleaning_progress_set_v1', 'cleaning_progress_v1', 'staff_pay_admin_create_v1', 's_paid_unnotified_v1', 's_weekly_sweep_v1')) = 8",
+      "name": "new_columns_table_and_ten_functions_present",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'ops_notices' and column_name = 'source_url') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_pay_requests' and column_name = 'created_by_user_id') and to_regclass('public.cleaning_progress') is not null and (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('s_pay_day_v1', 's_pay_price_v1', 's_arrival_ready_v1', 'cleaning_progress_set_v1', 'cleaning_progress_v1', 'staff_pay_admin_create_v1', 's_paid_unnotified_v1', 's_weekly_sweep_v1', 's_inventory_purchase_movement_v1', 'get_shopping_list_v1')) = 10",
       "expect": true
     },
     {
@@ -38,7 +38,7 @@
     },
     {
       "name": "staff_pay_admin_list_v1_is_the_reviewed_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '620344dc04286a8e73cb02393b200143' from pg_proc where oid = 'public.staff_pay_admin_list_v1()'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'e358920c180ba46fd2fe3e595234f68b' from pg_proc where oid = 'public.staff_pay_admin_list_v1()'::regprocedure",
       "expect": true
     },
     {
@@ -47,13 +47,33 @@
       "expect": true
     },
     {
-      "name": "new_functions_have_an_empty_search_path_and_seven_are_definer",
-      "query": "select count(*) = 8 and count(*) filter (where prosecdef) = 7 and bool_and(proconfig @> array['search_path=\"\"']) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('s_pay_day_v1', 's_pay_price_v1', 's_arrival_ready_v1', 'cleaning_progress_set_v1', 'cleaning_progress_v1', 'staff_pay_admin_create_v1', 's_paid_unnotified_v1', 's_weekly_sweep_v1')",
+      "name": "apply_inventory_purchase_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd94fceb8b7d074b16fca508f81b81156' from pg_proc where oid = 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "save_shopping_item_v1_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'f31efe54047963c65df1ca29d2c746a4' from pg_proc where oid = 'public.save_shopping_item_v1(uuid,jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "apply_inventory_purchase_keeps_invoker_rights_and_search_path_public_and_its_grants",
+      "query": "select not prosecdef and proconfig @> array['search_path=public'] and has_function_privilege('authenticated', oid, 'execute') and has_function_privilege('service_role', oid, 'execute') and not has_function_privilege('anon', oid, 'execute') from pg_proc where oid = 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "shopping_list_costs_closed_to_direct_reads_and_the_rest_open",
+      "query": "select not has_column_privilege('authenticated', 'public.inventory_shopping_list', 'unit_cost', 'select') and not has_column_privilege('authenticated', 'public.inventory_shopping_list', 'supplier', 'select') and not has_column_privilege('authenticated', 'public.inventory_shopping_list', 'estimated_cost', 'select') and has_column_privilege('authenticated', 'public.inventory_shopping_list', 'item_name', 'select') and has_column_privilege('authenticated', 'public.inventory_shopping_list', 'status', 'select') and has_function_privilege('authenticated', 'public.get_shopping_list_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.get_shopping_list_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "new_functions_have_an_empty_search_path_and_nine_are_definer",
+      "query": "select count(*) = 10 and count(*) filter (where prosecdef) = 9 and bool_and(proconfig @> array['search_path=\"\"']) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('s_pay_day_v1', 's_pay_price_v1', 's_arrival_ready_v1', 'cleaning_progress_set_v1', 'cleaning_progress_v1', 'staff_pay_admin_create_v1', 's_paid_unnotified_v1', 's_weekly_sweep_v1', 's_inventory_purchase_movement_v1', 'get_shopping_list_v1')",
       "expect": true
     },
     {
       "name": "anon_executes_none_of_the_new_functions",
-      "query": "select not (has_function_privilege('anon', 'public.cleaning_progress_set_v1(integer,integer,text)', 'execute') or has_function_privilege('anon', 'public.cleaning_progress_v1()', 'execute') or has_function_privilege('anon', 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)', 'execute') or has_function_privilege('anon', 'public.s_arrival_ready_v1(uuid,text)', 'execute') or has_function_privilege('anon', 'public.s_weekly_sweep_v1()', 'execute'))",
+      "query": "select not (has_function_privilege('anon', 'public.cleaning_progress_set_v1(integer,integer,text)', 'execute') or has_function_privilege('anon', 'public.cleaning_progress_v1()', 'execute') or has_function_privilege('anon', 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)', 'execute') or has_function_privilege('anon', 'public.s_arrival_ready_v1(uuid,text)', 'execute') or has_function_privilege('anon', 'public.s_weekly_sweep_v1()', 'execute') or has_function_privilege('anon', 'public.s_inventory_purchase_movement_v1(uuid,numeric,text,text)', 'execute'))",
       "expect": true
     },
     {
@@ -135,6 +155,8 @@
     "the restore point is older than one hour",
     "restore_point or verified_at is still empty or still the PENDING placeholder",
     "the s81 releases are not applied (the migration stops on its own md5 guard)",
+    "the admin dashboard purchases page still reads inventory_shopping_list with select(*) (it fails once the cost columns are revoked)",
+    "apply_inventory_purchase or save_shopping_item_v1 in production is not the body cut from (the migration refuses; compare the md5 of prosrc with CR stripped first)",
     "the rehearsal has not run s82_staff_31.sql and the neighbouring suites green on this commit",
     "the vault secret cascade_cron_shared_secret is missing (the weekly sweep would silently not ask)",
     "the Opus 5.5 / Fable 5.1 audit of this SQL lane (money: Fable) has not passed"
