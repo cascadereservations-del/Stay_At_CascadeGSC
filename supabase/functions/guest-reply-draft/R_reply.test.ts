@@ -1,6 +1,7 @@
 // s82 lane R: fewer misses (second pass, malformed retry, host spoke last), options, staff access and the cleaner privacy rule.
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@1';
 import { handleGuestReplyDraft, type Deps } from './logic.ts';
+import { HEADER_HANDOFF, HEADER_RISK } from '../telegram-cassy/draft.ts';
 import { contradicts, draftOptions, introducesData, type Impl } from './R_draft.ts';
 import { FakeTime } from 'jsr:@std/testing@1/time';
 import type { ReadResult } from './R_transcribe.ts';
@@ -246,8 +247,13 @@ Deno.test('a Short or With details that states a different time, amount or date 
   assert(contradicts('It is PHP 1,500.', 'The rate is PHP 1,600.'));
   assert(contradicts('Oct 12 is open.', 'Oct 10 is open.'));
   assert(!contradicts('Check-in is at 2 PM.', 'Check-in at 2:00 PM, check-out at 11:00 AM.'));
-  assert(!contradicts('Check-in 2:00 PM, check-out 11:00 AM, bags welcome.', 'Check-in is at 2:00 PM.'));
+  assert(contradicts('Check-in 2:00 PM, check-out 11:00 AM, bags welcome.', 'Check-in is at 2:00 PM.')); // may repeat, never introduce
   assert(!contradicts('See you soon.', 'Check-in is at 2:00 PM.'));
+  // Warm is a hand-over with no facts: an option may not introduce a time or an amount, but may repeat what the guest wrote
+  const handOver = 'We are checking this and the host will confirm here.';
+  assert(contradicts('Early check-in is at 12:00 PM for PHP 500.', handOver, 'Can we check in early?'));
+  assert(contradicts('Early check-in is at 12:00 PM for PHP 500.', handOver, 'Can we check in at 12:00 PM?'));
+  assert(!contradicts('Yes, we are checking 12:00 PM for you.', handOver, 'Can we check in at 12:00 PM?'));
   const m = impl({ variants: () => Promise.resolve({ short: 'Hi Ana! Check-in starts at 3:00 PM. See you then.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Bags can be left with us before the unit is ready. The house is a few minutes from the airport.' }) });
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m);
   assertEquals(out.options.map((o) => o.label), ['Warm', 'With details']);
@@ -256,4 +262,18 @@ Deno.test('a Short or With details that states a different time, amount or date 
 Deno.test('full path asks the real guest-reply for no internal short (skipShort) - the model-call count per path is pinned in R_latency', async () => {
   const src = await Deno.readTextFile(new URL('./R_draft.ts', import.meta.url));
   assert(src.includes('{ skipShort: true }'));
+});
+
+Deno.test('a hand-over or risk header returns Warm alone and never waits for the variants (constants shared with draft.ts)', async () => {
+  for (const mark of [HEADER_HANDOFF, HEADER_RISK]) {
+    const m = impl({
+      guestReply: () => Promise.resolve([`header
+${mark} flagged line`, 'We are checking this and the host will confirm here.']),
+      variants: () => new Promise(() => {}), // never settles: Warm must not wait for it
+    });
+    const t0 = performance.now();
+    const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m);
+    assert(performance.now() - t0 < 1000, 'must not wait for the 8 s budget');
+    assertEquals(out.options.map((o) => o.label), ['Warm']);
+  }
 });

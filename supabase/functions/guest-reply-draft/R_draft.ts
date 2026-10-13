@@ -5,7 +5,7 @@
 // draftGuestReply entirely (that reads guestContext = booking, balance, contact, and calls the concierge probe) and uses only
 // modelDraft with ctx = [] in the Airbnb-safe register (no rates, no links, no payment details), then drops any option that carries
 // a phone, e-mail or amount that was not in the text or screenshot she supplied.
-import { airbnbFallback, airbnbFinish, airbnbGuard, airbnbTone, calmMoment, draftGuestReply, draftPlatform, draftSystem, guestReg, historyBlock, type Line, type Platform } from '../telegram-cassy/draft.ts';
+import { airbnbFallback, airbnbFinish, airbnbGuard, airbnbTone, calmMoment, draftGuestReply, draftPlatform, draftSystem, guestReg, HEADER_HANDOFF, HEADER_RISK, historyBlock, type Line, type Platform } from '../telegram-cassy/draft.ts';
 import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { classify } from '../messenger-concierge/policy.ts';
@@ -43,7 +43,7 @@ export const REAL: Impl = {
     const gen = async (strict: boolean) => {
       const raw = await chatJson({ system, history: [], question: (strict ? STRICT : '') + q + (strict ? '' : ALL_FORMAT), title: 'Cascade Cassy draft', temperature: 0.5, maxTokens: strict ? 500 : 1100, timeoutMs: 30_000 });
       const j = parseModelJson<{ reply?: string } & Variants>(raw, {});
-      if (!strict) v = { short: j.short, details: j.details };
+      v = strict ? {} : { short: j.short, details: j.details }; // a regenerated Warm discards the batch that came with the leaking one
       return leafAtClose(String(j.reply ?? raw).trim().replace(/\s*\n{3,}/g, '\n\n'));
     };
     // Same gate as modelDraft: a leaking Warm draft is regenerated once (reply only), then replaced by the code-written fallback.
@@ -96,11 +96,11 @@ function facts(t: string): Record<'times' | 'amounts' | 'dates', Set<string>> {
     dates: new Set([...t.matchAll(DATE)].map((m) => `${m[1].toLowerCase()}${+m[2]}`)),
   };
 }
-/** An option written independently of Warm may not state a different time, amount or date than Warm: in any category where both
- *  have tokens, one set must contain the other (a Short that names only one of Warm's times is fine; a different time is not). */
-export function contradicts(opt: string, warm: string): boolean {
-  const a = facts(opt), w = facts(warm);
-  return (['times', 'amounts', 'dates'] as const).some((k) => a[k].size && w[k].size && ![...a[k]].every((x) => w[k].has(x)) && ![...w[k]].every((x) => a[k].has(x)));
+/** An option written independently of Warm may repeat a time, amount or date but never introduce one: every such token in it must
+ *  also appear in Warm or in the guest's own message. (Warm is the only text the concierge's fact guards have checked.) */
+export function contradicts(opt: string, warm: string, guestText = ''): boolean {
+  const a = facts(opt), w = facts(`${warm}\n${guestText}`);
+  return (['times', 'amounts', 'dates'] as const).some((k) => [...a[k]].some((x) => !w[k].has(x)));
 }
 const jaccard = (a: string, b: string) => {
   const A = new Set(a.toLowerCase().match(/[a-z0-9']+/g) ?? []), Bs = new Set(b.toLowerCase().match(/[a-z0-9']+/g) ?? []);
@@ -140,7 +140,10 @@ export async function draftOptions(db: unknown, a: { guestText: string; guestNam
   if (!main.trim()) throw new Error('no_replies');
 
   // A failure or a slow variants call costs the extra options, never the main reply.
-  const v = await withBudget(vp!.catch(() => ({} as Variants)), opts.budgetMs ?? VARIANTS_BUDGET_MS, () => opts.log?.(JSON.stringify({ fn: 'guest_reply_draft', event: 'variants_budget_exceeded', ms: opts.budgetMs ?? VARIANTS_BUDGET_MS })));
+  // A hand-off or risk line in the header means Warm is the concierge's hand-over (or a flagged matter): Short / With details, written
+  // without its fact guards, are not offered. The variants call may still be in flight; its result is ignored.
+  const flagged = !limited && header.split('\n').some((l) => l.startsWith(HEADER_HANDOFF) || l.startsWith(HEADER_RISK));
+  const v = flagged ? ({} as Variants) : await withBudget(vp!.catch(() => ({} as Variants)), opts.budgetMs ?? VARIANTS_BUDGET_MS, () => opts.log?.(JSON.stringify({ fn: 'guest_reply_draft', event: 'variants_budget_exceeded', ms: opts.budgetMs ?? VARIANTS_BUDGET_MS })));
   const pass = (m: unknown): string => {
     const t = typeof m === 'string' ? m.trim() : '';
     if (!t) return '';
@@ -156,7 +159,7 @@ export async function draftOptions(db: unknown, a: { guestText: string; guestNam
   const options: Option[] = [{ label: 'Warm', text: warm }];
     const add = (label: string, raw: unknown, shorter: boolean) => {
     const t = pass(raw);
-    if (!safe(t) || contradicts(t, warm) || options.some((o) => jaccard(o.text, t) > 0.9) || (shorter && t.length >= warm.length)) return;
+    if (!safe(t) || contradicts(t, warm, src.text) || options.some((o) => jaccard(o.text, t) > 0.9) || (shorter && t.length >= warm.length)) return;
     options.push({ label, text: t });
   };
   add('Short', v.short, true);
