@@ -7,7 +7,7 @@ Written 2026-10-13, Cascade Staff v5 lane B. No result is claimed here: nothing 
 - `weather-proxy` tries PirateWeather, then Google Weather, then Open-Meteo, and stops at the first that answers. With `PIRATE_WEATHER_API_KEY` set, Pirate wins every time it is up. The order is a design choice. Nobody compared the sources for this house.
 - `weather_proxy_cache` in `app_settings` is ONE row that every refresh overwrites. It holds only the latest `source`, so it is not a history. A "source history" cannot be read from it.
 - What does leave a trail: the function logs one line per refresh (`cached fresh data, source=...`) and one per failed source (`PirateWeather failed -> trying Google Weather`). Supabase function logs show how often each source was the one used. That shows availability, not accuracy.
-- Since lane B, `hourly` comes from Google Weather `forecast/hours:lookup` (Open-Meteo hourly when Google is down), and the cache records which one in `hourly_source`. `rain_watch` uses the same 70 percent threshold as `rain-alert`.
+- Since lane B (fix round 1), `hourly` comes from Open-Meteo (free, no key); Google Weather `forecast/hours:lookup` is called only when Open-Meteo returns no hours. The cache records which one in `hourly_source`. `rain_watch` uses the same 70 percent threshold as `rain-alert`.
 - The three sources do not forecast the same thing: Pirate and Open-Meteo are model blends, Google's hourly gives a rain probability and an `mm` quantity, Open-Meteo's `precipitation` is model rainfall. Compare like with like: "did it rain in that hour at all", not probability against millimetres.
 
 ## Method (about 5 minutes a day for 5 to 7 days, free tier, read-only)
@@ -26,7 +26,7 @@ Written 2026-10-13, Cascade Staff v5 lane B. No result is claimed here: nothing 
 
 ## What would change the code
 
-If one source clearly wins, change only the order of the chain in `weather-proxy` (one `fetchPirateWeather` / `fetchGoogleWeather` / `fetchOpenMeteo` sequence). The `hourly` fallback order (Google, then Open-Meteo) lives in `_shared/B_weather.ts` `B_extras`. Rain-watch and `rain-alert` share `RAIN_THRESHOLD`; change the number there once if the days show 70 is too late or too jumpy.
+If one source clearly wins, change only the order of the chain in `weather-proxy` (one `fetchPirateWeather` / `fetchGoogleWeather` / `fetchOpenMeteo` sequence). The `hourly` order (Open-Meteo, then Google) lives in `_shared/B_weather.ts` `B_extras`. Rain-watch and `rain-alert` share `RAIN_THRESHOLD`; change the number there once if the days show 70 is too late or too jumpy.
 
 ## Not done in this lane
 

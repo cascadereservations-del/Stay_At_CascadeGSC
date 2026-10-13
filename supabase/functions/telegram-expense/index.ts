@@ -32,6 +32,7 @@ import { keepNotice, monthDay, nightsPhrase, noticeSource, parsePwTap, parseTask
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { blockNoted, blockRecorded, blockRefusal, BLOCK_PROMPTS } from './block.ts'; // SPEC-41: the OPS blocked-date card's answers and follow-ups
 import { feederFor, parseBrownoutReply, parseNoticeArgs, resolveDateOn } from './notice-args.ts'; // SPEC-41: the /brownout parser, shared with the Brownout follow-up
+import { B_noticeRoute } from '../_shared/B_notice-signal.ts'; // s81 lane B: GSCWD / SOCOTECO II page links and "water notice:" / "brownout notice:" go to Cassy
 import { onIntakeTap, startIntake } from './intake-flow.ts'; // SPEC-42 s4b: /intake - Finance-only guest form link for a stay
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
 import { type FeeResult, feeResultOf, payDay, rateNote } from '../_shared/cleaning-fee.ts'; // D-301: no guessed 500, Manila pay day
@@ -621,7 +622,7 @@ async function showMenu(chatId:any,msgId?:number) {
 }
 
 const resolveDate=(token?:string)=>resolveDateOn(token,toManilaDate()); // SPEC-41: the date, time and duration parsing lives in notice-args.ts
-const NOTICE_ICON:Record<string,string>={brownout:'⚡',holiday:'🏖',event:'📅',reminder:'🔔'};
+const NOTICE_ICON:Record<string,string>={brownout:'⚡',holiday:'🏖',event:'📅',reminder:'🔔',water:'💧'};
 
 async function handleOpsNoticeCommand(noticeType:string,args:string[],chatId:any,from:any,db:any) {
   const{effectiveDate,effectiveTime,durationHours,title}=parseNoticeArgs(noticeType,args,toManilaDate());
@@ -1668,7 +1669,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
 async function executeNoticeFromLLM(db:any,params:any,chatId:any,from:any){
   if(!params?.notice_type||!params?.title||!params?.effective_date){await tgSend(chatId,'⚠️ Notice data incomplete.');return;}
   const postedBy=[from?.first_name,from?.username?`@${from.username}`:null].filter(Boolean).join(' ');
-  const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:params.notice_type,title:params.title,effective_date:params.effective_date,effective_time:params.effective_time??null,duration_hours:params.duration_hours??null,feeder:params.notice_type==='brownout'?feederFor(String(params.title)):null,source:params.notice_type==='brownout'?noticeSource(String(params.title)):null,posted_by_chat_id:from?.id??null,posted_by_name:postedBy});
+  const{error}=await db.from('ops_notices').insert({property_id:PROPERTY_ID,notice_type:params.notice_type,title:params.title,effective_date:params.effective_date,effective_time:params.effective_time??null,duration_hours:params.duration_hours??null,feeder:params.notice_type==='brownout'?feederFor(String(params.title)):null,source:params.source??(params.notice_type==='brownout'?noticeSource(String(params.title)):null),posted_by_chat_id:from?.id??null,posted_by_name:postedBy});
   const icon=NOTICE_ICON[params.notice_type]??'📌';
   if(error){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error.message)}`);return;}
   await tgSend(chatId,`${icon} *Notice saved* — ${noticeTitle(params.title,isFinanceChat(chatId),mdEsc)} on ${params.effective_date}`);
@@ -2028,6 +2029,12 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
       if((update.callback_query?.data??'').startsWith('ch:')||chReply){
         if(!isAllowedChat((update.callback_query?.message??update.message)?.chat?.id))return;
         await fetch(`${SUPABASE_URL}/functions/v1/messenger-concierge?ops=1`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('concierge forward failed:',String(e)));
+        return;
+      }
+      // s81 lane B: the notice signals go to Cassy first, ahead of the draft, expense, receipt/OCR and photo paths (text or photo caption).
+      if(B_noticeRoute(update)){
+        if(!isAllowedChat(update.message?.chat?.id))return;
+        await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy?any=1`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy notice forward failed:',String(e)));
         return;
       }
       // Cassy (D-104, deploy 2, 2026-09-13): plain text addressed to "cassy" belongs to telegram-cassy,

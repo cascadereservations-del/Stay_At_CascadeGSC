@@ -118,17 +118,15 @@ export function B_aqi(data: any): number | null {
   return v != null && Number.isFinite(Number(v)) ? Math.round(Number(v)) : null;
 }
 
-/** The keys weather-proxy ADDS to its response. Existing keys are never touched. Google hours win, Open-Meteo hours are the fallback. */
-export function B_extras(
-  src: { google?: any; openMeteo?: any; aqi?: any },
-  nowMs: number,
-  conditionText: unknown,
-): { hourly: B_HourRow[]; hourly_source: 'google' | 'open_meteo' | null; aqi: number | null; rain_watch: B_RainWatch | null; code: number | null } {
-  let hourly = src.google ? B_googleHours(src.google, nowMs) : [];
-  let hourly_source: 'google' | 'open_meteo' | null = hourly.length ? 'google' : null;
-  if (!hourly.length && src.openMeteo) {
-    hourly = B_openMeteoHours(src.openMeteo, nowMs);
-    hourly_source = hourly.length ? 'open_meteo' : null;
+/** The keys weather-proxy ADDS to its response. Existing keys are never touched.
+ *  Open-Meteo hours are the source (free, no key); Google hours are used ONLY when Open-Meteo gave nothing (fallback, may cost). */
+export type B_Extras = { hourly: B_HourRow[]; hourly_source: 'open_meteo' | 'google' | null; aqi: number | null; rain_watch: B_RainWatch | null; code: number | null };
+export function B_extras(src: { google?: any; openMeteo?: any; aqi?: any }, nowMs: number, conditionText: unknown): B_Extras {
+  let hourly = src.openMeteo ? B_openMeteoHours(src.openMeteo, nowMs) : [];
+  let hourly_source: B_Extras['hourly_source'] = hourly.length ? 'open_meteo' : null;
+  if (!hourly.length && src.google) {
+    hourly = B_googleHours(src.google, nowMs);
+    hourly_source = hourly.length ? 'google' : null;
   }
   return {
     hourly,
@@ -137,4 +135,55 @@ export function B_extras(
     rain_watch: B_rainWatch(hourly),
     code: hourly[0]?.code ?? B_textToCode(conditionText),
   };
+}
+
+export const B_LAT = 6.1164, B_LNG = 125.1716;
+export const B_OM_HOURS_URL = (lat = B_LAT, lng = B_LNG) =>
+  `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation,weather_code&timezone=Asia%2FManila&forecast_days=2`;
+export const B_AQI_URL = (lat = B_LAT, lng = B_LNG) =>
+  `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=us_aqi&timezone=Asia%2FManila`;
+export const B_GOOGLE_HOURS_URL = (key: string, lat = B_LAT, lng = B_LNG) =>
+  `https://weather.googleapis.com/v1/forecast/hours:lookup?key=${key}&location.latitude=${lat}&location.longitude=${lng}&hours=24`;
+
+type FetchFn = (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
+
+/** GET JSON or null. Resolves at capMs even when the upstream hangs (and when fetch ignores the abort signal). Never throws. */
+export async function B_getJson(url: string, label: string, capMs: number, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<any | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const cap = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), capMs); });
+    const call = (async () => {
+      const res = await fetchFn(url, { signal: AbortSignal.timeout(capMs) });
+      if (!res.ok) { console.warn(`weather-proxy: ${label} non-ok`, res.status); return null; }
+      return await res.json();
+    })().catch((err) => { console.warn(`weather-proxy: ${label} failed`, String(err)); return null; });
+    return await Promise.race([call, cap]);
+  } catch (err) {
+    console.warn(`weather-proxy: ${label} failed`, String(err));
+    return null;
+  } finally { clearTimeout(timer); }
+}
+
+/**
+ * Everything the response adds, in parallel, each call capped at capMs and the whole at totalMs, so the base response is never delayed
+ * beyond totalMs. Open-Meteo hours + air quality start together; Google hours are called only if Open-Meteo gave no hours (and a key exists).
+ * Never throws: a failed or slow extra leaves its keys empty and the caller's base payload intact.
+ */
+export async function B_fetchExtras(
+  nowMs: number, conditionText: unknown,
+  o: { googleKey?: string; fetchFn?: FetchFn; capMs?: number; totalMs?: number } = {},
+): Promise<B_Extras> {
+  const capMs = o.capMs ?? 3500, totalMs = o.totalMs ?? 4000;
+  const got: { openMeteo?: any; google?: any; aqi?: any } = {};
+  const run = async () => {
+    const aqiP = B_getJson(B_AQI_URL(), 'air-quality', capMs, o.fetchFn).then((v) => { got.aqi = v; });
+    got.openMeteo = await B_getJson(B_OM_HOURS_URL(), 'open-meteo hours', capMs, o.fetchFn);
+    if (o.googleKey && !B_openMeteoHours(got.openMeteo, nowMs).length) got.google = await B_getJson(B_GOOGLE_HOURS_URL(o.googleKey), 'google hours', capMs, o.fetchFn);
+    await aqiP;
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([run().catch(() => {}), new Promise<void>((resolve) => { timer = setTimeout(resolve, totalMs); })]);
+  } finally { clearTimeout(timer); }
+  return B_extras(got, nowMs, conditionText);
 }
