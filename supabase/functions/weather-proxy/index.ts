@@ -6,7 +6,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
-import { B_fetchExtras, B_googleTypeToCode, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_textToCode } from '../_shared/B_weather.ts';
+import { B_CORS, B_fetchExtras, B_googleTypeToCode, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_textToCode } from '../_shared/B_weather.ts';
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -19,11 +19,7 @@ const CACHE_KEY      = 'weather_proxy_cache';
 const CACHE_TTL_MS   = 15 * 60 * 1000; // 15 minutes
 const FORECAST_DAYS  = 7; // s82 lane W: was 5; the guest guide slices its own 5
 
-const CORS = {
-  'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+const CORS = B_CORS; // s82 3.1.1: the header list supabase-js sends (apikey, x-client-info); it was Content-Type, Authorization only, so every browser preflight failed
 const JSON_H = { 'Content-Type': 'application/json', ...CORS };
 
 function getManilaDateStr(): string {

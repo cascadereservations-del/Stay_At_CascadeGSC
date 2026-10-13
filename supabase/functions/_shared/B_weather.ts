@@ -230,3 +230,11 @@ export async function B_fetchExtras(
   } finally { clearTimeout(timer); }
   return B_extras(got, nowMs, conditionText);
 }
+
+/** Cross-origin headers for weather-proxy, on the preflight answer and on every response. The header list is what supabase-js functions.invoke sends:
+ *  authorization, apikey, x-client-info, content-type (and x-region when a region is set). The observability wrapper appends X-Cascade-Correlation-Id itself. */
+export const B_CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-region',
+};
