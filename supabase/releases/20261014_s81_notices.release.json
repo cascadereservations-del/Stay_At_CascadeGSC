@@ -47,7 +47,7 @@
     },
     {
       "name": "notices_v1_source_names_no_money_or_contact_column",
-      "query": "select prosrc !~* 'm(payout|price|gross_amount|guest_email|guest_phone|psid|payout_qrph)M' from pg_proc where oid = 'public.notices_v1(uuid)'::regprocedure",
+      "query": "select prosrc !~* '\\m(payout|price|gross_amount|guest_email|guest_phone|psid|payout_qrph)\\M' from pg_proc where oid = 'public.notices_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
