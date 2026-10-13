@@ -21,6 +21,8 @@ import { draftRequest, draftGuestReply, draftInquiry, inquiryDraftCard, routeDra
 import { maskMoney } from '../_shared/ops-money.ts'; // D-306
 import { OPS_MONEY_REFUSED, staleReason, type InquiryView } from '../_shared/cascade-core/inquiry.ts'; // SPEC-38: Cassy reply and the Other decline for an unpaid request
 
+import { B_isForward, B_looksLikeWater, B_waterForward } from './B_notice.ts'; // s81 lane B: forwarded water post -> Save card
+
 const env = (k: string) => Deno.env.get(k) ?? '';
 const GATE_ENV = () => ({ financeChat: env('TELEGRAM_FINANCE_CHAT_ID'), opsChat: env('TELEGRAM_CHAT_ID'), dmUserIds: env('CASSY_DM_USER_IDS').split(',').map((s) => s.trim()).filter(Boolean) });
 
@@ -228,6 +230,7 @@ async function inquiry(db: any, msg: any, surface: Surface, purpose: 'reply' | '
   }
 }
 
+
 Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, async (req) => {
   if (req.method !== 'POST') return new Response('method_not_allowed', { status: 405 });
   const secret = env('TELEGRAM_WEBHOOK_SECRET');
@@ -238,6 +241,13 @@ Deno.serve(withObservability({ functionName: 'telegram-cassy', route: 'ops' }, a
   if (!msg || !text || msg.from?.is_bot) return Response.json({ ok: true, skipped: 'no_text' });
   const g = gate(msg.chat?.id, msg.chat?.type, msg.from?.id, GATE_ENV());
   if (!g.allowed) { console.warn('cassy_refused', JSON.stringify({ chat: msg.chat?.id, from: msg.from?.id, reason: g.reason })); return Response.json({ ok: true, skipped: g.reason }); }
+  if (B_isForward(msg) && B_looksLikeWater(text)) {
+    const wdb = createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'));
+    const work = B_waterForward(wdb, msg, text, (chat, t, replyTo, keyboard) => tgSend(chat, t, replyTo, { text: t, keyboard } as Card));
+    // @ts-ignore EdgeRuntime is provided by Supabase
+    if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work); else await work;
+    return Response.json({ ok: true, surface: g.surface, water_forward: true });
+  }
   // `?any=1` (deploy 3): telegram-expense already checked the bot was addressed; take the whole text.
   const question = new URL(req.url).searchParams.get('any') === '1' || /^\s*\/deep\b/i.test(text) ? unmention(text) : addressed(text);
   if (!question) return Response.json({ ok: true, skipped: 'not_addressed' });
