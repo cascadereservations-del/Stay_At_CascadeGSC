@@ -1,7 +1,7 @@
 // deno test --allow-read supabase/functions/telegram-cassy/B_notice.test.ts - notice signals, routing, parsing, the card. Frozen clock, synthetic posts only.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { B_noticeRoute, B_noticeSignal } from '../_shared/B_notice-signal.ts';
-import { B_askCard, B_findDate, B_findTimes, B_noticeCard, B_noticeFlow, B_readNotice } from './B_notice.ts';
+import { B_WHICH_CARD, B_askCard, B_findDate, B_findTimes, B_noticeCard, B_noticeFlow, B_readNotice } from './B_notice.ts';
 
 const AT = Date.parse('2026-10-13T02:00:00Z'); // 10:00 Manila, 13 Oct 2026
 const WATER = 'https://www.facebook.com/gscwaterdistrict/posts/pfbid0abc';
@@ -9,7 +9,7 @@ const POWER = 'https://www.facebook.com/socoteco2.EC/posts/123';
 
 // ---- signals: only the explicit ones open the card ----
 Deno.test('B signal: a GSCWD page link is a water signal, a SOCOTECO II page link is a brownout signal, the prefixes carry the pasted text', () => {
-  assertEquals(B_noticeSignal(`Fwd ${WATER}`), { kind: 'water', via: 'link', body: 'Fwd' });
+  assertEquals(B_noticeSignal(`${WATER} Fwd`), { kind: 'water', via: 'link', body: 'Fwd' });
   assertEquals(B_noticeSignal('facebook.com/gscwaterdistrict'), { kind: 'water', via: 'link', body: '' });
   assertEquals(B_noticeSignal(`m.facebook.com/GSCWaterDistrict/posts/9 Oct 16 8am-5pm`)?.kind, 'water');
   assertEquals(B_noticeSignal(`${POWER} Oct 16 1pm to 4pm`)?.kind, 'brownout');
@@ -28,7 +28,6 @@ Deno.test('B signal NEGATIVE: a guest about no water in the shower, a water bill
     '/draft the water pressure is low',
     'Joy Dishwashing 89',
     'see https://www.facebook.com/somebodyelse/posts/1 about the water',
-    'https://www.facebook.com/gscwaterdistrictfans/posts/1',
     'please send a water notice: tomorrow', // does not START with the prefix
     '',
   ]) assertEquals(B_noticeSignal(t), null, t);
@@ -48,7 +47,7 @@ Deno.test('B routing: a human message or caption with a signal is routed to Cass
 
 Deno.test('B routing: telegram-expense wires the route before the Cassy and photo paths, and the Save handler passes the source through', async () => {
   const src = await Deno.readTextFile(new URL('../telegram-expense/index.ts', import.meta.url));
-  const route = src.indexOf('if(B_noticeRoute(update)){'), cassy = src.indexOf('Cassy (D-104, deploy 2'), photo = src.indexOf('handlePhotoMessage(msg,db)');
+  const route = src.indexOf('if(B_noticeRoute(update)&&!(await hasAwaiting('), cassy = src.indexOf('Cassy (D-104, deploy 2'), photo = src.indexOf('handlePhotoMessage(msg,db)');
   assert(route > 0 && route < cassy && cassy < photo, 'order: notice route, then Cassy, then photo/receipt');
   assert(src.includes("telegram-cassy?any=1"), 'forwards to telegram-cassy');
   assert(src.includes('source:params.source??'), 'executeNoticeFromLLM stores params.source when given');
@@ -149,6 +148,59 @@ Deno.test('B guard: lane B top-level names are unique across its files and carry
     for (const m of src.matchAll(/^(?:export )?(?:async )?(?:function|const|type) ([A-Za-z_][A-Za-z0-9_]*)/gm)) names.push(m[1]);
   }
   assertEquals(names.filter((n, i) => names.indexOf(n) !== i), [], 'duplicate top-level name');
-  const allowed = ['RAIN_THRESHOLD', 'MONTHS', 'MON', 'HOUR', 'DAY_MS', 'round1', 'pct', 'nextHours', 'manilaYmd', 'pad', 'to24', 'merOf', 'RANGE', 'AFTER_MONTH', 'Send', 'FetchFn', 'WATER_LINK', 'POWER_LINK', 'PREFIX'];
+  const allowed = ['RAIN_THRESHOLD', 'MONTHS', 'MON', 'HOUR', 'DAY_MS', 'round1', 'pct', 'nextHours', 'manilaYmd', 'pad', 'to24', 'merOf', 'RANGE', 'AFTER_MONTH', 'Send', 'FetchFn', 'WATER_LINK', 'POWER_LINK', 'PREFIX', 'HOST', 'ANY_LINK_ONLY'];
   assertEquals(names.filter((n) => !n.startsWith('B_') && !allowed.includes(n)), []);
+});
+
+// ---- fix round 2 ----
+Deno.test('B signal N1: a message that is ONLY a Facebook link of any form asks which kind; it saves nothing', async () => {
+  for (const t of ['https://www.facebook.com/share/p/1AbCdEf/', 'facebook.com/share/1Ab', 'https://m.facebook.com/story.php?story_fbid=1&id=2', '  https://fb.watch/abc123/  ', 'web.facebook.com/photo.php?fbid=1'])
+    assertEquals(B_noticeSignal(t)?.kind, 'ask', t);
+  const none = { from: () => { throw new Error('must not touch the db'); } };
+  const sent: string[] = [];
+  await B_noticeFlow(none, { chat: { id: 1 }, message_id: 1, date: AT / 1000 }, B_noticeSignal('https://fb.watch/abc123/')!, (_c, t, _r, kb) => { sent.push(t + '|' + kb.length); return Promise.resolve(true); });
+  assertEquals(sent, [B_WHICH_CARD + '|0']);
+  assert(B_WHICH_CARD.includes('water notice: October 16, 8:00 AM to 5:00 PM'));
+  // text around the link is not "only a link"
+  assertEquals(B_noticeSignal('look at this https://fb.watch/abc123/'), null);
+  assertEquals(B_noticeSignal('https://fb.watch/abc123/ no water tomorrow?'), null);
+});
+
+Deno.test('B signal N5: the host is anchored (notfacebook.com, facebook.com.evil.test and lookalikes do not match)', () => {
+  for (const t of ['https://notfacebook.com/gscwaterdistrict/posts/1', 'notfacebook.com/gscwaterdistrict', 'https://facebook.com.evil.test/gscwaterdistrict', 'https://evilfb.watch/abc', 'xfacebook.com/share/p/1'])
+    assertEquals(B_noticeSignal(t), null, t);
+  for (const t of ['facebook.com/gscwaterdistrict', 'https://www.facebook.com/gscwaterdistrict/', 'm.facebook.com/gscwaterdistrict/posts/1', 'web.facebook.com/gscwaterdistrict'])
+    assertEquals(B_noticeSignal(t)?.kind, 'water', t);
+});
+
+Deno.test('B signal N3: a page-named link fires only at the start of the text', () => {
+  assertEquals(B_noticeSignal('https://www.facebook.com/gscwaterdistrictfans/posts/1')?.kind, 'ask', 'a lookalike page name is just a link: ask only');
+  assertEquals(B_noticeSignal(`see ${WATER}`), null);
+  assertEquals(B_noticeSignal(`cassy ${WATER}`), null);
+  assertEquals(B_noticeSignal(`guest wrote about ${POWER} yesterday`), null);
+  assertEquals(B_noticeSignal(`  ${WATER}`)?.kind, 'water');
+});
+
+Deno.test('B routing N3: no route for a reply to a bot prompt, an awaited answer, cassy or a slash command, or a photo with more than the link', () => {
+  const msg = (o: Record<string, unknown>) => ({ update_id: 1, message: { chat: { id: -1 }, from: { id: 5 }, ...o } });
+  assert(B_noticeRoute(msg({ text: WATER })));
+  assert(!B_noticeRoute(msg({ text: WATER, reply_to_message: { from: { is_bot: true }, text: 'Guest name:' } })), 'reply to a bot prompt');
+  assert(B_noticeRoute(msg({ text: WATER, reply_to_message: { from: { id: 7 }, text: 'hi' } })), 'a reply to a person is fine');
+  assert(!B_noticeRoute(msg({ text: WATER }), true), 'an answer is awaited');
+  assert(!B_noticeRoute(msg({ text: `cassy ${WATER}` })));
+  assert(!B_noticeRoute(msg({ text: `/draft ${WATER}` })));
+  assert(!B_noticeRoute(msg({ text: `/water notice: Oct 16` })));
+  assert(!B_noticeRoute(msg({ photo: [{ file_id: 'x' }], caption: `${WATER} Mercury Drug receipt 540` })), 'photo caption is more than the link');
+  assert(!B_noticeRoute(msg({ photo: [{ file_id: 'x' }], caption: 'water notice: Oct 16' })), 'photo with the prefix form is not routed either');
+  assert(B_noticeRoute(msg({ photo: [{ file_id: 'x' }], caption: 'https://fb.watch/abc/' })), 'photo whose caption is only the link');
+});
+
+Deno.test('B notice N7: an impossible ISO date asks instead of saving; a real one is kept', async () => {
+  assertEquals(B_findDate('water 2026-13-45', '2026-10-13'), null);
+  assertEquals(B_findDate('2026-02-30', '2026-10-13'), null);
+  assertEquals(B_findDate('2026-10-16', '2026-10-13'), '2026-10-16');
+  const none = { from: () => { throw new Error('must not touch the db'); } };
+  const sent: string[] = [];
+  await B_noticeFlow(none, { chat: { id: 1 }, message_id: 1, date: AT / 1000 }, B_noticeSignal('water notice: 2026-13-45 8:00 AM to 5:00 PM')!, (_c, t) => { sent.push(t); return Promise.resolve(true); });
+  assert(sent[0].includes('could not find the date'));
 });

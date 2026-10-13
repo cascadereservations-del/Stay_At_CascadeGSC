@@ -7,10 +7,15 @@
 // Pure, no network, no clock.
 // deno-lint-ignore-file no-explicit-any
 
-export type B_Signal = { kind: 'water' | 'brownout'; via: 'link' | 'prefix'; body: string };
+export type B_Signal = { kind: 'water' | 'brownout' | 'ask'; via: 'link' | 'prefix'; body: string };
 
-const WATER_LINK = /(?:https?:\/\/)?(?:[\w-]+\.)?facebook\.com\/gscwaterdistrict\b[^\s]*/i;
-const POWER_LINK = /(?:https?:\/\/)?(?:[\w-]+\.)?facebook\.com\/socoteco2\.ec\b[^\s]*/i;
+// Hosts are anchored: facebook.com, www./m./web.facebook.com and fb.watch only (notfacebook.com/gscwaterdistrict does not match).
+const HOST = String.raw`(?<![\w.-])(?:https?:\/\/)?(?:(?:www|m|web)\.)?facebook\.com`;
+// A page-named link counts only at the START of the text. Pasting a mobile "Copy link" (facebook.com/share/..., m.facebook.com/story.php..., fb.watch/...)
+// has no page name, so a message that is ONLY such a link gets the "which kind?" ask card, never a save.
+const WATER_LINK = new RegExp(String.raw`^\s*${HOST}\/gscwaterdistrict\b[^\s]*`, 'i');
+const POWER_LINK = new RegExp(String.raw`^\s*${HOST}\/socoteco2\.ec\b[^\s]*`, 'i');
+const ANY_LINK_ONLY = new RegExp(String.raw`^\s*(?:${HOST}\/[^\s]*|(?<![\w.-])(?:https?:\/\/)?fb\.watch\/[^\s]*)\s*$`, 'i');
 const PREFIX = /^\s*(water|brownout)\s+notice\s*:\s*([\s\S]*)$/i;
 
 export function B_noticeSignal(text: unknown): B_Signal | null {
@@ -20,12 +25,21 @@ export function B_noticeSignal(text: unknown): B_Signal | null {
   if (p) return { kind: p[1].toLowerCase() as 'water' | 'brownout', via: 'prefix', body: p[2].trim() };
   if (WATER_LINK.test(t)) return { kind: 'water', via: 'link', body: t.replace(WATER_LINK, ' ').replace(/\s+/g, ' ').trim() };
   if (POWER_LINK.test(t)) return { kind: 'brownout', via: 'link', body: t.replace(POWER_LINK, ' ').replace(/\s+/g, ' ').trim() };
+  if (ANY_LINK_ONLY.test(t)) return { kind: 'ask', via: 'link', body: '' };
   return null;
 }
 
-/** telegram-expense's routing condition: a human message (text or photo caption) with a notice signal goes to telegram-cassy, ahead of every other path. */
-export function B_noticeRoute(update: any): boolean {
+/** telegram-expense's routing condition: a human message (text or photo caption) with a notice signal goes to telegram-cassy, ahead of every other path.
+ *  It does NOT fire for a reply to a bot prompt, while an answer is awaited from this chat/user (`awaiting`), when the text starts with "cassy" or a slash
+ *  command, or when a photo's caption is more than just the link. */
+export function B_noticeRoute(update: any, awaiting = false): boolean {
   const m = update?.message;
-  if (!m || m.from?.is_bot) return false;
-  return B_noticeSignal(typeof m.text === 'string' ? m.text : typeof m.caption === 'string' ? m.caption : '') !== null;
+  if (!m || m.from?.is_bot || awaiting) return false;
+  if (m.reply_to_message?.from?.is_bot) return false;
+  const text = typeof m.text === 'string' ? m.text : typeof m.caption === 'string' ? m.caption : '';
+  if (/^\s*(?:@?cassy\b|\/)/i.test(text)) return false;
+  const sig = B_noticeSignal(text);
+  if (!sig) return false;
+  if (Array.isArray(m.photo) && m.photo.length && (sig.via !== 'link' || sig.body !== '')) return false;
+  return true;
 }

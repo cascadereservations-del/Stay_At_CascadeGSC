@@ -2032,7 +2032,7 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
         return;
       }
       // s81 lane B: the notice signals go to Cassy first, ahead of the draft, expense, receipt/OCR and photo paths (text or photo caption).
-      if(B_noticeRoute(update)){
+      if(B_noticeRoute(update)&&!(await hasAwaiting(db,update.message?.chat?.id,update.message?.from?.id))){
         if(!isAllowedChat(update.message?.chat?.id))return;
         await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy?any=1`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy notice forward failed:',String(e)));
         return;

@@ -21,7 +21,10 @@ const pad = (n: number) => String(n).padStart(2, '0');
  *  (a December post about January saves next January); a recent past date stays in this year. */
 export function B_findDate(text: string, todayYmd: string): string | null {
   const iso = /\b(20\d\d)-(\d\d)-(\d\d)\b/.exec(text);
-  if (iso) return iso[0];
+  if (iso) { // 2026-13-45 is no date: the caller asks, a database error never happens
+    const p = new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]));
+    return p.getUTCMonth() === +iso[2] - 1 && p.getUTCDate() === +iso[3] ? iso[0] : null;
+  }
   const md = new RegExp(`\\b${MON}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*,?\\s*(20\\d\\d))?\\b`, 'i').exec(text);
   const dm = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MON}\\.?(?:\\s*,?\\s*(20\\d\\d))?\\b`, 'i').exec(text);
   const hit = md ? { m: md[1], d: md[2], y: md[3] } : dm ? { m: dm[2], d: dm[1], y: dm[3] } : null;
@@ -67,9 +70,13 @@ export type B_NoticeParams = {
 };
 export type B_NoticeRead = { params: B_NoticeParams | null; dateFound: boolean; timeFound: boolean; namesUs: boolean; kind: 'water' | 'brownout' };
 
+/** A bare Facebook link with no page name: which kind is it? Saves nothing. */
+export const B_WHICH_CARD = 'Is this a water notice or a brownout notice? Reply with `water notice:` or `brownout notice:` and the date and time, for example `water notice: October 16, 8:00 AM to 5:00 PM`.';
+
 /** Reads one signalled post. postedAtMs (frozen by the caller) gives today's Manila date and the year. params is null when the card cannot be built
  *  (no date at all, or a brownout with no time): the caller then asks for them. A water post with a date but no time is kept as an all-day notice. */
-export function B_readNotice(sig: B_Signal, postedAtMs: number): B_NoticeRead {
+export function B_readNotice(sig0: B_Signal, postedAtMs: number): B_NoticeRead {
+  const sig = { ...sig0, kind: sig0.kind === 'brownout' ? ('brownout' as const) : ('water' as const) }; // 'ask' never reaches here (the flow answers it first)
   const today = manilaYmd(postedAtMs);
   const date = B_findDate(sig.body, today);
   const t = B_findTimes(sig.body);
@@ -110,6 +117,7 @@ type Send = (chatId: unknown, text: string, replyTo: number | undefined, keyboar
 /** Stores the pending notice (telegram_pending kind llm_notice, the row telegram-expense llm_confirm consumes) and sends the Save / Cancel card,
  *  or the ask card when the date (or a brownout's time) is missing. */
 export async function B_noticeFlow(db: any, msg: any, sig: B_Signal, send: Send): Promise<void> {
+  if (sig.kind === 'ask') { await send(msg.chat.id, B_WHICH_CARD, msg.message_id, []); return; }
   const r = B_readNotice(sig, Number(msg.date ?? 0) * 1000);
   if (!r.params) { await send(msg.chat.id, B_askCard(r), msg.message_id, []); return; }
   const { data, error } = await db.from('telegram_pending').insert({
