@@ -23,4 +23,6 @@ alter table public.ops_notices add constraint ops_notices_source_check
 
 delete from public.app_settings where key = 'house_times' and value = '{"check_out":"12:00","check_in":"14:00"}'::jsonb;
 
+delete from public.app_settings where key = 'notice_sources' and value = '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb;
+
 commit;

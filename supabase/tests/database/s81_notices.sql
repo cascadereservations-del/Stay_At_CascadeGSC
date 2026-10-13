@@ -1,9 +1,14 @@
 -- Session 81 (lane B): release s81_notices_20261014. notices_v1 and ops_notice_add_v1 as cleaner, finance, admin and a non-staff user,
 -- the widened ops_notices checks, the house_times setting and the 60-minute weather rule.
+-- Time: now() is the transaction start, so it is frozen for the whole suite and for every notices_v1 call inside it. Every fixture time is
+-- written relative to now() (Manila clock) and no expectation depends on the wall clock moving.
+-- Fixtures satisfy the real NOT NULL and CHECK rules read from the live catalog 2026-10-13: verifier_findings.severity red|yellow;
+-- concierge_handoffs psid, guest_text, risk NOT NULL and status open|sent|dismissed; inventory_items name, category, property_id NOT NULL;
+-- properties name NOT NULL; ops_notices property_id, notice_type, title, effective_date NOT NULL; app_settings key, value NOT NULL.
 -- Synthetic fixtures only (uuids e8100000-...); every lookup is scoped to them because a real backup holds real rows. Grants are not
 -- asserted (a --no-acl rehearsal carries none); the release contract's forward checks prove them. Everything rolls back.
 begin;
-select plan(50);
+select plan(56);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -32,7 +37,7 @@ insert into public.staff_property_access(user_id, property_id) values
 
 -- notices: an upcoming brownout (socoteco), a water notice whose text carries a phone number, an old one, an inactive one, one on another property
 insert into public.ops_notices(id, property_id, notice_type, title, description, effective_date, effective_time, duration_hours, source, is_active) values
-  ('e8100000-0000-4000-8000-0000000000b1', 'e8100000-0000-4000-8000-0000000000a1', 'brownout', 'Brownout 1:00 to 4:00 pm', null,
+  ('e8100000-0000-4000-8000-0000000000b1', 'e8100000-0000-4000-8000-0000000000a1', 'brownout', 'Brownout 1:00 to 4:00 pm', 'Line maintenance | poster SPI-PMS-10162026.jpg',
      (now() at time zone 'Asia/Manila')::date + 1, '13:00', 3, 'socoteco', true),
   ('e8100000-0000-4000-8000-0000000000b2', 'e8100000-0000-4000-8000-0000000000a1', 'water', 'Water off, call 0917 123 4567', 'Hotline 083-552-1234 or zz@example.com',
      (now() at time zone 'Asia/Manila')::date + 2, null, null, null, true),
@@ -42,15 +47,27 @@ insert into public.ops_notices(id, property_id, notice_type, title, description,
      (now() at time zone 'Asia/Manila')::date + 3, null, null, 'gscwd', false),
   ('e8100000-0000-4000-8000-0000000000b5', 'e8100000-0000-4000-8000-0000000000a2', 'water', 'Zz other property water', null,
      (now() at time zone 'Asia/Manila')::date + 3, null, null, 'gscwd', true);
+insert into public.ops_notices(id, property_id, notice_type, title, description, effective_date, effective_time, duration_hours, source, is_active) values
+  -- started yesterday 00:00 Manila and runs 72 hours: running at any time today, so listed with its START date (yesterday)
+  ('e8100000-0000-4000-8000-0000000000b6', 'e8100000-0000-4000-8000-0000000000a1', 'brownout', 'Zz running brownout', 'poster SPI-ONLY.jpg',
+     (now() at time zone 'Asia/Manila')::date - 1, '00:00', 72, 'socoteco', true),
+  -- started 5 hours ago, lasted 2: over
+  ('e8100000-0000-4000-8000-0000000000b7', 'e8100000-0000-4000-8000-0000000000a1', 'brownout', 'Zz ended brownout', null,
+     ((now() at time zone 'Asia/Manila') - interval '5 hours')::date, ((now() at time zone 'Asia/Manila') - interval '5 hours')::time(0), 2, 'socoteco', true);
 -- house items: one low-stock item on A, one open finding, two open handoffs
-insert into public.inventory_items(id, property_id, name, qty_on_hand, reorder_below, is_active) values
-  ('e8100000-0000-4000-8000-0000000000c1', 'e8100000-0000-4000-8000-0000000000a1', '0 Zz S81 soap', 2, 5, true);
+insert into public.inventory_items(id, property_id, name, category, qty_on_hand, reorder_below, is_active) values
+  ('e8100000-0000-4000-8000-0000000000c1', 'e8100000-0000-4000-8000-0000000000a1', '0 Zz S81 soap', 'Supplies', 2, 5, true),
+  ('e8100000-0000-4000-8000-0000000000c2', 'e8100000-0000-4000-8000-0000000000a1', '0 Zz S81 at the line', 'Supplies', 5, 5, true),
+  ('e8100000-0000-4000-8000-0000000000c3', 'e8100000-0000-4000-8000-0000000000a1', '0 Zz S81 no level', 'Supplies', 0, null, true),
+  ('e8100000-0000-4000-8000-0000000000c4', 'e8100000-0000-4000-8000-0000000000a1', '0 Zz S81 plenty', 'Supplies', 9, 5, true);
 insert into public.verifier_findings(key, check_id, severity, title, detail, status) values
-  ('zz-s81-finding', 'V6', 'warn', '0 Zz S81 finding, guest paid P1,500', '{"guest":"Zz Guest","amount":1500}', 'open');
-insert into public.concierge_handoffs(id, status) values
-  ('e8100000-0000-4000-8000-0000000000d1', 'open'), ('e8100000-0000-4000-8000-0000000000d2', 'open');
+  ('zz-s81-finding', 'V6', 'yellow', '0 Zz S81 finding, guest paid P1,500', '{"guest":"Zz Guest","amount":1500}', 'open');
+insert into public.concierge_handoffs(id, psid, guest_text, risk, status) values
+  ('e8100000-0000-4000-8000-0000000000d1', 'zz-s81-psid-1', 'Zz S81 guest text', 'zz', 'open'),
+  ('e8100000-0000-4000-8000-0000000000d2', 'zz-s81-psid-2', 'Zz S81 guest text', 'zz', 'open');
 -- weather cache: fresh, 14 hourly rows, google source, with a rain watch
-delete from public.app_settings where key in ('weather_proxy_cache', 'house_times');
+delete from public.app_settings where key in ('weather_proxy_cache', 'house_times', 'notice_sources');
+insert into public.app_settings(key, value, updated_at) values ('notice_sources', '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}', now());
 insert into public.app_settings(key, value, updated_at) values ('house_times', '{"check_out":"12:00","check_in":"14:00"}', now());
 insert into public.app_settings(key, value, updated_at) values ('weather_proxy_cache', jsonb_build_object(
   'source', 'google_weather', 'fetched_at', '2026-10-13T12:00:00+08:00', 'code', 2, 'aqi', 42,
@@ -80,8 +97,8 @@ select is(jsonb_typeof(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')
 select ok(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')::text !~* '"[^"]*(phone|e-?mail|messenger|psid|id_photo|amount|total|payout|price)[^"]*"\s*:',
   'cleaner: no forbidden key anywhere in the payload');
 select ok(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')::text !~* '(0917|552-1234|example\.com)', 'cleaner: no phone or e-mail value anywhere in the payload');
-select is((select count(*)::int from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' like 'e8100000%'), 2,
-  'cleaner: the upcoming brownout and water notice show; the old, inactive and other-property ones do not');
+select is((select count(*)::int from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' like 'e8100000%'), 3,
+  'cleaner: the upcoming brownout, the water notice and the brownout still running show; the old, ended, inactive and other-property ones do not');
 select is((select n->>'title' from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' = 'e8100000-0000-4000-8000-0000000000b2'),
   'Water off, call [hidden]', 'cleaner: a phone number in a notice title is redacted');
 select is((select n->>'detail' from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' = 'e8100000-0000-4000-8000-0000000000b2'),
@@ -128,6 +145,16 @@ select is((select n->>'type' || '|' || (n->>'start_time') || '|' || (n->>'end_ti
 select is((select n->>'type' || '|' || (n->>'source') || '|' || coalesce(n->>'start_time', 'null')
     from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' = 'e8100000-0000-4000-8000-0000000000b2'),
   'water|manual|null', 'admin: a water notice with no source reads as manual');
+select is((select n->>'date' from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' = 'e8100000-0000-4000-8000-0000000000b6'),
+  (((now() at time zone 'Asia/Manila')::date - 1))::text, 'admin: a notice still running shows with its START date');
+select is((select n->>'detail' from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' = 'e8100000-0000-4000-8000-0000000000b1'),
+  'Line maintenance', 'admin: the " | poster <file>" suffix of a power-watch description is stripped');
+select is(jsonb_typeof((select n->'detail' from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'notices') n where n->>'id' = 'e8100000-0000-4000-8000-0000000000b6')),
+  'null', 'admin: a description that is only "poster <file>" gives a null detail');
+select is((select array_agg(h->>'id' order by h->>'id') from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'house') h where h->>'kind' = 'low_stock'),
+  array['e8100000-0000-4000-8000-0000000000c1', 'e8100000-0000-4000-8000-0000000000c2'], 'admin: low stock is qty <= reorder_below (the admin overview rule); no level and plenty are not low');
+select is(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'sources',
+  '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb, 'admin: sources carries both Facebook pages');
 -- weather
 select is(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')#>>'{weather,source}', 'google', 'weather: google_weather reads as google');
 select is((public.notices_v1('e8100000-0000-4000-8000-0000000000a1')#>>'{weather,temp_c}') || '|' || (public.notices_v1('e8100000-0000-4000-8000-0000000000a1')#>>'{weather,condition}')
@@ -159,6 +186,13 @@ set local role authenticated; set local request.jwt.claims = '{"sub":"e8100000-0
 select is((public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'weather') - 'fetched_at'::text,
   '{"source":"open-meteo","temp_c":29,"condition":"Overcast","code":null,"rain_chance_pct":10,"aqi":null,"hourly":[],"rain_watch":null}'::jsonb,
   'weather: an old-shape cache gives hourly [] and null code, aqi, rain_watch');
+reset role;
+
+-- sources fallback
+delete from public.app_settings where key = 'notice_sources';
+set local role authenticated; set local request.jwt.claims = '{"sub":"e8100000-0000-4000-8000-0000000000e1"}';
+select is(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'sources',
+  '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb, 'sources: the same two pages when the setting is missing');
 reset role;
 
 -- house_times fallback ----------------------------------------------------------------------------------------------------------------------------

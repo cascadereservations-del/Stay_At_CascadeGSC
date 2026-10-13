@@ -13,6 +13,10 @@
 -- Water source (read 2026-10-13): gensanwater.gov.ph/wp-json/wp/v2/posts is a WordPress feed of bids and awards only; its "Water Advisory"
 -- category holds 0 posts and a search for "interruption" returns nothing. So no water-watch scraper: water notices arrive by a post forwarded to
 -- Cassy (Save tap, source stays null here and reads as 'manual') or by ops_notice_add_v1.
+--   app_settings notice_sources  {"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}, seeded
+--                           only when absent; notices_v1 returns it as `sources` so the app can link "Check the GSCWD page" / "Check the SOCOTECO II page".
+-- Fix round 1 (Opus review): a notice that started earlier and is still running stays listed (its window has not ended); low stock uses the admin
+-- overview's comparison (reorder_below not null and qty_on_hand <= reorder_below); a brownout's " | poster <file>" suffix is stripped from detail.
 -- Rollback: supabase/rollbacks/20261014_s81_notices.sql
 
 begin;
@@ -30,6 +34,10 @@ insert into public.app_settings (key, value, updated_at)
 values ('house_times', '{"check_out":"12:00","check_in":"14:00"}'::jsonb, now())
 on conflict (key) do nothing;
 
+insert into public.app_settings (key, value, updated_at)
+values ('notice_sources', '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb, now())
+on conflict (key) do nothing;
+
 -- 3. notices_v1 ---------------------------------------------------------------------------------------------------------------------
 create or replace function public.notices_v1(p_property_id uuid default null)
 returns jsonb
@@ -43,7 +51,8 @@ declare
   v_today date := (now() at time zone 'Asia/Manila')::date;
   v_role  text;
   v_priv  boolean;
-  v_times jsonb; v_wx jsonb; v_notices jsonb; v_house jsonb; v_inbox integer;
+  v_now_local timestamp := now() at time zone 'Asia/Manila';
+  v_times jsonb; v_sources jsonb; v_wx jsonb; v_notices jsonb; v_house jsonb; v_inbox integer;
   c       jsonb; c_at timestamptz;
 begin
   if not public.current_staff_authorized('read_operations', v_pid) then
@@ -56,6 +65,10 @@ begin
   select jsonb_build_object('check_out', coalesce(s.value->>'check_out', '12:00'), 'check_in', coalesce(s.value->>'check_in', '14:00'))
     into v_times from public.app_settings s where s.key = 'house_times';
   v_times := coalesce(v_times, '{"check_out":"12:00","check_in":"14:00"}'::jsonb);
+
+  select jsonb_build_object('water_page', s.value->>'water_page', 'power_page', s.value->>'power_page')
+    into v_sources from public.app_settings s where s.key = 'notice_sources';
+  v_sources := coalesce(v_sources, '{"water_page":"https://www.facebook.com/gscwaterdistrict/","power_page":"https://www.facebook.com/socoteco2.EC/"}'::jsonb);
 
   -- weather: the weather-proxy cache, only while it is under 60 minutes old; an allow-list of display fields.
   select s.value, s.updated_at into c, c_at from public.app_settings s where s.key = 'weather_proxy_cache';
@@ -89,14 +102,18 @@ begin
            'source', case when n.source = 'socoteco' then 'socoteco' when n.source = 'gscwd' then 'gscwd' when n.source = 'system' then 'system'
                           when n.source = 'ngcp' then 'system' when n.source in ('staff', 'manual') then 'manual'
                           when n.notice_type = 'brownout' then 'socoteco' else 'manual' end,
-           'detail', public.staff_redact_v1(nullif(btrim(n.description), ''))
+           'detail', public.staff_redact_v1(nullif(btrim(regexp_replace(n.description, '(^|\s*\|\s*)poster\s+\S+\s*$', '')), ''))
          ) order by n.effective_date, n.effective_time nulls first, n.created_at), '[]'::jsonb)
     into v_notices
     from public.ops_notices n
    where n.property_id = v_pid and n.is_active
      and coalesce(n.audience, 'staff') in ('staff', 'all')
      and (n.expires_at is null or n.expires_at > now())
-     and n.effective_date >= v_today and n.effective_date <= v_today + 30;
+     -- not ended yet: a timed notice ends at start + duration (Manila clock), any other at the end of its date. `date` stays the start date.
+     and case when n.effective_time is not null and n.duration_hours is not null
+              then n.effective_date::timestamp + n.effective_time + n.duration_hours * interval '1 hour'
+              else n.effective_date::timestamp + interval '1 day' end >= v_now_local
+     and n.effective_date <= v_today + 30;
 
   -- house items and the inbox count: owner and admin only. A cleaner gets [] and null.
   if v_priv then
@@ -112,7 +129,7 @@ begin
                  'detail', 'Down to ' || trim(trailing '.' from trim(trailing '0' from i.qty_on_hand::numeric(12,2)::text))
                            || ', reorder below ' || trim(trailing '.' from trim(trailing '0' from i.reorder_below::numeric(12,2)::text)))
           from public.inventory_items i
-         where i.property_id = v_pid and i.is_active and i.qty_on_hand < i.reorder_below) x
+         where i.property_id = v_pid and i.is_active and i.reorder_below is not null and i.qty_on_hand <= i.reorder_below) x
       order by x.rank, x.sort_title limit 20) u;
     select count(*)::int into v_inbox from public.concierge_handoffs h where h.status = 'open';
   else
@@ -124,6 +141,7 @@ begin
     'generated_at', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
     'role', v_role,
     'house_times', v_times,
+    'sources', v_sources,
     'weather', v_wx,
     'notices', v_notices,
     'house', v_house,
