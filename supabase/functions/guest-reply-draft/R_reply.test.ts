@@ -1,7 +1,8 @@
 // s82 lane R: fewer misses (second pass, malformed retry, host spoke last), options, staff access and the cleaner privacy rule.
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@1';
 import { handleGuestReplyDraft, type Deps } from './logic.ts';
-import { draftOptions, introducesData, type Impl } from './R_draft.ts';
+import { contradicts, draftOptions, introducesData, type Impl } from './R_draft.ts';
+import { FakeTime } from 'jsr:@std/testing@1/time';
 import type { ReadResult } from './R_transcribe.ts';
 
 const G = 'Hi po, what time is check-in tomorrow?';
@@ -120,7 +121,7 @@ Deno.test('R_draft: a successful call returns Warm, Short and With details, dist
   assertEquals(new Set(out.options.map((o) => o.text)).size, 3);
   assert(out.options[1].text.length < out.options[0].text.length);
   assert(out.options.every((o) => o.text.endsWith('Hotel Comfort. Home Warmth.')));
-  assertEquals(m.calls, ['guestReply', 'variants']); // ONE extra model call for both alternatives
+  assertEquals(m.calls, ['variants', 'guestReply']); // variants start first and run alongside the Warm draft: no wait, no rewrite
 });
 
 Deno.test('R_draft: a variant that fails the tone check is dropped, the Warm reply always remains', async () => {
@@ -201,4 +202,58 @@ Deno.test('time budget: a variants call that outlives the budget is abandoned, W
   assertEquals(out.options.map((o) => o.label), ['Warm']);
   assertEquals(logs.map((l) => JSON.parse(l).event), ['variants_budget_exceeded']);
   await new Promise((r) => setTimeout(r, 520)); // let the abandoned call settle inside the test
+});
+
+const flush = async () => { for (let i = 0; i < 200; i++) await Promise.resolve(); };
+
+Deno.test('full path: Warm and the variants run in PARALLEL (fake clock: total is the max, not the sum)', async () => {
+  const time = new FakeTime();
+  try {
+    const slow = <T>(ms: number, v: T) => new Promise<T>((r) => setTimeout(() => r(v), ms));
+    const m = impl({
+      guestReply: () => slow(7000, ['header', MAIN]),
+      variants: () => slow(3000, { short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.', details: null }),
+    });
+    let fin = false;
+    const done = draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m).then((o) => { fin = true; return o; });
+    await time.tickAsync(6999); await flush();
+    assert(!fin);
+    await time.tickAsync(1); await flush();
+    assert(fin, 'finished at 7000 ms (the sum, 10000 ms, would not have)');
+    assertEquals((await done).options.map((x) => x.label), ['Warm', 'Short']);
+  } finally { time.restore(); }
+});
+
+Deno.test('full path: the variants budget counts from when Warm is ready, never delaying Warm', async () => {
+  const time = new FakeTime();
+  try {
+    const m = impl({
+      guestReply: () => new Promise<string[]>((r) => setTimeout(() => r(['header', MAIN]), 2000)),
+      variants: () => new Promise((r) => setTimeout(() => r({ short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.' }), 60_000)),
+    });
+    const logs: string[] = [];
+    let fin = false;
+    const done = draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m, { log: (l) => logs.push(l) }).then((o) => { fin = true; return o; });
+    for (let t = 1; t <= 9; t++) { await time.tickAsync(1000); await flush(); if (t < 10) assert(!fin, `still waiting at ${t * 1000} ms`); }
+    await time.tickAsync(1000); await flush();
+    assert(fin, 'Warm at 2000 ms + the 8000 ms budget = 10000 ms');
+    assertEquals([(await done).options.length, logs.length], [1, 1]);
+  } finally { time.restore(); }
+});
+
+Deno.test('a Short or With details that states a different time, amount or date than Warm is dropped; a subset or superset is kept', async () => {
+  assert(contradicts('Check-in is at 3:00 PM.', 'Check-in is at 2:00 PM.'));
+  assert(contradicts('It is PHP 1,500.', 'The rate is PHP 1,600.'));
+  assert(contradicts('Oct 12 is open.', 'Oct 10 is open.'));
+  assert(!contradicts('Check-in is at 2 PM.', 'Check-in at 2:00 PM, check-out at 11:00 AM.'));
+  assert(!contradicts('Check-in 2:00 PM, check-out 11:00 AM, bags welcome.', 'Check-in is at 2:00 PM.'));
+  assert(!contradicts('See you soon.', 'Check-in is at 2:00 PM.'));
+  const m = impl({ variants: () => Promise.resolve({ short: 'Hi Ana! Check-in starts at 3:00 PM. See you then.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Bags can be left with us before the unit is ready. The house is a few minutes from the airport.' }) });
+  const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m);
+  assertEquals(out.options.map((o) => o.label), ['Warm', 'With details']);
+});
+
+Deno.test('full path asks the real guest-reply for no internal short (skipShort) - the model-call count per path is pinned in R_latency', async () => {
+  const src = await Deno.readTextFile(new URL('./R_draft.ts', import.meta.url));
+  assert(src.includes('{ skipShort: true }'));
 });

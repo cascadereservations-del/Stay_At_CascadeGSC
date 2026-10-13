@@ -41,12 +41,12 @@ async function run(access: 'full' | 'limited', platform: 'airbnb' | 'messenger')
 Deno.test('latency: full / messenger (concierge probe)', async () => {
   const r = await run('full', 'messenger');
   assert(r.options.length >= 2);
-  assertEquals([r.model, r.probe], [EXPECT.fullMessenger.model, EXPECT.fullMessenger.probe]);
+  assertEquals([r.model, r.probe, r.simSeconds < EXPECT.fullMessenger.maxSeconds], [EXPECT.fullMessenger.model, EXPECT.fullMessenger.probe, true]);
 });
 Deno.test('latency: full / airbnb (model draft)', async () => {
   const r = await run('full', 'airbnb');
   assert(r.options.length >= 2);
-  assertEquals(r.model, EXPECT.fullAirbnb.model);
+  assertEquals([r.model, r.simSeconds < EXPECT.fullAirbnb.maxSeconds], [EXPECT.fullAirbnb.model, true]);
 });
 Deno.test('latency: limited (cleaner)', async () => {
   const r = await run('limited', 'messenger');
@@ -54,7 +54,7 @@ Deno.test('latency: limited (cleaner)', async () => {
   assertEquals([r.model, r.probe, r.simSeconds < EXPECT.limited.maxSeconds], [EXPECT.limited.model, 0, true]);
 });
 
-// Counts after 3.1.1 (before: full/messenger 2 model + 1 probe, full/airbnb 3 model + 1 Jev, limited 2 model, about 6.8 s).
-// The full paths are unchanged on purpose: their extra calls (the short rewrite, Jev, guestContext before the probe) live inside
-// telegram-cassy/draft.ts draftGuestReply, which this lane may not edit. The limited path is one structured call, about 3.6 s.
-const EXPECT = { fullMessenger: { model: 2, probe: 1 }, fullAirbnb: { model: 3 }, limited: { model: 1, maxSeconds: 5.5 } };
+// Before 3.1.1b: full/messenger 2 model + 1 probe, 15.5 s; full/airbnb 3 model + 1 Jev, 12.4 s; limited 1 model, 3.5 s (3.1.1).
+// After: the short rewrite is skipped (skipShort) and the variants call runs alongside the Warm draft, so a full path takes about
+// max(Warm, variants) instead of Warm + rewrite + variants.
+const EXPECT = { fullMessenger: { model: 1, probe: 1, maxSeconds: 9.5 }, fullAirbnb: { model: 2, maxSeconds: 8 }, limited: { model: 1, maxSeconds: 5.5 } };

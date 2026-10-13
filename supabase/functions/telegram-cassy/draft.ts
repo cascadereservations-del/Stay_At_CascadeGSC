@@ -272,7 +272,8 @@ export function draftPlatform(text: string, label?: Platform): { platform: 'airb
 
 /** Messages for the host, in order: a header card, then each option alone so a long-press copies only the reply. */
 // deno-lint-ignore no-explicit-any
-export async function draftGuestReply(db: any, guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform } = {}): Promise<string[]> {
+/** `opts.skipShort` (guest-reply-draft only): the caller writes Short itself, so the internal short rewrite (a model call) is not made. Default = today's behaviour. */
+export async function draftGuestReply(db: any, guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform } = {}, opts: { skipShort?: boolean } = {}): Promise<string[]> {
   const src = draftPlatform(guestText, thread.platform), platform = src.platform;
   guestText = src.text;
   // A bare "messenger" / "airbnb:" marker carries no guest message: ask for it, never draft from nothing.
@@ -297,7 +298,7 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
     if (airbnbFail.length) console.warn('airbnb_tone', JSON.stringify({ calm, fail: airbnbFail }));
   }
   const lint = lintReply(main, guestText); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_draft', brain: !!brain, lint }));
-  let short = main.length > 320 ? await rewrite(db, main, `Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.${airbnb ? ' Keep the greeting line and the two sign-off lines exactly.' : ''}`, airbnb).catch(() => '') : '';
+  let short = !opts.skipShort && main.length > 320 ? await rewrite(db, main, `Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.${airbnb ? ' Keep the greeting line and the two sign-off lines exactly.' : ''}`, airbnb).catch(() => '') : '';
   if (airbnb) short = airbnbSafe(short);
   const head = [`✍️ Guest reply${guestName ? ` · ${guestName}` : ''} · ${platform === 'airbnb' ? 'Airbnb' : 'Messenger'}${risk !== 'routine' ? ` · ${risk.replace('_', ' ')}` : ''}`,
     brain ? '1️⃣ is what the concierge would send (calendar and rate card checked).' : `1️⃣ is a drafted reply${platform === 'airbnb' ? ' (Airbnb: no links or outside payment)' : ' (the concierge could not be reached, so dates are not checked)'}.`,

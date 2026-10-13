@@ -6,6 +6,7 @@
 // modelDraft with ctx = [] in the Airbnb-safe register (no rates, no links, no payment details), then drops any option that carries
 // a phone, e-mail or amount that was not in the text or screenshot she supplied.
 import { airbnbFallback, airbnbFinish, airbnbGuard, airbnbTone, calmMoment, draftGuestReply, draftPlatform, draftSystem, guestReg, historyBlock, type Line, type Platform } from '../telegram-cassy/draft.ts';
+import { guestContext, guestContextLines } from '../_shared/cascade-core/tools.ts';
 import { loadContact } from '../_shared/cascade-core/contact.ts';
 import { classify } from '../messenger-concierge/policy.ts';
 import { leafAtClose, lintReply, toneRules } from '../messenger-concierge/voice.ts';
@@ -23,7 +24,7 @@ export interface Impl {
   guestReply(db: unknown, text: string, name: string | null, thread: Thread): Promise<string[]>;
   /** Limited path: Warm, Short and With details in ONE model call (no guest context; Airbnb-safe register). */
   modelAll(db: unknown, text: string, name: string | null, calm: boolean, before: Line[], lang: string): Promise<{ main: string; variants: Variants }>;
-  variants(db: unknown, main: string, guestText: string, airbnb: boolean, calm: boolean): Promise<Variants>;
+  variants(db: unknown, a: { text: string; name: string | null; airbnb: boolean; calm: boolean; before: Line[]; full: boolean }): Promise<Variants>;
 }
 
 /** Mirrors modelDraft's date guard (telegram-cassy/draft.ts): the limited path cannot see the calendar or any reservation. */
@@ -33,7 +34,7 @@ const STRICT = '[AIRBNB RULE - the last draft broke it: no link or URL, no phone
 const ALL_FORMAT = `\nThis answer format replaces the {"reply"} one: return ONLY JSON {"reply": string, "short": string, "details": string|null}. "reply": the warm reply. "short": a real two-sentence reply (the answer, then one warm closing sentence), not a cut-down copy; keep the greeting line and the two sign-off lines. "details": only when the guest asked something that has a factual answer in FACTS worth spelling out (times, how something works, what is included): the same reply with that answer expanded, five sentences at most; otherwise null. Same language and register in all three; nothing new that is not in FACTS.`;
 
 export const REAL: Impl = {
-  guestReply: (db, t, n, th) => draftGuestReply(db, t, n, th),
+  guestReply: (db, t, n, th) => draftGuestReply(db, t, n, th, { skipShort: true }), // Short comes from the parallel variants call
   async modelAll(db, text, name, calm, before, lang) {
     const [card] = await Promise.all([loadCard(db as never), loadContact(db as never)]); // house facts side by side, not one after the other
     const system = draftSystem(card, true, calm);
@@ -49,13 +50,19 @@ export const REAL: Impl = {
     const main = await airbnbGuard(gen, (m) => airbnbFinish(m, lang as 'en' | 'tl' | 'bis', calm), airbnbFallback(name, calm));
     return { main, variants: v };
   },
-  async variants(db, main, guestText, airbnb, calm) {
-    const card = await loadCard(db as never);
-    const question = `The host will probably send this reply:\n"""${main.slice(0, 1500)}"""\nThe guest wrote:\n"""${guestText.slice(0, 1500)}"""\n` +
-      `Write two alternatives in the same language and register, with the same facts and nothing new that is not in FACTS or in that reply. This answer format replaces the {"reply"} one: return ONLY JSON {"short": string, "details": string|null}. ` +
-      `"short": a real two-sentence reply (the answer, then one warm closing sentence), not a cut-down copy.${airbnb ? ' Keep the greeting line and the two sign-off lines.' : ''} ` +
-      `"details": only when the guest asked something that has a factual answer in FACTS worth spelling out (times, how something works, what is included): the same reply with that answer expanded, five sentences at most; otherwise null.`;
-    const raw = await chatJson({ system: draftSystem(card, airbnb, calm), history: [], question, title: 'Cascade Cassy options', temperature: 0.6, maxTokens: 800, timeoutMs: 30_000 });
+  /** Short and With details written from the guest's own message (not as rewrites of Warm), so this runs in PARALLEL with the Warm draft.
+   *  Same register, house facts and date guard as Warm; on the full path also the guest context that owner/admin may see. */
+  async variants(db, a) {
+    const [card, ctx] = await Promise.all([
+      loadCard(db as never),
+      a.full && a.name ? guestContext(db, { name: a.name }).then(guestContextLines).catch(() => [] as string[]) : Promise.resolve([] as string[]),
+      loadContact(db as never),
+    ]);
+    const question = `${DATES_ASKED.test(a.text) ? DATES_HINT : ''}${a.airbnb ? historyBlock(a.before) : ''}${a.name ? `Guest name: ${a.name}\n` : ''}${ctx.length ? `What we know about this guest:\n${ctx.join('\n')}\n` : ''}Guest wrote:\n"""${a.text.slice(0, 1500)}"""\n` +
+      `Write two alternative replies the host could send, in the guest's language and register, using only what is in FACTS (and the guest context above): never contradict FACTS, never invent a time, amount or date. This answer format replaces the {"reply"} one: return ONLY JSON {"short": string, "details": string|null}. ` +
+      `"short": a real two-sentence reply (the answer, then one warm closing sentence).${a.airbnb ? ' Keep the greeting line and the two sign-off lines.' : ''} ` +
+      `"details": only when the guest asked something that has a factual answer in FACTS worth spelling out (times, how something works, what is included): a warm reply with that answer spelled out, five sentences at most; otherwise null.`;
+    const raw = await chatJson({ system: draftSystem(card, a.airbnb, a.calm), history: [], question, title: 'Cascade Cassy options', temperature: 0.6, maxTokens: 800, timeoutMs: 30_000 });
     return parseModelJson<Variants>(raw, {});
   },
 };
@@ -79,6 +86,22 @@ export function introducesData(text: string, input: string): boolean {
   for (const m of text.matchAll(AMOUNT)) if (!nums.has(val(m[1] ?? m[2] ?? m[3] + 'k'))) return true;
   return (text.match(WORDS) ?? []).some((w) => !lowIn.includes(w.toLowerCase()));
 }
+const TIME = /\b(\d{1,2})(?::(\d{2}))?\s?([ap])\.?m\b/gi;
+const DATE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{1,2})\b/gi;
+/** The checkable facts in a text: clock times, peso amounts and month-day dates, normalised. */
+function facts(t: string): Record<'times' | 'amounts' | 'dates', Set<string>> {
+  return {
+    times: new Set([...t.matchAll(TIME)].map((m) => `${+m[1]}:${m[2] ?? '00'}${m[3].toLowerCase()}`)),
+    amounts: new Set([...t.matchAll(AMOUNT)].map((m) => String(val(m[1] ?? m[2] ?? m[3] + 'k')))),
+    dates: new Set([...t.matchAll(DATE)].map((m) => `${m[1].toLowerCase()}${+m[2]}`)),
+  };
+}
+/** An option written independently of Warm may not state a different time, amount or date than Warm: in any category where both
+ *  have tokens, one set must contain the other (a Short that names only one of Warm's times is fine; a different time is not). */
+export function contradicts(opt: string, warm: string): boolean {
+  const a = facts(opt), w = facts(warm);
+  return (['times', 'amounts', 'dates'] as const).some((k) => a[k].size && w[k].size && ![...a[k]].every((x) => w[k].has(x)) && ![...w[k]].every((x) => a[k].has(x)));
+}
 const jaccard = (a: string, b: string) => {
   const A = new Set(a.toLowerCase().match(/[a-z0-9']+/g) ?? []), Bs = new Set(b.toLowerCase().match(/[a-z0-9']+/g) ?? []);
   let n = 0; for (const w of A) if (Bs.has(w)) n++;
@@ -100,23 +123,24 @@ export async function draftOptions(db: unknown, a: { guestText: string; guestNam
   const airbnb = limited || src.platform === 'airbnb';
   const calm = airbnb && calmMoment(src.text, classify(src.text, { hasBooking: true }));
   const lang = guestReg(src.text);
-  let header: string, main: string, legacyShort = '';
-  let vp: Promise<Variants> | undefined; // the Short / With details texts, already on their way (limited) or started below (full)
+  let header: string, main: string;
+  let vp: Promise<Variants> | undefined; // Short / With details: from the single limited call, or (full) started NOW, in parallel with the Warm draft
 
   if (limited) {
     const r = await impl.modelAll(db, src.text, guestName, calm, thread.before ?? [], lang);
     main = r.main; vp = Promise.resolve(r.variants);
     header = [`✍️ Guest reply${guestName ? ` · ${guestName}` : ''}`, 'These are drafted from what you shared only: dates, rates and bookings were not checked.', 'Nothing was sent.'].join('\n');
   } else {
+    vp = impl.variants(db, { text: src.text, name: guestName, airbnb, calm, before: thread.before ?? [], full: true });
+    vp.catch(() => {}); // a failure is handled where it is awaited; never an unhandled rejection if Warm fails first
     const out = await impl.guestReply(db, guestText, guestName, thread);
-    header = String(out[0] ?? ''); main = String(out[1] ?? ''); legacyShort = String(out[2] ?? '');
+    header = String(out[0] ?? ''); main = String(out[1] ?? '');
     header = header.split('\n').filter((l) => !/^2️⃣/.test(l)).join('\n').replace(/^1️⃣ is /m, 'The Warm option is ');
   }
   if (!main.trim()) throw new Error('no_replies');
-  vp ??= impl.variants(db, main, src.text, airbnb, calm);
 
-  // One call for Short and With details. A failure here costs the extra options, never the main reply.
-  const v = await withBudget(vp.catch(() => ({} as Variants)), opts.budgetMs ?? VARIANTS_BUDGET_MS, () => opts.log?.(JSON.stringify({ fn: 'guest_reply_draft', event: 'variants_budget_exceeded', ms: opts.budgetMs ?? VARIANTS_BUDGET_MS })));
+  // A failure or a slow variants call costs the extra options, never the main reply.
+  const v = await withBudget(vp!.catch(() => ({} as Variants)), opts.budgetMs ?? VARIANTS_BUDGET_MS, () => opts.log?.(JSON.stringify({ fn: 'guest_reply_draft', event: 'variants_budget_exceeded', ms: opts.budgetMs ?? VARIANTS_BUDGET_MS })));
   const pass = (m: unknown): string => {
     const t = typeof m === 'string' ? m.trim() : '';
     if (!t) return '';
@@ -132,11 +156,10 @@ export async function draftOptions(db: unknown, a: { guestText: string; guestNam
   const options: Option[] = [{ label: 'Warm', text: warm }];
     const add = (label: string, raw: unknown, shorter: boolean) => {
     const t = pass(raw);
-    if (!safe(t) || options.some((o) => jaccard(o.text, t) > 0.9) || (shorter && t.length >= warm.length)) return;
+    if (!safe(t) || contradicts(t, warm) || options.some((o) => jaccard(o.text, t) > 0.9) || (shorter && t.length >= warm.length)) return;
     options.push({ label, text: t });
   };
   add('Short', v.short, true);
-  if (options.length < 2 && legacyShort) add('Short', legacyShort, true);
   add('With details', v.details, false);
   return { header, options };
 }
