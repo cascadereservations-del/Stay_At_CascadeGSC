@@ -12,7 +12,7 @@ function fake(over: Partial<Deps> = {}): { deps: Deps; rec: Rec } {
   const rec: Rec = { drafts: [], transcribes: [], logs: [], errors: [] };
   let clock = 1000;
   const deps: Deps = {
-    authenticate: () => Promise.resolve({ ok: true }),
+    authenticate: () => Promise.resolve({ ok: true, access: 'full' as const }),
     draft: (guestText, guestName, thread) => { rec.drafts.push({ guestText, guestName, thread }); return Promise.resolve(OUT); },
     transcribe: (bytes, mime) => {
       rec.transcribes.push([bytes.length, mime]);
@@ -59,7 +59,7 @@ Deno.test('401: no bearer token, and an expired session, nothing drafted', async
   assertEquals(a.rec.drafts.length + b.rec.drafts.length, 0);
 });
 
-Deno.test('403: a signed-in cleaner (not owner or admin) is refused before the body is read, nothing drafted', async () => {
+Deno.test('403: when authenticate refuses a session (unknown or disabled staff), the body is never read and nothing is drafted', async () => {
   const { deps, rec } = fake({ authenticate: () => Promise.resolve({ ok: false, status: 403, error: 'staff_access_denied' }) });
   const res = await handleGuestReplyDraft(post({ text: GUEST }), deps);
   assertEquals(res.status, 403);
@@ -168,7 +168,7 @@ Deno.test('text: 200 with the contract shape, replies are everything after the h
   const { deps, rec } = fake();
   const res = await handleGuestReplyDraft(post({ text: GUEST, guest_name: ' Ana Reyes ', platform: 'messenger' }), deps);
   assertEquals(res.status, 200);
-  assertEquals(await res.json(), { ok: true, guest_name: 'Ana Reyes', platform: 'messenger', guest_text: GUEST, header: 'header card', replies: ['main reply', 'short reply'] });
+  assertEquals(await res.json(), { ok: true, guest_name: 'Ana Reyes', platform: 'messenger', guest_text: GUEST, header: 'header card', replies: ['main reply', 'short reply'], options: [{ label: 'Warm', text: 'main reply' }, { label: 'Short', text: 'short reply' }] });
   assertEquals(rec.drafts, [{ guestText: GUEST, guestName: 'Ana Reyes', thread: { platform: 'messenger' } }]);
   assertEquals(rec.transcribes.length, 0);
 });
@@ -194,7 +194,7 @@ Deno.test('image: transcribe -> latest guest lines + thread before -> draft; the
   const { deps, rec } = fake();
   const res = await handleGuestReplyDraft(post(img(btoa('shot'), 'image/webp')), deps);
   assertEquals(res.status, 200);
-  assertEquals(await res.json(), { ok: true, guest_name: 'Ana Reyes', platform: 'messenger', guest_text: GUEST, header: 'header card', replies: ['main reply', 'short reply'] });
+  assertEquals(await res.json(), { ok: true, guest_name: 'Ana Reyes', platform: 'messenger', guest_text: GUEST, header: 'header card', replies: ['main reply', 'short reply'], options: [{ label: 'Warm', text: 'main reply' }, { label: 'Short', text: 'short reply' }] });
   assertEquals(rec.transcribes, [[4, 'image/webp']]);
   assertEquals(rec.drafts, [{ guestText: GUEST, guestName: 'Ana Reyes', thread: { before: [{ from: 'host', text: 'Hello!' }], platform: 'messenger' } }]);
 });
@@ -209,8 +209,8 @@ Deno.test('image: an unclear screenshot (platform other) is drafted as Airbnb-sa
   assertEquals(lab.rec.drafts[0].thread.platform, 'airbnb');
 });
 
-Deno.test('422 no_guest_message: a screenshot with no guest line, or only host lines', async () => {
-  for (const messages of [[], [{ from: 'host' as const, text: 'Welcome!' }], [{ from: 'guest' as const, text: 'Hi' }, { from: 'host' as const, text: 'Hello' }]]) {
+Deno.test('422 no_guest_message: a screenshot with no guest line, or only host lines (host-last with a guest line now drafts)', async () => {
+  for (const messages of [[], [{ from: 'host' as const, text: 'Welcome!' }], ]) {
     const { deps, rec } = fake({ transcribe: () => Promise.resolve({ guest_name: null, platform: 'other', messages }) });
     const res = await handleGuestReplyDraft(post(img()), deps);
     assertEquals(res.status, 422);

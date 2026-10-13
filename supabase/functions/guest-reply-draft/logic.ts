@@ -1,9 +1,11 @@
 // guest-reply-draft (s76): the admin dashboard and the staff app send a guest's message (text or a chat screenshot) and get Cassy's
 // draft replies back. Drafting is telegram-cassy/draft.ts, not a copy: the wiring below is telegram-cassy's draft() for a screenshot
 // (transcribeChat -> splitThread -> draftGuestReply with the thread behind it) and for pasted text. Nothing is ever sent to a guest.
-// Owner and admin only: a draft carries prices and booking terms. All I/O comes in through Deps so the rules are tested without a network.
+// s82: every active staff role may draft; owner/admin get the full draft (booking context, rates), everyone else a context-free one (R_draft.ts). All I/O comes in through Deps so the rules are tested without a network.
 import { bearerToken, StaffAuthError } from '../_shared/staff-auth.ts';
 import { draftPlatform, splitThread, type Line, type Platform, type Transcript } from '../telegram-cassy/draft.ts';
+import type { Access, DraftOut, Option } from './R_draft.ts';
+import type { ReadResult } from './R_transcribe.ts';
 
 export const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -16,12 +18,12 @@ const MAX_B64 = Math.ceil(MAX_IMAGE_BYTES / 3) * 4; // longest base64 string who
 const MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export interface Deps {
-  /** The caller's session -> an active owner/admin, or the HTTP status to refuse with. */
-  authenticate(token: string): Promise<{ ok: true } | { ok: false; status: number; error: string }>;
-  /** telegram-cassy draftGuestReply bound to the service client: [header card, main reply, optional short reply]. */
-  draft(guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform }): Promise<string[]>;
-  /** telegram-cassy transcribeChat. */
-  transcribe(bytes: Uint8Array, mime: string): Promise<Transcript>;
+  /** The caller's session -> an active staff member (`access` absent = 'limited', fail closed), or the HTTP status to refuse with. */
+  authenticate(token: string): Promise<{ ok: true; access?: Access } | { ok: false; status: number; error: string }>;
+  /** Either the legacy [header card, main reply, optional short reply] or { header, options } (R_draft.draftOptions). */
+  draft(guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform }, access: Access): Promise<string[] | DraftOut>;
+  /** The screenshot reader. pass 2 = the stronger prompt; `malformed` = the model's JSON could not be read. */
+  transcribe(bytes: Uint8Array, mime: string, pass?: 1 | 2): Promise<ReadResult>;
   now(): number;
   log(line: string): void;
   logError(line: string): void;
@@ -44,6 +46,27 @@ function decodeBase64(b64: string): Uint8Array | null {
   } catch { return null; }
 }
 
+const hasGuest = (t: Transcript) => t.messages.some((m) => m.from === 'guest' && m.text.trim());
+const NOTE_HOST_LAST = "The last message in the screenshot is yours; this answers the guest's last message.";
+
+/** The newest run of guest messages and the thread before it, wherever the host spoke last. */
+export function lastGuestRun(lines: Line[]): { latest: string; before: Line[] } {
+  let end = lines.length - 1;
+  while (end >= 0 && lines[end].from !== 'guest') end--;
+  if (end < 0) return { latest: '', before: lines };
+  let start = end;
+  while (start > 0 && lines[start - 1].from === 'guest') start--;
+  return { latest: lines.slice(start, end + 1).map((l) => l.text).join('\n'), before: [...lines.slice(0, start), ...lines.slice(end + 1)] };
+}
+
+/** One read, one retry when the model's JSON was unreadable, then ONE stronger second pass when there is still no guest message. */
+async function readScreenshot(deps: Deps, bytes: Uint8Array, mime: string): Promise<ReadResult> {
+  let t = await deps.transcribe(bytes, mime, 1);
+  if (t.malformed) t = await deps.transcribe(bytes, mime, 1);
+  if (!hasGuest(t)) { const t2 = await deps.transcribe(bytes, mime, 2).catch(() => t); if (hasGuest(t2)) t = t2; }
+  return t;
+}
+
 export async function handleGuestReplyDraft(req: Request, deps: Deps): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return fail('method_not_allowed', 405);
@@ -55,6 +78,7 @@ export async function handleGuestReplyDraft(req: Request, deps: Deps): Promise<R
   }
   const who = await deps.authenticate(token);
   if (!who.ok) return fail(who.error, who.status);
+  const access: Access = who.access === 'full' ? 'full' : 'limited';
 
   const t0 = deps.now();
   let body: Record<string, unknown>;
@@ -93,23 +117,30 @@ export async function handleGuestReplyDraft(req: Request, deps: Deps): Promise<R
   try {
     let guestText = text, guestName = nameIn; // no "guest: Name" caption parsing: the page sends guest_name
     let thread: { before?: Line[]; platform?: Platform } = label ? { platform: label } : {};
+    let hostLast = false;
     if (bytes) {
       // D-269: the whole visible thread, so the draft answers the newest guest messages with the conversation behind them.
-      const t = await deps.transcribe(bytes, mime);
-      const s = splitThread(t.messages);
+      const t = await readScreenshot(deps, bytes, mime);
+      let s = splitThread(t.messages);
+      if (!s.latest) { s = lastGuestRun(t.messages); hostLast = !!s.latest; } // the host spoke last: answer the guest's last message, and say so
       if (!s.latest) return fail('no_guest_message', 422);
       guestText = s.latest; guestName = nameIn ?? t.guest_name; thread = { before: s.before, platform: label ?? t.platform };
     }
     const src = draftPlatform(guestText, thread.platform);
     if (!src.text.trim()) return fail(bytes ? 'no_guest_message' : 'empty', bytes ? 422 : 400);
-    const out = await deps.draft(guestText, guestName, thread);
-    const header = out[0], replies = out.slice(1).filter((r) => typeof r === 'string' && r.trim());
-    if (typeof header !== 'string' || !replies.length) throw new Error('no_replies');
-    deps.log(JSON.stringify({ fn: 'guest_reply_draft', role: 'owner_or_admin', input, platform: src.platform, replies: replies.length, ms: deps.now() - t0 }));
-    return json({ ok: true, guest_name: guestName, platform: src.platform, guest_text: src.text.trim(), header: appHeader(header), replies: replies.slice(0, 2) });
+    const out = await deps.draft(guestText, guestName, thread, access);
+    let header: unknown, options: Option[];
+    if (Array.isArray(out)) { // legacy shape: [header, main, short?]
+      header = out[0];
+      options = out.slice(1).filter((r) => typeof r === 'string' && r.trim()).slice(0, 2).map((text, i) => ({ label: i ? 'Short' : 'Warm', text }));
+    } else { header = out?.header; options = (out?.options ?? []).filter((o) => o && typeof o.text === 'string' && o.text.trim()).slice(0, 3); }
+    if (typeof header !== 'string' || !options.length) throw new Error('no_replies');
+    deps.log(JSON.stringify({ fn: 'guest_reply_draft', role: access === 'full' ? 'owner_or_admin' : 'staff_limited', input, platform: src.platform, replies: options.length, ms: deps.now() - t0 }));
+    const head = appHeader(header) + (hostLast ? `\n${NOTE_HOST_LAST}` : '');
+    return json({ ok: true, guest_name: guestName, platform: src.platform, guest_text: src.text.trim(), header: head, replies: options.map((o) => o.text), options });
   } catch (e) {
     // The error class only: a message can quote the guest.
-    deps.logError(JSON.stringify({ fn: 'guest_reply_draft_failed', role: 'owner_or_admin', input, error: e instanceof Error ? e.name : typeof e, ms: deps.now() - t0 }));
+    deps.logError(JSON.stringify({ fn: 'guest_reply_draft_failed', role: access === 'full' ? 'owner_or_admin' : 'staff_limited', input, error: e instanceof Error ? e.name : typeof e, ms: deps.now() - t0 }));
     return fail('draft_failed', 502);
   }
 }
