@@ -96,6 +96,7 @@
     "restore_point or verified_at is still empty or still the PENDING placeholder",
     "the rehearsal has not run s81_staff_pay_push.sql and staff_pay_requests.sql green on this commit",
     "the vault secret cascade_cron_shared_secret is missing (the paid notice would silently not be queued)",
+    "notify-cleaner-payment is not deployed with verify_jwt off (the paid trigger sends no user JWT; read the function's setting in the dashboard, supabase/config.toml does not list it)",
     "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
   ]
 }
