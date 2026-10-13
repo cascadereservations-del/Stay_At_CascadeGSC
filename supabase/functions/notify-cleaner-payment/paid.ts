@@ -17,6 +17,8 @@ export type Sub = { id: string; endpoint: string; p256dh: string; auth: string }
 
 export type PaidDeps = {
   claim: (id: string) => Promise<NoticeData | { ok: false; reason: string }>;
+  /** Gives the claim back so a later ask can try again. */
+  release: (id: string) => Promise<void>;
   /** A Telegram Bot API call with a JSON body; resolves with the parsed answer or null. Never given a parse_mode. */
   tg: (method: string, body: Record<string, unknown>) => Promise<{ ok?: boolean; description?: string } | null>;
   opsChat: string;
@@ -31,7 +33,7 @@ export type PaidDeps = {
 };
 
 export type PaidOutcome = {
-  ok: boolean; skipped?: string;
+  ok: boolean; skipped?: string; released?: boolean;
   telegram: 'sent' | 'skipped' | 'failed';
   push: { sent: number; gone: number; failed: number; subscriptions: number };
 };
@@ -82,6 +84,12 @@ export async function runPaid(requestId: string, d: PaidDeps): Promise<PaidOutco
     }
   } catch (e) {
     d.log(`paid notice: push step threw (${String((e as Error)?.message ?? e).slice(0, 80)})`);
+  }
+  // Nothing reached her (the OPS post failed or had nowhere to go, and no push went out) on a request the Staff app settled: give the claim back, so the
+  // next ask (the trigger's, the app's, or a retry) tries again instead of hearing already_sent. A Telegram-settled request was told by telegram-expense.
+  if (n.paid_by_tg == null && telegram !== 'sent' && push.sent === 0) {
+    try { await d.release(requestId); } catch (e) { d.log(`paid notice: release failed (${String((e as Error)?.message ?? e).slice(0, 80)})`); }
+    return { ok: false, released: true, telegram, push };
   }
   return { ok: true, telegram, push };
 }

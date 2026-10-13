@@ -70,6 +70,19 @@ export async function vapidAuthorization(endpoint: string, v: Vapid, nowSec: num
   return `vapid t=${head}.${claims}.${bytesToB64u(sig)}, k=${v.publicKey}`;
 }
 
+/** The push services the browsers use. The endpoint is a URL a client handed us and the server POSTs to it, so it must be one of these hosts:
+ *  https only, no port, no credentials, and the suffix must start at a dot (fcm.googleapis.com.evil.example and evilfcm.googleapis.com are refused). */
+const PUSH_EXACT = ['fcm.googleapis.com', 'updates.push.services.mozilla.com'];
+const PUSH_SUFFIX = ['push.apple.com', 'notify.windows.com', 'push.services.mozilla.com', 'pushnotifications.push.google.com'];
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  let u: URL;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== 'https:' || u.port || u.username || u.password) return false;
+  const h = u.hostname.toLowerCase();
+  if (!/^[a-z0-9.-]+$/.test(h)) return false;
+  return PUSH_EXACT.includes(h) || PUSH_SUFFIX.some((s) => h.endsWith('.' + s) && h.length > s.length + 1);
+}
+
 export type PushResult = { ok: boolean; status: number; gone: boolean; transient: boolean };
 
 /** One delivery attempt. gone = the push service says this subscription is dead (404 or 410): delete it. transient = worth one retry. */
@@ -78,6 +91,7 @@ export async function sendPush(
   d: { fetch?: typeof fetch; nowSec: number; ttl?: number },
 ): Promise<PushResult> {
   const f = d.fetch ?? fetch;
+  if (!isAllowedPushEndpoint(sub.endpoint)) return { ok: false, status: 0, gone: true, transient: false }; // never POST to a host that is not a push service; gone = drop the row
   let res: Response;
   try {
     const body = await encryptPayload(sub, enc.encode(JSON.stringify(message)));

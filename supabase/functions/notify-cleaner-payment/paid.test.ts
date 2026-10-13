@@ -39,6 +39,7 @@ function fake(over: Omit<Partial<PaidDeps>, 'subs'> & { notice?: NoticeData | { 
   let si = 0;
   const deps: PaidDeps = {
     claim: async (id) => { calls.push({ kind: 'claim', arg: id }); return notice; },
+    release: async (id) => { calls.push({ kind: 'release', arg: id }); },
     tg: async (method, body) => { calls.push({ kind: 'tg:' + method, arg: body }); return { ok: true }; },
     opsChat: '-100',
     financeCard: async () => ({ chat_id: -200, message_id: 9, text: 'PAID. card', reply_markup: { inline_keyboard: [] }, ops_keyboard: { inline_keyboard: [[{ text: 'Received' }]] } }),
@@ -61,6 +62,7 @@ Deno.test('a web-settled request: claim first, then OPS notice with the Received
   const f = fake({ subs: [sub('s1')] });
   const out = await runPaid('r', f.deps);
   assertEquals(out, { ok: true, telegram: 'sent', push: { sent: 1, gone: 0, failed: 0, subscriptions: 1 } });
+  assert(!f.calls.some((c) => c.kind === 'release'));
   assertEquals(f.calls.map((c) => c.kind), ['claim', 'tg:sendMessage', 'tg:editMessageCaption', 'push', 'touch']);
   const ops = f.calls[1].arg as Record<string, unknown>;
   assertEquals([ops.chat_id, ops.reply_to_message_id, ops.allow_sending_without_reply], [-100, 7, true]);
@@ -123,4 +125,30 @@ Deno.test('without VAPID secrets push is skipped and Telegram still goes; a Tele
   const c = await runPaid('r', tgNo.deps);
   assertEquals([c.telegram, c.push.sent], ['failed', 1]);
   assert(tgNo.calls.some((x) => x.kind === 'log'));
+});
+
+Deno.test('M3: nothing delivered (OPS post failed, every push failed or none) gives the claim back and says so; anything delivered keeps it', async () => {
+  const down = async () => ({ ok: false, description: 'Bad Request: chat not found' });
+  const bad = { ok: false, status: 400, gone: false, transient: false };
+  const none = fake({ tg: down, subs: [], });
+  const a = await runPaid('r', none.deps);
+  assertEquals([a.ok, a.released, a.telegram], [false, true, 'failed']);
+  assertEquals(none.calls.filter((c) => c.kind === 'release').map((c) => c.arg), ['r']);
+  const allPushFail = fake({ tg: down, subs: [sub('s1'), sub('s2')], push: async () => bad });
+  const b = await runPaid('r', allPushFail.deps);
+  assertEquals([b.ok, b.released, b.push.failed], [false, true, 2]);
+  const pushSaves = fake({ tg: down, subs: [sub('s1')] });
+  assertEquals((await runPaid('r', pushSaves.deps)).ok, true);
+  assert(!pushSaves.calls.some((c) => c.kind === 'release'));
+  const tgSaves = fake({ subs: [sub('s1')], push: async () => bad });
+  assertEquals((await runPaid('r', tgSaves.deps)).ok, true);
+  assert(!tgSaves.calls.some((c) => c.kind === 'release'));
+  const viaTelegram = fake({ push: null, subs: [], notice: { ok: true, request_id: 'r', payee_user_id: 'u', payee_name: 'Honey', paid_by_tg: 920000001, ops_chat_id: -100, ops_message_id: 7, ...N } as NoticeData });
+  const c = await runPaid('r', viaTelegram.deps);
+  assertEquals([c.ok, c.released], [true, undefined]);
+  assert(!viaTelegram.calls.some((x) => x.kind === 'release'), 'a Telegram-settled request was told by telegram-expense, so there is nothing to retry');
+  const noChat = fake({ notice: { ok: true, request_id: 'r', payee_user_id: 'u', payee_name: 'Honey', paid_by_tg: null, ops_chat_id: null, ops_message_id: null, ...N } as NoticeData });
+  noChat.deps.opsChat = '';
+  const d = await runPaid('r', noChat.deps);
+  assertEquals([d.ok, d.released, d.telegram], [false, true, 'skipped']);
 });

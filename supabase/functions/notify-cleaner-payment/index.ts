@@ -28,7 +28,7 @@ const OPS_CHAT      = Deno.env.get('TELEGRAM_CHAT_ID') ?? '';
 const PROPERTY_ID   = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const CORS_H = {
   'Access-Control-Allow-Origin':  '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cascade-cron-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -92,6 +92,7 @@ async function handlePaid(req: Request, body: Record<string, unknown>): Promise<
       if (error || !data) { console.error('staff_pay_notice_v1 failed:', error?.code); return { ok: false, reason: 'rpc_failed' }; }
       return data as NoticeData | { ok: false; reason: string };
     },
+    release: async (rid) => { await db.rpc('staff_pay_notice_v1', { p_request_id: rid, p_action: 'release' }); },
     tg: (method, b) => tgJson(method, b),
     opsChat: OPS_CHAT,
     financeCard: async (rid) => {
@@ -112,7 +113,7 @@ async function handlePaid(req: Request, body: Record<string, unknown>): Promise<
     push: vapid ? (s, m) => sendPush(s, m, vapid, { nowSec: Math.floor(Date.now() / 1000) }) : null,
     log: (m) => console.warn(m),
   });
-  return reply(out, out.ok ? 200 : 404);
+  return reply(out, out.ok ? 200 : out.skipped === 'not_found' ? 404 : 502);
 }
 
 /** action "vapid_key": the public key a phone subscribes with. Public by design; the private key never leaves the secrets. */

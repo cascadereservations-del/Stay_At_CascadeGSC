@@ -3,7 +3,7 @@
 // implementation from the WebCrypto one that encrypted it), and the VAPID JWT verified with the public key. Time is a frozen number; no network.
 import { assert, assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { createDecipheriv, createECDH, hkdfSync } from 'node:crypto';
-import { b64uToBytes, bytesToB64u, encryptPayload, sendPush, vapidAuthorization, vapidFromEnv } from './C_webpush.ts';
+import { b64uToBytes, bytesToB64u, encryptPayload, isAllowedPushEndpoint, sendPush, vapidAuthorization, vapidFromEnv } from './C_webpush.ts';
 
 const NOW = 1_790_000_000; // frozen clock (seconds)
 
@@ -40,7 +40,7 @@ function decryptAsBrowser(body: Uint8Array, uaPrivate: ReturnType<typeof createE
 function newPhone() {
   const ecdh = createECDH('prime256v1'); ecdh.generateKeys();
   const auth = crypto.getRandomValues(new Uint8Array(16));
-  return { ecdh, auth, keys: { endpoint: 'https://push.example.test/send/abc', p256dh: bytesToB64u(ecdh.getPublicKey()), auth: bytesToB64u(auth) } };
+  return { ecdh, auth, keys: { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', p256dh: bytesToB64u(ecdh.getPublicKey()), auth: bytesToB64u(auth) } };
 }
 async function newVapid() {
   const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
@@ -67,12 +67,12 @@ Deno.test('bad subscription keys and oversize payloads are refused before anythi
 
 Deno.test('VAPID: the JWT verifies with the public key, names the push service origin, expires in 12 hours, and carries the key', async () => {
   const { vapid, publicKey } = await newVapid();
-  const header = await vapidAuthorization('https://push.example.test/send/abc?x=1', vapid, NOW);
+  const header = await vapidAuthorization('https://fcm.googleapis.com/fcm/send/abc?x=1', vapid, NOW);
   const m = /^vapid t=([\w-]+)\.([\w-]+)\.([\w-]+), k=([\w-]+)$/.exec(header)!;
   assert(m, 'header shape');
   assertEquals(m[4], vapid.publicKey);
   const claims = JSON.parse(new TextDecoder().decode(b64uToBytes(m[2])));
-  assertEquals(claims, { aud: 'https://push.example.test', exp: NOW + 43200, sub: 'mailto:test@example.test' });
+  assertEquals(claims, { aud: 'https://fcm.googleapis.com', exp: NOW + 43200, sub: 'mailto:test@example.test' });
   assertEquals(JSON.parse(new TextDecoder().decode(b64uToBytes(m[1]))), { typ: 'JWT', alg: 'ES256' });
   const sig = b64uToBytes(m[3]); assertEquals(sig.length, 64);
   assert(await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, sig as unknown as BufferSource, new TextEncoder().encode(`${m[1]}.${m[2]}`) as unknown as BufferSource));
@@ -96,7 +96,7 @@ Deno.test('sendPush: headers, an encrypted body the phone can read, and the answ
   const h = seen[0].headers;
   assertEquals([h['Content-Encoding'], h['Content-Type'], h.TTL, h.Urgency], ['aes128gcm', 'application/octet-stream', '86400', 'normal']);
   assert(h.Authorization.startsWith('vapid t='));
-  assertEquals(seen[0].url, 'https://push.example.test/send/abc');
+  assertEquals(seen[0].url, 'https://fcm.googleapis.com/fcm/send/abc');
   assertEquals(JSON.parse(decryptAsBrowser(seen[0].body, p.ecdh, p.auth)), msg);
   for (const [status, gone, transient] of [[404, true, false], [410, true, false], [429, false, true], [500, false, true], [503, false, true], [400, false, false], [401, false, false]] as const) {
     const r = await sendPush(p.keys, msg, vapid, { fetch: answer(status) as typeof fetch, nowSec: NOW });
@@ -110,4 +110,22 @@ Deno.test('vapidFromEnv: all three secrets or nothing', () => {
   const env: Record<string, string> = { VAPID_PUBLIC_KEY: 'a', VAPID_PRIVATE_KEY: 'b', VAPID_SUBJECT: 'mailto:x@y.z' };
   assertEquals(vapidFromEnv((k) => env[k]), { publicKey: 'a', privateKey: 'b', subject: 'mailto:x@y.z' });
   for (const drop of Object.keys(env)) assertEquals(vapidFromEnv((k) => (k === drop ? undefined : env[k])), null);
+});
+
+Deno.test('endpoint allow-list: the push services pass; look-alikes, ports, credentials, http and bare suffixes are refused', () => {
+  for (const ok of ['https://fcm.googleapis.com/fcm/send/abc', 'https://web.push.apple.com/zz', 'https://a.b.push.apple.com/zz', 'https://db5p.notify.windows.com/?token=1',
+    'https://updates.push.services.mozilla.com/wpush/v2/zz', 'https://x.push.services.mozilla.com/zz', 'https://x.pushnotifications.push.google.com/zz']) assert(isAllowedPushEndpoint(ok), ok);
+  for (const bad of ['https://fcm.googleapis.com.evil.example/x', 'https://evilfcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x', 'https://user:pw@fcm.googleapis.com/x',
+    'https://fcm.googleapis.com@evil.example/x', 'http://fcm.googleapis.com/x', 'https://push.apple.com/x', 'https://x.push.apple.com.evil.example/x', 'https://127.0.0.1/x',
+    'https://localhost/x', 'https://[::1]/x', 'ftp://fcm.googleapis.com/x', 'not a url', '']) assert(!isAllowedPushEndpoint(bad), bad);
+});
+
+Deno.test('sendPush never calls fetch for a host that is not a push service, and says the subscription is dead', async () => {
+  const p = newPhone(), { vapid } = await newVapid();
+  let called = 0;
+  for (const endpoint of ['https://fcm.googleapis.com.evil.example/x', 'https://169.254.169.254/latest', 'https://evilfcm.googleapis.com/x']) {
+    const r = await sendPush({ ...p.keys, endpoint }, { title: 't', body: 'b' }, vapid, { fetch: (() => { called++; return Promise.resolve(new Response(null, { status: 201 })); }) as typeof fetch, nowSec: NOW });
+    assertEquals([r.ok, r.gone, r.transient, r.status], [false, true, false, 0]);
+  }
+  assertEquals(called, 0);
 });
