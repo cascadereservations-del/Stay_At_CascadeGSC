@@ -461,3 +461,21 @@ Deno.test('D-311.8: Bisaya guests get English drafts - guestReg and the request 
   assertEquals(inquiryLang(undefined, 'Pila ang rate kada gabii?'), 'en');
   assertEquals(inquiryLang(null, ''), 'en');
 });
+
+Deno.test('3.1.1b: draftGuestReply default still makes the short rewrite (byte-for-byte today); skipShort drops exactly that one model call', async () => {
+  Deno.env.set('CASCADE_OPENROUTER_BOT_KEY', 'test-openrouter');
+  const LONGREPLY = 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Early arrivals are welcome to leave their bags with us while the unit is made ready, and we will message you as soon as it is. The unit has air conditioning, a kitchen, fast wifi and a quiet street, and the host is only a message away if anything is needed.\n\nMarifel & The Cascade Team\nHotel Comfort. Home Warmth.';
+  const realFetch = globalThis.fetch;
+  const run = async (opts?: { skipShort?: boolean }) => {
+    let calls = 0;
+    globalThis.fetch = ((u: unknown) => {
+      if (String(u).includes('/chat/completions')) calls++;
+      return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reply: LONGREPLY }) } }] }), { status: 200 }));
+    }) as typeof fetch;
+    try { const out = await draftGuestReply({}, 'airbnb: what time can we check in?', 'Ana', { platform: 'airbnb' }, opts); return { calls, out }; } finally { globalThis.fetch = realFetch; }
+  };
+  const def = await run(), skip = await run({ skipShort: true });
+  assertEquals(def.out.length, 3);
+  assertEquals(skip.out.length, 2);
+  assertEquals(def.calls - skip.calls, 1);
+});

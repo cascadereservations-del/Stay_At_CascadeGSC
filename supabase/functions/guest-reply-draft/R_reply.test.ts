@@ -1,7 +1,9 @@
 // s82 lane R: fewer misses (second pass, malformed retry, host spoke last), options, staff access and the cleaner privacy rule.
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@1';
 import { handleGuestReplyDraft, type Deps } from './logic.ts';
-import { draftOptions, introducesData, type Impl } from './R_draft.ts';
+import { HEADER_HANDOFF, HEADER_RISK } from '../telegram-cassy/draft.ts';
+import { contradicts, draftOptions, introducesData, type Impl } from './R_draft.ts';
+import { FakeTime } from 'jsr:@std/testing@1/time';
 import type { ReadResult } from './R_transcribe.ts';
 
 const G = 'Hi po, what time is check-in tomorrow?';
@@ -105,7 +107,7 @@ function impl(over: Partial<Impl> = {}): Impl & { calls: string[]; modelArgs: un
   return {
     calls, modelArgs,
     guestReply: () => { calls.push('guestReply'); return Promise.resolve(['header', MAIN, '']); },
-    model: (...a) => { calls.push('model'); modelArgs.push(a.slice(2)); return Promise.resolve(MAIN); },
+    modelAll: (...a) => { calls.push('modelAll'); modelArgs.push(a.slice(2)); return Promise.resolve({ main: MAIN, variants: { short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Bags can be left with us before the unit is ready. The house is a few minutes from the airport.' } }); },
     variants: () => { calls.push('variants'); return Promise.resolve({ short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Bags can be left with us before the unit is ready. The house is a few minutes from the airport.' }); },
     ...over,
   };
@@ -120,7 +122,7 @@ Deno.test('R_draft: a successful call returns Warm, Short and With details, dist
   assertEquals(new Set(out.options.map((o) => o.text)).size, 3);
   assert(out.options[1].text.length < out.options[0].text.length);
   assert(out.options.every((o) => o.text.endsWith('Hotel Comfort. Home Warmth.')));
-  assertEquals(m.calls, ['guestReply', 'variants']); // ONE extra model call for both alternatives
+  assertEquals(m.calls, ['variants', 'guestReply']); // variants start first and run alongside the Warm draft: no wait, no rewrite
 });
 
 Deno.test('R_draft: a variant that fails the tone check is dropped, the Warm reply always remains', async () => {
@@ -135,23 +137,22 @@ Deno.test('limited path (faked model): draftOptions itself reads no db, skips dr
   const m = impl();
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: { before: [{ from: 'host', text: 'Hello' }] }, access: 'limited' }, m);
   assert(!m.calls.includes('guestReply'));
-  assertEquals(m.calls, ['model', 'variants']);
-  const [name, ctx, airbnb] = m.modelArgs[0];
-  assertEquals([name, ctx, airbnb], ['Ana', [], true]);
+  assertEquals(m.calls, ['modelAll']); // one structured call: no separate variants call
+  assertEquals(m.modelArgs[0][0], 'Ana'); // modelAll has no guest-context parameter at all
   assert(out.options.length >= 2);
   assert(!/balance|deposit|PHP|@/i.test(out.header));
 });
 
 Deno.test('cleaner: a phone, e-mail or amount that was not in her own input never reaches the response', async () => {
   const leak = `Hi Ana! Yes po. Your balance is PHP 3,500, call 0917 123 4567 or write guest@mail.com.${SIGN}`;
-  const m = impl({ model: () => Promise.resolve(leak), variants: () => Promise.resolve({ short: 'Hi Ana! Please send PHP 1,000 to 0917 555 1212.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM.' }) });
+  const m = impl({ modelAll: () => Promise.resolve({ main: leak, variants: { short: 'Hi Ana! Please send PHP 1,000 to 0917 555 1212.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM.' } }) });
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'limited' }, m);
   const all = out.options.map((o) => o.text).join('\n') + out.header;
   assert(!/PHP|0917|@mail|3,500/.test(all), all);
   assert(out.options.length >= 1);
   // the same amount IS fine when she supplied it herself
   const mine = await draftOptions(NO_DB, { guestText: 'Is PHP 3,500 the right total?', guestName: 'Ana', thread: {}, access: 'limited' },
-    impl({ model: () => Promise.resolve(`Hi Ana! Yes po, I will check the PHP 3,500 total and confirm here.${SIGN}`), variants: () => Promise.resolve({}) }));
+    impl({ modelAll: () => Promise.resolve({ main: `Hi Ana! Yes po, I will check the PHP 3,500 total and confirm here.${SIGN}`, variants: {} }) }));
   assert(mine.options[0].text.includes('PHP 3,500'));
   assert(introducesData('call 09171234567', 'nothing') && !introducesData('call 0917 123 4567', 'my number 09171234567'));
 });
@@ -191,4 +192,88 @@ Deno.test('a variant that is a near-duplicate of Warm (Jaccard above 0.9) is dro
   const near = MAIN.replace('Early arrivals', 'Early arrival');
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, impl({ variants: () => Promise.resolve({ short: near, details: null }) }));
   assertEquals(out.options.map((o) => o.label), ['Warm']);
+});
+
+Deno.test('time budget: a variants call that outlives the budget is abandoned, Warm goes out alone and the event is logged', async () => {
+  const logs: string[] = [];
+  const slow = impl({ variants: () => new Promise((r) => setTimeout(() => r({ short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.' }), 500)) });
+  const t0 = performance.now();
+  const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, slow, { budgetMs: 40, log: (l) => logs.push(l) });
+  assert(performance.now() - t0 < 300);
+  assertEquals(out.options.map((o) => o.label), ['Warm']);
+  assertEquals(logs.map((l) => JSON.parse(l).event), ['variants_budget_exceeded']);
+  await new Promise((r) => setTimeout(r, 520)); // let the abandoned call settle inside the test
+});
+
+const flush = async () => { for (let i = 0; i < 200; i++) await Promise.resolve(); };
+
+Deno.test('full path: Warm and the variants run in PARALLEL (fake clock: total is the max, not the sum)', async () => {
+  const time = new FakeTime();
+  try {
+    const slow = <T>(ms: number, v: T) => new Promise<T>((r) => setTimeout(() => r(v), ms));
+    const m = impl({
+      guestReply: () => slow(7000, ['header', MAIN]),
+      variants: () => slow(3000, { short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.', details: null }),
+    });
+    let fin = false;
+    const done = draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m).then((o) => { fin = true; return o; });
+    await time.tickAsync(6999); await flush();
+    assert(!fin);
+    await time.tickAsync(1); await flush();
+    assert(fin, 'finished at 7000 ms (the sum, 10000 ms, would not have)');
+    assertEquals((await done).options.map((x) => x.label), ['Warm', 'Short']);
+  } finally { time.restore(); }
+});
+
+Deno.test('full path: the variants budget counts from when Warm is ready, never delaying Warm', async () => {
+  const time = new FakeTime();
+  try {
+    const m = impl({
+      guestReply: () => new Promise<string[]>((r) => setTimeout(() => r(['header', MAIN]), 2000)),
+      variants: () => new Promise((r) => setTimeout(() => r({ short: 'Hi Ana! Check-in starts at 2:00 PM. See you then.' }), 60_000)),
+    });
+    const logs: string[] = [];
+    let fin = false;
+    const done = draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m, { log: (l) => logs.push(l) }).then((o) => { fin = true; return o; });
+    for (let t = 1; t <= 9; t++) { await time.tickAsync(1000); await flush(); if (t < 10) assert(!fin, `still waiting at ${t * 1000} ms`); }
+    await time.tickAsync(1000); await flush();
+    assert(fin, 'Warm at 2000 ms + the 8000 ms budget = 10000 ms');
+    assertEquals([(await done).options.length, logs.length], [1, 1]);
+  } finally { time.restore(); }
+});
+
+Deno.test('a Short or With details that states a different time, amount or date than Warm is dropped; a subset or superset is kept', async () => {
+  assert(contradicts('Check-in is at 3:00 PM.', 'Check-in is at 2:00 PM.'));
+  assert(contradicts('It is PHP 1,500.', 'The rate is PHP 1,600.'));
+  assert(contradicts('Oct 12 is open.', 'Oct 10 is open.'));
+  assert(!contradicts('Check-in is at 2 PM.', 'Check-in at 2:00 PM, check-out at 11:00 AM.'));
+  assert(contradicts('Check-in 2:00 PM, check-out 11:00 AM, bags welcome.', 'Check-in is at 2:00 PM.')); // may repeat, never introduce
+  assert(!contradicts('See you soon.', 'Check-in is at 2:00 PM.'));
+  // Warm is a hand-over with no facts: an option may not introduce a time or an amount, but may repeat what the guest wrote
+  const handOver = 'We are checking this and the host will confirm here.';
+  assert(contradicts('Early check-in is at 12:00 PM for PHP 500.', handOver, 'Can we check in early?'));
+  assert(contradicts('Early check-in is at 12:00 PM for PHP 500.', handOver, 'Can we check in at 12:00 PM?'));
+  assert(!contradicts('Yes, we are checking 12:00 PM for you.', handOver, 'Can we check in at 12:00 PM?'));
+  const m = impl({ variants: () => Promise.resolve({ short: 'Hi Ana! Check-in starts at 3:00 PM. See you then.', details: 'Hi Ana! Yes po, check-in starts at 2:00 PM and check-out is at 11:00 AM. Bags can be left with us before the unit is ready. The house is a few minutes from the airport.' }) });
+  const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m);
+  assertEquals(out.options.map((o) => o.label), ['Warm', 'With details']);
+});
+
+Deno.test('full path asks the real guest-reply for no internal short (skipShort) - the model-call count per path is pinned in R_latency', async () => {
+  const src = await Deno.readTextFile(new URL('./R_draft.ts', import.meta.url));
+  assert(src.includes('{ skipShort: true }'));
+});
+
+Deno.test('a hand-over or risk header returns Warm alone and never waits for the variants (constants shared with draft.ts)', async () => {
+  for (const mark of [HEADER_HANDOFF, HEADER_RISK]) {
+    const m = impl({
+      guestReply: () => Promise.resolve([`header
+${mark} flagged line`, 'We are checking this and the host will confirm here.']),
+      variants: () => new Promise(() => {}), // never settles: Warm must not wait for it
+    });
+    const t0 = performance.now();
+    const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, m);
+    assert(performance.now() - t0 < 1000, 'must not wait for the 8 s budget');
+    assertEquals(out.options.map((o) => o.label), ['Warm']);
+  }
 });

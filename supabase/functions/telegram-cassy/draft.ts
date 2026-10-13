@@ -270,9 +270,14 @@ export function draftPlatform(text: string, label?: Platform): { platform: 'airb
   return { platform: said === 'messenger' && !/\bairbnb\b/i.test(t) ? 'messenger' : 'airbnb', text: t, guessed: !mk && label !== 'messenger' && label !== 'airbnb' };
 }
 
+/** The markers that start a header line the host must read first (a risk or a hand-off); guest-reply-draft matches on these same constants. */
+export const HEADER_RISK = '⚠️';
+export const HEADER_HANDOFF = '🛎';
+
 /** Messages for the host, in order: a header card, then each option alone so a long-press copies only the reply. */
 // deno-lint-ignore no-explicit-any
-export async function draftGuestReply(db: any, guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform } = {}): Promise<string[]> {
+/** `opts.skipShort` (guest-reply-draft only): the caller writes Short itself, so the internal short rewrite (a model call) is not made. Default = today's behaviour. */
+export async function draftGuestReply(db: any, guestText: string, guestName: string | null, thread: { before?: Line[]; platform?: Platform } = {}, opts: { skipShort?: boolean } = {}): Promise<string[]> {
   const src = draftPlatform(guestText, thread.platform), platform = src.platform;
   guestText = src.text;
   // A bare "messenger" / "airbnb:" marker carries no guest message: ask for it, never draft from nothing.
@@ -297,17 +302,17 @@ export async function draftGuestReply(db: any, guestText: string, guestName: str
     if (airbnbFail.length) console.warn('airbnb_tone', JSON.stringify({ calm, fail: airbnbFail }));
   }
   const lint = lintReply(main, guestText); if (lint.length) console.warn('voice_lint', JSON.stringify({ source: 'cassy_draft', brain: !!brain, lint }));
-  let short = main.length > 320 ? await rewrite(db, main, `Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.${airbnb ? ' Keep the greeting line and the two sign-off lines exactly.' : ''}`, airbnb).catch(() => '') : '';
+  let short = !opts.skipShort && main.length > 320 ? await rewrite(db, main, `Make it noticeably shorter - two short paragraphs at most - by dropping pleasantries, never facts.${airbnb ? ' Keep the greeting line and the two sign-off lines exactly.' : ''}`, airbnb).catch(() => '') : '';
   if (airbnb) short = airbnbSafe(short);
   const head = [`✍️ Guest reply${guestName ? ` · ${guestName}` : ''} · ${platform === 'airbnb' ? 'Airbnb' : 'Messenger'}${risk !== 'routine' ? ` · ${risk.replace('_', ' ')}` : ''}`,
     brain ? '1️⃣ is what the concierge would send (calendar and rate card checked).' : `1️⃣ is a drafted reply${platform === 'airbnb' ? ' (Airbnb: no links or outside payment)' : ' (the concierge could not be reached, so dates are not checked)'}.`,
     ...(short ? ['2️⃣ says the same, shorter.'] : [])];
   if (src.guessed) head.push('ℹ️ Source unclear, so this is the Airbnb-safe draft. For a Messenger chat: "cassy reply messenger: …" or a screenshot.');
-  if (FLAG[risk]) head.push(`⚠️ This reads as ${FLAG[risk]}.`);
-  if (airbnbFail.length) head.push(`⚠️ Airbnb voice check: ${airbnbFail.join(', ')}. Read it before sending.`);
+  if (FLAG[risk]) head.push(`${HEADER_RISK} This reads as ${FLAG[risk]}.`);
+  if (airbnbFail.length) head.push(`${HEADER_RISK} Airbnb voice check: ${airbnbFail.join(', ')}. Read it before sending.`);
   if (brain?.effects.some((e) => e.fx === 'qr' || e.fx === 'image')) head.push('📎 The concierge would attach the GCash QR here: send it with the reply.');
-  if (brain?.effects.some((e) => e.fx === 'handoff')) head.push('🛎 The concierge would also flag this to you: it is yours to decide.');
-  if (!brain && platform !== 'airbnb' && /\b(available|avail|open|free|vacant|bakante)\b/i.test(main) && !/\b(check|confirm)\b/i.test(main)) head.push('⚠️ The draft claims availability: check the calendar before sending.');
+  if (brain?.effects.some((e) => e.fx === 'handoff')) head.push(`${HEADER_HANDOFF} The concierge would also flag this to you: it is yours to decide.`);
+  if (!brain && platform !== 'airbnb' && /\b(available|avail|open|free|vacant|bakante)\b/i.test(main) && !/\b(check|confirm)\b/i.test(main)) head.push(`${HEADER_RISK} The draft claims availability: check the calendar before sending.`);
   if (ctx.length) head.push(...ctx);
   head.push(`Nothing was sent. Long-press an option to copy it.${platform === 'airbnb' ? '' : ` Site: ${SITE_URL}`}`);
   return [head.join('\n'), main, ...(short ? [short] : [])];

@@ -30,7 +30,7 @@ function realDeps(): Deps | null {
       if (staffError || staff !== true) return { ok: false, status: 403, error: 'staff_access_denied' };
       return { ok: true, access: 'limited' };
     },
-    draft: (guestText, guestName, thread, access) => draftOptions(db, { guestText, guestName, thread, access }),
+    draft: (guestText, guestName, thread, access) => draftOptions(db, { guestText, guestName, thread, access }, undefined, { log: (l) => console.warn(l) }),
     transcribe: readChat,
     now: () => Date.now(),
     log: (line) => console.log(line),
