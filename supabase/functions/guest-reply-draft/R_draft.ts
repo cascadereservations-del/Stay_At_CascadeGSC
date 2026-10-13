@@ -38,19 +38,30 @@ export const REAL: Impl = {
   },
 };
 
-const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const PHONE = /\+?\d(?:[\s().-]?\d){8,}/g;
-const MONEY = /(?:PHP|₱|\bP)\s?\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s?(?:php\b|pesos?\b)/gi;
+const NUM = /\d+(?:,\d{3})*(?:\.\d+)?\s?k?\b/gi;
+const AMOUNT = /(?:PHP|₱|\bP)\s?(\d+(?:,\d{3})*(?:\.\d+)?)|(\d+(?:,\d{3})*(?:\.\d+)?)\s?(?:php\b|pesos?\b)|\b(\d+(?:\.\d+)?)\s?k\b/gi;
+const WORDS = /\b(?:hundred|thousand|million)\b/gi;
 const digits = (s: string) => s.replace(/\D/g, '');
+const val = (s: string) => { const k = /k\s*$/i.test(s); const n = parseFloat(s.replace(/[,k\s]/gi, '')); return k ? n * 1000 : n; };
 
-/** True when `text` carries an e-mail, phone number or peso amount that `input` (what the staff member supplied) does not. */
+/** True when `text` carries an e-mail, phone number or amount (digits, 3.5k, or "three thousand") that `input` (what the staff member
+ *  supplied) does not. ponytail: a spelled amount is caught by its magnitude word only, and a bare number without a currency is left to airbnbTone. */
 export function introducesData(text: string, input: string): boolean {
-  const lowIn = input.toLowerCase(), digIn = digits(input);
+  const lowIn = input.toLowerCase();
   if ((text.match(EMAIL) ?? []).some((e) => !lowIn.includes(e.toLowerCase()))) return true;
-  if ((text.match(PHONE) ?? []).some((p) => !digIn.includes(digits(p)))) return true;
-  return (text.match(MONEY) ?? []).some((m) => !digIn.includes(digits(m)));
+  const phonesIn = new Set((input.match(PHONE) ?? []).map((p) => digits(p).slice(-10)));
+  if ((text.match(PHONE) ?? []).some((p) => !phonesIn.has(digits(p).slice(-10)))) return true;
+  const nums = new Set((input.match(NUM) ?? []).map(val));
+  for (const m of text.matchAll(AMOUNT)) if (!nums.has(val(m[1] ?? m[2] ?? m[3] + 'k'))) return true;
+  return (text.match(WORDS) ?? []).some((w) => !lowIn.includes(w.toLowerCase()));
 }
+const jaccard = (a: string, b: string) => {
+  const A = new Set(a.toLowerCase().match(/[a-z0-9']+/g) ?? []), Bs = new Set(b.toLowerCase().match(/[a-z0-9']+/g) ?? []);
+  let n = 0; for (const w of A) if (Bs.has(w)) n++;
+  return A.size + Bs.size - n ? n / (A.size + Bs.size - n) : 1;
+};
 
 export async function draftOptions(db: unknown, a: { guestText: string; guestName: string | null; thread: Thread; access: Access }, impl: Impl = REAL): Promise<DraftOut> {
   const { guestText, guestName, thread, access } = a;
@@ -86,11 +97,10 @@ export async function draftOptions(db: unknown, a: { guestText: string; guestNam
   const mainOk = limited ? (safe(main) ? main : '') : main; // the full-access main reply is kept as today (lint only warns)
   const warm = mainOk || airbnbFinish(airbnbFallback(guestName, calm), lang, calm);
   const options: Option[] = [{ label: 'Warm', text: warm }];
-  const seen = new Set([norm(warm)]);
-  const add = (label: string, raw: unknown, shorter: boolean) => {
+    const add = (label: string, raw: unknown, shorter: boolean) => {
     const t = pass(raw);
-    if (!safe(t) || seen.has(norm(t)) || (shorter && t.length >= warm.length)) return;
-    seen.add(norm(t)); options.push({ label, text: t });
+    if (!safe(t) || options.some((o) => jaccard(o.text, t) > 0.9) || (shorter && t.length >= warm.length)) return;
+    options.push({ label, text: t });
   };
   add('Short', v.short, true);
   if (options.length < 2 && legacyShort) add('Short', legacyShort, true);

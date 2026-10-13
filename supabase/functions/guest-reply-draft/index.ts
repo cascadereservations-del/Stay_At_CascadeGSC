@@ -26,7 +26,7 @@ function realDeps(): Deps | null {
       const { data: full, error: fullError } = await caller.rpc('current_staff_active', { p_roles: ['owner', 'admin'] });
       if (fullError) return { ok: false, status: 403, error: 'staff_access_denied' };
       if (full === true) return { ok: true, access: 'full' };
-      const { data: staff, error: staffError } = await caller.rpc('current_staff_active', { p_roles: ['owner', 'admin', 'cleaner', 'finance'] });
+      const { data: staff, error: staffError } = await caller.rpc('current_staff_active', { p_roles: ['owner', 'admin', 'finance', 'inspector', 'cleaner', 'maintenance'] });
       if (staffError || staff !== true) return { ok: false, status: 403, error: 'staff_access_denied' };
       return { ok: true, access: 'limited' };
     },

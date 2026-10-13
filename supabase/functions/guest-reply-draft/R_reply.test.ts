@@ -131,7 +131,7 @@ Deno.test('R_draft: a variant that fails the tone check is dropped, the Warm rep
   assertEquals((await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, broken)).options.length, 1);
 });
 
-Deno.test('cleaner: no guest-data read at all (no draftGuestReply, no context, no db), Airbnb-safe register, ctx = []', async () => {
+Deno.test('limited path (faked model): draftOptions itself reads no db, skips draftGuestReply, passes ctx = [] and the Airbnb register', async () => {
   const m = impl();
   const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: { before: [{ from: 'host', text: 'Hello' }] }, access: 'limited' }, m);
   assert(!m.calls.includes('guestReply'));
@@ -158,4 +158,37 @@ Deno.test('cleaner: a phone, e-mail or amount that was not in her own input neve
 
 Deno.test('a draft with no main reply still fails (no empty options)', async () => {
   await assertRejects(() => draftOptions(NO_DB, { guestText: G, guestName: null, thread: {}, access: 'full' }, impl({ guestReply: () => Promise.resolve(['header']) })));
+});
+
+Deno.test('every active staff role reaches the limited check (index.ts lists all six roles)', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  for (const r of ['owner', 'admin', 'finance', 'inspector', 'cleaner', 'maintenance']) assert(src.includes(`'${r}'`), r);
+});
+
+Deno.test('introducesData: tokens, not substrings (10:00 AM is not PHP 1,000), 3.5k and spelled-out amounts are caught', () => {
+  assert(introducesData('Please send PHP 1,000.', 'check-in at 10:00 AM?'));
+  assert(introducesData('The total is 3.5k.', 'how much?'));
+  assert(introducesData('That is three thousand five hundred pesos.', 'how much?'));
+  assert(!introducesData('The PHP 3500 total is noted.', 'is 3,500 right?'));
+  assert(!introducesData('about 3.5k as you said', 'you said 3.5k'));
+});
+
+Deno.test('a throw in the second reading pass keeps the 422 instead of a 502', async () => {
+  let n = 0;
+  const { deps } = fake([NONE], { transcribe: () => (++n === 2 ? Promise.reject(new Error('vision down')) : Promise.resolve(NONE)) });
+  const res = await handleGuestReplyDraft(post(img), deps);
+  assertEquals([res.status, (await res.json()).error], [422, 'no_guest_message']);
+});
+
+Deno.test('host spoke last: the host trailing message stays in the history given to the drafter', async () => {
+  const seen: unknown[] = [];
+  const { deps } = fake([shot([{ from: 'guest', text: G }, { from: 'host', text: 'Check-in is at 2 PM po.' }])], { draft: (_t, _n, th) => { seen.push(th.before); return Promise.resolve(['h', 'm']); } });
+  await handleGuestReplyDraft(post(img), deps);
+  assertEquals(seen, [[{ from: 'host', text: 'Check-in is at 2 PM po.' }]]);
+});
+
+Deno.test('a variant that is a near-duplicate of Warm (Jaccard above 0.9) is dropped', async () => {
+  const near = MAIN.replace('Early arrivals', 'Early arrival');
+  const out = await draftOptions(NO_DB, { guestText: G, guestName: 'Ana', thread: {}, access: 'full' }, impl({ variants: () => Promise.resolve({ short: near, details: null }) }));
+  assertEquals(out.options.map((o) => o.label), ['Warm']);
 });

@@ -59,7 +59,7 @@ Deno.test('401: no bearer token, and an expired session, nothing drafted', async
   assertEquals(a.rec.drafts.length + b.rec.drafts.length, 0);
 });
 
-Deno.test('403: a signed-in cleaner (not owner or admin) is refused before the body is read, nothing drafted', async () => {
+Deno.test('403: when authenticate refuses a session (unknown or disabled staff), the body is never read and nothing is drafted', async () => {
   const { deps, rec } = fake({ authenticate: () => Promise.resolve({ ok: false, status: 403, error: 'staff_access_denied' }) });
   const res = await handleGuestReplyDraft(post({ text: GUEST }), deps);
   assertEquals(res.status, 403);

@@ -56,14 +56,14 @@ export function lastGuestRun(lines: Line[]): { latest: string; before: Line[] } 
   if (end < 0) return { latest: '', before: lines };
   let start = end;
   while (start > 0 && lines[start - 1].from === 'guest') start--;
-  return { latest: lines.slice(start, end + 1).map((l) => l.text).join('\n'), before: lines.slice(0, start) };
+  return { latest: lines.slice(start, end + 1).map((l) => l.text).join('\n'), before: [...lines.slice(0, start), ...lines.slice(end + 1)] };
 }
 
 /** One read, one retry when the model's JSON was unreadable, then ONE stronger second pass when there is still no guest message. */
 async function readScreenshot(deps: Deps, bytes: Uint8Array, mime: string): Promise<ReadResult> {
   let t = await deps.transcribe(bytes, mime, 1);
   if (t.malformed) t = await deps.transcribe(bytes, mime, 1);
-  if (!hasGuest(t)) { const t2 = await deps.transcribe(bytes, mime, 2); if (hasGuest(t2)) t = t2; }
+  if (!hasGuest(t)) { const t2 = await deps.transcribe(bytes, mime, 2).catch(() => t); if (hasGuest(t2)) t = t2; }
   return t;
 }
 
