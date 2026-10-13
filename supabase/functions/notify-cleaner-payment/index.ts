@@ -18,6 +18,7 @@ import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
 import { parseRequest } from './request.ts';
 import { type NoticeData, runPaid } from './paid.ts';
+import { type CardReq, redrawFinanceCard } from './card.ts';
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
@@ -116,6 +117,19 @@ async function handlePaid(req: Request, body: Record<string, unknown>): Promise<
   return reply(out, out.ok ? 200 : out.skipped === 'not_found' ? 404 : 502);
 }
 
+/** action "card" (fix round 2): redraw the Finance card for a request the Staff app is paying, taking over or has stepped back from. Staff session only. */
+async function handleCard(req: Request, body: Record<string, unknown>): Promise<Response> {
+  try { await requireStaffAccess(req, 'approve_payment', PROPERTY_ID); }
+  catch (e) { const r = staffAuthResponse(e, CORS_H); if (r) return r; throw e; }
+  const id = typeof body.request_id === 'string' ? body.request_id : '';
+  if (!UUID.test(id)) return reply({ ok: false, reason: 'bad_request' }, 400);
+  if (!TG_TOKEN || !SERVICE_ROLE) return reply({ ok: false, reason: 'not_configured' }, 500);
+  const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  const { data: row } = await db.from('staff_pay_requests').select('*').eq('id', id).maybeSingle();
+  if (!row) return reply({ ok: false, reason: 'not_found' }, 404);
+  return reply({ ok: true, card: await redrawFinanceCard(row as CardReq, { tg: tgJson }) });
+}
+
 /** action "vapid_key": the public key a phone subscribes with. Public by design; the private key never leaves the secrets. */
 async function handleVapidKey(req: Request): Promise<Response> {
   try { await requireStaffAccess(req, 'submit_cleaning', PROPERTY_ID); }
@@ -132,6 +146,7 @@ Deno.serve(withObservability({ functionName: 'notify-cleaner-payment', route: 'o
   const action = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>).action : undefined;
   if (action === 'paid') return handlePaid(req, raw as Record<string, unknown>);
   if (action === 'vapid_key') return handleVapidKey(req);
+  if (action === 'card') return handleCard(req, raw as Record<string, unknown>);
 
   let identity;
   try { identity = await requireStaffAccess(req, 'submit_cleaning', PROPERTY_ID); }
