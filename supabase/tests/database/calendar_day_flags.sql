@@ -219,7 +219,7 @@ select is(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'current
 select is((select array_agg(k order by k) from jsonb_object_keys(public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')) k),
   array['calendar','current_guest','day_flags','generated_at','next_guest','property_id','role','today','warnings','weather'],
   'the payload keeps every existing top-level key and adds day_flags');
-select is((select array_agg(k order by k) from jsonb_object_keys((public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'calendar')->0) k),
+select is((select array_agg(k order by k) from jsonb_object_keys(((public.staff_home_v1('e7700000-0000-4000-8000-0000000000b0')->'calendar')->0) - 'arrival_ready') k), -- s82: arrival_ready (owner/admin, upcoming stays) is covered by s82_staff_31.sql
   array['block_label','block_reason','checkin_date','checkin_time','checkout_date','checkout_time','guest_name','nights','source','status','uid'],
   'a calendar row keeps its existing keys and adds block_reason and block_label');
 
