@@ -1,23 +1,24 @@
 // deno test supabase/functions/_shared/B_weather.test.ts - lane B weather helpers. Frozen clock, synthetic bodies only.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { B_aqi, B_extras, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
+import { B_aqi, B_extras, B_iconToCode, B_isDay, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
 
 const NOW = Date.parse('2026-10-13T04:20:00Z'); // 12:20 Manila
 const gh = (iso: string, pctv: number, mm: number | null, type = 'RAIN') => ({
-  interval: { startTime: iso }, precipitation: { probability: { percent: pctv }, ...(mm == null ? {} : { qpf: { quantity: mm } }) }, weatherCondition: { type },
+  interval: { startTime: iso }, temperature: { degrees: 29.6 }, precipitation: { probability: { percent: pctv }, ...(mm == null ? {} : { qpf: { quantity: mm } }) }, weatherCondition: { type },
 });
 const hours = (n: number, f: (i: number) => [number, number | null, string]) =>
   Array.from({ length: n }, (_, i) => { const [p, mm, t] = f(i); return gh(new Date(Date.parse('2026-10-13T03:00:00Z') + i * 3_600_000).toISOString(), p, mm, t); });
 
 Deno.test('B: the rain threshold is the number rain-alert has always used', () => assertEquals(RAIN_THRESHOLD, 70));
 
-Deno.test('B: google hours start with the hour in progress, cap at 12, carry pct / mm / code', () => {
+Deno.test('B: google hours start with the hour in progress, cap at 24 (s82 W), carry pct / mm / code / temp', () => {
   const rows = B_googleHours({ forecastHours: hours(24, (i) => [i * 4, i === 3 ? 1.24 : null, i === 3 ? 'LIGHT_RAIN' : 'CLEAR']) }, NOW);
-  assertEquals(rows.length, 12);
+  assertEquals(rows.length, 23, '24 rows from 03:00Z, the 03:00Z hour has passed: 23 left');
+  assertEquals(B_googleHours({ forecastHours: hours(40, () => [1, null, 'CLEAR']) }, NOW).length, 24);
   assertEquals(rows[0].time, '2026-10-13T04:00:00.000Z', 'the 12:00 hour is still running at 12:20');
-  assertEquals(rows[0], { time: '2026-10-13T04:00:00.000Z', rain_chance_pct: 4, mm: null, code: 0 });
-  assertEquals(rows[2], { time: '2026-10-13T06:00:00.000Z', rain_chance_pct: 12, mm: 1.2, code: 61 });
-  assertEquals(Object.keys(rows[0]), ['time', 'rain_chance_pct', 'mm', 'code']);
+  assertEquals(rows[0], { time: '2026-10-13T04:00:00.000Z', rain_chance_pct: 4, mm: null, code: 0, temp: 30 });
+  assertEquals(rows[2], { time: '2026-10-13T06:00:00.000Z', rain_chance_pct: 12, mm: 1.2, code: 61, temp: 30 });
+  assertEquals(Object.keys(rows[0]), ['time', 'rain_chance_pct', 'mm', 'code', 'temp']);
 });
 
 Deno.test('B: google displayDateTime is read as Manila time when interval is missing', () => {
@@ -27,13 +28,13 @@ Deno.test('B: google displayDateTime is read as Manila time when interval is mis
 
 Deno.test('B: open-meteo hours are Manila wall clock, same row shape', () => {
   const t = ['2026-10-13T11:00', '2026-10-13T12:00', '2026-10-13T13:00'];
-  const rows = B_openMeteoHours({ hourly: { time: t, precipitation_probability: [10, 75, 90], precipitation: [0, 0.4, 2.26], weather_code: [1, 61, 80] } }, NOW);
+  const rows = B_openMeteoHours({ hourly: { time: t, precipitation_probability: [10, 75, 90], precipitation: [0, 0.4, 2.26], weather_code: [1, 61, 80], temperature_2m: [27.4, 28.5, 31.2] } }, NOW);
   assertEquals(rows.map((r) => r.time), ['2026-10-13T04:00:00.000Z', '2026-10-13T05:00:00.000Z']);
-  assertEquals(rows[1], { time: '2026-10-13T05:00:00.000Z', rain_chance_pct: 90, mm: 2.3, code: 80 });
+  assertEquals(rows[1], { time: '2026-10-13T05:00:00.000Z', rain_chance_pct: 90, mm: 2.3, code: 80, temp: 31 });
 });
 
 Deno.test('B: rain_watch uses the shared threshold (69 is not rain, 70 is), from first hit to the end of the last', () => {
-  const r = (h: number, p: number) => ({ time: `2026-10-13T${String(h).padStart(2, '0')}:00:00.000Z`, rain_chance_pct: p, mm: null, code: null });
+  const r = (h: number, p: number) => ({ time: `2026-10-13T${String(h).padStart(2, '0')}:00:00.000Z`, rain_chance_pct: p, mm: null, code: null, temp: null });
   assertEquals(B_rainWatch([r(4, 69), r(5, 69)]), null);
   assertEquals(B_rainWatch([r(4, 20), r(5, 70), r(6, 40), r(7, 85)]), { from: '2026-10-13T05:00:00.000Z', to: '2026-10-13T08:00:00.000Z', peak_pct: 85 });
 });
@@ -46,7 +47,7 @@ Deno.test('B: extras prefer open-meteo hours (free), fall back to google only wh
   const a = B_extras({ google: g, openMeteo: om, aqi: { current: { us_aqi: 30 } } }, NOW, 'Partly cloudy');
   assertEquals([a.hourly_source, a.hourly.length, a.aqi, a.rain_watch, a.code], ['open_meteo', 1, 30, null, 2]);
   const b = B_extras({ google: g, openMeteo: { hourly: { time: [] } } }, NOW, 'Partly cloudy');
-  assertEquals([b.hourly_source, b.hourly.length, b.rain_watch?.peak_pct, b.code], ['google', 12, 90, 63]);
+  assertEquals([b.hourly_source, b.hourly.length, b.rain_watch?.peak_pct, b.code], ['google', 13, 90, 63]);
   const c = B_extras({}, NOW, 'Light rain');
   assertEquals([c.hourly, c.hourly_source, c.code], [[], null, 61]);
 });
@@ -85,7 +86,7 @@ Deno.test('B fetch: happy path makes exactly two free calls (open-meteo hours, o
   assertEquals(m.urls.length, 2);
   const om = m.urls.find((u) => u.hostname === 'api.open-meteo.com')!, aq = m.urls.find((u) => u.hostname === 'air-quality-api.open-meteo.com')!;
   assertEquals([om.pathname, om.searchParams.get('latitude'), om.searchParams.get('longitude'), om.searchParams.get('hourly'), om.searchParams.get('timezone'), om.searchParams.get('forecast_days')],
-    ['/v1/forecast', '6.1164', '125.1716', 'precipitation_probability,precipitation,weather_code', 'Asia/Manila', '2']);
+    ['/v1/forecast', '6.1164', '125.1716', 'precipitation_probability,precipitation,weather_code,temperature_2m', 'Asia/Manila', '2']);
   assertEquals([aq.pathname, aq.searchParams.get('current'), aq.searchParams.get('latitude'), aq.searchParams.get('longitude')], ['/v1/air-quality', 'us_aqi', '6.1164', '125.1716']);
   assert(!m.urls.some((u) => u.hostname.includes('googleapis')), 'no paid call on the happy path');
   assertEquals([r.hourly_source, r.hourly.length, r.aqi, r.rain_watch?.peak_pct], ['open_meteo', 2, 41, 80]);
@@ -97,7 +98,7 @@ Deno.test('B fetch: Google hours are called only when open-meteo gave nothing, w
   const g = m.urls.find((u) => u.hostname === 'weather.googleapis.com')!;
   assertEquals([m.urls.length, g.pathname, g.searchParams.get('key'), g.searchParams.get('location.latitude'), g.searchParams.get('location.longitude'), g.searchParams.get('hours')],
     [3, '/v1/forecast/hours:lookup', 'KEY1', '6.1164', '125.1716', '24']);
-  assertEquals([r.hourly_source, r.hourly.length], ['google', 12]);
+  assertEquals([r.hourly_source, r.hourly.length], ['google', 13]);
   const none = mockFetch((u) => jsonRes(u.hostname === 'api.open-meteo.com' ? { hourly: { time: [] } } : {}));
   await B_fetchExtras(NOW, '', { fetchFn: none.fn });
   assertEquals(none.urls.length, 2, 'no key, no Google call');
@@ -129,4 +130,25 @@ Deno.test('B fetch: failed extras (throw, 500) leave the base payload intact', a
     assertEquals([payload.source, payload.current, payload.forecast, payload.fetched_at], [base.source, base.current, base.forecast, base.fetched_at]);
     assertEquals([payload.hourly, payload.aqi, payload.rain_watch, payload.code], [[], null, null, 2]);
   }
+});
+
+// ---- s82 lane W: 24 hourly rows with temp, old 12-hour readings unchanged ----
+Deno.test('W: rain_watch still reads only the first 12 hours, though hourly now has more', () => {
+  const g = { forecastHours: hours(40, (i) => [i >= 14 ? 95 : 10, null, 'RAIN']) }; // rain only from the 15th hour on
+  const e = B_extras({ google: g }, NOW, '');
+  assertEquals(e.hourly.length, 24);
+  assertEquals(e.rain_watch, null, 'rain 14 hours out is not a rain watch (rain-alert reads 12 hours)');
+});
+
+Deno.test('W: icon and daylight helpers', () => {
+  assertEquals([B_iconToCode('thunderstorm'), B_iconToCode('partly-cloudy-night'), B_iconToCode('clear-day'), B_iconToCode('rain'), B_iconToCode('zzz')], [95, 2, 0, 63, null]);
+  assertEquals([B_isDay(100, 50, 150), B_isDay(150, 50, 150), B_isDay(10, 50, 150), B_isDay(10, null, 150), B_isDay(10, 0, 150)], [true, false, false, null, null]);
+});
+
+Deno.test('W: weather-proxy asks for 7 days, adds code per day and current.code / is_day in every source', async () => {
+  const src = await Deno.readTextFile(new URL('../weather-proxy/index.ts', import.meta.url));
+  assertEquals(src.match(/FORECAST_DAYS/g)!.length >= 6, true);
+  assert(!/slice\(0, 5\)/.test(src) && !/forecast_days=5|days=5/.test(src), 'no 5-day cap left');
+  assertEquals((src.match(/^\s+code:\s/gm) ?? []).length, 6, 'code on current and on each day, three sources');
+  assertEquals((src.match(/^\s+is_day:\s/gm) ?? []).length, 3);
 });

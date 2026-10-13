@@ -4,7 +4,10 @@
 
 export const RAIN_THRESHOLD = 70; // % probability
 
-export type B_HourRow = { time: string; rain_chance_pct: number; mm: number | null; code: number | null };
+// s82 lane W: `temp` (deg C) added to each hour row; every older key keeps its name and meaning.
+export type B_HourRow = { time: string; rain_chance_pct: number; mm: number | null; code: number | null; temp: number | null };
+/** Rows the weather screen shows. The 12-hour reading (rain_watch, rain-alert) keeps its own cap below. */
+export const B_HOURS_SHOWN = 24, B_HOURS_RAIN_WATCH = 12;
 export type B_RainWatch = { from: string; to: string; peak_pct: number };
 
 const HOUR = 3_600_000;
@@ -27,6 +30,28 @@ export function B_googleTypeToCode(type: unknown): number | null {
   return null;
 }
 
+/** PirateWeather icon name to the nearest WMO code; null when unknown. */
+export function B_iconToCode(icon: unknown): number | null {
+  switch (String(icon ?? '')) {
+    case 'thunderstorm': return 95;
+    case 'rain': return 63;
+    case 'sleet': return 68;
+    case 'snow': return 71;
+    case 'fog': return 45;
+    case 'cloudy': case 'wind': return 3;
+    case 'partly-cloudy-day': case 'partly-cloudy-night': return 2;
+    case 'clear-day': case 'clear-night': return 0;
+    default: return null;
+  }
+}
+
+/** True when `nowSec` (unix seconds) is between sunrise and sunset; null when either is missing. */
+export function B_isDay(nowSec: unknown, sunriseSec: unknown, sunsetSec: unknown): boolean | null {
+  const n = Number(nowSec), a = Number(sunriseSec), b = Number(sunsetSec);
+  if (![n, a, b].every(Number.isFinite) || !sunriseSec || !sunsetSec) return null;
+  return n >= a && n < b;
+}
+
 /** A condition sentence ("Partly cloudy", "Light rain") to a WMO code. Same reading as weather-proxy's descToEmoji. */
 export function B_textToCode(desc: unknown): number | null {
   const d = String(desc ?? '').toLowerCase();
@@ -47,6 +72,7 @@ export function B_textToCode(desc: unknown): number | null {
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+const B_tempC = (v: unknown) => (v != null && Number.isFinite(Number(v)) ? Math.round(Number(v)) : null);
 const pct = (v: unknown) => Math.max(0, Math.min(100, Math.round(Number(v ?? 0)) || 0));
 
 /** The next `n` hourly rows that have not fully passed at nowMs, soonest first. */
@@ -58,7 +84,7 @@ function nextHours(rows: B_HourRow[], nowMs: number, n: number): B_HourRow[] {
 }
 
 /** Google Weather forecast/hours:lookup body -> rows. interval.startTime is UTC; displayDateTime (Manila wall clock) is the fallback. */
-export function B_googleHours(data: any, nowMs: number, n = 12): B_HourRow[] {
+export function B_googleHours(data: any, nowMs: number, n = B_HOURS_SHOWN): B_HourRow[] {
   const out: B_HourRow[] = [];
   for (const h of (data?.forecastHours ?? []) as any[]) {
     let iso: string | null = null;
@@ -76,13 +102,14 @@ export function B_googleHours(data: any, nowMs: number, n = 12): B_HourRow[] {
       rain_chance_pct: pct(h?.precipitation?.probability?.percent),
       mm: q != null && Number.isFinite(Number(q)) ? round1(Number(q)) : null,
       code: B_googleTypeToCode(h?.weatherCondition?.type),
+      temp: B_tempC(h?.temperature?.degrees),
     });
   }
   return nextHours(out, nowMs, n);
 }
 
 /** Open-Meteo forecast body requested with timezone=Asia/Manila and hourly=precipitation_probability,precipitation,weather_code. */
-export function B_openMeteoHours(data: any, nowMs: number, n = 12): B_HourRow[] {
+export function B_openMeteoHours(data: any, nowMs: number, n = B_HOURS_SHOWN): B_HourRow[] {
   const h = data?.hourly;
   const times: string[] = h?.time ?? [];
   const out: B_HourRow[] = [];
@@ -96,6 +123,7 @@ export function B_openMeteoHours(data: any, nowMs: number, n = 12): B_HourRow[] 
       rain_chance_pct: pct(h?.precipitation_probability?.[i]),
       mm: mm != null && Number.isFinite(Number(mm)) ? round1(Number(mm)) : null,
       code: code != null && Number.isFinite(Number(code)) ? Number(code) : null,
+      temp: B_tempC(h?.temperature_2m?.[i]),
     });
   });
   return nextHours(out, nowMs, n);
@@ -132,14 +160,14 @@ export function B_extras(src: { google?: any; openMeteo?: any; aqi?: any }, nowM
     hourly,
     hourly_source,
     aqi: B_aqi(src.aqi),
-    rain_watch: B_rainWatch(hourly),
+    rain_watch: B_rainWatch(hourly.slice(0, B_HOURS_RAIN_WATCH)), // 12 hours, as before 24 rows were shown
     code: hourly[0]?.code ?? B_textToCode(conditionText),
   };
 }
 
 export const B_LAT = 6.1164, B_LNG = 125.1716;
 export const B_OM_HOURS_URL = (lat = B_LAT, lng = B_LNG) =>
-  `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation,weather_code&timezone=Asia%2FManila&forecast_days=2`;
+  `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&hourly=precipitation_probability,precipitation,weather_code,temperature_2m&timezone=Asia%2FManila&forecast_days=2`;
 export const B_AQI_URL = (lat = B_LAT, lng = B_LNG) =>
   `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=us_aqi&timezone=Asia%2FManila`;
 export const B_GOOGLE_HOURS_URL = (key: string, lat = B_LAT, lng = B_LNG) =>
