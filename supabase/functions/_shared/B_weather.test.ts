@@ -1,6 +1,6 @@
 // deno test supabase/functions/_shared/B_weather.test.ts - lane B weather helpers. Frozen clock, synthetic bodies only.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { B_aqi, B_extras, B_iconToCode, B_isDay, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
+import { B_aqi, B_extras, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
 
 const NOW = Date.parse('2026-10-13T04:20:00Z'); // 12:20 Manila
 const gh = (iso: string, pctv: number, mm: number | null, type = 'RAIN') => ({
@@ -151,4 +151,21 @@ Deno.test('W: weather-proxy asks for 7 days, adds code per day and current.code 
   assert(!/slice\(0, 5\)/.test(src) && !/forecast_days=5|days=5/.test(src), 'no 5-day cap left');
   assertEquals((src.match(/^\s+code:\s/gm) ?? []).length, 6, 'code on current and on each day, three sources');
   assertEquals((src.match(/^\s+is_day:\s/gm) ?? []).length, 3);
+});
+
+// ---- s82 lane W fix round ----
+Deno.test('W fix: Google speeds are converted by the unit the API sends (m/s and mph converted, km/h kept)', () => {
+  assertEquals(B_speedKph({ value: 10, unit: 'METERS_PER_SECOND' }), 36);
+  assertEquals(B_speedKph({ value: 20, unit: 'MILES_PER_HOUR' }), 32);
+  assertEquals(B_speedKph({ value: 14, unit: 'KILOMETERS_PER_HOUR' }), 14);
+  assertEquals(B_speedKph({ value: 14 }), 14, 'no unit: the metric default, km/h');
+  assertEquals([B_speedKph({}), B_speedKph(undefined), B_speedKph({ value: 'x' })], [null, null, null]);
+});
+
+Deno.test('W fix: a missing icon is not read as day; weather-proxy uses the unit-aware speed and no bare 3.6 on Google values', async () => {
+  assertEquals([B_iconIsDay('clear-night'), B_iconIsDay('partly-cloudy-day'), B_iconIsDay(''), B_iconIsDay(undefined), B_iconIsDay('rain')], [false, true, null, null, null]);
+  const src = await Deno.readTextFile(new URL('../weather-proxy/index.ts', import.meta.url));
+  assert(!/cur\.wind\??\.[a-z.?]*\* 3\.6|daytimeForecast\.wind\.speed\.value\) \* 3\.6/.test(src), 'no multiply-by-3.6 on a Google wind value');
+  assertEquals((src.match(/B_speedKph\(/g) ?? []).length, 3);
+  assert(src.includes('B_iconIsDay(cur.icon)') && !src.includes("!String(cur.icon ?? '').endsWith('-night')"));
 });

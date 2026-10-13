@@ -45,6 +45,21 @@ export function B_iconToCode(icon: unknown): number | null {
   }
 }
 
+/** Google Weather speed object { value, unit } to whole km/h. Reads the unit the API sent: metres per second is converted, miles per hour is converted, km/h (or no unit) is used as is. */
+export function B_speedKph(sp: any): number | null {
+  const v = sp?.value;
+  if (v == null || !Number.isFinite(Number(v))) return null;
+  const u = String(sp?.unit ?? '').toUpperCase();
+  const f = u.includes('METERS_PER_SECOND') || u === 'M/S' ? 3.6 : u.includes('MILES_PER_HOUR') || u === 'MPH' ? 1.609344 : 1;
+  return Math.round(Number(v) * f);
+}
+
+/** Day or night from an icon name that says so ("clear-night"); null when it does not. */
+export function B_iconIsDay(icon: unknown): boolean | null {
+  const i = String(icon ?? '');
+  return i.endsWith('-night') ? false : i.endsWith('-day') ? true : null;
+}
+
 /** True when `nowSec` (unix seconds) is between sunrise and sunset; null when either is missing. */
 export function B_isDay(nowSec: unknown, sunriseSec: unknown, sunsetSec: unknown): boolean | null {
   const n = Number(nowSec), a = Number(sunriseSec), b = Number(sunsetSec);

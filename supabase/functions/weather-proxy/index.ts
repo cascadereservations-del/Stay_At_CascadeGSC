@@ -6,7 +6,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
-import { B_fetchExtras, B_googleTypeToCode, B_iconToCode, B_isDay, B_textToCode } from '../_shared/B_weather.ts';
+import { B_fetchExtras, B_googleTypeToCode, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_textToCode } from '../_shared/B_weather.ts';
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -120,7 +120,7 @@ async function fetchPirateWeather(today: string): Promise<any | null> {
       today_high:  today0.temperatureHigh != null ? Math.round(Number(today0.temperatureHigh)) : null,
       today_low:   today0.temperatureLow  != null ? Math.round(Number(today0.temperatureLow))  : null,
       code:        B_iconToCode(cur.icon) ?? B_textToCode(cur.summary),
-      is_day:      B_isDay(cur.time, today0.sunriseTime, today0.sunsetTime) ?? !String(cur.icon ?? '').endsWith('-night'),
+      is_day:      B_isDay(cur.time ?? Math.floor(Date.now() / 1000), today0.sunriseTime, today0.sunsetTime) ?? B_iconIsDay(cur.icon),
     };
 
     const forecast = days.slice(0, FORECAST_DAYS).map((day: any, i: number) => {
@@ -196,8 +196,8 @@ async function fetchGoogleWeather(today: string): Promise<any | null> {
       uv_label:      uvLabel(Math.round(Number(cur.uvIndex ?? 0))),
       cloud_cover:   cur.cloudCover != null ? Math.round(Number(cur.cloudCover)) : null,
       rain_prob:     Math.round(Number(cur.precipitation?.probability?.percent ?? 0)),
-      wind_kph:      Math.round(Number(cur.wind?.speed?.value ?? 0) * 3.6),
-      wind_gust_kph: cur.wind?.gust?.value != null ? Math.round(Number(cur.wind.gust.value) * 3.6) : null,
+      wind_kph:      B_speedKph(cur.wind?.speed) ?? 0,
+      wind_gust_kph: B_speedKph(cur.wind?.gust),
       wind_dir:      cur.wind?.direction?.degrees != null ? Math.round(Number(cur.wind.direction.degrees)) : null,
       pressure_mb:   cur.pressureAtSeaLevel?.value != null ? Math.round(Number(cur.pressureAtSeaLevel.value)) : null,
       sunrise,
@@ -225,7 +225,7 @@ async function fetchGoogleWeather(today: string): Promise<any | null> {
         humidity:       fd.daytimeForecast?.relativeHumidity != null ? Math.round(Number(fd.daytimeForecast.relativeHumidity)) : null,
         uv_index:       fd.maxUvIndex != null ? Math.round(Number(fd.maxUvIndex)) : null,
         uv_label:       fd.maxUvIndex != null ? uvLabel(Math.round(Number(fd.maxUvIndex))) : null,
-        wind_kph:       fd.daytimeForecast?.wind?.speed?.value != null ? Math.round(Number(fd.daytimeForecast.wind.speed.value) * 3.6) : null,
+        wind_kph:       B_speedKph(fd.daytimeForecast?.wind?.speed),
         wind_gust_kph:  null,
         thunder_prob:   Math.round(Number(fd.daytimeForecast?.thunderstormProbability ?? 0)),
         code:           B_googleTypeToCode(fd.daytimeForecast?.weatherCondition?.type) ?? B_textToCode(desc),
