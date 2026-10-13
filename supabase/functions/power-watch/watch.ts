@@ -3,6 +3,7 @@
 // path against an in-memory database. Nothing here writes to Airbnb or sends anything to a guest.
 import { cancelBrownoutRows, brownoutUid, holds, listNotices, patchNoticeState, putNoticeState, readNotice, releasable, releaseNotice, type NoticeSource, type NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { alertText, dayLabel, FEEDER, posterFor, type Notice } from './poster.ts';
+import { S_noticeUrl } from '../_shared/S_notice-url.ts';
 import { AIRBNB_CAL, airbnbBlocks, bookingCard, cancelCard, changedCard, classifyNights, extraGuestCards, heldBookings, newCard, nightsLine, noSupersede, releasedCard, reminderCard, reminderDue, seenCard, seenDue, staleNotices, touchedNights, unverifiedCard, unverifiedDue, windowLabel, type Built, type Row, type Schedule, type Superseded, type WatchState } from './plan.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -18,7 +19,7 @@ export type Deps = {
   sendFinance?: (card: Built) => Promise<boolean | number>; // the same card to the Finance chat (the auto-release card goes to OPS and Finance)
   superseded?: Superseded; // Lloyd 2026-10-05 (plan.ts supersededBy): dates and posters a newer same-substation, same-kind post moved; absent = none
 };
-export type Found = Notice & { postId: number; postedAt?: string | null }; // postedAt: when its SOCOTECO post was published
+export type Found = Notice & { postId: number; postedAt?: string | null; link?: string | null }; // postedAt: when its SOCOTECO post was published
 /** The posted_by_name power-watch writes on the notices it inserts itself. Only those are ever auto-released (a dashboard entry, a staff photo, an NGCP or Cassy notice never is). */
 export const POWER_WATCH_NAME = 'Power watch (socoteco2.com)';
 type NoticeRow = { id: string; effective_date: string; effective_time: string | null; duration_hours: number | string | null; source?: string | null; posted_by_name?: string | null };
@@ -127,10 +128,13 @@ export async function reconcile(d: Deps, foundAll: Found[]): Promise<string[]> {
       if ((n.url && st.url === n.url) || (st.postId > 0 && n.postId <= st.postId)) { res.push(`${n.date}: released, same poster ignored`); continue; }
       st = undefined; row = undefined; base.noticeId = null; // it was cancelled and now it is posted again
     }
+    // s82: the notice keeps the SOCOTECO post it came from (else the poster image); absent when neither is a usable link, so the column is never written null
+    const srcUrl = (f: Found) => { const u = S_noticeUrl(f.link) ?? S_noticeUrl(f.url); return u ? { source_url: u } : {}; };
     const insert = async () => {
       const { data, error } = await db.from('ops_notices').insert({
         property_id: pid, notice_type: 'brownout', title: n.title, description: `${n.purpose ? n.purpose + ' | ' : ''}poster ${n.poster}`,
         effective_date: n.date, effective_time: n.time, duration_hours: n.hours, feeder: `Feeder ${FEEDER}`, posted_by_name: POWER_WATCH_NAME, source: 'socoteco',
+        ...srcUrl(n),
       }).select('id').single();
       if (error) throw new Error(`ops_notices: ${error.message}`);
       base.noticeId = data?.id ?? null;
@@ -138,7 +142,7 @@ export async function reconcile(d: Deps, foundAll: Found[]): Promise<string[]> {
     };
     const update = async () => {
       const { error } = await db.from('ops_notices').update({
-        title: n.title, description: `${n.purpose ? n.purpose + ' | ' : ''}poster ${n.poster}`, effective_time: n.time, duration_hours: n.hours, updated_at: nowIso,
+        title: n.title, description: `${n.purpose ? n.purpose + ' | ' : ''}poster ${n.poster}`, effective_time: n.time, duration_hours: n.hours, updated_at: nowIso, ...srcUrl(n),
       }).eq('id', row!.id);
       if (error) throw new Error(`ops_notices: ${error.message}`);
     };

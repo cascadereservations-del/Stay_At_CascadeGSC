@@ -6,6 +6,7 @@
 //   brownout -> notice_type brownout, source staff: the same row a staff /brownout makes. power-watch adopts it on its next run (see docs/B_notice-sources.md).
 // deno-lint-ignore-file no-explicit-any
 import type { B_Signal } from '../_shared/B_notice-signal.ts';
+import { S_noticeUrl } from '../_shared/S_notice-url.ts';
 
 const MONTHS: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
@@ -67,6 +68,7 @@ export function B_findTimes(text: string): { start: string; hours: number; label
 
 export type B_NoticeParams = {
   notice_type: 'water' | 'brownout'; title: string; effective_date: string; effective_time: string | null; duration_hours: number | null; source: 'gscwd' | 'staff';
+  source_url?: string; // s82: the link the person sent (cleaned by S_noticeUrl); absent when the message held none
 };
 export type B_NoticeRead = { params: B_NoticeParams | null; dateFound: boolean; timeFound: boolean; namesUs: boolean; kind: 'water' | 'brownout' };
 
@@ -120,9 +122,10 @@ export async function B_noticeFlow(db: any, msg: any, sig: B_Signal, send: Send)
   if (sig.kind === 'ask') { await send(msg.chat.id, B_WHICH_CARD, msg.message_id, []); return; }
   const r = B_readNotice(sig, Number(msg.date ?? 0) * 1000);
   if (!r.params) { await send(msg.chat.id, B_askCard(r), msg.message_id, []); return; }
+  const url = S_noticeUrl(msg.text ?? msg.caption);
   const { data, error } = await db.from('telegram_pending').insert({
     chat_id: msg.chat.id, kind: 'llm_notice',
-    payload: { params: r.params, from: { first_name: msg.from?.first_name, username: msg.from?.username, id: msg.from?.id } },
+    payload: { params: url ? { ...r.params, source_url: url } : r.params, from: { first_name: msg.from?.first_name, username: msg.from?.username, id: msg.from?.id } },
   }).select('id').single();
   if (error || !data?.id) {
     console.error('cassy_notice_pending_failed', String(error?.message ?? 'no id').slice(0, 200));

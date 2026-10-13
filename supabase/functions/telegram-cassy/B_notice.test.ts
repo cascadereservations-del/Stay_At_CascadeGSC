@@ -204,3 +204,16 @@ Deno.test('B notice N7: an impossible ISO date asks instead of saving; a real on
   await B_noticeFlow(none, { chat: { id: 1 }, message_id: 1, date: AT / 1000 }, B_noticeSignal('water notice: 2026-13-45 8:00 AM to 5:00 PM')!, (_c, t) => { sent.push(t); return Promise.resolve(true); });
   assert(sent[0].includes('could not find the date'));
 });
+
+// ---- s82 lane S: the link a person sent is kept on the notice ----
+Deno.test('S notice url: a Facebook link sent with the post is stored cleaned in the pending params; no link, no key', async () => {
+  const rows: any[] = [];
+  const db = { from: () => ({ insert: (row: any) => { rows.push(row); return { select: () => ({ single: () => Promise.resolve({ data: { id: 'pend-9' }, error: null }) }) }; } }) };
+  const send = () => Promise.resolve(true);
+  // the prefix must come first for a prefix signal, so use the link-first form the page-link signal accepts
+  const linkFirst = 'https://www.facebook.com/gscwaterdistrict/posts/123?fbclid=abc October 16, 8:00 AM to 5:00 PM San Isidro';
+  await B_noticeFlow(db, { chat: { id: 1 }, message_id: 1, date: AT / 1000, text: linkFirst }, B_noticeSignal(linkFirst)!, send);
+  assertEquals(rows[0].payload.params.source_url, 'https://www.facebook.com/gscwaterdistrict/posts/123');
+  await B_noticeFlow(db, { chat: { id: 1 }, message_id: 2, date: AT / 1000, text: 'water notice: October 16, 8:00 AM to 5:00 PM' }, B_noticeSignal('water notice: October 16, 8:00 AM to 5:00 PM')!, send);
+  assertEquals('source_url' in rows[1].payload.params, false);
+});
