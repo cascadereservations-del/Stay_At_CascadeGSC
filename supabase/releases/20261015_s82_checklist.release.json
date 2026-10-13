@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "s82_checklist_20261015",
+  "phase": "expand",
+  "source": {
+    "branch": "s82/C-checklist",
+    "commit": "0873eb9654ce0292b642344e449fa084223f3f89"
+  },
+  "migrations": [
+    "20261015010000_s82_checklist.sql"
+  ],
+  "migration_sha256": {
+    "20261015010000_s82_checklist.sql": "063a81f139437120610571e3a25fc99c1d66391dc949a0a24c09fa477139e801"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING: take a fresh backup as the LAST act before the apply and fill restore_point and verified_at (fill-restore-point.mjs)",
+    "verified_at": "PENDING",
+    "production_rule": "Additive. One internal predicate function is added (k_calendar_row_offered) and two existing functions get a new body with the SAME signature, return columns, security mode and grants: get_cleanable_bookings (SECURITY DEFINER) and get_booking_for_date (SECURITY INVOKER). No table is touched, no row is written, no new grant to a role that did not already have one on those two functions (the predicate itself is executable by anon, authenticated and service_role; its day-flag branch re-checks read_operations, so anon learns nothing). A calendar block is offered to the cleaning report only when it covers the cleaning date AND was scheduled (block_reason maintenance with source staff, or a live maintenance or deep_clean calendar_day_flags row on that date); a guest stay is returned exactly as before, with the same 10-day look-back. The only visible change for a caller: an offered block comes back from get_cleanable_bookings with kind = 'block' (was checkout, mid_stay or checkin). The migration stops itself unless the live bodies still hash to the md5 values read on 2026-10-13."
+  },
+  "forward_verification": [
+    {
+      "name": "predicate_exists_is_definer_with_an_empty_search_path",
+      "query": "select count(*) = 1 and bool_and(prosecdef) and bool_and(proconfig @> array['search_path=\"\"']) from pg_proc where oid = 'public.k_calendar_row_offered(uuid, text, text, text, date, date, date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "both_functions_call_the_one_predicate",
+      "query": "select (select prosrc ~ 'k_calendar_row_offered' from pg_proc where oid = 'public.get_cleanable_bookings(date, uuid, integer, integer)'::regprocedure) and (select prosrc ~ 'k_calendar_row_offered' from pg_proc where oid = 'public.get_booking_for_date(date, uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "signatures_and_security_modes_are_unchanged",
+      "query": "select (select prosecdef from pg_proc where oid = 'public.get_cleanable_bookings(date, uuid, integer, integer)'::regprocedure) and not (select prosecdef from pg_proc where oid = 'public.get_booking_for_date(date, uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "return_columns_are_unchanged",
+      "query": "select pg_get_function_result('public.get_cleanable_bookings(date, uuid, integer, integer)'::regprocedure) = 'TABLE(event_id uuid, checkin_date date, checkout_date date, nights integer, guest_name text, kind text, already_reported boolean)' and pg_get_function_result('public.get_booking_for_date(date, uuid)'::regprocedure) = 'TABLE(event_id uuid, checkin_date date, checkout_date date, nights integer, guest_name text, source text, status text, match_type text)'",
+      "expect": true
+    },
+    {
+      "name": "grants_are_unchanged_cleaner_path_still_open_anon_still_cannot_clean",
+      "query": "select has_function_privilege('authenticated', 'public.get_cleanable_bookings(date, uuid, integer, integer)', 'execute') and has_function_privilege('service_role', 'public.get_cleanable_bookings(date, uuid, integer, integer)', 'execute') and not has_function_privilege('anon', 'public.get_cleanable_bookings(date, uuid, integer, integer)', 'execute') and has_function_privilege('authenticated', 'public.get_booking_for_date(date, uuid)', 'execute') and has_function_privilege('authenticated', 'public.k_calendar_row_offered(uuid, text, text, text, date, date, date)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "the_predicate_source_names_no_money_or_contact_column",
+      "query": "select prosrc !~* '\\m(payout|price|gross_amount|guest_email|guest_phone|psid|payout_qrph)\\M' from pg_proc where oid = 'public.k_calendar_row_offered(uuid, text, text, text, date, date, date)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time. Nothing is written; rolling back only restores the two function bodies.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261015_s82_checklist.sql with run-sql-on-host.sh: restores get_cleanable_bookings and get_booking_for_date to the bodies read on 2026-10-13 (md5 7306b530... and e1202ee7...), then drops k_calendar_row_offered. The cleaning checklist works against either version: a kind it does not know is hidden, and the old functions simply offer blocks again."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "client_probe_not_needed",
+      "required_state": "None. The new checklist (CH-Cleaners-Checklist branch s82/C-checklist) calls the same two functions with the same arguments and also filters blocks itself, so it is safe before and after this release. An OLD checklist hides the new kind 'block', so a scheduled maintenance block is not offered to it until the new checklist is deployed (the safe direction)."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Read 2026-10-13 from the live catalog: get_cleanable_bookings prosecdef true, md5(replace(prosrc, chr(13), '')) 7306b53090e34765717a5a65ea700219, ACL postgres, authenticated, service_role; get_booking_for_date prosecdef false (SECURITY INVOKER), md5 e1202ee78fb0431f02af97e41fba4ffd, ACL PUBLIC, anon, authenticated, service_role; calendar_events policies calendar_events_owner_admin_all and calendar_events_staff_read (current_staff_authorized('read_operations', property_id)), so a cleaner reads rows through both. Callers across stay-site, waves functions, admin-dashboard and staff-app: only the checklist (CH-Cleaners-Checklist index.html, folded copy staff-app/checklist/index.html) calls either function; no edge function, n8n flow, admin page or other SQL function does (searched by name in stay-site migrations/tests, direct-booking-waves-0-1-sol supabase/functions, staff-app). Block marking read from calendar-sync (blocks.ts, ical.ts): status = 'blocked'. Rehearsal: pgTAP s82_checklist.sql ran green (23/23) on a local supabase/postgres 17 scratch database with stand-ins for the dependent tables (properties, staff tables, calendar_events with the staff-read policy, calendar_day_flags, cleaning_sessions), NOT on a restored backup; run it on the rehearsal copy with its neighbours s81_notices.sql and security_grants.sql."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the migration's md5 guard raises (a live body changed since 2026-10-13): re-read production and re-vendor",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal on a restored backup has not run s82_checklist.sql green on this commit",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+  ]
+}
