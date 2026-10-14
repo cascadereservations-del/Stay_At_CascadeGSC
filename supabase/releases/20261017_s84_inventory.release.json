@@ -4,20 +4,20 @@
   "phase": "backfill",
   "source": {
     "branch": "s83/I-inventory",
-    "commit": "60d88500cbf9d7386774da88916598a2aab020fb"
+    "commit": "6a5d12a8688c0045595fb188372ac2a6808cc9e8"
   },
   "migrations": [
     "20261017000000_s84_inventory.sql"
   ],
   "migration_sha256": {
-    "20261017000000_s84_inventory.sql": "b3ba820a81bff8b2930270579490832540646a9b83924a20a56caec576bd6e10"
+    "20261017000000_s84_inventory.sql": "1866fde92f140b56dc3a47ca1dfb757a8d1b9da5f670dc1ebe1640ebedfcf1e7"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "SINGLE SHOT: the migration is not re-runnable. A second run stops on its own md5 guard by design (get_inventory_catalogue_v1 is no longer the body it was cut from); to undo, apply the rollback. Apply AFTER s82_staff_31_20261015 and s82_checklist_20261015. The first block stops (55000, nothing changed) unless get_inventory_catalogue_v1 is exactly the body this release was cut from (md5 of prosrc, CR stripped: 07c22913a8cf0148d6f79f282d1585d1, read from production 2026-10-14). Another lane's migration 20261017010000 may apply in the same window: this release touches no calendar object and not admin_stays_v1. Additive except one function body, one revoke and one publication change: (1) MONEY / PRIVACY LEAK CLOSED: authenticated loses table-wide SELECT on inventory_items and gets SELECT on every column except unit_cost (a cleaner could read the cost over REST through policy inventory_staff_read); INSERT / UPDATE / DELETE and both policies unchanged; the service role keeps everything; unit_cost is readable only through get_inventory_catalogue_v1 for finance_human_authorized sessions; inventory_items leaves the supabase_realtime publication (no app subscribes). Callers checked 2026-10-14: the admin dashboard reads inventory_items with select('id, name') and select('id, name, category, qty_on_hand, unit') only, the checklist and staff app read no cost, edge functions use the service role, the two invoker-rights functions (match_inventory_item, apply_inventory_purchase) name no unit_cost; (2) inventory_items.par_qty (nullable, 0 up to 100,000,000); (3) table inventory_item_codes (RLS on, no client grant; one code per property maps to one item); (4) get_inventory_catalogue_v1 = the live body plus per-item `par` and `codes` (every read_operations role; unitCost rule unchanged); (5) five security-definer RPCs, signed-in users only, each gated inside: inventory_code_attach_v1 / inventory_code_detach_v1 / inventory_item_create_v1 / inventory_item_update_v1 (manage_inventory: owner, admin) and inventory_item_price_set_v1 (read_finance: owner, admin, finance). A new item's first count goes through reconcile_inventory_baseline_v1 (movement-controlled from day one); inventory_item_update_v1 refuses unit_cost and qty_on_hand. Rehearsal NOT yet run: see approvals / stop_conditions. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs).",
+    "production_rule": "SINGLE SHOT: the migration is not re-runnable. A second run stops on its own md5 guard by design (get_inventory_catalogue_v1 is no longer the body it was cut from); to undo, apply the rollback. Apply AFTER s82_staff_31_20261015 and s82_checklist_20261015. The first block stops (55000, nothing changed) unless get_inventory_catalogue_v1 is exactly the body this release was cut from (md5 of prosrc, CR stripped: 07c22913a8cf0148d6f79f282d1585d1, read from production 2026-10-14). Another lane's migration 20261017010000 may apply in the same window: this release touches no calendar object and not admin_stays_v1. Additive except one function body, one revoke and one publication change: (1) MONEY / PRIVACY LEAK CLOSED: authenticated loses table-wide SELECT on inventory_items and gets SELECT on every column except unit_cost (a cleaner could read the cost over REST through policy inventory_staff_read); INSERT / UPDATE / DELETE and both policies unchanged; the service role keeps everything; unit_cost is readable only through get_inventory_catalogue_v1 for finance_human_authorized sessions; inventory_items leaves the supabase_realtime publication (no app subscribes). Callers checked 2026-10-14: the admin dashboard reads inventory_items with select('id, name') and select('id, name, category, qty_on_hand, unit') only, the checklist and staff app read no cost, edge functions use the service role, the two invoker-rights functions (match_inventory_item, apply_inventory_purchase) name no unit_cost; (2) inventory_items.par_qty (nullable, 0 up to 100,000,000); (3) table inventory_item_codes (RLS on, no client grant; one code per property maps to one item); (4) get_inventory_catalogue_v1 = the live body plus per-item `par` and `codes` (every read_operations role; unitCost rule unchanged); (5) seven security-definer RPCs (five below plus inventory_undo_v1 and inventory_item_history_v1), signed-in users only, each gated inside: inventory_code_attach_v1 / inventory_code_detach_v1 / inventory_item_create_v1 / inventory_item_update_v1 (manage_inventory: owner, admin) and inventory_item_price_set_v1 (read_finance: owner, admin, finance). A new item's first count goes through reconcile_inventory_baseline_v1 (movement-controlled from day one); inventory_item_update_v1 refuses unit_cost and qty_on_hand. PHASE 1B (same release): the catalogue also returns `countedAt` per item (latest app count or Telegram count, null if never; any role); inventory_undo_v1 (manage_inventory; reverses YOUR OWN count or app receipt within 15 minutes while it is still the item's latest change, by a new append-only adjustment movement keyed stk-undo-<movement id>; an app receipt undo also deletes that one inventory_purchases row (never a Telegram OCR row) and reopens its shopping row to approved; refusals come back as {ok:false, reason: not_found | not_undoable | not_yours | too_late | stock_moved}); inventory_item_history_v1 (read_operations; use per clean, last 10 changes with first names only, last purchase; unit_cost only for finance sessions); and a statement-level trigger s_inventory_low_task on inventory_items that keeps ONE unassigned follow-up task per property per ISO week (system_task_open_v1, key system:low_stock:<week>), refreshes it while open, reopens it if the trigger closed it the same week, closes it when nothing is low and closes an earlier week's task; any error in it is only a WARNING, so a task problem never blocks a count, a receipt or a checklist submission. Rehearsal NOT yet run: see approvals / stop_conditions. restore_point and verified_at are placeholders: take a fresh backup as the LAST act before the apply and fill both (fill-restore-point.mjs).",
     "notes": "Deploy order: SQL first, then the staff app (stock module probes the five RPCs and the par / codes keys and hides what is absent), then the inventory-report function (waves). Nothing in the admin dashboard needs to change first: it never reads unit_cost directly. No new secret."
   },
   "forward_verification": [
@@ -28,7 +28,7 @@
     },
     {
       "name": "get_inventory_catalogue_v1_is_the_reviewed_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '41508b6233a5979dd4ba457c4ffa1d4e' from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '5a2625ae6aab612a0f9c054df904e9b7' from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -75,11 +75,31 @@
       "name": "par_qty_check_present",
       "query": "select exists (select 1 from pg_constraint where conrelid = 'public.inventory_items'::regclass and contype = 'c' and pg_get_constraintdef(oid) ~ 'par_qty' and convalidated)",
       "expect": true
+    },
+    {
+      "name": "catalogue_carries_counted_at",
+      "query": "select prosrc like '%''countedAt''%' and prosrc like '%''par'', i.par_qty%' from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "undo_and_history_present_definer_empty_search_path_signed_in_only",
+      "query": "select count(*) = 2 and bool_and(prosecdef) and bool_and(proconfig @> array['search_path=\"\"']) and bool_and(has_function_privilege('authenticated', oid, 'execute')) and not bool_or(has_function_privilege('anon', oid, 'execute')) and not bool_or(has_function_privilege('service_role', oid, 'execute')) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('inventory_undo_v1', 'inventory_item_history_v1')",
+      "expect": true
+    },
+    {
+      "name": "low_stock_task_trigger_is_statement_level_on_inventory_items_and_its_function_has_no_grant",
+      "query": "select exists (select 1 from pg_trigger where tgrelid = 'public.inventory_items'::regclass and tgname = 's_inventory_low_task' and not tgisinternal and (tgtype & 1) = 0 and tgenabled = 'O') and not (has_function_privilege('anon', 'public.s_inventory_low_task_v1()', 'execute') or has_function_privilege('authenticated', 'public.s_inventory_low_task_v1()', 'execute') or has_function_privilege('service_role', 'public.s_inventory_low_task_v1()', 'execute'))",
+      "expect": true
+    },
+    {
+      "name": "system_task_open_v1_still_service_role_only",
+      "query": "select has_function_privilege('service_role', 'public.system_task_open_v1(uuid,text,text,text,text,text)', 'execute') and not has_function_privilege('authenticated', 'public.system_task_open_v1(uuid,text,text,text,text,text)', 'execute') and not has_function_privilege('anon', 'public.system_task_open_v1(uuid,text,text,text,text,text)', 'execute')",
+      "expect": true
     }
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "always. The rollback restores get_inventory_catalogue_v1 to the exact body this release was cut from, drops the five RPCs, the codes table and par_qty, gives authenticated table-wide SELECT back and puts the table back in the realtime publication. Lost: every barcode link and every par_qty value. Items created and prices set through the new RPCs stay (they are ordinary inventory rows).",
+    "safe_until": "always. The rollback restores get_inventory_catalogue_v1 to the exact body this release was cut from, drops the seven RPCs, the s_inventory_low_task trigger and function, the codes table and par_qty, gives authenticated table-wide SELECT back and puts the table back in the realtime publication. Lost: every barcode link, every par_qty value and the countedAt key. The adjustment movements an undo wrote stay (the ledger is append-only), and low_stock follow-up tasks stay as history. Items created and prices set through the new RPCs stay (they are ordinary inventory rows).",
     "steps": [
       {
         "name": "run_compensating_script",
@@ -98,7 +118,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Read 2026-10-14. Direct readers of inventory_items: admin dashboard features/inventory/api.ts:67 (id, name) and features/search/api.ts:56 (id, name, category, qty_on_hand, unit); staff-app/admin/assets built copies of the same two; CH-Cleaners-Checklist and staff-app/stock read no cost (stock uses the RPC); demo-data.ts only names the table. Edge functions (daily-digest, ocr-receipt, telegram-expense, cascade-core tools) run as service_role. Invoker-rights SQL functions touching the table: match_inventory_item and apply_inventory_purchase, neither names unit_cost. No view reads the table. Not run: pgTAP s84_inventory.sql (69 assertions) and the md5-guard proof; the orchestrator rehearses on the host. get_inventory_catalogue_v1 callers: staff-app stock module and the admin dashboard inventory page (extra keys are ignored by old readers)."
+    "evidence": "Read 2026-10-14. Direct readers of inventory_items: admin dashboard features/inventory/api.ts:67 (id, name) and features/search/api.ts:56 (id, name, category, qty_on_hand, unit); staff-app/admin/assets built copies of the same two; CH-Cleaners-Checklist and staff-app/stock read no cost (stock uses the RPC); demo-data.ts only names the table. Edge functions (daily-digest, ocr-receipt, telegram-expense, cascade-core tools) run as service_role. Invoker-rights SQL functions touching the table: match_inventory_item and apply_inventory_purchase, neither names unit_cost. No view reads the table. Not run: pgTAP s84_inventory.sql (112 assertions) and the md5-guard proof; the orchestrator rehearses on the host. get_inventory_catalogue_v1 callers: staff-app stock module and the admin dashboard inventory page (extra keys are ignored by old readers)."
   },
   "approvals": {
     "production_required": true,
