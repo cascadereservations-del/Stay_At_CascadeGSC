@@ -45,12 +45,14 @@ export function manilaDate(now: Date): string {
   return new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10);
 }
 
-/** Staff-facing free text: contacts redacted, then every amount masked. Used on every OPS free-text cell. */
-export function opsText(text: unknown): string {
+/** Contacts out of any staff-facing text: e-mail, phone numbers (also spaced), door codes, addresses. Item names use only this. */
+export function contactSafe(text: unknown): string {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim()
     .replace(/\+?\d[\d\s().-]{6,}\d/g, (m) => (/^\s*\d{1,4}[\s-]\d{1,2}[\s-]\d{1,4}\s*$/.test(m) ? m : '[number hidden]'));
-  return maskMoney(redactForLog(t, 'ops'));
+  return redactForLog(t, 'ops');
 }
+/** Free text (shopping-list notes): contacts redacted, then every amount masked. Not for item names: it would eat "Item 119". */
+export const opsText = (text: unknown): string => maskMoney(contactSafe(text));
 
 // ---------- item logic ----------
 export type Status = 'OUT' | 'LOW' | 'OK';
@@ -98,7 +100,7 @@ const cost = (n: number | null | undefined) => (n == null ? '-' : money(n));
 function cells(kind: Kind, dest: Dest, i: Item, note: string, plan?: ReturnType<typeof buyPlan>, shopQty?: string): string[] {
   const fin = dest === 'finance';
   const unitCost = fin ? i.cost ?? null : null;
-  const name = dest === 'ops' ? opsText(i.name) : i.name;
+  const name = contactSafe(i.name);
   const on = num(i.qty), re = i.reorder == null ? '-' : num(i.reorder), st = statusOf(i);
   switch (kind) {
     case 'order': {
