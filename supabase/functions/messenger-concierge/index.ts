@@ -39,17 +39,22 @@ import { GUEST_PROMPT, type GuestRead, parseGuestRead, sniffImage } from '../tel
 import { visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { bookingIdOf, idOpsLine, type IdPlan, mayRead, planId, stayNotOver } from './id-capture.ts';
 import { idThanks } from './persona.ts';
+import { fireInboxPush, type InboxKind } from './inbox-push.ts'; // s82 XS: the owner/admin Inbox push, fire and forget
 
 const env = (k: string) => Deno.env.get(k) ?? '';
+/** s82 XS: ask notify-staff-inbox to tell the owner/admin phones. Returns at once, never throws, and runs after the webhook has answered. */
+function inboxPush(kind: InboxKind, psid: string, handoffId: string | null = null): void {
+  const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+  fireInboxPush(kind, psid, handoffId, { base: env('SUPABASE_URL'), key: env('SUPABASE_SERVICE_ROLE_KEY'), fetch, waitUntil: edge?.waitUntil ? (p) => edge.waitUntil(p) : undefined, log: (m) => console.warn(m) });
+}
 const GRAPH = 'https://graph.facebook.com/v21.0';
 const PAGE_ID = '699640026568720'; // Cascades Hideaway; /me fails for some page-token types
 // 2026-09-12: Google retired gemini-2.5-flash for new keys (404 names gemini-3.6-flash as the
 // successor). Override without a redeploy via the CASCADE_GEMINI_MODEL secret.
 // Cascade-scoped secret names (set 2026-09-12); the bare names are the pre-2026-09-12 fallback.
 const HUMAN_HOLD_MS = 24 * 3_600_000;
-// Sprint 0 (Lloyd, 2026-09-16): a host reply from the Page inbox used to mute the bot on that
-// thread for 24 h, so a routine follow-up ("what's the Wi-Fi?") an hour later went unanswered.
-// The echo hold is now 2 h; safety holds and the handoff dedupe window keep the 24 h constant.
+// History: Sprint 0 (Lloyd, 2026-09-16) cut the hold after a host reply from 24 h to 2 h so a routine follow-up was answered; D-317 (below)
+// replaced that with the 30-day host hold. HUMAN_HOLD_MS (24 h) is now only the safety hold and the handoff dedupe window.
 // D-317 (Lloyd 2026-10-08, standing rule): once Marifel or Lloyd replies, Cassy sends nothing more on that thread - she only
 // notifies the host (Telegram, admin Conversations). The hold is 30 days from the latest host reply and never shortens.
 // Our own apps (admin host-reply, the Telegram card send, the inquiry send) set the same hold themselves: their echoes carry our app id.
@@ -523,6 +528,7 @@ async function openHandoff(db: Db, thread: Thread, text: string, risk: RiskCode,
   const { data: row } = await db.from('concierge_handoffs').insert({ psid: thread.psid, guest_name: thread.guest_name, guest_text: text, risk, options }).select('id').single();
   const id: string = row?.id ?? ''; if (!id) return;
   const short = id.slice(0, 8);
+  inboxPush('handover', thread.psid, id); // s82 XS: the Staff app Inbox push; fire and forget, claimed once per handoff
   // Something is wrong with the unit (or the guest is unsafe): make it a work order too. The
   // handoff card is the alert; the row is what Today and the readiness check read.
   let woLine = '';
@@ -877,6 +883,8 @@ type Effects = {
   send(psid: string, text: string, chips?: Chip[]): Promise<void>;
   qr(psid: string, flow: Flow | null, fallbackUrl: string): Promise<void>;
   ops(text: string): Promise<void>;
+  /** s82 XS: tell the owner/admin phones a guest wrote while a host holds the chat. Fire and forget; returns at once. */
+  inbox(kind: InboxKind, psid: string): void;
   handoff(db: Db, thread: Thread, text: string, risk: RiskCode, link: string, note?: string, anyWording?: boolean): Promise<void>;
   submit(flow: Flow, thread: Thread, psid: string): Promise<{ flow: Flow; reply: string; image: string | null }>;
   receipt(flow: Flow, url: string, name: string | null): Promise<{ sent: boolean; reply: string }>;
@@ -912,7 +920,7 @@ const liveEffects: Effects = {
     catch (e) { console.error('qr_amount_failed', String(e).slice(0, 200)); }
     if (!sent) await fbSendImage(psid, fallbackUrl);
   },
-  ops: tgOps, handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName, bump: bumpRequestCard, idRead, idSave,
+  ops: tgOps, inbox: (kind, psid) => inboxPush(kind, psid), handoff: openHandoff, submit: submitFlow, receipt: forwardReceipt, name: fbName, bump: bumpRequestCard, idRead, idSave,
   // booking_inquiries is submit-booking's table; only a request still pending is touched.
   // No row updated (not pending any more, wrong id) is a failure too, so requote_full_failed / correction_after_hold_failed log.
   amend: async (db, flow, fields) => {
@@ -927,6 +935,7 @@ export function probeEffects(calls: ProbeCall[], guestName: string | null, now =
     send: (_psid, text, chips) => { calls.push({ fx: 'send', text, ...(chips?.length ? { detail: { chips: chips.map((c) => c.title) } } : {}) }); return Promise.resolve(); },
     qr: (_psid, flow) => { calls.push({ fx: 'qr', detail: { amount: flow?.deposit ?? null } }); return Promise.resolve(); },
     ops: (text) => { calls.push({ fx: 'ops', text: text.slice(0, 300) }); return Promise.resolve(); },
+    inbox: (kind, psid) => { calls.push({ fx: 'inbox', detail: { kind, psid } }); },
     handoff: (_db, _thread, text, risk, _link, note) => { calls.push({ fx: 'handoff', text: text.slice(0, 200), detail: { risk, note: note ?? '' } }); return Promise.resolve(); },
     submit: (flow, thread) => {
       const q = quoteTotal(flow.checkin!, flow.checkout!), deposit = flow.pay_full ? q.total : q.deposit, at = now;
@@ -1273,7 +1282,7 @@ export async function handle(db: Db, ev: Record<string, any>, mode: string, fx: 
       if (uploadOpen && attachment && !attachment.payload?.sticker_id) { const r = await fx.receipt(flow!, String(attachment.payload.url), thread.guest_name); if (r.sent) { flow = { ...flow!, step: 'receipt_sent', updated_at: now.toISOString() }; thread.booking_flow = flow; } }
       const sticker = !text && !!attachment?.payload?.sticker_id; // a sticker or a like: nothing to tell the host
       if (g.handoff) await fx.handoff(db, thread, text || '[attachment]', g.risk, link); // an emergency or the door: card + urgent alert
-      else if (!sticker && !idCaught) await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment && !attachment.payload?.sticker_id ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`));
+      else if (!sticker && !idCaught) { fx.inbox('guest_wrote', thread.psid); await fx.ops(withHeader('guest', 'host handling', `💬 ${thread.guest_name ?? 'A guest'} wrote on Messenger. You are handling this chat, so Cassy stays quiet.\n> ${maskMoney(text || (attachment ? '[photo]' : '[attachment]')).slice(0, 300)}${uploadOpen && attachment && !attachment.payload?.sticker_id ? '\nThe photo went to Finance as a receipt.' : ''}\n\nReply in Messenger: ${link}`)); }
     } else if (mode !== 'off' && safetyHeld && !(!text && attachment?.payload?.sticker_id)) {
       // Opus re-review: a follow-up during an open safety report (a phone number, "where are you?") must reach someone.
       await fx.ops(withHeader('alert', 'after safety report', `🚨 ${thread.guest_name ?? 'A guest'} wrote again after a safety report. Cassy is holding routine replies until someone answers.

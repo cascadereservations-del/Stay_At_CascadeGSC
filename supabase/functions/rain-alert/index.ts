@@ -12,6 +12,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withHeader } from '../_shared/cascade-core/format.ts';
 import { withObservability } from '../_shared/observability.ts';
 import { RAIN_THRESHOLD } from '../_shared/B_weather.ts'; // s81 lane B: one shared threshold (weather-proxy rain_watch uses it too)
+import { hoursFromGoogle, type HourProb, runRainPush } from './rainpush.ts'; // s84 XS2: the staff push for rain within 3 hours
 
 const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -128,6 +129,44 @@ async function checkRainAhead(manilaHour: number, today: string): Promise<RainWi
   }
 }
 
+// ── s84 XS2: staff push for rain within 3 hours (separate from the Telegram warning below; see rainpush.ts) ──
+async function fetchHoursToday(today: string): Promise<HourProb[] | null> {
+  if (!WEATHER_KEY) return null;
+  try {
+    const url = `https://weather.googleapis.com/v1/forecast/hours:lookup?key=${WEATHER_KEY}&location.latitude=${GEN_SAN_LAT}&location.longitude=${GEN_SAN_LNG}&hours=24`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) { await res.body?.cancel().catch(() => {}); return null; }
+    return hoursFromGoogle(await res.json(), today);
+  } catch { return null; }
+}
+// deno-lint-ignore no-explicit-any
+async function staffRainPush(db: any, manilaHour: number, today: string): Promise<void> {
+  const PUSH_KEY = 'rain_push_last_at';
+  await runRainPush({
+    nowMs: () => Date.now(), manilaDate: today, manilaHour,
+    hours: () => fetchHoursToday(today),
+    brownouts: async () => {
+      const yesterday = new Date(Date.parse(today + 'T00:00:00Z') - 86_400_000).toISOString().slice(0, 10);
+      const { data } = await db.from('ops_notices').select('id,effective_date,effective_time,duration_hours')
+        .eq('property_id', PROPERTY_ID).eq('notice_type', 'brownout').eq('is_active', true).in('effective_date', [yesterday, today]);
+      return data ?? [];
+    },
+    lastPushAt: async () => {
+      const { data } = await db.from('app_settings').select('value').eq('key', PUSH_KEY).maybeSingle();
+      return (data?.value as { at?: string } | null)?.at ?? null;
+    },
+    send: async (body) => {
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/notify-staff-inbox`, {
+        method: 'POST', headers: { ...JSON_H, Authorization: `Bearer ${SERVICE_ROLE}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
+      });
+      const j = await r.json().catch(() => null);
+      return { ok: r.ok, sent: Number(j?.push?.sent ?? 0) };
+    },
+    markPushed: async (iso) => { await db.from('app_settings').upsert({ key: PUSH_KEY, value: { at: iso }, updated_at: iso }, { onConflict: 'key' }); },
+    log: (m) => console.warn(m),
+  });
+}
+
 // ── Main handler ──────────────────────────────────────────────────
 Deno.serve(withObservability({ functionName: 'rain-alert', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') {
@@ -144,6 +183,9 @@ Deno.serve(withObservability({ functionName: 'rain-alert', route: 'ops' }, async
   }
 
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
+
+  // s84 XS2: tell the staff phones about rain within 3 hours first (never throws, never changes the Telegram path below)
+  await staffRainPush(db, manilaHour, today).catch((e) => console.warn('staffRainPush failed:', String(e).slice(0, 120)));
 
   // ① Dedup — already sent today?
   const { data: settingRow } = await db
