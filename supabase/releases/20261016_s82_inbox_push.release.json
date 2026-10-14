@@ -128,7 +128,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not yet rehearsed: the host rehearsal on a fresh backup is the orchestrator's (s84). Written against the bodies read from the repo history (s81_staff_pay_push, s81_notices, s82_staff_31), md5-checked in the migration's own guard.notify-cleaner-payment now reads subscriptions with the paid-topic filter and falls back to the unfiltered read only on a missing-topics-column error. XS2 changes who is told: every phone already registered now also holds notices (the ADD COLUMN default), which is the intent. Live read pending after the apply: staff_push_inbox_recipients_v1 as service role (0 rows until a phone turns the topic on). Create nothing in production to test it."
+    "evidence": "Not yet rehearsed: the host rehearsal on a fresh backup is the orchestrator's (s84). Written against the bodies read from the repo history (s81_staff_pay_push, s81_notices, s82_staff_31), md5-checked in the migration's own guard. Neighbour objects: s_weekly_sweep_v1 (redefined with one extra delete and one extra key, the rest byte-identical); staff_push_subscribe_v1 callers (the Staff app sends four keys: still resolves to the five-argument function through the default). notify-cleaner-payment now reads subscriptions with the paid-topic filter and falls back to the unfiltered read only on a missing-topics-column error. XS2 changes who is told: every phone already registered now also holds notices (the ADD COLUMN default), which is the intent. Live read pending after the apply: staff_push_inbox_recipients_v1 as service role (0 rows until a phone turns the topic on). Create nothing in production to test it."
   },
   "approvals": {
     "production_required": true,
