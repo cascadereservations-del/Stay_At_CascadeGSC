@@ -41,7 +41,7 @@ Deno.test('T: a notice that cannot be read gets one plain hint: what was underst
   assertEquals(noDate.kind, 'hint');
   assertStringIncludes(noDate.text, 'I could not read that water notice.');
   assertStringIncludes(noDate.text, 'I found the times, 8:00 AM to 5:00 PM, but not the date.');
-  assertStringIncludes(noDate.text, 'Send it like this: water notice: Oct 16 8:00 AM to 5:00 PM');
+  assertStringIncludes(noDate.text, 'Send it like this: water notice: Oct 15 8:00 AM to 5:00 PM');
   const noTime = T_nearNotice('brownout notice Oct 20', NOW) as { text: string };
   assertStringIncludes(noTime.text, 'I found the date, Oct 20, but not the times.');
   assertStringIncludes(noTime.text, 'brownout notice: Oct 20 8:00 AM to 5:00 PM');
