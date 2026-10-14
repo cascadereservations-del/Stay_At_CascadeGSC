@@ -15,3 +15,11 @@ export function cronAuthFailure(req: Request, configured: string | undefined): R
   if (cronSecretMatches(configured, req.headers.get('x-cascade-cron-secret'))) return null;
   return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
 }
+
+/** Cron or internal caller: the x-cascade-cron-secret header matches CASCADE_CRON_SHARED_SECRET, or the bearer is the service-role key. Both constant-time;
+ *  false when the matching secret is unset, so it fails closed. */
+export function cronOrServiceAuthorized(req: Request, cronSecret: string | undefined, serviceKey: string | undefined): boolean {
+  if (cronSecretMatches(cronSecret, req.headers.get('x-cascade-cron-secret'))) return true;
+  const bearer = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
+  return cronSecretMatches(serviceKey, bearer || null);
+}

@@ -11,6 +11,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // v3 (session 26, 2026-09-16, Telegram plan §5): 🟡 ATTENTION first line via the shared helper.
 import { withHeader } from '../_shared/cascade-core/format.ts';
 import { withObservability } from '../_shared/observability.ts';
+import { cronOrServiceAuthorized } from '../_shared/cron-auth.ts'; // s84 XS3: rain-alert now pushes to every staff phone, so it needs the cron signature
 import { RAIN_THRESHOLD } from '../_shared/B_weather.ts'; // s81 lane B: one shared threshold (weather-proxy rain_watch uses it too)
 import { hoursFromGoogle, type HourProb, runRainPush } from './rainpush.ts'; // s84 XS2: the staff push for rain within 3 hours
 
@@ -171,6 +172,10 @@ async function staffRainPush(db: any, manilaHour: number, today: string): Promis
 Deno.serve(withObservability({ functionName: 'rain-alert', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
+  }
+  // s84 XS3: the cron job sends x-cascade-cron-secret (vault) beside its bearer; the service-role key is also accepted. Fails closed when the secret is unset.
+  if (!cronOrServiceAuthorized(req, Deno.env.get('CASCADE_CRON_SHARED_SECRET'), SERVICE_ROLE)) {
+    return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: JSON_H });
   }
 
   const manilaHour = getManilaHour();

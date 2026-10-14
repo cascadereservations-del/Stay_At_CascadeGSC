@@ -10,7 +10,7 @@
     { "slug": "ocr-receipt", "mode": "jwt", "controls": ["platform JWT verification enabled"], "owner": "finance" },
     { "slug": "telegram-expense", "mode": "signed", "controls": ["Telegram secret-token header", "allowed chat and user IDs"], "owner": "finance" },
     { "slug": "daily-digest", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "finance" },
-    { "slug": "rain-alert", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "operations" },
+    { "slug": "rain-alert", "mode": "signed", "controls": ["constant-time x-cascade-cron-secret or the service-role bearer (cronOrServiceAuthorized), 401 otherwise", "fails closed when CASCADE_CRON_SHARED_SECRET is unset", "the pg_cron job rain-alert-2h sends the secret from the vault at call time", "reads the Google forecast and calendar only; sends the OPS warning and the staff push through notify-staff-inbox"], "owner": "operations" },
     { "slug": "airbnb-email-sync", "mode": "migration_blocked", "controls": ["must require signed Gmail workflow request before next deployment"], "owner": "booking" },
     { "slug": "weather-proxy", "mode": "public", "controls": ["fixed property location", "read-only response", "15 minute cache"], "owner": "operations" },
     { "slug": "notify-cleaner-payment", "mode": "signed", "controls": ["requireStaffAccess submit_cleaning validates the Supabase user JWT and the staff role inside the function", "the payee is auth.uid(): staff_pay_request_create_v1 runs under the caller JWT and owns the locks and the money", "Finance and OPS cards are posted with the service role only after the RPC accepts the request"], "owner": "finance" },

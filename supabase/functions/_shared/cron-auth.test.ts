@@ -22,3 +22,15 @@ Deno.test('cronAuthFailure: null only for the exact secret, 401 otherwise, close
     equal((await r!.json()).error, 'unauthorized', 'body says unauthorized');
   }
 });
+
+Deno.test('cronOrServiceAuthorized: the cron secret or the service-role bearer, nothing else, closed when unset', async () => {
+  const { cronOrServiceAuthorized } = await import('./cron-auth.ts');
+  const req = (h: Record<string, string>) => new Request('https://x.test/f', { method: 'POST', headers: h });
+  equal(cronOrServiceAuthorized(req({ 'x-cascade-cron-secret': 'cron-s' }), 'cron-s', 'svc-k'), true, 'cron secret');
+  equal(cronOrServiceAuthorized(req({ authorization: 'Bearer svc-k' }), 'cron-s', 'svc-k'), true, 'service bearer');
+  equal(cronOrServiceAuthorized(req({ authorization: 'Bearer sb_publishable_abc' }), 'cron-s', 'svc-k'), false, 'the publishable key alone is not enough');
+  equal(cronOrServiceAuthorized(req({}), 'cron-s', 'svc-k'), false, 'no header');
+  equal(cronOrServiceAuthorized(req({ 'x-cascade-cron-secret': 'cron-s' }), undefined, undefined), false, 'secret unset: closed');
+  equal(cronOrServiceAuthorized(req({ authorization: 'Bearer ' }), undefined, undefined), false, 'empty bearer, nothing set');
+  equal(cronOrServiceAuthorized(req({ 'x-cascade-cron-secret': 'wrong', authorization: 'Bearer nope' }), 'cron-s', 'svc-k'), false, 'both wrong');
+});
