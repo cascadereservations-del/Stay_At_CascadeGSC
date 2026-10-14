@@ -26,6 +26,7 @@ function fake(over: Partial<Deps> = {}, opsOver: Partial<Ops> = {}, guest: OnFil
   const deps: Deps = {
     authenticate: () => Promise.resolve({ ok: true, ops }),
     stay: () => Promise.resolve(STAY),
+    guestProperty: () => Promise.resolve('p1'),
     recentReads: () => Promise.resolve(0),
     readImage: () => { rec.reads++; return Promise.resolve(reply); },
     readText: () => { rec.reads++; return Promise.resolve(reply); },
@@ -48,7 +49,7 @@ Deno.test('parseRead keeps a name and type from an ID and drops numbers', () => 
 
 Deno.test('parseRead chat: phone, email, guests; junk becomes null', () => {
   const r = parseRead('```json\n{"kind":"chat","names":["Ben Cruz","x"],"phone":"+63 917 123 4567","email":"Ana@Mail.COM","guests":"3","nationality":null}\n```');
-  assertEquals(r, { kind: 'chat', names: ['Ben Cruz'], phone: '09171234567', email: 'ana@mail.com', guests: 3, nationality: null });
+  assertEquals(r, { kind: 'chat', names: ['Ben Cruz'], phone: '09171234567', email: 'ana@mail.com', guests: 3, nationality: null, stayPreferences: null, birthday: null, tags: [] });
   assertEquals(parseRead('{"kind":"chat","names":[],"phone":"12","email":"no","guests":99}'), { kind: 'other' });
   assertEquals(cleanPhone('+44 7700 900123'), '+447700900123');
   assertEquals(cleanPhone('12345'), null);
@@ -57,7 +58,7 @@ Deno.test('parseRead chat: phone, email, guests; junk becomes null', () => {
 Deno.test('propose: own ID, new companions only, nationality only from text', () => {
   const p = propose([
     { image: 0, read: { kind: 'id', name: 'Ana Maria Reyes', idType: 'national_id' } },
-    { image: 1, read: { kind: 'chat', names: ['Ana Reyes', 'Ben Cruz', 'Carla Dizon'], phone: '09171234567', email: null, guests: 3, nationality: 'Korean' } },
+    { image: 1, read: { kind: 'chat', names: ['Ana Reyes', 'Ben Cruz', 'Carla Dizon'], phone: '09171234567', email: null, guests: 3, nationality: 'Korean', stayPreferences: null, birthday: null, tags: [] } },
     { image: 2, read: { kind: 'other' } },
   ], GUEST);
   assertEquals(p.ids, [{ image: 0, name: 'Ana Maria Reyes', id_type: 'national_id', own: true }]);
@@ -175,4 +176,102 @@ Deno.test('no manage_operations on the stay property is 403 for every action', a
     assertEquals(res.status, 403, action);
     assertEquals(rec.reads + rec.profile.length, 0);
   }
+});
+
+// ---- s82 lane G (Staff 3.2): guest_id requests, preferences / birthday / tags, replace_id / remove_id, preflight ----
+const GID = '0a1b2c3d-0000-4000-8000-000000000001', CID = '0a1b2c3d-0000-4000-8000-0000000000c1';
+const GUEST2: OnFile = { ...GUEST, guestId: GID, stayPreferences: 'Quiet room', tags: ['anniversary'], birthday: null,
+  companions: [{ id: CID, name: 'Ben Cruz', hasPhoto: true }] };
+
+Deno.test('G: preflight allows authorization, apikey, x-client-info and content-type', async () => {
+  const { deps } = fake();
+  const res = await handle(new Request('https://x.test/staff-guest-details', { method: 'OPTIONS' }), deps);
+  assertEquals(res.status, 204);
+  const h = (res.headers.get('access-control-allow-headers') ?? '').toLowerCase();
+  for (const k of ['authorization', 'apikey', 'x-client-info', 'content-type']) assert(h.includes(k), k);
+  assert((res.headers.get('access-control-allow-methods') ?? '').includes('POST'));
+});
+
+Deno.test('G: context by guest_id returns features and needs no stay; unknown guest 404; bad id 400', async () => {
+  const a = fake({ stay: () => Promise.reject(new Error('stay must not be read')) }, {}, GUEST2);
+  const res = await handle(post({ action: 'context', guest_id: GID }), a.deps);
+  assertEquals(res.status, 200);
+  const j = await res.json();
+  assertEquals(j.stay, null);
+  assertEquals(j.features, { guest_id: true, preferences: true, replace_id: true, remove_id: true });
+  assertEquals((await handle(post({ action: 'context', guest_id: GID }), fake({ guestProperty: () => Promise.resolve(null) }).deps)).status, 404);
+  assertEquals((await handle(post({ action: 'context', guest_id: 'nope' }), a.deps)).status, 400);
+  assertEquals((await handle(post({ action: 'context', guest_id: GID }), fake({}, { canManage: () => Promise.resolve(false) }, GUEST2).deps)).status, 403);
+});
+
+Deno.test('G: extract proposes preferences, birthday and tags from a chat and skips what is on file', async () => {
+  const reply = '{"kind":"chat","names":[],"phone":null,"email":null,"guests":2,"stay_preferences":"Late arrival, allergic to nuts","birthday":"1990-05-17","tags":["Anniversary","Vegetarian","vegetarian"]}';
+  const { deps, rec } = fake({}, {}, GUEST2, reply);
+  const j = await (await handle(post({ action: 'extract', guest_id: GID, text: 'hi' }), deps)).json();
+  assertEquals(j.proposal.stay_preferences, 'Late arrival, allergic to nuts');
+  assertEquals(j.proposal.birthday, '1990-05-17');
+  assertEquals(j.proposal.tags, ['vegetarian']); // anniversary is on file; the repeat is dropped
+  assertEquals(rec.profile.length + rec.companions.length, 0);
+  assert(!rec.logs.join().includes('1990'));
+  // A birthday from an ID image is never proposed, and a year-less date is dropped.
+  assertEquals(parseRead('{"kind":"id","name":"Ana Reyes","id_type":"passport","birthday":"1990-05-17"}'), { kind: 'id', name: 'Ana Reyes', idType: 'passport' });
+  assertEquals((parseRead('{"kind":"chat","names":["Ana Reyes"],"birthday":"05-17"}') as { birthday: string | null }).birthday, null);
+});
+
+Deno.test('G: save writes preferences, birthday and tags only through save_guest_profile_v1 with version and reason', async () => {
+  const rec = { profile: [] as Array<[Record<string, unknown>, number | null]>, reason: '' };
+  const { deps, rec: r2 } = fake({}, { saveProfile: (_g, patch, v, r) => { rec.profile.push([patch, v]); rec.reason = r; return Promise.resolve({ data: { ok: true }, error: null }); } }, GUEST2);
+  const res = await handle(post({ action: 'save', guest_id: GID, stay_preferences: 'Ground floor', birthday: '1990-05-17', tags: ['Vegetarian', 'anniversary'], expected_version: 5, reason: 'Guest asked in chat' }), deps);
+  assertEquals(res.status, 200);
+  assertEquals(rec.profile, [[{ stay_preferences: 'Quiet room\nGround floor', birthday: '1990-05-17', tags: ['anniversary', 'vegetarian'] }, 5]]);
+  assertEquals(rec.reason, 'Guest asked in chat');
+  assertEquals(r2.companions.length + r2.uploads.length, 0);
+});
+
+Deno.test('G: save refuses bad preference, birthday, tags, reason and version; old clients still work', async () => {
+  const { deps, rec } = fake({}, {}, GUEST2);
+  const bad = async (extra: Record<string, unknown>) => (await handle(post({ action: 'save', guest_id: GID, ...extra }), deps)).status;
+  assertEquals(await bad({ birthday: '2999-01-01' }), 400);
+  assertEquals(await bad({ birthday: 'last week' }), 400);
+  assertEquals(await bad({ tags: 'vip' }), 400);
+  assertEquals(await bad({ stay_preferences: 'x'.repeat(4001) }), 400);
+  assertEquals(await bad({ stay_preferences: 'Quiet', reason: 'no' }), 400);
+  assertEquals(await bad({ stay_preferences: 'Quiet', expected_version: 0 }), 400);
+  assertEquals(rec.profile.length, 0);
+  // an old client (uid, phone only, none of the new keys) is unchanged
+  assertEquals((await handle(post({ action: 'save', uid: 'u', phone: '0917 123 4567' }), fake().deps)).status, 200);
+});
+
+Deno.test('G: a stale version surfaces as changed, not as a silent overwrite', async () => {
+  const { deps } = fake({}, { saveProfile: () => Promise.resolve({ data: null, error: { message: 'x', code: '40001' } }) }, GUEST2);
+  const res = await handle(post({ action: 'save', guest_id: GID, birthday: '1990-05-17', expected_version: 2 }), deps);
+  assertEquals(res.status, 207);
+  assertEquals((await res.json()).saved, [{ what: 'profile', ok: false, reason: 'changed' }]);
+});
+
+Deno.test('G: replace_id uploads, links through the companion RPC and never deletes the old object', async () => {
+  const { deps, rec } = fake({}, {}, GUEST2);
+  const res = await handle(post({ action: 'replace_id', guest_id: GID, companion_id: CID, id_type: 'passport', image: IMG, reason: 'Clearer photo' }), deps);
+  assertEquals(res.status, 200);
+  assertEquals(rec.uploads, [`${CID}/11111111-2222-3333-4444-555555555555.jpg`]);
+  assertEquals(rec.companions, [[CID, { id_photo_path: `${CID}/11111111-2222-3333-4444-555555555555.jpg`, id_type: 'passport' }]]);
+  assertEquals(rec.removed, []);
+  // a failed link removes only the NEW object
+  const f = fake({}, { saveCompanion: () => Promise.resolve({ data: null, error: { message: 'x', code: '42501' } }) }, GUEST2);
+  const r2 = await handle(post({ action: 'replace_id', guest_id: GID, companion_id: CID, image: IMG }), f.deps);
+  assertEquals(r2.status, 207);
+  assertEquals(f.rec.removed.length, 1);
+  assertEquals((await handle(post({ action: 'replace_id', guest_id: GID, companion_id: CID, image: { base64: btoa('plain text'), mime: 'image/png' } }), fake({}, {}, GUEST2).deps)).status, 400);
+});
+
+Deno.test('G: remove_id clears the path only; a stranger companion id is 404; a missing photo is a no-op', async () => {
+  const { deps, rec } = fake({}, {}, GUEST2);
+  assertEquals((await handle(post({ action: 'remove_id', guest_id: GID, companion_id: CID }), deps)).status, 200);
+  assertEquals(rec.companions, [[CID, { id_photo_path: null }]]);
+  assertEquals(rec.removed, []);
+  assertEquals((await handle(post({ action: 'remove_id', guest_id: GID, companion_id: '0a1b2c3d-0000-4000-8000-0000000000ff' }), deps)).status, 404);
+  assertEquals((await handle(post({ action: 'remove_id', guest_id: GID, companion_id: 'x' }), deps)).status, 400);
+  const none = fake({}, {}, { ...GUEST2, companions: [{ id: CID, name: 'Ben', hasPhoto: false }] });
+  assertEquals((await handle(post({ action: 'remove_id', guest_id: GID, companion_id: CID }), none.deps)).status, 200);
+  assertEquals(none.rec.companions.length, 0);
 });
