@@ -70,7 +70,7 @@ export function T_nearNotice(text: unknown, nowMs: number): T_Near {
   const date = B_findDate(rest, today), times = B_findTimes(rest);
   const word = h.kind === 'water' ? 'water' : 'brownout';
   if (date && (h.kind === 'water' || times)) return { kind: 'forward', text: `${word} notice: ${rest}`, notice: h.kind };
-  if (!date && !times && !/^\s*(?:water|brownout|power)[\s\-–—_]*notices?b/i.test(t)) return null; // nothing read and not the command words: chatter, stay silent
+  if (!date && !times && !/^\s*(?:water|brownout|power)[\s\-–—_]*notices?\b/i.test(t)) return null; // nothing read and not the command words: chatter, stay silent
   const found = date ? (times ? '' : `I found the date, ${monthDay(date)}, but not the times.`)
     : times ? `I found the times, ${upper(times.label)}, but not the date.` : 'I did not find a date or times.';
   const eg = `${word} notice: ${date ? monthDay(date) : monthDay(addDays(today, 1))} ${times ? upper(times.label) : '8:00 AM to 5:00 PM'}`;
