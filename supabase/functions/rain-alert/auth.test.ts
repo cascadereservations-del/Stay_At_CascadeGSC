@@ -13,7 +13,7 @@ await import('./index.ts');
 const post = (h: Record<string, string> = {}) => new Request('https://x.test/rain-alert', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: '{}' });
 
 Deno.test('no header, the publishable key alone, or a wrong secret: 401 and nothing runs', async () => {
-  for (const h of [{}, { Authorization: 'Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj' }, { 'x-cascade-cron-secret': 'wrong' }]) {
+  for (const h of [{}, { Authorization: 'Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj' }, { 'x-cascade-cron-secret': 'wrong' }] as Record<string, string>[]) {
     const r = await handler(post(h));
     assertEquals(r.status, 401);
     assertEquals((await r.json()).error, 'unauthorized');
@@ -25,7 +25,7 @@ Deno.test('a GET is still 405', async () => {
 });
 
 Deno.test('the cron secret, or the service-role bearer, gets past the gate (not a 401)', async () => {
-  for (const h of [{ 'x-cascade-cron-secret': 'cron-secret-test' }, { Authorization: 'Bearer svc-key-test' }]) {
+  for (const h of [{ 'x-cascade-cron-secret': 'cron-secret-test' }, { Authorization: 'Bearer svc-key-test' }] as Record<string, string>[]) {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (() => Promise.resolve(new Response('{}', { status: 500 }))) as typeof fetch;
     try {
