@@ -2,7 +2,7 @@
 -- 1. PRIVACY FIX. public.admin_stays_v1(uuid) is SECURITY DEFINER with no role check and EXECUTE for `authenticated`, so any signed-in
 --    staff session (a cleaner included) could read every booking's guest name, accommodation total and host payout (verified live
 --    2026-10-14). It now refuses a session that is not owner/admin (manage_operations) or finance (read_finance, aal2). Why those two:
---    the functions that call it (get_hospitality_metrics_v1, get_admin_overview_v1, get_guest_timeline_v1, run_health_checks_v1,
+--    the functions that call it (get_hospitality_metrics_v1, get_admin_overview_v1, get_guest_timeline_v1,
 --    get_report_drilldown_v1) already gate on read_operations / manage_operations and show money only to finance_human_authorized;
 --    the Manage screen and the admin dashboard are the only clients and are owner/admin (finance reads the dashboard). A cleaner,
 --    inspector or maintenance session can no longer reach the stays set directly OR through those functions' stay reads.
@@ -11,7 +11,7 @@
 --    The Edge Functions do NOT call admin_stays_v1: cascade-core/tools.ts reads the two booking tables with the service key (see its
 --    header comment), so that path is untouched.
 --    The SQL body of admin_stays_v1 is kept byte-for-byte (live md5 e2f41dcc6de28ba1ebe23b4534b6443d, CR stripped, read 2026-10-14, equal to
---    the body in 20260913100000_admin_read_models_v1.sql); it is wrapped as a subselect behind a one-row gate. Signature, return
+--    the body in 20260913100000_admin_read_models_v1.sql); it is filtered by the gate in a top-level WHERE (a qual is never dropped by the planner; a one-row FROM subselect would be). Signature, return
 --    columns, language, security mode, search_path and grants are unchanged.
 -- 3. staff_pay_admin_step_v1 (live md5 ee76bfac5542808058969b731940f343 = the body in 20261014010000_s81_staff_pay_push.sql, the only migration
 --    that defines it): it refused 'not_sent' on a payment another admin is making but not 'cancel', so an admin on a stale screen could cancel
@@ -75,8 +75,7 @@ returns table (
   checkin date, checkout date, nights integer, status text,
   accommodation_total numeric, allocation_method text, booking_created date, payout_date date, host_payout numeric
 ) language sql stable security definer set search_path = '' as $$
-  select s.* from (select public.admin_stays_gate_v1(p_property_id)) g,
-  lateral (
+  select s.* from (
   select 'airbnb', r.id, r.confirmation_code, r.guest_id, r.guest_name, r.checkin_date, r.checkout_date,
          (r.checkout_date - r.checkin_date), r.status,
          case
@@ -103,7 +102,8 @@ returns table (
          i.submitted_at::date, null, null
   from public.booking_inquiries i
   where i.property_id = p_property_id
-  ) s;
+  ) s
+  where public.admin_stays_gate_v1(p_property_id);
 $$;
 revoke all on function public.admin_stays_v1(uuid) from public, anon, service_role;
 grant execute on function public.admin_stays_v1(uuid) to authenticated;

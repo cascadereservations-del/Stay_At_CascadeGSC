@@ -95,6 +95,7 @@ revoke all on function public.staff_pay_admin_step_v1(uuid, text) from public, a
 grant execute on function public.staff_pay_admin_step_v1(uuid, text) to authenticated;
 
 -- puts back the table-level SELECT (all columns) and drops the two owner/admin RPCs
+revoke select (id, property_id, uid, source, checkin_date, checkout_date, nights, guest_name, status, synced_at, created_at, updated_at, checkin_time, checkout_time, linked_reservation_id, recon_status, recon_alerted_at, block_reason, block_reason_source, block_note, block_answered_by, block_answered_at) on public.calendar_events from authenticated;
 grant select on public.calendar_events to authenticated;
 drop function if exists public.admin_calendar_events_v1(uuid);
 drop function if exists public.admin_calendar_event_v1(uuid);
