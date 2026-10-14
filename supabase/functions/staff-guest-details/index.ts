@@ -1,4 +1,4 @@
-// staff-guest-details v1 (s77): the staff app's "Add guest details" page (guest/). verify_jwt = true; the caller must also be an active
+// staff-guest-details v2 (s82 G adds guest_id requests, preferences/birthday/tags, replace_id/remove_id; v1 s77): the staff app's "Add guest details" page (guest/). verify_jwt = true; the caller must also be an active
 // owner or admin (current_staff_active with the caller's own JWT), and every write runs as the caller so the database checks
 // manage_operations again and writes the history rows. The rules are in logic.ts and tested there. BUNDLES telegram-expense/guest.ts,
 // guest-intake/validate.ts and _shared/cascade-core/vision.ts + providers.ts: a change to any of them must redeploy this function too.
@@ -6,7 +6,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { chatJson } from '../_shared/cascade-core/providers.ts';
 import { visionExtractText } from '../_shared/cascade-core/vision.ts';
-import { handle, json, READ_PROMPT, REASON, type Deps, type OnFile } from './logic.ts';
+import { handle, json, READ_PROMPT, type Deps, type OnFile } from './logic.ts';
 
 const BUCKET = 'guest-id-photos';
 const TITLE = 'Cascade Guest Details';
@@ -31,20 +31,21 @@ function realDeps(): Deps | null {
           async loadGuest(guestId): Promise<OnFile | null> {
             const [g, d, c] = await Promise.all([
               me.from('guests').select('id, name, email').eq('id', guestId).maybeSingle(),
-              me.from('guest_profile_details').select('contact_number, id_on_file, id_type, version').eq('guest_id', guestId).maybeSingle(),
-              me.from('guest_companions').select('id, name, id_photo_path').eq('guest_id', guestId).order('created_at'),
+              me.from('guest_profile_details').select('contact_number, id_on_file, id_type, version, stay_preferences, tags, birthday, id_drive_url').eq('guest_id', guestId).maybeSingle(),
+              me.from('guest_companions').select('id, name, id_photo_path, id_type').eq('guest_id', guestId).order('created_at'),
             ]);
             if (g.error || !g.data || d.error || c.error) return null;
             return {
-              guestId, name: g.data.name, email: g.data.email ?? null, phone: d.data?.contact_number ?? null, idOnFile: !!d.data?.id_on_file,
+              guestId, name: g.data.name, email: g.data.email ?? null, phone: d.data?.contact_number ?? null, idOnFile: !!d.data?.id_on_file, idDriveUrl: d.data?.id_drive_url ?? null,
               idType: d.data?.id_type ?? null, version: d.data?.version ?? null,
-              companions: (c.data ?? []).map((x) => ({ id: x.id, name: x.name, hasPhoto: !!x.id_photo_path })),
+              companions: (c.data ?? []).map((x) => ({ id: x.id, name: x.name, hasPhoto: !!x.id_photo_path, idType: x.id_type ?? null })),
+              stayPreferences: d.data?.stay_preferences ?? null, tags: d.data?.tags ?? [], birthday: d.data?.birthday ?? null,
             };
           },
-          saveProfile: async (guestId, patch, version) =>
-            await me.rpc('save_guest_profile_v1', { p_guest_id: guestId, p_patch: patch, p_expected_version: version, p_reason: REASON }),
-          saveCompanion: async (guestId, companionId, patch) =>
-            await me.rpc('save_guest_companion_v1', { p_guest_id: guestId, p_companion_id: companionId, p_patch: patch, p_expected_version: null, p_reason: REASON }),
+          saveProfile: async (guestId, patch, version, reason) =>
+            await me.rpc('save_guest_profile_v1', { p_guest_id: guestId, p_patch: patch, p_expected_version: version, p_reason: reason }),
+          saveCompanion: async (guestId, companionId, patch, reason) =>
+            await me.rpc('save_guest_companion_v1', { p_guest_id: guestId, p_companion_id: companionId, p_patch: patch, p_expected_version: null, p_reason: reason }),
           async setEmail(guestId, email) {
             const { data, error } = await me.from('guests').update({ email, email_normalized: email, updated_at: new Date().toISOString() }).eq('id', guestId).is('email', null).select('id');
             return error ? error.message : (data?.length ?? 0) === 1 ? null : 'not_updated';
@@ -64,6 +65,10 @@ function realDeps(): Deps | null {
       if (!e) return null;
       const { data: gid } = await db.rpc('staff_stay_guest_id_v1', { p_property_id: e.property_id, p_uid: e.uid, p_linked: e.linked_reservation_id, p_checkin: e.checkin_date, p_checkout: e.checkout_date });
       return { uid: e.uid, propertyId: e.property_id, guestId: (gid as string | null) ?? null, guestName: e.guest_name, checkin: e.checkin_date, checkout: e.checkout_date, source: e.source };
+    },
+    async guestProperty(guestId) {
+      const { data } = await db.from('guests').select('property_id').eq('id', guestId).maybeSingle();
+      return (data?.property_id as string | undefined) ?? null;
     },
     async recentReads() {
       const { count, error } = await db.from('llm_usage').select('id', { count: 'exact', head: true }).eq('title', TITLE).gte('at', new Date(Date.now() - 3600_000).toISOString());
