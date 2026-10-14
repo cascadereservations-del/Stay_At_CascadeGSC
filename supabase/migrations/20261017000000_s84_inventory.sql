@@ -450,13 +450,13 @@ revoke all on function public.inventory_item_history_v1(uuid) from public, anon,
 grant execute on function public.inventory_undo_v1(uuid, uuid) to authenticated;
 grant execute on function public.inventory_item_history_v1(uuid) to authenticated;
 
--- Low stock becomes ONE task per property per ISO week (D-218): opened through system_task_open_v1 (keyed system:low_stock:<week>), refreshed while
+-- Low stock becomes ONE task per property per ISO week (D-218): opened through system_task_open_v1 (keyed system:low_stock:<week>:<property id>), refreshed while
 -- open, reopened if this trigger closed it earlier in the same week, closed by this trigger when nothing is low, and an earlier week's open task is
 -- closed when this week's opens. Unassigned, no Telegram, no push. Statement-level, so a bulk checklist submission runs it once. A task problem
 -- must never block a count, a receipt or a checklist: any error becomes a WARNING and the work of this function (only) is rolled back.
 create or replace function public.s_inventory_low_task_v1()
 returns trigger language plpgsql security definer set search_path = '' as $$
-declare r record; v_week text := to_char(timezone('Asia/Manila', now()), 'IYYY-"W"IW'); v_id uuid; v_title text; v_detail text;
+declare r record; v_week text := to_char(timezone('Asia/Manila', now()), 'IYYY-"W"IW'); v_ref text; v_id uuid; v_title text; v_detail text;
 begin
   begin
     for r in
@@ -465,9 +465,10 @@ begin
       where i.is_active and i.reorder_below is not null and i.qty_on_hand <= i.reorder_below
       group by i.property_id
     loop
+      v_ref := v_week || ':' || r.property_id::text; -- the task key is global, so the property is part of the ref
       v_title := 'Restock: ' || r.n::text || case when r.n = 1 then ' item is low' else ' items are low' end;
       v_detail := 'Open Inventory and choose Low first, or send the order list from there. ' || public.staff_redact_v1(array_to_string(r.names, ', '));
-      v_id := public.system_task_open_v1(r.property_id, 'low_stock', v_week, v_title, v_detail, 'normal');
+      v_id := public.system_task_open_v1(r.property_id, 'low_stock', v_ref, v_title, v_detail, 'normal');
       update public.follow_up_tasks t
          set status = 'open', completed_at = null, completion_note = null, updated_at = now()
        where t.id = v_id and t.status = 'done' and t.completion_note like 'Closed automatically%';
@@ -476,7 +477,7 @@ begin
       update public.follow_up_tasks t
          set status = 'done', completed_at = now(), completion_note = 'Closed automatically: this week''s list replaces it.', updated_at = now()
        where t.property_id = r.property_id and t.source_kind = 'low_stock' and t.idempotency_key like 'system:low_stock:%'
-         and t.status in ('open', 'in_progress') and t.source_ref <> v_week;
+         and t.status in ('open', 'in_progress') and t.source_ref <> v_ref;
     end loop;
     update public.follow_up_tasks t
        set status = 'done', completed_at = now(), completion_note = 'Closed automatically: nothing is low now.', updated_at = now()

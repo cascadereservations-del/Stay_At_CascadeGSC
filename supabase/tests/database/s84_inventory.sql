@@ -388,9 +388,9 @@ select ok((select t.status = 'done' and t.completion_note = 'Closed automaticall
   'low-stock task: restocking closes it by itself');
 update public.inventory_items set qty_on_hand = 0 where id = 'd8400000-0000-4000-8000-0000000000d9';
 select ok(pg_temp.low() = 1 and pg_temp.low('open') = 1, 'low-stock task: going low again the same week reopens the same row');
-update public.follow_up_tasks set source_ref = '2020-W01', idempotency_key = 'system:low_stock:2020-W01' where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_kind = 'low_stock';
+update public.follow_up_tasks set source_ref = '2020-W01:d8400000-0000-4000-8000-0000000000b0', idempotency_key = 'system:low_stock:2020-W01:d8400000-0000-4000-8000-0000000000b0' where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_kind = 'low_stock';
 update public.inventory_items set qty_on_hand = 0 where id = 'd8400000-0000-4000-8000-0000000000d9';
-select ok(pg_temp.low() = 2 and pg_temp.low('open') = 1 and exists (select 1 from public.follow_up_tasks where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_ref = '2020-W01' and status = 'done' and completion_note like 'Closed automatically: this week%'),
+select ok(pg_temp.low() = 2 and pg_temp.low('open') = 1 and exists (select 1 from public.follow_up_tasks where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_ref like '2020-W01%' and status = 'done' and completion_note like 'Closed automatically: this week%'),
   'low-stock task: a new week gets a new row and the old week''s row is closed');
 create or replace function public.system_task_open_v1(p_property_id uuid, p_source_kind text, p_source_ref text, p_title text, p_detail text default null, p_priority text default 'normal')
 returns uuid language plpgsql as $$ begin raise exception 'zz84 task function is down'; end $$;
