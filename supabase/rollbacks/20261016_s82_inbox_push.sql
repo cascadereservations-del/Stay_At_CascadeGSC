@@ -8,6 +8,22 @@
 
 begin;
 
+-- rain-alert-2h goes back to the exact command it had before this release (publishable key only). Redeploy rain-alert from the previous commit as well,
+-- or its signature check will 401 the unsigned job.
+do $$
+declare v_id bigint;
+begin
+  if to_regclass('cron.job') is null then return; end if;
+  execute $q$select jobid from cron.job where jobname = 'rain-alert-2h'$q$ into v_id;
+  if v_id is not null then
+    perform cron.alter_job(v_id, command := $cmd$SELECT net.http_post(
+    url     := 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/rain-alert',
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj'),
+    body    := '{}'::jsonb
+  );$cmd$);
+  end if;
+end $$;
+
 -- phones without the paid topic (inbox-only or notices-only) go; the rest keep their paid notice
 delete from public.staff_push_subscriptions where not ('paid' = any(topics));
 

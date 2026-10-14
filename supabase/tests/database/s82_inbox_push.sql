@@ -3,7 +3,7 @@
 -- every lookup is scoped to them, so the suite passes on a restored production copy. Grant-by-role facts that a --no-acl restore cannot show are asserted
 -- by calling as the role (the release's own revokes are real), the rest by the release's forward checks. Everything rolls back.
 begin;
-select plan(72);
+select plan(73);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -250,6 +250,11 @@ select is((select array_agg(nk.key order by nk.key) from _t, jsonb_array_element
           'the notice carries only the allow-listed keys');
 select ok((select v::text !~* '(payout|price|gross_amount|guest_email|guest_phone|psid|0917|@example)' from _t where k = 'cl_notices'), 'and the cleaner payload names no contact or money');
 select ok((select v->>'inbox_open' is null and v->'house' = '[]'::jsonb from _t where k = 'cl_notices'), 'and still hides the house list and the inbox count');
+
+-- =============================================================== 9. the rain-alert cron job signs its call (true where pg_cron is absent or the job is not scheduled on this copy)
+select ok(case when to_regclass('cron.job') is null then true
+               else (xpath('/row/c/text()', query_to_xml('select count(*)::text as c from cron.job where jobname = ''rain-alert-2h'' and command not like ''%cascade_cron_shared_secret%''', false, true, '')))[1]::text = '0' end,
+          'rain-alert-2h, when scheduled, reads the vault secret for x-cascade-cron-secret');
 
 select * from finish();
 rollback;
