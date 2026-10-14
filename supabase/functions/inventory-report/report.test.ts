@@ -141,3 +141,18 @@ Deno.test('Finance estimate for an unlinked-cost shopping row: boxes x units per
   const r = buildReport('order', 'finance', items, shop, NOW, 'L');
   assertEquals(flat(r).find((c) => c[0] === 'Sponge')![5], 'PHP 180.00'); // 3 x 6 x 10
 });
+
+Deno.test('F7: plain item words stay whole; codes, addresses and e-mails with digits or @ are still redacted', () => {
+  const plain = ['House slippers', 'Door stopper', 'Wifi router', 'Pin board', 'Access card', 'Gate remote'];
+  const r = buildReport('all', 'ops', plain.map((name, k) => it({ id: `p${k}`, name })), [], NOW, 'M');
+  assertEquals(names(r).sort(), [...plain].sort());
+  const bad = buildReport('all', 'ops', ['Door code 4829', 'Block 47 Lot 39', 'Towel me@example.com'].map((name, k) => it({ id: `b${k}`, name })), [], NOW, 'M');
+  const text = JSON.stringify(bad.groups);
+  assertFalse(/4829|Block 47|example\.com/.test(text), text);
+});
+
+Deno.test('F5 residual: a shopping row in the base unit is not multiplied by units per pack', () => {
+  const items = ITEMS.map((i) => (i.id === 'k' ? { ...i, qty: 50, unitsPer: 6 } : i));
+  const shop: Shop[] = [{ itemId: 'k', name: 'Sponge', quantity: 3, purchaseUnit: 'pc', note: null, estCost: null }];
+  assertEquals(flat(buildReport('order', 'finance', items, shop, NOW, 'L')).find((c) => c[0] === 'Sponge')![5], 'PHP 30.00');
+});

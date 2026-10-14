@@ -49,7 +49,8 @@ export function manilaDate(now: Date): string {
 export function contactSafe(text: unknown, route: 'ops' | 'finance' = 'ops'): string {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim()
     .replace(/\+?\d[\d\s().-]{6,}\d/g, (m) => (/^\s*\d{1,4}[\s-]\d{1,2}[\s-]\d{1,4}\s*$/.test(m) ? m : '[number hidden]'));
-  return redactForLog(t, route);
+  // A code or address worth hiding always carries a digit; without one only the e-mail rule runs, so "House slippers" and "Wifi router" stay whole.
+  return /\d/.test(t) ? redactForLog(t, route) : t.replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, '[REDACTED_EMAIL]');
 }
 /** Free text (shopping-list notes): contacts redacted, then every amount masked. Not for item names: it would eat "Item 119". */
 export const opsText = (text: unknown): string => maskMoney(contactSafe(text));
@@ -151,7 +152,7 @@ export function buildReport(kind: Kind, dest: Dest, items: Item[], shop: Shop[],
       const it = s.itemId ? byId.get(s.itemId) : undefined;
       const base: Item = it ?? { id: '', name: s.name, category: null, unit: null, qty: 0, reorder: null, par: null, consumable: false, purchaseUnit: s.purchaseUnit, unitsPer: null };
       const qtyLabel = `${num(s.quantity)} ${contactSafe(s.purchaseUnit?.trim() || it?.unit?.trim() || 'pc')}`;
-      const est = fin ? s.estCost ?? (it?.cost != null ? it.cost * s.quantity * (it.unitsPer && it.unitsPer > 0 && s.purchaseUnit ? it.unitsPer : 1) : null) : null;
+      const est = fin ? s.estCost ?? (it?.cost != null ? it.cost * s.quantity * (it.unitsPer && it.unitsPer > 0 && s.purchaseUnit && s.purchaseUnit.trim().toLowerCase() !== (it.unit ?? 'pc').trim().toLowerCase() ? it.unitsPer : 1) : null) : null;
       if (fin) { if (est == null) noPrice++; else sum += est; }
       const row = cells('order', dest, { ...base, name: s.name, cost: fin ? it?.cost ?? null : undefined }, noteText(s.note ?? ''), undefined, qtyLabel);
       if (fin) row[5] = cost(est);
