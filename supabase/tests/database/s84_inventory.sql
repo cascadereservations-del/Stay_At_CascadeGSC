@@ -340,7 +340,7 @@ select ok((select v->'usage'->'per_clean' = 'null'::jsonb and (v->'usage'->>'cle
 insert into public.cleaning_sessions(submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id) values
   ('zz84-h-1', 'Zzhoney', 'd8400000-0000-4000-8000-0000000000b0', 'turnover', 'd8400000-0000-4000-8000-0000000000a1'),
   ('zz84-h-2', 'Zzhoney', 'd8400000-0000-4000-8000-0000000000b0', 'deep_clean', 'd8400000-0000-4000-8000-0000000000a1');
-insert into public.inventory_usage(item_id, used_qty, session_date) select (select (v->>'item_id')::uuid from _t where k = 'ua'), q, public.manila_today() from unnest(array[3, 1]) q;
+insert into public.inventory_usage(property_id, item_id, used_qty, session_date) select 'd8400000-0000-4000-8000-0000000000b0'::uuid, (select (v->>'item_id')::uuid from _t where k = 'ua'), q, public.manila_today() from unnest(array[3, 1]) q;
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
 insert into _t select 'h1', pg_temp.try(format($q$select public.inventory_item_history_v1(%L)$q$, (select v->>'item_id' from _t where k = 'ua')));
 insert into _t select 'h_cl_b', pg_temp.try(format($q$select public.inventory_item_history_v1(%L)$q$, (select v->>'item_id' from _t where k = 'ub')));
