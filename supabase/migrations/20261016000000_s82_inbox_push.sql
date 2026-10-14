@@ -96,13 +96,17 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
   if p_topic is null or p_topic not in ('paid', 'inbox') or p_endpoint is null then return jsonb_build_object('ok', false, 'reason', 'bad_request'); end if;
-  update public.staff_push_subscriptions set topics = array_remove(topics, p_topic)
-   where endpoint = p_endpoint and user_id = v_uid and p_topic = any(topics) returning topics into v_topics;
-  if not found then return jsonb_build_object('ok', true, 'topics', to_jsonb(coalesce((select s.topics from public.staff_push_subscriptions s where s.endpoint = p_endpoint and s.user_id = v_uid), '{}'::text[]))); end if;
-  -- the last topic gone: the phone no longer hears from us about anything, so the row goes (the browser keeps its own subscription)
-  if cardinality(v_topics) = 0 then
-    delete from public.staff_push_subscriptions where endpoint = p_endpoint and user_id = v_uid;
+  select s.topics into v_topics from public.staff_push_subscriptions s where s.endpoint = p_endpoint and s.user_id = v_uid;
+  -- not her phone, or the topic is not on it: nothing changes, and she is told what the phone holds (an empty list for a phone that is not hers)
+  if v_topics is null or not (p_topic = any(v_topics)) then
+    return jsonb_build_object('ok', true, 'topics', to_jsonb(coalesce(v_topics, '{}'::text[])));
   end if;
+  -- the last topic gone: the phone no longer hears from us about anything, so the row goes (the browser keeps its own subscription)
+  if cardinality(v_topics) = 1 then
+    delete from public.staff_push_subscriptions where endpoint = p_endpoint and user_id = v_uid;
+    return jsonb_build_object('ok', true, 'topics', '[]'::jsonb);
+  end if;
+  update public.staff_push_subscriptions set topics = array_remove(topics, p_topic) where endpoint = p_endpoint and user_id = v_uid returning topics into v_topics;
   return jsonb_build_object('ok', true, 'topics', to_jsonb(v_topics));
 end $$;
 revoke all on function public.staff_push_unsubscribe_topic_v1(text, text) from public, anon, service_role;
