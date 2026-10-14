@@ -32,6 +32,7 @@ import { keepNotice, monthDay, nightsPhrase, noticeSource, parsePwTap, parseTask
 import { ackHash } from '../_shared/ack-hash.ts'; // SPEC-11: the vf:ack: button's short name for a finding
 import { blockNoted, blockRecorded, blockRefusal, BLOCK_PROMPTS } from './block.ts'; // SPEC-41: the OPS blocked-date card's answers and follow-ups
 import { feederFor, parseBrownoutReply, parseNoticeArgs, resolveDateOn } from './notice-args.ts'; // SPEC-41: the /brownout parser, shared with the Brownout follow-up
+import { T_claimMessage, T_decide, T_logLine } from './T_nearmatch.ts'; // s83 lane T: near-miss notice hint, edited notices, the routing log line
 import { B_noticeRoute } from '../_shared/B_notice-signal.ts'; // s81 lane B: GSCWD / SOCOTECO II page links and "water notice:" / "brownout notice:" go to Cassy
 import { onIntakeTap, startIntake } from './intake-flow.ts'; // SPEC-42 s4b: /intake - Finance-only guest form link for a stay
 import { GUEST_NAME_PROMPT_HEAD, onGuestNameReply, onGuestTap, startGuestIntake } from './guest-flow.ts'; // session 67b: /guest - an ID or chat photo becomes guest details, after one Save tap
@@ -1771,7 +1772,7 @@ async function handleTextMessage(msg:any,db:any){
   // it starts with a slash, and the buttons it installed then did nothing at all.)
   const tapped=stripBotMention(String(msg.text??'').trim());if(!tapped)return;
   const kbCmd=KB_LABEL_CMD[tapped];
-  if(!kbCmd&&!isBotAddressed(msg))return;
+  if(!kbCmd&&!isBotAddressed(msg)){console.log(T_logLine({update_type:'message',allowed:true,route:'ignored_not_addressed',text_len:tapped.length}));return;}
   const text=kbCmd??tapped;
   if(text.startsWith('/')){
     if(text==='/keyboard'||text==='/buttons'){
@@ -2009,7 +2010,7 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
     if(!TG_SECRET) return json({error:'TELEGRAM_WEBHOOK_SECRET not set'},500);
     if(url.searchParams.get('setup')!==TG_SECRET)return json({error:'setup secret mismatch'},401);
     const webhookUrl=`${SUPABASE_URL}/functions/v1/telegram-expense`;
-    const[setWh,,cmdsOps,cmdsFin]=await Promise.all([fetch(`https://api.telegram.org/bot${TG_TOKEN}/setWebhook`,{method:'POST',headers:JSON_H,body:JSON.stringify({url:webhookUrl,secret_token:TG_SECRET,allowed_updates:['message','callback_query'],drop_pending_updates:true})}).then(r=>r.json()).catch(e=>({ok:false,error:String(e)})),fetch(`https://api.telegram.org/bot${TG_TOKEN}/getWebhookInfo`).then(r=>r.json()).catch(()=>null),tgCall('setMyCommands',{commands:OPS_CMDS,scope:{type:'all_group_chats'}}),FINANCE_CHAT?tgCall('setMyCommands',{commands:FIN_CMDS,scope:{type:'chat',chat_id:Number(FINANCE_CHAT)}}):null]);
+    const[setWh,,cmdsOps,cmdsFin]=await Promise.all([fetch(`https://api.telegram.org/bot${TG_TOKEN}/setWebhook`,{method:'POST',headers:JSON_H,body:JSON.stringify({url:webhookUrl,secret_token:TG_SECRET,allowed_updates:['message','edited_message','callback_query'],drop_pending_updates:true})}).then(r=>r.json()).catch(e=>({ok:false,error:String(e)})),fetch(`https://api.telegram.org/bot${TG_TOKEN}/getWebhookInfo`).then(r=>r.json()).catch(()=>null),tgCall('setMyCommands',{commands:OPS_CMDS,scope:{type:'all_group_chats'}}),FINANCE_CHAT?tgCall('setMyCommands',{commands:FIN_CMDS,scope:{type:'chat',chat_id:Number(FINANCE_CHAT)}}):null]);
     // session 28: the ☰ menu button beside the input box lists the commands (Hermis pattern), so a first-time member sees every feature.
     // Default only: setChatMenuButton with a chat_id accepts private chats alone (groups -> 400 invalid chat_id, live 2026-09-17).
     const menuBtn=await tgCall('setChatMenuButton',{menu_button:{type:'commands'}});
@@ -2035,8 +2036,23 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
       // s81 lane B: the notice signals go to Cassy first, ahead of the draft, expense, receipt/OCR and photo paths (text or photo caption).
       if(B_noticeRoute(update)&&!(await hasAwaiting(db,update.message?.chat?.id,update.message?.from?.id))){
         if(!isAllowedChat(update.message?.chat?.id))return;
+        await T_claimMessage(db,update.message); // s83 T: a later edit of this message must not make a second card
         await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy?any=1`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy notice forward failed:',String(e)));
         return;
+      }
+      // s83 lane T: a notice typed slightly wrong gets one plain hint (or a cleaned-up copy goes to Cassy); an edited notice is read like a new one, once per message.
+      {
+        const td=T_decide(update,isAllowedChat);
+        if(td.act==='ignore'){console.log(T_logLine(td.log));return;}
+        if(td.act!=='pass'){
+          const tm=update.edited_message??update.message;
+          if(await hasAwaiting(db,tm?.chat?.id,tm?.from?.id))return; // an answer is awaited from this person: it is not a notice
+          console.log(T_logLine(td.log));
+          if(td.act==='reply'){await tgReply(td.chatId,td.replyTo as number,td.text);return;}
+          if(await T_claimMessage(db,td.claim)){console.log(T_logLine({...td.log,route:'notice_already_handled'}));return;}
+          await fetch(`${SUPABASE_URL}/functions/v1/telegram-cassy?any=1`,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Bot-Api-Secret-Token':TG_SECRET},body:JSON.stringify(td.update),signal:AbortSignal.timeout(20_000)}).catch(e=>console.error('cassy notice forward failed:',String(e)));
+          return;
+        }
       }
       // Cassy (D-104, deploy 2, 2026-09-13): plain text addressed to "cassy" belongs to telegram-cassy,
       // forwarded raw with the same webhook secret. Replies to bot prompts stay here (expense flows).
@@ -2078,7 +2094,7 @@ Deno.serve(withObservability({ functionName: 'telegram-expense', route: 'ops' },
       }
       if(update.callback_query){const cq=update.callback_query;if(!isAllowedChat(cq.message?.chat?.id)){await tgAnswerCB(cq.id);return;}await handleCallbackQuery(cq,db);return;}
       const msg=update?.message;if(!msg)return;
-      if(!isAllowedChat(msg.chat?.id))return;
+      if(!isAllowedChat(msg.chat?.id)){console.log(T_logLine({update_type:'message',allowed:false,route:'ignored_chat_not_allowed',text_len:String(msg.text??msg.caption??'').length}));return;}
       if(msg.from?.is_bot)return;
       if(Array.isArray(msg.photo)&&msg.photo.length) await handlePhotoMessage(msg,db);
       else if(msg.document)                           await handleDocumentMessage(msg,db);
