@@ -177,7 +177,7 @@ export function buildReport(kind: Kind, dest: Dest, items: Item[], shop: Shop[],
   }
   if (fin && noPrice > 0 && rowCount > 0) totals.push(`${noPrice} ${noPrice === 1 ? 'item has' : 'items have'} no price.`);
 
-  const first = who.trim().split(/\s+/)[0] || 'the team';
+  const first = who.trim().split(/\s+/)[0] || 'the team'; // an unknown name reads "by the team"
   const caption = `${CAPTION_NAMES[kind]}, ${rowCount} ${rowCount === 1 ? 'item' : 'items'}. Sent from the staff app by ${first}.`;
   return {
     kind, dest, title: `Cascade Hideaway - ${TITLES[kind]}`, subtitle: `Made ${manilaStamp(now)} Manila time by ${first}`,

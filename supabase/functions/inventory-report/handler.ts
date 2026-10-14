@@ -34,8 +34,8 @@ async function firstName(db: any, userId: string): Promise<string> {
     const meta = (u?.app_metadata ?? {}) as Row, umeta = (u?.user_metadata ?? {}) as Row;
     const raw = [meta.display_name, umeta.display_name, umeta.full_name, umeta.name].find((x) => typeof x === 'string' && x.trim()) ?? (u?.email ?? '').split('@')[0].replace(/[._-]+/g, ' ');
     const word = String(raw).trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, '');
-    return word ? word[0].toUpperCase() + word.slice(1) : 'the team';
-  } catch { return 'the team'; }
+    return word ? word[0].toUpperCase() + word.slice(1) : '';
+  } catch { return ''; }
 }
 
 export function makeHandler(opts: { now?: () => Date } = {}) {
