@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "release_id": "s84_calendar_20261017",
+  "phase": "expand",
+  "source": {
+    "branch": "s84/C-calendar",
+    "commit": "11ef4c0cabbfda7a149d70fdb99fdf5d039b01a5"
+  },
+  "migrations": [
+    "20261017010000_s84_calendar.sql"
+  ],
+  "migration_sha256": {
+    "20261017010000_s84_calendar.sql": "c23536b065adcaa7f4a2ba14dd56e4fa380c1c21ec92f97d4ddf3dc4e28ac6a1"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": null,
+    "production_rule": "Function bodies and one new read function only; no table, column or row is touched. (1) admin_stays_v1 keeps its signature, return columns, language, SECURITY DEFINER, search_path and grants (authenticated only) and its SQL body byte-for-byte (live md5 e2f41dcc6de28ba1ebe23b4534b6443d, CR stripped, read 2026-10-14); it is wrapped behind a one-row gate, new function admin_stays_gate_v1 (no API role can execute it), which raises 42501 not_authorized unless the session is owner/admin (manage_operations) or finance (read_finance, aal2), or has no JWT. Visible change: a cleaner, inspector or maintenance session is refused by admin_stays_v1 AND by the functions that read it (get_hospitality_metrics_v1, get_admin_overview_v1, get_guest_timeline_v1, get_report_drilldown_v1); none of the staff-app cleaner screens call them (only the Manage module, owner/admin). The Edge Functions do not call admin_stays_v1 (cascade-core/tools.ts reads the booking tables with the service key; service_role has never had EXECUTE). (2) New staff_calendar_history_v1(date, date, uuid default the property): owner/admin only, 400-day cap, source/id/dates/nights/status/first name only. The migration stops itself unless the live admin_stays_v1 still hashes to the md5 above. (3) staff_pay_admin_step_v1 (live md5 ee76bfac5542808058969b731940f343) gains one guard: 'cancel' on a paying request whose payer is not the caller returns not_yours (was: cancelled it). Same signature, return type, security mode and grants; a row Telegram started (no app payer) is also not_yours from the app. The migration also stops unless this body still hashes to that md5. (4) calendar_events: authenticated loses table-level SELECT and keeps column SELECT on every column except guest_phone, raw_summary and raw_description (guest_name stays: the checklist stay picker shows it). The two owner/admin readers that need those columns (admin-dashboard fetchStays / fetchStayDetail) move to the new admin_calendar_events_v1(property) and admin_calendar_event_v1(id) RPCs (manage_operations, SECURITY DEFINER). APPLY THE DATABASE BEFORE the dashboard switch only if the dashboard probes the RPCs and falls back; an OLD dashboard (select raw_summary / select *) gets 42501 on the calendar and stay-detail reads from the moment this applies, so deploy the switched dashboard first (it falls back to the direct select while the RPC is absent). Four SECURITY INVOKER functions name the hidden columns (check_availability, stay_same_guest_v1, stay_continues_v1, stay_chains_v1, get_missed_cleanings) and are called only by service-role Edge Functions and definer functions, so they keep working. The migration also stops unless the live calendar_events columns are the 25 it was cut from. ORDER: Cascade-Staff main must contain the staff-app/admin/ copy REFOLDED from the s84-admin-D dashboard build (probe-and-fallback calendar-reads.ts) and be pushed and live, together with the standalone dashboard, BEFORE this release applies: the folded copy inside the staff app still does the direct raw_summary / select * reads and gets 42501 on the hub Calendar and stay detail the moment the migration applies."
+  },
+  "forward_verification": [
+    {
+      "name": "gate_exists_and_no_api_role_can_execute_it",
+      "query": "select count(*) = 1 and not bool_or(has_function_privilege('authenticated', p.oid, 'execute') or has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('service_role', p.oid, 'execute')) from pg_proc p where p.oid = 'public.admin_stays_gate_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "admin_stays_v1_filters_on_the_gate_in_where_and_is_still_a_definer_with_an_empty_search_path",
+      "query": "select prosrc ~ 'where public\\.admin_stays_gate_v1\\(p_property_id\\)' and prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.admin_stays_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "admin_stays_v1_grants_are_unchanged_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.admin_stays_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.admin_stays_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.admin_stays_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "admin_stays_v1_return_columns_are_unchanged",
+      "query": "select pg_get_function_result('public.admin_stays_v1(uuid)'::regprocedure) = 'TABLE(stay_kind text, stay_id uuid, code text, guest_id uuid, guest_name text, checkin date, checkout date, nights integer, status text, accommodation_total numeric, allocation_method text, booking_created date, payout_date date, host_payout numeric)'",
+      "expect": true
+    },
+    {
+      "name": "history_rpc_exists_authenticated_only_and_names_no_money_or_contact_column",
+      "query": "select has_function_privilege('authenticated', 'public.staff_calendar_history_v1(date, date, uuid)', 'execute') and not has_function_privilege('anon', 'public.staff_calendar_history_v1(date, date, uuid)', 'execute') and not has_function_privilege('service_role', 'public.staff_calendar_history_v1(date, date, uuid)', 'execute') and (select prosrc !~* '(payout|accommodation_total|guest_email|guest_phone|psid|payout_qrph)' from pg_proc where oid = 'public.staff_calendar_history_v1(date, date, uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "pay_step_has_the_cancel_ownership_guard_and_keeps_its_grants",
+      "query": "select (select prosrc ~ 'p_step = ''cancel'' and v_r.status = ''paying'' and v_r.paying_by_user_id is distinct from v_uid' and prosecdef from pg_proc where oid = 'public.staff_pay_admin_step_v1(uuid,text)'::regprocedure) and has_function_privilege('authenticated', 'public.staff_pay_admin_step_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.staff_pay_admin_step_v1(uuid,text)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_admin_step_v1(uuid,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "only_the_three_contact_columns_are_hidden_from_authenticated",
+      "query": "select count(*) = 3 and array_agg(attname::text order by attname::text) = array['guest_phone','raw_description','raw_summary'] from pg_attribute where attrelid = 'public.calendar_events'::regclass and attnum > 0 and not attisdropped and not has_column_privilege('authenticated', 'public.calendar_events', attname, 'select')",
+      "expect": true
+    },
+    {
+      "name": "calendar_events_has_no_table_wide_select_for_authenticated_and_the_two_rpcs_are_authenticated_only",
+      "query": "select not has_table_privilege('authenticated','public.calendar_events','select') and has_function_privilege('authenticated','public.admin_calendar_event_v1(uuid)','execute') and has_function_privilege('authenticated','public.admin_calendar_events_v1(uuid)','execute') and not has_function_privilege('anon','public.admin_calendar_event_v1(uuid)','execute') and not has_function_privilege('anon','public.admin_calendar_events_v1(uuid)','execute') and not has_function_privilege('service_role','public.admin_calendar_event_v1(uuid)','execute')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "any time. Nothing is written; rolling back only restores the admin_stays_v1 body (the privacy hole returns) and drops the two new functions.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261017_s84_calendar.sql with run-sql-on-host.sh: restores admin_stays_v1 to the body read on 2026-10-14 (md5 e2f41dcc6de28ba1ebe23b4534b6443d), also restores staff_pay_admin_step_v1 (md5 ee76bfac5542808058969b731940f343), then drops staff_calendar_history_v1 and admin_stays_gate_v1. The staff app probes the history RPC and hides the past-months view when it is absent. It also re-grants table-level SELECT on calendar_events to authenticated and drops the two admin_calendar_event(s)_v1 RPCs."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "client_probe_not_needed",
+      "required_state": "None. The staff-app history view probes staff_calendar_history_v1 (404 / PGRST202 hides it). The gate changes no signature, so every existing caller keeps working for owner, admin and finance."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive_with_restriction",
+    "old_reader": false,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Read 2026-10-14 from the live catalog (Cascade, qkgfhsdppslwunarczeq): admin_stays_v1 prolang SQL, prosecdef true, md5(replace(prosrc, chr(13), '')) e2f41dcc6de28ba1ebe23b4534b6443d (equal to the body in 20260913100000_admin_read_models_v1.sql, the only migration that defines it), ACL postgres, authenticated; calendar_events policies calendar_events_owner_admin_all and calendar_events_staff_read (read_operations); authenticated holds table-level SELECT on all calendar_events columns. Callers searched by name in stay-site migrations, waves functions, admin-dashboard and staff-app: only the five SQL functions named in backup.production_rule call admin_stays_v1, and its only clients are the Manage module and the admin dashboard (both owner/admin). Rehearsal: pgTAP s84_calendar.sql (30 assertions), s84_pay_cancel.sql (10) and s84_calendar_columns.sql (21) NOT yet run anywhere; no local Postgres was available in the builder session. Run it on the rehearsal copy with its neighbours admin_read_models_v1.sql, s81_staff_pay_push.sql and s82_staff_31.sql."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the migration's md5 guard raises (admin_stays_v1 changed since 2026-10-14): re-read production and re-vendor",
+    "the restore point is older than one hour",
+    "restore_point or verified_at is still empty or still the PENDING placeholder",
+    "the rehearsal on a restored backup has not run s84_calendar.sql green on this commit",
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed",
+    "Cascade-Staff main does not yet contain the staff-app/admin/ copy refolded from the s84-admin-D build, or the standalone dashboard from s84-admin-D is not live"
+  ]
+}
