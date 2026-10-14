@@ -448,3 +448,6 @@ verify_jwt = false
 
 [functions.guest-intake]
 verify_jwt = false
+
+[functions.inventory-report]
+verify_jwt = true
