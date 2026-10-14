@@ -4,26 +4,26 @@
   "phase": "backfill",
   "source": {
     "branch": "s82/X-inbox",
-    "commit": "ac9ed233265294c212670f25ea0aa92aa1f0eb1f"
+    "commit": "711a80f33768cb216634a5e1b348be19a378dcfe"
   },
   "migrations": [
     "20261016000000_s82_inbox_push.sql"
   ],
   "migration_sha256": {
-    "20261016000000_s82_inbox_push.sql": "b97d1ad584c8aabb9505a80508cb6e786d4bc145a9b808ba0db7aebe8f14c6d4"
+    "20261016000000_s82_inbox_push.sql": "7857e21c1a69f01abaff53729dd2e2bdeec4b741cdfca02f3a11f9b49b180d87"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING: take a fresh backup as the LAST act before the apply and fill this with its folder (fill-restore-point.mjs)",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "SINGLE SHOT: the migration is not re-runnable. A second run stops on its own md5 guard by design (the three bodies are no longer the ones it was cut from); to undo, apply the rollback. Apply AFTER s81_notices_20261014, s81_staff_pay_push_20261014 and s82_staff_31_20261015: the first block stops (55000, nothing changed) unless staff_push_subscribe_v1(text,text,text,text) is exactly fbda406e0b4e4d80854ce1c383615080, ops_notice_add_v1 is ee6211cfc99aa9735ea2f0f588f38e79 and s_weekly_sweep_v1 is a6082c2fca6d6f2cd136ce9057a1fc99 (md5 of prosrc, CR stripped). Additive except three function bodies: (1) staff_push_subscriptions.topics text[] not null default '{paid}' with a CHECK (1 or 2 entries, only paid and inbox): every existing phone keeps today's paid notice only; (2) staff_push_subscribe_v1 gains an optional p_topics text[]: the 4-argument function is DROPPED and replaced by the 5-argument one (one overload, so a 4-key RPC call from the live Staff app still resolves); with p_topics null it behaves exactly as before and answers {ok:true}; with topics it merges them into the phone's row (asking for one never removes the other), keeps inbox only for an active owner/admin, and answers {ok:true, topics:[...]}; (3) staff_push_unsubscribe_topic_v1(endpoint, topic) removes one topic from the caller's own phone and deletes the row with the last one; (4) staff_push_inbox_recipients_v1() (service role only): the phones that hold inbox, for people who are an active owner/admin right now; (5) table staff_push_claims (RLS on, no API-role grant) and staff_push_claim_v1(key) (service role only): true once per key; s_weekly_sweep_v1 now also deletes claims older than 7 days (everything else in it is byte-identical); (6) ops_notice_add_v1 accepts type brownout (source stays manual; the CHECK lists already allow both; notices_v1 already returns brownout rows as type power). No existing row is changed, no secret is added.",
-    "notes": "Deploy order, exactly: (1) this SQL (after a fresh backup); (2) the Edge Function notify-staff-inbox with verify_jwt OFF (supabase functions deploy notify-staff-inbox --no-verify-jwt; it also needs the existing secrets VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT and CASCADE_CRON_SHARED_SECRET - no new secret); (3) messenger-concierge (it starts calling notify-staff-inbox; before step 2 the call 404s and is ignored). Until the Staff app ships a way to turn the Inbox push on, no phone holds the inbox topic and the function answers no_recipients. Rollback of the SQL needs notify-staff-inbox and messenger-concierge left as they are: with the RPCs gone the sender answers rpc_failed and sends nothing."
+    "production_rule": "SINGLE SHOT: the migration is not re-runnable. A second run stops on its own md5 guard by design (the three bodies are no longer the ones it was cut from); to undo, apply the rollback. Apply AFTER s81_notices_20261014, s81_staff_pay_push_20261014 and s82_staff_31_20261015: the first block stops (55000, nothing changed) unless staff_push_subscribe_v1(text,text,text,text) is exactly fbda406e0b4e4d80854ce1c383615080, ops_notice_add_v1 is ee6211cfc99aa9735ea2f0f588f38e79 and s_weekly_sweep_v1 is a6082c2fca6d6f2cd136ce9057a1fc99 (md5 of prosrc, CR stripped). Additive except three function bodies: (1) staff_push_subscriptions.topics text[] not null default '{paid}' with a CHECK (1 or 2 entries, only paid and inbox): every existing phone keeps today's paid notice only; (2) staff_push_subscribe_v1 gains an optional p_topics text[]: the 4-argument function is DROPPED and replaced by the 5-argument one (one overload, so a 4-key RPC call from the live Staff app still resolves); with p_topics null it behaves exactly as before and answers {ok:true}; with topics it merges them into the phone's row (asking for one never removes the other), keeps inbox only for an active owner/admin, and answers {ok:true, topics:[...]}; (3) staff_push_unsubscribe_topic_v1(endpoint, topic) removes one topic from the caller's own phone and deletes the row with the last one; (4) staff_push_inbox_recipients_v1() (service role only): the phones that hold inbox, for people who are an active owner/admin right now; (5) table staff_push_claims (RLS on, no API-role grant) and staff_push_claim_v1(key) (service role only): true once per key; s_weekly_sweep_v1 now also deletes claims older than 7 days (everything else in it is byte-identical); (7) XS2 (Lloyd 2026-10-14, notifications on by default): a third topic notices for every active staff role. The column default is {paid,notices} and the ADD COLUMN fills every existing phone with it, so every phone already registered will hear about a scheduled brownout or water interruption and about rain at the house; staff_push_subscribe_v1 with p_topics null gives a NEW phone the same default (a phone that moves to another person is reset to it); staff_push_notice_recipients_v1(property) (service role only) lists the phones holding notices for people who are active staff of that property now; the trigger ops_notices_push (AFTER INSERT on a brownout or water notice of the Cascade property only) asks notify-staff-inbox through pg_net and the vault secret cascade_cron_shared_secret, guarded like the paid trigger (nothing happens where either is absent), and never blocks the insert; (6) ops_notice_add_v1 accepts type brownout (source stays manual; the CHECK lists already allow both; notices_v1 already returns brownout rows as type power). No existing row is changed, no secret is added.",
+    "notes": "Deploy order, exactly: (1) this SQL (after a fresh backup); (2) the Edge Functions notify-cleaner-payment (it now sends the paid notice only to phones holding the paid topic and falls back to the old read while the column is absent), notify-staff-inbox with verify_jwt OFF (supabase functions deploy notify-staff-inbox --no-verify-jwt; kinds handover, guest_wrote, notice, rain), rain-alert (adds the staff push for rain within 3 hours; the Telegram warning is unchanged) and messenger-concierge. Secrets by name, all existing: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CASCADE_CRON_SHARED_SECRET, GOOGLE_WEATHER_API_KEY; the vault secret cascade_cron_shared_secret must exist (the trigger reads it). Before step 2 the trigger's call 404s inside pg_net and is ignored; before the SQL the new functions answer rpc_failed and send nothing. Until the Staff app is used, phones registered before the apply already hold notices and paid; a phone registered by the live 3.1.1 app after the apply gets {paid,notices} too. Rollback of the SQL needs the functions left as they are: with the RPCs gone the senders answer rpc_failed and send nothing."
   },
   "forward_verification": [
     {
       "name": "topics_column_claims_table_and_new_functions_present",
-      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_push_subscriptions' and column_name = 'topics' and is_nullable = 'NO') and to_regclass('public.staff_push_claims') is not null and (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('staff_push_unsubscribe_topic_v1', 'staff_push_inbox_recipients_v1', 'staff_push_claim_v1')) = 3",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'staff_push_subscriptions' and column_name = 'topics' and is_nullable = 'NO') and to_regclass('public.staff_push_claims') is not null and (select count(*) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('staff_push_unsubscribe_topic_v1', 'staff_push_inbox_recipients_v1', 'staff_push_claim_v1', 'staff_push_notice_recipients_v1', 'ops_notices_push_trg')) = 5",
       "expect": true
     },
     {
@@ -33,17 +33,17 @@
     },
     {
       "name": "topics_check_present_and_every_existing_phone_still_hears_the_paid_notice",
-      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.staff_push_subscriptions'::regclass and conname = 'staff_push_subscriptions_topics_check' and convalidated) and (select column_default from information_schema.columns where table_schema = 'public' and table_name = 'staff_push_subscriptions' and column_name = 'topics') = '''{paid}''::text[]",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.staff_push_subscriptions'::regclass and conname = 'staff_push_subscriptions_topics_check' and convalidated) and (select column_default from information_schema.columns where table_schema = 'public' and table_name = 'staff_push_subscriptions' and column_name = 'topics') = '''{paid,notices}''::text[]",
       "expect": true
     },
     {
       "name": "staff_push_subscribe_v1_is_the_reviewed_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '99a2061ba68d4a39a91f25177c24f867' from pg_proc where oid = 'public.staff_push_subscribe_v1(text,text,text,text,text[])'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '8f86a2f14e1178d3be7a22fee12d75a9' from pg_proc where oid = 'public.staff_push_subscribe_v1(text,text,text,text,text[])'::regprocedure",
       "expect": true
     },
     {
       "name": "staff_push_unsubscribe_topic_v1_is_the_reviewed_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '5a7ce091aecc154c42de49bb60ba5eea' from pg_proc where oid = 'public.staff_push_unsubscribe_topic_v1(text,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a3da29b84b79a8f7e0339c24c5cf8839' from pg_proc where oid = 'public.staff_push_unsubscribe_topic_v1(text,text)'::regprocedure",
       "expect": true
     },
     {
@@ -68,7 +68,7 @@
     },
     {
       "name": "grants_authenticated_runs_the_two_phone_rpcs_service_role_the_two_helpers_anon_none",
-      "query": "select has_function_privilege('authenticated', 'public.staff_push_subscribe_v1(text,text,text,text,text[])', 'execute') and has_function_privilege('authenticated', 'public.staff_push_unsubscribe_topic_v1(text,text)', 'execute') and not has_function_privilege('authenticated', 'public.staff_push_claim_v1(text)', 'execute') and not has_function_privilege('authenticated', 'public.staff_push_inbox_recipients_v1()', 'execute') and has_function_privilege('service_role', 'public.staff_push_claim_v1(text)', 'execute') and has_function_privilege('service_role', 'public.staff_push_inbox_recipients_v1()', 'execute') and not (has_function_privilege('anon', 'public.staff_push_subscribe_v1(text,text,text,text,text[])', 'execute') or has_function_privilege('anon', 'public.staff_push_unsubscribe_topic_v1(text,text)', 'execute') or has_function_privilege('anon', 'public.staff_push_claim_v1(text)', 'execute') or has_function_privilege('anon', 'public.staff_push_inbox_recipients_v1()', 'execute'))",
+      "query": "select has_function_privilege('authenticated', 'public.staff_push_subscribe_v1(text,text,text,text,text[])', 'execute') and has_function_privilege('authenticated', 'public.staff_push_unsubscribe_topic_v1(text,text)', 'execute') and not has_function_privilege('authenticated', 'public.staff_push_claim_v1(text)', 'execute') and not has_function_privilege('authenticated', 'public.staff_push_inbox_recipients_v1()', 'execute') and not has_function_privilege('authenticated', 'public.staff_push_notice_recipients_v1(uuid)', 'execute') and has_function_privilege('service_role', 'public.staff_push_notice_recipients_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.staff_push_notice_recipients_v1(uuid)', 'execute') and not (has_function_privilege('authenticated', 'public.ops_notices_push_trg()', 'execute') or has_function_privilege('anon', 'public.ops_notices_push_trg()', 'execute') or has_function_privilege('service_role', 'public.ops_notices_push_trg()', 'execute')) and has_function_privilege('service_role', 'public.staff_push_claim_v1(text)', 'execute') and has_function_privilege('service_role', 'public.staff_push_inbox_recipients_v1()', 'execute') and not (has_function_privilege('anon', 'public.staff_push_subscribe_v1(text,text,text,text,text[])', 'execute') or has_function_privilege('anon', 'public.staff_push_unsubscribe_topic_v1(text,text)', 'execute') or has_function_privilege('anon', 'public.staff_push_claim_v1(text)', 'execute') or has_function_privilege('anon', 'public.staff_push_inbox_recipients_v1()', 'execute'))",
       "expect": true
     },
     {
@@ -95,6 +95,16 @@
       "name": "vault_secret_for_the_sweep_still_exists",
       "query": "select case when to_regclass('vault.decrypted_secrets') is null then true else (xpath('/row/c/text()', query_to_xml('select count(*)::text as c from vault.decrypted_secrets where name = ''cascade_cron_shared_secret''', false, true, '')))[1]::text::int >= 1 end",
       "expect": true
+    },
+    {
+      "name": "topics_check_allows_notices_and_the_notice_trigger_is_installed",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.staff_push_subscriptions'::regclass and conname = 'staff_push_subscriptions_topics_check' and convalidated and pg_get_constraintdef(oid) ~ 'notices') and exists (select 1 from pg_trigger where tgname = 'ops_notices_push' and tgrelid = 'public.ops_notices'::regclass and not tgisinternal and tgenabled <> 'D')",
+      "expect": true
+    },
+    {
+      "name": "staff_push_notice_recipients_v1_names_no_user_or_contact_column",
+      "query": "select prosrc !~* '(email|phone|name|psid)' from pg_proc where oid = 'public.staff_push_notice_recipients_v1(uuid)'::regprocedure",
+      "expect": true
     }
   ],
   "rollback": {
@@ -118,7 +128,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not yet rehearsed: the host rehearsal on a fresh backup is the orchestrator's (s84). Written against the bodies read from the repo history (s81_staff_pay_push, s81_notices, s82_staff_31), md5-checked in the migration's own guard. Neighbour objects: s_weekly_sweep_v1 (redefined with one extra delete and one extra key, rest byte-identical), notify-cleaner-payment (reads staff_push_subscriptions by user_id: unchanged, still sends the paid notice to every phone because default topics is {paid}), staff_push_subscribe_v1 callers (the Staff app sends four keys: still resolves to the five-argument function through the default). notify-cleaner-payment does not filter on topic, so a phone that holds only inbox would also get a paid notice if its owner were a payee; harmless, and the Staff app asks for both topics. Live read pending after the apply: staff_push_inbox_recipients_v1 as service role (0 rows until a phone turns the topic on). Create nothing in production to test it."
+    "evidence": "Not yet rehearsed: the host rehearsal on a fresh backup is the orchestrator's (s84). Written against the bodies read from the repo history (s81_staff_pay_push, s81_notices, s82_staff_31), md5-checked in the migration's own guard. Neighbour objects: s_weekly_sweep_v1 (redefined with one extra delete and one extra key, rest byte-identical), notify-cleaner-payment (reads staff_push_subscriptions by user_id: unchanged, still sends the paid notice to every phone because default topics is {paid}), staff_push_subscribe_v1 callers (the Staff app sends four keys: still resolves to the five-argument function through the default). notify-cleaner-payment now reads subscriptions with the paid-topic filter and falls back to the unfiltered read only on a missing-topics-column error. XS2 changes who is told: every phone already registered now also holds notices (the ADD COLUMN default), which is the intent. Live read pending after the apply: staff_push_inbox_recipients_v1 as service role (0 rows until a phone turns the topic on). Create nothing in production to test it."
   },
   "approvals": {
     "production_required": true,
@@ -132,6 +142,8 @@
     "s82_staff_31_20261015 or the s81 releases are not applied (the migration stops on its own md5 guard)",
     "the rehearsal has not run s82_inbox_push.sql green on this commit, plus the s81, s82_staff_31 and staff_pay_requests suites after the apply and again after the rollback",
     "the two forward checks about pg_cron and the vault count as true where those relations do not exist (a rehearsal copy), so on production read both for real",
-    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed"
+    "the Opus 5.5 / Fable 5.1 audit of this SQL lane has not passed",
+    "the Opus 5.5 / Fable 5.1 re-audit of the XS2 additions (notices topic, notice recipients, ops_notices_push trigger, rain push) has not passed",
+    "the vault secret cascade_cron_shared_secret is missing on production (the notice trigger would silently send nothing)"
   ]
 }
