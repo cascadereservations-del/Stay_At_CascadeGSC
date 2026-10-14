@@ -17,6 +17,7 @@ import { financeCaption, financeKeyboard, opsPaidKeyboard, opsRequestText, type 
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
 import { parseRequest } from './request.ts';
+import { readPaidSubs } from './subs.ts';
 import { type NoticeData, runPaid } from './paid.ts';
 import { type CardReq, redrawFinanceCard } from './card.ts';
 
@@ -105,10 +106,7 @@ async function handlePaid(req: Request, body: Record<string, unknown>): Promise<
         ops_keyboard: opsPaidKeyboard(r),
       };
     },
-    subs: async (uid) => {
-      const { data } = await db.from('staff_push_subscriptions').select('id,endpoint,p256dh,auth').eq('user_id', uid);
-      return (data ?? []) as Array<{ id: string; endpoint: string; p256dh: string; auth: string }>;
-    },
+    subs: (uid) => readPaidSubs(db, uid),
     deleteSub: async (sid) => { await db.from('staff_push_subscriptions').delete().eq('id', sid); },
     touchSub: async (sid) => { await db.from('staff_push_subscriptions').update({ last_ok_at: new Date().toISOString() }).eq('id', sid); },
     push: vapid ? (s, m) => sendPush(s, m, vapid, { nowSec: Math.floor(Date.now() / 1000) }) : null,
