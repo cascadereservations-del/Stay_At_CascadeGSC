@@ -7,8 +7,8 @@ export async function readPaidSubs(db: any, userId: string): Promise<Sub[]> {
   const base = () => db.from('staff_push_subscriptions').select('id,endpoint,p256dh,auth').eq('user_id', userId);
   const first = await base().contains('topics', ['paid']);
   if (!first.error) return (first.data ?? []) as Sub[];
-  const msg = `${first.error.code ?? ''} ${first.error.message ?? ''}`;
-  if (!/42703|PGRST|topics/i.test(msg)) return [];
+  const absent = first.error.code === '42703' || (first.error.code === 'PGRST204' && /topics/i.test(first.error.message ?? ''));
+  if (!absent) return [];
   const again = await base();
   return (again.error ? [] : (again.data ?? [])) as Sub[];
 }

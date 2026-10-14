@@ -35,3 +35,9 @@ Deno.test('any other error sends nothing and does not retry', async () => {
   assertEquals(await readPaidSubs(db, 'u1'), []);
   assertEquals(log.filter((l) => l.startsWith('from')).length, 1);
 });
+
+Deno.test('a connection error (PGRST001) is not "column absent": nothing is sent and there is no second read', async () => {
+  const { db, log } = mock({ code: 'PGRST001', message: 'Could not connect with the database' });
+  assertEquals(await readPaidSubs(db, 'u1'), []);
+  assertEquals(log.filter((l) => l.startsWith('from')).length, 1);
+});
