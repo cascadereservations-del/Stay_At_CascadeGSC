@@ -46,10 +46,10 @@ export function manilaDate(now: Date): string {
 }
 
 /** Contacts out of any staff-facing text: e-mail, phone numbers (also spaced), door codes, addresses. Item names use only this. */
-export function contactSafe(text: unknown): string {
+export function contactSafe(text: unknown, route: 'ops' | 'finance' = 'ops'): string {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim()
     .replace(/\+?\d[\d\s().-]{6,}\d/g, (m) => (/^\s*\d{1,4}[\s-]\d{1,2}[\s-]\d{1,4}\s*$/.test(m) ? m : '[number hidden]'));
-  return redactForLog(t, 'ops');
+  return redactForLog(t, route);
 }
 /** Free text (shopping-list notes): contacts redacted, then every amount masked. Not for item names: it would eat "Item 119". */
 export const opsText = (text: unknown): string => maskMoney(contactSafe(text));
@@ -60,7 +60,7 @@ export const statusOf = (i: Item): Status => (i.qty <= 0 ? 'OUT' : i.reorder != 
 const rank = (s: Status) => (s === 'OUT' ? 0 : s === 'LOW' ? 1 : 2);
 const byName = (a: Item, b: Item) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
 const byLevel = (a: Item, b: Item) => rank(statusOf(a)) - rank(statusOf(b)) || byName(a, b);
-const catOf = (i: { category: string | null }) => (i.category ?? '').trim() || 'Other';
+const catOf = (i: { category: string | null }) => contactSafe((i.category ?? '').trim()) || 'Other';
 const isMisc = (i: Item) => catOf(i).toLowerCase() === 'miscellaneous';
 
 /** Buy up to par, else twice the reorder level; whole packs, at least one pack for an item that is on the list. */
@@ -68,7 +68,7 @@ export function buyPlan(i: Item): { packs: number; units: number; target: number
   const target = i.par ?? (i.reorder != null ? i.reorder * 2 : 0);
   const per = i.unitsPer && i.unitsPer > 0 ? i.unitsPer : 1;
   const packs = Math.max(1, Math.ceil(Math.max(target - i.qty, 0) / per));
-  const word = i.purchaseUnit?.trim() || (per > 1 ? 'pack' : (i.unit?.trim() || 'pc'));
+  const word = contactSafe(i.purchaseUnit?.trim() || (per > 1 ? 'pack' : (i.unit?.trim() || 'pc')));
   return { packs, units: packs * per, target, label: `${num(packs)} ${word}` };
 }
 
@@ -110,7 +110,7 @@ function cells(kind: Kind, dest: Dest, i: Item, note: string, plan?: ReturnType<
       return fin ? [name, on, tgt, buy, cost(unitCost), cost(est), note] : [name, on, tgt, buy, note];
     }
     case 'misc': {
-      const unit = i.unit?.trim() || '-';
+      const unit = contactSafe(i.unit?.trim() || '-');
       return fin ? [name, on, unit, cost(unitCost), cost(unitCost == null ? null : unitCost * i.qty), note] : [name, on, unit, note];
     }
     case 'low':
@@ -127,6 +127,7 @@ export function buildReport(kind: Kind, dest: Dest, items: Item[], shop: Shop[],
   let groups: Group[] = [];
   const totals: string[] = [];
   let rowCount = 0;
+  const noteText = (t: unknown) => (fin ? contactSafe(t, 'finance') : opsText(t)); // Finance keeps amounts in notes, contacts still go
   let noPrice = 0;
   let sum = 0;
 
@@ -136,7 +137,7 @@ export function buildReport(kind: Kind, dest: Dest, items: Item[], shop: Shop[],
     const need = items.filter((i) => i.consumable && ((i.reorder != null && i.qty <= i.reorder) || (i.par != null && i.qty < i.par)));
     const covered = new Set(need.map((i) => i.id));
     const noteFor = new Map<string, string>();
-    for (const s of shop) if (s.itemId && covered.has(s.itemId) && s.note) noteFor.set(s.itemId, opsText(s.note));
+    for (const s of shop) if (s.itemId && covered.has(s.itemId) && s.note) noteFor.set(s.itemId, noteText(s.note));
     const rows: Array<{ cat: string; level: number; name: string; cells: string[] }> = [];
     for (const i of need) {
       const plan = buyPlan(i);
@@ -149,10 +150,10 @@ export function buildReport(kind: Kind, dest: Dest, items: Item[], shop: Shop[],
       if (s.itemId && covered.has(s.itemId)) continue;
       const it = s.itemId ? byId.get(s.itemId) : undefined;
       const base: Item = it ?? { id: '', name: s.name, category: null, unit: null, qty: 0, reorder: null, par: null, consumable: false, purchaseUnit: s.purchaseUnit, unitsPer: null };
-      const qtyLabel = `${num(s.quantity)} ${s.purchaseUnit?.trim() || it?.unit?.trim() || 'pc'}`;
-      const est = fin ? s.estCost ?? (it?.cost != null ? it.cost * s.quantity : null) : null;
+      const qtyLabel = `${num(s.quantity)} ${contactSafe(s.purchaseUnit?.trim() || it?.unit?.trim() || 'pc')}`;
+      const est = fin ? s.estCost ?? (it?.cost != null ? it.cost * s.quantity * (it.unitsPer && it.unitsPer > 0 && s.purchaseUnit ? it.unitsPer : 1) : null) : null;
       if (fin) { if (est == null) noPrice++; else sum += est; }
-      const row = cells('order', dest, { ...base, name: s.name, cost: fin ? it?.cost ?? null : undefined }, opsText(s.note ?? ''), undefined, qtyLabel);
+      const row = cells('order', dest, { ...base, name: s.name, cost: fin ? it?.cost ?? null : undefined }, noteText(s.note ?? ''), undefined, qtyLabel);
       if (fin) row[5] = cost(est);
       rows.push({ cat: it ? catOf(it) : 'Shopping list', level: 1, name: s.name, cells: row });
     }

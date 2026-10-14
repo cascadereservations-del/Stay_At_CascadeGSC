@@ -115,3 +115,29 @@ Deno.test('Finance all / misc: value = on hand x unit cost; total and missing pr
   assertEquals(misc.totals, ['Total value PHP 600.00', '1 item has no price.']);
   assertEquals(buildReport('low', 'finance', ITEMS, [], NOW, 'L').columns, ['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost']);
 });
+
+Deno.test('OPS: a price or phone typed into a category, unit or purchase unit never reaches a heading or cell (F2, F3)', () => {
+  const hostile: Item[] = [
+    it({ id: 'c', name: 'Box', category: 'Supplies ₱500 per box', unit: 'PHP 95 bottle', consumable: true, qty: 0, reorder: 2, purchaseUnit: 'box of 6 at PHP 500', unitsPer: 6 }),
+    it({ id: 'e', name: 'Odd', category: 'Miscellaneous', unit: 'call 0917 123 4567', qty: 1 }),
+  ];
+  for (const kind of ['order', 'low', 'misc'] as const) {
+    const r = buildReport(kind, 'ops', hostile, [{ itemId: null, name: 'X', quantity: 1, purchaseUnit: '₱300 pack', note: null }], NOW, 'M');
+    const text = JSON.stringify([r.groups]);
+    assertFalse(/PHP|₱|500|0917/.test(text), `${kind}: ${text}`);
+  }
+});
+
+Deno.test('Finance notes keep their amounts; contacts still go (F4)', () => {
+  const r = buildReport('order', 'finance', ITEMS, SHOP, NOW, 'L');
+  const note = flat(r).find((c) => c[0] === 'Hand soap')![6];
+  assertStringIncludes(note, 'P500');
+  assertFalse(note.includes('0917'));
+});
+
+Deno.test('Finance estimate for an unlinked-cost shopping row: boxes x units per box x unit cost (F5)', () => {
+  const shop: Shop[] = [{ itemId: 'k', name: 'Sponge', quantity: 3, purchaseUnit: 'box', note: null, estCost: null }];
+  const items = ITEMS.map((i) => (i.id === 'k' ? { ...i, qty: 50, unitsPer: 6 } : i)); // Sponge not low, so the shopping row stands alone
+  const r = buildReport('order', 'finance', items, shop, NOW, 'L');
+  assertEquals(flat(r).find((c) => c[0] === 'Sponge')![5], 'PHP 180.00'); // 3 x 6 x 10
+});

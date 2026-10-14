@@ -89,7 +89,9 @@ export function makeHandler(opts: { now?: () => Date } = {}) {
     }
 
     const report = buildReport(kind, to, items, shop, now(), await firstName(db, who.userId));
-    if (!fin && [report.title, report.subtitle, report.caption].some(hasMoney)) {
+    // The row count is a machine number ("120 items"); maskMoney would read 100+ as an amount, so guard the words around it.
+    const captionText = report.caption.replace(/\b\d+ items?\b/, 'n items');
+    if (!fin && [report.title, report.subtitle, captionText].some(hasMoney)) {
       console.error('ops money guard tripped for', kind);
       return reply({ ok: false, error: 'ops_money_guard' }, 500);
     }

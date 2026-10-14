@@ -1,7 +1,8 @@
 // Handler tests: globalThis.fetch is stubbed, so the mock sees the exact Supabase URLs, RPC names, argument keys and the Telegram multipart.
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'jsr:@std/assert@1';
 import { withObservability } from '../_shared/observability.ts';
-import { ITEMS, NOW, SHOP } from './fixtures.ts';
+import { it, ITEMS, NOW, SHOP } from './fixtures.ts';
+import type { Item } from './report.ts';
 import { makeHandler, PROPERTY_ID } from './handler.ts';
 
 const OPT = { sanitizeOps: false, sanitizeResources: false };
@@ -12,7 +13,7 @@ interface Call { method: string; url: string; json?: Record<string, unknown>; fo
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 
 /** Install the stubs for one test. `allowed` = the actions current_staff_authorized says yes to. */
-function world(o: { allowed?: string[]; noUser?: boolean; tg?: unknown; parMissing?: boolean; env?: Partial<typeof ENV> } = {}) {
+function world(o: { items?: Item[]; allowed?: string[]; noUser?: boolean; tg?: unknown; parMissing?: boolean; env?: Partial<typeof ENV> } = {}) {
   const calls: Call[] = [];
   const env = { ...ENV, ...o.env };
   const saved = new Map<string, string | undefined>();
@@ -31,7 +32,7 @@ function world(o: { allowed?: string[]; noUser?: boolean; tg?: unknown; parMissi
     if (url.includes('/rpc/current_staff_authorized')) return json((o.allowed ?? ['read_operations']).includes(String(call.json?.p_action)));
     if (url.includes('/rest/v1/inventory_items')) {
       if (o.parMissing && url.includes('par_qty')) return json({ code: '42703', message: 'column inventory_items.par_qty does not exist', details: null }, 400);
-      return json(ITEMS.map((i) => ({
+      return json((o.items ?? ITEMS).map((i) => ({
         id: i.id, name: i.name, category: i.category, unit: i.unit, qty_on_hand: i.qty, reorder_below: i.reorder, is_consumable: i.consumable,
         purchase_unit: i.purchaseUnit, units_per_purchase: i.unitsPer, unit_cost: i.cost ?? null, par_qty: i.par,
       })));
@@ -198,4 +199,14 @@ Deno.test({ name: 'missing token or chat id -> 503 not_configured, nothing read 
       assertEquals(telegram(w.calls).length, 0);
     } finally { w.done(); }
   }
+} });
+
+Deno.test({ name: 'OPS "all" with 120 items: the count in the caption does not trip the money guard (F1)', ...OPT, fn: async () => {
+  const items = Array.from({ length: 120 }, (_, k) => it({ id: `i${k}`, name: `Item ${k}`, qty: k }));
+  const w = world({ items });
+  try {
+    const r = await handler(post({ kind: 'all', to: 'ops' }));
+    assertEquals(r.status, 200);
+    assertEquals(telegram(w.calls)[0].form!.get('caption'), 'Full inventory, 120 items. Sent from the staff app by Marifel.');
+  } finally { w.done(); }
 } });
