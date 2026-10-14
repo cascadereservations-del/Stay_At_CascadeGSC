@@ -136,8 +136,11 @@ Deno.test('rain during a brownout names it; a brownout that is past, inactive or
     await runInbox(RAIN({ brownoutNoticeId: N1 }), g.deps);
     assertEquals(g.sent[0].m.body, 'Rain likely from about 3 pm (80%).');
   }
+  // F5: the brownout mention is a garnish; when its read fails the rain is still told, in the plain wording
   const bad = fake({ notice: async () => null });
-  assertEquals((await runInbox(RAIN({ brownoutNoticeId: N1 }), bad.deps)).reason, 'rpc_failed');
+  const out = await runInbox(RAIN({ brownoutNoticeId: N1 }), bad.deps);
+  assertEquals(out.ok, true);
+  assertEquals(bad.sent[0].m.body, 'Rain likely from about 3 pm (80%).');
 });
 
 Deno.test('rain from a day already past is refused; no phones means no claim', async () => {

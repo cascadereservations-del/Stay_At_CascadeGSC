@@ -84,9 +84,8 @@ export async function runInbox(e: InboxEvent, d: InboxDeps): Promise<InboxOutcom
       if (e.from.slice(0, 10) < manilaDate(d.nowMs())) return { ok: true, skipped: 'not_important', push: none };
       let brownout = false;
       if (e.brownoutNoticeId) {
-        const n = await d.notice(e.brownoutNoticeId);
-        if (n === null) return { ok: false, reason: 'rpc_failed', push: none };
-        brownout = !!n && n.notice_type === 'brownout' && isImportant(n, d.nowMs());
+        const n = await d.notice(e.brownoutNoticeId); // a failed read only drops the brownout mention; the rain is still told
+        brownout = n != null && n.notice_type === 'brownout' && isImportant(n, d.nowMs());
       }
       subs = await d.noticeRecipients(HOUSE_PROPERTY_ID);
       message = { title: INBOX_TITLE, body: rainBody(e, brownout, d.nowMs()), url: NOTICE_URL, tag: NOTICE_TAG };
