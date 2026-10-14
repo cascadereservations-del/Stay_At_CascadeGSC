@@ -15,6 +15,8 @@
 --                 scheduled brownout or water interruption. staff_push_notice_recipients_v1(property) (service role only) lists those phones for people
 --                 who are active staff of the property now. ops_notices_push_trg: AFTER INSERT on a brownout or water notice of the Cascade property it asks
 --                 notify-staff-inbox (pg_net + vault secret, guarded like the paid trigger) to tell them; the function claims once and skips past dates.
+--   3c. Cron      XS3: the pg_cron job rain-alert-2h (0 */2 * * *) is re-pointed so its call also carries x-cascade-cron-secret from the vault, because the
+--                 new rain-alert function requires it. No-op where pg_cron is absent. Run this SQL before deploying rain-alert.
 --   4. Power      ops_notice_add_v1 accepts type brownout (source stays manual). Every other rule is unchanged: no phone, e-mail or amount in the text,
 --                 length and date limits, owner/admin only. notices_v1 already returns brownout rows (as type power).
 -- Needs s82_staff_31 applied first (the sweep) and the s81 releases (the subscriptions, the notices): the guards stop the release otherwise.
@@ -283,6 +285,41 @@ revoke all on function public.ops_notice_add_v1(text, text, date, time, numeric,
 grant execute on function public.ops_notice_add_v1(text, text, date, time, numeric, text, uuid) to authenticated, service_role;
 comment on function public.ops_notice_add_v1(text, text, date, time, numeric, text, uuid) is
   'Owner/admin: add a short manual water, maintenance, deep_clean, note or brownout notice. Phone numbers, e-mails and amounts are refused.';
+
+-- 4b. rain-alert-2h: the cron job now signs its call (XS3) ----------------------------------------------------------------------------------
+-- rain-alert pushes to every staff phone since XS2, so the function now requires x-cascade-cron-secret (or the service-role bearer). The job sent only the
+-- publishable key, which is not a secret. Re-point it (same name, same schedule 0 */2 * * *) so it also sends the vault secret, read at call time, exactly like
+-- release-expired-holds-hourly. Run this SQL BEFORE deploying the new rain-alert: the old function ignores the extra header, the new one needs it.
+-- Where pg_cron is absent (a rehearsal copy) nothing happens; a job that already reads the vault secret is left alone.
+do $$
+declare v_id bigint; v_cmd text;
+begin
+  if to_regclass('cron.job') is null then
+    raise notice 'pg_cron absent (rehearsal copy) - rain-alert-2h signing skipped';
+    return;
+  end if;
+  execute $q$select jobid, command from cron.job where jobname = 'rain-alert-2h'$q$ into v_id, v_cmd;
+  if v_id is null then
+    raise warning 'rain-alert-2h is not scheduled here - nothing to re-point (read the forward check on production)';
+    return;
+  end if;
+  if v_cmd like '%cascade_cron_shared_secret%' then
+    raise notice 'rain-alert-2h already signs its call';
+    return;
+  end if;
+  perform cron.alter_job(v_id, command := $cmd$select net.http_post(
+        url     := 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/rain-alert',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer sb_publishable_JFuRYZ9csmQULcMRmHXDSg_Abo9UeCj',
+          'x-cascade-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'cascade_cron_shared_secret')
+        ),
+        body    := '{}'::jsonb,
+        timeout_milliseconds := 60000
+      ) as request_id;$cmd$);
+  execute $q$select count(*) from cron.job where jobname = 'rain-alert-2h' and active and schedule = '0 */2 * * *' and command like '%cascade_cron_shared_secret%'$q$ into v_id;
+  if v_id <> 1 then raise exception 'rain-alert-2h was not re-pointed'; end if;
+end $$;
 
 -- 5. final check -------------------------------------------------------------------------------------------------------------------------
 do $$
