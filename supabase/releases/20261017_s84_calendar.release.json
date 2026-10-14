@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s84/C-calendar",
-    "commit": "566e2976a72dacc9770606a87f4ea0fc7c493681"
+    "commit": "bdc77351071bd9c4aefaf3d61f6c6729bd53d8e8"
   },
   "migrations": [
     "20261017010000_s84_calendar.sql"
