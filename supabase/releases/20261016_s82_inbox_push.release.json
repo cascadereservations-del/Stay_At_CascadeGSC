@@ -33,7 +33,7 @@
     },
     {
       "name": "topics_check_present_and_every_existing_phone_still_hears_the_paid_notice",
-      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.staff_push_subscriptions'::regclass and conname = 'staff_push_subscriptions_topics_check' and convalidated) and (select column_default from information_schema.columns where table_schema = 'public' and table_name = 'staff_push_subscriptions' and column_name = 'topics') = '''{paid,notices}''::text[]",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.staff_push_subscriptions'::regclass and conname = 'staff_push_subscriptions_topics_check' and convalidated) and (select column_default from information_schema.columns where table_schema = 'public' and table_name = 'staff_push_subscriptions' and column_name = 'topics') = '''{paid,notices}''::text[]'",
       "expect": true
     },
     {
