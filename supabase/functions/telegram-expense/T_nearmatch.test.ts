@@ -18,6 +18,8 @@ Deno.test('T: forgiving forms are read, not refused (colon, case, dash or to, 8a
     ['WATER NOTICE Oct 16 8am to 5pm', 'water notice: Oct 16 8am to 5pm'],
     ['waternotice: Oct 16 8:00 AM - 5:00 PM', 'water notice: Oct 16 8:00 AM - 5:00 PM'],
     ['notice water: today 9am-12pm', 'water notice: Oct 14 9am-12pm'],
+    ['noticewater: today 9am-12pm', 'water notice: Oct 14 9am-12pm'],
+    ['Notice - water Oct 16 8am-5pm', 'water notice: Oct 16 8am-5pm'],
     ['wtaer notice Oct 16 8am-5pm', 'water notice: Oct 16 8am-5pm'],
     ['water notise: 10/16 8am-5pm', 'water notice: Oct 16 8am-5pm'],
     ['power notice tomorrow 1pm to 4pm', 'brownout notice: Oct 15 1pm to 4pm'],
@@ -58,6 +60,7 @@ Deno.test('T: real-looking OPS chatter stays silent (null, so the older paths de
     'cassy water notice tomorrow 8am-5pm', '/notices', '/brownout tomorrow 8am 4h SOCOTECO', 'Water interruption at San Isidro, see you later',
     // review F1 / F2: chatter that a loose fuzzy match turned into a card or a hint
     'Late notice po, hindi ako makakapunta bukas 8am', 'Nice water pressure today', 'Note later today 3pm-5pm meeting', 'Gate notice tomorrow 8am-5pm',
+    'Noticed water leaking under the sink today', 'Notice water pressure low today', 'Water noticed today 8am-5pm', 'Notice power flickering tomorrow 8am-9am', 'Noticed brownout earlier 2pm-3pm', // re-audit R1
     'Meter notice from GSCWD tomorrow', 'Water note: tomorrow buy 2 gallons', 'Date notice', 'Paper notice', 'Voice water', 'Power nice', 'Nice water',
   ];
   for (const t of quiet) assertEquals(T_nearNotice(t, NOW), null, t);
