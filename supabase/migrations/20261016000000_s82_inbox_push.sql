@@ -10,6 +10,11 @@
 --   2. Recipients staff_push_inbox_recipients_v1() (service role only): the subscriptions with topic inbox whose user is an ACTIVE owner/admin.
 --   3. Claims     staff_push_claims + staff_push_claim_v1(p_key) (service role only): true once per key, so a guest message or a handover tells nobody
 --                 twice. s_weekly_sweep_v1 (s82_staff_31) deletes claims older than 7 days.
+--   3b. Notices   XS2 (Lloyd 2026-10-14, notifications on by default): a third topic `notices` for EVERY active staff role (cleaners included). The column
+--                 default is {paid,notices}, so every existing phone (the ADD COLUMN fills them) and every new phone with p_topics null hears about a
+--                 scheduled brownout or water interruption. staff_push_notice_recipients_v1(property) (service role only) lists those phones for people
+--                 who are active staff of the property now. ops_notices_push_trg: AFTER INSERT on a brownout or water notice of the Cascade property it asks
+--                 notify-staff-inbox (pg_net + vault secret, guarded like the paid trigger) to tell them; the function claims once and skips past dates.
 --   4. Power      ops_notice_add_v1 accepts type brownout (source stays manual). Every other rule is unchanged: no phone, e-mail or amount in the text,
 --                 length and date limits, owner/admin only. notices_v1 already returns brownout rows (as type power).
 -- Needs s82_staff_31 applied first (the sweep) and the s81 releases (the subscriptions, the notices): the guards stop the release otherwise.
@@ -35,11 +40,11 @@ begin
 end $$;
 
 -- 1. topics on the subscriptions ---------------------------------------------------------------------------------------------------------
-alter table public.staff_push_subscriptions add column if not exists topics text[] not null default '{paid}';
+alter table public.staff_push_subscriptions add column if not exists topics text[] not null default '{paid,notices}';
 alter table public.staff_push_subscriptions drop constraint if exists staff_push_subscriptions_topics_check;
 alter table public.staff_push_subscriptions add constraint staff_push_subscriptions_topics_check
-  check (cardinality(topics) between 1 and 2 and topics <@ array['paid', 'inbox']::text[]);
-comment on column public.staff_push_subscriptions.topics is 'S82: what this phone is told about: paid (a payment request was paid) and/or inbox (a guest wrote or Cassy handed over; owner/admin only).';
+  check (cardinality(topics) between 1 and 3 and topics <@ array['paid', 'inbox', 'notices']::text[]);
+comment on column public.staff_push_subscriptions.topics is 'S82: what this phone is told about: paid (a payment request was paid), notices (a scheduled brownout or water interruption, rain during a brownout; every active staff role) and/or inbox (a guest wrote or Cassy handed over; owner/admin only). Default {paid,notices}.';
 
 drop function if exists public.staff_push_subscribe_v1(text, text, text, text);
 create function public.staff_push_subscribe_v1(p_endpoint text, p_p256dh text, p_auth text, p_user_agent text default null, p_topics text[] default null)
@@ -62,12 +67,12 @@ begin
     on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent,
       topics = case when public.staff_push_subscriptions.user_id = excluded.user_id then public.staff_push_subscriptions.topics else excluded.topics end;
   else
-    if cardinality(p_topics) = 0 or exists (select 1 from unnest(p_topics) t where t is null or t not in ('paid', 'inbox')) then
+    if cardinality(p_topics) = 0 or exists (select 1 from unnest(p_topics) t where t is null or t not in ('paid', 'inbox', 'notices')) then
       return jsonb_build_object('ok', false, 'reason', 'bad_topics');
     end if;
-    -- inbox only for an active owner/admin; a topic list that ends up empty (a cleaner asking for inbox alone) keeps the paid notice
+    -- paid and notices for any active staff member, inbox only for an active owner/admin; a topic list that ends up empty (a cleaner asking for inbox alone) keeps the paid notice
     v_kept := array(select distinct t from unnest(p_topics) t
-                     where t = 'paid' or (t = 'inbox' and exists (select 1 from public.staff_access_profiles p
+                     where t in ('paid', 'notices') or (t = 'inbox' and exists (select 1 from public.staff_access_profiles p
                                                                    where p.user_id = v_uid and p.disabled_at is null and p.role in ('owner', 'admin')))
                      order by t);
     if cardinality(v_kept) = 0 then v_kept := array['paid']; end if;
@@ -86,7 +91,7 @@ begin
 end $$;
 revoke all on function public.staff_push_subscribe_v1(text, text, text, text, text[]) from public, anon, service_role;
 grant execute on function public.staff_push_subscribe_v1(text, text, text, text, text[]) to authenticated;
-comment on function public.staff_push_subscribe_v1(text, text, text, text, text[]) is 'S82: register or move this phone. p_topics null = the paid notice as before; else paid and/or inbox merged into the phone''s row (inbox only for an active owner/admin). Answers {ok, topics} when topics were asked for.';
+comment on function public.staff_push_subscribe_v1(text, text, text, text, text[]) is 'S82: register or move this phone. p_topics null = the paid notice as before plus the notices topic for a new phone; else paid, notices and/or inbox merged into the phone''s row (inbox only for an active owner/admin). Answers {ok, topics} when topics were asked for.';
 
 create function public.staff_push_unsubscribe_topic_v1(p_endpoint text, p_topic text) returns jsonb
 language plpgsql security definer set search_path = '' as $$
@@ -95,7 +100,7 @@ begin
   if v_uid is null or not exists (select 1 from public.staff_access_profiles where user_id = v_uid and disabled_at is null) then
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
   end if;
-  if p_topic is null or p_topic not in ('paid', 'inbox') or p_endpoint is null then return jsonb_build_object('ok', false, 'reason', 'bad_request'); end if;
+  if p_topic is null or p_topic not in ('paid', 'inbox', 'notices') or p_endpoint is null then return jsonb_build_object('ok', false, 'reason', 'bad_request'); end if;
   select s.topics into v_topics from public.staff_push_subscriptions s where s.endpoint = p_endpoint and s.user_id = v_uid;
   -- not her phone, or the topic is not on it: nothing changes, and she is told what the phone holds (an empty list for a phone that is not hers)
   if v_topics is null or not (p_topic = any(v_topics)) then
@@ -111,7 +116,7 @@ begin
 end $$;
 revoke all on function public.staff_push_unsubscribe_topic_v1(text, text) from public, anon, service_role;
 grant execute on function public.staff_push_unsubscribe_topic_v1(text, text) to authenticated;
-comment on function public.staff_push_unsubscribe_topic_v1(text, text) is 'S82: remove one topic (paid or inbox) from the caller''s own phone; the row is deleted with its last topic.';
+comment on function public.staff_push_unsubscribe_topic_v1(text, text) is 'S82: remove one topic (paid, notices or inbox) from the caller''s own phone; the row is deleted with its last topic.';
 
 -- 2. recipients ---------------------------------------------------------------------------------------------------------------------------
 create function public.staff_push_inbox_recipients_v1() returns table(id uuid, endpoint text, p256dh text, auth text)
@@ -125,6 +130,19 @@ $$;
 revoke all on function public.staff_push_inbox_recipients_v1() from public, anon, authenticated;
 grant execute on function public.staff_push_inbox_recipients_v1() to service_role;
 comment on function public.staff_push_inbox_recipients_v1() is 'S82 (service role): the phones that turned the Inbox push on, for people who are active owner/admin right now.';
+
+create function public.staff_push_notice_recipients_v1(p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') returns table(id uuid, endpoint text, p256dh text, auth text)
+language sql stable security definer set search_path = '' as $$
+  select s.id, s.endpoint, s.p256dh, s.auth
+    from public.staff_push_subscriptions s
+    join public.staff_access_profiles p on p.user_id = s.user_id
+   where 'notices' = any(s.topics) and p.disabled_at is null
+     and exists (select 1 from public.staff_property_access a where a.user_id = s.user_id and a.property_id = p_property_id)
+   order by s.created_at, s.id;
+$$;
+revoke all on function public.staff_push_notice_recipients_v1(uuid) from public, anon, authenticated;
+grant execute on function public.staff_push_notice_recipients_v1(uuid) to service_role;
+comment on function public.staff_push_notice_recipients_v1(uuid) is 'S82 (service role): the phones that hold the notices topic, for people who are active staff of the property right now (any role).';
 
 -- 3. claims ------------------------------------------------------------------------------------------------------------------------------
 create table if not exists public.staff_push_claims (
@@ -150,6 +168,34 @@ end $$;
 revoke all on function public.staff_push_claim_v1(text) from public, anon, authenticated;
 grant execute on function public.staff_push_claim_v1(text) to service_role;
 comment on function public.staff_push_claim_v1(text) is 'S82 (service role): true the first time a key is claimed, false after. The sender claims before it sends.';
+
+-- a scheduled brownout or water notice asks notify-staff-inbox to tell the staff. A failure here must never block the insert (power-watch, the Telegram notice
+-- flow and ops_notice_add_v1 all insert here), so everything is guarded and dynamic: where pg_net or the vault secret is absent (a rehearsal copy) nothing is
+-- sent. Only the Cascade property: a rehearsal fixture on its own property can never reach the live function. The function claims notice:<id> once and skips
+-- a date in the past, so a second ask or a late insert is harmless.
+create function public.ops_notices_push_trg() returns trigger
+language plpgsql security definer set search_path = '' as $$
+declare v_secret text;
+begin
+  if to_regnamespace('net') is null or to_regclass('vault.decrypted_secrets') is null then return null; end if;
+  begin
+    execute $q$select decrypted_secret from vault.decrypted_secrets where name = 'cascade_cron_shared_secret' limit 1$q$ into v_secret;
+    if coalesce(v_secret, '') = '' then return null; end if;
+    perform net.http_post(
+      url := 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/notify-staff-inbox',
+      headers := jsonb_build_object('Content-Type', 'application/json', 'x-cascade-cron-secret', v_secret),
+      body := jsonb_build_object('kind', 'notice', 'notice_id', new.id),
+      timeout_milliseconds := 20000);
+  exception when others then
+    raise warning 'ops_notices_push_trg: could not queue the notice push (%)', sqlstate;
+  end;
+  return null;
+end $$;
+revoke all on function public.ops_notices_push_trg() from public, anon, authenticated, service_role;
+drop trigger if exists ops_notices_push on public.ops_notices;
+create trigger ops_notices_push after insert on public.ops_notices
+  for each row when (new.notice_type in ('brownout', 'water') and new.is_active and new.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
+  execute function public.ops_notices_push_trg();
 
 -- the weekly sweep (s82_staff_31) also purges claims older than 7 days
 create or replace function public.s_weekly_sweep_v1() returns jsonb
@@ -250,6 +296,8 @@ begin
     raise exception 'authenticated can run a service-only push function';
   end if;
   if has_function_privilege('anon', 'public.staff_push_subscribe_v1(text,text,text,text,text[])', 'execute') then raise exception 'anon can subscribe'; end if;
+  if has_function_privilege('authenticated', 'public.staff_push_notice_recipients_v1(uuid)', 'execute') then raise exception 'authenticated can read the notice recipients'; end if;
+  if not exists (select 1 from pg_trigger where tgname = 'ops_notices_push' and tgrelid = 'public.ops_notices'::regclass and not tgisinternal) then raise exception 'ops_notices_push trigger missing'; end if;
 end $$;
 
 commit;

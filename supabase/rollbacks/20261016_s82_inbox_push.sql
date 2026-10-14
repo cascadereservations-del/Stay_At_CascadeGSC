@@ -11,6 +11,9 @@ begin;
 -- phones that listen only for the inbox go; the rest keep their paid notice
 delete from public.staff_push_subscriptions where not ('paid' = any(topics));
 
+drop trigger if exists ops_notices_push on public.ops_notices;
+drop function if exists public.ops_notices_push_trg();
+drop function if exists public.staff_push_notice_recipients_v1(uuid);
 drop function if exists public.staff_push_claim_v1(text);
 drop function if exists public.staff_push_inbox_recipients_v1();
 drop function if exists public.staff_push_unsubscribe_topic_v1(text, text);
