@@ -3,7 +3,7 @@
 -- every lookup is scoped to them, so the suite passes on a restored production copy. Grant-by-role facts that a --no-acl restore cannot show are asserted
 -- by calling as the role (the release's own revokes are real), the rest by the release's forward checks. Everything rolls back.
 begin;
-select plan(61);
+select plan(72);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -28,11 +28,12 @@ insert into public.properties(id, name, is_active) values ('d8400000-0000-4000-8
 insert into auth.users(id, email) values
   ('d8400000-0000-4000-8000-0000000000a1', 'zz-xs-cleaner@example.com'), ('d8400000-0000-4000-8000-0000000000a2', 'zz-xs-admin@example.com'),
   ('d8400000-0000-4000-8000-0000000000a3', 'zz-xs-owner@example.com'), ('d8400000-0000-4000-8000-0000000000a4', 'zz-xs-finance@example.com'),
-  ('d8400000-0000-4000-8000-0000000000a5', 'zz-xs-gone@example.com'), ('d8400000-0000-4000-8000-0000000000a6', 'zz-xs-ghost@example.com');
+  ('d8400000-0000-4000-8000-0000000000a5', 'zz-xs-gone@example.com'), ('d8400000-0000-4000-8000-0000000000a6', 'zz-xs-ghost@example.com'),
+  ('d8400000-0000-4000-8000-0000000000a7', 'zz-xs-outside@example.com');
 insert into public.staff_access_profiles(user_id, role, disabled_at) values
   ('d8400000-0000-4000-8000-0000000000a1', 'cleaner', null), ('d8400000-0000-4000-8000-0000000000a2', 'admin', null),
   ('d8400000-0000-4000-8000-0000000000a3', 'owner', null), ('d8400000-0000-4000-8000-0000000000a4', 'finance', null),
-  ('d8400000-0000-4000-8000-0000000000a5', 'admin', null);
+  ('d8400000-0000-4000-8000-0000000000a5', 'admin', null), ('d8400000-0000-4000-8000-0000000000a7', 'admin', null); -- a7: active, but has no access to the fixture property
 insert into public.staff_property_access(user_id, property_id) select u, 'd8400000-0000-4000-8000-0000000000f1'
   from unnest(array['d8400000-0000-4000-8000-0000000000a1', 'd8400000-0000-4000-8000-0000000000a2', 'd8400000-0000-4000-8000-0000000000a3',
                     'd8400000-0000-4000-8000-0000000000a4', 'd8400000-0000-4000-8000-0000000000a5']::uuid[]) u;
@@ -42,7 +43,7 @@ select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a2');
 insert into _t select 'old1', public.staff_push_subscribe_v1('https://fcm.googleapis.com/fcm/send/zz-xs-admin1', repeat('p', 87), repeat('a', 22), 'zz agent');
 reset role;
 select is((select v from _t where k = 'old1'), '{"ok": true}'::jsonb, 'no topics asked: the answer is exactly {ok:true}, as before');
-select is((select topics from public.staff_push_subscriptions where endpoint = 'https://fcm.googleapis.com/fcm/send/zz-xs-admin1'), array['paid'], 'and the phone listens for the paid notice only');
+select is((select topics from public.staff_push_subscriptions where endpoint = 'https://fcm.googleapis.com/fcm/send/zz-xs-admin1'), array['paid', 'notices'], 'and the phone listens for the paid notice and the notices (on by default)');
 select is((select count(*)::int from pg_proc where pronamespace = 'public'::regnamespace and proname = 'staff_push_subscribe_v1'), 1, 'there is one subscribe function, so a four-key RPC call is not ambiguous');
 
 -- =============================================================== 2. topics: merge, never remove
@@ -108,7 +109,7 @@ reset role;
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a3');
 insert into _t select 'moved_owner', public.staff_push_subscribe_v1('https://fcm.googleapis.com/fcm/send/zz-xs-admin2', repeat('r', 87), repeat('c', 22), null);
 reset role;
-select is((select topics from public.staff_push_subscriptions where endpoint = 'https://fcm.googleapis.com/fcm/send/zz-xs-admin2'), array['paid'], 'a topic-less call that moves a phone to someone else resets it to paid');
+select is((select topics from public.staff_push_subscriptions where endpoint = 'https://fcm.googleapis.com/fcm/send/zz-xs-admin2'), array['paid', 'notices'], 'a topic-less call that moves a phone to someone else resets it to the default (paid and notices)');
 
 -- =============================================================== 4. unsubscribe one topic
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a3');
@@ -153,6 +154,41 @@ select is((select array_agg(a.attname::text order by a.attnum) from pg_attribute
 select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a2');
 select throws_ok($$select * from public.staff_push_inbox_recipients_v1()$$, '42501', null, 'an admin session cannot read the recipients');
 reset role;
+
+-- =============================================================== 5b. notices: the topic for every active role, and who is told
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
+insert into _t select 'n_only', public.staff_push_subscribe_v1('https://fcm.googleapis.com/fcm/send/zz-xs-cleaner3', repeat('p', 87), repeat('a', 22), null, array['notices']);
+insert into _t select 'n_merge', public.staff_push_subscribe_v1('https://fcm.googleapis.com/fcm/send/zz-xs-cleaner3', repeat('p', 87), repeat('a', 22), null, array['paid']);
+insert into _t select 'n_off', public.staff_push_unsubscribe_topic_v1('https://fcm.googleapis.com/fcm/send/zz-xs-cleaner3', 'notices');
+reset role;
+select is((select v from _t where k = 'n_only'), '{"ok": true, "topics": ["notices"]}'::jsonb, 'a cleaner may hold the notices topic');
+select is((select v from _t where k = 'n_merge'), '{"ok": true, "topics": ["notices", "paid"]}'::jsonb, 'and asking for paid later keeps it');
+select is((select v from _t where k = 'n_off'), '{"ok": true, "topics": ["paid"]}'::jsonb, 'turning notices off leaves paid');
+
+insert into public.staff_push_subscriptions(user_id, endpoint, p256dh, auth, topics) values
+  ('d8400000-0000-4000-8000-0000000000a1', 'https://fcm.googleapis.com/fcm/send/zz-xs-n-cl', repeat('p', 87), repeat('a', 22), '{notices}'),
+  ('d8400000-0000-4000-8000-0000000000a4', 'https://fcm.googleapis.com/fcm/send/zz-xs-n-fin', repeat('p', 87), repeat('a', 22), '{notices}'),
+  ('d8400000-0000-4000-8000-0000000000a5', 'https://fcm.googleapis.com/fcm/send/zz-xs-n-gone', repeat('p', 87), repeat('a', 22), '{notices}'),
+  ('d8400000-0000-4000-8000-0000000000a7', 'https://fcm.googleapis.com/fcm/send/zz-xs-n-out', repeat('p', 87), repeat('a', 22), '{notices}'),
+  ('d8400000-0000-4000-8000-0000000000a2', 'https://fcm.googleapis.com/fcm/send/zz-xs-n-adm-paid', repeat('p', 87), repeat('a', 22), '{paid}');
+select pg_temp.as_service();
+create temp table _nrcpt as select * from public.staff_push_notice_recipients_v1('d8400000-0000-4000-8000-0000000000f1');
+reset role;
+grant select on _nrcpt to public;
+select is((select array_agg(endpoint order by endpoint) from _nrcpt where endpoint like '%zz-xs-%'),
+          array['https://fcm.googleapis.com/fcm/send/zz-xs-admin1', 'https://fcm.googleapis.com/fcm/send/zz-xs-admin2',
+                'https://fcm.googleapis.com/fcm/send/zz-xs-n-cl', 'https://fcm.googleapis.com/fcm/send/zz-xs-n-fin']::text[],
+          'notice recipients: every active staff phone of the property that holds notices (a default phone, a cleaner, a finance person), in any role');
+select is((select count(*)::int from _nrcpt where endpoint like '%zz-xs-n-gone'), 0, 'a disabled person is excluded');
+select is((select count(*)::int from _nrcpt where endpoint like '%zz-xs-n-out'), 0, 'an active person with no access to the property is excluded');
+select is((select count(*)::int from _nrcpt where endpoint like '%zz-xs-n-adm-paid' or endpoint like '%zz-xs-r-%' or endpoint like '%zz-xs-cleaner1'), 0, 'a phone that does not hold notices is excluded');
+select is((select array_agg(a.attname::text order by a.attnum) from pg_attribute a where a.attrelid = '_nrcpt'::regclass and a.attnum > 0 and not a.attisdropped),
+          array['id', 'endpoint', 'p256dh', 'auth'], 'the notice read returns the id and the keys, no user id or name');
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a2');
+select throws_ok($$select * from public.staff_push_notice_recipients_v1()$$, '42501', null, 'a staff session cannot read the notice recipients');
+reset role;
+select ok(exists (select 1 from pg_trigger where tgname = 'ops_notices_push' and tgrelid = 'public.ops_notices'::regclass and not tgisinternal), 'the brownout/water trigger is on ops_notices');
+select ok(not has_function_privilege('authenticated', 'public.ops_notices_push_trg()', 'execute') and not has_function_privilege('anon', 'public.ops_notices_push_trg()', 'execute'), 'and no API role can run its function');
 
 -- =============================================================== 6. claim: once per key
 select pg_temp.as_service();
