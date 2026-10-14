@@ -59,7 +59,6 @@ Deno.test('T: real-looking OPS chatter stays silent (null, so the older paths de
     // review F1 / F2: chatter that a loose fuzzy match turned into a card or a hint
     'Late notice po, hindi ako makakapunta bukas 8am', 'Nice water pressure today', 'Note later today 3pm-5pm meeting', 'Gate notice tomorrow 8am-5pm',
     'Meter notice from GSCWD tomorrow', 'Water note: tomorrow buy 2 gallons', 'Date notice', 'Paper notice', 'Voice water', 'Power nice', 'Nice water',
-    'Power notice', 'Water Notice!', 'power notice thanks po',
   ];
   for (const t of quiet) assertEquals(T_nearNotice(t, NOW), null, t);
   // the exact forms are the older route's and are not touched here
@@ -67,7 +66,8 @@ Deno.test('T: real-looking OPS chatter stays silent (null, so the older paths de
 });
 
 Deno.test('F2: a hint needs something read (a date or times) or the literal command words', () => {
-  assertEquals(T_nearNotice('Power notice', NOW), null);
+  for (const t of ['Power notice', 'Water Notice!', 'power notice thanks po']) assertEquals((T_nearNotice(t, NOW) as { kind: string }).kind, 'hint', t); // the literal command words get one hint
+  for (const t of ['Date notice', 'Paper notice', 'Power nice', 'Nice water']) assertEquals(T_nearNotice(t, NOW), null, t);
   assertEquals((T_nearNotice('water notice', NOW) as { kind: string }).kind, 'hint');
   assertEquals((T_nearNotice('brownout notice please', NOW) as { kind: string }).kind, 'hint');
 });
