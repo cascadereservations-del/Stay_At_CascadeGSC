@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s84/C-calendar",
-    "commit": "bdc77351071bd9c4aefaf3d61f6c6729bd53d8e8"
+    "commit": "11ef4c0cabbfda7a149d70fdb99fdf5d039b01a5"
   },
   "migrations": [
     "20261017010000_s84_calendar.sql"
   ],
   "migration_sha256": {
-    "20261017010000_s84_calendar.sql": "a60796527965341668a57a3aeb26c3ed4963255249807342575ff112981a151f"
+    "20261017010000_s84_calendar.sql": "c23536b065adcaa7f4a2ba14dd56e4fa380c1c21ec92f97d4ddf3dc4e28ac6a1"
   },
   "backup": {
     "required": true,
