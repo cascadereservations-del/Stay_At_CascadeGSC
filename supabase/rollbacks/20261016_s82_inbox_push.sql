@@ -8,7 +8,7 @@
 
 begin;
 
--- phones that listen only for the inbox go; the rest keep their paid notice
+-- phones without the paid topic (inbox-only or notices-only) go; the rest keep their paid notice
 delete from public.staff_push_subscriptions where not ('paid' = any(topics));
 
 drop trigger if exists ops_notices_push on public.ops_notices;
