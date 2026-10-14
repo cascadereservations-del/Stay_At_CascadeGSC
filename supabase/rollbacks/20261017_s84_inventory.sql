@@ -42,6 +42,38 @@ $$;
 revoke all on function public.get_inventory_catalogue_v1(uuid) from public, anon, service_role;
 grant execute on function public.get_inventory_catalogue_v1(uuid) to authenticated;
 
+-- record_inventory_receipt_v1 back to the live body (md5 7889f5755cfcbae237434feda42a19e4)
+create or replace function public.record_inventory_receipt_v1(p_item_id uuid, p_packs numeric, p_unit_cost numeric, p_supplier text, p_purchased_at date, p_receipt_path text, p_shopping_list_id uuid, p_idempotency_key text)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare i public.inventory_items%rowtype; v_units numeric; v_pid uuid; v_mid uuid; v_existing public.inventory_purchases%rowtype;
+begin
+  select * into i from public.inventory_items where id = p_item_id for update;
+  if not found then raise exception using errcode = 'P0002', message = 'item not found'; end if;
+  perform public.admin_require('manage_inventory', i.property_id);
+  if p_packs is null or p_packs <= 0 then raise exception using errcode = '22023', message = 'packs must be positive'; end if;
+  if p_idempotency_key is null or char_length(p_idempotency_key) not between 16 and 160 then raise exception using errcode = '22023', message = 'idempotency key required'; end if;
+  select * into v_existing from public.inventory_purchases p where p.notes like '%[key:' || p_idempotency_key || ']%' limit 1;
+  if found then return jsonb_build_object('ok', true, 'replayed', true, 'purchaseId', v_existing.id); end if;
+  -- Purchase packs convert to base units once, here (INV06).
+  v_units := round(p_packs * coalesce(i.units_per_purchase, 1), 2);
+  insert into public.inventory_purchases(item_id, purchased_at, qty, unit_cost, supplier, notes, receipt_path, purchase_unit, units_per_purchase)
+  values (p_item_id, coalesce(p_purchased_at, current_date), v_units, case when p_unit_cost is not null then round(p_unit_cost / coalesce(nullif(i.units_per_purchase, 0), 1), 4) end, p_supplier, 'Admin receipt [key:' || p_idempotency_key || ']', p_receipt_path, i.purchase_unit, coalesce(i.units_per_purchase, 1)::integer)
+  returning id into v_pid;
+  if i.movement_controlled_at is not null then
+    v_mid := public.inventory_apply_event_v1(p_item_id, 'receipt', v_units, 'Receipt of ' || p_packs::text || ' ' || coalesce(i.purchase_unit, 'pack') || coalesce(' from ' || p_supplier, ''), 'inventory_purchases', v_pid::text);
+  else
+    update public.inventory_items set qty_on_hand = coalesce(qty_on_hand, 0) + v_units, unit_cost = coalesce(case when p_unit_cost is not null then round(p_unit_cost / coalesce(nullif(units_per_purchase, 0), 1), 2) end, unit_cost) where id = p_item_id;
+  end if;
+  if p_shopping_list_id is not null then
+    update public.inventory_shopping_list set status = 'received', received_by = auth.uid(), received_at = now(), received_quantity = v_units, unit_cost = p_unit_cost, supplier = p_supplier, movement_id = v_mid, purchase_id = v_pid, version = version + 1, updated_at = now()
+    where id = p_shopping_list_id and property_id = i.property_id and status = 'approved';
+  end if;
+  return jsonb_build_object('ok', true, 'purchaseId', v_pid, 'movementId', v_mid, 'unitsAdded', v_units, 'controlled', i.movement_controlled_at is not null);
+end;
+$$;
+revoke all on function public.record_inventory_receipt_v1(uuid, numeric, numeric, text, date, text, uuid, text) from public, anon, service_role;
+grant execute on function public.record_inventory_receipt_v1(uuid, numeric, numeric, text, date, text, uuid, text) to authenticated;
+
 drop trigger if exists s_inventory_low_task on public.inventory_items;
 drop function if exists public.s_inventory_low_task_v1();
 drop function if exists public.inventory_item_history_v1(uuid);

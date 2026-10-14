@@ -3,7 +3,7 @@
 -- The md5 guard at the head of the migration cannot run inside pgTAP; the rehearsal proves it by applying the migration to a database whose
 -- get_inventory_catalogue_v1 body was changed first (expect SQLSTATE 55000 and nothing changed).
 begin;
-select plan(112);
+select plan(119);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -405,6 +405,27 @@ select ok(not (has_function_privilege('authenticated', 'public.s_inventory_low_t
   and (select bool_and(prosecdef and proconfig @> array['search_path=""']) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('inventory_undo_v1', 'inventory_item_history_v1', 's_inventory_low_task_v1')),
   'the trigger function has no grant to anyone; all three are definer with an empty search_path');
 select ok(exists (select 1 from pg_trigger where tgrelid = 'public.inventory_items'::regclass and tgname = 's_inventory_low_task' and not tgisinternal and (tgtype & 1) = 0), 'the trigger is a statement-level trigger on inventory_items');
+
+-- =============================================================================================================================================
+-- Part 12: record_inventory_receipt_v1 refuses a shopping row that is no longer approved
+-- =============================================================================================================================================
+insert into public.inventory_shopping_list(id, property_id, item_id, item_name, quantity, status, idempotency_key) values
+  ('d8400000-0000-4000-8000-0000000000e3', 'd8400000-0000-4000-8000-0000000000b0', (select (v->>'item_id')::uuid from _t where k = 'ub'), 'Zz84 Undo B', 1, 'approved', 'zz84-shop-key-000003'),
+  ('d8400000-0000-4000-8000-0000000000e4', 'd8400000-0000-4000-8000-0000000000b0', (select (v->>'item_id')::uuid from _t where k = 'ub'), 'Zz84 Undo B', 1, 'cancelled', 'zz84-shop-key-000004');
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'q1', pg_temp.try(format($q$select public.record_inventory_receipt_v1(%L, 1, null, null, null, null, 'd8400000-0000-4000-8000-0000000000e3', 'zz84-recv-key-000011')$q$, (select v->>'item_id' from _t where k = 'ub')));
+insert into _t select 'q2', pg_temp.try(format($q$select public.record_inventory_receipt_v1(%L, 1, null, null, null, null, 'd8400000-0000-4000-8000-0000000000e3', 'zz84-recv-key-000011')$q$, (select v->>'item_id' from _t where k = 'ub')));
+insert into _t select 'q3', pg_temp.try(format($q$select public.record_inventory_receipt_v1(%L, 1, null, null, null, null, 'd8400000-0000-4000-8000-0000000000e3', 'zz84-recv-key-000012')$q$, (select v->>'item_id' from _t where k = 'ub')));
+insert into _t select 'q4', pg_temp.try(format($q$select public.record_inventory_receipt_v1(%L, 1, null, null, null, null, 'd8400000-0000-4000-8000-0000000000e4', 'zz84-recv-key-000013')$q$, (select v->>'item_id' from _t where k = 'ub')));
+insert into _t select 'q5', pg_temp.try(format($q$select public.record_inventory_receipt_v1(%L, 1, null, null, null, null, 'd8400000-0000-4000-8000-0000000000ee', 'zz84-recv-key-000014')$q$, (select v->>'item_id' from _t where k = 'ub')));
+reset role;
+select ok((select v->>'ok' = 'true' and v ? 'purchaseId' from _t where k = 'q1'), 'receipt: the first receipt on an approved shopping row is accepted');
+select ok((select v->>'replayed' = 'true' and v->>'purchaseId' = (select v->>'purchaseId' from _t where k = 'q1') from _t where k = 'q2'), 'receipt: the same idempotency key still replays the original result');
+select is((select v from _t where k = 'q3'), '{"ok": false, "reason": "already_received"}'::jsonb, 'receipt: a second receipt on the same row is refused');
+select is((select v->>'reason' from _t where k = 'q4'), 'not_open', 'receipt: a cancelled row is refused (not_open)');
+select is((select v->>'reason' from _t where k = 'q5'), 'not_open', 'receipt: a shopping row that does not exist is refused (not_open)');
+select is((select qty_on_hand from public.inventory_items where id = (select (v->>'item_id')::uuid from _t where k = 'ub')), 6.00, 'receipt: only the first receipt added stock (1 pack of 6)');
+select is((select count(*)::int from public.inventory_purchases where notes like '%zz84-recv-key-00001%' and item_id = (select (v->>'item_id')::uuid from _t where k = 'ub')), 1, 'and only one purchase row was written');
 
 select * from finish();
 rollback;
