@@ -170,11 +170,13 @@ Deno.test('reads over the hourly cap are refused before any model call; an unrea
 });
 
 Deno.test('no manage_operations on the stay property is 403 for every action', async () => {
-  for (const action of ['context', 'extract', 'save']) {
-    const { deps, rec } = fake({}, { canManage: () => Promise.resolve(false) });
-    const res = await handle(post({ action, uid: 'u', text: 'hi', phone: '09171234567' }), deps);
-    assertEquals(res.status, 403, action);
-    assertEquals(rec.reads + rec.profile.length, 0);
+  for (const action of ['context', 'extract', 'save', 'replace_id', 'remove_id']) {
+    for (const who of [{ uid: 'u' }, { guest_id: '0a1b2c3d-0000-4000-8000-000000000001' }]) {
+      const { deps, rec } = fake({}, { canManage: () => Promise.resolve(false) });
+      const res = await handle(post({ action, ...who, text: 'hi', phone: '09171234567', companion_id: '0a1b2c3d-0000-4000-8000-0000000000c1', image: IMG }), deps);
+      assertEquals(res.status, 403, action);
+      assertEquals(rec.reads + rec.profile.length + rec.companions.length + rec.uploads.length, 0);
+    }
   }
 });
 
@@ -274,4 +276,18 @@ Deno.test('G: remove_id clears the path only; a stranger companion id is 404; a 
   const none = fake({}, {}, { ...GUEST2, companions: [{ id: CID, name: 'Ben', hasPhoto: false }] });
   assertEquals((await handle(post({ action: 'remove_id', guest_id: GID, companion_id: CID }), none.deps)).status, 200);
   assertEquals(none.rec.companions.length, 0);
+});
+
+Deno.test('G: remove_id clears id_on_file only when no photo and no Drive document is left', async () => {
+  const one = { ...GUEST2, idOnFile: true, idDriveUrl: null, companions: [{ id: CID, name: 'Ben Cruz', hasPhoto: true }] };
+  const a = fake({}, {}, one);
+  const j = await (await handle(post({ action: 'remove_id', guest_id: GID, companion_id: CID }), a.deps)).json();
+  assertEquals(a.rec.profile, [[{ id_on_file: false }, 3]]);
+  assertEquals(j.saved.map((s: { what: string }) => s.what), ['id_photo_removed', 'profile']);
+  const two = fake({}, {}, { ...one, companions: [...one.companions, { id: 'c2', name: 'Ana', hasPhoto: true }] });
+  await handle(post({ action: 'remove_id', guest_id: GID, companion_id: CID }), two.deps);
+  assertEquals(two.rec.profile.length, 0); // another photo still stands for the ID
+  const drive = fake({}, {}, { ...one, idDriveUrl: 'https://drive.google.com/file/d/abc/view' });
+  await handle(post({ action: 'remove_id', guest_id: GID, companion_id: CID }), drive.deps);
+  assertEquals(drive.rec.profile.length, 0); // a Drive document still stands for the ID
 });

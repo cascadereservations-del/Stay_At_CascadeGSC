@@ -124,7 +124,7 @@ export type OnFile = {
   guestId: string; name: string; email: string | null; phone: string | null; idOnFile: boolean; idType: string | null;
   version: number | null; companions: Array<{ id: string; name: string; hasPhoto: boolean; idType?: string | null }>;
   // s82 G, all optional (an older loader leaves them out): what is on file, so a proposal never repeats it.
-  stayPreferences?: string | null; tags?: string[]; birthday?: string | null;
+  stayPreferences?: string | null; tags?: string[]; birthday?: string | null; idDriveUrl?: string | null;
 };
 export type Stay = { uid: string; propertyId: string; guestId: string | null; guestName: string | null; checkin: string; checkout: string; source: string | null };
 export type Proposal = {
@@ -412,7 +412,14 @@ async function photo(action: 'replace_id' | 'remove_id', body: any, g: OnFile, o
     const r = await ops.saveCompanion(g.guestId, comp.id, { id_photo_path: null }, reason);
     const e = err(r);
     deps.log(JSON.stringify({ fn: 'staff_guest_details', action, ok: !e }));
-    return e ? json({ ok: false, saved: [{ what: 'id_photo_removed', ok: false, reason: e }] }, 207) : json({ ok: true, saved: [{ what: 'id_photo_removed', ok: true }] });
+    if (e) return json({ ok: false, saved: [{ what: 'id_photo_removed', ok: false, reason: e }] }, 207);
+    const out: Saved[] = [{ what: 'id_photo_removed', ok: true }];
+    // The flag stays true while another photo or a Drive document still stands for the ID; it clears only when nothing is left (via the same RPC).
+    if (g.idOnFile && !g.idDriveUrl && !g.companions.some((c) => c.id !== comp.id && c.hasPhoto)) {
+      const r = await ops.saveProfile(g.guestId, { id_on_file: false }, g.version, reason);
+      out.push({ what: 'profile', ok: !err(r), ...(err(r) ? { reason: err(r)! } : {}) });
+    }
+    return json({ ok: out.every((x) => x.ok), saved: out }, out.every((x) => x.ok) ? 200 : 207);
   }
   const d = decodeImage(body.image);
   if (typeof d === 'string') return fail(d, d === 'image_too_large' ? 413 : 400);

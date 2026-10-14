@@ -31,12 +31,12 @@ function realDeps(): Deps | null {
           async loadGuest(guestId): Promise<OnFile | null> {
             const [g, d, c] = await Promise.all([
               me.from('guests').select('id, name, email').eq('id', guestId).maybeSingle(),
-              me.from('guest_profile_details').select('contact_number, id_on_file, id_type, version, stay_preferences, tags, birthday').eq('guest_id', guestId).maybeSingle(),
+              me.from('guest_profile_details').select('contact_number, id_on_file, id_type, version, stay_preferences, tags, birthday, id_drive_url').eq('guest_id', guestId).maybeSingle(),
               me.from('guest_companions').select('id, name, id_photo_path, id_type').eq('guest_id', guestId).order('created_at'),
             ]);
             if (g.error || !g.data || d.error || c.error) return null;
             return {
-              guestId, name: g.data.name, email: g.data.email ?? null, phone: d.data?.contact_number ?? null, idOnFile: !!d.data?.id_on_file,
+              guestId, name: g.data.name, email: g.data.email ?? null, phone: d.data?.contact_number ?? null, idOnFile: !!d.data?.id_on_file, idDriveUrl: d.data?.id_drive_url ?? null,
               idType: d.data?.id_type ?? null, version: d.data?.version ?? null,
               companions: (c.data ?? []).map((x) => ({ id: x.id, name: x.name, hasPhoto: !!x.id_photo_path, idType: x.id_type ?? null })),
               stayPreferences: d.data?.stay_preferences ?? null, tags: d.data?.tags ?? [], birthday: d.data?.birthday ?? null,
