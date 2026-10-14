@@ -13,6 +13,12 @@
 --    The SQL body of admin_stays_v1 is kept byte-for-byte (live md5 e2f41dcc6de28ba1ebe23b4534b6443d, CR stripped, read 2026-10-14, equal to
 --    the body in 20260913100000_admin_read_models_v1.sql); it is wrapped as a subselect behind a one-row gate. Signature, return
 --    columns, language, security mode, search_path and grants are unchanged.
+-- 3. staff_pay_admin_step_v1 (live md5 ee76bfac5542808058969b731940f343 = the body in 20261014010000_s81_staff_pay_push.sql, the only migration
+--    that defines it): it refused 'not_sent' on a payment another admin is making but not 'cancel', so an admin on a stale screen could cancel
+--    a request a second admin had taken over and was paying. One new guard beside the not_sent one: cancel on a paying row whose payer is not
+--    the caller returns {ok:false, reason:'not_yours'}. Everything else is the live body byte-for-byte. Signature, return type, security mode,
+--    search_path and grants unchanged. Cancelling your own payment, or a request that is only 'requested', works as before.
+--    Note: a row Telegram started (paying_by_user_id null) is now also 'not_yours' for a cancel from the app; cancel it from Telegram or take it over first.
 -- 2. New read RPC staff_calendar_history_v1(p_from, p_to, p_property_id): owner/admin only, past (and any) stays overlapping the range,
 --    from the same set, with source, id, dates, nights, status and the guest FIRST NAME only. No contact, no money.
 begin;
@@ -21,6 +27,9 @@ do $stop$
 begin
   if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_stays_v1(uuid)'::regprocedure) <> 'e2f41dcc6de28ba1ebe23b4534b6443d' then
     raise exception 'STOP: public.admin_stays_v1 changed in production since s84 lane C was written (md5 e2f41dcc6de28ba1ebe23b4534b6443d); re-read production and re-vendor before applying';
+  end if;
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_pay_admin_step_v1(uuid,text)'::regprocedure) <> 'ee76bfac5542808058969b731940f343' then
+    raise exception 'STOP: public.staff_pay_admin_step_v1 changed in production since s84 lane C was written (md5 ee76bfac5542808058969b731940f343); re-read production and re-vendor before applying';
   end if;
 end;
 $stop$;
@@ -127,5 +136,59 @@ end;
 $$;
 revoke all on function public.staff_calendar_history_v1(date, date, uuid) from public, anon, service_role;
 grant execute on function public.staff_calendar_history_v1(date, date, uuid) to authenticated;
+
+create or replace function public.staff_pay_admin_step_v1(p_request_id uuid, p_step text) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  c_prop constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
+  v_uid uuid := auth.uid();
+  v_name text; v_r public.staff_pay_requests%rowtype; v_res jsonb;
+begin
+  if v_uid is null or not public.current_staff_authorized('approve_payment', c_prop) then
+    return jsonb_build_object('ok', false, 'reason', 'not_authorized');
+  end if;
+  if p_step not in ('pay', 'sent', 'takeover', 'not_sent', 'cancel') then return jsonb_build_object('ok', false, 'reason', 'bad_step'); end if;
+  select * into v_r from public.staff_pay_requests where id = p_request_id and property_id = c_prop for update;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
+  select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''),
+                  initcap(replace(split_part(coalesce(u.email, ''), '@', 1), '.', ' ')), 'Finance')
+    into v_name from auth.users u where u.id = v_uid;
+  v_name := left(coalesce(v_name, 'Finance'), 30);
+
+  if p_step = 'pay' and v_r.status = 'paying' and v_r.paying_by_user_id = v_uid then -- opening my own payment again
+    return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid);
+  end if;
+  if p_step = 'sent' then -- the payer has scanned, copied or saved: from now on a take-over or a Telegram cancel is refused (money_may_be_sent)
+    if v_r.status <> 'paying' then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
+    if v_r.paying_by_user_id is distinct from v_uid then return jsonb_build_object('ok', false, 'reason', 'not_yours', 'status', v_r.status, 'ref', v_r.ref, 'paying_by_name', v_r.paying_by_name); end if;
+    update public.staff_pay_requests set sent_said_at = coalesce(sent_said_at, now()) where id = v_r.id;
+    return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid, 'sent', true);
+  end if;
+  if p_step = 'takeover' then -- "I am paying it instead": only while nobody has said the money was sent
+    if v_r.status <> 'paying' then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
+    if v_r.paying_by_user_id = v_uid then return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid); end if;
+    if v_r.sent_said_at is not null or v_r.proof_file_unique_id is not null then
+      return jsonb_build_object('ok', false, 'reason', 'money_may_be_sent', 'status', v_r.status, 'ref', v_r.ref);
+    end if;
+    perform set_config('cascade.audit_reason', 'staff pay ' || v_r.ref || ' taken over from ' || coalesce(v_r.paying_by_name, 'Telegram') || ' by ' || v_name, true);
+    update public.staff_pay_requests set paying_by_user_id = v_uid, paying_by_tg = null, paying_by_name = v_name, paying_at = now() where id = v_r.id;
+    return jsonb_build_object('ok', true, 'status', 'paying', 'ref', v_r.ref, 'total', v_r.total_amount, 'paying_by_user_id', v_uid, 'took_over_from', v_r.paying_by_name);
+  end if;
+  if p_step = 'not_sent' and v_r.status = 'paying' and v_r.paying_by_user_id is distinct from v_uid then -- unpay is for my own paying state only
+    return jsonb_build_object('ok', false, 'reason', 'not_yours', 'status', v_r.status, 'ref', v_r.ref, 'paying_by_name', v_r.paying_by_name);
+  end if;
+  if p_step = 'cancel' and v_r.status = 'paying' and v_r.paying_by_user_id is distinct from v_uid then -- s84: cancel is for my own paying state only (a stale screen must not cancel someone else's payment)
+    return jsonb_build_object('ok', false, 'reason', 'not_yours', 'status', v_r.status, 'ref', v_r.ref, 'paying_by_name', v_r.paying_by_name);
+  end if;
+
+  v_res := public.telegram_staff_pay_step_v1(p_request_id, p_step, null, v_name, null);
+  if coalesce((v_res ->> 'ok')::boolean, false) then
+    if p_step = 'pay' then update public.staff_pay_requests set paying_by_user_id = v_uid where id = v_r.id; v_res := v_res || jsonb_build_object('paying_by_user_id', v_uid);
+    else update public.staff_pay_requests set paying_by_user_id = null where id = v_r.id; end if;
+  end if;
+  return v_res;
+end $$;
+revoke all on function public.staff_pay_admin_step_v1(uuid, text) from public, anon, service_role;
+grant execute on function public.staff_pay_admin_step_v1(uuid, text) to authenticated;
 
 commit;
