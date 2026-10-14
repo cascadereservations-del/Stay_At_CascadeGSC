@@ -9,6 +9,8 @@
 --   3. Codes     inventory_item_codes (RLS on, no client grants): one code maps to one item, one item may have many codes. No direct client access.
 --   4. Catalogue get_inventory_catalogue_v1 = the live body plus two keys per item: par and codes. Codes are not sensitive and go to every
 --                read_operations role. unitCost rule unchanged. Guarded by the md5 of the live body.
+--   4b. Phase 1b  the catalogue also carries `countedAt` (latest app count or Telegram count, null if never). See section 4 below for
+--                inventory_undo_v1, inventory_item_history_v1 and the weekly low-stock task trigger.
 --   5. RPCs      inventory_code_attach_v1, inventory_code_detach_v1, inventory_item_create_v1, inventory_item_update_v1 (manage_inventory) and
 --                inventory_item_price_set_v1 (read_finance: owner, admin, finance). Quantity changes stay on reconcile_inventory_baseline_v1 (Count it).
 -- SINGLE SHOT: the guard compares the live catalogue body with the body this release was cut from, so a second run stops on its own md5 guard by design.
@@ -93,7 +95,11 @@ begin
     'estCoverageDays', case when i.consumption_per_booking is not null and i.consumption_per_booking * v_turnover_rate > 0 then round(i.qty_on_hand / (i.consumption_per_booking * v_turnover_rate), 1) end,
     'attention', (i.reorder_below is not null and i.qty_on_hand <= i.reorder_below) or lower(coalesce(i.status, 'good')) not in ('good','ok') or not i.is_active,
     'par', i.par_qty,
-    'codes', coalesce((select jsonb_agg(c.code order by c.created_at, c.code) from public.inventory_item_codes c where c.item_id = i.id), '[]'::jsonb)
+    'codes', coalesce((select jsonb_agg(c.code order by c.created_at, c.code) from public.inventory_item_codes c where c.item_id = i.id), '[]'::jsonb),
+    'countedAt', (select max(t.at) from (
+        select max(m.created_at) as at from public.inventory_stock_movements m where m.item_id = i.id and m.kind = 'reconcile'
+        union all
+        select max(a.created_at) from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = i.id and a.action = 'telegram_count') t)
   ) order by i.sort_order, i.name), '[]'::jsonb) into v_items
   from public.inventory_items i
   left join lateral (
@@ -312,5 +318,181 @@ grant execute on function public.inventory_code_detach_v1(uuid, text) to authent
 grant execute on function public.inventory_item_create_v1(uuid, jsonb, text, text, text) to authenticated;
 grant execute on function public.inventory_item_update_v1(uuid, jsonb) to authenticated;
 grant execute on function public.inventory_item_price_set_v1(uuid, numeric) to authenticated;
+
+-- 4. Phase 1b: undo, item history, and the weekly low-stock task ------------------------------------------------------------------------------
+
+-- Undo of a count or an app receipt, by the person who made it, within 15 minutes, only while it is still the item's latest change.
+-- The ledger stays append-only: a count / receipt is reversed by a new 'adjustment' movement keyed stk-undo-<movement id> (a repeat replays).
+-- A receipt undo also deletes that one app-made inventory_purchases row (never a Telegram OCR row) and reopens its shopping-list row.
+-- Refusals come back as {ok:false, reason}: not_found | not_undoable | not_yours | too_late | stock_moved.
+create or replace function public.inventory_undo_v1(p_movement_id uuid default null, p_purchase_id uuid default null)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  m public.inventory_stock_movements%rowtype; m2 public.inventory_stock_movements%rowtype;
+  pu public.inventory_purchases%rowtype; i public.inventory_items%rowtype;
+  v_item uuid; v_key text; v_ekey text; v_have_m boolean := false; v_have_p boolean := false;
+  v_sh_found boolean; v_sh_by uuid; v_after numeric;
+begin
+  if p_movement_id is null and p_purchase_id is null then raise exception using errcode = '22023', message = 'nothing to undo'; end if;
+  if p_movement_id is not null then
+    select * into m from public.inventory_stock_movements where id = p_movement_id;
+    if not found then raise exception using errcode = 'P0002', message = 'movement not found'; end if;
+    v_have_m := true; v_item := m.item_id;
+  end if;
+  if p_purchase_id is not null then
+    select * into pu from public.inventory_purchases where id = p_purchase_id;
+    v_have_p := found;
+    if v_have_p then
+      if v_have_m and pu.item_id is distinct from v_item then raise exception using errcode = '22023', message = 'movement and purchase are for different items'; end if;
+      v_item := pu.item_id;
+    end if;
+  end if;
+  if v_item is null then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
+  select * into i from public.inventory_items where id = v_item for update;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
+  perform public.admin_require('manage_inventory', i.property_id);
+
+  -- a repeat of an undo that already happened is answered, not applied twice
+  if v_have_m then
+    v_key := 'stk-undo-' || replace(m.id::text, '-', '');
+    if exists (select 1 from public.inventory_stock_movements x where x.item_id = m.item_id and x.idempotency_key = v_key) then
+      return jsonb_build_object('ok', true, 'replayed', true, 'item_id', i.id, 'qty', i.qty_on_hand);
+    end if;
+  end if;
+  if p_purchase_id is not null and not v_have_p then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
+
+  if v_have_p then
+    if pu.notes is null or pu.notes not like 'Admin receipt [key:%' then return jsonb_build_object('ok', false, 'reason', 'not_undoable'); end if;
+    if pu.created_at <= now() - interval '15 minutes' then return jsonb_build_object('ok', false, 'reason', 'too_late'); end if;
+    select s.received_by into v_sh_by from public.inventory_shopping_list s where s.purchase_id = pu.id limit 1;
+    v_sh_found := found;
+    if v_sh_found and v_sh_by is distinct from auth.uid() then return jsonb_build_object('ok', false, 'reason', 'not_yours'); end if;
+    -- the receipt movement of a controlled item is found by the key inventory_apply_event_v1 gave it
+    v_ekey := left('evt-' || encode(extensions.digest('inventory_purchases|' || pu.id::text || '|' || pu.item_id::text || '|receipt', 'sha256'), 'hex'), 80);
+    select * into m2 from public.inventory_stock_movements x where x.item_id = pu.item_id and x.idempotency_key = v_ekey;
+    if found then
+      if v_have_m and m.id <> m2.id then raise exception using errcode = '22023', message = 'movement does not belong to this purchase'; end if;
+      m := m2; v_have_m := true; v_key := 'stk-undo-' || replace(m.id::text, '-', '');
+    elsif v_have_m then
+      raise exception using errcode = '22023', message = 'movement does not belong to this purchase';
+    elsif i.movement_controlled_at is not null then
+      return jsonb_build_object('ok', false, 'reason', 'not_undoable');
+    end if;
+  end if;
+
+  if v_have_m then
+    if m.kind not in ('reconcile', 'receipt') then return jsonb_build_object('ok', false, 'reason', 'not_undoable'); end if;
+    if m.actor_user_id is distinct from auth.uid() then return jsonb_build_object('ok', false, 'reason', 'not_yours'); end if;
+    if m.created_at <= now() - interval '15 minutes' then return jsonb_build_object('ok', false, 'reason', 'too_late'); end if;
+    if i.qty_on_hand is distinct from m.quantity_after
+       or exists (select 1 from public.inventory_stock_movements x where x.item_id = m.item_id and x.sequence_no > m.sequence_no) then
+      return jsonb_build_object('ok', false, 'reason', 'stock_moved');
+    end if;
+    perform public.record_inventory_movement(i.id, 'adjustment', m.quantity_before - m.quantity_after,
+      'Undo in the staff app of ' || m.kind || ' ' || m.sequence_no::text, v_key);
+  else
+    -- an app receipt on an item that is not movement-controlled changed qty_on_hand directly
+    if i.updated_at > pu.created_at + interval '5 seconds' or i.qty_on_hand < pu.qty then
+      return jsonb_build_object('ok', false, 'reason', 'stock_moved');
+    end if;
+    update public.inventory_items set qty_on_hand = qty_on_hand - pu.qty where id = i.id;
+  end if;
+
+  if v_have_p then
+    update public.inventory_shopping_list set status = 'approved', received_by = null, received_at = null, received_quantity = null,
+      unit_cost = null, supplier = null, movement_id = null, purchase_id = null, version = version + 1, updated_at = now()
+    where purchase_id = pu.id;
+    delete from public.inventory_purchases where id = pu.id;
+  end if;
+  select it.qty_on_hand into v_after from public.inventory_items it where it.id = i.id;
+  return jsonb_build_object('ok', true, 'item_id', i.id, 'qty', v_after);
+end;
+$$;
+
+-- What happened to one item: use per clean, the last 10 changes (first names only), and the last purchase. unit_cost only for finance sessions.
+create or replace function public.inventory_item_history_v1(p_item_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare v_prop uuid; v_fin boolean; v_c30 integer; v_c14 integer; v_used numeric; v_changes jsonb; v_last jsonb;
+begin
+  select i.property_id into v_prop from public.inventory_items i where i.id = p_item_id;
+  if not found then raise exception using errcode = 'P0002', message = 'item not found'; end if;
+  perform public.admin_require('read_operations', v_prop);
+  v_fin := public.finance_human_authorized(v_prop);
+  select count(*)::integer, (count(*) filter (where cs.cleaned_at >= now() - interval '14 days'))::integer into v_c30, v_c14
+  from public.cleaning_sessions cs
+  where cs.property_id = v_prop and cs.cleaning_type in ('turnover', 'deep_clean') and cs.cleaned_at >= now() - interval '30 days';
+  select coalesce(sum(u.used_qty), 0) into v_used from public.inventory_usage u where u.item_id = p_item_id and u.session_date >= public.manila_today() - 30;
+  select coalesce(jsonb_agg(jsonb_build_object('at', x.ts, 'kind', x.kind, 'before', x.qb, 'after', x.qa, 'who', x.who) order by x.ts desc), '[]'::jsonb) into v_changes
+  from (
+    select * from (
+      select m.created_at as ts,
+             case when m.kind = 'adjustment' and m.reason like 'Undo in the staff app%' then 'undo' when m.kind = 'reconcile' then 'counted'
+                  when m.kind = 'receipt' then 'received' when m.kind = 'usage' then 'used' else 'adjusted' end as kind,
+             m.quantity_before as qb, m.quantity_after as qa,
+             (select public.staff_redact_v1(split_part(btrim(coalesce(nullif(btrim(au.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(au.raw_user_meta_data ->> 'display_name'), ''),
+                       initcap(replace(split_part(coalesce(au.email, ''), '@', 1), '.', ' ')))), ' ', 1)) from auth.users au where au.id = m.actor_user_id) as who
+      from public.inventory_stock_movements m where m.item_id = p_item_id
+      union all
+      select a.created_at, 'telegram_count', (a.before ->> 'qty_on_hand')::numeric, (a.after ->> 'qty_on_hand')::numeric, null::text
+      from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = p_item_id and a.action = 'telegram_count'
+    ) u order by u.ts desc limit 10
+  ) x;
+  select jsonb_build_object('at', p.purchased_at, 'qty', p.qty) || case when v_fin then jsonb_build_object('unit_cost', p.unit_cost) else '{}'::jsonb end into v_last
+  from public.inventory_purchases p where p.item_id = p_item_id order by p.purchased_at desc, p.created_at desc limit 1;
+  return jsonb_build_object('ok', true,
+    'usage', jsonb_build_object('cleans_30d', v_c30, 'used_30d', v_used, 'per_clean', case when v_c30 > 0 then round(v_used / v_c30, 2) end, 'cleans_14d', v_c14),
+    'changes', v_changes, 'last_bought', v_last);
+end;
+$$;
+
+revoke all on function public.inventory_undo_v1(uuid, uuid) from public, anon, service_role;
+revoke all on function public.inventory_item_history_v1(uuid) from public, anon, service_role;
+grant execute on function public.inventory_undo_v1(uuid, uuid) to authenticated;
+grant execute on function public.inventory_item_history_v1(uuid) to authenticated;
+
+-- Low stock becomes ONE task per property per ISO week (D-218): opened through system_task_open_v1 (keyed system:low_stock:<week>), refreshed while
+-- open, reopened if this trigger closed it earlier in the same week, closed by this trigger when nothing is low, and an earlier week's open task is
+-- closed when this week's opens. Unassigned, no Telegram, no push. Statement-level, so a bulk checklist submission runs it once. A task problem
+-- must never block a count, a receipt or a checklist: any error becomes a WARNING and the work of this function (only) is rolled back.
+create or replace function public.s_inventory_low_task_v1()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare r record; v_week text := to_char(timezone('Asia/Manila', now()), 'IYYY-"W"IW'); v_id uuid; v_title text; v_detail text;
+begin
+  begin
+    for r in
+      select i.property_id, count(*)::integer as n, (array_agg(i.name order by i.qty_on_hand - i.reorder_below, i.name))[1:8] as names
+      from public.inventory_items i
+      where i.is_active and i.reorder_below is not null and i.qty_on_hand <= i.reorder_below
+      group by i.property_id
+    loop
+      v_title := 'Restock: ' || r.n::text || case when r.n = 1 then ' item is low' else ' items are low' end;
+      v_detail := 'Open Inventory and choose Low first, or send the order list from there. ' || public.staff_redact_v1(array_to_string(r.names, ', '));
+      v_id := public.system_task_open_v1(r.property_id, 'low_stock', v_week, v_title, v_detail, 'normal');
+      update public.follow_up_tasks t
+         set status = 'open', completed_at = null, completion_note = null, updated_at = now()
+       where t.id = v_id and t.status = 'done' and t.completion_note like 'Closed automatically%';
+      update public.follow_up_tasks t set title = v_title, detail = v_detail, updated_at = now()
+       where t.id = v_id and t.status in ('open', 'in_progress') and (t.title is distinct from v_title or t.detail is distinct from v_detail);
+      update public.follow_up_tasks t
+         set status = 'done', completed_at = now(), completion_note = 'Closed automatically: this week''s list replaces it.', updated_at = now()
+       where t.property_id = r.property_id and t.source_kind = 'low_stock' and t.idempotency_key like 'system:low_stock:%'
+         and t.status in ('open', 'in_progress') and t.source_ref <> v_week;
+    end loop;
+    update public.follow_up_tasks t
+       set status = 'done', completed_at = now(), completion_note = 'Closed automatically: nothing is low now.', updated_at = now()
+     where t.source_kind = 'low_stock' and t.idempotency_key like 'system:low_stock:%' and t.status in ('open', 'in_progress')
+       and not exists (select 1 from public.inventory_items i where i.property_id = t.property_id and i.is_active and i.reorder_below is not null and i.qty_on_hand <= i.reorder_below);
+  exception when others then
+    raise warning 's_inventory_low_task_v1: % (%)', sqlerrm, sqlstate;
+  end;
+  return null;
+end;
+$$;
+revoke all on function public.s_inventory_low_task_v1() from public, anon, authenticated, service_role;
+comment on function public.s_inventory_low_task_v1() is 'S84 Q6 (D-218): keeps ONE Follow-ups task per property per ISO week for low stock; warning-only on failure.';
+
+create trigger s_inventory_low_task
+  after insert or update of qty_on_hand, reorder_below, is_active on public.inventory_items
+  for each statement execute function public.s_inventory_low_task_v1();
 
 commit;

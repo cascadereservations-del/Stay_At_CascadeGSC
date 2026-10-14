@@ -2,7 +2,8 @@
 -- RPCs, the inventory_item_codes table and inventory_items.par_qty, gives authenticated its table-wide SELECT back (so unit_cost is readable again, as
 -- before this release) and puts the table back in the supabase_realtime publication.
 -- DATA LOSS (by design): every barcode link and every par_qty value. Items created through inventory_item_create_v1 stay (normal inventory rows).
--- Prices set through inventory_item_price_set_v1 stay (they are unit_cost values).
+-- Prices set through inventory_item_price_set_v1 stay (they are unit_cost values). Phase 1b: the 'adjustment' movements an undo wrote stay (the ledger is
+-- append-only); open or closed low_stock follow-up tasks stay as history; the catalogue loses `countedAt`.
 -- Apply with run-sql-on-host.sh.
 
 begin;
@@ -41,6 +42,10 @@ $$;
 revoke all on function public.get_inventory_catalogue_v1(uuid) from public, anon, service_role;
 grant execute on function public.get_inventory_catalogue_v1(uuid) to authenticated;
 
+drop trigger if exists s_inventory_low_task on public.inventory_items;
+drop function if exists public.s_inventory_low_task_v1();
+drop function if exists public.inventory_item_history_v1(uuid);
+drop function if exists public.inventory_undo_v1(uuid, uuid);
 drop function if exists public.inventory_item_price_set_v1(uuid, numeric);
 drop function if exists public.inventory_item_update_v1(uuid, jsonb);
 drop function if exists public.inventory_item_create_v1(uuid, jsonb, text, text, text);

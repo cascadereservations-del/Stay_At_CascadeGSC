@@ -1,9 +1,9 @@
--- Session 84, lane I-sql: release s84_inventory_20261017. The unit_cost leak (column grant, realtime), par_qty, barcode links, the catalogue's new par and
+-- Session 84, lane I-sql: release s84_inventory_20261017 (phase 1 + phase 1b: undo, history, countedAt, weekly low-stock task). The unit_cost leak (column grant, realtime), par_qty, barcode links, the catalogue's new par and
 -- codes keys, item create / update / price RPCs. Hermetic: its own property and users (uuids d8400000-...), nothing else is touched. Everything rolls back.
 -- The md5 guard at the head of the migration cannot run inside pgTAP; the rehearsal proves it by applying the migration to a database whose
 -- get_inventory_catalogue_v1 body was changed first (expect SQLSTATE 55000 and nothing changed).
 begin;
-select plan(69);
+select plan(112);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -237,6 +237,174 @@ select ok((select relrowsecurity from pg_class where oid = 'public.inventory_ite
 select throws_ok($$insert into public.inventory_items(property_id, name, category, par_qty) values ('d8400000-0000-4000-8000-0000000000b0', 'Zz84 bad par', 'Bedroom', -1)$$, '23514', null, 'par_qty cannot be negative');
 select ok((select bool_and(prosecdef and proconfig @> array['search_path=""']) from pg_proc where pronamespace = 'public'::regnamespace
   and proname in ('inventory_code_attach_v1', 'inventory_code_detach_v1', 'inventory_item_create_v1', 'inventory_item_update_v1', 'inventory_item_price_set_v1')), 'the five functions are definer with an empty search_path');
+
+-- =============================================================================================================================================
+-- Part 8 (phase 1b): inventory_undo_v1
+-- =============================================================================================================================================
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'ua', pg_temp.try($$select public.inventory_item_create_v1('d8400000-0000-4000-8000-0000000000b0', '{"name": "Zz84 Undo A", "category": "Bedroom", "qty": 12}'::jsonb, null, null, null)$$);
+insert into _t select 'ub', pg_temp.try($$select public.inventory_item_create_v1('d8400000-0000-4000-8000-0000000000b0', '{"name": "Zz84 Undo B", "category": "Bedroom", "units_per_purchase": 6, "purchase_unit": "pack"}'::jsonb, null, null, null)$$);
+insert into _t select 'k1', pg_temp.try(format($q$select public.reconcile_inventory_baseline_v1(%L, 21, 'typo test', 'zz84-count-key-0001')$q$, (select v->>'item_id' from _t where k = 'ua')));
+reset role;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a3');
+insert into _t select 'x_admin', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->>'movementId' from _t where k = 'k1')));
+reset role;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'x_own', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->>'movementId' from _t where k = 'k1')));
+insert into _t select 'x_rep', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->>'movementId' from _t where k = 'k1')));
+reset role;
+select is((select v->>'reason' from _t where k = 'x_admin'), 'not_yours', 'undo: another person''s count is not_yours');
+select is((select v from _t where k = 'x_own'), jsonb_build_object('ok', true, 'item_id', (select v->>'item_id' from _t where k = 'ua'), 'qty', 12.00), 'undo: your own count within 15 minutes puts the quantity back');
+select is((select qty_on_hand from public.inventory_items where id = (select (v->>'item_id')::uuid from _t where k = 'ua')), 12.00, 'and the item holds it');
+select is((select v->>'replayed' from _t where k = 'x_rep'), 'true', 'undo: a repeat is answered, not applied twice');
+select is((select count(*)::int from public.inventory_stock_movements where item_id = (select (v->>'item_id')::uuid from _t where k = 'ua') and kind = 'adjustment'
+  and idempotency_key = 'stk-undo-' || replace((select v->>'movementId' from _t where k = 'k1'), '-', '') and reason like 'Undo in the staff app of reconcile%'), 1, 'undo: the ledger gets one adjustment row, nothing is deleted');
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'k2', pg_temp.try(format($q$select public.reconcile_inventory_baseline_v1(%L, 22, 'typo test', 'zz84-count-key-0002')$q$, (select v->>'item_id' from _t where k = 'ua')));
+insert into _t select 'k3', pg_temp.try(format($q$select public.reconcile_inventory_baseline_v1(%L, 23, 'typo test', 'zz84-count-key-0003')$q$, (select v->>'item_id' from _t where k = 'ua')));
+insert into _t select 'x_moved', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->>'movementId' from _t where k = 'k2')));
+insert into _t select 'k4', pg_temp.try(format($q$select public.reconcile_inventory_baseline_v1(%L, 30, 'typo test', 'zz84-count-key-0004')$q$, (select v->>'item_id' from _t where k = 'ua')));
+reset role;
+update public.inventory_stock_movements set created_at = now() - interval '16 minutes' where id = (select (v->>'movementId')::uuid from _t where k = 'k4');
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'x_late', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->>'movementId' from _t where k = 'k4')));
+reset role;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
+insert into _t select 'x_cl', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->>'movementId' from _t where k = 'k3')));
+reset role;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a4');
+insert into _t select 'x_fi', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->>'movementId' from _t where k = 'k3')));
+reset role;
+select is((select v->>'reason' from _t where k = 'x_moved'), 'stock_moved', 'undo: refused when a later change exists');
+select is((select v->>'reason' from _t where k = 'x_late'), 'too_late', 'undo: refused after 15 minutes');
+select is((select v->>'err' from _t where k = 'x_cl'), '42501', 'undo: a cleaner is refused');
+select is((select v->>'err' from _t where k = 'x_fi'), '42501', 'undo: finance is refused');
+
+-- a receipt on a movement-controlled item: undo by purchase + movement deletes the app purchase
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'r1', pg_temp.try(format($q$select public.record_inventory_receipt_v1(%L, 1, null, null, null, null, null, 'zz84-recv-key-000001')$q$, (select v->>'item_id' from _t where k = 'ua')));
+insert into _t select 'x_r1', pg_temp.try(format($q$select public.inventory_undo_v1(%L, %L)$q$, (select v->>'movementId' from _t where k = 'r1'), (select v->>'purchaseId' from _t where k = 'r1')));
+insert into _t select 'x_r1b', pg_temp.try(format($q$select public.inventory_undo_v1(%L, %L)$q$, (select v->>'movementId' from _t where k = 'r1'), (select v->>'purchaseId' from _t where k = 'r1')));
+reset role;
+select is((select (v->>'qty')::numeric from _t where k = 'x_r1'), 30.00, 'undo receipt (controlled): the quantity is back');
+select is((select count(*)::int from public.inventory_purchases where id = (select (v->>'purchaseId')::uuid from _t where k = 'r1')), 0, 'and that purchase row is gone');
+select is((select v->>'replayed' from _t where k = 'x_r1b'), 'true', 'a repeat is answered even though the purchase is gone');
+
+-- a receipt on an item that is not movement-controlled, linked to a shopping row
+insert into public.inventory_shopping_list(id, property_id, item_id, item_name, quantity, status, idempotency_key) values
+  ('d8400000-0000-4000-8000-0000000000e1', 'd8400000-0000-4000-8000-0000000000b0', (select (v->>'item_id')::uuid from _t where k = 'ub'), 'Zz84 Undo B', 2, 'approved', 'zz84-shop-key-000001');
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'r2', pg_temp.try(format($q$select public.record_inventory_receipt_v1(%L, 2, null, null, null, null, 'd8400000-0000-4000-8000-0000000000e1', 'zz84-recv-key-000002')$q$, (select v->>'item_id' from _t where k = 'ub')));
+reset role;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a3');
+insert into _t select 'x_r2a', pg_temp.try(format($q$select public.inventory_undo_v1(p_purchase_id => %L)$q$, (select v->>'purchaseId' from _t where k = 'r2')));
+reset role;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'x_r2', pg_temp.try(format($q$select public.inventory_undo_v1(p_purchase_id => %L)$q$, (select v->>'purchaseId' from _t where k = 'r2')));
+reset role;
+select is((select qty_on_hand from public.inventory_items where id = (select (v->>'item_id')::uuid from _t where k = 'ub')), 0.00, 'undo receipt (uncontrolled): after the receive and the undo the quantity is 0 again');
+select is((select v->>'reason' from _t where k = 'x_r2a'), 'not_yours', 'undo receipt: refused for someone who did not receive that shopping row');
+select ok((select v->>'ok' = 'true' from _t where k = 'x_r2'), 'undo receipt: the person who received it can undo it');
+select ok((select s.status = 'approved' and s.purchase_id is null and s.received_by is null and s.received_quantity is null from public.inventory_shopping_list s where s.id = 'd8400000-0000-4000-8000-0000000000e1'),
+  'and the shopping row is back to approved with its received fields cleared');
+insert into public.inventory_purchases(id, item_id, qty, unit_cost, notes) values
+  ('d8400000-0000-4000-8000-0000000000e2', (select (v->>'item_id')::uuid from _t where k = 'ub'), 3, 10, 'Auto-restock from receipt OCR (txn zz84)');
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'x_ocr', pg_temp.try($$select public.inventory_undo_v1(p_purchase_id => 'd8400000-0000-4000-8000-0000000000e2')$$);
+reset role;
+select is((select v->>'reason' from _t where k = 'x_ocr'), 'not_undoable', 'undo: a Telegram OCR purchase is never undone here');
+select is((select count(*)::int from public.inventory_purchases where id = 'd8400000-0000-4000-8000-0000000000e2'), 1, 'and it is still there');
+
+-- =============================================================================================================================================
+-- Part 9 (phase 1b): catalogue countedAt
+-- =============================================================================================================================================
+insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+values ('inventory_items', (select (v->>'item_id')::uuid from _t where k = 'ub'), 'telegram_count', '{"qty_on_hand": 0}'::jsonb, '{"qty_on_hand": 2}'::jsonb, 'telegram:1:owner');
+update public.inventory_audit_log set created_at = now() - interval '1 day' where entity_id = (select (v->>'item_id')::uuid from _t where k = 'ub') and action = 'telegram_count';
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
+insert into _t select 'c2_cl', pg_temp.try($$select public.get_inventory_catalogue_v1('d8400000-0000-4000-8000-0000000000b0')$$);
+reset role;
+select is((select (e->>'countedAt')::timestamptz from _t, jsonb_array_elements(v->'items') e where k = 'c2_cl' and e->>'id' = (select v->>'item_id' from _t where k = 'ua')),
+  (select max(created_at) from public.inventory_stock_movements where item_id = (select (v->>'item_id')::uuid from _t where k = 'ua') and kind = 'reconcile'), 'countedAt is the latest app count (any role sees it)');
+select is((select (e->>'countedAt')::timestamptz from _t, jsonb_array_elements(v->'items') e where k = 'c2_cl' and e->>'id' = (select v->>'item_id' from _t where k = 'ub')),
+  (select max(created_at) from public.inventory_audit_log where entity_id = (select (v->>'item_id')::uuid from _t where k = 'ub') and action = 'telegram_count'), 'and a Telegram count counts');
+select is((select e->'countedAt' from _t, jsonb_array_elements(v->'items') e where k = 'c2_cl' and e->>'id' = 'd8400000-0000-4000-8000-0000000000c1'), 'null'::jsonb, 'an item never counted has countedAt null');
+
+-- =============================================================================================================================================
+-- Part 10 (phase 1b): inventory_item_history_v1
+-- =============================================================================================================================================
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a5');
+insert into _t select 'h0', pg_temp.try(format($q$select public.inventory_item_history_v1(%L)$q$, (select v->>'item_id' from _t where k = 'ua')));
+reset role;
+select ok((select v->'usage'->'per_clean' = 'null'::jsonb and (v->'usage'->>'cleans_30d')::int = 0 from _t where k = 'h0'), 'history: per_clean is null with no cleans');
+insert into public.cleaning_sessions(submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id) values
+  ('zz84-h-1', 'Zzhoney', 'd8400000-0000-4000-8000-0000000000b0', 'turnover', 'd8400000-0000-4000-8000-0000000000a1'),
+  ('zz84-h-2', 'Zzhoney', 'd8400000-0000-4000-8000-0000000000b0', 'deep_clean', 'd8400000-0000-4000-8000-0000000000a1');
+insert into public.inventory_usage(item_id, used_qty, session_date) select (select (v->>'item_id')::uuid from _t where k = 'ua'), q, public.manila_today() from unnest(array[3, 1]) q;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
+insert into _t select 'h1', pg_temp.try(format($q$select public.inventory_item_history_v1(%L)$q$, (select v->>'item_id' from _t where k = 'ua')));
+insert into _t select 'h_cl_b', pg_temp.try(format($q$select public.inventory_item_history_v1(%L)$q$, (select v->>'item_id' from _t where k = 'ub')));
+reset role;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a4');
+insert into _t select 'h_fi_b', pg_temp.try(format($q$select public.inventory_item_history_v1(%L)$q$, (select v->>'item_id' from _t where k = 'ub')));
+reset role;
+select ok((select (v->'usage'->>'cleans_30d')::int = 2 and (v->'usage'->>'cleans_14d')::int = 2 and (v->'usage'->>'used_30d')::numeric = 4 and (v->'usage'->>'per_clean')::numeric = 2.00 from _t where k = 'h1'),
+  'history: a cleaner sees use per clean (4 used over 2 cleans = 2.00)');
+select ok((select (v->'changes') @> '[{"kind": "counted"}]'::jsonb and (v->'changes') @> '[{"kind": "undo"}]'::jsonb and (v->'changes') @> '[{"kind": "received"}]'::jsonb from _t where k = 'h1'),
+  'history: the changes name counted, undo and received');
+select is((select v->'changes'->0->>'who' from _t where k = 'h1'), 'Zz84-Owner', 'history: who is a first name only');
+select ok((select v ? 'last_bought' and not (v->'last_bought' ? 'unit_cost') and (v->'last_bought'->>'qty')::numeric = 3 from _t where k = 'h_cl_b'), 'history: a cleaner sees the last purchase without its price');
+select is((select (v->'last_bought'->>'unit_cost')::numeric from _t where k = 'h_fi_b'), 10.00, 'history: finance sees the price');
+select ok((select v->'changes'->0->>'kind' = 'telegram_count' and v->'changes'->0->'who' = 'null'::jsonb and jsonb_array_length(v->'changes') = 1 from _t where k = 'h_cl_b'), 'history: a Telegram count is listed with no name');
+insert into public.inventory_items(id, property_id, name, category, qty_on_hand, movement_controlled_at) values
+  ('d8400000-0000-4000-8000-0000000000c9', 'd8400000-0000-4000-8000-0000000000b0', 'Zz84 Filler', 'Bedroom', 1, now());
+insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key, created_at)
+select 'd8400000-0000-4000-8000-0000000000c9', 'd8400000-0000-4000-8000-0000000000b0', 'reconcile', 1, 1, 'zz84 filler', 'd8400000-0000-4000-8000-0000000000a5', 'zz84-fill-key-' || lpad(n::text, 4, '0'), now() - (n || ' minutes')::interval
+from generate_series(1, 12) n;
+select pg_temp.as_user('d8400000-0000-4000-8000-0000000000a1');
+insert into _t select 'h_f', pg_temp.try($$select public.inventory_item_history_v1('d8400000-0000-4000-8000-0000000000c9')$$);
+insert into _t select 'h_bad', pg_temp.try($$select public.inventory_item_history_v1('d8400000-0000-4000-8000-0000000000ff')$$);
+reset role;
+select ok((select jsonb_array_length(v->'changes') = 10 and (v->'changes'->0->>'at')::timestamptz > (v->'changes'->9->>'at')::timestamptz from _t where k = 'h_f'), 'history: at most 10 changes, newest first');
+select is((select v->>'err' from _t where k = 'h_bad'), 'P0002', 'history: an unknown item is not found');
+
+-- =============================================================================================================================================
+-- Part 11 (phase 1b): the weekly low-stock task
+-- =============================================================================================================================================
+create function pg_temp.low(p_status text default null) returns integer language sql as $$
+  select count(*)::int from public.follow_up_tasks where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_kind = 'low_stock' and (p_status is null or status = p_status);
+$$;
+-- "Zz84 Plain" (reorder 2, quantity 0) was added in Part 4, so the property is already low by one item
+select is(pg_temp.low('open'), 1, 'low-stock task: one open task for the week while something is low');
+select is((select title from public.follow_up_tasks where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_kind = 'low_stock' and status = 'open'), 'Restock: 1 item is low', 'with the count in its title');
+insert into public.inventory_items(id, property_id, name, category, qty_on_hand, reorder_below, is_consumable) values
+  ('d8400000-0000-4000-8000-0000000000d9', 'd8400000-0000-4000-8000-0000000000b0', 'Zz84 Second low', 'Cleaning', 1, 2, true);
+select is(pg_temp.low(), 1, 'low-stock task: a second low item does not add a second row');
+select is((select title from public.follow_up_tasks where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_kind = 'low_stock' and status = 'open'), 'Restock: 2 items are low', 'but the title is refreshed');
+select ok((select t.detail like '%Zz84 Second low%' and t.detail !~* '(php|cost|price|peso)' and t.title !~* '(php|cost|price|peso)' and t.assignee_user_id is null and t.priority = 'normal'
+  from public.follow_up_tasks t where t.property_id = 'd8400000-0000-4000-8000-0000000000b0' and t.source_kind = 'low_stock'), 'low-stock task: names the items, no money text, unassigned');
+update public.inventory_items set qty_on_hand = 50 where property_id = 'd8400000-0000-4000-8000-0000000000b0' and name in ('Zz84 Plain', 'Zz84 Second low');
+select ok((select t.status = 'done' and t.completion_note = 'Closed automatically: nothing is low now.' from public.follow_up_tasks t where t.property_id = 'd8400000-0000-4000-8000-0000000000b0' and t.source_kind = 'low_stock'),
+  'low-stock task: restocking closes it by itself');
+update public.inventory_items set qty_on_hand = 0 where id = 'd8400000-0000-4000-8000-0000000000d9';
+select ok(pg_temp.low() = 1 and pg_temp.low('open') = 1, 'low-stock task: going low again the same week reopens the same row');
+update public.follow_up_tasks set source_ref = '2020-W01', idempotency_key = 'system:low_stock:2020-W01' where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_kind = 'low_stock';
+update public.inventory_items set qty_on_hand = 0 where id = 'd8400000-0000-4000-8000-0000000000d9';
+select ok(pg_temp.low() = 2 and pg_temp.low('open') = 1 and exists (select 1 from public.follow_up_tasks where property_id = 'd8400000-0000-4000-8000-0000000000b0' and source_ref = '2020-W01' and status = 'done' and completion_note like 'Closed automatically: this week%'),
+  'low-stock task: a new week gets a new row and the old week''s row is closed');
+create or replace function public.system_task_open_v1(p_property_id uuid, p_source_kind text, p_source_ref text, p_title text, p_detail text default null, p_priority text default 'normal')
+returns uuid language plpgsql as $$ begin raise exception 'zz84 task function is down'; end $$;
+select lives_ok($$update public.inventory_items set qty_on_hand = 1 where id = 'd8400000-0000-4000-8000-0000000000d9'$$, 'low-stock task: a failing task function never blocks an inventory update (warning only)');
+select is((select qty_on_hand from public.inventory_items where id = 'd8400000-0000-4000-8000-0000000000d9'), 1.00, 'and the update went through');
+
+-- grants of the new functions
+select ok(not (has_function_privilege('anon', 'public.inventory_undo_v1(uuid,uuid)', 'execute') or has_function_privilege('anon', 'public.inventory_item_history_v1(uuid)', 'execute'))
+  and has_function_privilege('authenticated', 'public.inventory_undo_v1(uuid,uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_item_history_v1(uuid)', 'execute'),
+  'anon executes neither new RPC; signed-in users execute both (each gates itself)');
+select ok(not (has_function_privilege('authenticated', 'public.s_inventory_low_task_v1()', 'execute') or has_function_privilege('anon', 'public.s_inventory_low_task_v1()', 'execute') or has_function_privilege('service_role', 'public.s_inventory_low_task_v1()', 'execute'))
+  and (select bool_and(prosecdef and proconfig @> array['search_path=""']) from pg_proc where pronamespace = 'public'::regnamespace and proname in ('inventory_undo_v1', 'inventory_item_history_v1', 's_inventory_low_task_v1')),
+  'the trigger function has no grant to anyone; all three are definer with an empty search_path');
+select ok(exists (select 1 from pg_trigger where tgrelid = 'public.inventory_items'::regclass and tgname = 's_inventory_low_task' and not tgisinternal and (tgtype & 1) = 0), 'the trigger is a statement-level trigger on inventory_items');
 
 select * from finish();
 rollback;
