@@ -87,7 +87,7 @@ select is((select jsonb_array_length(v->'stays') from _t where k = 'edge_in'), 1
 -- =============================================================== admin, finance, range cap
 select pg_temp.as_user('e8400000-0000-4000-8000-0000000000b3');
 select is((select jsonb_array_length(public.staff_calendar_history_v1('2025-12-01', '2026-01-31', 'e8400000-0000-4000-8000-0000000000a1')->'stays')), 3, 'an admin reads the history');
-select throws_ok($$select public.staff_calendar_history_v1('2025-01-01', '2026-02-05', 'e8400000-0000-4000-8000-0000000000a1')$$, '22023', 'range_too_large', 'a range over 400 days is refused');
+select throws_ok($$select public.staff_calendar_history_v1('2025-01-01', '2026-02-06', 'e8400000-0000-4000-8000-0000000000a1')$$, '22023', 'range_too_large', 'a range over 400 days is refused');
 select throws_ok($$select public.staff_calendar_history_v1('2026-01-31', '2026-01-01', 'e8400000-0000-4000-8000-0000000000a1')$$, '22023', 'bad_range', 'a reversed range is refused');
 reset role;
 select pg_temp.as_user('e8400000-0000-4000-8000-0000000000b4');
