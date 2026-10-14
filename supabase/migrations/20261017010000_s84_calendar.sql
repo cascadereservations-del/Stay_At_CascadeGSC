@@ -21,6 +21,16 @@
 --    Note: a row Telegram started (paying_by_user_id null) is now also 'not_yours' for a cancel from the app; cancel it from Telegram or take it over first.
 -- 2. New read RPC staff_calendar_history_v1(p_from, p_to, p_property_id): owner/admin only, past (and any) stays overlapping the range,
 --    from the same set, with source, id, dates, nights, status and the guest FIRST NAME only. No contact, no money.
+-- 4. calendar_events contact columns (found 2026-10-14, live): `authenticated` held table-level SELECT, and calendar_events_staff_read admits every
+--    role with read_operations, so a cleaner could read guest_phone, raw_summary and raw_description over PostgREST. Fix: the two owner/admin RPCs
+--    below serve the only two direct readers that need those columns (admin-dashboard features/bookings/api.ts fetchStays: raw_summary;
+--    fetchStayDetail: select '*'), then SELECT is restricted to every column EXCEPT guest_phone, raw_summary and raw_description. guest_name stays
+--    (get_booking_for_date and the cleaning checklist's stay picker show it). Other readers: the checklist's direct select (checkin_date, checkout_date,
+--    nights, status, block_reason, block_reason_source) and the dashboard insights select (checkin_date, checkout_date) are unaffected; every Edge
+--    Function reads with the service role (its own table grant is untouched). Four SECURITY INVOKER SQL functions name one of the three columns
+--    (check_availability: raw_summary; stay_same_guest_v1: raw_description, guest_phone; and, through it, stay_continues_v1 / stay_chains_v1 /
+--    get_missed_cleanings): they are called only by Edge Functions (service role) and by definer functions, never by a user JWT, so they keep working;
+--    a direct call by a signed-in staff session now fails closed. A column added to the table later is NOT granted until someone grants it.
 begin;
 
 do $stop$
@@ -30,6 +40,10 @@ begin
   end if;
   if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_pay_admin_step_v1(uuid,text)'::regprocedure) <> 'ee76bfac5542808058969b731940f343' then
     raise exception 'STOP: public.staff_pay_admin_step_v1 changed in production since s84 lane C was written (md5 ee76bfac5542808058969b731940f343); re-read production and re-vendor before applying';
+  end if;
+  if (select array_agg(attname::text order by attname::text) from pg_attribute where attrelid = 'public.calendar_events'::regclass and attnum > 0 and not attisdropped)
+     is distinct from (select array_agg(c order by c) from unnest(string_to_array('id,property_id,uid,source,checkin_date,checkout_date,nights,guest_name,guest_phone,status,raw_summary,raw_description,synced_at,created_at,updated_at,checkin_time,checkout_time,linked_reservation_id,recon_status,recon_alerted_at,block_reason,block_reason_source,block_note,block_answered_by,block_answered_at', ',')) c) then
+    raise exception 'STOP: public.calendar_events columns changed in production since s84 lane C was written; re-read the column list and re-vendor the grant before applying';
   end if;
 end;
 $stop$;
@@ -190,5 +204,56 @@ begin
 end $$;
 revoke all on function public.staff_pay_admin_step_v1(uuid, text) from public, anon, service_role;
 grant execute on function public.staff_pay_admin_step_v1(uuid, text) to authenticated;
+
+-- Owner/admin reads of calendar_events columns that `authenticated` no longer holds.
+create or replace function public.admin_calendar_event_v1(p_id uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_prop uuid;
+  v_row  jsonb;
+begin
+  select to_jsonb(ce) into v_row from public.calendar_events ce where ce.id = p_id;
+  v_prop := coalesce((v_row ->> 'property_id')::uuid, '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid);
+  if auth.uid() is null or not public.current_staff_authorized('manage_operations', v_prop) then
+    raise exception using errcode = '42501', message = 'not_authorized';
+  end if;
+  return v_row; -- null when the id does not exist
+end;
+$$;
+revoke all on function public.admin_calendar_event_v1(uuid) from public, anon, service_role;
+grant execute on function public.admin_calendar_event_v1(uuid) to authenticated;
+
+create or replace function public.admin_calendar_events_v1(p_property_id uuid default '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null or not public.current_staff_authorized('manage_operations', p_property_id) then
+    raise exception using errcode = '42501', message = 'not_authorized';
+  end if;
+  -- the columns and order admin-dashboard fetchStays selects today, including raw_summary
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id', x.id, 'uid', x.uid, 'source', x.source, 'checkin_date', x.checkin_date, 'checkout_date', x.checkout_date,
+             'guest_name', x.guest_name, 'status', x.status, 'linked_reservation_id', x.linked_reservation_id,
+             'synced_at', x.synced_at, 'raw_summary', x.raw_summary) order by x.checkin_date desc, x.id)
+      from (select * from public.calendar_events ce where ce.property_id = p_property_id order by ce.checkin_date desc, ce.id limit 1000) x
+  ), '[]'::jsonb);
+end;
+$$;
+revoke all on function public.admin_calendar_events_v1(uuid) from public, anon, service_role;
+grant execute on function public.admin_calendar_events_v1(uuid) to authenticated;
+
+-- The restriction. Every column except guest_phone, raw_summary, raw_description.
+revoke select on public.calendar_events from authenticated;
+grant select (id, property_id, uid, source, checkin_date, checkout_date, nights, guest_name, status, synced_at, created_at, updated_at, checkin_time, checkout_time, linked_reservation_id, recon_status, recon_alerted_at, block_reason, block_reason_source, block_note, block_answered_by, block_answered_at) on public.calendar_events to authenticated;
 
 commit;

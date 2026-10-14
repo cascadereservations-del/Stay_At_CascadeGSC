@@ -2,6 +2,7 @@
 --   * puts admin_stays_v1 back to its pre-release body (md5 e2f41dcc6de28ba1ebe23b4534b6443d, read from production 2026-10-14), i.e.
 --     with NO role check (the privacy hole returns: re-apply the fix as soon as possible);
 --   * puts staff_pay_admin_step_v1 back to the body in 20261014010000_s81_staff_pay_push.sql (md5 ee76bfac5542808058969b731940f343);
+--   * restores table-level SELECT on calendar_events for authenticated (the contact columns are readable again: re-apply the fix soon) and drops admin_calendar_event_v1 / admin_calendar_events_v1;
 --   * drops staff_calendar_history_v1 and the gate admin_stays_gate_v1 (nothing else calls them).
 -- The staff app probes staff_calendar_history_v1 and hides the past-months view when it is gone. Safe until: any time. No data is written.
 begin;
@@ -92,6 +93,11 @@ begin
 end $$;
 revoke all on function public.staff_pay_admin_step_v1(uuid, text) from public, anon, service_role;
 grant execute on function public.staff_pay_admin_step_v1(uuid, text) to authenticated;
+
+-- puts back the table-level SELECT (all columns) and drops the two owner/admin RPCs
+grant select on public.calendar_events to authenticated;
+drop function if exists public.admin_calendar_events_v1(uuid);
+drop function if exists public.admin_calendar_event_v1(uuid);
 
 drop function if exists public.staff_calendar_history_v1(date, date, uuid);
 drop function if exists public.admin_stays_gate_v1(uuid);
