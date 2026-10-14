@@ -33,15 +33,16 @@ function kindOf(w: string): T_Kind | null {
   if (near(w, 'brownout', 2)) return 'brownout';
   return null;
 }
-const isNoticeWord = (w: string) => { w = w.toLowerCase(); return w === 'notices' || near(w, 'notice', 1); };
+const isNoticeWord = (w: string) => { w = w.toLowerCase(); return w === 'notices' || (w !== 'noticed' && near(w, 'notice', 1)); };
 
 /** The kind word and the notice word at the very start ("water notice", "Notice - water", "waternotice", "watr notise"), and where the rest begins. */
 function head(text: string): { kind: T_Kind; end: number } | null {
   const m = /^(\s*)([a-z]+)(?:([\s\-–—_]+)([a-z]+))?/i.exec(text);
   if (!m) return null;
-  const [all, lead, a, , b] = m;
+  const [all, lead, a, sep, b] = m;
   if (b) {
-    const k = (isNoticeWord(b) && kindOf(a)) || (isNoticeWord(a) && kindOf(b));
+    // "Notice water pressure low" is a maintenance report: with notice first, the kind word needs a dash before it or a colon / dash after it.
+    const k = (isNoticeWord(b) && kindOf(a)) || (isNoticeWord(a) && (/[-–—]/.test(sep) || /^\s*[:\-–—]/.test(text.slice(all.length))) && kindOf(b));
     if (k) return { kind: k, end: all.length };
   }
   for (let i = 3; i <= a.length - 3; i++) { // "waternotice", "noticewater"
