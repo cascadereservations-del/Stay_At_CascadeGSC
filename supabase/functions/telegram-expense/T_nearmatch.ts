@@ -110,3 +110,31 @@ export async function T_claimMessage(db: any, msg: any): Promise<boolean> {
   if (error) return false;
   return !data || data.length === 0;
 }
+
+export type T_Deps = {
+  isAllowed: (chatId: unknown) => boolean;
+  hasAwaiting: (chatId: unknown, userId: unknown) => Promise<boolean>;
+  reply: (chatId: unknown, replyTo: number, text: string) => Promise<unknown>;
+  forward: (update: any) => Promise<{ ok: boolean }>;
+  log: (line: string) => void;
+};
+
+/** The T block of the webhook, lifted out of index.ts so it can be tested. true = the update is handled, stop; false = carry on with the older paths. */
+export async function T_handle(db: any, update: any, d: T_Deps): Promise<boolean> {
+  const td = T_decide(update, d.isAllowed);
+  if (td.act === 'ignore') { d.log(T_logLine(td.log)); return true; }
+  if (td.act === 'pass') return false;
+  const tm = update.edited_message ?? update.message;
+  if (await d.hasAwaiting(tm?.chat?.id, tm?.from?.id)) return true; // an answer is awaited from this person: it is not a notice
+  d.log(T_logLine(td.log));
+  if (td.act === 'reply') { await d.reply(td.chatId, td.replyTo as number, td.text); return true; }
+  if (await T_claimMessage(db, td.claim)) { d.log(T_logLine({ ...td.log, route: 'notice_already_handled' })); return true; }
+  await d.forward(td.update).catch(() => null);
+  return true;
+}
+
+/** The exact-form path (B_noticeRoute): claim the message, then forward the raw update to Cassy. */
+export async function T_handleExact(db: any, update: any, d: Pick<T_Deps, 'forward'>): Promise<void> {
+  await T_claimMessage(db, update.message);
+  await d.forward(update).catch(() => null);
+}

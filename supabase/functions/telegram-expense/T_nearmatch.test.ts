@@ -56,10 +56,33 @@ Deno.test('T: real-looking OPS chatter stays silent (null, so the older paths de
     'water 150', 'water bill 1,250 paid', 'no water in the shower of unit 2', 'did you see the notice on the gate?', 'brownout again yesterday around 3pm',
     'power bank charged', 'cleaning done 8am-12pm', '500 supplies', 'ok', '', 'wat', 'The water notice was posted by GSCWD',
     'cassy water notice tomorrow 8am-5pm', '/notices', '/brownout tomorrow 8am 4h SOCOTECO', 'Water interruption at San Isidro, see you later',
+    // review F1 / F2: chatter that a loose fuzzy match turned into a card or a hint
+    'Late notice po, hindi ako makakapunta bukas 8am', 'Nice water pressure today', 'Note later today 3pm-5pm meeting', 'Gate notice tomorrow 8am-5pm',
+    'Meter notice from GSCWD tomorrow', 'Water note: tomorrow buy 2 gallons', 'Date notice', 'Paper notice', 'Voice water', 'Power nice', 'Nice water',
+    'Power notice', 'Water Notice!', 'power notice thanks po',
   ];
   for (const t of quiet) assertEquals(T_nearNotice(t, NOW), null, t);
   // the exact forms are the older route's and are not touched here
   for (const t of ['water notice: October 16, 8:00 AM to 5:00 PM', 'Brownout Notice: tomorrow', 'facebook.com/gscwaterdistrict/posts/1']) assertEquals(T_nearNotice(t, NOW), null, t);
+});
+
+Deno.test('F2: a hint needs something read (a date or times) or the literal command words', () => {
+  assertEquals(T_nearNotice('Power notice', NOW), null);
+  assertEquals((T_nearNotice('water notice', NOW) as { kind: string }).kind, 'hint');
+  assertEquals((T_nearNotice('brownout notice please', NOW) as { kind: string }).kind, 'hint');
+});
+
+Deno.test('F7: the hint example date is tomorrow (Manila), not a fixed day', () => {
+  assertStringIncludes((T_nearNotice('water notice 8am-5pm', NOW) as { text: string }).text, 'water notice: Oct 15 8:00 AM to 5:00 PM');
+  const later = Date.parse('2026-12-31T08:00:00Z');
+  assertStringIncludes((T_nearNotice('water notice 8am-5pm', later) as { text: string }).text, 'water notice: Jan 1 8:00 AM to 5:00 PM');
+});
+
+Deno.test('F8: today and tomorrow follow the Manila midnight', () => {
+  const before = Date.parse('2026-10-14T15:59:00Z'), after = Date.parse('2026-10-14T16:01:00Z'); // 23:59 and 00:01 Manila
+  assertEquals((T_nearNotice('water notice today 8am-5pm', before) as { text: string }).text, 'water notice: Oct 14 8am-5pm');
+  assertEquals((T_nearNotice('water notice today 8am-5pm', after) as { text: string }).text, 'water notice: Oct 15 8am-5pm');
+  assertEquals((T_nearNotice('water notice tomorrow 8am-5pm', before) as { text: string }).text, 'water notice: Oct 15 8am-5pm');
 });
 
 Deno.test('T: decisions over a table of updates; receipts, photos, commands and expense lines pass untouched', () => {
