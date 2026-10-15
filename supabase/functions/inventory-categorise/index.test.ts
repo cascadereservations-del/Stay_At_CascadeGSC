@@ -276,3 +276,46 @@ Deno.test({ name: 'the RPC refusing (not_uncategorised, a race) leaves no result
     assertEquals(w.tg().length, 0);
   } finally { w.done(); }
 } });
+
+Deno.test({ name: 'r2 F1: a non-numeric confidence ("high") is never written', ...OPT, fn: async () => {
+  const w = world({ jev: () => ({ choice: 'Cleaning Supplies', confidence: 'high' as unknown as number }) });
+  try {
+    const b = await body(await handler(post({ all: true })));
+    assertEquals(b.results, []);
+    assertEquals(w.rpc().length, 0);
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'r2 F2: an empty category is not Uncategorised and is left alone', ...OPT, fn: async () => {
+  const w = world({ items: [...ITEMS.slice(0, 4), { id: U(12), name: 'Lamp', category: '' }] });
+  try {
+    const b = await body(await handler(post({ all: true })));
+    assertEquals(b.results, []);
+    assertEquals(w.jev().length, 0);
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'r2 F3: items are read newest first, so a low-confidence backlog does not starve new items', ...OPT, fn: async () => {
+  const w = world();
+  try {
+    await handler(post({ all: true }));
+    const read = w.calls.find((c) => c.url.includes('/rest/v1/inventory_items'))!;
+    assertStringIncludes(read.url, 'order=created_at.desc');
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'r2 F4: a non-auth failure answers 503 with CORS headers, not a header-less 500', ...OPT, fn: async () => {
+  const w = world();
+  try {
+    // After auth passes, the project URL turns invalid, so createClient throws: an unexpected failure, not an auth one.
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => {
+      const r = await real(i, init);
+      if (String(i instanceof Request ? i.url : i).includes('/rpc/current_staff_authorized')) Deno.env.set('SUPABASE_URL', 'not a url');
+      return r;
+    }) as typeof fetch;
+    const r = await handler(post({ all: true }));
+    assertEquals(r.status, 503);
+    assertEquals(r.headers.get('access-control-allow-origin'), '*');
+  } finally { w.done(); }
+} });

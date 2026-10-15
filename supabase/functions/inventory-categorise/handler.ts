@@ -57,7 +57,12 @@ export function manilaDayStart(now: Date): string {
 
 export function makeHandler(opts: { now?: () => Date; timeoutMs?: number } = {}) {
   const now = opts.now ?? (() => new Date());
+  // Any unexpected failure answers 503 with CORS headers, so the browser shows a real error and the client hides the option.
   return async (req: Request): Promise<Response> => {
+    try { return await run(req); }
+    catch (e) { console.error('inventory-categorise failed:', redactForLog(String((e as Error)?.name ?? e), 'ops')); return reply({ ok: false, error: 'unavailable' }, 503); }
+  };
+  async function run(req: Request): Promise<Response> {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_H });
     if (req.method !== 'POST') return reply({ ok: false, error: 'bad_request' }, 405);
 
@@ -76,12 +81,12 @@ export function makeHandler(opts: { now?: () => Date; timeoutMs?: number } = {})
     const used = await db.from('llm_usage').select('id', { count: 'exact', head: true }).eq('title', 'inventory_categorise').gte('at', manilaDayStart(now()));
     if (!used.error && (used.count ?? 0) > DAILY_BUDGET) return reply({ ok: false, error: 'budget' }, 429);
 
-    const res = await db.from('inventory_items').select('id,name,category').eq('property_id', PROPERTY_ID).eq('is_active', true);
+    const res = await db.from('inventory_items').select('id,name,category').eq('property_id', PROPERTY_ID).eq('is_active', true).order('created_at', { ascending: false });
     if (res.error) { console.error('inventory read failed:', redactForLog(String(res.error.code ?? ''), 'ops')); return reply({ ok: false, error: 'load_failed' }, 500); }
     const items = ((res.data ?? []) as Row[]).map((r) => ({ id: String(r.id), name: String(r.name ?? ''), category: String(r.category ?? '').trim() }));
 
     const criteria = buildCriteria(items);
-    const pending = items.filter((i) => (i.category === UNCATEGORISED || i.category === '') && (body!.all === true || i.id === itemId));
+    const pending = items.filter((i) => i.category === UNCATEGORISED && (body!.all === true || i.id === itemId));
     const targets = pending.slice(0, MAX_ITEMS);
     const remaining = pending.length - targets.length;
     const none = () => reply({ ok: true, results: [] as Result[], remaining });
@@ -93,7 +98,7 @@ export function makeHandler(opts: { now?: () => Date; timeoutMs?: number } = {})
     const work = async (it: { id: string; name: string }) => {
       const j = await jevCategorise(it.name, criteria, key, opts.timeoutMs ?? 4000);
       if (key) recordUsage({ title: 'inventory_categorise', provider: 'openrouter', model: 'typesafe/jev-1.13', ok: j.ok, error: j.ok ? null : j.error ?? 'error' });
-      if (!j.pick || j.pick.confidence < MIN_CONFIDENCE) return;
+      if (!j.pick || !(j.pick.confidence >= MIN_CONFIDENCE)) return; // NaN (non-numeric answer) fails this test too
       const { data, error } = await db.rpc('s_inventory_item_category_auto_v1', { p_item_id: it.id, p_category: j.pick.category, p_confidence: j.pick.confidence });
       if (error) {
         if (error.code === 'PGRST202') rpcMissing = true; // SQL release not applied yet: do nothing, never 500
@@ -119,5 +124,5 @@ export function makeHandler(opts: { now?: () => Date; timeoutMs?: number } = {})
       console.log('category notice', JSON.stringify({ sent: tg?.ok === true, line: redactForLog(text, 'finance').slice(0, 200) }));
     }
     return reply({ ok: true, results, remaining });
-  };
+  }
 }
