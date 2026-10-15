@@ -47,6 +47,7 @@ export function makeHandler(opts: { now?: () => Date } = {}) {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_H });
     if (req.method !== 'POST') return reply({ ok: false, error: 'bad_request' }, 405);
 
+    if (Number(req.headers.get('content-length') ?? 0) > 16_384) return reply({ ok: false, error: 'bad_request' }, 413); // before the pre-auth body parse
     const body = await req.json().catch(() => null) as Row | null;
     const isLabels = body?.kind === 'labels'; // s86: labels are for managers; every other kind needs read_operations only
     let who;

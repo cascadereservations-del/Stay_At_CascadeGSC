@@ -90,7 +90,7 @@ const OPS_COLS: Record<Kind, [string[], number[]]> = {
   misc: [['Item', 'On hand', 'Unit', 'Note'], [0.4, 0.14, 0.14, 0.32]],
 };
 const FIN_COLS: Record<Kind, [string[], number[]]> = {
-  order: [['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note', 'Where'], [0.16, 0.07, 0.07, 0.08, 0.19, 0.15, 0.15, 0.13]],
+  order: [['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note', 'Where'], [0.22, 0.07, 0.07, 0.08, 0.15, 0.14, 0.14, 0.13]],
   all: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Value'], [0.34, 0.11, 0.13, 0.1, 0.16, 0.16]],
   consumables: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Value'], [0.34, 0.11, 0.13, 0.1, 0.16, 0.16]],
   low: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Where'], [0.30, 0.11, 0.13, 0.10, 0.20, 0.16]],
@@ -108,12 +108,13 @@ export interface Link { itemId: string; supplierId: string; preferred: boolean }
 
 /** Same rule as SQL R6: newest unit price >= 1.20 x median of up to 5 earlier purchases within 365 days (at least 2). Returns the percent or null. `newestFirst` order is the caller's. */
 export function priceJump(newestFirst: Array<{ cost: number; at: string }>, now: Date): number | null {
-  const [last, ...earlier] = newestFirst.filter((p) => p.cost > 0);
+  const [last, ...earlier] = newestFirst; // like SQL: a zero newest price stays the newest
   if (!last) return null;
-  const since = new Date(now.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
+  const since = manilaDate(new Date(now.getTime() - 365 * 86_400_000)); // purchase dates are Manila dates
   const base = earlier.filter((p) => p.at >= since).slice(0, 5).map((p) => p.cost).sort((a, b) => a - b);
   if (base.length < 2) return null;
   const mid = base.length >> 1, median = base.length % 2 ? base[mid] : (base[mid - 1] + base[mid]) / 2;
+  if (median <= 0) return null;
   return last.cost * 5 >= median * 6 - 1e-9 ? Math.round((last.cost / median - 1) * 100) : null;
 }
 

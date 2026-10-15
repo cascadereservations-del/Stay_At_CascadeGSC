@@ -285,7 +285,7 @@ Deno.test({ name: 'Finance order PDF: Where shows the supplier and UP 25% follow
     const t = drawnText(await bytesOf(telegram(w.calls)[0]));
     assertStringIncludes(t, 'Where');
     assertStringIncludes(t, 'Supermarket');
-    assertStringIncludes(t, 'UP 25%');
+    assertStringIncludes(t, 'UP'); assertStringIncludes(t, '25%'); // the mark may wrap onto line 2 of the cell
   } finally { w.done(); }
 } });
 
@@ -306,5 +306,14 @@ Deno.test({ name: 'before the SQL release: supplier tables missing -> Finance PD
     const t = drawnText(await bytesOf(telegram(w.calls)[0]));
     assertStringIncludes(t, 'Where');
     assertFalse(t.includes('SM Supermarket'));
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'r2 F6: an oversized body is refused 413 before it is parsed or any auth call is made', ...OPT, fn: async () => {
+  const w = world();
+  try {
+    const r = await handler(new Request(`${URL_}/functions/v1/inventory-report`, { method: 'POST', headers: { authorization: 'Bearer staff.jwt', apikey: 'anon', 'content-type': 'application/json', 'content-length': '20000' }, body: JSON.stringify({ kind: 'low' }) }));
+    assertEquals(r.status, 413);
+    assertEquals(w.calls.length, 0);
   } finally { w.done(); }
 } });

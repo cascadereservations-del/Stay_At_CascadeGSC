@@ -204,3 +204,19 @@ Deno.test('Finance order and low: Where column and UP mark after the unit cost; 
     assertFalse(/SM|UP 25|Where/.test(JSON.stringify([ops.columns, ops.groups])), kind);
   }
 });
+
+// ---------- s86 D-report r2 ----------
+Deno.test('priceJump r2: a zero newest price is not skipped, a zero median never divides, the window is the Manila date (F3, F4)', () => {
+  assertEquals(priceJump([P(0, '2026-10-01'), P(150, '2026-09-01'), P(100, '2026-08-01'), P(100, '2026-07-01')], NOW), null);
+  assertEquals(priceJump([P(5, '2026-10-01'), P(0, '2026-09-01'), P(0, '2026-08-01')], NOW), null);
+  // 20:00 UTC on 15 Oct is already 16 Oct in Manila: 365 days back is 2025-10-16, so a 2025-10-15 purchase is outside the window
+  const late = new Date('2026-10-15T20:00:00Z');
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01'), P(100, '2025-10-15')], late), null);
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01'), P(100, '2025-10-16')], late), 100);
+});
+
+Deno.test('Finance order widths (F5): sum to 1 and the Item column keeps 0.22', () => {
+  const w = buildReport('order', 'finance', ITEMS, [], NOW, 'L').widths;
+  assertEquals(w, [0.22, 0.07, 0.07, 0.08, 0.15, 0.14, 0.14, 0.13]);
+  assertEquals(Math.round(w.reduce((a, b) => a + b, 0) * 1e6) / 1e6, 1);
+});
