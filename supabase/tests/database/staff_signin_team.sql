@@ -1,7 +1,7 @@
 -- Session 88: staff_signin_list_v2, the sign-in name list with a team column (staff | admin).
 -- Synthetic accounts only (e-mails zz.st.*); every row assertion filters on that prefix. Inside begin/rollback.
 begin;
-select plan(14);
+select plan(13);
 
 select ok((select p.prosecdef and p.proconfig = array['search_path=""'] from pg_proc p where p.oid = 'public.staff_signin_list_v2()'::regprocedure),
   'v2 is security definer with an empty search_path');
@@ -44,6 +44,8 @@ select ok((select bool_and(team = 'staff') from public.staff_signin_list_v2() wh
 select ok((select bool_and(team = 'admin') from public.staff_signin_list_v2() where handle in
   ('zz.st.owner@example.test', 'zz.st.admin@example.test', 'zz.st.finance@example.test')),
   'owner, admin and finance are admin');
+-- the two join checks read auth.users and staff_access_profiles, which anon cannot read: run them as the owner.
+reset role;
 select is((select count(*)::int from public.staff_signin_list_v2() v join auth.users u on lower(u.email) = v.handle
    join public.staff_access_profiles p on p.user_id = u.id where v.team = 'staff' and p.role in ('owner', 'admin', 'finance')), 0,
   'no owner, admin or finance row is staff');
