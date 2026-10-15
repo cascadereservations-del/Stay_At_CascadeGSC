@@ -13,6 +13,7 @@ export type SupState = {
 };
 
 const esc = (s: unknown) => String(s ?? '').replace(/([_*`\[])/g, '\\$1');
+export const cleanVendor = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 export const lowerVendor = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 80);
 export const truncVendor = (v: string, max = 18) => { const t = v.trim().replace(/\s+/g, ' '); return t.length <= max ? t : t.slice(0, max).trimEnd() + '...'; };
 
@@ -33,7 +34,7 @@ export function supplierLine(s: SupState, vendor: string): string | null {
   if (s.state === 'off') return null;
   if (s.state === 'matched' || s.state === 'chosen') return `Supplier: ${esc(s.name)}`;
   if (s.state === 'skipped') return 'Supplier: left blank';
-  return `Supplier: not in the list yet ("${esc(vendor)}")`;
+  return `Supplier: not in the list yet ("${esc(cleanVendor(vendor))}")`;
 }
 
 export function renderSyncCard(p: { items: any[]; unmatched?: string[]; vendor?: string | null; sup?: SupState }): string {
@@ -44,11 +45,11 @@ export function renderSyncCard(p: { items: any[]; unmatched?: string[]; vendor?:
 }
 
 /** One row: Is it X? (up to 3), New: <vendor>, Skip. `prefix` is invsup (receipt card) or invchs (after apply). */
-export function choiceRow(prefix: string, pid: string, choices: Sup[], vendor: string): any[] {
+export function choiceRow(prefix: string, pid: string, choices: Sup[], vendor: string, skipLabel = "Skip"): any[] {
   return [
     ...choices.slice(0, 3).map((c, i) => ({ text: `Is it ${c.name.slice(0, 20)}?`, callback_data: `${prefix}:${pid}:${i}` })),
     ...(vendor ? [{ text: `New: ${truncVendor(vendor)}`, callback_data: `${prefix}:${pid}:n` }] : []),
-    { text: 'Skip', callback_data: `${prefix}:${pid}:s` },
+    { text: skipLabel, callback_data: `${prefix}:${pid}:s` },
   ];
 }
 
@@ -74,7 +75,7 @@ export async function topSuppliers(db: any, propertyId: string): Promise<{ list:
 /** Resolver + most-used list. Any missing-schema error means the feature is off. Never throws. */
 export async function buildSupState(db: any, propertyId: string, vendor: string | null | undefined): Promise<SupState> {
   const off: SupState = { state: 'off', choices: [] };
-  const v = String(vendor ?? '').trim();
+  const v = cleanVendor(vendor);
   if (!v) return off;
   try {
     const { data: rid, error: re } = await db.rpc('s_inventory_supplier_resolve_v1', { p_property_id: propertyId, p_name: v });
@@ -92,12 +93,13 @@ export async function buildSupState(db: any, propertyId: string, vendor: string 
 /** Resolve a tap code to a supplier; teaches the vendor spelling (R11) or creates the supplier (R10). null = nothing changed. */
 export async function pickSupplier(db: any, propertyId: string, choices: Sup[], vendor: string, code: string): Promise<Sup | 'skip' | null> {
   if (code === 's') return 'skip';
+  vendor = cleanVendor(vendor);
   const alias = lowerVendor(vendor);
   try {
     if (code === 'n') {
-      const { data, error } = await db.rpc('s_inventory_supplier_create_v1', { p_property_id: propertyId, p_name: vendor.trim().slice(0, 80), p_alias: alias });
+      const { data, error } = await db.rpc('s_inventory_supplier_create_v1', { p_property_id: propertyId, p_name: vendor.slice(0, 80), p_alias: alias });
       if (error || !data?.ok || !data.supplier_id) return null;
-      return { id: data.supplier_id, name: vendor.trim().slice(0, 80) };
+      return { id: data.supplier_id, name: vendor.slice(0, 80) };
     }
     const sup = choices[Number(code)];
     if (!sup) return null;

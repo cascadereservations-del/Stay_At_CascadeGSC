@@ -40,6 +40,7 @@ import { type FeeResult, feeResultOf, payDay, rateNote } from '../_shared/cleani
 import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
 import { onInquiryPaid, onInquiryReason, onIqTap, onReceiptConfirm, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet; SPEC-44: Paid – confirm and the receipt Confirm
 import { parsePaidReply } from '../_shared/cascade-core/inquiry.ts';
+import { redactForLog } from '../_shared/redaction.ts';
 import { applyPurchase, buildSupState, changePurchasesSupplier, choiceRow, parseCb, pickSupplier, renderSyncCard, syncKeyboard, topSuppliers } from './supplier.ts'; // s86 D-tg (SPEC 3.3): supplier on the inventory receipt card
 import { liveSendIO } from './inquiry-send.ts';
 import { parseReason, noticeTitle } from './reply.ts'; // noticeTitle: D-306, OPS notice titles are masked
@@ -1667,14 +1668,14 @@ async function handleCallbackQueryInner(cq:any,db:any){
     const results:string[]=[];const purchaseIds:string[]=[];for(const it of (payload.items??[])){const{data:r,error}=await applyPurchase(db,it,payload);if(!error&&r?.ok){results.push(`  • ${mdEsc(r.name)}: ${Number(r.qty_before)} → ${Number(r.qty_after)}`);if(r.purchase_id)purchaseIds.push(String(r.purchase_id));}else results.push(`  • ${mdEsc(it.item_name)}: ⚠️ failed`);}
     const supLine=payload.sup?.supplier_id?[`Supplier: ${mdEsc(payload.sup.name)}`]:[];
     // s86 D-tg: "Change supplier" for 24 h (R12). Only when the supplier step is live and this chat is Finance.
-    let chg:any=undefined;if(isFinanceChat(chatId)&&purchaseIds.length&&payload.sup&&payload.sup.state!=='off'){const t=await topSuppliers(db,PROPERTY_ID);if(t){const cp=await createPending(db,chatId,'inventory_supplier_change',{ids:purchaseIds,vendor:payload.vendor??'',choices:t.top},24*60);if(cp)chg={inline_keyboard:[[{text:'Change supplier',callback_data:`invchg:${cp}`}]]};}}
+    let chg:any=undefined;if(isFinanceChat(chatId)&&purchaseIds.length&&payload.sup&&payload.sup.state!=='off'){const t=await topSuppliers(db,PROPERTY_ID);if(t){const cp=await createPending(db,chatId,'inventory_sync',{stage:'change',ids:purchaseIds,vendor:payload.vendor??'',choices:t.top},24*60);if(cp)chg={inline_keyboard:[[{text:'Change supplier',callback_data:`invchg:${cp}`}]]};else console.error('supplier change row not saved',redactForLog(`txn ${String(payload.txnId??'')} items ${purchaseIds.length}`));}}
     await tgEdit(chatId,msgId,[`📦 *Inventory updated*`,...results,...supLine].join('\n'),chg);return;
   }
   if(data.startsWith('invsup:')){
     // Supplier choice on the receipt card: stored in the pending payload, nothing is written until Apply.
     const cb=parseCb(data,'invsup');if(!cb||!isFinanceChat(chatId))return;
-    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',cb.pid).maybeSingle();
-    if(!row||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
+    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',cb.pid).eq('kind','inventory_sync').eq('chat_id',chatId).maybeSingle();
+    if(!row||row.payload?.stage==='change'||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
     const pl=row.payload;const r=await pickSupplier(db,PROPERTY_ID,pl.sup?.choices??[],String(pl.vendor??''),cb.code);
     if(!r){await tgSend(chatId,'Could not set the supplier just now, so nothing changed. Tap it again in a minute.');return;}
     pl.sup=r==='skip'?{...pl.sup,state:'skipped',supplier_id:null,name:null}:{...pl.sup,state:'chosen',supplier_id:r.id,name:r.name};
@@ -1683,14 +1684,14 @@ async function handleCallbackQueryInner(cq:any,db:any){
   }
   if(data.startsWith('invchg:')){
     const pid=data.slice('invchg:'.length);if(!isFinanceChat(chatId))return;
-    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',pid).maybeSingle();
-    if(!row||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,(cq.message?.text??firstLine)+'\n⏰ _The 24 hours to change the supplier are over._');return;}
-    await tgEdit(chatId,msgId,cq.message?.text??firstLine,{inline_keyboard:[choiceRow('invchs',pid,row.payload.choices??[],String(row.payload.vendor??''))]});return;
+    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',pid).eq('kind','inventory_sync').eq('chat_id',chatId).maybeSingle();
+    if(!row||row.payload?.stage!=='change'||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,(cq.message?.text??firstLine)+'\n⏰ _The 24 hours to change the supplier are over._');return;}
+    await tgEdit(chatId,msgId,cq.message?.text??firstLine,{inline_keyboard:[choiceRow('invchs',pid,row.payload.choices??[],String(row.payload.vendor??''),'Keep as is')]});return;
   }
   if(data.startsWith('invchs:')){
     const cb=parseCb(data,'invchs');if(!cb||!isFinanceChat(chatId))return;
-    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',cb.pid).maybeSingle();
-    if(!row||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,(cq.message?.text??firstLine)+'\n⏰ _The 24 hours to change the supplier are over._');return;}
+    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',cb.pid).eq('kind','inventory_sync').eq('chat_id',chatId).maybeSingle();
+    if(!row||row.payload?.stage!=='change'||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,(cq.message?.text??firstLine)+'\n⏰ _The 24 hours to change the supplier are over._');return;}
     const pl=row.payload;const keep=cq.message?.text??firstLine;const again={inline_keyboard:[[{text:'Change supplier',callback_data:`invchg:${cb.pid}`}]]};
     if(cb.code==='s'){await tgEdit(chatId,msgId,keep,again);return;}
     const r=await pickSupplier(db,PROPERTY_ID,pl.choices??[],String(pl.vendor??''),cb.code);

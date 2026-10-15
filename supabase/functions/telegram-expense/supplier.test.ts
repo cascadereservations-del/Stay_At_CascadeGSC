@@ -1,7 +1,7 @@
 // deno test --allow-read supabase/functions/telegram-expense/supplier.test.ts - s86 lane D-tg (SPEC 3.3): supplier on the receipt card.
 // deno-lint-ignore-file no-explicit-any
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { applyPurchase, buildSupState, changePurchasesSupplier, choiceRow, isMissingSchema, parseCb, pickSupplier, rankSuppliers, renderSyncCard, syncKeyboard, truncVendor } from './supplier.ts';
+import { applyPurchase, buildSupState, cleanVendor, changePurchasesSupplier, choiceRow, isMissingSchema, parseCb, pickSupplier, rankSuppliers, renderSyncCard, syncKeyboard, truncVendor } from './supplier.ts';
 
 const PID = '11111111-2222-3333-4444-555555555555';
 const SM = { id: 'sm', name: 'SM' }, KCC = { id: 'kcc', name: 'KCC' }, ROB = { id: 'rob', name: 'Robinsons' }, EXTRA = { id: 'x', name: 'Zed' };
@@ -141,4 +141,36 @@ Deno.test('index.ts wiring: Finance-only buttons, apply and change go through su
   for (const h of ["data.startsWith('invsup:')", "data.startsWith('invchg:')", "data.startsWith('invchs:')"]) assertStringIncludes(src, h);
   assertEquals(src.split('parseCb(data,').length - 1, 2);
   assertEquals(src.split('||!isFinanceChat(chatId))return;').length - 1, 2);
+});
+
+// s86 D-tg r2 (review F1): the live telegram_pending_kind_check (migration 20261005100000_telegram_inquiry_decisions.sql; later
+// migrations only add staff-pay / block-triage kinds) refuses any other kind, silently. A fake db cannot see that, so check the literals.
+const ALLOWED_KINDS = ['duplicate', 'large_amount', 'photo_dup', 'inventory_sync', 'advisory_notice', 'advisory_scan', 'llm_expense', 'llm_notice',
+  'llm_void_notice', 'llm_void_txn', 'llm_void_txns', 'llm_edit_notice', 'inventory_count', 'awaiting_reply', 'llm_house', 'guest_pick', 'guest_save',
+  'refund_confirm', 'inquiry_reply', 'lock_code'];
+Deno.test('every pending kind index.ts writes is allowed by telegram_pending_kind_check', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  const kinds = [...src.matchAll(/createPending\(\s*db\s*,\s*\w+\s*,\s*'([a-z_]+)'/g)].map((m) => m[1]);
+  assert(kinds.length > 5);
+  for (const k of new Set(kinds)) assert(ALLOWED_KINDS.includes(k), `pending kind ${k} is not in the live check constraint`);
+});
+
+Deno.test('r2: pending reads are narrowed by kind and chat; change rows ride inventory_sync with stage=change', async () => {
+  const src = (await Deno.readTextFile(new URL('./index.ts', import.meta.url))).replace(/\r\n/g, '\n');
+  assertFalse(src.includes('inventory_supplier_change'));
+  assertStringIncludes(src, "stage:'change'");
+  assertEquals(src.split(".eq('kind','inventory_sync').eq('chat_id',chatId)").length - 1, 3);
+  assertEquals(src.split("row.payload?.stage!=='change'").length - 1, 2);
+  assertStringIncludes(src, "'Keep as is'");
+});
+
+Deno.test('r2: vendor whitespace is cleaned before it becomes a name, alias or card line', async () => {
+  assertEquals(cleanVendor('  SM\nSUPER \t MARKET '), 'SM SUPER MARKET');
+  const a = fakeDb();
+  const r = await pickSupplier(a.db, 'prop', [], 'SM\nSUPER  MARKET', 'n');
+  assertEquals(a.calls[0][1].p_name, 'SM SUPER MARKET');
+  assertEquals(r, { id: 'new1', name: 'SM SUPER MARKET' });
+  assertFalse(renderSyncCard({ items, vendor: 'SM\nX', sup: { state: 'pick', choices: [] } }).includes('SM\nX'));
+  assertEquals(choiceRow('invchs', PID, [], 'V', 'Keep as is').at(-1)!.text, 'Keep as is');
+  assertEquals(choiceRow('invsup', PID, [], 'V').at(-1)!.text, 'Skip');
 });
