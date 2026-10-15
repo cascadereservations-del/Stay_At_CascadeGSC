@@ -277,7 +277,7 @@ insert into _t select 'x_fi', pg_temp.try(format($q$select public.inventory_undo
 reset role;
 select is((select v->>'reason' from _t where k = 'x_moved'), 'stock_moved', 'undo: refused when a later change exists');
 select is((select v->>'reason' from _t where k = 'x_late'), 'too_late', 'undo: refused after 15 minutes');
-select is((select v->>'err' from _t where k = 'x_cl'), '42501', 'undo: a cleaner is refused');
+select is((select v->>'reason' from _t where k = 'x_cl'), 'not_yours', 'undo: a cleaner cannot undo someone else''s count (s85: refused as not_yours, was 42501)');
 select is((select v->>'err' from _t where k = 'x_fi'), '42501', 'undo: finance is refused');
 
 -- a receipt on a movement-controlled item: undo by purchase + movement deletes the app purchase
