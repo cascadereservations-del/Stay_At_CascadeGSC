@@ -34,7 +34,16 @@ async function inventory(req: Request, v: ParsedUpload): Promise<Response> {
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 
   if (v.action === 'sign') {
-    const { data, error } = await supabase.storage.from('inventory-photos').createSignedUrls(v.paths as string[], SEVEN_DAYS);
+    // Tie the paths to the property: only items of v.propertyId (inactive ones too, so their photo still shows) are signed. A path for
+    // another property's item is left out exactly like a missing object. ponytail: up to 200 ids go in the in.() URL (about 7.4 KB);
+    // switch to an RPC if paths ever exceed that.
+    const ids = [...new Set((v.paths as string[]).map((p) => p.split('/')[1]))];
+    const { data: own, error: ownError } = await supabase.from('inventory_items').select('id').eq('property_id', v.propertyId).in('id', ids);
+    if (ownError) throw ownError;
+    const mine = new Set((own ?? []).map((r) => String(r.id)));
+    const allowed = (v.paths as string[]).filter((p) => mine.has(p.split('/')[1]));
+    if (!allowed.length) return json({ ok: true, urls: {} });
+    const { data, error } = await supabase.storage.from('inventory-photos').createSignedUrls(allowed, SEVEN_DAYS);
     if (error) throw error;
     const urls: Record<string, string> = {};
     for (const r of data ?? []) if (!r.error && r.signedUrl && r.path) urls[r.path] = r.signedUrl;
@@ -47,7 +56,7 @@ async function inventory(req: Request, v: ParsedUpload): Promise<Response> {
   if (itemError) throw itemError;
   if (!rows?.length) return json({ ok: false, error: 'item_not_found' }, 404);
 
-  const path = `items/${v.itemId}/${crypto.randomUUID()}.${ext}`;
+  const path = `items/${v.itemId!.toLowerCase()}/${crypto.randomUUID()}.${ext}`;
   const { data, error } = await supabase.storage.from('inventory-photos')
     .upload(path, v.bytes, { contentType: v.mimeType, upsert: false, cacheControl: '31536000' });
   if (error) throw error;

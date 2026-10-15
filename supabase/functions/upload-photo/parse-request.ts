@@ -29,7 +29,7 @@ export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 // Inventory item photos are resized on the phone to about 100 KB; 1 MB is the ceiling (matches the bucket file_size_limit).
 export const MAX_INVENTORY_BYTES = 1024 * 1024;
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-export const INVENTORY_PATH_RE = new RegExp(`^items/${UUID}/${UUID}\\.(jpg|webp)$`, 'i');
+export const INVENTORY_PATH_RE = new RegExp(`^items/${UUID}/${UUID}\\.(jpg|webp)$`); // lower case only: storage names are case-sensitive and R7 checks lower-case ids
 
 // Decode a base64 string that may or may not carry a data-URI prefix.
 export function decodeBase64(raw: string): Uint8Array {
