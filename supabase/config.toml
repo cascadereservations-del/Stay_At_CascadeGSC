@@ -454,3 +454,6 @@ verify_jwt = false
 
 [functions.inventory-report]
 verify_jwt = true
+
+[functions.inventory-categorise]
+verify_jwt = true

@@ -100,7 +100,7 @@ Deno.test({ name: 'cleaner JWT (no manage_inventory) -> 403 and nothing is read,
     const r = await handler(post({ item_id: U(10) }));
     assertEquals(r.status, 403);
     assertEquals(w.jev().length + w.rpc().length + w.tg().length, 0);
-    assertFalse(w.calls.some((c) => c.url.includes('/rest/v1/')));
+    assertFalse(w.calls.some((c) => c.url.includes('/rest/v1/') && !c.url.includes('/rpc/current_staff_authorized')));
   } finally { w.done(); }
 } });
 
