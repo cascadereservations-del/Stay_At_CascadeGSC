@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "release_id": "s85_cleaner_count_20261018",
-  "phase": "expand",
+  "phase": "backfill",
   "source": {
     "branch": "s85/cleaner-count",
     "commit": "227921cc2abc15c74c23453628d7ed9c96914bdc"
