@@ -12,8 +12,10 @@
     "npm:@supabase/postgrest-js@2.112.4": "2.112.4",
     "npm:@supabase/realtime-js@2.112.4": "2.112.4",
     "npm:@supabase/storage-js@2.112.4": "2.112.4",
+    "npm:jsqr@1.4.0": "1.4.0",
     "npm:openai@^4.52.5": "4.104.0",
     "npm:pdf-lib@1.17.1": "1.17.1",
+    "npm:qrcode-generator@1.4.4": "1.4.4",
     "npm:serve@latest": "14.2.6"
   },
   "jsr": {
@@ -475,6 +477,9 @@
     "json-schema-traverse@1.0.0": {
       "integrity": "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug=="
     },
+    "jsqr@1.4.0": {
+      "integrity": "sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A=="
+    },
     "math-intrinsics@1.1.0": {
       "integrity": "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="
     },
@@ -592,6 +597,9 @@
         "fsevents"
       ],
       "bin": true
+    },
+    "qrcode-generator@1.4.4": {
+      "integrity": "sha512-HM7yY8O2ilqhmULxGMpcHSF1EhJJ9yBj8gvDEuZ6M+KGJ0YY2hKpnXvRD+hZPLrDVck3ExIGhmPtSdcjC+guuw=="
     },
     "range-parser@1.2.0": {
       "integrity": "sha512-kA5WQoNVo4t9lNx2kQNFCxKeBl5IbbSNBl1M/tLkw9WCn+hxNBAW5Qh8gdhs63CJnhjJ2zQWFoqPJP2sK1AV5A=="
