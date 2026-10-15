@@ -40,6 +40,7 @@ import { type FeeResult, feeResultOf, payDay, rateNote } from '../_shared/cleani
 import { onPayReqPhoto, onPayReqTap } from './staffpay-flow.ts'; // session 70 (SPEC-37): Finance taps and the transfer screenshot of a staff payment request
 import { onInquiryPaid, onInquiryReason, onIqTap, onReceiptConfirm, sendRequests, type Deps as IqDeps } from './inquiry-flow.ts'; // SPEC-38 (session 70): hold / decline / Cassy reply on a request that has not paid yet; SPEC-44: Paid – confirm and the receipt Confirm
 import { parsePaidReply } from '../_shared/cascade-core/inquiry.ts';
+import { applyPurchase, buildSupState, changePurchasesSupplier, choiceRow, parseCb, pickSupplier, renderSyncCard, syncKeyboard, topSuppliers } from './supplier.ts'; // s86 D-tg (SPEC 3.3): supplier on the inventory receipt card
 import { liveSendIO } from './inquiry-send.ts';
 import { parseReason, noticeTitle } from './reply.ts'; // noticeTitle: D-306, OPS notice titles are masked
 import { overTotalWarning, parseDirRef, refundCard, refundGate, type Payer } from './refund.ts'; // SPEC-42 9a: a refund goes only to the account that paid
@@ -752,7 +753,8 @@ async function promptEditItem(db:any,chatId:any,txnId:string){const txn=await lo
 async function promptRemoveItem(db:any,chatId:any,txnId:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}const items=normalizeLineItems(txn.ocr_raw?.line_items);if(!items.length){await tgSend(chatId,'No items to remove.');return;}await tgSend(chatId,'🗑️ Tap the item to remove.',{reply_markup:{inline_keyboard:itemButtons(items,'item_rm',txnId)}});}
 async function handleItemEditAnswer(db:any,chatId:any,msg:any,txn:any,index:number,parsed:ReturnType<typeof parseNamePriceQty>){const items=normalizeLineItems(txn.ocr_raw?.line_items);const it=items[index-1];if(!it){await tgReply(chatId,msg.message_id,'⚠️ That item is no longer on the receipt. Tap ✏️ Edit item again.');return;}if(parsed.name)it.name=parsed.name;it.unit_price=parsed.price!;if(parsed.qtyExplicit)it.qty=parsed.qty;await persistItems(db,txn.id,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txn.id,`✏️ Item ${index} updated.`);}
 async function handleItemAddAnswer(db:any,chatId:any,txn:any,parsed:ReturnType<typeof parseNamePriceQty>){const items=normalizeLineItems(txn.ocr_raw?.line_items);items.push({name:parsed.name,qty:parsed.qty,unit_price:parsed.price!});await persistItems(db,txn.id,txn.ocr_raw,items);await sendReceiptCard(db,chatId,txn.id,`➕ Added "${mdEsc(parsed.name)}".`);}
-async function maybeOfferInventorySync(db:any,chatId:any,txnId:string){const{data:txn}=await db.from('transactions').select('category,payee_name,transaction_date,ocr_raw').eq('id',txnId).maybeSingle();if(!txn||!STOCKABLE_CATS.has(txn.category))return;const rawItems=Array.isArray(txn.ocr_raw?.line_items)?txn.ocr_raw.line_items:[];if(!rawItems.length)return;const matched:any[]=[],unmatched:string[]=[];for(const it of rawItems){const name=(typeof it==='string'?it:String(it?.name??'')).trim();if(!name)continue;const qty=(typeof it==='object'&&Number(it?.qty)>0)?Number(it.qty):1;const unitPrice=(typeof it==='object'&&Number(it?.unit_price)>0)?Number(it.unit_price):null;const{data:m}=await db.rpc('match_inventory_item',{p_name:name,p_limit:1});const best=Array.isArray(m)&&m.length?m[0]:null;if(best)matched.push({item_id:best.id,item_name:best.name,qty,unit_price:unitPrice});else unmatched.push(name);}if(!matched.length)return;const pid=await createPending(db,chatId,'inventory_sync',{txnId,vendor:txn.payee_name??null,date:txn.transaction_date??null,items:matched});const lines=matched.map((m:any)=>`  • ${mdEsc(m.item_name)}  +${m.qty}`);const tail=unmatched.length?[``,`_Not tracked: ${mdEsc(unmatched.join(', '))}_`]:[];await tgSend(chatId,[`📦 *Update inventory?*`,`${matched.length} item(s) from this receipt match your stock:`,...lines,...tail].join('\n'),{reply_markup:invSyncKeyboard(pid)});}
+async function maybeOfferInventorySync(db:any,chatId:any,txnId:string){const{data:txn}=await db.from('transactions').select('category,payee_name,transaction_date,ocr_raw').eq('id',txnId).maybeSingle();if(!txn||!STOCKABLE_CATS.has(txn.category))return;const rawItems=Array.isArray(txn.ocr_raw?.line_items)?txn.ocr_raw.line_items:[];if(!rawItems.length)return;const matched:any[]=[],unmatched:string[]=[];for(const it of rawItems){const name=(typeof it==='string'?it:String(it?.name??'')).trim();if(!name)continue;const qty=(typeof it==='object'&&Number(it?.qty)>0)?Number(it.qty):1;const unitPrice=(typeof it==='object'&&Number(it?.unit_price)>0)?Number(it.unit_price):null;const{data:m}=await db.rpc('match_inventory_item',{p_name:name,p_limit:1});const best=Array.isArray(m)&&m.length?m[0]:null;if(best)matched.push({item_id:best.id,item_name:best.name,qty,unit_price:unitPrice});else unmatched.push(name);}if(!matched.length)return;// s86 D-tg: only the Finance chat gets the supplier line and buttons (only ocr_ok reaches here); elsewhere the card is unchanged and the SQL resolver still links exact matches.
+const sup=isFinanceChat(chatId)?await buildSupState(db,PROPERTY_ID,txn.payee_name):{state:'off' as const,choices:[]};const payload={txnId,vendor:txn.payee_name??null,date:txn.transaction_date??null,items:matched,unmatched,sup};const pid=await createPending(db,chatId,'inventory_sync',payload);await tgSend(chatId,renderSyncCard(payload),{reply_markup:syncKeyboard(pid,sup,String(txn.payee_name??''))});}
 /* SPEC-03 (session 33), SPEC-16 (session 37): /count sends one card of item buttons; a tap asks for that item's
    new count, the card redraws with the change, and Apply writes it. Anyone in Finance may start and type a count;
    authorisation happens at the Apply tap, in the database, exactly like the booking Confirm. */
@@ -1662,8 +1664,38 @@ async function handleCallbackQueryInner(cq:any,db:any){
   if(data.startsWith('item_remove:')) {await promptRemoveItem(db,chatId,data.slice('item_remove:'.length));return;}
   if(data.startsWith('invsync_ok:')){
     const payload=await consumePending(db,data.slice('invsync_ok:'.length));if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
-    const results:string[]=[];for(const it of (payload.items??[])){const{data:r,error}=await db.rpc('apply_inventory_purchase',{p_item_id:it.item_id,p_qty:it.qty,p_unit_cost:it.unit_price??null,p_supplier:payload.vendor??null,p_purchased_at:payload.date??null,p_txn_id:payload.txnId??null});if(!error&&r?.ok)results.push(`  • ${mdEsc(r.name)}: ${Number(r.qty_before)} → ${Number(r.qty_after)}`);else results.push(`  • ${mdEsc(it.item_name)}: ⚠️ failed`);}
-    await tgEdit(chatId,msgId,[`📦 *Inventory updated*`,...results].join('\n'));return;
+    const results:string[]=[];const purchaseIds:string[]=[];for(const it of (payload.items??[])){const{data:r,error}=await applyPurchase(db,it,payload);if(!error&&r?.ok){results.push(`  • ${mdEsc(r.name)}: ${Number(r.qty_before)} → ${Number(r.qty_after)}`);if(r.purchase_id)purchaseIds.push(String(r.purchase_id));}else results.push(`  • ${mdEsc(it.item_name)}: ⚠️ failed`);}
+    const supLine=payload.sup?.supplier_id?[`Supplier: ${mdEsc(payload.sup.name)}`]:[];
+    // s86 D-tg: "Change supplier" for 24 h (R12). Only when the supplier step is live and this chat is Finance.
+    let chg:any=undefined;if(isFinanceChat(chatId)&&purchaseIds.length&&payload.sup&&payload.sup.state!=='off'){const t=await topSuppliers(db,PROPERTY_ID);if(t){const cp=await createPending(db,chatId,'inventory_supplier_change',{ids:purchaseIds,vendor:payload.vendor??'',choices:t.top},24*60);if(cp)chg={inline_keyboard:[[{text:'Change supplier',callback_data:`invchg:${cp}`}]]};}}
+    await tgEdit(chatId,msgId,[`📦 *Inventory updated*`,...results,...supLine].join('\n'),chg);return;
+  }
+  if(data.startsWith('invsup:')){
+    // Supplier choice on the receipt card: stored in the pending payload, nothing is written until Apply.
+    const cb=parseCb(data,'invsup');if(!cb||!isFinanceChat(chatId))return;
+    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',cb.pid).maybeSingle();
+    if(!row||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
+    const pl=row.payload;const r=await pickSupplier(db,PROPERTY_ID,pl.sup?.choices??[],String(pl.vendor??''),cb.code);
+    if(!r){await tgSend(chatId,'Could not set the supplier just now, so nothing changed. Tap it again in a minute.');return;}
+    pl.sup=r==='skip'?{...pl.sup,state:'skipped',supplier_id:null,name:null}:{...pl.sup,state:'chosen',supplier_id:r.id,name:r.name};
+    await db.from('telegram_pending').update({payload:pl}).eq('id',cb.pid);
+    await tgEdit(chatId,msgId,renderSyncCard(pl),syncKeyboard(cb.pid,pl.sup,String(pl.vendor??'')));return;
+  }
+  if(data.startsWith('invchg:')){
+    const pid=data.slice('invchg:'.length);if(!isFinanceChat(chatId))return;
+    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',pid).maybeSingle();
+    if(!row||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,(cq.message?.text??firstLine)+'\n⏰ _The 24 hours to change the supplier are over._');return;}
+    await tgEdit(chatId,msgId,cq.message?.text??firstLine,{inline_keyboard:[choiceRow('invchs',pid,row.payload.choices??[],String(row.payload.vendor??''))]});return;
+  }
+  if(data.startsWith('invchs:')){
+    const cb=parseCb(data,'invchs');if(!cb||!isFinanceChat(chatId))return;
+    const{data:row}=await db.from('telegram_pending').select('payload,expires_at').eq('id',cb.pid).maybeSingle();
+    if(!row||new Date(row.expires_at)<new Date()){await tgEdit(chatId,msgId,(cq.message?.text??firstLine)+'\n⏰ _The 24 hours to change the supplier are over._');return;}
+    const pl=row.payload;const keep=cq.message?.text??firstLine;const again={inline_keyboard:[[{text:'Change supplier',callback_data:`invchg:${cb.pid}`}]]};
+    if(cb.code==='s'){await tgEdit(chatId,msgId,keep,again);return;}
+    const r=await pickSupplier(db,PROPERTY_ID,pl.choices??[],String(pl.vendor??''),cb.code);
+    if(!r||r==='skip'||!await changePurchasesSupplier(db,pl.ids??[],r.id)){await tgEdit(chatId,msgId,keep+'\nCould not change the supplier, so it stays as it was.',again);return;}
+    await tgEdit(chatId,msgId,keep.replace(/\nSupplier: .*$/m,'')+`\nSupplier: ${mdEsc(r.name)}`,again);return;
   }
   if(data.startsWith('invsync_skip:')){await db.from('telegram_pending').delete().eq('id',data.slice('invsync_skip:'.length));await tgEdit(chatId,msgId,firstLine+'\n⏭️ _Stock unchanged._');return;}
 }
