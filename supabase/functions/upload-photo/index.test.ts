@@ -17,7 +17,7 @@ interface Call { method: string; url: string; headers: Record<string, string>; j
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 const bearerKind = (v: string | null) => (v === 'Bearer service-key' ? 'service' : v === 'Bearer anon-key' ? 'anon' : v === 'Bearer staff.jwt' ? 'staff' : String(v));
 
-interface WorldOpts { allowed?: string[]; item?: Record<string, unknown> | null; missing?: string[]; uploadError?: boolean }
+interface WorldOpts { owned?: string[]; allowed?: string[]; item?: Record<string, unknown> | null; missing?: string[]; uploadError?: boolean }
 
 async function world(o: WorldOpts = {}) {
   const calls: Call[] = [];
@@ -59,6 +59,11 @@ async function world(o: WorldOpts = {}) {
       return json({ Key: url.replace('/storage/v1/object/', ''), Id: 'obj' });
     }
     if (url.startsWith('/rest/v1/staff_upload_hashes')) return new Response(null, { status: 201 });
+    if (url.startsWith('/rest/v1/inventory_items') && url.includes('id=in.')) {
+      // sign ownership lookup: only the ids that belong to the property named in the query come back
+      const asked = decodeURIComponent(url.split('id=in.')[1]).replace(/[()"&].*$/, '').split(',');
+      return json((o.owned ?? [ITEM]).filter((id) => asked.includes(id) && url.includes(`property_id=eq.${PROPERTY}`)).map((id) => ({ id })));
+    }
     if (url.startsWith('/rest/v1/inventory_items')) {
       const item = o.item === undefined ? { id: ITEM, property_id: PROPERTY, is_active: true } : o.item;
       return json(item ? [item] : []);
@@ -197,9 +202,13 @@ Deno.test({ name: 'sign: read_operations gate, one createSignedUrls call for 7 d
     assertEquals(res.status, 200);
     assertEquals(await res.json(), { ok: true, urls: { [ok1]: `${URL_}/storage/v1/object/sign/inventory-photos/${ok1}?token=t` } });
     assertEquals(rpcActions(w.calls), ['read_operations']);
+    const own = w.calls.filter((c) => c.url.startsWith('/rest/v1/inventory_items'));
+    assertEquals(own.length, 1);
+    assertEquals(own[0].headers.auth, 'service');
+    assert(own[0].url.includes(`property_id=eq.${PROPERTY}`) && !own[0].url.includes('is_active'), own[0].url);
     const signs = w.calls.filter((c) => c.url === '/storage/v1/object/sign/inventory-photos');
     assertEquals(signs.length, 1);
-    assertEquals(signs[0].json, { expiresIn: 604800, paths: [ok1, gone] });
+    assertEquals(signs[0].json, { expiresIn: 604800, paths: [ok1] }); // OTHER_ITEM is not this property's item, so it is left out like a missing object
     assertEquals(signs[0].headers.auth, 'service');
   } finally { w.done(); }
 } });
@@ -223,5 +232,54 @@ Deno.test({ name: 'sign refusals: bad/empty/too many paths 400 invalid_path befo
     const res = await w.handler(post({ purpose: 'inventory', action: 'sign', propertyId: PROPERTY, paths: [good] }));
     assertEquals(res.status, 403);
     noStorage(w.calls);
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'sign is tied to the property: another property\'s item path is left out of urls and of the storage call', ...OPT, fn: async () => {
+  const mine = `items/${ITEM}/${OBJ_UUID}.jpg`, theirs = `items/${OTHER_ITEM}/${OBJ_UUID}.jpg`;
+  let w = await world({ owned: [ITEM] });
+  try {
+    const res = await w.handler(post({ purpose: 'inventory', action: 'sign', propertyId: PROPERTY, paths: [mine, theirs] }));
+    assertEquals(res.status, 200);
+    assertEquals(Object.keys((await res.json()).urls), [mine]);
+    assertEquals(w.calls.find((c) => c.url === '/storage/v1/object/sign/inventory-photos')!.json, { expiresIn: 604800, paths: [mine] });
+  } finally { w.done(); }
+  w = await world({ owned: [] });
+  try {
+    const res = await w.handler(post({ purpose: 'inventory', action: 'sign', propertyId: PROPERTY, paths: [theirs] }));
+    assertEquals(await res.json(), { ok: true, urls: {} });
+    noStorage(w.calls);
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'upper-case itemId is stored under a lower-case path (R7 accepts lower case only); upper-case sign paths are refused', ...OPT, fn: async () => {
+  const w = await world();
+  try {
+    const UPPER = 'ABCDEF01-2222-4222-8222-222222222222';
+    const res = await w.handler(post(invBody({ itemId: UPPER })));
+    assertEquals(res.status, 200);
+    assertEquals((await res.json()).path, `items/${UPPER.toLowerCase()}/${OBJ_UUID}.webp`);
+    const bad = await w.handler(post({ purpose: 'inventory', action: 'sign', propertyId: PROPERTY, paths: [`items/${UPPER}/${OBJ_UUID}.jpg`] }));
+    assertEquals(bad.status, 400);
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'cleaning raw-body upload (pay receipts, payment proofs): the exact calls (snapshot, must pass before and after)', ...OPT, fn: async () => {
+  const w = await world();
+  try {
+    const res = await w.handler(new Request(`${URL_}/functions/v1/upload-photo`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer staff.jwt', apikey: 'anon', 'content-type': 'image/jpeg', 'x-cascade-file-name': 'PreClean 1.JPG', 'x-cascade-property-id': PROPERTY, 'x-cascade-submission-id': SUBMISSION },
+      body: new TextEncoder().encode('a'.repeat(1000)),
+    }));
+    assertEquals(res.status, 200);
+    assertEquals(await res.json(), { ok: true, path: CLEAN_PATH, signedUrl: `${URL_}/storage/v1/object/sign/cleaning-photos/${CLEAN_PATH}?token=t`, sha256: SHA });
+    assertEquals(w.calls, [
+      { method: 'GET', url: '/auth/v1/user', headers: { auth: 'staff' } },
+      { method: 'POST', url: '/rest/v1/rpc/current_staff_authorized', headers: { 'content-type': 'application/json', auth: 'staff' }, json: { p_action: 'submit_cleaning', p_property_id: PROPERTY } },
+      { method: 'POST', url: `/storage/v1/object/cleaning-photos/${CLEAN_PATH}`, headers: { 'content-type': 'image/jpeg', 'x-upsert': 'false', 'cache-control': 'max-age=3600', auth: 'service' }, bytes: 1000 },
+      { method: 'POST', url: `/storage/v1/object/sign/cleaning-photos/${CLEAN_PATH}`, headers: { 'content-type': 'application/json', auth: 'service' }, json: { expiresIn: 900 } },
+      { method: 'POST', url: '/rest/v1/staff_upload_hashes', headers: { 'content-type': 'application/json', auth: 'service' }, json: { path: CLEAN_PATH, sha256: SHA, uploaded_by: USER } },
+    ]);
   } finally { w.done(); }
 } });
