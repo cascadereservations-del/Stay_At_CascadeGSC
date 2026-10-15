@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken immediately before this apply",
-    "verified_at": "2026-10-15T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261015T083236Z",
+    "verified_at": "2026-10-15T08:38:19.443Z",
     "production_rule": "SINGLE SHOT: the migration is not re-runnable (a second run stops on its own md5 guard, 55000, nothing changed); to undo apply the rollback. Decision Lloyd 2026-10-15: the admin Staff page edits a person's payout bank or wallet label and QR Ph payload. save_staff_details_v1 gains payout_bank_label (trimmed, 2 to 40 chars, empty or null clears) and validates payout_qrph (null clears; else a string starting 000201, at most 512 chars; 22023 otherwise). The gate is unchanged: manage_staff, which only owner and admin hold. One new read staff_payout_details_v1(uuid) returns {payout_bank_label, has_qr, qr_payload} to owner/admin only (42501 otherwise). No table, column, grant or policy changes. The migration stops (55000) unless the live save_staff_details_v1 is exactly the body cut from (md5 of prosrc, CR stripped: 9605dae1cb79d08cb4e24eb7154623d2, read from production 2026-10-15). Apply AFTER s85_cleaner_count_20261018 (independent of it). restore_point is a placeholder: the release block fills it (fill-restore-point.mjs). Rehearsal: see docs/s85/rehearsal-paydetails.log.",
     "notes": "Deploy order: SQL first, then the admin dashboard (the Payment details section hides itself while staff_payout_details_v1 is missing). No new secret. Known pre-existing: list_staff_details_v1 returns the whole staff_details row (select *), so it already carries payout_qrph and payout_bank_label to manage_staff holders; this release does not change that."
   },
