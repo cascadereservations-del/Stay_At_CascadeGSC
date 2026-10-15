@@ -96,7 +96,7 @@ Deno.test('OPS shopping note: phone, e-mail and an amount are redacted or masked
 
 Deno.test('Finance order: unit cost, estimated cost, total, and items without a price are counted', () => {
   const r = buildReport('order', 'finance', ITEMS, SHOP, NOW, 'Lloyd');
-  assertEquals(r.columns, ['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note']);
+  assertEquals(r.columns, ['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note', 'Where']);
   assertEquals(r.financeLine, 'Finance copy - prices included');
   const rows = Object.fromEntries(flat(r).map((c) => [c[0], c]));
   assertEquals(rows['Hand soap'].slice(4, 6), ['PHP 95.00', 'PHP 1,140.00']); // 12 units x 95
@@ -113,7 +113,7 @@ Deno.test('Finance all / misc: value = on hand x unit cost; total and missing pr
   const misc = buildReport('misc', 'finance', ITEMS, [], NOW, 'L');
   assertEquals(misc.columns, ['Item', 'On hand', 'Unit', 'Unit cost', 'Value', 'Note']);
   assertEquals(misc.totals, ['Total value PHP 600.00', '1 item has no price.']);
-  assertEquals(buildReport('low', 'finance', ITEMS, [], NOW, 'L').columns, ['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost']);
+  assertEquals(buildReport('low', 'finance', ITEMS, [], NOW, 'L').columns, ['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Where']);
 });
 
 Deno.test('OPS: a price or phone typed into a category, unit or purchase unit never reaches a heading or cell (F2, F3)', () => {
@@ -155,4 +155,68 @@ Deno.test('F5 residual: a shopping row in the base unit is not multiplied by uni
   const items = ITEMS.map((i) => (i.id === 'k' ? { ...i, qty: 50, unitsPer: 6 } : i));
   const shop: Shop[] = [{ itemId: 'k', name: 'Sponge', quantity: 3, purchaseUnit: 'pc', note: null, estCost: null }];
   assertEquals(flat(buildReport('order', 'finance', items, shop, NOW, 'L')).find((c) => c[0] === 'Sponge')![5], 'PHP 30.00');
+});
+
+// ---------- s86 D-report: Where column, price-up mark ----------
+import { marksFor, priceJump } from './report.ts';
+
+const P = (cost: number, at: string) => ({ cost, at });
+Deno.test('priceJump: >= 1.20 x median of up to 5 earlier purchases within 365 days, at least 2 earlier', () => {
+  const now = NOW; // 2026-10-15
+  assertEquals(priceJump([P(125, '2026-10-01'), P(100, '2026-09-01'), P(100, '2026-08-01')], now), 25);
+  assertEquals(priceJump([P(120, '2026-10-01'), P(100, '2026-09-01'), P(100, '2026-08-01')], now), 20, 'exactly 1.20 counts');
+  assertEquals(priceJump([P(119, '2026-10-01'), P(100, '2026-09-01'), P(100, '2026-08-01')], now), null);
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01')], now), null, 'one earlier purchase is not enough');
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01'), P(100, '2025-09-01')], now), null, 'older than 365 days does not count');
+  // median of an even set is the mean of the middle two: (100 + 140) / 2 = 120; 144 = 1.20 x 120
+  assertEquals(priceJump([P(144, '2026-10-01'), P(100, '2026-09-01'), P(140, '2026-08-01')], now), 20);
+  // only the 5 earlier purchases nearest the newest count: the old cheap ones are ignored
+  assertEquals(priceJump([P(130, '2026-10-01'), P(125, '2026-09-20'), P(125, '2026-09-10'), P(125, '2026-09-01'), P(125, '2026-08-20'), P(125, '2026-08-10'), P(10, '2026-01-01'), P(10, '2026-01-02')], now), null);
+});
+
+Deno.test('marksFor: preferred supplier wins, else the newest purchase with a supplier, else blank', () => {
+  const sup = new Map([['a', 'SM'], ['b', 'KCC']]);
+  const buys = [
+    { itemId: 'x', supplierId: 'a', unitCost: 10, at: '2026-09-01' },
+    { itemId: 'x', supplierId: 'b', unitCost: 10, at: '2026-10-01' },
+    { itemId: 'y', supplierId: 'a', unitCost: 10, at: '2026-10-01' },
+    { itemId: 'w', supplierId: null, unitCost: 10, at: '2026-10-01' },
+  ];
+  const m = marksFor(['x', 'y', 'z', 'w'], [{ itemId: 'y', supplierId: 'b', preferred: true }, { itemId: 'x', supplierId: 'a', preferred: false }], sup, buys, NOW);
+  assertEquals(m.get('x')!.where, 'KCC', 'newest purchase');
+  assertEquals(m.get('y')!.where, 'KCC', 'preferred link beats the purchase');
+  assertEquals(m.get('z')!.where, '');
+  assertEquals(m.get('w')!.where, '');
+});
+
+Deno.test('Finance order and low: Where column and UP mark after the unit cost; OPS rows never carry a supplier', () => {
+  const marked = ITEMS.map((i) => (i.id === 's' ? { ...i, where: 'SM', priceUpPct: 25 } : i));
+  const o = buildReport('order', 'finance', marked, [], NOW, 'L');
+  const row = flat(o).find((c) => c[0] === 'Hand soap')!;
+  assertEquals(row[4], 'PHP 95.00 UP 25%');
+  assertEquals(row[7], 'SM');
+  assertEquals(flat(o).find((c) => c[0] === 'Toilet paper')![7], '');
+  const lo = buildReport('low', 'finance', marked, [], NOW, 'L');
+  const lrow = flat(lo).find((c) => c[0] === 'Hand soap')!;
+  assertEquals([lrow[4], lrow[5]], ['PHP 95.00 UP 25%', 'SM']);
+  for (const kind of ['order', 'low'] as const) {
+    const ops = buildReport(kind, 'ops', marked, [], NOW, 'L');
+    assertFalse(/SM|UP 25|Where/.test(JSON.stringify([ops.columns, ops.groups])), kind);
+  }
+});
+
+// ---------- s86 D-report r2 ----------
+Deno.test('priceJump r2: a zero newest price is not skipped, a zero median never divides, the window is the Manila date (F3, F4)', () => {
+  assertEquals(priceJump([P(0, '2026-10-01'), P(150, '2026-09-01'), P(100, '2026-08-01'), P(100, '2026-07-01')], NOW), null);
+  assertEquals(priceJump([P(5, '2026-10-01'), P(0, '2026-09-01'), P(0, '2026-08-01')], NOW), null);
+  // 20:00 UTC on 15 Oct is already 16 Oct in Manila: 365 days back is 2025-10-16, so a 2025-10-15 purchase is outside the window
+  const late = new Date('2026-10-15T20:00:00Z');
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01'), P(100, '2025-10-15')], late), null);
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01'), P(100, '2025-10-16')], late), 100);
+});
+
+Deno.test('Finance order widths (F5): sum to 1 and the Item column keeps 0.22', () => {
+  const w = buildReport('order', 'finance', ITEMS, [], NOW, 'L').widths;
+  assertEquals(w, [0.22, 0.07, 0.07, 0.08, 0.15, 0.14, 0.14, 0.13]);
+  assertEquals(Math.round(w.reduce((a, b) => a + b, 0) * 1e6) / 1e6, 1);
 });

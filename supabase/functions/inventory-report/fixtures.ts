@@ -18,3 +18,18 @@ export const SHOP: Shop[] = [
   { itemId: 's', name: 'Hand soap', quantity: 3, purchaseUnit: 'box', note: 'cheapest at Gaisano, call 0917 123 4567 P500', estCost: 999 },
   { itemId: null, name: 'Birthday candles', quantity: 2, purchaseUnit: null, note: 'email me@example.com', estCost: 50 },
 ];
+
+// Byte-exact PDF text (s86): inflate each content stream and decode its Tj operands. Shared by the new tests.
+import { inflateSync } from 'node:zlib';
+const latin1 = (b: Uint8Array) => Array.from(b, (c) => String.fromCharCode(c)).join('');
+export function drawnText(bytes: Uint8Array): string {
+  let out = '';
+  for (const m of latin1(bytes).matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let s: string;
+    try { s = latin1(inflateSync(Uint8Array.from(m[1], (c) => c.charCodeAt(0)))); } catch { continue; }
+    for (const t of s.matchAll(/<([0-9A-Fa-f]+)>\s*Tj|\(((?:\.|[^\)])*)\)\s*Tj/g)) {
+      out += (t[1] ? String.fromCharCode(...(t[1].match(/../g) ?? []).map((h) => parseInt(h, 16))) : t[2]) + '\n';
+    }
+  }
+  return out;
+}
