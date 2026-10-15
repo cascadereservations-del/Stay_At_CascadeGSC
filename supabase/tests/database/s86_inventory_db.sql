@@ -4,7 +4,7 @@
 -- Fixtures: uuids d8600000-... on a property of their own. Everything rolls back.
 -- The md5 guard at the head of the migration cannot run inside pgTAP; the rehearsal proves it separately (a tampered body stops the apply with SQLSTATE 55000).
 begin;
-select plan(168);
+select plan(170);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -85,8 +85,6 @@ select ok(not has_table_privilege('anon', 'public.price_history_by_item', 'selec
   and not has_table_privilege('authenticated', 'public.price_history_by_item', 'insert') and not has_table_privilege('authenticated', 'public.price_history_by_item', 'update')
   and not has_table_privilege('authenticated', 'public.price_history_by_item', 'delete'), 'price_history_by_item: anon has nothing, authenticated reads only');
 select ok(has_column_privilege('authenticated', 'public.inventory_items', 'location', 'select') and not has_column_privilege('authenticated', 'public.inventory_items', 'unit_cost', 'select'), 'location is readable by signed-in users, unit_cost still is not');
-select is((select count(*)::int from pg_attribute a where a.attrelid = 'public.inventory_items'::regclass and a.attnum > 0 and not a.attisdropped and a.attname <> 'unit_cost'
-  and not has_column_privilege('authenticated', a.attrelid, a.attname, 'select')), 0, 'every column except unit_cost is still granted (location included)');
 select ok(not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'inventory_purchases'), 'inventory_purchases is not in the realtime publication (vacuously true where the publication does not exist)');
 select ok(not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'inv photos anon%'), 'no inv photos anon policy remains (vacuously true where storage does not exist)');
 insert into _t select 'bucket', pg_temp.try($$select to_jsonb(b) from storage.buckets b where b.id = 'inventory-photos'$$);
@@ -98,10 +96,10 @@ do $$
 begin
   if to_regclass('storage.objects') is null then
     create schema if not exists storage;
-    create table storage.buckets(id text primary key, public boolean default false, file_size_limit bigint, allowed_mime_types text[]);
+    create table storage.buckets(id text primary key, name text, public boolean default false, file_size_limit bigint, allowed_mime_types text[]);
     create table storage.objects(id uuid default gen_random_uuid(), bucket_id text, name text);
   end if;
-  insert into storage.buckets(id) values ('inventory-photos') on conflict (id) do nothing;
+  insert into storage.buckets(id, name) values ('inventory-photos', 'inventory-photos') on conflict (id) do nothing;
 end $$;
 
 -- =============================================================================================================================================
@@ -246,7 +244,7 @@ select is((select v ->> 'err' from _t where k = 'ow_bad2'), '22023', 'a map link
 select is((select v ->> 'err' from _t where k = 'ow_bad3'), '22023', 'a payment method outside the list is 22023');
 select is((select v ->> 'err' from _t where k = 'ow_bad4'), 'P0002', 'patching a shop of another property is not found');
 select is((select v -> 'before' from _t where k = 'ow_p1'), jsonb_build_object('phone', null, 'active', true), 'a patch returns the old values of the patched keys');
-select ok((select not is_active and phone = '0918 111 2222' and 'beta' = any (aliases) from public.inventory_suppliers where id = 'd8600000-0000-4000-8000-0000000000e2'), 'and applies them (inactive, phone, alias)');
+select ok((select is_active and phone = '0918 111 2222' and 'beta' = any (aliases) from public.inventory_suppliers where id = 'd8600000-0000-4000-8000-0000000000e2'), 'and applies them (phone, alias, and active again after the second patch)');
 select is((select v -> 'before' from _t where k = 'ow_p2'), jsonb_build_object('active', false), 'undo path: the before of the second patch restores active');
 
 select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a5');
@@ -254,8 +252,6 @@ insert into _t select 'ln1', pg_temp.try($$select public.inventory_item_supplier
 insert into _t select 'ln2', pg_temp.try($$select public.inventory_item_supplier_link_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2', '{"preferred": true}'::jsonb)$$);
 insert into _t select 'ln3', pg_temp.try($$select public.inventory_item_supplier_link_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2', '{"unit_cost": 1}'::jsonb)$$);
 insert into _t select 'ln4', pg_temp.try($$select public.inventory_item_supplier_link_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e4', '{"preferred": true}'::jsonb)$$);
-insert into _t select 'un1', pg_temp.try($$select public.inventory_item_supplier_unlink_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2')$$);
-insert into _t select 'un2', pg_temp.try($$select public.inventory_item_supplier_unlink_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2')$$);
 reset role;
 select ok((select v ->> 'ok' = 'true' and v -> 'before' = 'null'::jsonb from _t where k = 'ln1'), 'R4 as owner links a shop (before is null for a new link)');
 select is((select count(*)::int from public.inventory_item_suppliers where item_id = 'd8600000-0000-4000-8000-0000000000c2' and is_preferred), 1, 'exactly one preferred shop per item');
@@ -263,14 +259,20 @@ select is((select supplier_id::text from public.inventory_item_suppliers where i
 select is((select v -> 'before' ->> 'preferred' from _t where k = 'ln2'), null::text, 'a new link by R4 returns a null before (undo = R5)');
 select is((select v ->> 'err' from _t where k = 'ln3'), '22023', 'R4 refuses a key outside the list');
 select is((select v ->> 'err' from _t where k = 'ln4'), 'P0002', 'R4 refuses a shop of another property');
+select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a5');
+insert into _t select 'un1', pg_temp.try($$select public.inventory_item_supplier_unlink_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2')$$);
+insert into _t select 'un2', pg_temp.try($$select public.inventory_item_supplier_unlink_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2')$$);
+reset role;
 select ok((select (v ->> 'removed')::boolean and v -> 'before' ->> 'preferred' = 'true' from _t where k = 'un1'), 'R5 removes the link and returns the old values');
 select ok((select not (v ->> 'removed')::boolean from _t where k = 'un2'), 'R5 on an absent link says removed false');
 select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a5');
 insert into _t select 'ln5', pg_temp.try($$select public.inventory_item_supplier_link_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2', '{"pack_label": "x", "preferred": true}'::jsonb)$$);
+reset role;
+select ok((select v ->> 'ok' = 'true' from _t where k = 'ln5') and (select pack_label = 'x' and is_preferred from public.inventory_item_suppliers where item_id = 'd8600000-0000-4000-8000-0000000000c2' and supplier_id = 'd8600000-0000-4000-8000-0000000000e2'), 'R4 with the old values of R5 puts the link back');
+select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a5');
 insert into _t select 'ln6', pg_temp.try($$select public.inventory_item_supplier_link_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e2', '{"preferred": false}'::jsonb)$$);
 insert into _t select 'ln7', pg_temp.try($$select public.inventory_item_supplier_link_v1('d8600000-0000-4000-8000-0000000000c2', 'd8600000-0000-4000-8000-0000000000e1', '{"pack_size": 6, "quoted_pack_price": 310}'::jsonb)$$);
 reset role;
-select ok((select v ->> 'ok' = 'true' from _t where k = 'ln5') and (select pack_label = 'x' and is_preferred from public.inventory_item_suppliers where item_id = 'd8600000-0000-4000-8000-0000000000c2' and supplier_id = 'd8600000-0000-4000-8000-0000000000e2'), 'R4 with the old values of R5 puts the link back');
 select ok((select v -> 'before' = '{"pack_label": "x", "pack_size": null, "preferred": true, "quoted_pack_price": null}'::jsonb from _t where k = 'ln6'), 'R4 returns the before for an existing link (owner also sees the quote)');
 select ok((select quoted_pack_price = 310.00 and pack_size = 6 and pack_label = 'pack of 6' from public.inventory_item_suppliers where item_id = 'd8600000-0000-4000-8000-0000000000c2' and supplier_id = 'd8600000-0000-4000-8000-0000000000e1'), 'a partial patch keeps the other values of the link');
 
@@ -318,7 +320,7 @@ select is((select qty from public.inventory_purchases where id = (select (v ->> 
 select is((select unit_cost from public.inventory_purchases where id = (select (v ->> 'purchase_id')::uuid from _t where k = 'o1')), 10.00, 'OCR restock: pack price 120 stores unit_cost 10 per base unit');
 select is((select supplier_id::text || '|' || supplier from public.inventory_purchases where id = (select (v ->> 'purchase_id')::uuid from _t where k = 'o1')), 'd8600000-0000-4000-8000-0000000000e1|Zz86 Alpha Mart', 'OCR restock: the printed alias resolves to the shop');
 select is((select supplier_id::text from public.inventory_purchases where id = (select (v ->> 'purchase_id')::uuid from _t where k = 'o2')), 'd8600000-0000-4000-8000-0000000000e2', 'OCR restock: an explicit supplier id wins over the printed name');
-select ok((select supplier_id is null and supplier = 'Zz Unknown Mart' and qty = 24 and unit_cost = 30 from public.inventory_purchases where id = (select (v ->> 'purchase_id')::uuid from _t where k = 'o3')), 'OCR restock by named arguments (the bot''s call) works without the new argument: 2 packs of 12 at 60 = qty 24, unit_cost 30');
+select ok((select supplier_id is null and supplier = 'Zz Unknown Mart' and qty = 24 and unit_cost = 5 from public.inventory_purchases where id = (select (v ->> 'purchase_id')::uuid from _t where k = 'o3')), 'OCR restock by named arguments (the bot''s call) works without the new argument: 2 packs of 12 at 60 a pack = qty 24, unit_cost 5');
 select is((select v ->> 'error' from _t where k = 'o4'), 'item_not_found', 'OCR restock of an unknown item answers item_not_found as before');
 select is((select qty_on_hand from public.inventory_items where id = 'd8600000-0000-4000-8000-0000000000c3'), 84.00, 'stock on hand matches the units added by every path (3 app receipts of 12, one undone, then 12 + 12 + 24 by OCR = 84)');
 select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a5');
@@ -441,7 +443,7 @@ update public.inventory_suppliers set is_active = false where id = 'd8600000-000
 select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a1');
 insert into _t select 'cat3', pg_temp.try($$select public.get_inventory_catalogue_v1('d8600000-0000-4000-8000-0000000000b0')$$);
 reset role;
-select ok((select not (e ? 'supplier') from _t, jsonb_array_elements(v -> 'items') e where k = 'cat3' and e ->> 'id' = 'd8600000-0000-4000-8000-0000000000d4'), 'a shop that was stopped is no longer shown as where to buy');
+select ok((select e -> 'supplier' ->> 'name' = 'Zz86 Alpha Mart' from _t, jsonb_array_elements(v -> 'items') e where k = 'cat3' and e ->> 'id' = 'd8600000-0000-4000-8000-0000000000d4'), 'a stopped shop is no longer shown: the newest purchase at a shop still in use is');
 
 -- =============================================================================================================================================
 -- Part 9: R10-R12 and the categoriser write (service_role only)

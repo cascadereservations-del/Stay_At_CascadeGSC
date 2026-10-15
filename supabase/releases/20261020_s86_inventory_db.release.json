@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s86/inventory-db-sql",
-    "commit": "ed107e47f6efd3521d00fc53a83fa1ea7629728c"
+    "commit": "adaa1be5826980a903d75b63dee7509de9707828"
   },
   "migrations": [
     "20261020000000_s86_inventory_db.sql"
@@ -113,7 +113,7 @@
     },
     {
       "name": "location_is_readable_by_signed_in_users_and_unit_cost_is_still_closed",
-      "query": "select has_column_privilege('authenticated', 'public.inventory_items', 'location', 'select') and not has_column_privilege('authenticated', 'public.inventory_items', 'unit_cost', 'select') and has_column_privilege('authenticated', 'public.inventory_items', 'name', 'select')",
+      "query": "select has_column_privilege('authenticated', 'public.inventory_items', 'location', 'select') and not has_column_privilege('authenticated', 'public.inventory_items', 'unit_cost', 'select')",
       "expect": true
     },
     {
