@@ -2,7 +2,7 @@
 -- (inventory_undo_v1). Hermetic: its own property and users (uuids d8500000-...). Everything rolls back.
 -- The md5 guard at the head of the migration cannot run inside pgTAP; the rehearsal proves it separately.
 begin;
-select plan(23);
+select plan(25);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -117,6 +117,12 @@ select is((select v->>'reason' from _t where k = 'use3u'), 'too_late', 'a usage 
 select ok(not (has_function_privilege('anon', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', 'execute')
   or has_function_privilege('authenticated', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', 'execute')
   or has_function_privilege('service_role', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', 'execute')), 'the internal movement writer is executable by no client role');
+
+select pg_temp.as_user('d8500000-0000-4000-8000-0000000000a1');
+insert into _t select 'direct', pg_temp.try($$select public.s_inventory_staff_movement_v1('d8500000-0000-4000-8000-0000000000c1', 'reconcile', 9, 'direct call', 'zz85-count-key-0009')$$);
+reset role;
+select is((select v->>'err' from _t where k = 'direct'), '42501', 'a cleaner calling the internal writer directly is refused with 42501');
+select is((select count(*)::int from public.inventory_stock_movements where idempotency_key = 'zz85-count-key-0009'), 0, 'and no movement is written for that key');
 
 select * from finish();
 rollback;
