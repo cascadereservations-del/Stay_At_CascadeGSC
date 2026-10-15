@@ -68,6 +68,11 @@ begin
   if v_n <> 0 then
     raise exception 's86 inventory db: a shopping row points at the test purchase; resolve it first' using errcode = '55000';
   end if;
+  -- the item the test purchase restocked (Liquid Hand Soap): must still be exactly as read live 2026-10-15, untouched since the test receipt
+  select count(*) into v_n from public.inventory_items where id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and qty_on_hand = 1 and unit_cost = 1.00 and updated_at = timestamptz '2026-09-18 16:37:00.987575+00';
+  if v_n <> 1 then
+    raise exception 's86 inventory db: the test purchase stock is not as read live 2026-10-15 (item 0bdd783a-77f8-4211-bf53-e1cbebcc284b: qty 1, unit_cost 1.00, updated 2026-09-18 16:37:00.987575+00)' using errcode = '55000';
+  end if;
 end $$;
 
 -- 1. tables --------------------------------------------------------------------------------------------------------------------------------
@@ -133,6 +138,17 @@ where i.id = p.item_id and s.property_id = i.property_id and lower(btrim(s.name)
 
 -- Lloyd D-330 answer 4: the 'test' purchase goes (guarded above: exactly one, nothing points at it). Its full values are in the rollback.
 delete from public.inventory_purchases where lower(btrim(supplier)) = 'test';
+-- ...and so goes its effect on the item (stock 1 and unit cost 1.00 came from that one receipt; guarded in section 0), with an audit row
+do $$
+declare v_n integer;
+begin
+  update public.inventory_items set qty_on_hand = 0, unit_cost = null
+  where id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and qty_on_hand = 1 and unit_cost = 1.00 and updated_at = timestamptz '2026-09-18 16:37:00.987575+00';
+  get diagnostics v_n = row_count;
+  if v_n <> 1 then raise exception 's86 inventory db: could not reset the test purchase stock' using errcode = '55000'; end if;
+  insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+  values ('inventory_items', '0bdd783a-77f8-4211-bf53-e1cbebcc284b', 'test_purchase_removed_s86', '{"qty_on_hand": 1, "unit_cost": 1.00}'::jsonb, '{"qty_on_hand": 0, "unit_cost": null}'::jsonb, 'migration');
+end $$;
 
 -- 4. category tidy (Lloyd D-330 answer 5): one audit row per moved item, reversed by item id from those rows ------------------------------------
 with t(from_c, to_c) as (values ('Cleaning', 'Cleaning Supplies'), ('Utility / Cleaning / Bathroom', 'Bathroom & Utility'), ('Guest Supplies', 'Toiletries')),

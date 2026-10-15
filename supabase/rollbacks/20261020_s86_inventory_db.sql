@@ -6,6 +6,7 @@
 --   whose category was changed again since stays as it is; the audit rows stay as history).
 --   DATA LOSS (by design): every supplier, supplier link and supplier_id on purchases and shopping rows, and every location value. Purchase rows written
 --   after the release keep their per-base-unit price and base-unit qty (correct data either way; the old OCR path would have stored per-pack).
+--   View: price_history_by_item gets back SELECT for authenticated only; the anon grant it had before the release is NOT restored (same reason as the storage policies).
 --   Storage: the three 'inv photos anon' policies are NOT recreated (they were a public write hole; Lloyd removed them 2026-10-15) and the bucket stays private.
 --   Only the bucket size and mime limits are cleared.
 -- Apply with run-sql-on-host.sh.
@@ -337,6 +338,8 @@ select '96b5fb7f-3800-49ab-af56-d3d248a87b2a'::uuid, '0bdd783a-77f8-4211-bf53-e1
        'Admin receipt [key:receipt-17a87497a102444394905b22f5f483a5]', timestamptz '2026-09-18 16:37:00.987575+00', null::uuid, null::text, null::text, null::text, 1
 where exists (select 1 from public.inventory_items where id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b')
 on conflict (id) do nothing;
+-- and the stock and unit cost that purchase had left on the item (updated_at is set by the table trigger and cannot be restored)
+update public.inventory_items set qty_on_hand = 1, unit_cost = 1.00 where id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and qty_on_hand = 0 and unit_cost is null;
 
 update public.inventory_items i set category = a.before->>'category'
 from public.inventory_audit_log a
@@ -351,7 +354,7 @@ drop table if exists public.inventory_item_suppliers;
 drop table if exists public.inventory_suppliers;
 
 -- 5. view grants, realtime, bucket limits -----------------------------------------------------------------------------------------------------------
-grant all on public.price_history_by_item to anon, authenticated;
+grant select on public.price_history_by_item to authenticated;
 do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime')

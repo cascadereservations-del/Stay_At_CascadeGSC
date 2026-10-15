@@ -4,7 +4,7 @@
 -- Fixtures: uuids d8600000-... on a property of their own. Everything rolls back.
 -- The md5 guard at the head of the migration cannot run inside pgTAP; the rehearsal proves it separately (a tampered body stops the apply with SQLSTATE 55000).
 begin;
-select plan(173);
+select plan(175);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -36,6 +36,8 @@ end $f$;
 select is((select array_agg(name order by name) from public.inventory_suppliers where created_by is null), array['KCC', 'Robinsons', 'SM']::text[], 'backfill: exactly the three shops SM, KCC and Robinsons were created from purchases');
 select ok(not exists (select 1 from public.inventory_purchases where supplier is not null and btrim(supplier) <> '' and supplier_id is null), 'backfill: every purchase with a supplier name is linked');
 select ok(not exists (select 1 from public.inventory_purchases where lower(btrim(supplier)) = 'test'), 'the test purchase is deleted');
+select ok(exists (select 1 from public.inventory_items where id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and qty_on_hand = 0 and unit_cost is null), 'the test purchase''s effect on Liquid Hand Soap is reset (stock 0, no unit cost)');
+select is((select count(*)::int from public.inventory_audit_log where entity_id = '0bdd783a-77f8-4211-bf53-e1cbebcc284b' and action = 'test_purchase_removed_s86' and actor = 'migration' and before = '{"qty_on_hand": 1, "unit_cost": 1.00}'::jsonb and after = '{"qty_on_hand": 0, "unit_cost": null}'::jsonb), 1, 'and the reset has one audit row with before and after');
 select ok(not exists (select 1 from public.inventory_items where category in ('Cleaning', 'Utility / Cleaning / Bathroom', 'Guest Supplies')), 'category tidy: none of the three old names remain');
 select is((select count(distinct category)::int from public.inventory_items), 7, 'category tidy: seven categories');
 select ok((select count(*) from public.inventory_audit_log where action = 'category_tidy_s86' and actor = 'migration') > 0, 'category tidy: every moved item has an audit row');
