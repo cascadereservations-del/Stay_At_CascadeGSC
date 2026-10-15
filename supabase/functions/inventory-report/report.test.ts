@@ -156,3 +156,51 @@ Deno.test('F5 residual: a shopping row in the base unit is not multiplied by uni
   const shop: Shop[] = [{ itemId: 'k', name: 'Sponge', quantity: 3, purchaseUnit: 'pc', note: null, estCost: null }];
   assertEquals(flat(buildReport('order', 'finance', items, shop, NOW, 'L')).find((c) => c[0] === 'Sponge')![5], 'PHP 30.00');
 });
+
+// ---------- s86 D-report: Where column, price-up mark ----------
+import { marksFor, priceJump } from './report.ts';
+
+const P = (cost: number, at: string) => ({ cost, at });
+Deno.test('priceJump: >= 1.20 x median of up to 5 earlier purchases within 365 days, at least 2 earlier', () => {
+  const now = NOW; // 2026-10-15
+  assertEquals(priceJump([P(125, '2026-10-01'), P(100, '2026-09-01'), P(100, '2026-08-01')], now), 25);
+  assertEquals(priceJump([P(120, '2026-10-01'), P(100, '2026-09-01'), P(100, '2026-08-01')], now), 20, 'exactly 1.20 counts');
+  assertEquals(priceJump([P(119, '2026-10-01'), P(100, '2026-09-01'), P(100, '2026-08-01')], now), null);
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01')], now), null, 'one earlier purchase is not enough');
+  assertEquals(priceJump([P(200, '2026-10-01'), P(100, '2026-09-01'), P(100, '2025-09-01')], now), null, 'older than 365 days does not count');
+  // median of an even set is the mean of the middle two: (100 + 140) / 2 = 120; 144 = 1.20 x 120
+  assertEquals(priceJump([P(144, '2026-10-01'), P(100, '2026-09-01'), P(140, '2026-08-01')], now), 20);
+  // only the 5 earlier purchases nearest the newest count: the old cheap ones are ignored
+  assertEquals(priceJump([P(130, '2026-10-01'), P(125, '2026-09-20'), P(125, '2026-09-10'), P(125, '2026-09-01'), P(125, '2026-08-20'), P(125, '2026-08-10'), P(10, '2026-01-01'), P(10, '2026-01-02')], now), null);
+});
+
+Deno.test('marksFor: preferred supplier wins, else the newest purchase with a supplier, else blank', () => {
+  const sup = new Map([['a', 'SM'], ['b', 'KCC']]);
+  const buys = [
+    { itemId: 'x', supplierId: 'a', unitCost: 10, at: '2026-09-01' },
+    { itemId: 'x', supplierId: 'b', unitCost: 10, at: '2026-10-01' },
+    { itemId: 'y', supplierId: 'a', unitCost: 10, at: '2026-10-01' },
+    { itemId: 'w', supplierId: null, unitCost: 10, at: '2026-10-01' },
+  ];
+  const m = marksFor(['x', 'y', 'z', 'w'], [{ itemId: 'y', supplierId: 'b', preferred: true }, { itemId: 'x', supplierId: 'a', preferred: false }], sup, buys, NOW);
+  assertEquals(m.get('x')!.where, 'KCC', 'newest purchase');
+  assertEquals(m.get('y')!.where, 'KCC', 'preferred link beats the purchase');
+  assertEquals(m.get('z')!.where, '');
+  assertEquals(m.get('w')!.where, '');
+});
+
+Deno.test('Finance order and low: Where column and UP mark after the unit cost; OPS rows never carry a supplier', () => {
+  const marked = ITEMS.map((i) => (i.id === 's' ? { ...i, where: 'SM', priceUpPct: 25 } : i));
+  const o = buildReport('order', 'finance', marked, [], NOW, 'L');
+  const row = flat(o).find((c) => c[0] === 'Hand soap')!;
+  assertEquals(row[4], 'PHP 95.00 UP 25%');
+  assertEquals(row[7], 'SM');
+  assertEquals(flat(o).find((c) => c[0] === 'Toilet paper')![7], '');
+  const lo = buildReport('low', 'finance', marked, [], NOW, 'L');
+  const lrow = flat(lo).find((c) => c[0] === 'Hand soap')!;
+  assertEquals([lrow[4], lrow[5]], ['PHP 95.00 UP 25%', 'SM']);
+  for (const kind of ['order', 'low'] as const) {
+    const ops = buildReport(kind, 'ops', marked, [], NOW, 'L');
+    assertFalse(/SM|UP 25|Where/.test(JSON.stringify([ops.columns, ops.groups])), kind);
+  }
+});

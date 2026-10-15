@@ -90,7 +90,7 @@ const OPS_COLS: Record<Kind, [string[], number[]]> = {
   misc: [['Item', 'On hand', 'Unit', 'Note'], [0.4, 0.14, 0.14, 0.32]],
 };
 const FIN_COLS: Record<Kind, [string[], number[]]> = {
-  order: [['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note', 'Where'], [0.19, 0.07, 0.07, 0.09, 0.17, 0.15, 0.14, 0.12]],
+  order: [['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note', 'Where'], [0.16, 0.07, 0.07, 0.08, 0.19, 0.15, 0.15, 0.13]],
   all: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Value'], [0.34, 0.11, 0.13, 0.1, 0.16, 0.16]],
   consumables: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Value'], [0.34, 0.11, 0.13, 0.1, 0.16, 0.16]],
   low: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Where'], [0.30, 0.11, 0.13, 0.10, 0.20, 0.16]],

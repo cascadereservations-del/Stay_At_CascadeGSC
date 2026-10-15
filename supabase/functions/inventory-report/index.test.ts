@@ -1,7 +1,7 @@
 // Handler tests: globalThis.fetch is stubbed, so the mock sees the exact Supabase URLs, RPC names, argument keys and the Telegram multipart.
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'jsr:@std/assert@1';
 import { withObservability } from '../_shared/observability.ts';
-import { it, ITEMS, NOW, SHOP } from './fixtures.ts';
+import { drawnText, it, ITEMS, NOW, SHOP } from './fixtures.ts';
 import type { Item } from './report.ts';
 import { makeHandler, PROPERTY_ID } from './handler.ts';
 
@@ -13,7 +13,8 @@ interface Call { method: string; url: string; json?: Record<string, unknown>; fo
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 
 /** Install the stubs for one test. `allowed` = the actions current_staff_authorized says yes to. */
-function world(o: { items?: Item[]; allowed?: string[]; noUser?: boolean; tg?: unknown; parMissing?: boolean; env?: Partial<typeof ENV> } = {}) {
+function world(o: { items?: Item[]; allowed?: string[]; noUser?: boolean; tg?: unknown; parMissing?: boolean; env?: Partial<typeof ENV>;
+  codes?: unknown[]; links?: unknown[]; suppliers?: unknown[]; purchases?: unknown[]; noSuppliers?: boolean } = {}) {
   const calls: Call[] = [];
   const env = { ...ENV, ...o.env };
   const saved = new Map<string, string | undefined>();
@@ -39,6 +40,13 @@ function world(o: { items?: Item[]; allowed?: string[]; noUser?: boolean; tg?: u
     }
     if (url.includes('/rest/v1/inventory_shopping_list')) {
       return json(SHOP.map((s) => ({ item_id: s.itemId, item_name: s.name, quantity: s.quantity, purchase_unit: s.purchaseUnit, reason: s.note, estimated_cost: s.estCost })));
+    }
+    if (url.includes('/rest/v1/inventory_item_codes')) return json(o.codes ?? []);
+    if (url.includes('/rest/v1/inventory_item_suppliers')) return o.noSuppliers ? json({ code: '42P01', message: 'relation does not exist' }, 404) : json(o.links ?? []);
+    if (url.includes('/rest/v1/inventory_suppliers')) return o.noSuppliers ? json({ code: '42P01', message: 'relation does not exist' }, 404) : json(o.suppliers ?? []);
+    if (url.includes('/rest/v1/inventory_purchases')) {
+      if (o.noSuppliers && url.includes('supplier_id')) return json({ code: '42703', message: 'column inventory_purchases.supplier_id does not exist' }, 400);
+      return json(o.purchases ?? []);
     }
     return json({ error: 'unexpected ' + url }, 500);
   }) as typeof fetch;
@@ -208,5 +216,95 @@ Deno.test({ name: 'OPS "all" with 120 items: the count in the caption does not t
     const r = await handler(post({ kind: 'all', to: 'ops' }));
     assertEquals(r.status, 200);
     assertEquals(telegram(w.calls)[0].form!.get('caption'), 'Full inventory, 120 items. Sent from the staff app by Marifel.');
+  } finally { w.done(); }
+} });
+
+// ---------- s86 D-report ----------
+const U1 = '11111111-1111-4111-8111-111111111111', U2 = '22222222-2222-4222-8222-222222222222', U3 = '33333333-3333-4333-8333-333333333333';
+const labelItems = [it({ id: U1, name: 'Bath towel' }), it({ id: U2, name: 'Alarm clock' }), it({ id: U3, name: 'No code item' })];
+const codes = [{ item_id: U1, code: 'CH-AAAAAAAAAA', created_at: '2026-10-01' }, { item_id: U2, code: 'CH-BBBBBBBBBB', created_at: '2026-10-01' }];
+const bytesOf = async (c: Call) => new Uint8Array(await (c.form!.get('document') as File).arrayBuffer());
+
+Deno.test({ name: 'labels: manage_inventory gate -> 403 manage_only without it; nothing read or sent', ...OPT, fn: async () => {
+  const w = world({ allowed: ['read_operations'], items: labelItems, codes });
+  try {
+    const r = await handler(post({ kind: 'labels' }));
+    assertEquals(r.status, 403);
+    assertEquals((await r.json()).error, 'manage_only');
+    assertEquals(w.calls.find((c) => c.url.includes('/rpc/'))!.json, { p_action: 'manage_inventory', p_property_id: PROPERTY_ID });
+    assertEquals(telegram(w.calls).length, 0);
+    assertFalse(w.calls.some((c) => c.url.includes('/rest/v1/') && !c.url.includes('/rpc/')));
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'labels: Finance group by default, only coded items, name order, no cost column; to ops also allowed', ...OPT, fn: async () => {
+  const w = world({ allowed: ['manage_inventory', 'read_operations', 'read_finance'], items: labelItems, codes });
+  try {
+    const r = await handler(post({ kind: 'labels' }));
+    assertEquals(r.status, 200);
+    assertEquals(await r.json(), { ok: true, to: 'finance', kind: 'labels', rows: 2, pages: 1, message_id: 77 });
+    const [tg] = telegram(w.calls);
+    assertEquals(tg.form!.get('chat_id'), '-100FIN');
+    assertEquals(tg.form!.get('caption'), 'Item labels, 2 items. Sent from the staff app by Marifel.');
+    assertEquals((tg.form!.get('document') as File).name, 'cascade-labels-2026-10-15.pdf');
+    const t = drawnText(await bytesOf(tg));
+    assert(t.indexOf('Alarm clock') < t.indexOf('Bath towel'), 'name order');
+    assertFalse(t.includes('No code item'));
+    for (const c of w.calls.filter((x) => x.url.includes('/rest/v1/'))) assertFalse(/unit_cost|estimated_cost/.test(decodeURIComponent(c.url)), c.url);
+  } finally { w.done(); }
+  const w2 = world({ allowed: ['manage_inventory', 'read_operations'], items: labelItems, codes });
+  try {
+    const r = await handler(post({ kind: 'labels', to: 'ops' }));
+    assertEquals(r.status, 200);
+    assertEquals(telegram(w2.calls)[0].form!.get('chat_id'), '-100OPS');
+  } finally { w2.done(); }
+} });
+
+Deno.test({ name: 'labels: item_ids narrows the sheet; a bad id list -> 400; nothing coded -> 422', ...OPT, fn: async () => {
+  const w = world({ allowed: ['manage_inventory', 'read_operations', 'read_finance'], items: labelItems, codes });
+  try {
+    const r = await handler(post({ kind: 'labels', item_ids: [U2, U3] }));
+    assertEquals((await r.json()).rows, 1);
+    assertEquals((await handler(post({ kind: 'labels', item_ids: ['x'] }))).status, 400);
+    assertEquals((await handler(post({ kind: 'labels', item_ids: 'all' }))).status, 400);
+    assertEquals((await handler(post({ kind: 'labels', item_ids: [U3] }))).status, 422);
+  } finally { w.done(); }
+} });
+
+const SUP = [{ id: 'sup-sm', name: 'SM Supermarket' }];
+const buys = [
+  { item_id: 's', unit_cost: 125, purchased_at: '2026-10-01', supplier_id: 'sup-sm' },
+  { item_id: 's', unit_cost: 100, purchased_at: '2026-09-01', supplier_id: 'sup-sm' },
+  { item_id: 's', unit_cost: 100, purchased_at: '2026-08-01', supplier_id: 'sup-sm' },
+];
+
+Deno.test({ name: 'Finance order PDF: Where shows the supplier and UP 25% follows the unit cost', ...OPT, fn: async () => {
+  const w = world({ allowed: ['read_operations', 'read_finance'], suppliers: SUP, purchases: buys });
+  try {
+    assertEquals((await handler(post({ kind: 'order', to: 'finance' }))).status, 200);
+    const t = drawnText(await bytesOf(telegram(w.calls)[0]));
+    assertStringIncludes(t, 'Where');
+    assertStringIncludes(t, 'Supermarket');
+    assertStringIncludes(t, 'UP 25%');
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'OPS order PDF for items that have a supplier: no supplier name, no supplier read at all', ...OPT, fn: async () => {
+  const w = world({ suppliers: SUP, purchases: buys });
+  try {
+    assertEquals((await handler(post({ kind: 'order', to: 'ops' }))).status, 200);
+    assertFalse(w.calls.some((c) => /inventory_suppliers|inventory_item_suppliers|inventory_purchases/.test(c.url)));
+    const t = drawnText(await bytesOf(telegram(w.calls)[0]));
+    assertFalse(/SM Supermarket|Where|UP 25/.test(t));
+  } finally { w.done(); }
+} });
+
+Deno.test({ name: 'before the SQL release: supplier tables missing -> Finance PDF still sends, Where blank, price marks survive', ...OPT, fn: async () => {
+  const w = world({ allowed: ['read_operations', 'read_finance'], noSuppliers: true, purchases: buys });
+  try {
+    assertEquals((await handler(post({ kind: 'low', to: 'finance' }))).status, 200);
+    const t = drawnText(await bytesOf(telegram(w.calls)[0]));
+    assertStringIncludes(t, 'Where');
+    assertFalse(t.includes('SM Supermarket'));
   } finally { w.done(); }
 } });
