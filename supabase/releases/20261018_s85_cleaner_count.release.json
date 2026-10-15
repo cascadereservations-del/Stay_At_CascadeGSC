@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "release_id": "s85_cleaner_count_20261018",
+  "phase": "expand",
+  "source": {
+    "branch": "s85/cleaner-count",
+    "commit": "09cc2ead95f26e46ee065368fcd11cb331b2b63b"
+  },
+  "migrations": [
+    "20261018000000_s85_cleaner_count.sql"
+  ],
+  "migration_sha256": {
+    "20261018000000_s85_cleaner_count.sql": "2bd63992cd73908b41e6a23829ee4394fa1b7924d49726a7856be963061c1833"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "2026-10-15T00:00:00.000Z",
+    "production_rule": "SINGLE SHOT: the migration is not re-runnable (a second run stops on its own md5 guard, 55000, nothing changed); to undo apply the rollback. Decision Lloyd 2026-10-15: a cleaner (Honey, submit_cleaning) may set the remaining amount of an item. Two function bodies change and one internal function is added; no table, column, grant or policy changes. reconcile_inventory_baseline_v1 and inventory_undo_v1 accept manage_inventory (owner, admin) OR submit_cleaning on the item's property; refusals stay 42501. record_inventory_movement only accepts owner/admin (inventory_human_authorized), so for anyone else both functions write the movement through the new s_inventory_staff_movement_v1 (reconcile and adjustment only, executable by no client role); the owner/admin path is unchanged. A cleaner can undo only their OWN count (not_yours otherwise), and never a purchase. The migration stops (55000) unless the live bodies are exactly the ones cut from (md5 of prosrc, CR stripped: reconcile 7cba4397244b2e666b57cd43fb3b31a9, undo f2a56a60c4f077871966e797ebd35a83, read from production 2026-10-15). Apply AFTER s84_inventory_20261017. restore_point is a placeholder: the release block fills it (fill-restore-point.mjs). Rehearsal: see docs/s85/rehearsal-count.log.",
+    "notes": "Deploy order: SQL first, then the staff app (the stock Count button may be shown to the cleaner role once this is live; before it, a cleaner gets 42501). No new secret."
+  },
+  "forward_verification": [
+    {
+      "name": "reconcile_inventory_baseline_v1_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '7cbb2ea861268b3fbe848c974e32b2f2' from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "inventory_undo_v1_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '05dd7720b711ce41650778d16fd0f9dd' from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "count_and_undo_grants_unchanged_signed_in_users_only",
+      "query": "select has_function_privilege('authenticated', 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)', 'execute') and not has_function_privilege('anon', 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)', 'execute') and not has_function_privilege('service_role', 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_undo_v1(uuid,uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_undo_v1(uuid,uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_undo_v1(uuid,uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "count_and_undo_still_definer_with_an_empty_search_path",
+      "query": "select count(*) = 2 and bool_and(prosecdef) and bool_and(proconfig @> array['search_path=\"\"']) from pg_proc where oid in ('public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure, 'public.inventory_undo_v1(uuid,uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "internal_staff_movement_writer_is_definer_empty_search_path_and_no_client_grant",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', 'execute') from pg_proc where oid = 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "gate_is_manage_inventory_or_submit_cleaning_and_refuses_a_role_with_neither",
+      "query": "select (select prosrc like '%current_staff_authorized(''manage_inventory'', i.property_id)%' and prosrc like '%admin_require(''submit_cleaning'', i.property_id)%' from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) and (select prosrc like '%current_staff_authorized(''manage_inventory'', i.property_id)%' and prosrc like '%admin_require(''submit_cleaning'', i.property_id)%' from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) and public.staff_access_allowed('cleaner', 'submit_cleaning', null, 'aal1') and not public.staff_access_allowed('cleaner', 'manage_inventory', null, 'aal1') and public.staff_access_allowed('owner', 'manage_inventory', null, 'aal1') and not public.staff_access_allowed('finance', 'submit_cleaning', null, 'aal1') and not public.staff_access_allowed('finance', 'manage_inventory', null, 'aal1')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. The rollback puts reconcile_inventory_baseline_v1 and inventory_undo_v1 back to the exact live bodies this release was cut from (owner and admin only) and drops s_inventory_staff_movement_v1. Movements a cleaner wrote stay (the ledger is append-only); the items they counted stay movement-controlled.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261018_s85_cleaner_count.sql with run-sql-on-host.sh. The staff app keeps working for owner and admin; a cleaner count then returns 42501 and the app shows its normal refusal."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_gate_is_server_side",
+      "required_state": "None. The server decides by role; the staff app may show the cleaner a Count control once this release is live."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same signatures, return shapes and grants. Only callers that were refused (cleaner) now succeed; owner/admin callers take the unchanged record_inventory_movement path. Callers of reconcile_inventory_baseline_v1: staff app Count, inventory_item_create_v1 (owner/admin first count). Callers of inventory_undo_v1: staff app Undo."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "s84_inventory_20261017 is not applied (the md5 guard stops 55000 if inventory_undo_v1 is missing)",
+    "reconcile_inventory_baseline_v1 or inventory_undo_v1 in production is not the body cut from: the migration refuses; re-cut it",
+    "the rehearsal has not run s85_cleaner_count.sql green on this commit and s84_inventory.sql still green, and proved the guard stops (55000)",
+    "the Fable 5.1 / Opus 5.5 review of this SQL lane (grants and money-adjacent: Fable) has not passed"
+  ]
+}
