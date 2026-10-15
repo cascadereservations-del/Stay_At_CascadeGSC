@@ -61,7 +61,7 @@ async function world(o: WorldOpts = {}) {
     if (url.startsWith('/rest/v1/staff_upload_hashes')) return new Response(null, { status: 201 });
     if (url.startsWith('/rest/v1/inventory_items') && url.includes('id=in.')) {
       // sign ownership lookup: only the ids that belong to the property named in the query come back
-      const asked = decodeURIComponent(url.split('id=in.')[1]).replace(/[()"&].*$/, '').split(',');
+      const asked = decodeURIComponent(url.split('id=in.')[1]).replace(/\).*$/, '').replace(/^\(/, '').split(',');
       return json((o.owned ?? [ITEM]).filter((id) => asked.includes(id) && url.includes(`property_id=eq.${PROPERTY}`)).map((id) => ({ id })));
     }
     if (url.startsWith('/rest/v1/inventory_items')) {
