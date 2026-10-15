@@ -57,6 +57,7 @@ function setup(o: { views?: InquiryView[]; thread?: Thread | null; decide?: (a: 
     db, financeChat: FIN, opsChat: OPS,
     send: async (chatId, text, extra) => { r.sent.push({ chatId, text, extra }); return { ok: true, result: { message_id: 700 + r.sent.length } }; },
     edit: async (chatId, mid, text, rm) => { r.edits.push({ chatId, mid, text, rm }); return { ok: true }; },
+    editCaption: async (chatId, mid, text, rm) => { r.edits.push({ chatId, mid, text, rm }); return { ok: true }; },
     answer: async (id, text) => { r.answers.push({ id, text }); return {}; },
     forward: async (u) => { r.fwd.push(u); return o.fwd !== false; },
     ask: async (chatId, fromId, flow, refs, text) => { r.asked.push({ chatId, fromId, flow, refs, text }); },
