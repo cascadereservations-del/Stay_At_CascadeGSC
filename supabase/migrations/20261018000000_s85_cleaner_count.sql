@@ -3,7 +3,7 @@
 -- Decision Lloyd 2026-10-15 (reverses the spec default). Cut from the LIVE bodies read 2026-10-15 (md5 of prosrc, CR stripped):
 --   reconcile_inventory_baseline_v1  7cba4397244b2e666b57cd43fb3b31a9   inventory_undo_v1  f2a56a60c4f077871966e797ebd35a83
 -- What changes: (1) both gates accept manage_inventory OR submit_cleaning on the item's property (same errcode 42501 on refusal; an undo by a cleaner is the
--- movement path only and still needs the movement to be the caller's own, within 15 minutes, still the latest change; a purchase undo still needs manage_inventory);
+-- movement path only (reconcile, receipt, or a usage movement from record_inventory_usage) and still needs the movement to be the caller's own, within 15 minutes, still the latest change; a purchase undo still needs manage_inventory);
 -- (2) record_inventory_movement itself refuses anyone but owner/admin (inventory_human_authorized), so for a non-owner/admin caller both functions write the
 -- movement through the new internal s_inventory_staff_movement_v1 (reconcile and adjustment only, same invariants, no client grant). The owner/admin path is
 -- what it was. Note required, non-negative, 2 decimals, idempotency and the movement ledger are unchanged. SECURITY DEFINER, search_path and grants unchanged.
@@ -149,7 +149,7 @@ begin
   end if;
 
   if v_have_m then
-    if m.kind not in ('reconcile', 'receipt') then return jsonb_build_object('ok', false, 'reason', 'not_undoable'); end if;
+    if m.kind not in ('reconcile', 'receipt', 'usage') then return jsonb_build_object('ok', false, 'reason', 'not_undoable'); end if;  -- s85 r2: a usage movement (record_inventory_usage, controlled items) is undoable by its own author
     if m.actor_user_id is distinct from auth.uid() then return jsonb_build_object('ok', false, 'reason', 'not_yours'); end if;
     if m.created_at <= now() - interval '15 minutes' then return jsonb_build_object('ok', false, 'reason', 'too_late'); end if;
     if i.qty_on_hand is distinct from m.quantity_after

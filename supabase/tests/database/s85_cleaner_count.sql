@@ -2,7 +2,7 @@
 -- (inventory_undo_v1). Hermetic: its own property and users (uuids d8500000-...). Everything rolls back.
 -- The md5 guard at the head of the migration cannot run inside pgTAP; the rehearsal proves it separately.
 begin;
-select plan(19);
+select plan(23);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -90,6 +90,28 @@ select ok((select v->>'ok' = 'true' and v->>'qty' = '5.00' from _t where k = 'u_
   and (select qty_on_hand from public.inventory_items where id = 'd8500000-0000-4000-8000-0000000000c1') = 5.00, 'undo of own count by the cleaner works (back to 5)');
 select ok((select v->>'replayed' = 'true' from _t where k = 'u_rep')
   and (select count(*)::int from public.inventory_stock_movements where item_id = 'd8500000-0000-4000-8000-0000000000c1' and kind = 'adjustment' and actor_user_id = 'd8500000-0000-4000-8000-0000000000a1') = 1, 'a repeat is a replay: one adjustment movement');
+
+-- 3b. usage logged by record_inventory_usage (movement kind usage, controlled item): the author undoes it, nobody else, and not after 15 minutes
+select pg_temp.as_user('d8500000-0000-4000-8000-0000000000a1');
+insert into _t select 'use1', pg_temp.try($$select public.record_inventory_usage('d8500000-0000-4000-8000-0000000000b0', current_date, 'Honey', 'zz85 use', '[{"item_id": "d8500000-0000-4000-8000-0000000000c1", "used_qty": 2}]'::jsonb)$$);
+insert into _t select 'use1u', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->'movements'->>0 from _t where k = 'use1')));
+reset role;
+select pg_temp.as_user('d8500000-0000-4000-8000-0000000000a5');
+insert into _t select 'use2', pg_temp.try($$select public.record_inventory_usage('d8500000-0000-4000-8000-0000000000b0', current_date, 'Owner', 'zz85 use', '[{"item_id": "d8500000-0000-4000-8000-0000000000c1", "used_qty": 1}]'::jsonb)$$);
+reset role;
+select pg_temp.as_user('d8500000-0000-4000-8000-0000000000a1');
+insert into _t select 'use2u', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->'movements'->>0 from _t where k = 'use2')));
+insert into _t select 'use3', pg_temp.try($$select public.record_inventory_usage('d8500000-0000-4000-8000-0000000000b0', current_date, 'Honey', 'zz85 use', '[{"item_id": "d8500000-0000-4000-8000-0000000000c1", "used_qty": 1}]'::jsonb)$$);
+reset role;
+update public.inventory_stock_movements set created_at = now() - interval '16 minutes' where id = (select (v->'movements'->>0)::uuid from _t where k = 'use3');
+select pg_temp.as_user('d8500000-0000-4000-8000-0000000000a1');
+insert into _t select 'use3u', pg_temp.try(format($q$select public.inventory_undo_v1(%L)$q$, (select v->'movements'->>0 from _t where k = 'use3')));
+reset role;
+select ok((select v->>'ok' = 'true' and v->>'qty' = '5.00' from _t where k = 'use1u'), 'a cleaner undoes their own usage (qty back to 5)');
+select is((select count(*)::int from public.inventory_stock_movements where item_id = 'd8500000-0000-4000-8000-0000000000c1' and kind = 'adjustment'
+  and actor_user_id = 'd8500000-0000-4000-8000-0000000000a1' and quantity_before = 3 and quantity_after = 5 and reason like 'Undo in the staff app of usage%'), 1, 'one adjustment movement reverses the usage');
+select is((select v->>'reason' from _t where k = 'use2u'), 'not_yours', 'another user''s usage is not_yours');
+select is((select v->>'reason' from _t where k = 'use3u'), 'too_late', 'a usage older than 15 minutes is too_late');
 
 -- 4. the new internal writer has no client grant
 select ok(not (has_function_privilege('anon', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', 'execute')
