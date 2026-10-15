@@ -96,7 +96,7 @@ Deno.test('OPS shopping note: phone, e-mail and an amount are redacted or masked
 
 Deno.test('Finance order: unit cost, estimated cost, total, and items without a price are counted', () => {
   const r = buildReport('order', 'finance', ITEMS, SHOP, NOW, 'Lloyd');
-  assertEquals(r.columns, ['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note']);
+  assertEquals(r.columns, ['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note', 'Where']);
   assertEquals(r.financeLine, 'Finance copy - prices included');
   const rows = Object.fromEntries(flat(r).map((c) => [c[0], c]));
   assertEquals(rows['Hand soap'].slice(4, 6), ['PHP 95.00', 'PHP 1,140.00']); // 12 units x 95
@@ -113,7 +113,7 @@ Deno.test('Finance all / misc: value = on hand x unit cost; total and missing pr
   const misc = buildReport('misc', 'finance', ITEMS, [], NOW, 'L');
   assertEquals(misc.columns, ['Item', 'On hand', 'Unit', 'Unit cost', 'Value', 'Note']);
   assertEquals(misc.totals, ['Total value PHP 600.00', '1 item has no price.']);
-  assertEquals(buildReport('low', 'finance', ITEMS, [], NOW, 'L').columns, ['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost']);
+  assertEquals(buildReport('low', 'finance', ITEMS, [], NOW, 'L').columns, ['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Where']);
 });
 
 Deno.test('OPS: a price or phone typed into a category, unit or purchase unit never reaches a heading or cell (F2, F3)', () => {

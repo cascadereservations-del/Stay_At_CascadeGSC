@@ -14,6 +14,8 @@ export interface Item {
   purchaseUnit: string | null; unitsPer: number | null;
   /** Only ever set on the Finance path. */
   cost?: number | null;
+  /** Finance path only (s86): where it is bought, and the price-up percentage when the newest price jumped. */
+  where?: string | null; priceUpPct?: number | null;
 }
 export interface Shop {
   itemId: string | null; name: string; quantity: number; purchaseUnit: string | null; note: string | null;
@@ -88,14 +90,47 @@ const OPS_COLS: Record<Kind, [string[], number[]]> = {
   misc: [['Item', 'On hand', 'Unit', 'Note'], [0.4, 0.14, 0.14, 0.32]],
 };
 const FIN_COLS: Record<Kind, [string[], number[]]> = {
-  order: [['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note'], [0.24, 0.08, 0.08, 0.1, 0.14, 0.15, 0.21]],
+  order: [['Item', 'On hand', 'Target', 'Buy', 'Unit cost', 'Est. cost', 'Note', 'Where'], [0.19, 0.07, 0.07, 0.09, 0.17, 0.15, 0.14, 0.12]],
   all: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Value'], [0.34, 0.11, 0.13, 0.1, 0.16, 0.16]],
   consumables: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Value'], [0.34, 0.11, 0.13, 0.1, 0.16, 0.16]],
-  low: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost'], [0.38, 0.13, 0.15, 0.12, 0.22]],
+  low: [['Item', 'On hand', 'Reorder at', 'Status', 'Unit cost', 'Where'], [0.30, 0.11, 0.13, 0.10, 0.20, 0.16]],
   misc: [['Item', 'On hand', 'Unit', 'Unit cost', 'Value', 'Note'], [0.28, 0.1, 0.1, 0.16, 0.16, 0.2]],
 };
 
 const cost = (n: number | null | undefined) => (n == null ? '-' : money(n));
+/** Unit cost cell with the price-up mark; Finance only (WinAnsi text, no glyph). */
+const costUp = (i: Item, n: number | null) => cost(n) + (n != null && i.priceUpPct != null ? ` UP ${i.priceUpPct}%` : '');
+const whereOf = (i: Item) => contactSafe(i.where ?? '', 'finance');
+
+// ---------- Finance marks: where to buy, price jump (s86). Pure; the handler feeds it service-role reads. ----------
+export interface Purchase { itemId: string; supplierId: string | null; unitCost: number | null; at: string } // at = YYYY-MM-DD
+export interface Link { itemId: string; supplierId: string; preferred: boolean }
+
+/** Same rule as SQL R6: newest unit price >= 1.20 x median of up to 5 earlier purchases within 365 days (at least 2). Returns the percent or null. `newestFirst` order is the caller's. */
+export function priceJump(newestFirst: Array<{ cost: number; at: string }>, now: Date): number | null {
+  const [last, ...earlier] = newestFirst.filter((p) => p.cost > 0);
+  if (!last) return null;
+  const since = new Date(now.getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
+  const base = earlier.filter((p) => p.at >= since).slice(0, 5).map((p) => p.cost).sort((a, b) => a - b);
+  if (base.length < 2) return null;
+  const mid = base.length >> 1, median = base.length % 2 ? base[mid] : (base[mid - 1] + base[mid]) / 2;
+  return last.cost * 5 >= median * 6 - 1e-9 ? Math.round((last.cost / median - 1) * 100) : null;
+}
+
+/** Preferred supplier, else the supplier of the newest purchase that has one; blank when none. Plus the price-up percent. */
+export function marksFor(itemIds: string[], links: Link[], suppliers: Map<string, string>, purchases: Purchase[], now: Date): Map<string, { where: string; upPct: number | null }> {
+  const out = new Map<string, { where: string; upPct: number | null }>();
+  for (const id of itemIds) {
+    const mine = purchases.filter((p) => p.itemId === id).sort((a, b) => b.at.localeCompare(a.at)); // stable: ties keep the caller's order
+    const pref = links.find((l) => l.itemId === id && l.preferred);
+    const supplierId = pref?.supplierId ?? mine.find((p) => p.supplierId)?.supplierId ?? null;
+    out.set(id, {
+      where: (supplierId && suppliers.get(supplierId)) || '',
+      upPct: priceJump(mine.filter((p) => p.unitCost != null).map((p) => ({ cost: p.unitCost!, at: p.at })), now),
+    });
+  }
+  return out;
+}
 
 /** One row's cells, in the column order of its kind and destination. Finance cells only appear when dest is 'finance'. */
 function cells(kind: Kind, dest: Dest, i: Item, note: string, plan?: ReturnType<typeof buyPlan>, shopQty?: string): string[] {
@@ -108,14 +143,14 @@ function cells(kind: Kind, dest: Dest, i: Item, note: string, plan?: ReturnType<
       const tgt = plan ? num(plan.target) : '-';
       const buy = shopQty ?? plan?.label ?? '-';
       const est = plan && unitCost != null ? unitCost * plan.units : null;
-      return fin ? [name, on, tgt, buy, cost(unitCost), cost(est), note] : [name, on, tgt, buy, note];
+      return fin ? [name, on, tgt, buy, costUp(i, unitCost), cost(est), note, whereOf(i)] :[name, on, tgt, buy, note];
     }
     case 'misc': {
       const unit = contactSafe(i.unit?.trim() || '-');
       return fin ? [name, on, unit, cost(unitCost), cost(unitCost == null ? null : unitCost * i.qty), note] : [name, on, unit, note];
     }
     case 'low':
-      return fin ? [name, on, re, st, cost(unitCost)] : [name, on, re, st];
+      return fin ? [name, on, re, st, costUp(i, unitCost), whereOf(i)] :[name, on, re, st];
     default:
       return fin ? [name, on, re, st, cost(unitCost), cost(unitCost == null ? null : unitCost * i.qty)] : [name, on, re, st];
   }
