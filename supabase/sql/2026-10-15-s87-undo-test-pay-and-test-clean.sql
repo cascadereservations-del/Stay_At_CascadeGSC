@@ -23,12 +23,13 @@
 --    reading 214da77b reads electric 4209 -> 4209 and water 80.1710 -> 80.1710, delta exactly 0, so
 --    the next real reading compares against the same numbers either way. Children: 1 meter_readings,
 --    1 cleaning_diagnostics; zero claims, evidence, usage, readiness or turnover_verification rows.
---    staff_upload_hashes rows of its 19 photos are deleted so the same photo is not refused later.
+--    staff_upload_hashes rows of its 18 photos are deleted so the same photo is not refused later.
 --
--- NOT deleted: the admin_audit_log rows (the audit trail of the test and of this undo stays).
+-- NOT deleted: the admin_audit_log rows of the test; one 'undo' row is added for this undo (undo_of = the paid update).
+-- Also by hand: the test clean's Drive folder 15fgawV_EtuQtu6VZnoV1YU2OIkkhQnvw and any TEST turnover-report email.
 -- STILL OWED, only by hand (SQL cannot delete Storage objects): in the Supabase dashboard, Storage ->
 --   cleaning-photos/6ae230f4-c189-4547-84b1-cb6e0b2cc9bd/
---     50ccca5a-3e59-4299-9680-837fd8d88ac4/2d40771f-49d7-4c94-96dc-4b8376c09194/   (19 photos)
+--     50ccca5a-3e59-4299-9680-837fd8d88ac4/2d40771f-49d7-4c94-96dc-4b8376c09194/   (18 photos)
 --     0017d405-bc68-4190-bdab-366d7adea4e0/20a53f35-df27-431d-a498-d52bfe94ad0c/   (1 payment proof)
 -- and tell Honey the "paid" notice at 13:00Z was a test.
 
@@ -110,7 +111,13 @@ begin
    where path like '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd/50ccca5a-3e59-4299-9680-837fd8d88ac4/2d40771f-49d7-4c94-96dc-4b8376c09194/%'
       or path like '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd/0017d405-bc68-4190-bdab-366d7adea4e0/20a53f35-df27-431d-a498-d52bfe94ad0c/%';
   if v <> 0 then raise exception 'upload hashes survived: %', v; end if;
-  raise notice 'undone: request 5F955045 and its 4 ledger rows; Honey''s 2 cleans and 2 sugar claims are unpaid again; test clean 975d32e4 with its reading, diagnostics and 20 upload hashes deleted';
+  raise notice 'undone: request 5F955045 and its 4 ledger rows; Honey''s 2 cleans and 2 sugar claims are unpaid again; test clean 975d32e4 with its reading, diagnostics and 19 upload hashes deleted';
 end $$;
+
+insert into public.admin_audit_log(property_id, entity_table, entity_id, action, before_state, after_state, reason, undo_of)
+select property_id, 'staff_pay_requests', entity_id, 'undo', after_state, null, current_setting('cascade.audit_reason', true), id
+  from public.admin_audit_log
+ where entity_table = 'staff_pay_requests' and entity_id = '5f955045-c66a-42d7-8618-04620c859249' and after_state->>'status' = 'paid'
+ order by created_at limit 1;
 
 commit;
