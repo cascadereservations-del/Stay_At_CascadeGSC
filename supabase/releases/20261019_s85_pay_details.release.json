@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "release_id": "s85_pay_details_20261019",
+  "phase": "expand",
+  "source": {
+    "branch": "s85/pay-details-sql",
+    "commit": "615789ca003656321024753c09839402505a8c2f"
+  },
+  "migrations": [
+    "20261019000000_s85_pay_details.sql"
+  ],
+  "migration_sha256": {
+    "20261019000000_s85_pay_details.sql": "0915c69de7c955c8cdd2b6cec1a33692cf1721f335bc59a9b040064f1160f39c"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "2026-10-15T00:00:00.000Z",
+    "production_rule": "SINGLE SHOT: the migration is not re-runnable (a second run stops on its own md5 guard, 55000, nothing changed); to undo apply the rollback. Decision Lloyd 2026-10-15: the admin Staff page edits a person's payout bank or wallet label and QR Ph payload. save_staff_details_v1 gains payout_bank_label (trimmed, 2 to 40 chars, empty or null clears) and validates payout_qrph (null clears; else a string starting 000201, at most 512 chars; 22023 otherwise). The gate is unchanged: manage_staff, which only owner and admin hold. One new read staff_payout_details_v1(uuid) returns {payout_bank_label, has_qr, qr_payload} to owner/admin only (42501 otherwise). No table, column, grant or policy changes. The migration stops (55000) unless the live save_staff_details_v1 is exactly the body cut from (md5 of prosrc, CR stripped: 9605dae1cb79d08cb4e24eb7154623d2, read from production 2026-10-15). Apply AFTER s85_cleaner_count_20261018 (independent of it). restore_point is a placeholder: the release block fills it (fill-restore-point.mjs). Rehearsal: see docs/s85/rehearsal-paydetails.log.",
+    "notes": "Deploy order: SQL first, then the admin dashboard (the Payment details section hides itself while staff_payout_details_v1 is missing). No new secret. Known pre-existing: list_staff_details_v1 returns the whole staff_details row (select *), so it already carries payout_qrph and payout_bank_label to manage_staff holders; this release does not change that."
+  },
+  "forward_verification": [
+    {
+      "name": "save_staff_details_v1_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '1f528a60b24632ecf6cead5b47b38903' from pg_proc where oid = 'public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_payout_details_v1_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '0f2b2146fb78a878ffee8ccd05f54d74' from pg_proc where oid = 'public.staff_payout_details_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "save_and_read_grants_signed_in_users_only",
+      "query": "select has_function_privilege('authenticated', 'public.save_staff_details_v1(uuid,jsonb,integer,text)', 'execute') and not has_function_privilege('anon', 'public.save_staff_details_v1(uuid,jsonb,integer,text)', 'execute') and not has_function_privilege('service_role', 'public.save_staff_details_v1(uuid,jsonb,integer,text)', 'execute') and has_function_privilege('authenticated', 'public.staff_payout_details_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.staff_payout_details_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.staff_payout_details_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "both_definer_with_an_empty_search_path",
+      "query": "select count(*) = 2 and bool_and(prosecdef) and bool_and(proconfig @> array['search_path=\"\"']) from pg_proc where oid in ('public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure, 'public.staff_payout_details_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "payout_fields_gate_is_manage_staff_owner_and_admin_only",
+      "query": "select (select prosrc like '%current_staff_authorized(''manage_staff'')%' from pg_proc where oid = 'public.staff_payout_details_v1(uuid)'::regprocedure) and public.staff_access_allowed('owner', 'manage_staff', null, 'aal1') and public.staff_access_allowed('admin', 'manage_staff', null, 'aal1') and not public.staff_access_allowed('finance', 'manage_staff', null, 'aal1') and not public.staff_access_allowed('cleaner', 'manage_staff', null, 'aal1')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. The rollback puts save_staff_details_v1 back to the exact live body this release was cut from and drops staff_payout_details_v1. Saved bank labels and QR payloads stay in staff_details; the admin page hides its Payment details section once the read is gone.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261019_s85_pay_details.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_gate_is_server_side",
+      "required_state": "None. The server decides by role; the admin page probes the read and hides the section when it is absent."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same signatures, return shape and grants for save_staff_details_v1; patches without payout keys behave as before; one new function. Callers of save_staff_details_v1: the admin Staff page. payout_qrph is read by notify-cleaner-payment and staff_pay_payout_qr_v1; neither changes."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "save_staff_details_v1 in production is not the body cut from: the migration refuses; re-cut it",
+    "the rehearsal has not run s85_pay_details.sql green on this commit and proved the guard stops (55000)",
+    "the Fable 5.1 / Opus 5.5 review of this SQL lane (money and privacy: Fable) has not passed"
+  ]
+}
