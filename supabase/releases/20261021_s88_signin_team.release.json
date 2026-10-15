@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING - name the backup set taken immediately before this apply",
-    "verified_at": "2026-10-16T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261015T202518Z",
+    "verified_at": "2026-10-15T20:29:14.078Z",
     "production_rule": "The Cascade Staff sign-in screen groups names into Staff and Admin. One new anon-callable function staff_signin_list_v2() returns (label, handle, kind, team): exactly staff_signin_list_v1 plus team, 'admin' for the roles owner, admin and finance, 'staff' for every other role. v1 is untouched. No table, column, policy or data change. Re-running the migration is harmless (create or replace). restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
     "notes": "Deploy order: SQL first, then the Staff app (it falls back to v1 while v2 is missing). No new secret."
   },
