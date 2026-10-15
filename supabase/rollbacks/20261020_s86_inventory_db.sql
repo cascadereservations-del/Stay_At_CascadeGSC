@@ -226,6 +226,18 @@ begin
   return jsonb_build_object('ok', true, 'item_id', i.id, 'qty', v_after);
 end;
 $$;
+create or replace function public.get_shopping_list_v1(p_property_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare v_fin boolean; v_rows jsonb;
+begin
+  perform public.admin_require('read_operations', p_property_id);
+  v_fin := public.finance_human_authorized(p_property_id);
+  select coalesce(jsonb_agg(case when v_fin then to_jsonb(l) else to_jsonb(l) - 'estimated_cost' - 'unit_cost' - 'supplier' end order by l.proposed_at desc), '[]'::jsonb)
+    into v_rows
+    from (select * from public.inventory_shopping_list where property_id = p_property_id order by proposed_at desc limit 200) l;
+  return jsonb_build_object('ok', true, 'rows', v_rows);
+end;
+$$;
 create or replace function public.record_inventory_receipt_v1(p_item_id uuid, p_packs numeric, p_unit_cost numeric, p_supplier text, p_purchased_at date, p_receipt_path text, p_shopping_list_id uuid, p_idempotency_key text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare i public.inventory_items%rowtype; v_units numeric; v_pid uuid; v_mid uuid; v_existing public.inventory_purchases%rowtype; v_sh_status text;

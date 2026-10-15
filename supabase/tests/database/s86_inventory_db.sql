@@ -4,7 +4,7 @@
 -- Fixtures: uuids d8600000-... on a property of their own. Everything rolls back.
 -- The md5 guard at the head of the migration cannot run inside pgTAP; the rehearsal proves it separately (a tampered body stops the apply with SQLSTATE 55000).
 begin;
-select plan(170);
+select plan(173);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -444,6 +444,19 @@ select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a1');
 insert into _t select 'cat3', pg_temp.try($$select public.get_inventory_catalogue_v1('d8600000-0000-4000-8000-0000000000b0')$$);
 reset role;
 select ok((select e -> 'supplier' ->> 'name' = 'Zz86 Alpha Mart' from _t, jsonb_array_elements(v -> 'items') e where k = 'cat3' and e ->> 'id' = 'd8600000-0000-4000-8000-0000000000d4'), 'a stopped shop is no longer shown: the newest purchase at a shop still in use is');
+
+-- the shopping list: supplier_id is one more column on the row, and a non-finance session must not get it (it already loses supplier and the costs)
+insert into public.inventory_shopping_list(id, property_id, item_id, item_name, quantity, status, idempotency_key, supplier, supplier_id) values
+  ('d8600000-0000-4000-8000-0000000000f2', 'd8600000-0000-4000-8000-0000000000b0', 'd8600000-0000-4000-8000-0000000000c2', 'Zz86 Towel', 1, 'received', 'zz86-shop-key-000002', 'Zz86 Alpha Mart', 'd8600000-0000-4000-8000-0000000000e1');
+select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a1');
+insert into _t select 'sl_cl', pg_temp.try($$select public.get_shopping_list_v1('d8600000-0000-4000-8000-0000000000b0')$$);
+reset role;
+select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a4');
+insert into _t select 'sl_fi', pg_temp.try($$select public.get_shopping_list_v1('d8600000-0000-4000-8000-0000000000b0')$$);
+reset role;
+select ok((select jsonb_array_length(v -> 'rows') >= 2 and v::text !~* '(supplier|estimated_cost|unit_cost|Alpha Mart)' from _t where k = 'sl_cl'), 'shopping list as the cleaner: the rows, and no supplier, supplier_id or cost key');
+select is((select e ->> 'supplier_id' from _t, jsonb_array_elements(v -> 'rows') e where k = 'sl_fi' and e ->> 'id' = 'd8600000-0000-4000-8000-0000000000f2'), 'd8600000-0000-4000-8000-0000000000e1', 'shopping list as finance: supplier_id is there');
+select ok(has_function_privilege('authenticated', 'public.get_shopping_list_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.get_shopping_list_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.get_shopping_list_v1(uuid)', 'execute'), 'get_shopping_list_v1 grants are unchanged (signed-in users only)');
 
 -- =============================================================================================================================================
 -- Part 9: R10-R12 and the categoriser write (service_role only)

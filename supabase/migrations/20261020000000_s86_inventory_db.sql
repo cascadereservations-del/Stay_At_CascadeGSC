@@ -13,13 +13,14 @@
 --                 internal price-jump helper with no grant at all. R1 read_operations with a v_full split (a cleaner gets id, name, location, maps_url, active only).
 --                 R7 read_operations. Catalogue: location + supplier {id,name,location} for every role; lastPrice and priceUp inside the finance-gated sub-select.
 --   5. Redefined  get_inventory_catalogue_v1, inventory_item_update_v1 (+ location), inventory_undo_v1 (+ supplier_id = null on the reopened shopping row),
+--                 get_shopping_list_v1 (a non-finance session also loses the new supplier_id key, as it already loses supplier; the s82 pgTAP asserts no supplier key),
 --                 record_inventory_receipt_v1 (9 args), apply_inventory_purchase (7 args). The 6- and 8-argument signatures are dropped first (no PGRST203).
 --   6. Storage    per override O1 only the bucket limits (1 MB, jpeg/webp); the anon policies are already gone and the bucket is already private. Skipped
 --                 where the storage schema does not exist (rehearsal). Realtime: inventory_purchases leaves supabase_realtime (conditional).
 --   7. View       price_history_by_item: anon loses everything, authenticated keeps SELECT only.
 -- SINGLE SHOT. Apply AFTER s84_inventory_20261017, s85_cleaner_count_20261018 and s85_pay_details_20261019 (inventory_undo_v1 is guarded on the s85 body).
 -- Guard (55000, nothing changed): md5(replace(prosrc, chr(13), '')) of the five bodies cut from. catalogue 5a2625ae6aab612a0f9c054df904e9b7, receipt(8) 8e024f7f97169ed122175a2095cb1822,
--- apply(6) d94fceb8b7d074b16fca508f81b81156, item_update d359c1e34bccebcb1300f3a4bd5fb865, undo (the s85 body) 06ba21967be72a96d9eb7d4ceb94976f; no OCR purchase with units_per_purchase <> 1; exactly one 'test' purchase.
+-- apply(6) d94fceb8b7d074b16fca508f81b81156, shopping list cb564fcd1f2c6bff367018691c5e644d, item_update d359c1e34bccebcb1300f3a4bd5fb865, undo (the s85 body) 06ba21967be72a96d9eb7d4ceb94976f; no OCR purchase with units_per_purchase <> 1; exactly one 'test' purchase.
 -- Rollback: supabase/rollbacks/20261020_s86_inventory_db.sql
 
 begin;
@@ -50,6 +51,10 @@ begin
   select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.inventory_undo_v1(uuid,uuid)');
   if v_got is distinct from '06ba21967be72a96d9eb7d4ceb94976f' then
     raise exception 's86 inventory db: inventory_undo_v1 is not the s85 body this release was cut from (md5 %): apply s85_cleaner_count first, or re-cut it', v_got using errcode = '55000';
+  end if;
+  select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.get_shopping_list_v1(uuid)');
+  if v_got is distinct from 'cb564fcd1f2c6bff367018691c5e644d' then
+    raise exception 's86 inventory db: get_shopping_list_v1 is not the body this release was cut from (md5 %): re-cut it', v_got using errcode = '55000';
   end if;
   select count(*) into v_n from public.inventory_purchases where notes like 'Auto-restock from receipt OCR%' and units_per_purchase <> 1;
   if v_n <> 0 then
@@ -402,6 +407,18 @@ begin
   end if;
   select it.qty_on_hand into v_after from public.inventory_items it where it.id = i.id;
   return jsonb_build_object('ok', true, 'item_id', i.id, 'qty', v_after);
+end;
+$$;
+create or replace function public.get_shopping_list_v1(p_property_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare v_fin boolean; v_rows jsonb;
+begin
+  perform public.admin_require('read_operations', p_property_id);
+  v_fin := public.finance_human_authorized(p_property_id);
+  select coalesce(jsonb_agg(case when v_fin then to_jsonb(l) else to_jsonb(l) - 'estimated_cost' - 'unit_cost' - 'supplier' - 'supplier_id' end order by l.proposed_at desc), '[]'::jsonb)
+    into v_rows
+    from (select * from public.inventory_shopping_list where property_id = p_property_id order by proposed_at desc limit 200) l;
+  return jsonb_build_object('ok', true, 'rows', v_rows);
 end;
 $$;
 create or replace function public.record_inventory_receipt_v1(p_item_id uuid, p_packs numeric, p_unit_cost numeric, p_supplier text, p_purchased_at date, p_receipt_path text, p_shopping_list_id uuid, p_idempotency_key text, p_supplier_id uuid default null)
@@ -907,6 +924,7 @@ $$;
 revoke all on function public.get_inventory_catalogue_v1(uuid) from public, anon, service_role;
 revoke all on function public.inventory_item_update_v1(uuid, jsonb) from public, anon, service_role;
 revoke all on function public.inventory_undo_v1(uuid, uuid) from public, anon, service_role;
+revoke all on function public.get_shopping_list_v1(uuid) from public, anon, service_role;
 revoke all on function public.record_inventory_receipt_v1(uuid, numeric, numeric, text, date, text, uuid, text, uuid) from public, anon, service_role;
 revoke all on function public.inventory_supplier_list_v1(uuid) from public, anon, service_role;
 revoke all on function public.inventory_supplier_save_v1(uuid, jsonb, text) from public, anon, service_role;
@@ -920,6 +938,7 @@ revoke all on function public.inventory_code_mint_v1(uuid, uuid[]) from public, 
 grant execute on function public.get_inventory_catalogue_v1(uuid) to authenticated;
 grant execute on function public.inventory_item_update_v1(uuid, jsonb) to authenticated;
 grant execute on function public.inventory_undo_v1(uuid, uuid) to authenticated;
+grant execute on function public.get_shopping_list_v1(uuid) to authenticated;
 grant execute on function public.record_inventory_receipt_v1(uuid, numeric, numeric, text, date, text, uuid, text, uuid) to authenticated;
 grant execute on function public.inventory_supplier_list_v1(uuid) to authenticated;
 grant execute on function public.inventory_supplier_save_v1(uuid, jsonb, text) to authenticated;
