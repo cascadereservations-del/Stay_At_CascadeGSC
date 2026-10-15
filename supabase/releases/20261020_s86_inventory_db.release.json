@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "release_id": "s86_inventory_db_20261020",
+  "phase": "backfill",
+  "source": {
+    "branch": "s86/inventory-db-sql",
+    "commit": "ed107e47f6efd3521d00fc53a83fa1ea7629728c"
+  },
+  "migrations": [
+    "20261020000000_s86_inventory_db.sql"
+  ],
+  "migration_sha256": {
+    "20261020000000_s86_inventory_db.sql": "a7e6b9902f4d53c950e90b979a16fe65fd0f308ebdd48d5cb33703e26285d0dc"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING - name the backup set taken immediately before this apply",
+    "verified_at": "2026-10-15T00:00:00.000Z",
+    "production_rule": "SINGLE SHOT: the migration is not re-runnable (a second run stops on its own md5 guard, 55000, nothing changed); to undo apply the rollback. Apply AFTER s84_inventory_20261017, s85_cleaner_count_20261018 and s85_pay_details_20261019 (inventory_undo_v1 is guarded on the s85 body). Decisions Lloyd 2026-10-15 (D-330): all staff roles may add item photos; Honey sees where to buy (shop name, place, map link) and never a price, phone or note; the 'test' purchase is deleted; categories are tidied (Cleaning to Cleaning Supplies; Utility / Cleaning / Bathroom to Bathroom & Utility; Guest Supplies to Toiletries) with one audit row per item; an automatic categoriser may sort Uncategorised items. WHAT CHANGES: two new tables (inventory_suppliers, inventory_item_suppliers) with no client grants; supplier_id on inventory_purchases and inventory_shopping_list; inventory_items.location (column grant to authenticated, unit_cost stays closed); three suppliers (SM, KCC, Robinsons) created from the purchases and linked; the one test purchase deleted (its values are in the rollback; the guard stops unless exactly one row matches and nothing points at it); the catalogue gains location, supplier {id,name,location} for every role and lastPrice and priceUp for finance only; inventory_item_update_v1 accepts location; inventory_undo_v1 also clears supplier_id on the reopened shopping row; R1 to R9 (signed in, each gates itself), R10 to R12 and the categoriser write (service_role only), the exact-match resolver and an internal price-jump helper (no grant). PRICE BASIS: inventory_purchases.unit_cost is now PHP per base unit and qty is base units on BOTH paths. apply_inventory_purchase (the Telegram OCR restock) used to store the receipt line's per-pack price and the pack count; it now stores qty = packs x units_per_purchase and unit_cost = pack price / units_per_purchase (the same as record_inventory_receipt_v1). It was also invoker rights with search_path public and executable by authenticated and service_role: it is now SECURITY DEFINER with an empty search_path and executable by service_role ONLY (the bot); the 6- and 8-argument signatures are dropped first so PostgREST sees one overload each. The guard proves no existing OCR row has units_per_purchase other than 1, so no stored price needs rewriting. STORAGE (override O1): only the photos bucket limits (1 MB, jpeg and webp); the anon policies are already deleted and the bucket is already private; the storage step is skipped where the storage schema is absent. inventory_purchases leaves the realtime publication; price_history_by_item loses its anon grant and its write grants. The migration stops (55000) unless the five live bodies are exactly the ones cut from (md5 of prosrc, CR stripped: catalogue 5a2625ae6aab612a0f9c054df904e9b7, receipt 8 args 8e024f7f97169ed122175a2095cb1822, apply 6 args d94fceb8b7d074b16fca508f81b81156, item update d359c1e34bccebcb1300f3a4bd5fb865, undo = the s85 body 06ba21967be72a96d9eb7d4ceb94976f). Rehearsal: see docs/s86/rehearsal-s86.log.",
+    "notes": "Deploy order: SQL first (after the backup and the rehearsal), then the Edge Functions (upload-photo, inventory-report, telegram-expense, inventory-categorise), then the staff app. The Telegram bot calls apply_inventory_purchase by named arguments, so it keeps working with the new defaulted p_supplier_id; until telegram-expense is redeployed it simply links by exact name or alias. No new secret. Known limit: unit_cost is numeric(10,2), so a per-unit price that does not divide evenly is stored to the cent (100 for 12 becomes 8.33; its pack price then reads 99.96)."
+  },
+  "forward_verification": [
+    {
+      "name": "new_tables_columns_and_all_functions_present",
+      "query": "select to_regclass('public.inventory_suppliers') is not null and to_regclass('public.inventory_item_suppliers') is not null and (select count(*) = 3 from information_schema.columns where table_schema = 'public' and ((table_name = 'inventory_purchases' and column_name = 'supplier_id') or (table_name = 'inventory_shopping_list' and column_name = 'supplier_id') or (table_name = 'inventory_items' and column_name = 'location'))) and to_regprocedure('public.inventory_supplier_list_v1(uuid)') is not null and to_regprocedure('public.inventory_supplier_save_v1(uuid,jsonb,text)') is not null and to_regprocedure('public.inventory_supplier_detail_v1(uuid)') is not null and to_regprocedure('public.inventory_item_supplier_link_v1(uuid,uuid,jsonb)') is not null and to_regprocedure('public.inventory_item_supplier_unlink_v1(uuid,uuid)') is not null and to_regprocedure('public.inventory_price_history_v1(uuid)') is not null and to_regprocedure('public.inventory_item_photo_set_v1(uuid,text)') is not null and to_regprocedure('public.inventory_items_recategorize_v1(uuid,uuid[],text)') is not null and to_regprocedure('public.inventory_code_mint_v1(uuid,uuid[])') is not null and to_regprocedure('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)') is not null and to_regprocedure('public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)') is not null and to_regprocedure('public.s_inventory_supplier_create_v1(uuid,text,text)') is not null and to_regprocedure('public.s_inventory_supplier_alias_v1(uuid,text)') is not null and to_regprocedure('public.s_inventory_purchase_supplier_set_v1(uuid[],uuid)') is not null and to_regprocedure('public.s_inventory_item_category_auto_v1(uuid,text,numeric)') is not null and to_regprocedure('public.s_inventory_supplier_resolve_v1(uuid,text)') is not null and to_regprocedure('public.s_inventory_price_jump_v1(uuid)') is not null",
+      "expect": true
+    },
+    {
+      "name": "three_suppliers_created_and_every_purchase_with_a_supplier_name_is_linked",
+      "query": "select (select count(*) = 3 from public.inventory_suppliers where created_by is null and name in ('SM', 'KCC', 'Robinsons')) and not exists (select 1 from public.inventory_purchases where supplier is not null and btrim(supplier) <> '' and supplier_id is null)",
+      "expect": true
+    },
+    {
+      "name": "no_purchase_with_supplier_test_remains",
+      "query": "select not exists (select 1 from public.inventory_purchases where lower(btrim(supplier)) = 'test')",
+      "expect": true
+    },
+    {
+      "name": "categories_tidied_none_of_the_old_names_and_seven_categories",
+      "query": "select not exists (select 1 from public.inventory_items where category in ('Cleaning', 'Utility / Cleaning / Bathroom', 'Guest Supplies')) and (select count(distinct category) = 7 from public.inventory_items) and exists (select 1 from public.inventory_audit_log where action = 'category_tidy_s86' and actor = 'migration')",
+      "expect": true
+    },
+    {
+      "name": "no_inv_photos_anon_policy_remains",
+      "query": "select not exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'inv photos anon%')",
+      "expect": true
+    },
+    {
+      "name": "photos_bucket_is_private_with_a_1_mb_limit_and_jpeg_webp_only",
+      "query": "select case when to_regclass('storage.buckets') is null then true else (xpath('/row/ok/text()', query_to_xml('select (not public and file_size_limit = 1048576 and allowed_mime_types = array[''image/jpeg'', ''image/webp'']) as ok from storage.buckets where id = ''inventory-photos''', false, true, '')))[1]::text = 'true' end",
+      "expect": true
+    },
+    {
+      "name": "get_inventory_catalogue_v1_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '00ca41d933a5c5a9c4498cff682e7844' from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "inventory_item_update_v1_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '6b3e2d70b638282ed422166cb09ca0ad' from pg_proc where oid = 'public.inventory_item_update_v1(uuid,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "inventory_undo_v1_is_the_reviewed_body_s86_supersedes_the_s85_md5",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b3923b0bae57e812bb8375eea81f93e9' from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "record_inventory_receipt_v1_9_args_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'c05c174f9d8861813c0a14ad78735195' from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "apply_inventory_purchase_7_args_is_the_reviewed_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '48082c76263e15517d733c65f7eb3ccc' from pg_proc where oid = 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "old_6_and_8_argument_signatures_are_gone",
+      "query": "select to_regprocedure('public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid)') is null and to_regprocedure('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text)') is null",
+      "expect": true
+    },
+    {
+      "name": "apply_inventory_purchase_is_definer_with_an_empty_search_path_and_service_role_only",
+      "query": "select p.prosecdef and p.proconfig @> array['search_path=\"\"'] and has_function_privilege('service_role', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and not has_function_privilege('authenticated', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and not has_function_privilege('anon', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') from pg_proc p where p.oid = 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "r1_to_r9_and_the_receipt_are_for_signed_in_users_only",
+      "query": "select has_function_privilege('authenticated', 'public.inventory_supplier_list_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_supplier_list_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_supplier_list_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_supplier_save_v1(uuid,jsonb,text)', 'execute') and not has_function_privilege('anon', 'public.inventory_supplier_save_v1(uuid,jsonb,text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_supplier_save_v1(uuid,jsonb,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_supplier_detail_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_supplier_detail_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_supplier_detail_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_item_supplier_link_v1(uuid,uuid,jsonb)', 'execute') and not has_function_privilege('anon', 'public.inventory_item_supplier_link_v1(uuid,uuid,jsonb)', 'execute') and not has_function_privilege('service_role', 'public.inventory_item_supplier_link_v1(uuid,uuid,jsonb)', 'execute') and has_function_privilege('authenticated', 'public.inventory_item_supplier_unlink_v1(uuid,uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_item_supplier_unlink_v1(uuid,uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_item_supplier_unlink_v1(uuid,uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_price_history_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_price_history_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_price_history_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_item_photo_set_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.inventory_item_photo_set_v1(uuid,text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_item_photo_set_v1(uuid,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_items_recategorize_v1(uuid,uuid[],text)', 'execute') and not has_function_privilege('anon', 'public.inventory_items_recategorize_v1(uuid,uuid[],text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_items_recategorize_v1(uuid,uuid[],text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') and not has_function_privilege('anon', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') and not has_function_privilege('service_role', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') and has_function_privilege('authenticated', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') and not has_function_privilege('anon', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') and not has_function_privilege('service_role', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "service_role_writers_and_the_resolver_are_not_executable_by_signed_in_users_or_anon",
+      "query": "select has_function_privilege('service_role', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and not has_function_privilege('authenticated', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and not has_function_privilege('anon', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and has_function_privilege('service_role', 'public.s_inventory_supplier_create_v1(uuid,text,text)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_supplier_create_v1(uuid,text,text)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_supplier_create_v1(uuid,text,text)', 'execute') and has_function_privilege('service_role', 'public.s_inventory_supplier_alias_v1(uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_supplier_alias_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_supplier_alias_v1(uuid,text)', 'execute') and has_function_privilege('service_role', 'public.s_inventory_purchase_supplier_set_v1(uuid[],uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_purchase_supplier_set_v1(uuid[],uuid)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_purchase_supplier_set_v1(uuid[],uuid)', 'execute') and has_function_privilege('service_role', 'public.s_inventory_item_category_auto_v1(uuid,text,numeric)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_item_category_auto_v1(uuid,text,numeric)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_item_category_auto_v1(uuid,text,numeric)', 'execute') and has_function_privilege('service_role', 'public.s_inventory_supplier_resolve_v1(uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_supplier_resolve_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_supplier_resolve_v1(uuid,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "price_jump_helper_has_no_grant_to_anyone",
+      "query": "select not has_function_privilege('authenticated', 'public.s_inventory_price_jump_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_price_jump_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_price_jump_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "every_new_and_redefined_function_is_definer_with_an_empty_search_path",
+      "query": "select count(*) = 20 and bool_and(prosecdef) and bool_and(proconfig @> array['search_path=\"\"']) from pg_proc where oid in ('public.inventory_supplier_list_v1(uuid)'::regprocedure, 'public.inventory_supplier_save_v1(uuid,jsonb,text)'::regprocedure, 'public.inventory_supplier_detail_v1(uuid)'::regprocedure, 'public.inventory_item_supplier_link_v1(uuid,uuid,jsonb)'::regprocedure, 'public.inventory_item_supplier_unlink_v1(uuid,uuid)'::regprocedure, 'public.inventory_price_history_v1(uuid)'::regprocedure, 'public.inventory_item_photo_set_v1(uuid,text)'::regprocedure, 'public.inventory_items_recategorize_v1(uuid,uuid[],text)'::regprocedure, 'public.inventory_code_mint_v1(uuid,uuid[])'::regprocedure, 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)'::regprocedure, 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)'::regprocedure, 'public.s_inventory_supplier_create_v1(uuid,text,text)'::regprocedure, 'public.s_inventory_supplier_alias_v1(uuid,text)'::regprocedure, 'public.s_inventory_purchase_supplier_set_v1(uuid[],uuid)'::regprocedure, 'public.s_inventory_item_category_auto_v1(uuid,text,numeric)'::regprocedure, 'public.s_inventory_supplier_resolve_v1(uuid,text)'::regprocedure, 'public.s_inventory_price_jump_v1(uuid)'::regprocedure, 'public.get_inventory_catalogue_v1(uuid)'::regprocedure, 'public.inventory_item_update_v1(uuid,jsonb)'::regprocedure, 'public.inventory_undo_v1(uuid,uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "new_tables_have_rls_on_and_no_client_grants",
+      "query": "select (select bool_and(relrowsecurity) from pg_class where oid in ('public.inventory_suppliers'::regclass, 'public.inventory_item_suppliers'::regclass)) and not has_table_privilege('anon', 'public.inventory_suppliers', 'select') and not has_table_privilege('authenticated', 'public.inventory_suppliers', 'select') and not has_table_privilege('anon', 'public.inventory_item_suppliers', 'select') and not has_table_privilege('authenticated', 'public.inventory_item_suppliers', 'select')",
+      "expect": true
+    },
+    {
+      "name": "location_is_readable_by_signed_in_users_and_unit_cost_is_still_closed",
+      "query": "select has_column_privilege('authenticated', 'public.inventory_items', 'location', 'select') and not has_column_privilege('authenticated', 'public.inventory_items', 'unit_cost', 'select') and has_column_privilege('authenticated', 'public.inventory_items', 'name', 'select')",
+      "expect": true
+    },
+    {
+      "name": "price_history_by_item_anon_has_nothing_and_signed_in_users_read_only",
+      "query": "select not has_table_privilege('anon', 'public.price_history_by_item', 'select') and has_table_privilege('authenticated', 'public.price_history_by_item', 'select') and not has_table_privilege('authenticated', 'public.price_history_by_item', 'insert') and not has_table_privilege('authenticated', 'public.price_history_by_item', 'update') and not has_table_privilege('authenticated', 'public.price_history_by_item', 'delete')",
+      "expect": true
+    },
+    {
+      "name": "inventory_purchases_is_out_of_the_realtime_publication",
+      "query": "select not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'inventory_purchases')",
+      "expect": true
+    },
+    {
+      "name": "gates_r1_read_operations_with_v_full_r7_read_operations_money_keys_only_inside_the_finance_gate",
+      "query": "select (select prosrc like '%admin_require(''read_operations''%' and prosrc like '%v_full%' and prosrc like '%where v_full%' from pg_proc where oid = 'public.inventory_supplier_list_v1(uuid)'::regprocedure) and (select prosrc like '%admin_require(''read_operations''%' from pg_proc where oid = 'public.inventory_item_photo_set_v1(uuid,text)'::regprocedure) and (select prosrc like '%where v_fin), ''{}''::jsonb)%' and prosrc like '%case when v_fin then i.unit_cost end%' from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "price_basis_ocr_stores_base_units_and_a_per_unit_cost",
+      "query": "select prosrc like '%p_qty * v_upp, round(p_unit_cost / nullif(v_upp, 0), 4)%' and prosrc like '%public.s_inventory_supplier_resolve_v1(v_prop, p_supplier)%' from pg_proc where oid = 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. The rollback restores the s84 / s85 bodies and the 6- and 8-argument signatures, puts the test purchase back verbatim, reverses the category tidy by item id and drops the new tables and columns. DATA LOSS by design: every supplier, link, supplier_id and location written since the apply. Purchase rows written after the apply keep their per-base-unit price and base-unit qty. The anon storage policies are not recreated.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261020_s86_inventory_db.sql with run-sql-on-host.sh. Redeploy telegram-expense from the previous commit first if it already passes p_supplier_id (a 6-argument call keeps working after the rollback)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_gate_is_server_side",
+      "required_state": "None. Each client probes the new RPCs and hides what is missing (PGRST202)."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Old readers: the catalogue only gains keys (location, supplier, lastPrice, priceUp). Old writers: record_inventory_receipt_v1 callers pass 8 positional arguments and the 9th defaults; the bot calls apply_inventory_purchase by named arguments and the 7th defaults. The OCR path changes the stored basis (qty and unit_cost per base unit), which is the point of the release; no existing row changes. Callers checked: telegram-expense (apply_inventory_purchase), staff app and admin (record_inventory_receipt_v1, get_inventory_catalogue_v1); telegram_apply_inventory_count_v1 and save_shopping_item_v1 only mention the old names in comments and messages and do not call them."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "s85_cleaner_count_20261018 or s85_pay_details_20261019 is not applied (the md5 guard stops 55000 on inventory_undo_v1)",
+    "any of the five guarded function bodies in production is not the one cut from: the migration refuses; re-cut it",
+    "the guard reports an OCR purchase with units_per_purchase other than 1, or other than exactly one test purchase: stop and report, do not guess",
+    "the rehearsal has not run s86_inventory_db.sql green on this commit after s85_cleaner_count and s85_pay_details, with s84_inventory.sql, s85 suites and price_history_view.sql still green, and proved the guard stops (55000)",
+    "the Fable 5.1 review of this SQL lane (money gates, grants, ledger-adjacent writes) has not passed"
+  ]
+}

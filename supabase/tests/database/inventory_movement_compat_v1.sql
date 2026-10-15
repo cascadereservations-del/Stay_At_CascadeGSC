@@ -3,7 +3,7 @@ select plan(10);
 
 select has_column('public','inventory_items','movement_controlled_at','baseline flag column exists');
 select has_function('public','reconcile_inventory_baseline_v1',array['uuid','numeric','text','text'],'baseline RPC exists');
-select has_function('public','record_inventory_receipt_v1',array['uuid','numeric','numeric','text','date','text','uuid','text'],'receipt RPC exists');
+select has_function('public','record_inventory_receipt_v1',array['uuid','numeric','numeric','text','date','text','uuid','text','uuid'],'receipt RPC exists (s86: 9 arguments, the last is the supplier id)');
 
 insert into public.properties(id,name,is_active) values('e1000000-0000-4000-8000-0000000000c1','Synthetic Stock',true);
 insert into auth.users(id) values('e2000000-0000-4000-8000-0000000000c1');

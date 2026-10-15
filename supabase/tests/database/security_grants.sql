@@ -22,11 +22,11 @@ select ok(has_function_privilege('service_role', 'public.get_meter_photo_objects
 select ok(not has_function_privilege('anon', 'public.get_welcome_info(date, uuid)', 'execute')
       and not has_function_privilege('anon', 'public.get_usage_medians()', 'execute'),
   'the two uncalled functions are off anon, PUBLIC included');
-select ok(not has_function_privilege('anon', 'public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid)', 'execute')
+select ok(not has_function_privilege('anon', 'public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid, uuid)', 'execute')
       and not has_function_privilege('anon', 'public.match_inventory_item(text, integer, real, boolean)', 'execute')
       and not has_function_privilege('anon', 'public.try_uuid(text)', 'execute'),
   'the three telegram-expense helpers are off anon, PUBLIC included');
-select ok(has_function_privilege('service_role', 'public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid)', 'execute')
+select ok(has_function_privilege('service_role', 'public.apply_inventory_purchase(uuid, numeric, numeric, text, date, uuid, uuid)', 'execute')
       and has_function_privilege('service_role', 'public.match_inventory_item(text, integer, real, boolean)', 'execute')
       and has_function_privilege('service_role', 'public.try_uuid(text)', 'execute'),
   'telegram-expense (service_role) keeps them');
