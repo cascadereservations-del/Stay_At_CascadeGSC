@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261016T050649Z",
+    "verified_at": "2026-10-16T05:10:31.241Z",
     "production_rule": "Back-end for the Manage hub. admin_save_transaction_v1 gains an optional, validated receipt_image_path (+ ocr_confidence, ocr_raw); four new functions (admin_review_queue_v1, admin_review_transaction_v1, expense_categories_v1, get_hospitality_series_v1); six slugs are added to expense_categories (internet, subscription, furnishing, cohost_fee, airbnb_adjustment, loan). No table, column or policy change and no transaction row is touched. Re-running is harmless (create or replace, insert where not exists). restore_point is a placeholder: the release block fills it (fill-restore-point.mjs). get_hospitality_series_v1 follows get_hospitality_metrics_v1 gate: effective roles owner, admin and finance (a cleaner is refused by the stays gate).",
     "notes": "Deploy order: SQL first, then the ocr-receipt edge function (waves branch), then the Staff app. The migration refuses (55000) if admin_save_transaction_v1 is not the body with md5 147e217b6c7a14f264f7dfce43b8bb2f. No new secret."
   },

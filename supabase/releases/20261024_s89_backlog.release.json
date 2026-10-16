@@ -17,8 +17,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261016T050649Z",
+    "verified_at": "2026-10-16T05:10:31.241Z",
     "production_rule": "Part 1 (payout QR): save_staff_details_v1 refuses a QR Ph payload whose suffix is not 6304 plus four capital hex characters, or whose CRC-16/CCITT-FALSE does not match, with 22023 and a readable message (before: a raw 23514 from the table CHECK). A real change of payout_qrph or payout_bank_label queues one row in the new table staff_payout_change_notices (Finance group text and the person's own text, first names only, never the QR or an account number); an Edge Function sends it (not part of this release). New internal helper qrph_crc16_v1. Part 2 (inventory precision): inventory_purchases.unit_cost and inventory_items.unit_cost become numeric(12,4) so PHP 100 for 12 is 8.3333, not 8.33; total_cost is dropped and re-added with the same generated expression (numeric(10,2), qty * unit_cost); view price_history_by_item is dropped and recreated with the same definition and grants; record_inventory_receipt_v1 sets the item cost to 4 dp instead of 2. Existing rows keep their stored values. restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
     "notes": "Deploy order: SQL, then the Edge Function that sends staff_payout_change_notices (until it exists the rows only accumulate). The admin Staff page already checks the CRC; the readable 22023 only matters if a client sends a bad one. ALTER COLUMN TYPE and DROP COLUMN are why this is a contract-phase release: compatibility.verified stays false until the rehearsal has run green on this commit."
   },

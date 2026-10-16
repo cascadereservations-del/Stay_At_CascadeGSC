@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "PENDING",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261016T050649Z",
+    "verified_at": "2026-10-16T05:10:31.241Z",
     "production_rule": "staff_signin_list_v2() is replaced in place (same signature and grants): kind is 'pin' when auth app_metadata.signin_kind = 'pin' or the e-mail is @staff.cascade.invalid, else 'password'. One data change: app_metadata.signin_kind = 'pin' on the single admin whose display_name is Lloyd (guarded lookup, the migration aborts unless exactly one row matches). Re-running is harmless. restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
     "notes": "Deploy order: SQL, then the staff-users edge function (it writes signin_kind on every PIN or password change). The Staff app already reads kind and needs no change. No new secret. Precondition: Cascade-Staff v3.4.3 (cs-shell-v28, with the 'Use a password instead' fallback) is live before this SQL is applied."
   },
