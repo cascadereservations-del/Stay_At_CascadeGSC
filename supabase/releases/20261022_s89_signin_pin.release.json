@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "release_id": "s89_signin_pin_20261022",
+  "phase": "expand",
+  "source": {
+    "branch": "s89/signin-pin",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20261022000000_s89_signin_pin.sql"
+  ],
+  "migration_sha256": {
+    "20261022000000_s89_signin_pin.sql": "e1d7d08254171a739fdcb714e3c7e9af18ccf8489e92646152f32efa3f79e130"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "PENDING",
+    "production_rule": "staff_signin_list_v2() is replaced in place (same signature and grants): kind is 'pin' when auth app_metadata.signin_kind = 'pin' or the e-mail is @staff.cascade.invalid, else 'password'. One data change: app_metadata.signin_kind = 'pin' on the single admin whose display_name is Lloyd (guarded lookup, the migration aborts unless exactly one row matches). Re-running is harmless. restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
+    "notes": "Deploy order: SQL, then the staff-users edge function (it writes signin_kind on every PIN or password change). The Staff app already reads kind and needs no change. No new secret."
+  },
+  "forward_verification": [
+    {
+      "name": "v2_body_is_the_s89_one",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '903c4e6b40fa2d24aa42f0fb14789797' from pg_proc where oid = 'public.staff_signin_list_v2()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "v2_signature_unchanged",
+      "query": "select pg_get_function_result('public.staff_signin_list_v2()'::regprocedure) = 'TABLE(label text, handle text, kind text, team text)'",
+      "expect": true
+    },
+    {
+      "name": "v2_definer_with_an_empty_search_path",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_signin_list_v2()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "anon_and_authenticated_can_execute_and_public_cannot",
+      "query": "select has_function_privilege('anon', 'public.staff_signin_list_v2()', 'execute') and has_function_privilege('authenticated', 'public.staff_signin_list_v2()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_signin_list_v2()'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "one_row_per_active_profile",
+      "query": "select (select count(*) from public.staff_signin_list_v2()) = (select count(*) from public.staff_access_profiles p join auth.users u on u.id = p.user_id where p.disabled_at is null and u.deleted_at is null and (u.banned_until is null or u.banned_until <= now()) and u.email is not null and u.email <> '')",
+      "expect": true
+    },
+    {
+      "name": "lloyd_admin_is_pin_in_metadata_and_in_the_list",
+      "query": "select (select count(*) from auth.users u join public.staff_access_profiles p on p.user_id = u.id where u.raw_app_meta_data ->> 'display_name' = 'Lloyd' and p.role = 'admin' and u.raw_app_meta_data ->> 'signin_kind' = 'pin') = 1 and (select count(*) from public.staff_signin_list_v2() v join auth.users u on lower(u.email) = v.handle where u.raw_app_meta_data ->> 'display_name' = 'Lloyd' and v.kind = 'pin' and v.team = 'admin') = 1",
+      "expect": true
+    },
+    {
+      "name": "every_pin_row_is_metadata_or_staff_domain",
+      "query": "select not exists (select 1 from public.staff_signin_list_v2() v join auth.users u on lower(u.email) = v.handle where v.kind = 'pin' and coalesce(u.raw_app_meta_data ->> 'signin_kind', '') <> 'pin' and v.handle not like '%@staff.cascade.invalid')",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. The rollback restores the s88 function body and removes the signin_kind key; the PIN password in Auth is untouched.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261022_s89_signin_pin.sql with run-sql-on-host.sh."
+      },
+      {
+        "name": "verify_s88_body_back",
+        "action": "select md5(replace(prosrc, chr(13), '')) = 'a84583ced05605ce51bf75307abff2f4' from pg_proc where oid = 'public.staff_signin_list_v2()'::regprocedure must be true, and no auth.users row has app_metadata signin_kind."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "none",
+      "required_state": "None. The Staff app already reads kind from v2."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Same signature and grants; kind only turns to pin for rows that were password before, and only when signin_kind = pin. The staff-users edge function may be deployed before or after the SQL: an unknown app_metadata key is ignored by every reader."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run s89_signin_pin.sql green on this commit",
+    "the Opus 5.5 / Fable 5.1 review of this SQL lane (sign-in and privacy: Fable) has not passed"
+  ]
+}
