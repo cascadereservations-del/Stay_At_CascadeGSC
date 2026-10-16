@@ -4,20 +4,20 @@
   "phase": "expand",
   "source": {
     "branch": "s91/sql",
-    "commit": "f97add8b861574b9ff4d5e804f4b21964903c60b"
+    "commit": "5159f50d974fef46f652b90f02cb6cefe2dbd3cf"
   },
   "migrations": [
     "20261025000000_s91_actions.sql"
   ],
   "migration_sha256": {
-    "20261025000000_s91_actions.sql": "9b9489ba4180a272cccd5268e5ce767d05b434d23a781a821e0fed1576a3b33d"
+    "20261025000000_s91_actions.sql": "0bf92f126f3e4c0f100f09c375bf0633f5e3c22ab3ab19248483725d0517e394"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING: filled by the release block (fill-restore-point.mjs)",
     "verified_at": "2026-10-16T00:00:00.000Z",
-    "production_rule": "Guest ID photo rotation: new nullable column guest_companions.id_photo_rotation smallint (0, 90, 180, 270), reset to null by a BEFORE UPDATE OF id_photo_path trigger when the photo is replaced; read through staff_photo_rotation_v1 (only paths the caller may view, at most 50) and written through set_guest_photo_rotation_v1 (owner/admin; 22023 rotation_invalid, {ok:false,error:not_found}). Notice close: ops_notice_close_v1 (owner/admin) sets ops_notices.is_active = false for any source on the caller's property, audited by the existing admin_audit_row trigger. notices_v1 lists open verifier findings only (an acknowledged finding disappears). One low-stock rule in notices_v1 and staff_home_v1: is_active and reorder_below is not null and qty_on_hand <= reorder_below (staff_home_v1 used <, so an item exactly at its level now shows in the home warnings). notices_v1 and staff_home_v1 are copies of the live s82 bodies with exactly those two edits.",
+    "production_rule": "Guest ID photo rotation: new nullable column guest_companions.id_photo_rotation smallint (0, 90, 180, 270), reset to null by a BEFORE UPDATE OF id_photo_path trigger when the photo is replaced; read through staff_photo_rotation_v1 (only paths the caller may view, at most 50) and written through set_guest_photo_rotation_v1 (owner/admin; 22023 rotation_invalid, {ok:false,error:not_found}). Notice close: ops_notice_close_v1 (owner/admin) sets ops_notices.is_active = false for any source on the caller's property, audited by the existing admin_audit_row trigger. notices_v1 lists open verifier findings only (an acknowledged finding disappears). One low-stock rule in notices_v1 and staff_home_v1: is_active and reorder_below is not null and qty_on_hand <= reorder_below (staff_home_v1 used <, so an item exactly at its level now shows in the home warnings). notices_v1 and staff_home_v1 are copies of the live s82 bodies with exactly those two edits. Fix round: ops_notice_close_v1 closes only hand-added notices (source manual/staff, or no source on a non-brownout) and returns {ok:false,error:not_closable} for feed notices; its audit row is labelled soft_delete via admin_audit_context_v1. RLS policies guests_owner_admin_all and airbnb_reservations_owner_admin_all now use current_staff_active(owner, admin) instead of the JWT role claim (a disabled or session-revoked admin loses access at once); public.guests loses TRUNCATE, REFERENCES and TRIGGER for anon and authenticated and every privilege for anon.",
     "notes": "Additive: one nullable column, one trigger, three new functions, two replaced function bodies (guarded on the live md5). Old apps keep working: they never read the column, and notices_v1/staff_home_v1 keep their payload shape. Deploy order: SQL first, then the Staff app that calls the three new RPCs."
   },
   "forward_verification": [
@@ -63,7 +63,7 @@
     },
     {
       "name": "ops_notice_close_is_the_s91_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '196e29868d09dfa438062aeabe3dc3df' from pg_proc where oid = 'public.ops_notice_close_v1(uuid,uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '4616a90f9c77ac253e48ba167ae4ab6e' from pg_proc where oid = 'public.ops_notice_close_v1(uuid,uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -102,8 +102,13 @@
       "expect": true
     },
     {
-      "name": "no_rotation_is_set_before_the_first_use",
-      "query": "select not exists (select 1 from public.guest_companions where id_photo_rotation is not null)",
+      "name": "guests_and_reservations_owner_admin_policies_use_the_live_profile",
+      "query": "select (select count(*) from pg_policies where tablename in ('guests', 'airbnb_reservations') and policyname in ('guests_owner_admin_all', 'airbnb_reservations_owner_admin_all') and qual like '%current_staff_active%' and with_check like '%current_staff_active%' and qual not like '%app_metadata%' and with_check not like '%app_metadata%') = 2",
+      "expect": true
+    },
+    {
+      "name": "airbnb_reservations_finance_read_policy_untouched",
+      "query": "select exists (select 1 from pg_policies where tablename = 'airbnb_reservations' and policyname = 'airbnb_reservations_finance_read' and cmd = 'SELECT' and qual like '%read_finance%')",
       "expect": true
     }
   ],
@@ -127,8 +132,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": true,
-    "evidence": "Rehearsed 2026-10-16T07:5xZ on backup cascade-supabase-20261016T050649Z (migration-rehearsal-on-host.sh, log Cascade/docs/s91/rehearsal-20261025_s91_actions.log): migration applied, forward verification 17/17, pgTAP s91_actions.sql 42/42, cleanup leftovers 0. First run failed one check that assumed authenticated had no SELECT on guest_companions; live has table SELECT for authenticated and none for service_role, so the check now compares the new column with id_photo_path. Reasoning: one nullable column + trigger + 3 new functions; notices_v1 and staff_home_v1 keep signatures and grants, only the findings filter and the low-stock comparison change."
+    "verified": false,
+    "evidence": "re-rehearsal pending after the s91 fix round"
   },
   "approvals": {
     "production_required": true,
