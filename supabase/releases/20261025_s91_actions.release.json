@@ -132,8 +132,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "re-rehearsal pending after the s91 fix round"
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-16T07:5xZ on backup cascade-supabase-20261016T074249Z (taken after s89 applied), migration-rehearsal-on-host.sh, log Cascade/docs/s91/rehearsal3-20261025_s91_actions.log: migration applied, forward verification 18/18, pgTAP s91_actions.sql passed (56), cleanup leftovers 0. Fix round after Fable review: notice close only for hand-added notices, soft_delete audit label, guests/airbnb_reservations owner/admin RLS via current_staff_active (disabled and revoked-session admins read 0 rows in pgTAP). The guests grant narrowing moved to its own contract-phase release."
   },
   "approvals": {
     "production_required": true,
