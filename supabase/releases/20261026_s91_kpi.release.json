@@ -199,8 +199,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "NOT YET REHEARSED. Run scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> supabase/releases/20261026_s91_kpi.release.json supabase/tests/database/kpi_reconcile_v1.sql (and health_checks_core_v10.sql, admin_read_models_v1.sql, system_verifier_phase1.sql), then set verified true with the log path. Old readers: admin_stays_v1 keeps its 14 columns; get_finance_summary only adds the key drawings; get_hospitality_metrics_v1 keeps its payload; the integer-to-numeric retype accepts every old value."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-16T08:0xZ on backup cascade-supabase-20261016T074249Z (taken after s89 applied), migration-rehearsal-on-host.sh, log Cascade/docs/s91/rehearsal3-20261026_s91_kpi.log: both migrations applied, forward verification 31/31, pgTAP kpi_reconcile_v1.sql (49) and health_checks_core_v10.sql passed, cleanup leftovers 0. Earlier runs: on 20261016T050649Z the guard refused (backup predates s89 record_inventory_receipt_v1, as designed); on 074249Z the first run had 4 ACL checks that cannot hold on a --no-acl copy and two test setup errors, fixed in bd2e517. Fable review GO_WITH_FIXES applied (cleaner_fee ledger counts category cleaning only; time-fragile checks removed; one red per revenue defect)."
   },
   "approvals": {
     "production_required": true,
