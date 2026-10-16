@@ -460,3 +460,6 @@ verify_jwt = true
 
 [functions.ocr-receipt]
 verify_jwt = true
+
+[functions.release-expired-holds]
+verify_jwt = false

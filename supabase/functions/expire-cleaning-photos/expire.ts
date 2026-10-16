@@ -236,7 +236,7 @@ export async function runOrphanSweep(deps: OrphanDeps, opts: { del?: boolean } =
       if (await deps.folderHasSession(f, new Date(first).toISOString(), new Date(last + ORPHAN_GRACE_DAYS * 86_400_000).toISOString())) { keep('has_session'); continue; }
       if (await deps.folderReferenced(f.prefix)) { keep('referenced'); continue; }
     } catch (e) { out.failed.push({ folder: id, error: `check: ${String(e).slice(0, 120)}` }); continue; }
-    if (planned + f.objects.length > MAX_ORPHAN_OBJECTS_PER_RUN) { out.capHit = true; break; }
+    if (planned > 0 && planned + f.objects.length > MAX_ORPHAN_OBJECTS_PER_RUN) { out.capHit = true; break; }   // the first folder always passes, so one large folder cannot block the sweep for good
     planned += f.objects.length;
     const bytes = f.objects.reduce((n, o) => n + (Number.isFinite(o.size) ? Number(o.size) : 0), 0);
     if (del) {

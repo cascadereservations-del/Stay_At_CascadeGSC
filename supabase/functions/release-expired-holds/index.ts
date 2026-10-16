@@ -16,6 +16,7 @@ import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-cor
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
 import { drain } from './payout-notices.ts';
+import { readPaidSubs } from '../notify-cleaner-payment/subs.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -48,24 +49,26 @@ async function drainPayoutNotices(db: any): Promise<void> {
     const res = await drain({
       now: () => new Date().toISOString(),
       unsent: async (limit) => {
+        // A row older than 7 days is not retried any more: a poisoned row ages out instead of repeating every hour.
+        const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
         const { data, error } = await db.from('staff_payout_change_notices').select('id,user_id,finance_text,staff_text,finance_sent_at,staff_sent_at')
-          .or('finance_sent_at.is.null,staff_sent_at.is.null').order('created_at', { ascending: true }).limit(limit);
+          .or('finance_sent_at.is.null,staff_sent_at.is.null').gte('created_at', since).order('created_at', { ascending: true }).limit(limit);
         if (error) { if (error.code === '42P01' || error.code === 'PGRST205') return { rows: [], missing: true }; throw new Error(error.code ?? error.message); }
         return { rows: data ?? [] };
       },
-      stamp: async (id, col, at) => { const { error } = await db.from('staff_payout_change_notices').update({ [col]: at }).eq('id', id); if (error) throw new Error(error.code ?? error.message); },
+      // At most once: the channel is claimed by this update before anything is sent; only the run that got a row back sends.
+      claim: async (id, col, at) => {
+        const { data, error } = await db.from('staff_payout_change_notices').update({ [col]: at }).eq('id', id).is(col, null).select('id');
+        if (error) throw new Error(error.code ?? error.message);
+        return (data ?? []).length > 0;
+      },
+      release: async (id, col, at) => { await db.from('staff_payout_change_notices').update({ [col]: null }).eq('id', id).eq(col, at); },
       sendFinance: TG_TOKEN && FINANCE_CHAT ? async (text) => {
         const r = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, { method: 'POST', headers: JSON_H, body: JSON.stringify({ chat_id: FINANCE_CHAT, text, disable_web_page_preview: true }), signal: AbortSignal.timeout(15_000) }).catch(() => null);
-        return !!r?.ok;
+        if (r?.ok) return 'sent';
+        return r && r.status >= 400 && r.status < 500 && r.status !== 429 ? 'permanent' : 'retry';
       } : null,
-      subs: async (userId) => {
-        const base = () => db.from('staff_push_subscriptions').select('id,endpoint,p256dh,auth').eq('user_id', userId);
-        const first = await base().contains('topics', ['paid']);
-        if (!first.error) return first.data ?? [];
-        if (first.error.code !== '42703' && !(first.error.code === 'PGRST204' && /topics/i.test(first.error.message ?? ''))) return [];
-        const again = await base();   // topics column not there yet: every phone of that person
-        return again.error ? [] : (again.data ?? []);
-      },
+      subs: (userId) => readPaidSubs(db, userId),
       push: vapid ? (sub, m) => sendPush(sub, m, vapid, { nowSec: Math.floor(Date.now() / 1000) }) : null,
       deleteSub: async (id) => { await db.from('staff_push_subscriptions').delete().eq('id', id); },
       touchSub: async (id) => { await db.from('staff_push_subscriptions').update({ last_ok_at: new Date().toISOString() }).eq('id', id); },

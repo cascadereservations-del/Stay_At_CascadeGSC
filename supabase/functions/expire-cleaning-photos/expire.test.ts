@@ -401,3 +401,9 @@ Deno.test('ORPHAN: a partial delete is a failure, not an orphan counted as gone'
   const r = await runOrphanSweep(w.deps, { del: true });
   assertEquals([r.orphans.length, r.failed.length], [0, 1]);
 });
+
+Deno.test('ORPHAN: a single folder larger than the per-run cap still goes (the first folder always passes)', async () => {
+  const w = orphanWorld([folder(1, MAX_ORPHAN_OBJECTS_PER_RUN + 40, 30), folder(2, 2, 30)]);
+  const r = await runOrphanSweep(w.deps, { del: true });
+  assertEquals([r.orphans.length, r.capHit, w.removed.length], [1, true, MAX_ORPHAN_OBJECTS_PER_RUN + 40]);
+});
