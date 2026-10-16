@@ -26,6 +26,10 @@ export function slugify(name: string): string {
 export function staffEmail(name: string): string {
   return `${slugify(name)}@${STAFF_DOMAIN}`;
 }
+// A PIN is the staff app's 4 digits behind the fixed '8888' prefix (lib.js signinCredentials). The sign-in list reads this key.
+export function signinKindFor(password: string): 'pin' | 'password' {
+  return /^8888[0-9]{4}$/.test(password) ? 'pin' : 'password';
+}
 function displayName(email: string | undefined, meta: Record<string, unknown> | undefined): string {
   const n = meta?.display_name;
   if (typeof n === 'string' && n.trim()) return n.trim();
@@ -112,7 +116,7 @@ Deno.serve(async (req: Request) => {
       const email = staffEmail(name);
       const { data: created, error: cErr } = await admin.auth.admin.createUser({
         email, password, email_confirm: true,
-        app_metadata: { role, property_ids: [propertyId], cascade_disabled: false, display_name: name },
+        app_metadata: { role, property_ids: [propertyId], cascade_disabled: false, display_name: name, signin_kind: signinKindFor(password) },
         user_metadata: { display_name: name },
       });
       if (cErr || !created.user) {
@@ -171,7 +175,8 @@ Deno.serve(async (req: Request) => {
           .update({ note: newNote || null, updated_at: nowIso }).eq('user_id', targetId);
         if (error) throw error;
       }
-      await syncMeta(targetId, role, before.property_ids, !!before.disabled_at, newName ? { display_name: newName } : {});
+      await syncMeta(targetId, role, before.property_ids, !!before.disabled_at,
+        { ...(newName ? { display_name: newName } : {}), ...(newPassword ? { signin_kind: signinKindFor(newPassword) } : {}) });
       const after = await profileOf(targetId);
       await audit(targetId, 'role_changed', before, { ...after, password_changed: !!newPassword, display_name: newName || undefined },
         `Updated by staff-users (${actor.role})`);
