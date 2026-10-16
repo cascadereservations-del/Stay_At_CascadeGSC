@@ -53,6 +53,7 @@ grant select on public.staff_payout_change_notices to service_role;
 grant update (finance_sent_at, staff_sent_at) on public.staff_payout_change_notices to service_role;
 comment on table public.staff_payout_change_notices is 'S89: one row each time save_staff_details_v1 really changes a person''s payout QR or bank name. finance_text goes to the Finance Telegram group (never OPS); staff_text goes to that person''s phones that hold the paid topic (staff_push_subscriptions). The sender (service role) reads the unsent rows and stamps finance_sent_at / staff_sent_at. The texts hold first names only: no QR payload, no account number.';
 
+
 create or replace function public.save_staff_details_v1(p_user_id uuid, p_patch jsonb, p_expected_version integer, p_reason text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare v_before jsonb; v_row public.staff_details%rowtype; v_label text; v_qr text; v_old_qr text; v_old_label text;
@@ -77,7 +78,13 @@ begin
     end if;
     -- s89: the same two checks the table CHECK and the admin page make, answered with a readable error instead of a raw 23514.
     v_qr := btrim(p_patch->>'payout_qrph');
-    if v_qr !~ '^[ -~]+  end if;
+    if v_qr !~ '^[ -~]+$' or v_qr !~ '6304[0-9A-F]{4}$' then
+      raise exception using errcode = '22023', message = 'QR code text must end with 6304 and four capital hex characters (0 to 9, A to F)';
+    end if;
+    if public.qrph_crc16_v1(left(v_qr, -4)) <> right(v_qr, 4) then
+      raise exception using errcode = '22023', message = 'QR code check characters do not match: copy the QR text again';
+    end if;
+  end if;
   insert into public.staff_details(user_id) values (p_user_id) on conflict (user_id) do nothing;
   select * into v_row from public.staff_details where user_id = p_user_id for update;
   if p_expected_version is not null and v_row.version <> p_expected_version then
@@ -106,91 +113,25 @@ begin
   values (p_user_id, auth.uid(), v_before,
           (to_jsonb(v_row) - 'payout_qrph') || jsonb_build_object('payout_qrph', case when v_row.payout_qrph is null then null else '[set ' || right(v_row.payout_qrph, 4) || ']' end),
           p_reason);
-  -- s89: a changed payout QR or bank label is queued for the Finance group and for her own phone. The text names people only: never the payload, never an account number.
+  -- s89: a changed payout QR or bank label is queued for the Finance group and for her own phone. The text names people by first name only: never the payload, never an account number, never an e-mail address.
   v_qr_changed := p_patch ? 'payout_qrph' and v_row.payout_qrph is distinct from v_old_qr;
   v_label_changed := p_patch ? 'payout_bank_label' and v_row.payout_bank_label is distinct from v_old_label;
   if v_qr_changed or v_label_changed then
-    select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''), initcap(replace(split_part(coalesce(u.email, ''), '@', 1), '.', ' ')))
+    select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''))
       into v_who from auth.users u where u.id = p_user_id;
-    select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''), initcap(replace(split_part(coalesce(u.email, ''), '@', 1), '.', ' ')))
+    select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''))
       into v_by from auth.users u where u.id = auth.uid();
     v_who := coalesce(nullif(left(split_part(btrim(coalesce(v_who, '')), ' ', 1), 30), ''), 'A staff member');
     v_by := coalesce(nullif(left(split_part(btrim(coalesce(v_by, '')), ' ', 1), 30), ''), 'an admin');
-    v_what := case when v_qr_changed and v_label_changed then 'QR and bank name' when v_qr_changed then 'QR' else 'bank name' end;
+    v_what := case when v_qr_changed and v_label_changed then 'QR and bank name were' when v_qr_changed then 'QR was' else 'bank name was' end;
     insert into public.staff_payout_change_notices(user_id, changed_by, changed_what, finance_text, staff_text)
     values (p_user_id, auth.uid(),
             case when v_qr_changed and v_label_changed then 'both' when v_qr_changed then 'qr' else 'bank_label' end,
             case when v_qr_changed and v_row.payout_qrph is null
                  then v_who || '''s payout QR was removed by ' || v_by || '. Add a new one before the next payment.'
-                 else v_who || '''s payout ' || v_what || ' was changed by ' || v_by || '. Check it before the next payment.' end,
-            'Your payout ' || v_what || ' was changed by ' || v_by || '. If this is not right, tell ' || v_by || '.');
+                 else v_who || '''s payout ' || v_what || ' changed by ' || v_by || '. Check it before the next payment.' end,
+            'Your payout ' || v_what || ' changed by ' || v_by || '. If this is not right, tell ' || v_by || '.');
   end if;
-  return jsonb_build_object('ok', true, 'userId', p_user_id, 'version', v_row.version, 'updatedAt', v_row.updated_at);
-end;
-$$; or v_qr !~ '6304[0-9A-F]{4}  end if;
-  insert into public.staff_details(user_id) values (p_user_id) on conflict (user_id) do nothing;
-  select * into v_row from public.staff_details where user_id = p_user_id for update;
-  if p_expected_version is not null and v_row.version <> p_expected_version then
-    raise exception using errcode = '40001', message = 'stale version: staff details changed since they were loaded';
-  end if;
-  v_before := (to_jsonb(v_row) - 'payout_qrph') || jsonb_build_object('payout_qrph', case when v_row.payout_qrph is null then null else '[set ' || right(v_row.payout_qrph, 4) || ']' end);
-  update public.staff_details set
-    contact_number = case when p_patch ? 'contact_number' then nullif(btrim(p_patch->>'contact_number'), '') else contact_number end,
-    alternate_contact = case when p_patch ? 'alternate_contact' then nullif(btrim(p_patch->>'alternate_contact'), '') else alternate_contact end,
-    address = case when p_patch ? 'address' then nullif(btrim(p_patch->>'address'), '') else address end,
-    id_type = case when p_patch ? 'id_type' then nullif(p_patch->>'id_type', '') else id_type end,
-    id_number = case when p_patch ? 'id_number' then nullif(btrim(p_patch->>'id_number'), '') else id_number end,
-    id_drive_url = case when p_patch ? 'id_drive_url' then nullif(btrim(p_patch->>'id_drive_url'), '') else id_drive_url end,
-    emergency_contact_name = case when p_patch ? 'emergency_contact_name' then nullif(btrim(p_patch->>'emergency_contact_name'), '') else emergency_contact_name end,
-    emergency_contact_number = case when p_patch ? 'emergency_contact_number' then nullif(btrim(p_patch->>'emergency_contact_number'), '') else emergency_contact_number end,
-    start_date = case when p_patch ? 'start_date' then nullif(p_patch->>'start_date', '')::date else start_date end,
-    fee_turnover = case when p_patch ? 'fee_turnover' then nullif(p_patch->>'fee_turnover', '')::numeric else fee_turnover end,
-    fee_transport = case when p_patch ? 'fee_transport' then nullif(p_patch->>'fee_transport', '')::numeric else fee_transport end,
-    fee_deep_clean = case when p_patch ? 'fee_deep_clean' then nullif(p_patch->>'fee_deep_clean', '')::numeric else fee_deep_clean end,
-    payout_qrph = case when p_patch ? 'payout_qrph' then nullif(btrim(p_patch->>'payout_qrph'), '') else payout_qrph end,
-    payout_bank_label = case when p_patch ? 'payout_bank_label' then v_label else payout_bank_label end,
-    updated_by = auth.uid(), updated_at = now(), version = version + 1
-  where user_id = p_user_id returning * into v_row;
-  insert into public.staff_details_history(user_id, changed_by, before_state, after_state, reason)
-  values (p_user_id, auth.uid(), v_before,
-          (to_jsonb(v_row) - 'payout_qrph') || jsonb_build_object('payout_qrph', case when v_row.payout_qrph is null then null else '[set ' || right(v_row.payout_qrph, 4) || ']' end),
-          p_reason);
-  return jsonb_build_object('ok', true, 'userId', p_user_id, 'version', v_row.version, 'updatedAt', v_row.updated_at);
-end;
-$$; then
-      raise exception using errcode = '22023', message = 'QR code text must end with 6304 and four capital hex characters (0 to 9, A to F)';
-    end if;
-    if public.qrph_crc16_v1(left(v_qr, -4)) <> right(v_qr, 4) then
-      raise exception using errcode = '22023', message = 'QR code check characters do not match: copy the QR text again';
-    end if;
-  end if;
-  insert into public.staff_details(user_id) values (p_user_id) on conflict (user_id) do nothing;
-  select * into v_row from public.staff_details where user_id = p_user_id for update;
-  if p_expected_version is not null and v_row.version <> p_expected_version then
-    raise exception using errcode = '40001', message = 'stale version: staff details changed since they were loaded';
-  end if;
-  v_before := (to_jsonb(v_row) - 'payout_qrph') || jsonb_build_object('payout_qrph', case when v_row.payout_qrph is null then null else '[set ' || right(v_row.payout_qrph, 4) || ']' end);
-  update public.staff_details set
-    contact_number = case when p_patch ? 'contact_number' then nullif(btrim(p_patch->>'contact_number'), '') else contact_number end,
-    alternate_contact = case when p_patch ? 'alternate_contact' then nullif(btrim(p_patch->>'alternate_contact'), '') else alternate_contact end,
-    address = case when p_patch ? 'address' then nullif(btrim(p_patch->>'address'), '') else address end,
-    id_type = case when p_patch ? 'id_type' then nullif(p_patch->>'id_type', '') else id_type end,
-    id_number = case when p_patch ? 'id_number' then nullif(btrim(p_patch->>'id_number'), '') else id_number end,
-    id_drive_url = case when p_patch ? 'id_drive_url' then nullif(btrim(p_patch->>'id_drive_url'), '') else id_drive_url end,
-    emergency_contact_name = case when p_patch ? 'emergency_contact_name' then nullif(btrim(p_patch->>'emergency_contact_name'), '') else emergency_contact_name end,
-    emergency_contact_number = case when p_patch ? 'emergency_contact_number' then nullif(btrim(p_patch->>'emergency_contact_number'), '') else emergency_contact_number end,
-    start_date = case when p_patch ? 'start_date' then nullif(p_patch->>'start_date', '')::date else start_date end,
-    fee_turnover = case when p_patch ? 'fee_turnover' then nullif(p_patch->>'fee_turnover', '')::numeric else fee_turnover end,
-    fee_transport = case when p_patch ? 'fee_transport' then nullif(p_patch->>'fee_transport', '')::numeric else fee_transport end,
-    fee_deep_clean = case when p_patch ? 'fee_deep_clean' then nullif(p_patch->>'fee_deep_clean', '')::numeric else fee_deep_clean end,
-    payout_qrph = case when p_patch ? 'payout_qrph' then nullif(btrim(p_patch->>'payout_qrph'), '') else payout_qrph end,
-    payout_bank_label = case when p_patch ? 'payout_bank_label' then v_label else payout_bank_label end,
-    updated_by = auth.uid(), updated_at = now(), version = version + 1
-  where user_id = p_user_id returning * into v_row;
-  insert into public.staff_details_history(user_id, changed_by, before_state, after_state, reason)
-  values (p_user_id, auth.uid(), v_before,
-          (to_jsonb(v_row) - 'payout_qrph') || jsonb_build_object('payout_qrph', case when v_row.payout_qrph is null then null else '[set ' || right(v_row.payout_qrph, 4) || ']' end),
-          p_reason);
   return jsonb_build_object('ok', true, 'userId', p_user_id, 'version', v_row.version, 'updatedAt', v_row.updated_at);
 end;
 $$;
