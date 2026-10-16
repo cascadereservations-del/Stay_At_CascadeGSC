@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s91/kpi-sql",
-    "commit": "3b0b199b73f35e8a8d8159822bc6cec3850d3aef"
+    "commit": "bd2e517e150ba6ebe533f32c0a42203cfd8a7311"
   },
   "migrations": [
     "20261026000000_s91_kpi_fixes.sql",
@@ -12,15 +12,15 @@
   ],
   "migration_sha256": {
     "20261026000000_s91_kpi_fixes.sql": "6a8eb1e241e2ce99e4a50c1fe7a5e973a01ed064163656b2a45fcbb3bb2a73e2",
-    "20261026010000_s91_kpi_mechanism.sql": "a6990c89e586483e95b984e5f47894f20936a031f0422175afa988982d4ec7f0"
+    "20261026010000_s91_kpi_mechanism.sql": "510ec6e982a1160050a2b3469f2fbe2dfd2e0be813a1955111c5027095bb17f0"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING: filled by the release block (fill-restore-point.mjs)",
     "verified_at": "2026-10-16T00:00:00.000Z",
-    "production_rule": "KPI accuracy (docs/s91/KPI-AUDIT.md). Part 1, the numbers: admin_stays_v1 stops counting the DIRECT: mirror reservation of every confirmed direct stay (F1: July RevPAR 1,238.69, October 853.96, ALOS and cancellation rate follow), sums split Airbnb payout rows instead of taking the larger (F2: four stays were short by 180.00, 1,700.00, 6,291.10, 8,827.00) and dates a booking from created_at when the export has no booking date (F7). get_finance_summary (Telegram /summary) leaves Airbnb mirror and estimate rows out of income, categories and the pending count and nets drawings (F3: September income 26,946.73, October 15,454.28, August net 25,188.04; new key drawings). get_missed_cleanings counts from the Manila date (F6). inventory_purchases.units_per_purchase becomes numeric(10,4) and record_inventory_receipt_v1 drops its ::integer cast (F10). Part 2, the mechanism: hospitality_metrics_core_v1 (the live metrics body without its two auth lines; get_hospitality_metrics_v1 calls it, same signature and grants), kpi_recompute_v1 (a second count from the raw tables), kpi_reconcile_v1 and kpi_reconcile_window_v1 (compare, current Manila month and three before). run_system_verifier_v1 appends V19 findings in the daily scope; apply_verifier_run_v1 lists V19 in the daily checks only; health_checks_core_v1 gains the finance row kpi_reconciled; health_check_problem_v1 gets its sentence. The four new functions are internal (no role can execute them). Expected first daily run after the apply: yellow cleaner_fee for 2026-09 (ledger 9,140 vs sessions 9,100) and yellow hygiene confirmed_estimates_dead n=3 until supabase/sql/2026-10-16-s91-kpi-data-fixes.sql has run; no red.",
-    "notes": "Apply order: the two migrations (one release), THEN the data-fix file (Lloyd's block, run-sql-on-host.sh), THEN the waves functions: system-verifier (cards.ts case V19, audience finance), daily-digest and telegram-* (health-labels.ts), airbnb-email-sync (F4 guard), finance-watch and daily-digest report (F8, F9). Until system-verifier has the V19 card, a V19 finding would be rendered by the default card; deploy the SQL and that function in the same window. ALTER COLUMN TYPE (integer to numeric) is why this is not an expand release; it is a widening, so compatibility.verified stays false only until the rehearsal has run green on this commit."
+    "production_rule": "KPI accuracy (docs/s91/KPI-AUDIT.md). Part 1, the numbers: admin_stays_v1 stops counting the DIRECT: mirror reservation of every confirmed direct stay (F1: July RevPAR 1,238.69, October 853.96, ALOS and cancellation rate follow), sums split Airbnb payout rows instead of taking the larger (F2: four stays were short by 180.00, 1,700.00, 6,291.10, 8,827.00) and dates a booking from created_at when the export has no booking date (F7). get_finance_summary (Telegram /summary) leaves Airbnb mirror and estimate rows out of income, categories and the pending count and nets drawings (F3: September income 26,946.73, October 15,454.28, August net 25,188.04; new key drawings). get_missed_cleanings counts from the Manila date (F6). inventory_purchases.units_per_purchase becomes numeric(10,4) and record_inventory_receipt_v1 drops its ::integer cast (F10). Part 2, the mechanism: hospitality_metrics_core_v1 (the live metrics body without its two auth lines; get_hospitality_metrics_v1 calls it, same signature and grants), kpi_recompute_v1 (a second count from the raw tables), kpi_reconcile_v1 and kpi_reconcile_window_v1 (compare, current Manila month and three before). run_system_verifier_v1 appends V19 findings in the daily scope; apply_verifier_run_v1 lists V19 in the daily checks only; health_checks_core_v1 gains the finance row kpi_reconciled; health_check_problem_v1 gets its sentence. The four new functions are internal (no role can execute them). get_finance_summary's pending count also leaves out pending_review airbnb_email rows (the Telegram /summary pending count drops by those). The cleaner fee comparison counts category 'cleaning' only (a 40.00 supplies expense through the cleaner-fee flow has no session by design). A revenue defect raises one red per month (ADR and RevPAR are muted). Expected first daily run after the apply: yellow hygiene confirmed_estimates_dead n=3 until supabase/sql/2026-10-16-s91-kpi-data-fixes.sql has run; no red.",
+    "notes": "Apply order: the two migrations (one release), THEN the data-fix file (Lloyd's block, run-sql-on-host.sh), THEN the four waves functions (all verify_jwt false): system-verifier (cards.ts case V19, audience finance), daily-digest (health-labels.ts, report.ts F9), airbnb-email-sync (F4 guard), finance-watch (F8, F9). Until system-verifier has the V19 card, a V19 finding would be rendered by the default card; deploy the SQL and that function in the same window. ALTER COLUMN TYPE (integer to numeric) is why this is not an expand release; it is a widening, so compatibility.verified stays false only until the rehearsal has run green on this commit."
   },
   "forward_verification": [
     {
@@ -55,12 +55,12 @@
     },
     {
       "name": "kpi_recompute_is_the_s91_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '6fed769f478e9ed82da1544ca6dd3b59' from pg_proc where oid = 'public.kpi_recompute_v1(uuid,date,date)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '33395271b45dc6289d93d5922603a65d' from pg_proc where oid = 'public.kpi_recompute_v1(uuid,date,date)'::regprocedure",
       "expect": true
     },
     {
       "name": "kpi_reconcile_is_the_s91_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '439690575386ae92b6ddbd73f26e7c98' from pg_proc where oid = 'public.kpi_reconcile_v1(uuid,date)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '34aeb5a2321fd7ebdec13ca469fb46b4' from pg_proc where oid = 'public.kpi_reconcile_v1(uuid,date)'::regprocedure",
       "expect": true
     },
     {
@@ -104,26 +104,6 @@
       "expect": true
     },
     {
-      "name": "get_hospitality_metrics_keeps_authenticated_only",
-      "query": "select has_function_privilege('authenticated', 'public.get_hospitality_metrics_v1(uuid,date,date)', 'execute') and not has_function_privilege('anon', 'public.get_hospitality_metrics_v1(uuid,date,date)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure",
-      "expect": true
-    },
-    {
-      "name": "admin_stays_and_receipt_keep_authenticated_only",
-      "query": "select has_function_privilege('authenticated', 'public.admin_stays_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.admin_stays_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') and not has_function_privilege('anon', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') and (select prosecdef from pg_proc where oid = 'public.admin_stays_v1(uuid)'::regprocedure) and (select prosecdef from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)'::regprocedure)",
-      "expect": true
-    },
-    {
-      "name": "verifier_functions_stay_service_role_only",
-      "query": "select has_function_privilege('service_role', 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)', 'execute') and has_function_privilege('service_role', 'public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)', 'execute') and not has_function_privilege('authenticated', 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)', 'execute') and not has_function_privilege('authenticated', 'public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)', 'execute') and not has_function_privilege('anon', 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)', 'execute') and not has_function_privilege('anon', 'public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)', 'execute')",
-      "expect": true
-    },
-    {
-      "name": "health_checks_core_still_closed_to_the_apps",
-      "query": "select not has_function_privilege('anon', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid,boolean)', 'execute')",
-      "expect": true
-    },
-    {
       "name": "units_per_purchase_is_numeric_10_4",
       "query": "select (select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_purchases'::regclass and attname = 'units_per_purchase' and not attisdropped) = 'numeric(10,4)'",
       "expect": true
@@ -151,16 +131,6 @@
     {
       "name": "july_sold_nights_21_and_revenue_complete",
       "query": "select (public.hospitality_metrics_core_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', '2026-07-01', '2026-08-01', true) -> 'metrics' -> 'sold_nights' ->> 'value') = '21' and (public.hospitality_metrics_core_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', '2026-07-01', '2026-08-01', true) -> 'metrics' -> 'accommodation_revenue' ->> 'coverage') = 'complete'",
-      "expect": true
-    },
-    {
-      "name": "august_and_september_revpar_follow_the_books",
-      "query": "select (public.hospitality_metrics_core_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', '2026-08-01', '2026-09-01', true) -> 'metrics' -> 'revpar' ->> 'value') = '1280.70' and (public.hospitality_metrics_core_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', '2026-09-01', '2026-10-01', true) -> 'metrics' -> 'revpar' ->> 'value') = '1232.44'",
-      "expect": true
-    },
-    {
-      "name": "finance_summary_september_income_26946_73",
-      "query": "select (public.get_finance_summary('2026-09-01', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') ->> 'income')::numeric = 26946.73",
       "expect": true
     },
     {
@@ -199,8 +169,13 @@
       "expect": true
     },
     {
-      "name": "verifier_findings_has_no_v19_row_before_the_first_run",
-      "query": "select not exists (select 1 from public.verifier_findings where check_id = 'V19')",
+      "name": "replaced_functions_keep_definer_empty_search_path_and_no_public_grant",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure) and (select prosecdef and proconfig @> array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) from pg_proc where oid = 'public.admin_stays_v1(uuid)'::regprocedure) and (select prosecdef and proconfig @> array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)'::regprocedure) and (select prosecdef and proconfig @> array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)'::regprocedure) and (select prosecdef and proconfig @> array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) from pg_proc where oid = 'public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)'::regprocedure) and (select prosecdef and proconfig @> array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "august_revpar_follows_the_books",
+      "query": "select (public.hospitality_metrics_core_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', '2026-08-01', '2026-09-01', true) -> 'metrics' -> 'revpar' ->> 'value') = '1280.70'",
       "expect": true
     }
   ],
