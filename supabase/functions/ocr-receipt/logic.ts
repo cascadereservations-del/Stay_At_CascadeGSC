@@ -81,7 +81,13 @@ export function decodeImage(b64: unknown, mime: unknown):
     const bin = atob(s);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return bytes.length ? { ok: true, bytes, mime: m, ext } : { ok: false, status: 400, error: 'image_base64_required' };
+    if (!bytes.length) return { ok: false, status: 400, error: 'image_base64_required' };
+    // the declared type must match the file: jpeg FF D8 FF, png 89 50 4E 47, webp RIFF....WEBP
+    const at = (o: number, ...v: number[]) => v.every((x, k) => bytes[o + k] === x);
+    const real = at(0, 0xff, 0xd8, 0xff) ? 'image/jpeg' : at(0, 0x89, 0x50, 0x4e, 0x47) ? 'image/png'
+      : at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50) ? 'image/webp' : null;
+    if (real !== m) return { ok: false, status: 415, error: 'unsupported_image_type' };
+    return { ok: true, bytes, mime: m, ext };
   } catch {
     return { ok: false, status: 400, error: 'image_base64_invalid' };
   }
