@@ -4,7 +4,7 @@
 --   O owner  F finance  C cleaner  A admin of ANOTHER property  N signed in, no staff profile
 -- storage.objects is stubbed when the schema is absent (a rehearsal copy); the stub goes with the rollback.
 begin;
-select plan(60);
+select plan(62);
 
 do $$
 begin
@@ -104,8 +104,9 @@ select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000
 select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a3', 'void', '{}', 'no way')$$, '22023', 'a direct booking payment is confirmed on Inquiries, not here', 'nor voided');
 select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a1', 'reject')$$, '22023', 'action must be approve or void', 'an unknown action is refused');
 select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a5', 'approve')$$, '22023', 'enter the amount before approving', 'a zero-amount row needs an amount first');
-select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a1', 'approve', '{"category":"nonsense"}')$$, '22023', 'unknown expense category', 'an edit to an unknown category is refused');
+select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a1', 'approve', '{"category":"nonsense"}', 'checking category')$$, '22023', 'unknown expense category', 'an edit to an unknown category is refused');
 select is((select status from public.transactions where id = 'e8c00000-0000-4000-8000-0000000000a1'), 'pending_review', 'and the refused edits changed nothing');
+select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a1', 'approve', '{"notes":"x"}')$$, '22023', 'a reason is required to change a row while approving', 'an approval with edits needs a reason');
 select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a5', 'void', '{}', ' ')$$, '22023', 'a reason is required to void', 'a void needs a reason');
 select is((public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a2', 'approve')->>'status'), 'confirmed', 'approve confirms the row');
 select is((select count(*)::int from public.admin_audit_log where entity_table = 'transactions' and entity_id = 'e8c00000-0000-4000-8000-0000000000a2' and action = 'update' and reason = 'approved in review queue' and actor_user_id = 'e8a00000-0000-4000-8000-0000000000a1'), 1,
@@ -115,6 +116,7 @@ select is((public.admin_review_transaction_v1('e8900000-0000-4000-8000-000000000
 select ok((select category = 'repairs' and gross_amount = 120 and payee_name = 'Zz fixed' and status = 'confirmed' from public.transactions where id = 'e8c00000-0000-4000-8000-0000000000a1'), 'with the edits applied');
 select ok((select (before_state->>'gross_amount')::numeric = 100 and (after_state->>'gross_amount')::numeric = 120 from public.admin_audit_log where entity_table = 'transactions' and entity_id = 'e8c00000-0000-4000-8000-0000000000a1' and reason = 'checked receipt'), 'the audit row keeps before and after');
 select is((public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a5', 'void', '{}', 'duplicate scan')->>'status'), 'void', 'void voids the row');
+select is((select notes from public.transactions where id = 'e8c00000-0000-4000-8000-0000000000a5'), '[voided: duplicate scan]', 'and marks the note like every other void');
 select is((select count(*)::int from public.admin_audit_log where entity_table = 'transactions' and entity_id = 'e8c00000-0000-4000-8000-0000000000a5' and action = 'soft_delete' and reason = 'duplicate scan'), 1, 'and logs a soft_delete with the reason');
 select is((public.admin_review_queue_v1('e8900000-0000-4000-8000-0000000000a1')->>'count')::int, 0, 'the queue is now empty');
 
@@ -142,8 +144,7 @@ select throws_ok($$select public.admin_review_queue_v1('e8900000-0000-4000-8000-
 select throws_ok($$select public.admin_review_transaction_v1('e8900000-0000-4000-8000-0000000000a1', 'e8c00000-0000-4000-8000-0000000000a1', 'void', '{}', 'cleaner')$$, '42501', 'approve_payment denied', 'a cleaner cannot review');
 select throws_ok($$select * from public.expense_categories_v1('e8900000-0000-4000-8000-0000000000a1')$$, '42501', 'read_finance denied', 'a cleaner cannot read the category list');
 select throws_ok($$select public.admin_save_transaction_v1('e8900000-0000-4000-8000-0000000000a1', '{"txn_type":"expense","transaction_date":"2026-10-02","gross_amount":"10"}'::jsonb, 'key-cleaner-00000001')$$, '42501', 'approve_payment denied', 'a cleaner cannot save a transaction');
-select ok((public.get_hospitality_series_v1('e8900000-0000-4000-8000-0000000000a1', 2)->>'financeVisible')::boolean = false and (public.get_hospitality_series_v1('e8900000-0000-4000-8000-0000000000a1', 2)->'months'->0->'revenue') = 'null'::jsonb,
-  'a cleaner gets the series with finance numbers withheld (same gate as the metrics)');
+select throws_ok($$select public.get_hospitality_series_v1('e8900000-0000-4000-8000-0000000000a1', 2)$$, '42501', 'not_authorized', 'a cleaner is refused by the stays gate');
 
 select set_config('request.jwt.claims', json_build_object('sub', 'e8a00000-0000-4000-8000-0000000000a4', 'role', 'authenticated', 'aal', 'aal2', 'iat', extract(epoch from now())::bigint)::text, true);
 select throws_ok($$select public.admin_review_queue_v1('e8900000-0000-4000-8000-0000000000a1')$$, '42501', 'read_finance denied', 'an admin of another property cannot read this queue');

@@ -6,7 +6,7 @@
 --   2. admin_review_queue_v1 / admin_review_transaction_v1  the 'transactions waiting for review' queue as audited RPCs (approve, edit+approve, void).
 --      Direct-booking payments linked to a booking are excluded and refused: they are confirmed on Inquiries (SPEC-44) and a void would cancel the booking.
 --   3. get_hospitality_series_v1  months of occupancy / ADR / RevPAR / revenue plus last year and 3-month pace. Calls get_hospitality_metrics_v1 per month, so
---      every number is that function's number by construction. Same role gate.
+--      every number is that function's number by construction. Same gate: read_operations, and the stays gate inside the metrics makes the effective roles owner, admin and finance (a cleaner is refused).
 --   4. expense_categories is the one list: six slugs that Manage and the ledger already use are added to it (no transaction is touched);
 --      expense_categories_v1() reads it for owner/admin/finance.
 -- Expand only. Guard (55000, nothing changed): md5(replace(prosrc, chr(13), '')) of admin_save_transaction_v1 = 147e217b6c7a14f264f7dfce43b8bb2f.
@@ -162,12 +162,16 @@ begin
     raise exception using errcode = '22023', message = 'a direct booking payment is confirmed on Inquiries, not here';
   end if;
   if p_action = 'void' then
-    perform public.admin_audit_context_v1(v_reason, 'soft_delete', null);
-    update public.transactions set status = 'void', updated_at = now() where id = v_row.id returning * into v_row;
+    -- the shared soft delete: sets void, adds the [voided: reason] note marker and writes the soft_delete audit row
+    return public.admin_soft_delete_v1('transactions', v_row.id, v_reason) || jsonb_build_object('status', 'void');
   else
     v_cat := nullif(btrim(coalesce(p_edits->>'category', '')), '');
     v_amount := nullif(p_edits->>'gross_amount', '')::numeric;
     v_date := nullif(p_edits->>'transaction_date', '')::date;
+    if p_edits <> '{}'::jsonb and (v_reason is null or char_length(v_reason) < 3) then
+      raise exception using errcode = '22023', message = 'a reason is required to change a row while approving';
+    end if;
+    if v_date is not null and v_date > public.manila_today() + 1 then raise exception using errcode = '22023', message = 'the date cannot be in the future'; end if;
     if v_amount is not null and v_amount <= 0 then raise exception using errcode = '22023', message = 'amount must be more than zero'; end if;
     if v_amount is null and v_row.gross_amount <= 0 then raise exception using errcode = '22023', message = 'enter the amount before approving'; end if;
     if v_cat is not null and v_cat is distinct from v_row.category and v_row.txn_type = 'expense'
@@ -266,6 +270,6 @@ end;
 $$;
 revoke all on function public.get_hospitality_series_v1(uuid, integer) from public, anon, service_role;
 grant execute on function public.get_hospitality_series_v1(uuid, integer) to authenticated;
-comment on function public.get_hospitality_series_v1(uuid, integer) is 'S89: per-month occupancy, ADR, RevPAR, revenue and sold nights (each from get_hospitality_metrics_v1), the same month last year where capacity existed, and 3-month on-the-books pace against the same day last year. read_operations; finance numbers are null unless the caller has read_finance.';
+comment on function public.get_hospitality_series_v1(uuid, integer) is 'S89: per-month occupancy, ADR, RevPAR, revenue and sold nights (each from get_hospitality_metrics_v1), the same month last year where capacity existed, and 3-month on-the-books pace against the same day last year. read_operations plus the stays gate inside the metrics: effective roles owner, admin and finance.';
 
 commit;
