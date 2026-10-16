@@ -457,3 +457,6 @@ verify_jwt = true
 
 [functions.inventory-categorise]
 verify_jwt = true
+
+[functions.release-expired-holds]
+verify_jwt = false

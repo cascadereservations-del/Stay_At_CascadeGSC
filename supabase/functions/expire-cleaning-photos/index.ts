@@ -108,13 +108,13 @@ Deno.serve(withObservability({ functionName: 'expire-cleaning-photos', route: 'o
       },
       notify: tgOps,
     }, { dry });
-    // Orphan sweep: never lets its own failure fail the expiry run; it logs, and deletes only for ?delete=1&orphans=1.
+    console.log('expire_cleaning_photos_run', JSON.stringify({ dry, considered: result.considered, expired: result.expired.length, kept: result.kept.length, keptReasons: result.keptReasons, failed: result.failed.length, freedBytes: result.freedBytes, capHit: result.capHit }));
+    if (!dry) await (result.failed.length > 0 ? hb('failed', 'REMOVE_FAILED') : hb('succeeded'));
+    // Orphan sweep: runs after the heartbeat and in its own try/catch, so it can never fail or delay the expiry run; it logs, and deletes only for ?delete=1&orphans=1.
     try {
       const orphans = await runOrphanSweep(orphanDeps(db, new Date()), { del: !dry && new URL(req.url).searchParams.get('orphans') === '1' });
       console.log('orphan_sweep_run', JSON.stringify(orphans));
     } catch (e) { console.warn('orphan_sweep_failed', String(e).slice(0, 200)); }
-    console.log('expire_cleaning_photos_run', JSON.stringify({ dry, considered: result.considered, expired: result.expired.length, kept: result.kept.length, keptReasons: result.keptReasons, failed: result.failed.length, freedBytes: result.freedBytes, capHit: result.capHit }));
-    if (!dry) await (result.failed.length > 0 ? hb('failed', 'REMOVE_FAILED') : hb('succeeded'));
     return json({ ok: result.failed.length === 0, ...result });
   } catch (e) {
     console.error('expire_cleaning_photos_failed', String(e).slice(0, 300));
