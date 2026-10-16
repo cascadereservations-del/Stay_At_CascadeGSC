@@ -127,8 +127,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "NOT YET REHEARSED. Run migration-rehearsal-on-host.sh against a fresh backup with supabase/tests/database/s91_actions.sql, then set verified true with the log path."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-16T07:5xZ on backup cascade-supabase-20261016T050649Z (migration-rehearsal-on-host.sh, log Cascade/docs/s91/rehearsal-20261025_s91_actions.log): migration applied, forward verification 17/17, pgTAP s91_actions.sql 42/42, cleanup leftovers 0. First run failed one check that assumed authenticated had no SELECT on guest_companions; live has table SELECT for authenticated and none for service_role, so the check now compares the new column with id_photo_path. Reasoning: one nullable column + trigger + 3 new functions; notices_v1 and staff_home_v1 keep signatures and grants, only the findings filter and the low-stock comparison change."
   },
   "approvals": {
     "production_required": true,
