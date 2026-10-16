@@ -29,10 +29,10 @@ insert into auth.users(id, email) values
 insert into public.staff_access_profiles(user_id, role) values
   ('d8510000-0000-4000-8000-0000000000a1', 'cleaner'), ('d8510000-0000-4000-8000-0000000000a5', 'owner'), ('d8510000-0000-4000-8000-0000000000a4', 'finance');
 
--- a QR Ph shaped payload: starts 000201, ends 6304 + 4 hex (the table CHECK); the CRC itself is checked in the admin page
+-- a QR Ph shaped payload: starts 000201, ends 6304 + 4 hex with a valid CRC (s89: the function checks it too)
 -- 1. owner saves label and QR, reads them back
 select pg_temp.as_user('d8510000-0000-4000-8000-0000000000a5');
-insert into _t select 's1', pg_temp.try($$select public.save_staff_details_v1('d8510000-0000-4000-8000-0000000000a1', '{"payout_bank_label":"  MariBank ","payout_qrph":"00020101021128260012ph.ppmi.p2m0106ZZ85P1520400005303608540510.005802PH5906HONEY 6304ABCD"}'::jsonb, null, 'owner sets payout')$$);
+insert into _t select 's1', pg_temp.try($$select public.save_staff_details_v1('d8510000-0000-4000-8000-0000000000a1', '{"payout_bank_label":"  MariBank ","payout_qrph":"00020101021128260012ph.ppmi.p2m0106ZZ85P1520400005303608540510.005802PH5906HONEY 6304D4E0"}'::jsonb, null, 'owner sets payout')$$);
 insert into _t select 'r1', pg_temp.try($$select public.staff_payout_details_v1('d8510000-0000-4000-8000-0000000000a1')$$);
 -- invalid QR text, wrong type, bad label
 insert into _t select 'bq', pg_temp.try($$select public.save_staff_details_v1('d8510000-0000-4000-8000-0000000000a1', '{"payout_qrph":"hello world"}'::jsonb, null, 'bad qr')$$);
@@ -62,7 +62,7 @@ reset role;
 
 select is((select v->>'ok' from _t where k = 's1'), 'true', 'owner saves label and QR');
 select is((select v->>'payout_bank_label' || '|' || (v->>'has_qr') from _t where k = 'r1'), 'MariBank|true', 'owner reads the trimmed label and has_qr');
-select ok((select v->>'qr_payload' like '000201%6304ABCD' from _t where k = 'r1'), 'owner reads the QR payload');
+select ok((select v->>'qr_payload' like '000201%6304D4E0' from _t where k = 'r1'), 'owner reads the QR payload');
 select is((select v->>'err' from _t where k = 'bq'), '22023', 'text that is not a QR Ph payload is refused');
 select is((select v->>'err' from _t where k = 'bn'), '22023', 'a non-text QR value is refused');
 select is((select v->>'err' from _t where k = 'be'), '22023', 'an empty QR string is refused (null clears)');

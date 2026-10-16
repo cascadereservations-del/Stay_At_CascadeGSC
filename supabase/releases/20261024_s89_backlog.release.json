@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "release_id": "s89_backlog_20261024",
+  "phase": "contract",
+  "source": {
+    "branch": "s89/backlog-sql",
+    "commit": "1df241c6b117626c52af544cbb71e2fea37d468d"
+  },
+  "migrations": [
+    "20261024000000_s89_backlog_qr.sql",
+    "20261024010000_s89_backlog_inventory_precision.sql"
+  ],
+  "migration_sha256": {
+    "20261024000000_s89_backlog_qr.sql": "d995ea4e6c5d9034a5d8a2bb45c9afc71e03fd2dff58c0f419fc0a3e161c5403",
+    "20261024010000_s89_backlog_inventory_precision.sql": "75062e12cd3171dd6574934bdecb8a47a085a1ab391249e4d496e037cbf68de8"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Part 1 (payout QR): save_staff_details_v1 refuses a QR Ph payload whose suffix is not 6304 plus four capital hex characters, or whose CRC-16/CCITT-FALSE does not match, with 22023 and a readable message (before: a raw 23514 from the table CHECK). A real change of payout_qrph or payout_bank_label queues one row in the new table staff_payout_change_notices (Finance group text and the person's own text, first names only, never the QR or an account number); an Edge Function sends it (not part of this release). New internal helper qrph_crc16_v1. Part 2 (inventory precision): inventory_purchases.unit_cost and inventory_items.unit_cost become numeric(12,4) so PHP 100 for 12 is 8.3333, not 8.33; total_cost is dropped and re-added with the same generated expression (numeric(10,2), qty * unit_cost); view price_history_by_item is dropped and recreated with the same definition and grants; record_inventory_receipt_v1 sets the item cost to 4 dp instead of 2. Existing rows keep their stored values. restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
+    "notes": "Deploy order: SQL, then the Edge Function that sends staff_payout_change_notices (until it exists the rows only accumulate). The admin Staff page already checks the CRC; the readable 22023 only matters if a client sends a bad one. ALTER COLUMN TYPE and DROP COLUMN are why this is a contract-phase release: compatibility.verified stays false until the rehearsal has run green on this commit."
+  },
+  "forward_verification": [
+    {
+      "name": "crc_helper_matches_the_standard_check_string",
+      "query": "select public.qrph_crc16_v1('123456789') = '29B1' and public.qrph_crc16_v1('0002010102116304') = 'AD0A'",
+      "expect": true
+    },
+    {
+      "name": "crc_helper_is_internal",
+      "query": "select not has_function_privilege('anon', 'public.qrph_crc16_v1(text)', 'execute') and not has_function_privilege('authenticated', 'public.qrph_crc16_v1(text)', 'execute') and not has_function_privilege('service_role', 'public.qrph_crc16_v1(text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "save_staff_details_is_the_s89_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '62b23d78330ccecceff68ac8c9edcd34' from pg_proc where oid = 'public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "save_staff_details_still_definer_authenticated_only",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and has_function_privilege('authenticated', 'public.save_staff_details_v1(uuid,jsonb,integer,text)', 'execute') and not has_function_privilege('anon', 'public.save_staff_details_v1(uuid,jsonb,integer,text)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "notice_table_is_closed_to_the_apps",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.staff_payout_change_notices'::regclass) and not has_table_privilege('anon', 'public.staff_payout_change_notices', 'select') and not has_table_privilege('authenticated', 'public.staff_payout_change_notices', 'select') and has_table_privilege('service_role', 'public.staff_payout_change_notices', 'select') and not has_table_privilege('service_role', 'public.staff_payout_change_notices', 'insert')",
+      "expect": true
+    },
+    {
+      "name": "every_stored_payout_qr_passes_the_new_check",
+      "query": "select not exists (select 1 from public.staff_details where payout_qrph is not null and public.qrph_crc16_v1(left(payout_qrph, -4)) <> right(payout_qrph, 4))",
+      "expect": true
+    },
+    {
+      "name": "unit_cost_is_numeric_12_4_on_both_tables",
+      "query": "select (select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_purchases'::regclass and attname = 'unit_cost' and not attisdropped) = 'numeric(12,4)' and (select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_items'::regclass and attname = 'unit_cost' and not attisdropped) = 'numeric(12,4)'",
+      "expect": true
+    },
+    {
+      "name": "total_cost_is_still_numeric_10_2_generated_from_qty_times_unit_cost",
+      "query": "select format_type(a.atttypid, a.atttypmod) = 'numeric(10,2)' and a.attgenerated = 's' and pg_get_expr(d.adbin, d.adrelid) = '(qty * unit_cost)' from pg_attribute a join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum where a.attrelid = 'public.inventory_purchases'::regclass and a.attname = 'total_cost' and not a.attisdropped",
+      "expect": true
+    },
+    {
+      "name": "total_cost_agrees_with_qty_times_unit_cost_on_every_row",
+      "query": "select not exists (select 1 from public.inventory_purchases where unit_cost is not null and total_cost is distinct from round(qty * unit_cost, 2))",
+      "expect": true
+    },
+    {
+      "name": "price_history_view_same_six_columns_and_grants",
+      "query": "select (select string_agg(attname, ',' order by attnum) from pg_attribute where attrelid = 'public.price_history_by_item'::regclass and attnum > 0 and not attisdropped) = 'item_id,item_name,supplier,unit_cost,purchased_at,recency_rank' and (select 'security_invoker=true' = any(reloptions) from pg_class where oid = 'public.price_history_by_item'::regclass) and not has_table_privilege('anon', 'public.price_history_by_item', 'select') and has_table_privilege('authenticated', 'public.price_history_by_item', 'select') and not has_table_privilege('authenticated', 'public.price_history_by_item', 'insert') and has_table_privilege('service_role', 'public.price_history_by_item', 'select')",
+      "expect": true
+    },
+    {
+      "name": "price_history_view_acl_is_exactly_owner_service_role_authenticated",
+      "query": "select (select count(*) from pg_class c, aclexplode(c.relacl) a where c.oid = 'public.price_history_by_item'::regclass and a.grantee not in (c.relowner, 'authenticated'::regrole, 'service_role'::regrole)) = 0",
+      "expect": true
+    },
+    {
+      "name": "record_inventory_receipt_is_the_s89_body_with_the_same_acl",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '1dc0fe9cbe738b4b91b57e7a9201a239' and prosecdef and has_function_privilege('authenticated', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') and not has_function_privilege('anon', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "apply_inventory_purchase_untouched",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '48082c76263e15517d733c65f7eb3ccc' from pg_proc where oid = 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Part 1: always. Part 2: always, but prices stored with more than two decimals ROUND to two on rollback (PHP 8.3333 becomes 8.33); roll back before more 4 dp rows accumulate if the exact values matter.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261024_s89_backlog.sql with run-sql-on-host.sh. It restores save_staff_details_v1 (md5 1f528a60b24632ecf6cead5b47b38903) and record_inventory_receipt_v1 (md5 c05c174f9d8861813c0a14ad78735195) byte for byte, drops qrph_crc16_v1 and staff_payout_change_notices (unsent notices are lost), and returns unit_cost to numeric(10,2), total_cost and price_history_by_item to their previous definitions."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_notice_rows_wait_for_their_sender",
+      "required_state": "None. Until the Edge Function that reads staff_payout_change_notices exists, rows only accumulate and nothing is sent; saving a QR works either way."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not yet verified: set verified to true only after migration-rehearsal-on-host.sh has run both migrations and supabase/tests/database/s89_backlog.sql green on this commit. Reasoning: numeric(10,2) -> numeric(12,4) accepts every old value and the old app reads 4 dp numbers as numbers; no other view, constraint or index depends on the retyped columns (pg_depend read live 2026-10-16); the QR check only turns an existing 23514 into a 22023."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run both migrations and s89_backlog.sql green on this commit (compatibility.verified is still false)",
+    "the Opus 5.5 / Fable 5.1 review of this SQL lane (money-adjacent inventory pricing and payout details: Fable) has not passed",
+    "save_staff_details_v1 or record_inventory_receipt_v1 no longer has the md5 the migration guard names (somebody changed it since 2026-10-16)"
+  ]
+}

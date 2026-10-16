@@ -238,13 +238,13 @@ select lives_ok($$insert into public.telegram_pending(chat_id, kind, payload) va
 -- 64-66 staff_details: the payout QR saves through the RPC, history keeps a masked marker, the cleaner is refused, a malformed value is refused
 select set_config('request.jwt.claims', json_build_object('sub','f3700000-0000-4000-8000-0000000000a3','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select set_config('role', 'authenticated', true);
-insert into _t select 'qr', public.save_staff_details_v1('f3700000-0000-4000-8000-0000000000a1'::uuid, '{"payout_qrph":"0002010102116304ABCD"}'::jsonb, null, 'zz payout QR');
-select throws_ok($$select public.save_staff_details_v1('f3700000-0000-4000-8000-0000000000a1'::uuid, '{"payout_qrph":"000201zz"}'::jsonb, null, 'zz bad')$$, '23514', null, 'a value that does not end 6304 + four hex characters is refused');
+insert into _t select 'qr', public.save_staff_details_v1('f3700000-0000-4000-8000-0000000000a1'::uuid, '{"payout_qrph":"0002010102116304AD0A"}'::jsonb, null, 'zz payout QR');
+select throws_ok($$select public.save_staff_details_v1('f3700000-0000-4000-8000-0000000000a1'::uuid, '{"payout_qrph":"000201zz"}'::jsonb, null, 'zz bad')$$, '22023', null, 'a value that does not end 6304 + four hex characters is refused with a readable 22023');
 select set_config('request.jwt.claims', json_build_object('sub','f3700000-0000-4000-8000-0000000000a1','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
-select throws_ok($$select public.save_staff_details_v1('f3700000-0000-4000-8000-0000000000a1'::uuid, '{"payout_qrph":"0002010102116304ABCD"}'::jsonb, null, 'zz self')$$, '42501', 'manage_staff denied', 'the cleaner cannot save her own payout QR');
+select throws_ok($$select public.save_staff_details_v1('f3700000-0000-4000-8000-0000000000a1'::uuid, '{"payout_qrph":"0002010102116304AD0A"}'::jsonb, null, 'zz self')$$, '42501', 'manage_staff denied', 'the cleaner cannot save her own payout QR');
 reset role;
-select is((select payout_qrph from public.staff_details where user_id = 'f3700000-0000-4000-8000-0000000000a1'), '0002010102116304ABCD', 'the payout QR is saved');
-select is((select after_state->>'payout_qrph' from public.staff_details_history where user_id = 'f3700000-0000-4000-8000-0000000000a1' order by changed_at desc limit 1), '[set ABCD]', 'the history row holds a masked marker, never the payload');
+select is((select payout_qrph from public.staff_details where user_id = 'f3700000-0000-4000-8000-0000000000a1'), '0002010102116304AD0A', 'the payout QR is saved');
+select is((select after_state->>'payout_qrph' from public.staff_details_history where user_id = 'f3700000-0000-4000-8000-0000000000a1' order by changed_at desc limit 1), '[set AD0A]', 'the history row holds a masked marker, never the payload');
 select ok(has_column_privilege('service_role', 'public.staff_details', 'payout_qrph', 'select') and not has_column_privilege('service_role', 'public.staff_details', 'id_number', 'select'), 'service_role reads the payout QR column and nothing else of staff_details');
 
 select * from finish();
