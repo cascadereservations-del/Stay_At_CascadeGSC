@@ -18,7 +18,7 @@
     "restore_point": "PENDING",
     "verified_at": "PENDING",
     "production_rule": "staff_signin_list_v2() is replaced in place (same signature and grants): kind is 'pin' when auth app_metadata.signin_kind = 'pin' or the e-mail is @staff.cascade.invalid, else 'password'. One data change: app_metadata.signin_kind = 'pin' on the single admin whose display_name is Lloyd (guarded lookup, the migration aborts unless exactly one row matches). Re-running is harmless. restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
-    "notes": "Deploy order: SQL, then the staff-users edge function (it writes signin_kind on every PIN or password change). The Staff app already reads kind and needs no change. No new secret."
+    "notes": "Deploy order: SQL, then the staff-users edge function (it writes signin_kind on every PIN or password change). The Staff app already reads kind and needs no change. No new secret. Precondition: Cascade-Staff v3.4.3 (cs-shell-v28, with the 'Use a password instead' fallback) is live before this SQL is applied."
   },
   "forward_verification": [
     {
@@ -90,6 +90,7 @@
     "automatic_deployment_authorized": false
   },
   "stop_conditions": [
+    "the Staff app with the 'Use a password instead' fallback (Cascade-Staff v3.4.3, cs-shell-v28) is not live: apply the SQL only after it is, or Lloyd's PIN row shows a PIN pad with no password fallback",
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour",
     "restore_point is still the PENDING placeholder",

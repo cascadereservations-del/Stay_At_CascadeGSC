@@ -30,7 +30,7 @@ export function staffEmail(name: string): string {
 export function signinKindFor(password: string): 'pin' | 'password' {
   return /^8888[0-9]{4}$/.test(password) ? 'pin' : 'password';
 }
-function displayName(email: string | undefined,meta: Record<string, unknown> | undefined): string {
+function displayName(email: string | undefined, meta: Record<string, unknown> | undefined): string {
   const n = meta?.display_name;
   if (typeof n === 'string' && n.trim()) return n.trim();
   return (email ?? '').split('@')[0].replace(/\./g, ' ');
@@ -116,7 +116,7 @@ Deno.serve(async (req: Request) => {
       const email = staffEmail(name);
       const { data: created, error: cErr } = await admin.auth.admin.createUser({
         email, password, email_confirm: true,
-        app_metadata: { role, property_ids: [propertyId], cascade_disabled: false, display_name: name, signin_kind: 'pin' },
+        app_metadata: { role, property_ids: [propertyId], cascade_disabled: false, display_name: name, signin_kind: signinKindFor(password) },
         user_metadata: { display_name: name },
       });
       if (cErr || !created.user) {

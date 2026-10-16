@@ -1,7 +1,7 @@
 -- Session 89: staff_signin_list_v2 kind = pin when app_metadata.signin_kind = 'pin' or the e-mail is a staff-domain login.
 -- Synthetic accounts only (e-mails zz.pn.*); every row assertion filters on that handle. Inside begin/rollback.
 begin;
-select plan(9);
+select plan(10);
 
 select ok(has_function_privilege('anon', 'public.staff_signin_list_v2()', 'execute'), 'anon can call v2');
 select ok(has_function_privilege('authenticated', 'public.staff_signin_list_v2()', 'execute'), 'authenticated can call v2');
@@ -32,6 +32,9 @@ select is((select kind from public.staff_signin_list_v2() where handle = 'zz.pn.
 select is((select kind from public.staff_signin_list_v2() where handle = 'zz.pn.pwkind@example.test'), 'password', 'signin_kind password on a real e-mail stays password');
 -- documented behaviour: the staff domain wins, because that domain has always meant a PIN login (s88 and earlier).
 select is((select kind from public.staff_signin_list_v2() where handle = 'zz.pn.pwdomain@staff.cascade.invalid'), 'pin', 'staff domain stays pin even if the key says password');
+
+select set_config('role', 'authenticated', true);
+select is((select kind from public.staff_signin_list_v2() where handle = 'zz.pn.meta@example.test'), 'pin', 'a signed-in session reads the same pin kind');
 
 reset role;
 select * from finish();
