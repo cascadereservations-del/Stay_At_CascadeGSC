@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s89/admin-server",
-    "commit": "ff380f824f8e12f46fc38962fce13879c7ff1385"
+    "commit": "343656ba62accd8d317d3261e23eb56649dba0e1"
   },
   "migrations": [
     "20261023000000_s89_admin_hub.sql"
   ],
   "migration_sha256": {
-    "20261023000000_s89_admin_hub.sql": "2a5a3b028b0c4c5cc4ffdd8b62139baa46d379cb8b1556a859c481cfe41f478d"
+    "20261023000000_s89_admin_hub.sql": "67bc6b3d3f65a042360ab2cd9a7576c6cfe1037ad256051a238792b99910bbd9"
   },
   "backup": {
     "required": true,
