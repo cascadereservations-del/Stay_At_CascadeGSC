@@ -129,7 +129,7 @@ select is((select finance_text from public.staff_payout_change_notices where cha
 -- ============================== Part 2 ==============================
 select is((select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_purchases'::regclass and attname = 'unit_cost'), 'numeric(12,4)', 'inventory_purchases.unit_cost is numeric(12,4)');
 select is((select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_items'::regclass and attname = 'unit_cost'), 'numeric(12,4)', 'inventory_items.unit_cost is numeric(12,4)');
-select is((select format_type(a.atttypid, a.atttypmod) || ' ' || a.attgenerated || ' ' || pg_get_expr(d.adbin, d.adrelid) from pg_attribute a join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+select is((select format_type(a.atttypid, a.atttypmod) || ' ' || a.attgenerated::text || ' ' || pg_get_expr(d.adbin, d.adrelid) from pg_attribute a join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
             where a.attrelid = 'public.inventory_purchases'::regclass and a.attname = 'total_cost'), 'numeric(10,2) s (qty * unit_cost)', 'total_cost is still numeric(10,2), stored generated from qty * unit_cost');
 select is((select string_agg(attname, ',' order by attnum) from pg_attribute where attrelid = 'public.price_history_by_item'::regclass and attnum > 0 and not attisdropped),
   'item_id,item_name,supplier,unit_cost,purchased_at,recency_rank', 'the view has the same six columns in the same order');
