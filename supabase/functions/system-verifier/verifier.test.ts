@@ -421,6 +421,11 @@ Deno.test('s91 V19: a KPI that does not reconcile goes to Finance only, with PHP
   assertEquals(c.to, 'finance');
   assertStringIncludes(c.text, 'accommodation revenue for Sep 2026 shows PHP 9,580.00 but the books give PHP 9,680.00 (difference PHP 100.00).');
   assertStringIncludes(c.text, "Do: open Insights for the same month. Do not quote this month's KPIs until the verifier is green.");
-  const hyg = f({ key: 'V19:confirmed_estimates_dead', check_id: 'V19', severity: 'yellow', title: 'KPI does not reconcile', detail: { metric: 'confirmed_estimates_dead', n: 1 } });
-  assertStringIncludes(yellowCard([hyg], [], 'finance', NOW, TODAY)!.text, '1 confirmed income estimates still count');
+  const hyg = f({ key: 'V19:hygiene:confirmed_estimates_dead', check_id: 'V19', severity: 'yellow', title: 'KPI does not reconcile', detail: { metric: 'confirmed_estimates_dead', n: 1 } });
+  assertStringIncludes(yellowCard([hyg], [], 'finance', NOW, TODAY)!.text, '1 confirmed income estimate still counts');
+});
+
+Deno.test('s91 V19 hygiene: plural agrees with n', () => {
+  const h = f({ key: 'V19:hygiene:split_payout_stays', check_id: 'V19', severity: 'yellow', title: 'KPI does not reconcile', detail: { metric: 'split_payout_stays', n: 3 } });
+  assertStringIncludes(yellowCard([h], [], 'finance', NOW, TODAY)!.text, '3 stays are paid by more than one payout e-mail');
 });

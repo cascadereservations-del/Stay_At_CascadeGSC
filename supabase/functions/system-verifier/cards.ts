@@ -67,17 +67,17 @@ const peso = (v: unknown) => pesoOrNull(v);
 const php = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? `PHP ${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''; };
 const monthOf = (v: unknown) => { const m = /^(\d{4})-(\d{2})/.exec(str(v)); return m ? `${MON[Number(m[2]) - 1] ?? ''} ${m[1]}`.trim() : 'the month'; };
 const V19_LABEL: Record<string, string> = { sold_nights: 'sold nights', occupancy: 'occupancy', accommodation_revenue: 'accommodation revenue', adr: 'ADR', revpar: 'RevPAR', cash_received: 'cash received', finance_summary_income: 'income in the finance summary', cleaner_fee: 'cleaner fees' };
-const V19_HYGIENE: Record<string, string> = {
-  direct_mirror_dups: 'direct bookings have a duplicate Airbnb mirror',
-  confirmed_estimates_dead: 'confirmed income estimates still count for a stay that was paid or cancelled',
-  split_payout_stays: 'stays are paid by more than one payout e-mail',
-  pay_request_line_drift: 'pay request lines no longer match their cleaning',
+const V19_HYGIENE: Record<string, [string, string]> = {
+  direct_mirror_dups: ['direct booking has a duplicate Airbnb mirror', 'direct bookings have a duplicate Airbnb mirror'],
+  confirmed_estimates_dead: ['confirmed income estimate still counts for a stay that was paid or cancelled', 'confirmed income estimates still count for a stay that was paid or cancelled'],
+  split_payout_stays: ['stay is paid by more than one payout e-mail', 'stays are paid by more than one payout e-mail'],
+  pay_request_line_drift: ['pay request line no longer matches its cleaning', 'pay request lines no longer match their cleaning'],
 };
 /** V19: one KPI that does not match the raw books (month metric) or one hygiene count (no month). */
 function v19Headline(f: Finding): string {
   const d = (f.detail ?? {}) as Record<string, any>;
   const m = str(d.metric);
-  if (V19_HYGIENE[m]) return `${Number(d.n ?? 0)} ${V19_HYGIENE[m]}, which can make the month figures wrong.`;
+  if (V19_HYGIENE[m]) { const n = Number(d.n ?? 0); return `${n} ${V19_HYGIENE[m][n === 1 ? 0 : 1]}, which can make the month figures wrong.`; }
   const unit = m === 'sold_nights' ? '' : m === 'occupancy' ? '%' : null;
   const val = (v: unknown) => (unit === null ? php(v) : `${Number(v).toLocaleString('en-PH', { maximumFractionDigits: 2 })}${unit}`);
   const label = V19_LABEL[m] ?? m;
