@@ -6,6 +6,7 @@
 // HOLD_EXPIRY_EMAIL_ACTION names an action the relay implements (it has ackEmail/confirmEmail
 // today; the expiry template is Lloyd's to add) - until then the Finance card carries the message.
 // ponytail: no per-guest state table; idempotent because the status flips to expired.
+// s89: also drains staff_payout_change_notices each run (payout-notices.ts): Finance Telegram + the person's own push.
 // v4 (s74 G8): needs x-cascade-cron-secret (the cron sends it from Vault); it was open to any POST. Fails closed when CASCADE_CRON_SHARED_SECRET is unset.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
@@ -13,6 +14,8 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronAuthFailure } from '../_shared/cron-auth.ts';
 import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
+import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
+import { drain } from './payout-notices.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -36,6 +39,41 @@ async function tgSend(text: string): Promise<void> {
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dm = (d: string) => { const x = new Date(d.slice(0, 10) + 'T00:00:00Z'); return `${x.getUTCDate()} ${MON[x.getUTCMonth()]}`; };
 const peso = (n: unknown) => Number(n ?? 0).toLocaleString('en-PH');
+
+/** s89: payout-change notices (staff_payout_change_notices) -> Finance Telegram + the person's own phones. Never throws, never blocks the hold job. */
+// deno-lint-ignore no-explicit-any
+async function drainPayoutNotices(db: any): Promise<void> {
+  try {
+    const vapid = vapidFromEnv((k) => Deno.env.get(k));
+    const res = await drain({
+      now: () => new Date().toISOString(),
+      unsent: async (limit) => {
+        const { data, error } = await db.from('staff_payout_change_notices').select('id,user_id,finance_text,staff_text,finance_sent_at,staff_sent_at')
+          .or('finance_sent_at.is.null,staff_sent_at.is.null').order('created_at', { ascending: true }).limit(limit);
+        if (error) { if (error.code === '42P01' || error.code === 'PGRST205') return { rows: [], missing: true }; throw new Error(error.code ?? error.message); }
+        return { rows: data ?? [] };
+      },
+      stamp: async (id, col, at) => { const { error } = await db.from('staff_payout_change_notices').update({ [col]: at }).eq('id', id); if (error) throw new Error(error.code ?? error.message); },
+      sendFinance: TG_TOKEN && FINANCE_CHAT ? async (text) => {
+        const r = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, { method: 'POST', headers: JSON_H, body: JSON.stringify({ chat_id: FINANCE_CHAT, text, disable_web_page_preview: true }), signal: AbortSignal.timeout(15_000) }).catch(() => null);
+        return !!r?.ok;
+      } : null,
+      subs: async (userId) => {
+        const base = () => db.from('staff_push_subscriptions').select('id,endpoint,p256dh,auth').eq('user_id', userId);
+        const first = await base().contains('topics', ['paid']);
+        if (!first.error) return first.data ?? [];
+        if (first.error.code !== '42703' && !(first.error.code === 'PGRST204' && /topics/i.test(first.error.message ?? ''))) return [];
+        const again = await base();   // topics column not there yet: every phone of that person
+        return again.error ? [] : (again.data ?? []);
+      },
+      push: vapid ? (sub, m) => sendPush(sub, m, vapid, { nowSec: Math.floor(Date.now() / 1000) }) : null,
+      deleteSub: async (id) => { await db.from('staff_push_subscriptions').delete().eq('id', id); },
+      touchSub: async (id) => { await db.from('staff_push_subscriptions').update({ last_ok_at: new Date().toISOString() }).eq('id', id); },
+      log: (m) => console.warn(m),
+    });
+    if (res.rows) console.log(JSON.stringify({ event: 'payout_notices_drain', ...res }));
+  } catch (e) { console.warn('payout notices drain failed:', String(e).slice(0, 120)); }
+}
 
 Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'finance' }, async (req: Request) => {
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
@@ -100,10 +138,12 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
       }
     }
     console.log(JSON.stringify({ event: 'release_expired_holds', dry, cutoff, candidates: (rows ?? []).length, released, nudged }));
+    if (!dry) await drainPayoutNotices(db);
     await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, dry, cutoff, released, nudged }), { status: 200, headers: JSON_H });
   } catch (err) {
     console.error('release-expired-holds error:', String(err));
+    if (!dry) await drainPayoutNotices(db);   // a failed hold job must not strand a payout-change notice
     await hb('failed', String(err).slice(0, 80));
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: JSON_H });
   }
