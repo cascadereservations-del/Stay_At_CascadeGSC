@@ -1,4 +1,10 @@
 // ocr-receipt — receipt OCR for the Cascade Smart Finance Layer.
+// v10 (s89): STAFF ONLY. verify_jwt is true but the public anon key passes it, so every request now needs a signed-in owner/admin/finance
+//   (requireStaffAccess approve_payment); the anon key gets 401/403. New body mode:"extract" {image_base64, mime_type} stores the photo at
+//   expense-receipts/<property>/<user>/<uuid>.<ext>, reads it and returns {receipt_path, amount, date, vendor, category, line_items,
+//   confidence} WITHOUT creating a transaction (the Manage hub saves via admin_save_transaction_v1 receipt_image_path). The category is
+//   mapped to the live expense_categories list, which is also what the model is told. The old create path (image_path / image_base64
+//   without mode) is unchanged behind the same staff check. The vision call is the shared cascade-core/vision.ts, which logs llm_usage.
 // v8 (2026-09-16): structured line_items ({description, qty, unit_cost}) for
 //   the purchase-report Telegram shortcut (PLAN-telegram-ops-shortcuts-and-rag-chatbot.md).
 //   Image-only per the plan's explicit scope cut; add PDF only if it turns out
@@ -35,6 +41,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
+import { requireStaffAccess, staffAuthResponse, type StaffIdentity } from '../_shared/staff-auth.ts';
+import { buildPrompt, decodeImage, formatLineItemsForNotes, clamp01, mapCategory, normalizeLineItems, receiptPath, shapeExtraction, validDate } from './logic.ts';
 // v9 (session 27): the vision call lives in cascade-core/vision.ts, shared with telegram-expense and
 // upload-booking-receipt (booking PRD task 2). Same env contract; this file only parses.
 import { VISION_PROVIDER as PROVIDER, hasVisionKey, bytesToBase64, visionExtractText } from '../_shared/cascade-core/vision.ts';
@@ -93,84 +101,48 @@ function parseExtraction(textOut: string): any {
   }
 }
 
-async function extractReceipt(b64: string, mime: string): Promise<{ parsed: any; raw: string }> {
-  const raw = await visionExtractText(EXTRACTION_PROMPT, b64, mime, 'Cascade Finance OCR');
+async function extractReceipt(b64: string, mime: string, prompt = EXTRACTION_PROMPT): Promise<{ parsed: any; raw: string }> {
+  const raw = await visionExtractText(prompt, b64, mime, 'Cascade Finance OCR');
   return { parsed: parseExtraction(raw), raw };
 }
 
-function mapCategory(hint: unknown, valid: Set<string>): string {
-  const h = String(hint ?? '').toLowerCase().trim();
-  return valid.has(h) ? h : 'other';
-}
 
-function clamp01(n: unknown): number {
-  const x = Number(n);
-  if (!isFinite(x)) return 0;
-  return Math.max(0, Math.min(1, x));
-}
-
-function validDate(d: unknown): string | null {
-  const s = String(d ?? '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const t = new Date(`${s}T00:00:00Z`).getTime();
-  if (isNaN(t)) return null;
-  const now = Date.now();
-  if (t > now + 2 * 86_400_000) return null;
-  if (t < new Date('2020-01-01').getTime()) return null;
-  return s;
-}
-
-type LineItem = { description: string; qty: number | null; unit_cost: number | null };
-
-function positiveNumberOrNull(n: unknown): number | null {
-  const x = Number(n);
-  return isFinite(x) && x > 0 ? x : null;
-}
-
-// Accepts either the new {description, qty, unit_cost}[] shape or a legacy
-// flat string[] (in case an older provider response or ocr_raw replay is fed
-// back in), and always returns the structured shape.
-function normalizeLineItems(raw: unknown): LineItem[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry): LineItem | null => {
-      if (typeof entry === 'string') {
-        const description = entry.trim();
-        return description ? { description: description.slice(0, 200), qty: null, unit_cost: null } : null;
-      }
-      if (entry && typeof entry === 'object') {
-        const description = String((entry as any).description ?? '').trim();
-        if (!description) return null;
-        return {
-          description: description.slice(0, 200),
-          qty: positiveNumberOrNull((entry as any).qty),
-          unit_cost: positiveNumberOrNull((entry as any).unit_cost),
-        };
-      }
-      return null;
-    })
-    .filter((x): x is LineItem => x !== null)
-    .slice(0, 50);
-}
-
-function formatLineItemsForNotes(items: LineItem[]): string | null {
-  if (!items.length) return null;
-  const parts = items.map(i => {
-    const qtyCost = i.qty && i.unit_cost ? ` (${i.qty} x ₱${i.unit_cost})` : '';
-    return `${i.description}${qtyCost}`;
-  });
-  return `items: ${parts.join(', ').slice(0, 400)}`;
+// s89 mode "extract": keep the photo in expense-receipts and read it, but create NO transaction. The Manage hub pre-fills its form from this
+// and saves through admin_save_transaction_v1 (receipt_image_path). A failed read still returns the stored path so the receipt can be attached by hand.
+// deno-lint-ignore no-explicit-any
+async function extractMode(body: any, who: StaffIdentity): Promise<Response> {
+  const img = decodeImage(body.image_base64, body.mime_type);
+  if (!img.ok) return json({ ok: false, error: img.error }, img.status);
+  const db = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const path = receiptPath(PROPERTY_ID, who.userId, img.ext, crypto.randomUUID());
+  const up = await db.storage.from(RECEIPTS_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: false });
+  if (up.error) return json({ ok: false, error: 'upload_failed', detail: up.error.message }, 500);
+  const { data: cats } = await db.from('expense_categories').select('slug').eq('property_id', PROPERTY_ID).eq('is_active', true).order('sort_order');
+  const slugs = (cats ?? []).map((c: { slug: string }) => c.slug);
+  try {
+    const r = await extractReceipt(bytesToBase64(img.bytes), img.mime, buildPrompt(EXTRACTION_PROMPT, slugs));
+    const x = shapeExtraction(r.parsed, new Set(slugs));
+    return json({ ok: true, receipt_path: path, amount: x.amount, date: x.date, vendor: x.vendor, category: x.category, line_items: x.line_items, confidence: x.confidence });
+  } catch (e) {
+    return json({ ok: false, error: 'ocr_failed', detail: String(e).slice(0, 300), receipt_path: path }, 502);
+  }
 }
 
 Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+  // s89: staff only. verify_jwt lets the public anon key through, so check the signed-in user is owner/admin/finance for this property.
+  let who: StaffIdentity;
+  try { who = await requireStaffAccess(req, 'approve_payment', PROPERTY_ID); }
+  catch (e) { const r = staffAuthResponse(e, CORS); if (r) return r; throw e; }
   if (!hasVisionKey()) {
     return json({ error: `no API key for VISION_PROVIDER=${PROVIDER}` }, 500);
   }
 
   let body: any;
   try { body = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
+
+  if (body.mode === 'extract') return await extractMode(body, who);
 
   const imagePath: string | null = body.image_path ? String(body.image_path) : null;
   const imageB64In: string | null = body.image_base64 ? String(body.image_base64) : null;
