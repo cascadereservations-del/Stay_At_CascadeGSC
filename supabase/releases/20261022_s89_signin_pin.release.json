@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s89/signin-pin",
-    "commit": "PENDING"
+    "commit": "77939ae6528c29246ad35d652e784e9eb114be71"
   },
   "migrations": [
     "20261022000000_s89_signin_pin.sql"
