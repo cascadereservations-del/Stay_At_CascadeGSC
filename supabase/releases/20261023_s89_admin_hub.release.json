@@ -17,13 +17,18 @@
     "scope": "production",
     "restore_point": "PENDING",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Back-end for the Manage hub. admin_save_transaction_v1 gains an optional, validated receipt_image_path (+ ocr_confidence, ocr_raw); four new functions (admin_review_queue_v1, admin_review_transaction_v1, expense_categories_v1, get_hospitality_series_v1); six slugs are added to expense_categories (internet, subscription, furnishing, cohost_fee, airbnb_adjustment, loan). No table, column or policy change and no transaction row is touched. Re-running is harmless (create or replace, insert where not exists). restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
+    "production_rule": "Back-end for the Manage hub. admin_save_transaction_v1 gains an optional, validated receipt_image_path (+ ocr_confidence, ocr_raw); four new functions (admin_review_queue_v1, admin_review_transaction_v1, expense_categories_v1, get_hospitality_series_v1); six slugs are added to expense_categories (internet, subscription, furnishing, cohost_fee, airbnb_adjustment, loan). No table, column or policy change and no transaction row is touched. Re-running is harmless (create or replace, insert where not exists). restore_point is a placeholder: the release block fills it (fill-restore-point.mjs). get_hospitality_series_v1 follows get_hospitality_metrics_v1 gate: effective roles owner, admin and finance (a cleaner is refused by the stays gate).",
     "notes": "Deploy order: SQL first, then the ocr-receipt edge function (waves branch), then the Staff app. The migration refuses (55000) if admin_save_transaction_v1 is not the body with md5 147e217b6c7a14f264f7dfce43b8bb2f. No new secret."
   },
   "forward_verification": [
     {
       "name": "save_body_accepts_a_receipt",
       "query": "select prosrc like '%receipt_image_path%' and prosrc like '%expense-receipts%' from pg_proc where oid = 'public.admin_save_transaction_v1(uuid,jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "save_body_is_the_s89_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'ff48081b485cacf547a1692d7641d85b' from pg_proc where oid = 'public.admin_save_transaction_v1(uuid,jsonb,text)'::regprocedure",
       "expect": true
     },
     {
@@ -73,7 +78,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "admin_save_transaction_v1 keeps its signature, grant and every old behaviour; the new keys are read only when present. The admin dashboard (saveTransaction, TxnDraft) never sends receipt_image_path, so it is unaffected. The dashboard review queue still writes the transactions table directly and keeps working. get_hospitality_metrics_v1 is called, not changed. The six added category slugs are already used by 27 live expense rows and by the Manage hub list."
+    "evidence": "admin_save_transaction_v1 keeps its signature, grant and every old behaviour; the new keys are read only when present. The admin dashboard (saveTransaction, TxnDraft) never sends receipt_image_path, so it is unaffected. The dashboard review queue still writes the transactions table directly and keeps working. get_hospitality_metrics_v1 is called, not changed. The six added category slugs are already used by 26 live expense rows and by the Manage hub list."
   },
   "approvals": {
     "production_required": true,
