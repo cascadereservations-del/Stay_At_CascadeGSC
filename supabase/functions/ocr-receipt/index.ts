@@ -57,7 +57,8 @@ const RECEIPTS_BUCKET = 'expense-receipts';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'apikey, authorization, content-type',
+  // s90: supabase-js functions.invoke adds x-client-info (and newer builds the x-supabase-client-* headers); without them the browser drops the POST after the preflight
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-supabase-api-version',
   ...JSON_HEADERS,
 };
 function json(data: unknown, status = 200) {
