@@ -27,8 +27,8 @@
       "expect": true
     },
     {
-      "name": "rotation_column_is_not_readable_by_the_apps_directly",
-      "query": "select not has_column_privilege('anon', 'public.guest_companions', 'id_photo_rotation', 'select') and not has_column_privilege('authenticated', 'public.guest_companions', 'id_photo_rotation', 'select') and not has_column_privilege('authenticated', 'public.guest_companions', 'id_photo_rotation', 'update') and has_column_privilege('service_role', 'public.guest_companions', 'id_photo_rotation', 'select')",
+      "name": "rotation_column_has_the_same_privileges_as_the_photo_path",
+      "query": "select bool_and(has_column_privilege(r, 'public.guest_companions', 'id_photo_rotation', p) = has_column_privilege(r, 'public.guest_companions', 'id_photo_path', p)) from unnest(array['anon','authenticated','service_role']) r, unnest(array['select','insert','update']) p",
       "expect": true
     },
     {
