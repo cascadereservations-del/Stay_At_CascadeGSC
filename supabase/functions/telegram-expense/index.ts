@@ -663,10 +663,6 @@ async function handleCalendarNotices(chatId:any,db:any) {
   await tgSend(chatId,lines.join('\n'));
 }
 
-async function geminiFetch(url:string,init:RequestInit,tries=3):Promise<Response> {
-  for(let i=0;i<tries;i++){const res=await fetch(url,init);if(res.ok||(res.status!==429&&res.status!==503))return res;if(i<tries-1)await new Promise(r=>setTimeout(r,800*(i+1)));}
-  return fetch(url,init);
-}
 function buildGeminiPrompt(categoryHint:string) {
   const h=categoryHint?`The user already classified this as "${categoryHint}" — use that as category_hint unless clearly wrong.`:'Infer category_hint from the items.';
   return `You are a receipt data extractor for a Philippine boutique Airbnb expense ledger.\nReturn ONLY a JSON object with these exact keys:\n{"amount":number|null,"currency":"PHP","date":"YYYY-MM-DD"|null,"vendor":string|null,"category_hint":"supplies"|"utilities"|"cleaning"|"maintenance"|"repairs"|"platform_fees"|"other","line_items":[{"name":string,"qty":number,"unit_price":number}],"confidence":number}\n${h}\nRules: amount=total paid. qty=units bought (default 1), unit_price=price per unit. If unreadable set amount null and confidence<0.2. Never invent a vendor.`;
