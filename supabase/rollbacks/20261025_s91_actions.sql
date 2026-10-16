@@ -270,7 +270,6 @@ alter policy guests_owner_admin_all on public.guests
 alter policy airbnb_reservations_owner_admin_all on public.airbnb_reservations
   using (((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = any (array['owner'::text, 'admin'::text]))
   with check (((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = any (array['owner'::text, 'admin'::text]));
-grant all on public.guests to anon, authenticated;
 
 drop function if exists public.staff_photo_rotation_v1(text[]);
 drop function if exists public.set_guest_photo_rotation_v1(text, smallint);

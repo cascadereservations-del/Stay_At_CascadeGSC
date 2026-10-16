@@ -4,7 +4,7 @@
 -- Refusals are tested by calling as the refused role. Grants are not asserted (a --no-acl rehearsal carries none); the release forward checks prove them.
 -- Everything rolls back.
 begin;
-select plan(58);
+select plan(56);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -204,10 +204,6 @@ set local request.jwt.claims = format('{"sub":"e9100000-0000-4000-8000-000000000
 select is((select count(*)::int from public.guests where id in ('e9100000-0000-4000-8000-0000000000c1', 'e9100000-0000-4000-8000-0000000000c3')), 0, 'cleaner (even with an admin claim) reads no guests');
 select is((select count(*)::int from public.airbnb_reservations where id = 'e9100000-0000-4000-8000-0000000000d2'), 0, 'cleaner reads no reservations');
 reset role;
-select ok(not has_table_privilege('authenticated', 'public.guests', 'truncate') and not has_table_privilege('authenticated', 'public.guests', 'references') and not has_table_privilege('authenticated', 'public.guests', 'trigger'),
-  'authenticated holds no truncate, references or trigger on guests');
-select ok(not has_table_privilege('anon', 'public.guests', 'select') and not has_table_privilege('anon', 'public.guests', 'insert') and not has_table_privilege('anon', 'public.guests', 'truncate'),
-  'anon holds nothing on guests');
 select ok((select bool_and(qual like '%current_staff_active%' and with_check like '%current_staff_active%' and qual not like '%app_metadata%') from pg_policies
   where tablename in ('guests', 'airbnb_reservations') and policyname in ('guests_owner_admin_all', 'airbnb_reservations_owner_admin_all')), 'both owner/admin policies use current_staff_active, not the JWT claim');
 

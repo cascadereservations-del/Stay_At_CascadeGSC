@@ -387,9 +387,7 @@ alter policy airbnb_reservations_owner_admin_all on public.airbnb_reservations
   using ((select public.current_staff_active(array['owner', 'admin'])))
   with check ((select public.current_staff_active(array['owner', 'admin'])));
 
--- 6c. guests: the apps never need TRUNCATE, REFERENCES or TRIGGER, and anon needs nothing (RLS has no anon policy; this is belt and braces)
-revoke truncate, references, trigger on public.guests from anon, authenticated;
-revoke all on public.guests from anon;
+-- 6c. (moved out) Narrowing the guests table grants is a contract-phase change; it ships in its own release after this one.
 
 -- 7. grants: state the end state---------------------------------------------------------------------------------------------------------------
 revoke all on function public.notices_v1(uuid) from public, anon;
