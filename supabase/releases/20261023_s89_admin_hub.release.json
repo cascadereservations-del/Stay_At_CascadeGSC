@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "s89_admin_hub_20261023",
+  "phase": "expand",
+  "source": {
+    "branch": "s89/admin-server",
+    "commit": "ff380f824f8e12f46fc38962fce13879c7ff1385"
+  },
+  "migrations": [
+    "20261023000000_s89_admin_hub.sql"
+  ],
+  "migration_sha256": {
+    "20261023000000_s89_admin_hub.sql": "2a5a3b028b0c4c5cc4ffdd8b62139baa46d379cb8b1556a859c481cfe41f478d"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Back-end for the Manage hub. admin_save_transaction_v1 gains an optional, validated receipt_image_path (+ ocr_confidence, ocr_raw); four new functions (admin_review_queue_v1, admin_review_transaction_v1, expense_categories_v1, get_hospitality_series_v1); six slugs are added to expense_categories (internet, subscription, furnishing, cohost_fee, airbnb_adjustment, loan). No table, column or policy change and no transaction row is touched. Re-running is harmless (create or replace, insert where not exists). restore_point is a placeholder: the release block fills it (fill-restore-point.mjs).",
+    "notes": "Deploy order: SQL first, then the ocr-receipt edge function (waves branch), then the Staff app. The migration refuses (55000) if admin_save_transaction_v1 is not the body with md5 147e217b6c7a14f264f7dfce43b8bb2f. No new secret."
+  },
+  "forward_verification": [
+    {
+      "name": "save_body_accepts_a_receipt",
+      "query": "select prosrc like '%receipt_image_path%' and prosrc like '%expense-receipts%' from pg_proc where oid = 'public.admin_save_transaction_v1(uuid,jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "save_grant_unchanged_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.admin_save_transaction_v1(uuid,jsonb,text)', 'execute') and not has_function_privilege('anon', 'public.admin_save_transaction_v1(uuid,jsonb,text)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.admin_save_transaction_v1(uuid,jsonb,text)'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "four_new_functions_definer_empty_search_path",
+      "query": "select count(*) = 4 and bool_and(p.prosecdef and p.proconfig @> array['search_path=\"\"']) from pg_proc p where p.oid in ('public.admin_review_queue_v1(uuid)'::regprocedure, 'public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)'::regprocedure, 'public.expense_categories_v1(uuid)'::regprocedure, 'public.get_hospitality_series_v1(uuid,integer)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "new_functions_authenticated_only",
+      "query": "select bool_and(has_function_privilege('authenticated', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') and not exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0)) from pg_proc p where p.oid in ('public.admin_review_queue_v1(uuid)'::regprocedure, 'public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)'::regprocedure, 'public.expense_categories_v1(uuid)'::regprocedure, 'public.get_hospitality_series_v1(uuid,integer)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "metrics_function_untouched",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '36783f8532b14960e1563acba000d104' from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "every_property_has_the_six_added_slugs",
+      "query": "select not exists (select 1 from public.expense_categories e group by e.property_id having count(*) filter (where e.slug in ('internet','subscription','furnishing','cohost_fee','airbnb_adjustment','loan')) <> 6)",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "always. The rollback restores admin_save_transaction_v1 to the md5 147e217b6c7a14f264f7dfce43b8bb2f body, drops the four new functions and removes the six added slugs unless a transaction already uses them. Receipt paths already saved stay on their rows (the columns existed before).",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261023_s89_admin_hub.sql with run-sql-on-host.sh. Roll the Staff app back first: Manage calls the new functions."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_probes_the_new_rpcs",
+      "required_state": "None. The Staff app hides Scan receipt, the review queue and the series chart while an RPC answers PGRST202."
+    }
+  ],
+  "compatibility": {
+    "mode": "additive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "admin_save_transaction_v1 keeps its signature, grant and every old behaviour; the new keys are read only when present. The admin dashboard (saveTransaction, TxnDraft) never sends receipt_image_path, so it is unaffected. The dashboard review queue still writes the transactions table directly and keeps working. get_hospitality_metrics_v1 is called, not changed. The six added category slugs are already used by 27 live expense rows and by the Manage hub list."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run s89_admin_hub.sql and tests/database/s89_admin_hub.sql green on this commit",
+    "the Opus 5.5 / Fable 5.1 review of this SQL lane (ledger writes and finance math: Fable) has not passed"
+  ]
+}
