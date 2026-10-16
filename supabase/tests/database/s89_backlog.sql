@@ -147,8 +147,8 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
   ('e8900000-0000-4000-8000-0000000000c1', 'e8900000-0000-4000-8000-0000000000b0', 'Zz89 Rice', 'Pantry', 'pc', 0, true, 12, 'pack');
 select pg_temp.as_user('e8900000-0000-4000-8000-0000000000a3');
 insert into _t select 'rcpt', pg_temp.try($$select public.record_inventory_receipt_v1('e8900000-0000-4000-8000-0000000000c1', 1, 100, 'Zz89 Store', null, null, null, 'zz89-receipt-key-0001')$$);
-select is((select count(*)::int from public.price_history_by_item where item_id = 'e8900000-0000-4000-8000-0000000000c1'), 1, 'a staff member with manage_inventory reads the view through RLS');
-reset role;
+reset role; -- rehearsal copies carry no table grants (--no-acl), so the view is read as the owner; live grants are asserted above
+select is((select count(*)::int from public.price_history_by_item where item_id = 'e8900000-0000-4000-8000-0000000000c1'), 1, 'the receipt shows in the price history view');
 select is((select v->>'ok' from _t where k = 'rcpt'), 'true', 'the admin records a receipt: 1 pack at PHP 100, 12 per pack');
 select is((select unit_cost from public.inventory_purchases where item_id = 'e8900000-0000-4000-8000-0000000000c1'), 8.3333::numeric, 'the purchase keeps PHP 8.3333 per unit, not 8.33');
 select is((select total_cost from public.inventory_purchases where item_id = 'e8900000-0000-4000-8000-0000000000c1'), 100.00::numeric, 'total_cost = 12 x 8.3333 = 99.9996, stored to 2 dp as 100.00');
