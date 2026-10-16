@@ -65,8 +65,8 @@ insert into public.staff_property_access(user_id, property_id) values
 -- `authenticated` and the core is not callable by that role, so the comparison
 -- cannot happen inside one statement.
 --
--- Eleven checks, not the spec's ten: 20260916150000 added concierge_handoffs_open
--- after SPEC-11 was written. Four of the eleven are financial.
+-- Twelve checks, not the spec's ten: 20260916150000 added concierge_handoffs_open
+-- after SPEC-11 was written, and s91 added kpi_reconciled. Five of the twelve are financial.
 create temp table hc_expected(fin boolean primary key, checks jsonb);
 insert into hc_expected
 select true, (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
@@ -79,13 +79,13 @@ set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000a","a
 
 select is(
   (select jsonb_array_length(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks')),
-  11, 'an admin sees all eleven checks, finance included');
+  12, 'an admin sees all twelve checks, finance included');
 
 select is(
   (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
      from jsonb_array_elements(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks') e),
   (select checks from hc_expected where fin),
-  'the button and the core with true return the same eleven checks');
+  'the button and the core with true return the same twelve checks');
 
 reset role;
 
@@ -103,12 +103,12 @@ set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000b","a
 
 select is(
   (select jsonb_array_length(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks')),
-  7, 'an inspector sees seven: the four financial checks are withheld');
+  7, 'an inspector sees seven: the five financial checks are withheld');
 select is(
   (select count(*) from jsonb_array_elements(
       public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks') e
-    where e->>'check_key' in ('cleaner_fees_settled','ledger_duplicates','ledger_position','journals_balanced')),
-  0::bigint, 'and not one of the four is among them');
+    where e->>'check_key' in ('cleaner_fees_settled','ledger_duplicates','ledger_position','journals_balanced','kpi_reconciled')),
+  0::bigint, 'and not one of the five is among them');
 select is(
   (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
      from jsonb_array_elements(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks') e),
