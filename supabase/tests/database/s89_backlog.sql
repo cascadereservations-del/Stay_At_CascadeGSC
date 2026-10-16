@@ -5,7 +5,7 @@
 -- Hermetic: its own users and property (uuids e8900000-...). Everything rolls back. The md5 guards at the head of the migrations cannot run inside pgTAP;
 -- the rehearsal proves them separately.
 begin;
-select plan(44);
+select plan(45);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt(), auth.role() to anon, authenticated, service_role;
@@ -69,9 +69,9 @@ select is((select v->>'ok' from _t where k = 'ok_clear'), 'true', 'null still cl
 select is((select count(*)::int from public.staff_payout_change_notices where user_id = 'e8900000-0000-4000-8000-0000000000a1'), 2,
   'two real changes (set, then clear) queued two notices; the refused saves and the unchanged re-save queued none');
 select is((select finance_text from public.staff_payout_change_notices where user_id = 'e8900000-0000-4000-8000-0000000000a1' and changed_what = 'both'),
-  'Honey''s payout QR and bank name was changed by Marifel. Check it before the next payment.', 'the Finance sentence leads with what happened, first names only');
+  'Honey''s payout QR and bank name were changed by Marifel. Check it before the next payment.', 'the Finance sentence leads with what happened, first names only');
 select is((select staff_text from public.staff_payout_change_notices where user_id = 'e8900000-0000-4000-8000-0000000000a1' and changed_what = 'both'),
-  'Your payout QR and bank name was changed by Marifel. If this is not right, tell Marifel.', 'her own sentence says the same, with what to do');
+  'Your payout QR and bank name were changed by Marifel. If this is not right, tell Marifel.', 'her own sentence says the same, with what to do');
 select is((select finance_text from public.staff_payout_change_notices where user_id = 'e8900000-0000-4000-8000-0000000000a1' and changed_what = 'qr'),
   'Honey''s payout QR was removed by Marifel. Add a new one before the next payment.', 'removing the QR says removed');
 select ok(not exists (select 1 from public.staff_payout_change_notices where finance_text like '%0002%' or staff_text like '%0002%' or finance_text ~ '[0-9]{6}' or staff_text ~ '[0-9]{6}'),
@@ -116,6 +116,15 @@ select ok((select relrowsecurity from pg_class where oid = 'public.staff_payout_
 select ok((select p.prosecdef and p.proconfig @> array['search_path=""'] from pg_proc p where p.oid = 'public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure)
   and has_function_privilege('authenticated', 'public.save_staff_details_v1(uuid,jsonb,integer,text)', 'execute') and not has_function_privilege('anon', 'public.save_staff_details_v1(uuid,jsonb,integer,text)', 'execute'),
   'save_staff_details_v1 is still definer with an empty search_path, executable by authenticated and not by anon');
+
+-- an admin with no display name is "an admin": the e-mail address is never used in a notice
+insert into auth.users(id, email, raw_user_meta_data) values ('e8900000-0000-4000-8000-0000000000a5', 'zz89-nameless@example.com', '{}');
+insert into public.staff_access_profiles(user_id, role) values ('e8900000-0000-4000-8000-0000000000a5', 'admin');
+select pg_temp.as_user('e8900000-0000-4000-8000-0000000000a5');
+insert into _t select 'nameless', pg_temp.try($$select public.save_staff_details_v1('e8900000-0000-4000-8000-0000000000a1', '{"payout_bank_label":"Maya"}'::jsonb, null, 'nameless admin')$$);
+reset role;
+select is((select finance_text from public.staff_payout_change_notices where changed_what = 'bank_label' and finance_text not like '%Marifel%'),
+  'Honey''s payout bank name was changed by an admin. Check it before the next payment.', 'no display name: the notice says an admin, never the e-mail address');
 
 -- ============================== Part 2 ==============================
 select is((select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_purchases'::regclass and attname = 'unit_cost'), 'numeric(12,4)', 'inventory_purchases.unit_cost is numeric(12,4)');

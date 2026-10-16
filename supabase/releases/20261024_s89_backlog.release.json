@@ -4,14 +4,14 @@
   "phase": "contract",
   "source": {
     "branch": "s89/backlog-sql",
-    "commit": "1df241c6b117626c52af544cbb71e2fea37d468d"
+    "commit": "b277e9ee837584932840cd28fd59eab79490a28b"
   },
   "migrations": [
     "20261024000000_s89_backlog_qr.sql",
     "20261024010000_s89_backlog_inventory_precision.sql"
   ],
   "migration_sha256": {
-    "20261024000000_s89_backlog_qr.sql": "d995ea4e6c5d9034a5d8a2bb45c9afc71e03fd2dff58c0f419fc0a3e161c5403",
+    "20261024000000_s89_backlog_qr.sql": "0c97bd494830d705ca465987e036700f90933efa1b24625fb45a5a0c8b70f704",
     "20261024010000_s89_backlog_inventory_precision.sql": "75062e12cd3171dd6574934bdecb8a47a085a1ab391249e4d496e037cbf68de8"
   },
   "backup": {
@@ -35,7 +35,7 @@
     },
     {
       "name": "save_staff_details_is_the_s89_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '62b23d78330ccecceff68ac8c9edcd34' from pg_proc where oid = 'public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '3e60f4514fa401c46face6fc07fc7fdd' from pg_proc where oid = 'public.save_staff_details_v1(uuid,jsonb,integer,text)'::regprocedure",
       "expect": true
     },
     {
