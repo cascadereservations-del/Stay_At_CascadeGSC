@@ -185,22 +185,22 @@ select is((select id_photo_rotation from public.guest_companions where id = 'e91
 
 -- RLS on guests and airbnb_reservations follows the live profile ------------------------------------------------------------------------------
 set local role authenticated;
-set local request.jwt.claims = format('{"sub":"e9100000-0000-4000-8000-000000000002","iat":%s}', extract(epoch from now())::bigint);
+select set_config('request.jwt.claims', format('{"sub":"e9100000-0000-4000-8000-000000000002","iat":%s}', extract(epoch from now())::bigint), true);
 select is((select count(*)::int from public.guests where id in ('e9100000-0000-4000-8000-0000000000c1', 'e9100000-0000-4000-8000-0000000000c3')), 2, 'active admin reads the guests');
 select is((select count(*)::int from public.airbnb_reservations where id = 'e9100000-0000-4000-8000-0000000000d2'), 1, 'active admin reads the reservations');
 reset role;
 set local role authenticated;
-set local request.jwt.claims = format('{"sub":"e9100000-0000-4000-8000-000000000005","iat":%s,"app_metadata":{"role":"admin"}}', extract(epoch from now())::bigint);
+select set_config('request.jwt.claims', format('{"sub":"e9100000-0000-4000-8000-000000000005","iat":%s,"app_metadata":{"role":"admin"}}', extract(epoch from now())::bigint), true);
 select is((select count(*)::int from public.guests where id in ('e9100000-0000-4000-8000-0000000000c1', 'e9100000-0000-4000-8000-0000000000c3')), 0, 'disabled admin (JWT still says admin) reads no guests');
 select is((select count(*)::int from public.airbnb_reservations where id = 'e9100000-0000-4000-8000-0000000000d2'), 0, 'disabled admin reads no reservations');
 reset role;
 set local role authenticated;
-set local request.jwt.claims = format('{"sub":"e9100000-0000-4000-8000-000000000006","iat":%s,"app_metadata":{"role":"admin"}}', (extract(epoch from now()) - 7200)::bigint);
+select set_config('request.jwt.claims', format('{"sub":"e9100000-0000-4000-8000-000000000006","iat":%s,"app_metadata":{"role":"admin"}}', (extract(epoch from now()) - 7200)::bigint), true);
 select is((select count(*)::int from public.guests where id in ('e9100000-0000-4000-8000-0000000000c1', 'e9100000-0000-4000-8000-0000000000c3')), 0, 'revoked-session admin reads no guests');
 select is((select count(*)::int from public.airbnb_reservations where id = 'e9100000-0000-4000-8000-0000000000d2'), 0, 'revoked-session admin reads no reservations');
 reset role;
 set local role authenticated;
-set local request.jwt.claims = format('{"sub":"e9100000-0000-4000-8000-000000000001","iat":%s,"app_metadata":{"role":"admin"}}', extract(epoch from now())::bigint);
+select set_config('request.jwt.claims', format('{"sub":"e9100000-0000-4000-8000-000000000001","iat":%s,"app_metadata":{"role":"admin"}}', extract(epoch from now())::bigint), true);
 select is((select count(*)::int from public.guests where id in ('e9100000-0000-4000-8000-0000000000c1', 'e9100000-0000-4000-8000-0000000000c3')), 0, 'cleaner (even with an admin claim) reads no guests');
 select is((select count(*)::int from public.airbnb_reservations where id = 'e9100000-0000-4000-8000-0000000000d2'), 0, 'cleaner reads no reservations');
 reset role;
