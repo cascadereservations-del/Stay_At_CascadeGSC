@@ -20,6 +20,12 @@
 begin;
 select plan(27);
 
+-- Baseline grants (s91): a --no-acl rehearsal copy has none of production's grants, so the file sets the ones it asserts, inside the rollback.
+revoke all on function public.health_checks_core_v1(uuid, boolean) from public, anon, authenticated;
+revoke all on function public.run_health_checks_service_v1(uuid) from public, anon, authenticated;
+grant execute on function public.run_health_checks_service_v1(uuid) to service_role;
+grant execute on function public.run_health_checks_v1(uuid) to authenticated;
+
 -- Catalogue -------------------------------------------------------------------
 select has_function('public', 'health_checks_core_v1', array['uuid','boolean'], 'the core exists');
 select has_function('public', 'run_health_checks_service_v1', array['uuid'], 'the service wrapper exists');
@@ -65,8 +71,8 @@ insert into public.staff_property_access(user_id, property_id) values
 -- `authenticated` and the core is not callable by that role, so the comparison
 -- cannot happen inside one statement.
 --
--- Eleven checks, not the spec's ten: 20260916150000 added concierge_handoffs_open
--- after SPEC-11 was written. Four of the eleven are financial.
+-- Twelve checks, not the spec's ten: 20260916150000 added concierge_handoffs_open
+-- after SPEC-11 was written, and s91 added kpi_reconciled. Five of the twelve are financial.
 create temp table hc_expected(fin boolean primary key, checks jsonb);
 insert into hc_expected
 select true, (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
@@ -75,17 +81,17 @@ select true, (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
 grant select on hc_expected to authenticated;
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000a","aal":"aal2"}';
+select set_config('request.jwt.claims', '{"sub":"e2000000-0000-4000-8000-00000000000a","aal":"aal2"}', true);
 
 select is(
   (select jsonb_array_length(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks')),
-  11, 'an admin sees all eleven checks, finance included');
+  12, 'an admin sees all twelve checks, finance included');
 
 select is(
   (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
      from jsonb_array_elements(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks') e),
   (select checks from hc_expected where fin),
-  'the button and the core with true return the same eleven checks');
+  'the button and the core with true return the same twelve checks');
 
 reset role;
 
@@ -99,27 +105,29 @@ select false, (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key'
                    public.health_checks_core_v1('e1000000-0000-4000-8000-000000000001', false)->'checks') e);
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000b","aal":"aal2"}';
+select set_config('request.jwt.claims', '{"sub":"e2000000-0000-4000-8000-00000000000b","aal":"aal2"}', true);
 
 select is(
   (select jsonb_array_length(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks')),
-  7, 'an inspector sees seven: the four financial checks are withheld');
+  7, 'an inspector sees seven: the five financial checks are withheld');
 select is(
   (select count(*) from jsonb_array_elements(
       public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks') e
-    where e->>'check_key' in ('cleaner_fees_settled','ledger_duplicates','ledger_position','journals_balanced')),
-  0::bigint, 'and not one of the four is among them');
+    where e->>'check_key' in ('cleaner_fees_settled','ledger_duplicates','ledger_position','journals_balanced','kpi_reconciled')),
+  0::bigint, 'and not one of the five is among them');
 select is(
   (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
      from jsonb_array_elements(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks') e),
   (select checks from hc_expected where not fin),
   'p_fin is really threaded: the core with false matches what the inspector saw');
 
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000c","aal":"aal2"}';
+select set_config('request.jwt.claims', '{"sub":"e2000000-0000-4000-8000-00000000000c","aal":"aal2"}', true);
 select throws_ok(
   $$select public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')$$,
   '42501', null, 'the gate still gates: no access to this property, no health checks');
 reset role;
+-- the daily verifier now reads admin_stays_v1 (V19), which gates on auth.uid(): leave no user claims behind, as a scheduled job has none
+select set_config('request.jwt.claims', '{}', true);
 
 -- V10 ---------------------------------------------------------------------------
 -- A chosen slate, written directly, so each status is deliberate rather than
