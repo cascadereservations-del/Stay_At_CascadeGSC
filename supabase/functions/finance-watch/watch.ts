@@ -4,13 +4,14 @@
 //   direct: pending inquiry, no receipt a day after submission, check-in still ahead (fee is 50 % on booking).
 // ponytail: deposit-return watch skipped — only direct bookings pay the ₱1,000 deposit, one confirmed direct
 // booking exists, and no table records the deposit taken or returned. Add when direct bookings are regular.
+import { manilaDate } from '../_shared/cleaning-fee.ts';
 import type { Report } from '../_shared/cascade-core/format.ts';
 
 export type AirbnbRow = { confirmation_code: string; guest_name: string | null; checkin_date: string; host_payout: number | string | null; payout_email_message_id: string | null; status: string };
 export type DirectRow = { id: string; guest_name: string | null; checkin_date: string; deposit_amount: number | string | null; submitted_at: string; receipt_image_path: string | null; status: string };
 export type Overdue = { kind: 'airbnb' | 'direct'; code: string; guest: string; amount: number; days: number; line: string };
 
-const peso = (n: unknown) => { const x = Number(n); return (isFinite(x) ? x : 0).toLocaleString('en-PH'); };
+const peso = (n: unknown) => { const x = Number(n); return (isFinite(x) ? x : 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 const dayMs = 86_400_000;
 const daysBetween = (from: string, to: string) => Math.floor((new Date(to.slice(0, 10) + 'T00:00:00Z').getTime() - new Date(from.slice(0, 10) + 'T00:00:00Z').getTime()) / dayMs);
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -28,7 +29,7 @@ export function overdue(today: string, airbnb: AirbnbRow[], direct: DirectRow[])
   }
   for (const r of direct) {
     if (r.status !== 'pending' || r.receipt_image_path) continue;
-    const days = daysBetween(r.submitted_at, today);
+    const days = daysBetween(manilaDate(r.submitted_at, today), today);
     if (days < 1 || daysBetween(today, r.checkin_date) < 0) continue;
     const guest = r.guest_name ?? 'guest';
     const code = 'DIR-' + r.id.slice(0, 8).toUpperCase();

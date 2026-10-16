@@ -64,6 +64,25 @@ const str = (v: unknown, fallback = '') => {
 // the card cannot drift apart again. Money here is null-safe (SPEC-19): a row whose amount cannot be
 // read names the row without an amount, and never prints a zero that claims the books balance.
 const peso = (v: unknown) => pesoOrNull(v);
+const php = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? `PHP ${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''; };
+const monthOf = (v: unknown) => { const m = /^(\d{4})-(\d{2})/.exec(str(v)); return m ? `${MON[Number(m[2]) - 1] ?? ''} ${m[1]}`.trim() : 'the month'; };
+const V19_LABEL: Record<string, string> = { sold_nights: 'sold nights', occupancy: 'occupancy', accommodation_revenue: 'accommodation revenue', adr: 'ADR', revpar: 'RevPAR', cash_received: 'cash received', finance_summary_income: 'income in the finance summary', cleaner_fee: 'cleaner fees' };
+const V19_HYGIENE: Record<string, string> = {
+  direct_mirror_dups: 'direct bookings have a duplicate Airbnb mirror',
+  confirmed_estimates_dead: 'confirmed income estimates still count for a stay that was paid or cancelled',
+  split_payout_stays: 'stays are paid by more than one payout e-mail',
+  pay_request_line_drift: 'pay request lines no longer match their cleaning',
+};
+/** V19: one KPI that does not match the raw books (month metric) or one hygiene count (no month). */
+function v19Headline(f: Finding): string {
+  const d = (f.detail ?? {}) as Record<string, any>;
+  const m = str(d.metric);
+  if (V19_HYGIENE[m]) return `${Number(d.n ?? 0)} ${V19_HYGIENE[m]}, which can make the month figures wrong.`;
+  const unit = m === 'sold_nights' ? '' : m === 'occupancy' ? '%' : null;
+  const val = (v: unknown) => (unit === null ? php(v) : `${Number(v).toLocaleString('en-PH', { maximumFractionDigits: 2 })}${unit}`);
+  const label = V19_LABEL[m] ?? m;
+  return `${f.title}: ${label} for ${monthOf(d.month)} shows ${val(d.shown)} but the books give ${val(d.recomputed)} (difference ${unit === null ? php(d.diff) : val(d.diff)}).`;
+}
 const parts = (...xs: Array<string | null | undefined>) => xs.filter((x): x is string => !!x).join(', ');
 
 /** The rows behind a health check, named so somebody can act without opening the dashboard. */
@@ -236,6 +255,8 @@ function headline(f: Finding, now: Date): string {
       return d.last_good_sync
         ? `The Airbnb calendar last synced ${ago(d.last_good_sync, now)}. A booking landing now would not be seen.`
         : 'The Airbnb calendar has never synced successfully. A booking landing now would not be seen.';
+    case 'V19':
+      return v19Headline(f);
     case 'V10':
       return f.key === 'V10:stale'
         ? `System health last ran ${ago(d.last_run, now)}, so the numbers below are older than they look.`
@@ -284,6 +305,8 @@ function facts(f: Finding): string[] {
       const one = (x: any) => `${str(x?.guest, 'unnamed')} · ${str(x?.status, 'unknown')} · ${dm(x?.from)} to ${dm(x?.to)} · id ${str(x?.booking).slice(0, 8).toUpperCase()}`;
       return [how ? `Matched on ${how}${peso(d.amount) ? `, ${peso(d.amount)}` : ''}.` : '', one(d.a), one(d.b)];
     }
+    case 'V19':
+      return V19_HYGIENE[str(d.metric)] ? [] : [`${monthOf(d.month)} · ${V19_LABEL[str(d.metric)] ?? str(d.metric)}`];
     case 'V10': {
       // Not a key=value dump, and not silence either: the first live run said
       // "1 to look at" and named nothing, so nobody could act without opening
@@ -319,6 +342,9 @@ function action(f: Finding): string {
       : 'raise the key limit at openrouter.ai/settings/keys if today needs more; it resets by itself at 08:00 Manila.';
     case 'V11': return 'put the Concierge back on auto in Settings, or leave it and keep answering by hand.';
     case 'V12': return 'check the Airbnb feed and the sync job before taking another booking.';
+    case 'V19': return V19_HYGIENE[str((f.detail as any)?.metric)]
+      ? 'fix the rows named in the system check detail, or press Known.'
+      : "open Insights for the same month. Do not quote this month's KPIs until the verifier is green.";
     case 'V10': return f.key === 'V10:stale' ? 'open Settings, System health, and run it.' : 'open Settings, System health, and work through this check.';
     default: return 'open the dashboard.';
   }
@@ -335,6 +361,7 @@ const LINK: Record<string, string> = {
   V10: `${DASH_URL}settings`,
   V11: `${DASH_URL}settings`,
   V12: `${DASH_URL}calendar`,
+  V19: `${DASH_URL}insights`,
 };
 
 /**

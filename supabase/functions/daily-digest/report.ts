@@ -28,7 +28,7 @@ export type OpsReport = Report & { kind: HeaderKind };
 export type Pending = { transaction_date: string | null; payee_name: string | null; category: string | null; gross_amount: number | string | null; source: string | null };
 export type FinanceInput = { pending: Pending[]; firstOfMonth: boolean; lastExport?: string | null; consoleUrl: string };
 
-export const peso = (n: unknown) => { const x = Number(n); return (isFinite(x) ? x : 0).toLocaleString('en-PH'); };
+export const peso = (n: unknown) => { const x = Number(n); return (isFinite(x) ? x : 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 export function formatTime12(t: string | null | undefined): string {
   if (!t) return '';

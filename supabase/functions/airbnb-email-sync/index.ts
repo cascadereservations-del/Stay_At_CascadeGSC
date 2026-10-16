@@ -421,6 +421,10 @@ async function handlePayout(
     await supabase.from('transactions').update({ status: 'void' })
       .eq('external_ref', code).eq('status', 'pending_review')
       .eq('source', 'airbnb_email');
+    // s91 F4: and the confirmed estimates - the payout row is the income, a live estimate double-counts it.
+    await supabase.from('transactions').update({ status: 'void' })
+      .eq('external_ref', code).eq('source', 'airbnb_email')
+      .eq('income_stage', 'estimated').neq('status', 'void');
 
     // Phase E: Now that booking is COMPLETED, run full reconciliation.
     // This is the definitive moment — CSV truth overwrites email estimates
@@ -468,6 +472,9 @@ async function handleCancellation(
 
   await supabase.from('transactions').update({ status: 'void' })
     .eq('external_ref', event.cancelled_code).eq('status', 'pending_review');
+  await supabase.from('transactions').update({ status: 'void' }) // s91 F4: a cancelled stay keeps no estimate
+    .eq('external_ref', event.cancelled_code).eq('source', 'airbnb_email')
+    .eq('income_stage', 'estimated').neq('status', 'void');
 
   // Phase D: refresh guest stats (cancelled stay doesn't count)
   const { data: res } = await supabase

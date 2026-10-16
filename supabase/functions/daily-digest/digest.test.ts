@@ -56,7 +56,7 @@ Deno.test('weekly: ops roll-up leads with the waiting guest; finance roll-up lea
   assertEquals(ops.lines.filter((l) => l === '').length, 3); // one break between each group
   assertEquals(ops.action, 'Reply to Ben first.');
   const fin = weeklyFinanceReport({ today: '2026-09-21', pending: [{ transaction_date: '2026-09-18', payee_name: 'P', category: 'supplies', gross_amount: 250, source: 'ocr' }], overdueLines: ['Airbnb HMX Ana: checked in 18 Sep, ₱3,000 payout not received (3 days)'], warns: [{ label: 'Duplicate ledger rows', n: 2, status: 'warn' }], consoleUrl: 'u' });
-  assertEquals(fin.lines[0], '🧾 1 receipt awaiting review, ₱250 in total');
+  assertEquals(fin.lines[0], '🧾 1 receipt awaiting review, ₱250.00 in total');
   assertEquals(fin.action, 'Chase the overdue payout first.');
 });
 
@@ -64,9 +64,9 @@ Deno.test('finance: nothing pending mid-month is null; seven receipts show four 
   assertEquals(financeReport({ pending: [], firstOfMonth: false, consoleUrl: 'u' }), null);
   const pending = Array.from({ length: 7 }, (_, k) => ({ transaction_date: `2026-09-0${k + 1}`, payee_name: `P${k}`, category: 'supplies', gross_amount: 100, source: 'ocr' }));
   const r = financeReport({ pending, firstOfMonth: false, consoleUrl: 'https://console' })!;
-  assertEquals(r.decision, '7 receipts awaiting review, ₱700 in total.');
+  assertEquals(r.decision, '7 receipts awaiting review, ₱700.00 in total.');
   assertEquals(r.lines.length, 5);
-  assertEquals(r.lines[0], '09-01 · P0 · ₱100 · receipt, supplies');
+  assertEquals(r.lines[0], '09-01 · P0 · ₱100.00 · receipt, supplies');
   assertEquals(r.lines[4], '…and 3 more');
   assertEquals(r.action, 'Confirm them in the admin console: https://console');
   const first = financeReport({ pending: [], firstOfMonth: true, lastExport: '2026-08-31', consoleUrl: 'u' })!;

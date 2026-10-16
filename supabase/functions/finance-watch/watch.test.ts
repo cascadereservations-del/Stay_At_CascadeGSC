@@ -23,14 +23,21 @@ Deno.test('nothing overdue is null: paid, fresh, cancelled, receipted, same-day 
 
 Deno.test('overdue rows are listed oldest first, the oldest owns the action, and the render has no model line', () => {
   const r = watchReport(today, [late, fresh], [dirLate])!;
-  assertEquals(r.decision, '2 payments overdue, ₱5,407.1 in total.');
+  assertEquals(r.decision, '2 payments overdue, ₱5,407.10 in total.');
   assertEquals(r.lines, [
-    'Airbnb HMLATE0001 Cara: checked in 11 Sep, ₱4,517.1 payout not received (3 days)',
-    'Direct DIR-22222222 Mia: check-in 20 Sep, ₱890 reservation fee unpaid (3 days)',
+    'Airbnb HMLATE0001 Cara: checked in 11 Sep, ₱4,517.10 payout not received (3 days)',
+    'Direct DIR-22222222 Mia: check-in 20 Sep, ₱890.00 reservation fee unpaid (3 days)',
   ]);
   assertEquals(r.action, 'Check Airbnb → Earnings for HMLATE0001 (Cara); if it was paid, forward the payout email so the sync records it.');
   const onlyDirect = watchReport(today, [], [dirLate])!;
-  assertEquals(onlyDirect.action, 'Message Mia for the ₱890 reservation fee, or cancel DIR-22222222 if the dates should be released.');
+  assertEquals(onlyDirect.action, 'Message Mia for the ₱890.00 reservation fee, or cancel DIR-22222222 if the dates should be released.');
   assertEquals(renderReport(r).includes('— '), false);
 });
 
+
+Deno.test('s91 F8/F9: submitted_at counts in Manila days; pesos always show 2 decimals', () => {
+  // 18:00Z on the 12th is 02:00 Manila on the 13th: one day old on the 14th, not two.
+  const r = watchReport(today, [], [{ ...dirLate, submitted_at: '2026-09-12T18:00:00Z' }])!;
+  assertEquals(r.lines[0].endsWith('(1 days)'), true);
+  assertEquals(r.decision, '1 payment overdue, ₱890.00 in total.');
+});

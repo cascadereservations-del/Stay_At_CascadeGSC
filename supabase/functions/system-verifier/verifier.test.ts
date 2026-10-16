@@ -253,7 +253,7 @@ Deno.test('no card shouts', () => {
 // the SQL without a phrase here fails the count.
 const SCALAR: Record<string, number> = { payout_totals_agree: 2590.78, ledger_position: 7704.52 };
 Deno.test('no failing check ever quotes its own pass-phrased label, and every card carries its number', () => {
-  assertEquals(HEALTH_KEYS.length, 11, 'health_checks_core_v10.sql defines eleven checks');
+  assertEquals(HEALTH_KEYS.length, 12, 'health_checks_core_v10.sql defines eleven checks plus kpi_reconciled (s91)');
   for (const [check, label] of Object.entries(HEALTH_LABELS)) {
     const scalar = SCALAR[check] !== undefined;
     const detail = scalar
@@ -412,4 +412,15 @@ Deno.test('s78 V8: one receipt on two live bookings names both, how they match, 
   const amountOnly = redCard({ ...v8, detail: { ...v8.detail, match: ['amount_time'], reference: null } }, NOW).text;
   assertStringIncludes(amountOnly, 'Matched on the same amount uploaded within 30 minutes');
   assert(!amountOnly.includes('reference null'), 'a missing reference is not printed');
+});
+
+Deno.test('s91 V19: a KPI that does not reconcile goes to Finance only, with PHP to 2 decimals and one Do', () => {
+  const red = f({ key: 'V19:2026-09-01:accommodation_revenue', check_id: 'V19', severity: 'red', title: 'KPI does not reconcile',
+    detail: { month: '2026-09-01', metric: 'accommodation_revenue', shown: 9580, recomputed: 9680, diff: 100 } });
+  const c = redCard(red, NOW);
+  assertEquals(c.to, 'finance');
+  assertStringIncludes(c.text, 'accommodation revenue for Sep 2026 shows PHP 9,580.00 but the books give PHP 9,680.00 (difference PHP 100.00).');
+  assertStringIncludes(c.text, "Do: open Insights for the same month. Do not quote this month's KPIs until the verifier is green.");
+  const hyg = f({ key: 'V19:confirmed_estimates_dead', check_id: 'V19', severity: 'yellow', title: 'KPI does not reconcile', detail: { metric: 'confirmed_estimates_dead', n: 1 } });
+  assertStringIncludes(yellowCard([hyg], [], 'finance', NOW, TODAY)!.text, '1 confirmed income estimates still count');
 });

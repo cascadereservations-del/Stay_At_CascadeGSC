@@ -20,6 +20,7 @@ export const HEALTH_LABELS: Record<string, string> = {
   ledger_position:             'Cash position: income \u2212 expenses \u2212 drawings',
   journals_balanced:           'Posted journals balance',
   concierge_handoffs_open:     'Messenger handoffs awaiting a human reply',
+  kpi_reconciled:              'Month KPIs reconcile with the raw books',
 };
 export const HEALTH_KEYS = Object.keys(HEALTH_LABELS);
 
@@ -35,6 +36,7 @@ const SUBJECT: Record<string, string> = {
   ledger_position: 'cash position does not balance',
   journals_balanced: 'journal does not balance',
   concierge_handoffs_open: 'guest handoff waiting',
+  kpi_reconciled: 'KPIs do not reconcile',
 };
 
 /** Short subject for an alert header. Never the label. */
@@ -74,6 +76,7 @@ export function problemSentence(check: string, n: number, d?: Record<string, any
     case 'ledger_position':             return net ? `Cash position does not balance: ${net} unaccounted after expenses and drawings.` : 'Cash position does not balance after expenses and drawings.';
     case 'journals_balanced':           return `${plural(n, 'posted journal does', 'posted journals do')} not balance.`;
     case 'concierge_handoffs_open':     return `${plural(n, 'guest handoff is', 'guest handoffs are')} waiting for a person.`;
+    case 'kpi_reconciled':              return `${plural(n, 'KPI does', 'KPIs do')} not reconcile with the raw books.`;
     default:                            return `System health check ${check.replace(/_/g, ' ')} needs a look${n ? `, ${n} to look at` : ''}.`;
   }
 }
