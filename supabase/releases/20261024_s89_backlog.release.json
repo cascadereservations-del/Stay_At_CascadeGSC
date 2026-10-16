@@ -109,8 +109,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not yet verified: set verified to true only after migration-rehearsal-on-host.sh has run both migrations and supabase/tests/database/s89_backlog.sql green on this commit. Reasoning: numeric(10,2) -> numeric(12,4) accepts every old value and the old app reads 4 dp numbers as numbers; no other view, constraint or index depends on the retyped columns (pg_depend read live 2026-10-16); the QR check only turns an existing 23514 into a 22023."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-16T02:1xZ on backup cascade-supabase-20261016T015105Z (migration-rehearsal-on-host.sh, log Cascade/docs/s89/rehearsal4-20261024_s89_backlog.log): both migrations applied, forward verification 13/13, pgTAP s89_backlog.sql 45/45. s85_pay_details.sql and staff_pay_requests.sql pass except their table/function grant asserts, which a --no-acl rehearsal copy cannot hold (live grants read by Fable 2026-10-16). Reasoning: numeric(10,2) -> numeric(12,4) accepts every old value; no other dependent of the retyped columns (pg_depend read live); the QR check only turns an existing 23514 into a 22023."
   },
   "approvals": {
     "production_required": true,
