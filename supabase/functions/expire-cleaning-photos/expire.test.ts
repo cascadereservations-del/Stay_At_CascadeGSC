@@ -1,7 +1,7 @@
 // deno test --allow-env supabase/functions/expire-cleaning-photos/expire.test.ts - the whole run against in-memory fakes. Synthetic data only.
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'jsr:@std/assert@1';
 import { hasMoney } from '../_shared/ops-money.ts';
-import { archivedCount, capLine, fileSection, gate, labelSection, MAX_OBJECTS_PER_RUN, MAX_SESSIONS_PER_RUN, opsLine, RETENTION_DAYS, parseRunMode, runExpiry, type Deps, type SessionRow, type StoredObject } from './expire.ts';
+import { archivedCount, capLine, fileSection, gate, labelSection, MAX_OBJECTS_PER_RUN, MAX_SESSIONS_PER_RUN, opsLine, RETENTION_DAYS, runOrphanSweep, MAX_ORPHAN_OBJECTS_PER_RUN, type OrphanDeps, type UploadFolder, parseRunMode, runExpiry, type Deps, type SessionRow, type StoredObject } from './expire.ts';
 
 const NOW = new Date('2026-12-13T22:00:00Z');   // Sunday 22:00 UTC = Monday 06:00 Manila
 const DAY = 86_400_000;
@@ -354,4 +354,50 @@ Deno.test('METER: a meter photo in Storage with no meter_readings row (or none a
   }
   const ok = session(2, { meter_readings: [{ vision_verdict: 'ok' }], drive_files: [...files(4), entry('Meter_Readings', 9)] }), w2 = world([ok], { [prefixOf(ok)]: named(['a-afterclean_1.jpg', 'a-afterclean_2.jpg', 'a-afterclean_3.jpg', 'a-afterclean_4.jpg', 'u-water_meter_1.jpg']) });
   assertEquals((await runExpiry(w2.deps, { dry: false })).expired.length, 1);   // verified reading + archived meter section: goes
+});
+
+
+// ---- orphan sweep ----
+const folder = (n: number, count: number, ageDays: number): UploadFolder => ({ prefix: `${PROP}/${USER}/${sub(n)}`, property: PROP, user: USER, submission: sub(n),
+  objects: Array.from({ length: count }, (_, i) => ({ name: `u${i}-afterclean_${i}.jpg`, size: 1000, createdAt: new Date(NOW.getTime() - ageDays * DAY).toISOString() })) });
+function orphanWorld(folders: UploadFolder[], over: Partial<OrphanDeps> = {}) {
+  const removed: string[] = [];
+  const deps: OrphanDeps = { now: NOW, listUploadFolders: async () => folders, folderHasSession: async () => false, folderReferenced: async () => false,
+    removeObjects: async (p) => { removed.push(...p); return p; }, ...over };
+  return { deps, removed };
+}
+
+Deno.test('ORPHAN: an old folder nothing claims is reported on a dry run and deleted only with del', async () => {
+  const w = orphanWorld([folder(1, 3, 10)]);
+  const dry = await runOrphanSweep(w.deps);
+  assertEquals(dry.orphans, [{ folder: sub(1).slice(0, 8), objects: 3, bytes: 3000 }]);
+  assertEquals(w.removed, []);
+  const real = await runOrphanSweep(w.deps, { del: true });
+  assertEquals(w.removed.length, 3);
+  assertEquals(real.orphans.length, 1);
+});
+
+Deno.test('ORPHAN: young folder, claimed by a session, or referenced by a proof/claim/ID row is kept', async () => {
+  const young = orphanWorld([folder(1, 2, 3)]);
+  assertEquals((await runOrphanSweep(young.deps, { del: true })).kept, { too_young: 1 });
+  const claimed = orphanWorld([folder(2, 2, 30)], { folderHasSession: async () => true });
+  assertEquals((await runOrphanSweep(claimed.deps, { del: true })).kept, { has_session: 1 });
+  const ref = orphanWorld([folder(3, 2, 30)], { folderReferenced: async () => true });
+  assertEquals((await runOrphanSweep(ref.deps, { del: true })).kept, { referenced: 1 });
+  assertEquals([...young.removed, ...claimed.removed, ...ref.removed], []);
+});
+
+Deno.test('ORPHAN: a failing reference check keeps the folder (cannot tell) and reports it; the per-run object cap stops the sweep', async () => {
+  const bad = orphanWorld([folder(1, 2, 30)], { folderReferenced: async () => { throw new Error('boom'); } });
+  const r = await runOrphanSweep(bad.deps, { del: true });
+  assertEquals([r.orphans.length, r.failed.length, bad.removed.length], [0, 1, 0]);
+  const many = orphanWorld([folder(1, MAX_ORPHAN_OBJECTS_PER_RUN - 10, 30), folder(2, 20, 30)]);
+  const c = await runOrphanSweep(many.deps, { del: true });
+  assertEquals([c.orphans.length, c.capHit], [1, true]);
+});
+
+Deno.test('ORPHAN: a partial delete is a failure, not an orphan counted as gone', async () => {
+  const w = orphanWorld([folder(1, 3, 30)], { removeObjects: async (p) => p.slice(1) });
+  const r = await runOrphanSweep(w.deps, { del: true });
+  assertEquals([r.orphans.length, r.failed.length], [0, 1]);
 });

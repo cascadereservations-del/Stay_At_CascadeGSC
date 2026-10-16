@@ -196,3 +196,57 @@ export function opsLine(sessions: number, bytes: number, now: Date): string {
  *  The next Monday run carries on from where this one stopped. */
 export const capLine = (): string =>
   '📦 Photo archive tidy-up reached its weekly limit. More old cleanings are waiting and go next Monday. Nothing is wrong; if this repeats for weeks, tell Lloyd.';
+
+// ---- Orphan sweep (s89): uploads that never reached a submitted cleaning --------------------------------------------------
+// upload-photo stores every photo at <property>/<user>/<submission>/<uuid>-<name> the moment it is picked; a cleaner who abandons the checklist leaves
+// them behind with no cleaning_sessions row. A folder is an orphan only when ALL hold: its newest object is older than ORPHAN_AGE_DAYS; no session has
+// that submission_id; the same user filed no session for that property between the folder's first upload and ORPHAN_GRACE_DAYS after its last (a page
+// reload starts a new submission id but keeps the photos, so those photos belong to the session filed hours later: 11 of 14 id-less folders on prod
+// 2026-10-16 were exactly that); and no payment-proof, expense-claim or guest-ID row points into the folder (folderReferenced). Dry unless `del`.
+export const ORPHAN_AGE_DAYS = 7;
+export const ORPHAN_GRACE_DAYS = 2;
+export const MAX_ORPHAN_OBJECTS_PER_RUN = 100;   // far below MAX_OBJECTS_PER_RUN: the first real runs stay small
+export interface UploadFolder { prefix: string; property: string; user: string; submission: string; objects: { name: string; size: number | null; createdAt: string }[] }
+export interface OrphanDeps {
+  now: Date;
+  /** Every <property>/<user>/<submission> folder with its objects (UUID-shaped layout only; date folders are not listed). */
+  listUploadFolders(): Promise<UploadFolder[]>;
+  /** True when a cleaning session claims the folder (submission id, or the same user's session in the grace window). */
+  folderHasSession(f: UploadFolder, firstAt: string, graceEndAt: string): Promise<boolean>;
+  /** True when payment-proof / expense-claim / guest-ID rows point into the folder. */
+  folderReferenced(prefix: string): Promise<boolean>;
+  removeObjects(paths: string[]): Promise<string[]>;
+}
+export interface OrphanResult { del: boolean; folders: number; orphans: { folder: string; objects: number; bytes: number }[]; kept: Record<string, number>; failed: { folder: string; error: string }[]; capHit: boolean }
+
+export async function runOrphanSweep(deps: OrphanDeps, opts: { del?: boolean } = {}): Promise<OrphanResult> {
+  const del = opts.del === true;
+  const out: OrphanResult = { del, folders: 0, orphans: [], kept: {}, failed: [], capHit: false };
+  const keep = (r: string) => { out.kept[r] = (out.kept[r] ?? 0) + 1; };
+  const cutoff = deps.now.getTime() - ORPHAN_AGE_DAYS * 86_400_000;
+  let planned = 0;
+  for (const f of await deps.listUploadFolders()) {
+    out.folders += 1;
+    const times = f.objects.map((o) => Date.parse(o.createdAt));
+    if (f.objects.length === 0 || times.some((t) => !Number.isFinite(t))) { keep('unreadable'); continue; }
+    const first = Math.min(...times), last = Math.max(...times);
+    if (last >= cutoff) { keep('too_young'); continue; }
+    const id = f.submission.slice(0, 8);
+    try {
+      if (await deps.folderHasSession(f, new Date(first).toISOString(), new Date(last + ORPHAN_GRACE_DAYS * 86_400_000).toISOString())) { keep('has_session'); continue; }
+      if (await deps.folderReferenced(f.prefix)) { keep('referenced'); continue; }
+    } catch (e) { out.failed.push({ folder: id, error: `check: ${String(e).slice(0, 120)}` }); continue; }
+    if (planned + f.objects.length > MAX_ORPHAN_OBJECTS_PER_RUN) { out.capHit = true; break; }
+    planned += f.objects.length;
+    const bytes = f.objects.reduce((n, o) => n + (Number.isFinite(o.size) ? Number(o.size) : 0), 0);
+    if (del) {
+      const paths = f.objects.map((o) => `${f.prefix}/${o.name}`);
+      try {
+        const gone = new Set(await deps.removeObjects(paths));
+        if (paths.some((x) => !gone.has(x))) { out.failed.push({ folder: id, error: `removed ${paths.filter((x) => gone.has(x)).length} of ${paths.length}` }); continue; }
+      } catch (e) { out.failed.push({ folder: id, error: `remove: ${String(e).slice(0, 120)}` }); continue; }
+    }
+    out.orphans.push({ folder: id, objects: f.objects.length, bytes });
+  }
+  return out;
+}
