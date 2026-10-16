@@ -15,9 +15,16 @@ Deno.test('mapCategory only returns a slug on the canonical list', () => {
 });
 
 Deno.test('decodeImage refuses wrong type, empty, oversized and bad base64; accepts a small jpeg', () => {
-  const ok = decodeImage(btoa('abc'), 'image/jpeg');
+  const b64 = (...b: number[]) => btoa(String.fromCharCode(...b));
+  const jpeg = b64(0xff, 0xd8, 0xff, 0xe0, 1, 2);
+  const ok = decodeImage(jpeg, 'image/jpeg');
   assertEquals(ok.ok && ok.ext, 'jpg');
-  assertEquals((decodeImage(btoa('abc'), 'application/pdf') as { status: number }).status, 415);
+  assertEquals(decodeImage(b64(0x89, 0x50, 0x4e, 0x47, 1), 'image/png').ok, true);
+  assertEquals(decodeImage(b64(0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50), 'image/webp').ok, true);
+  // magic bytes must match the declared type
+  assertEquals((decodeImage(b64(0x89, 0x50, 0x4e, 0x47, 1), 'image/jpeg') as { status: number }).status, 415);
+  assertEquals((decodeImage(btoa('abc'), 'image/jpeg') as { status: number }).status, 415);
+  assertEquals((decodeImage(jpeg, 'application/pdf') as { status: number }).status, 415);
   assertEquals((decodeImage('', 'image/png') as { status: number }).status, 400);
   assertEquals((decodeImage('%%%', 'image/png') as { status: number }).status, 400);
   assertEquals((decodeImage('A'.repeat(8_000_001), 'image/webp') as { status: number }).status, 413);

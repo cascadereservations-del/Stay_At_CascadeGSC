@@ -116,15 +116,16 @@ async function extractMode(body: any, who: StaffIdentity): Promise<Response> {
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
   const path = receiptPath(PROPERTY_ID, who.userId, img.ext, crypto.randomUUID());
   const up = await db.storage.from(RECEIPTS_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: false });
-  if (up.error) return json({ ok: false, error: 'upload_failed', detail: up.error.message }, 500);
+  if (up.error) { console.warn('ocr_extract_upload_failed', up.error.message); return json({ ok: false, error: 'upload_failed' }, 500); }
   const { data: cats } = await db.from('expense_categories').select('slug').eq('property_id', PROPERTY_ID).eq('is_active', true).order('sort_order');
   const slugs = (cats ?? []).map((c: { slug: string }) => c.slug);
   try {
     const r = await extractReceipt(bytesToBase64(img.bytes), img.mime, buildPrompt(EXTRACTION_PROMPT, slugs));
     const x = shapeExtraction(r.parsed, new Set(slugs));
-    return json({ ok: true, receipt_path: path, amount: x.amount, date: x.date, vendor: x.vendor, category: x.category, line_items: x.line_items, confidence: x.confidence });
+    return json({ ok: true, receipt_path: path, amount: x.amount, date: x.date, vendor: x.vendor, category: x.category, line_items: x.line_items, confidence: x.confidence, raw: r.parsed });
   } catch (e) {
-    return json({ ok: false, error: 'ocr_failed', detail: String(e).slice(0, 300), receipt_path: path }, 502);
+    console.warn('ocr_extract_failed', String(e).slice(0, 300));
+    return json({ ok: false, error: 'ocr_failed', receipt_path: path }, 502);
   }
 }
 
