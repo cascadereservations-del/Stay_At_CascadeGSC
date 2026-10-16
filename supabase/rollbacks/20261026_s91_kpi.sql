@@ -6,7 +6,7 @@
 -- NOT undone: the one-off data fixes (supabase/sql/2026-10-16-s91-kpi-data-fixes.sql): voided estimates and removed synthetic inquiries stay as they are.
 -- After it, open V19 findings resolve themselves at the next daily run (the check is no longer in the daily list); the kpi_reconciled health row stays in
 -- admin_health_check_runs until the next health run overwrites the others (it is no longer returned by the core, but remains stored: delete it by hand if wanted).
--- Roll the waves functions that name V19 / kpi_reconciled (system-verifier, daily-digest, telegram-*) back first or leave them: they ignore an unknown check.
+-- Roll the waves functions that name V19 / kpi_reconciled (system-verifier, daily-digest) back first or leave them: they ignore an unknown check.
 -- Apply with run-sql-on-host.sh.
 
 begin;

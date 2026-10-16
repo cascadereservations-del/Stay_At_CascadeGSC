@@ -20,6 +20,12 @@
 begin;
 select plan(27);
 
+-- Baseline grants (s91): a --no-acl rehearsal copy has none of production's grants, so the file sets the ones it asserts, inside the rollback.
+revoke all on function public.health_checks_core_v1(uuid, boolean) from public, anon, authenticated;
+revoke all on function public.run_health_checks_service_v1(uuid) from public, anon, authenticated;
+grant execute on function public.run_health_checks_service_v1(uuid) to service_role;
+grant execute on function public.run_health_checks_v1(uuid) to authenticated;
+
 -- Catalogue -------------------------------------------------------------------
 select has_function('public', 'health_checks_core_v1', array['uuid','boolean'], 'the core exists');
 select has_function('public', 'run_health_checks_service_v1', array['uuid'], 'the service wrapper exists');
@@ -75,7 +81,7 @@ select true, (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key')
 grant select on hc_expected to authenticated;
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000a","aal":"aal2"}';
+select set_config('request.jwt.claims', '{"sub":"e2000000-0000-4000-8000-00000000000a","aal":"aal2"}', true);
 
 select is(
   (select jsonb_array_length(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks')),
@@ -99,7 +105,7 @@ select false, (select jsonb_agg(e - 'ran_at' - 'ran_by' order by e->>'check_key'
                    public.health_checks_core_v1('e1000000-0000-4000-8000-000000000001', false)->'checks') e);
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000b","aal":"aal2"}';
+select set_config('request.jwt.claims', '{"sub":"e2000000-0000-4000-8000-00000000000b","aal":"aal2"}', true);
 
 select is(
   (select jsonb_array_length(public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')->'checks')),
@@ -115,11 +121,13 @@ select is(
   (select checks from hc_expected where not fin),
   'p_fin is really threaded: the core with false matches what the inspector saw');
 
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-00000000000c","aal":"aal2"}';
+select set_config('request.jwt.claims', '{"sub":"e2000000-0000-4000-8000-00000000000c","aal":"aal2"}', true);
 select throws_ok(
   $$select public.run_health_checks_v1('e1000000-0000-4000-8000-000000000001')$$,
   '42501', null, 'the gate still gates: no access to this property, no health checks');
 reset role;
+-- the daily verifier now reads admin_stays_v1 (V19), which gates on auth.uid(): leave no user claims behind, as a scheduled job has none
+select set_config('request.jwt.claims', '{}', true);
 
 -- V10 ---------------------------------------------------------------------------
 -- A chosen slate, written directly, so each status is deliberate rather than

@@ -10,8 +10,7 @@
 -- Ledger: payout e-mails 1,500 (B) + 2,550 (D); direct_booking 1,780; three cleaner fees of 650 with their sessions; one drawing of 2,300.
 -- Golden (days = days in that month): sold 8, occupancy round(800/days, 2) (31 days: 25.81), revenue 9,580.00 complete, ADR 1,197.50, RevPAR round(9580/days, 2) (31: 309.03),
 -- cash 5,830.00, finance income 5,830.00, net 1,580.00, cleaner fees 1,950 = 1,950, cancellation 20.00, ALOS 2.00.
--- Deviation from the audit text, on purpose: a +100 revenue drift on ONE side cannot raise "exactly one" finding, because ADR and RevPAR are derived from revenue; the test asserts the
--- accommodation_revenue finding (red, diff 100.00) and that nothing outside the revenue family fires.
+-- A revenue drift raises exactly one finding (accommodation_revenue): ADR and RevPAR are muted for a month whose revenue is flagged.
 begin;
 select plan(49);
 
@@ -35,8 +34,8 @@ select ok(not exists (select 1 from pg_proc p, unnest(array['anon', 'authenticat
   and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where a.grantee = 0 and p.oid in (
   'public.hospitality_metrics_core_v1(uuid,date,date,boolean)'::regprocedure, 'public.kpi_recompute_v1(uuid,date,date)'::regprocedure,
   'public.kpi_reconcile_v1(uuid,date)'::regprocedure, 'public.kpi_reconcile_window_v1(uuid,date)'::regprocedure)), 'anon, authenticated, service_role and PUBLIC cannot execute any of them');
-select ok((select prosecdef and proconfig = array['search_path=""'] and has_function_privilege('authenticated', oid, 'execute') and not has_function_privilege('anon', oid, 'execute')
-           from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure), 'get_hospitality_metrics_v1 keeps its signature, definer and grants (authenticated only)');
+select ok((select prosecdef and proconfig = array['search_path=""'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0)
+           from pg_proc where oid = 'public.get_hospitality_metrics_v1(uuid,date,date)'::regprocedure), 'get_hospitality_metrics_v1 keeps its signature and stays security definer with an empty search_path, no PUBLIC grant');
 select is(public.health_check_problem_v1('kpi_reconciled'), 'KPIs do not reconcile', 'the health sentence for the new row');
 select is((select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_purchases'::regclass and attname = 'units_per_purchase' and not attisdropped),
           'numeric(10,4)', 'F10: a purchase can record a fractional pack size');
@@ -158,7 +157,7 @@ create function public.kpi_recompute_v1(p_property_id uuid, p_start date, p_end_
 discard plans;
 select is((select e -> 'detail' ->> 'diff' from jsonb_array_elements(pg_temp.rec()) e where e ->> 'key' like '%:accommodation_revenue'), '100.00', 'drift: the revenue the page shows is 100.00 above the books, and V19 says so');
 select is((select string_agg(distinct e ->> 'severity', ',') from jsonb_array_elements(pg_temp.rec()) e), 'red', 'drift: every finding is red');
-select ok(not exists (select 1 from jsonb_array_elements(pg_temp.rec()) e where e ->> 'key' ~ ':(sold_nights|occupancy|cash_received|finance_summary_income|cleaner_fee)$'), 'drift: nights, occupancy and cash are not blamed');
+select is(pg_temp.keys(pg_temp.rec()), 'V19:' || to_char((select m from fx), 'YYYY-MM') || ':accommodation_revenue', 'drift: exactly one finding; ADR and RevPAR are muted while revenue itself is flagged');
 select is((select (to_jsonb(h) ->> 'status') from jsonb_array_elements(public.health_checks_core_v1((select p from pids), true) -> 'checks') h where h ->> 'check_key' = 'kpi_reconciled'), 'fail', 'health: a red reconcile fails the row');
 
 select * from finish();

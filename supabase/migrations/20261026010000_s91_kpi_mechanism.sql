@@ -8,11 +8,13 @@
 --       red when a headline KPI differs (sold nights, occupancy, revenue and its coverage, ADR, RevPAR, cash received), yellow for the finance summary income, the cleaner
 --       fee ledger against the sessions, and two hygiene counts (confirmed estimates whose stay was cancelled or paid, pay requests whose lines do not add up).
 --       direct_mirror_dups and split_payout_stays are in the recompute for the record but raise nothing: F1 and F2 already make both harmless.
+--       A revenue defect raises one red (accommodation_revenue); ADR and RevPAR are muted for that month. The cleaner fee ledger counts category 'cleaning' only
+--       (a staff expense that goes through the cleaner-fee flow in another category, with no session, is not a session fee).
 --       kpi_reconcile_window_v1 runs it for the current Manila month and the three before and keeps one finding per key (hygiene keys carry no month).
 --   3.4 run_system_verifier_v1 appends the window in the DAILY scope; apply_verifier_run_v1 lists V19 in the DAILY checks only (so a finding that is gone resolves);
 --       health_checks_core_v1 gains the row kpi_reconciled (finance only, like the other money checks) and health_check_problem_v1 its sentence.
 -- Every replaced body is a copy of the LIVE body (read 2026-10-16, CR stripped) with exactly those edits. Guards (55000, nothing changes) name the live md5.
--- Rollback: supabase/rollbacks/20261026_s91_kpi.sql. Callers to redeploy afterwards (waves lane): system-verifier (cards.ts), daily-digest and telegram-* (health-labels.ts).
+-- Rollback: supabase/rollbacks/20261026_s91_kpi.sql. Functions to deploy with it (waves lane, all verify_jwt false): airbnb-email-sync, finance-watch, daily-digest, system-verifier.
 
 begin;
 
@@ -214,7 +216,7 @@ returns jsonb language sql stable security definer set search_path = '' as $body
                        where t.property_id = p_property_id and t.txn_type = 'income' and t.status = 'confirmed'
                          and t.transaction_date >= p_start and t.transaction_date < p_end_exclusive and t.source not in ('airbnb', 'airbnb_email')),
     'cleaner_fee_ledger', (select coalesce(sum(t.gross_amount), 0) from public.transactions t
-                            where t.property_id = p_property_id and t.source = 'cleaner_fee' and t.status = 'confirmed'
+                            where t.property_id = p_property_id and t.source = 'cleaner_fee' and t.category = 'cleaning' and t.status = 'confirmed'
                               and t.transaction_date >= p_start and t.transaction_date < p_end_exclusive),
     'cleaner_fee_sessions', (select coalesce(sum(c.fee_amount), 0) from public.cleaning_sessions c join public.transactions t on t.id = c.fee_txn_id
                               where c.property_id = p_property_id and t.status = 'confirmed'
@@ -239,12 +241,14 @@ declare
   v_m date := date_trunc('month', p_month::timestamp)::date;
   v_next date := (date_trunc('month', p_month::timestamp) + interval '1 month')::date;
   v_label text := to_char(date_trunc('month', p_month::timestamp), 'YYYY-MM');
-  v_shown jsonb; v_mine jsonb; v_fin jsonb; v_cap numeric; v_out jsonb;
+  v_shown jsonb; v_mine jsonb; v_fin jsonb; v_cap numeric; v_out jsonb; v_rev_off boolean;
 begin
   v_shown := public.hospitality_metrics_core_v1(p_property_id, v_m, v_next, true) -> 'metrics';
   v_mine := public.kpi_recompute_v1(p_property_id, v_m, v_next);
   v_fin := public.get_finance_summary(v_m, p_property_id);
   v_cap := (v_shown -> 'capacity_nights' ->> 'value')::numeric;
+  -- one revenue defect would otherwise raise three reds (revenue, ADR, RevPAR derive from it): ADR and RevPAR stay quiet while revenue itself is flagged
+  v_rev_off := coalesce(abs((v_shown -> 'accommodation_revenue' ->> 'value')::numeric - (v_mine ->> 'revenue')::numeric) > 0.01, false);
 
   select coalesce(jsonb_agg(jsonb_build_object(
            'key', 'V19:' || v_label || ':' || c.metric, 'check_id', 'V19', 'severity', c.sev, 'title', 'KPI does not reconcile',
@@ -272,7 +276,8 @@ begin
     ('cleaner_fee',                   (v_mine ->> 'cleaner_fee_ledger')::numeric,
                                       (v_mine ->> 'cleaner_fee_sessions')::numeric, 0.01, 'yellow')
   ) c(metric, shown, mine, tol, sev)
-  where (c.shown is null) <> (c.mine is null) or abs(c.shown - c.mine) > c.tol;
+  where ((c.shown is null) <> (c.mine is null) or abs(c.shown - c.mine) > c.tol)
+    and not (c.metric in ('adr', 'revpar') and v_rev_off);
 
   -- hygiene: not tied to a month, so the key has none (kpi_reconcile_window_v1 keeps one of each)
   if (v_mine ->> 'confirmed_estimates_dead')::integer > 0 then
