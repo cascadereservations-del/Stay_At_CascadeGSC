@@ -1,7 +1,7 @@
 -- Compensating rollback for release s91_actions_20261025 (session 91).
 -- Puts notices_v1 (md5 5a499767e7e1b373e029c430d89cddfe) and staff_home_v1 (md5 7d848a295c76350bab83dab587ba44f6) back to their s82 bodies, drops the three new RPCs,
 -- the rotation reset trigger and function, and the column guest_companions.id_photo_rotation. DATA LOSS (by design): every saved ID photo rotation.
--- Notices closed with ops_notice_close_v1 stay closed (is_active is not restored). Roll the Staff app back first, or its Rotate and Close buttons show an error.
+-- It also restores the two owner/admin RLS policies (guests, airbnb_reservations) and the guests grants. Notices closed with ops_notice_close_v1 stay closed (is_active is not restored). Roll the Staff app back first, or its Rotate and Close buttons show an error.
 -- Apply with run-sql-on-host.sh.
 
 begin;
@@ -262,6 +262,15 @@ revoke all on function public.notices_v1(uuid) from public, anon;
 grant execute on function public.notices_v1(uuid) to authenticated, service_role;
 revoke all on function public.staff_home_v1(uuid) from public, anon;
 grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
+
+-- RLS and grants back to the exact live state read 2026-10-16 (JWT claim policies; guests grants arwdDxtm for anon and authenticated).
+alter policy guests_owner_admin_all on public.guests
+  using ((select ((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text)) = any (array['owner'::text, 'admin'::text]))
+  with check ((select ((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text)) = any (array['owner'::text, 'admin'::text]));
+alter policy airbnb_reservations_owner_admin_all on public.airbnb_reservations
+  using (((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = any (array['owner'::text, 'admin'::text]))
+  with check (((auth.jwt() -> 'app_metadata'::text) ->> 'role'::text) = any (array['owner'::text, 'admin'::text]));
+grant all on public.guests to anon, authenticated;
 
 drop function if exists public.staff_photo_rotation_v1(text[]);
 drop function if exists public.set_guest_photo_rotation_v1(text, smallint);

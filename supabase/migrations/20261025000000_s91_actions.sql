@@ -1,14 +1,15 @@
 -- 20261025000000_s91_actions.sql
 -- Session 91, lane SQL: release s91_actions_20261025. Five changes, two functions replaced (contract: Cascade/docs/s91/CONTRACT.md).
 -- (1) guest_companions.id_photo_rotation smallint null, check in (0, 90, 180, 270). A BEFORE UPDATE OF id_photo_path trigger sets it back to null when the
---     photo path changes, so a replaced photo never inherits the old turn. The column is NOT granted to anon/authenticated (they hold column-level SELECT only);
---     staff read and write it through the two RPCs below.
+--     photo path changes, so a replaced photo never inherits the old turn. anon has no access to guest_companions; authenticated has table-level SELECT
+--     under the manage_operations RLS policy, no column ACLs and no UPDATE, so the column follows id_photo_path's privileges. Staff write it only through the RPCs below.
 -- (2) staff_photo_rotation_v1(text[]): read_operations. Returns (path, rotation) only for paths the caller may view: manage_operations on the companion's
 --     property, or staff_can_view_guest_id_object_v1(path). Unknown or refused paths are absent. Null rotation = never turned. At most 50 paths (22023).
 -- (3) set_guest_photo_rotation_v1(text, smallint): manage_operations (owner/admin). Rotation outside 0/90/180/270 -> 22023 'rotation_invalid';
 --     unknown path -> {ok:false, error:'not_found'}. No audit row: the generic admin_audit_row_v1 would copy id_number into admin_audit_log, and a turn is cosmetic.
 -- (4) ops_notice_close_v1(uuid, uuid): manage_operations. Sets is_active = false on that notice (any source) for the caller's property. The existing
---     admin_audit_row trigger on ops_notices writes the audit row (reason set below). Absent (or other property) -> {ok:false, error:'not_found'}.
+--     admin_audit_row trigger on ops_notices writes the audit row, labelled soft_delete via admin_audit_context_v1 like admin_soft_delete_v1.
+--     Only hand-added notices close (source manual/staff, or no source on a non-brownout); feed notices -> {ok:false, error:'not_closable'}. Absent or other property -> 'not_found'.
 -- (5) notices_v1: house findings show status = 'open' only (was open + acknowledged), so Resolve (ack_verifier_finding_v1) removes the row, as staff_home_v1 does.
 -- (6) Low stock, ONE rule: i.is_active and i.reorder_below is not null and i.qty_on_hand <= i.reorder_below ("at or below the reorder level"). Chosen because
 --     every other reader already uses <=: the inventory screens (s84/s86 'attention'), admin_overview low_stock, the daily digest and telegram-expense/inventory-report.
@@ -104,8 +105,16 @@ begin
   if not public.current_staff_authorized('manage_operations', v_pid) then
     raise exception 'forbidden' using errcode = '42501';
   end if;
-  perform set_config('cascade.audit_reason', 'notice closed by staff', true);
-  update public.ops_notices n set is_active = false where n.id = p_id and n.property_id = v_pid and n.is_active;
+  -- only a hand-added notice closes (the client's rule, lib.js A_heads, and notices_v1's 'manual' label: source manual or staff, or no source on a non-brownout);
+  -- socoteco / gscwd / ngcp / system notices come from feeds and are not closable here.
+  if exists (select 1 from public.ops_notices n where n.id = p_id and n.property_id = v_pid and n.is_active
+                and not (n.source in ('manual', 'staff') or (n.source is null and n.notice_type <> 'brownout'))) then
+    return jsonb_build_object('ok', false, 'error', 'not_closable');
+  end if;
+  perform public.admin_audit_context_v1('notice closed by staff', 'soft_delete', null);
+  update public.ops_notices n set is_active = false
+   where n.id = p_id and n.property_id = v_pid and n.is_active
+     and (n.source in ('manual', 'staff') or (n.source is null and n.notice_type <> 'brownout'));
   get diagnostics v_n = row_count;
   if v_n = 0 then return jsonb_build_object('ok', false, 'error', 'not_found'); end if;
   return jsonb_build_object('ok', true, 'id', p_id);
@@ -365,7 +374,24 @@ begin
     'warnings', v_warn, 'weather', v_weather, 'generated_at', now());
 end $$;
 
--- 7. grants: state the end state ---------------------------------------------------------------------------------------------------------------
+-- 6b. RLS on guests and airbnb_reservations follows the live staff profile, not the JWT claim --------------------------------------------------
+-- Both owner/admin policies trusted auth.jwt()->app_metadata->role, so an admin disabled (or with revoked sessions) kept reading guest names, phones, e-mails
+-- and notes over REST until the access token expired. current_staff_active(roles) checks staff_access_profiles: not disabled, role in the list, token issued
+-- after sessions_revoked_after. Read live 2026-10-16: every owner/admin auth user has a matching active profile, so no active owner/admin loses access.
+-- Readers checked: admin-dashboard (bookings, finance, guests, search APIs), the Staff app (calendar guests lookup, Guests screen): all owner/admin screens.
+-- airbnb_reservations_finance_read (finance, read_finance) and the service_role policy are untouched; the four views on airbnb_reservations are security_invoker.
+alter policy guests_owner_admin_all on public.guests
+  using ((select public.current_staff_active(array['owner', 'admin'])))
+  with check ((select public.current_staff_active(array['owner', 'admin'])));
+alter policy airbnb_reservations_owner_admin_all on public.airbnb_reservations
+  using ((select public.current_staff_active(array['owner', 'admin'])))
+  with check ((select public.current_staff_active(array['owner', 'admin'])));
+
+-- 6c. guests: the apps never need TRUNCATE, REFERENCES or TRIGGER, and anon needs nothing (RLS has no anon policy; this is belt and braces)
+revoke truncate, references, trigger on public.guests from anon, authenticated;
+revoke all on public.guests from anon;
+
+-- 7. grants: state the end state---------------------------------------------------------------------------------------------------------------
 revoke all on function public.notices_v1(uuid) from public, anon;
 grant execute on function public.notices_v1(uuid) to authenticated, service_role;
 revoke all on function public.staff_home_v1(uuid) from public, anon;
