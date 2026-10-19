@@ -64,8 +64,8 @@ begin
 
   -- 4. settle with the BPI screenshot read
   v_res := public.staff_pay_settle_v1(v_id, null, 'Lloyd', 'match', jsonb_build_object(
-    'file_unique_id', 'bpi:1629218520037', 'sha256', null, 'amount', 3250, 'reference', '123160',
-    'read', jsonb_build_object('source', 'bpi_screenshot', 'confirmation', '1629218520037', 'note', '2026.10.19 Cascade Payment Honey')));
+    'file_unique_id', 'bpi:1629218520037', 'sha256', '01ba22102e2612ecce39d57e4574f85482f1539ff47f01658e9be288e04c2202', 'amount', 3250, 'reference', '123160',
+    'read', jsonb_build_object('source', 'bpi_screenshot', 'sha256_of', 'BPI InstaPay screenshot Lloyd sent in chat 2026-10-20 (128,160 bytes)', 'confirmation', '1629218520037', 'note', '2026.10.19 Cascade Payment Honey')));
   if not coalesce((v_res ->> 'ok')::boolean, false) then raise exception 'settle refused: %', v_res; end if;
 
   -- 5. the real payment time, not the time this block ran
