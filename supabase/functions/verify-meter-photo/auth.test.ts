@@ -35,3 +35,19 @@ Deno.test('verify-meter-photo: a caller-chosen submission_id or property_id is r
   const r = await handler(new Request('https://x.test/f', { method: 'POST', headers: { Authorization: 'Bearer eyJ.anon.public' }, body: JSON.stringify({ submission_id: 'x', property_id: 'y', notify: false }) }));
   equal(r.status, 401, 'refused before any lookup');
 });
+
+// s94: mode:'precheck' skips the cron secret but must carry a staff bearer; with none (or an unusable one) it is refused, never run.
+Deno.test('verify-meter-photo: precheck without a bearer is 401 and never reaches the model', async () => {
+  Deno.env.set('CASCADE_CRON_SHARED_SECRET', SECRET);
+  Deno.env.set('SUPABASE_ANON_KEY', 'anon-test');
+  const r = await handler(new Request('https://x.test/f', { method: 'POST', body: JSON.stringify({ mode: 'precheck', path: 'p', meter: 'electric' }) }));
+  equal(r.status, 401, 'no bearer');
+});
+Deno.test('verify-meter-photo: precheck rejects a bad meter before auth work', async () => {
+  const r = await handler(new Request('https://x.test/f', { method: 'POST', headers: { Authorization: 'Bearer x.y.z' }, body: JSON.stringify({ mode: 'precheck', path: 'p', meter: 'gas' }) }));
+  equal(r.status, 400, 'invalid meter');
+});
+Deno.test('verify-meter-photo: the cron secret does not unlock a precheck, and a non-precheck body still needs it', async () => {
+  const r = await handler(new Request('https://x.test/f', { method: 'POST', headers: { 'x-cascade-cron-secret': SECRET }, body: JSON.stringify({ mode: 'precheck', path: 'p', meter: 'water' }) }));
+  equal(r.status, 401, 'secret alone is not a staff session');
+});

@@ -34,6 +34,9 @@
 //     limit?: number,          // sweep mode, how many       (default 10)
 //     notify?: boolean }       // default true; false = write the verdict only
 //
+// s94: { mode:'precheck', path, meter:'electric'|'water', typed?: number } with a staff Bearer (submit_cleaning; path under
+// <property>/<own user id>/) answers { ok, status:'pass'|'retake'|'check_number'|'unavailable', reading, message } within 20 s.
+//
 // Auth (s74 G8): x-cascade-cron-secret, fail closed. The gateway still checks a JWT (verify_jwt true), but the anon key is public, so
 // without this any caller could pick a property_id or submission_id and write meter verdicts. The only caller is the
 // 'verify-meter-photo-daily' pg_cron job; a hand check sends the same header (Vault 'cascade_cron_shared_secret').
@@ -43,7 +46,12 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronAuthFailure } from '../_shared/cron-auth.ts';
 import { recordUsage } from '../_shared/cascade-core/usage.ts';
+import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
+import {
+  agreesAllowingForDecimalPoint, asVisionResult, ELECTRIC_TOLERANCE, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
+  precheckOutcome, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
+} from './logic.ts';
 
 // Deliberately NOT importing ../_shared/observability.ts. Every other ops
 // function wraps itself in it for redacted logging, and that is right for
@@ -70,15 +78,6 @@ const OPENROUTER_KEY = Deno.env.get('CASCADE_OPENROUTER_BOT_KEY') ?? '';
 // the same position — worth testing a receipt.
 const GEMINI_MODEL     = Deno.env.get('VISION_MODEL') ?? 'gemini-3.6-flash';
 const OPENROUTER_MODEL = Deno.env.get('VISION_MODEL') ?? 'google/gemini-3.6-flash';
-
-// How far a read may sit from the typed number before it counts as a mismatch.
-// The failure worth catching is a wrong digit in a five-digit index, not a
-// rounding difference — and a tolerance that is too tight would accuse an
-// honest cleaner every week.
-const ELECTRIC_TOLERANCE = 2;    // kWh
-const WATER_TOLERANCE    = 0.5;  // m³
-// Below this the model is guessing, and a guess must never accuse anyone.
-const MIN_CONFIDENCE     = 0.55;
 
 // Which verdicts Finance is shown. OPS sees every finding, as before. Finance
 // sees only the two that can cost money before a cleaning fee is paid: a photo
@@ -126,8 +125,6 @@ async function fetchRetry(url: string, init: RequestInit, tries = 3): Promise<Re
   return fetch(url, init);
 }
 
-type Which = 'electric' | 'water';
-
 const PROMPT = (which: Which) => `You are reading a utility meter in a photograph, for a boutique Airbnb in General Santos City, Philippines.
 
 This should be the ${which === 'electric'
@@ -151,15 +148,6 @@ Rules that matter more than producing a number:
 - If it is a screenshot, a photo of a screen, a photo of another photograph, or not a meter at all, set is_meter false and say so in note.
 - Never invent digits hidden by glare, dirt or a reflection.`;
 
-type VisionResult = {
-  is_meter: boolean;
-  meter_type: string;
-  reading: number | null;
-  confidence: number;
-  note: string;
-  via?: 'gemini' | 'openrouter';  // which provider actually read it (session 46 fallback)
-};
-
 const EMPTY: VisionResult = { is_meter: false, meter_type: 'unknown', reading: null, confidence: 0, note: 'no answer' };
 
 function parseModelJson(text: string): VisionResult {
@@ -178,7 +166,7 @@ function parseModelJson(text: string): VisionResult {
   }
 }
 
-async function readWithGemini(b64: string, mime: string, which: Which): Promise<VisionResult> {
+async function readWithGemini(b64: string, mime: string, which: Which, signal?: AbortSignal): Promise<VisionResult> {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
   const row = { provider: 'gemini' as const, model: GEMINI_MODEL, title: 'Cascade Meter', tier: 'vision' };
   const res = await fetchRetry(endpoint, {
@@ -187,7 +175,7 @@ async function readWithGemini(b64: string, mime: string, which: Which): Promise<
       contents: [{ parts: [{ text: PROMPT(which) }, { inline_data: { mime_type: mime, data: b64 } }] }],
       generationConfig: { temperature: 0, response_mime_type: 'application/json' },
     }),
-    signal: AbortSignal.timeout(55_000),
+    signal: signal ?? AbortSignal.timeout(55_000),
   }).catch((e) => { recordUsage({ ...row, ok: false, error: `gemini_${e?.name ?? 'fetch_error'}` }); throw e; });
   const raw = await res.json().catch((e) => { recordUsage({ ...row, ok: false, error: `gemini_${res.status}_unreadable` }); throw e; });
   // Keep the body. v1 threw `gemini_400` and discarded the reason, which made
@@ -197,7 +185,7 @@ async function readWithGemini(b64: string, mime: string, which: Which): Promise<
   return parseModelJson(raw?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') ?? '');
 }
 
-async function readWithOpenRouter(b64: string, mime: string, which: Which): Promise<VisionResult> {
+async function readWithOpenRouter(b64: string, mime: string, which: Which, signal?: AbortSignal): Promise<VisionResult> {
   const row = { provider: 'openrouter' as const, model: OPENROUTER_MODEL, title: 'Cascade Meter', tier: 'vision' };
   const res = await fetchRetry('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -214,7 +202,7 @@ async function readWithOpenRouter(b64: string, mime: string, which: Which): Prom
         ],
       }],
     }),
-    signal: AbortSignal.timeout(55_000),
+    signal: signal ?? AbortSignal.timeout(55_000),
   }).catch((e) => { recordUsage({ ...row, ok: false, error: `openrouter_${e?.name ?? 'fetch_error'}` }); throw e; });
   const raw = await res.json().catch((e) => { recordUsage({ ...row, ok: false, error: `openrouter_${res.status}_unreadable` }); throw e; });
   if (!res.ok) { recordUsage({ ...row, ok: false, error: `openrouter_${res.status}` }); throw new Error(`openrouter_${res.status}: ${JSON.stringify(raw).slice(0, 400)}`); }
@@ -224,9 +212,9 @@ async function readWithOpenRouter(b64: string, mime: string, which: Which): Prom
 
 // VISION_PROVIDER first (default openrouter, D-222), the other provider when it has no key or refuses - the order
 // vision.ts and providers.ts use.
-async function readMeter(b64: string, mime: string, which: Which): Promise<VisionResult> {
-  const or = async () => ({ ...(await readWithOpenRouter(b64, mime, which)), via: 'openrouter' as const });
-  const gm = async () => ({ ...(await readWithGemini(b64, mime, which)), via: 'gemini' as const });
+async function readMeter(b64: string, mime: string, which: Which, signal?: AbortSignal): Promise<VisionResult> {
+  const or = async () => ({ ...(await readWithOpenRouter(b64, mime, which, signal)), via: 'openrouter' as const });
+  const gm = async () => ({ ...(await readWithGemini(b64, mime, which, signal)), via: 'gemini' as const });
   const orFirst = PROVIDER === 'openrouter';
   const [first, second] = orFirst ? [or, gm] : [gm, or];
   const [firstKey, secondKey] = orFirst ? [OPENROUTER_KEY, GEMINI_KEY] : [GEMINI_KEY, OPENROUTER_KEY];
@@ -239,32 +227,6 @@ async function readMeter(b64: string, mime: string, which: Which): Promise<Visio
     console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) }));
     return await second();
   }
-}
-
-/* A water meter face is number wheels plus fraction dials, and a reader can
-   easily return the digits without the decimal point: the 2026-09-03 report
-   recorded 70.873 m3 and the first sweep read the same face as "708", which
-   was recorded as a mismatch. The digits agree; only the decimal placement
-   differs, and that is a reading convention rather than a discrepancy.
-
-   So before calling a mismatch, try shifting the read by powers of ten. This
-   forgives 708 against 70.873 and still catches 3814 against 3832, because
-   no power of ten makes different digits agree. Loosening the tolerance
-   instead would have hidden real differences. */
-function agreesAllowingForDecimalPoint(read: number, typed: number, tol: number): boolean {
-  // The prompt asks for the WHOLE cubic metres and to ignore the fraction
-  // dials, so a correct read of a 68.827 face is "68" — and comparing that to
-  // the typed 68.827 flagged a mismatch on the first full sweep. The fault was
-  // mine on both sides: the instruction and the comparison disagreed. The
-  // whole-number part of the typed reading is therefore an accepted answer.
-  const targets = [typed, Math.floor(typed)];
-  for (let k = -2; k <= 3; k++) {
-    const scaled = read / Math.pow(10, k);
-    for (const t of targets) {
-      if (Math.abs(scaled - t) <= tol) return true;
-    }
-  }
-  return false;
 }
 
 // One verdict for the pair. The order is deliberate: "not a meter" outranks
@@ -314,14 +276,67 @@ function verdictFor(
   };
 }
 
+// s94: the staff app's instant check stores each read here; the sweep reuses it instead of a second model call. The table comes from
+// a separate migration, so a missing table or any error is a cache miss, never a failure.
+// deno-lint-ignore no-explicit-any
+async function cachedRead(db: any, path: string, which: Which): Promise<VisionResult | null> {
+  try {
+    const { data, error } = await db.from('meter_photo_prechecks').select('result').eq('object_name', path).eq('meter', which).maybeSingle();
+    return error ? null : asVisionResult(data?.result);
+  } catch { return null; }
+}
+
+const PRECHECK_BUDGET_MS = 20_000;
+const PRECHECK_MODEL_MS = 18_000;
+
+// Instant check for the cleaner (s94). Auth: the staff user's own bearer must hold submit_cleaning, and the object must sit under
+// <property>/<their user id>/ (upload-photo's layout), so nobody can spend model calls on, or read a verdict for, another's photo.
+async function precheck(req: Request, body: any): Promise<Response> {
+  try {
+    const meter = body.meter as Which;
+    if (meter !== 'electric' && meter !== 'water') return json({ ok: false, error: 'invalid_meter' }, 400);
+    const typed = body.typed === undefined || body.typed === null ? null : Number(body.typed);
+    if (typed !== null && !Number.isFinite(typed)) return json({ ok: false, error: 'invalid_typed' }, 400);
+    const identity = await requireStaffAccess(req, 'submit_cleaning', PROPERTY_ID);
+    if (!ownsPath(body.path, PROPERTY_ID, identity.userId)) return json({ ok: false, error: 'path_not_yours' }, 403);
+    const path: string = body.path;
+
+    const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), PRECHECK_MODEL_MS);
+    const work = (async (): Promise<VisionResult | null> => {
+      const cached = await cachedRead(db, path, meter);
+      if (cached) return cached;
+      const { data: blob, error } = await db.storage.from(BUCKET).download(path);
+      if (error || !blob) return null;
+      const mime = /^image\//.test(blob.type || '') ? blob.type : 'image/jpeg';
+      const r = await readMeter(bytesToBase64(new Uint8Array(await blob.arrayBuffer())), mime, meter, ctl.signal);
+      await db.from('meter_photo_prechecks').upsert({ object_name: path, meter, result: r, checked_at: new Date().toISOString() }).then(() => {}, () => {});
+      return r;
+    })().catch((err) => { console.warn('precheck_unavailable', String(err).slice(0, 160)); return null; });
+    const hardStop = new Promise<null>((res) => setTimeout(() => res(null), PRECHECK_BUDGET_MS - 500));
+    const r = await Promise.race([work, hardStop]);
+    clearTimeout(timer);
+    const out = precheckOutcome(r, meter, typed);
+    return json({ ok: true, ...out });
+  } catch (err) {
+    const authResponse = staffAuthResponse(err, CORS);
+    if (authResponse) return authResponse;
+    console.warn('precheck_error', String(err).slice(0, 160));
+    return json({ ok: true, status: 'unavailable', reading: null, message: UNAVAILABLE_MESSAGE });
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
-  const denied = cronAuthFailure(req, Deno.env.get('CASCADE_CRON_SHARED_SECRET'));
-  if (denied) return denied;
-
   let body: any = {};
   try { body = await req.json(); } catch { /* sweep mode with an empty body is fine */ }
+
+  // s94: mode:'precheck' is the only mode that takes a staff bearer instead of the cron secret; every other body needs the secret.
+  if (isPrecheckBody(body)) return await precheck(req, body);
+  const denied = cronAuthFailure(req, Deno.env.get('CASCADE_CRON_SHARED_SECRET'));
+  if (denied) return denied;
 
   const propertyId = String(body.property_id ?? PROPERTY_ID);
   const notify = body.notify !== false;
@@ -400,6 +415,8 @@ Deno.serve(async (req: Request) => {
     const read = async (which: Which): Promise<VisionResult | null> => {
       const path = paths[which];
       if (!path) return null;
+      const cached = await cachedRead(db, path, which); // s94: a staff precheck already read this object
+      if (cached) return cached;
       const { data: blob, error } = await db.storage.from(BUCKET).download(path);
       if (error || !blob) return { ...EMPTY, note: 'photo could not be downloaded' };
       const b64 = bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
@@ -414,8 +431,7 @@ Deno.serve(async (req: Request) => {
     let w: VisionResult | null = null;
     let failed: string | null = null;
     try {
-      e = await read('electric');
-      w = await read('water');
+      [e, w] = await Promise.all([read('electric'), read('water')]);
     } catch (err) {
       failed = String(err).slice(0, 200);
     }
