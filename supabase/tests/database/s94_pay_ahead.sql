@@ -2,7 +2,7 @@
 -- the link trigger on cleaning_sessions, reports_owed / advance_candidates, the paid notice, v1 as a wrapper, settled sessions leaving the meter follow-ups,
 -- meter_photo_prechecks. Synthetic fixtures only (uuids c9400000-...); every lookup is scoped to them because a real backup holds real rows. Everything rolls back.
 begin;
-select plan(43);
+select plan(45);
 
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -96,6 +96,11 @@ select is((select count(*)::int from jsonb_array_elements((select v->'advance_ca
   'admin list offers the owed checkout nobody holds, with the guest and rate');
 select is((select count(*)::int from jsonb_array_elements((select v->'advance_candidates' from _t where k = 'list1')) a where a->>'checkout_date' in ((current_date - 3)::text, (current_date - 4)::text, (current_date - 6)::text)), 0,
   'and not the held ones or the reported one');
+
+select is((select count(*)::int from jsonb_array_elements((select v->'payees' from _t where k = 'list1')) a where a->>'user_id' in ('c9400000-0000-4000-8000-0000000000a1', 'c9400000-0000-4000-8000-0000000000a2') and a ? 'name' and a ? 'has_qr'), 2,
+  'admin list: payees offers the cleaners (user_id, name, has_qr)');
+select is((select l->>'checkout_date' from jsonb_array_elements((select l2->'lines' from jsonb_array_elements((select v->'requests' from _t where k = 'list1')) l2 where l2->>'ref' = (select v->>'ref' from _t where k = 'r1'))) l where l->>'guest' = 'Aaazzone'), (current_date - 3)::text,
+  'admin list: an advance line passes guest and checkout_date through');
 
 -- 5. the link trigger ------------------------------------------------------------------------------------------------------------------------------------
 insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_name, checkout_date, cleaning_type, submitted_by_user_id) values

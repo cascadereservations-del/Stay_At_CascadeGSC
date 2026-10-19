@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "release_id": "s94_pay_ahead_20261027",
+  "phase": "expand",
+  "source": {
+    "branch": "s94/sql",
+    "commit": "0196ee312f433e44637ca0427aa65c84da93e9e5"
+  },
+  "migrations": [
+    "20261027000000_s94_pay_ahead.sql"
+  ],
+  "migration_sha256": {
+    "20261027000000_s94_pay_ahead.sql": "a2754665e9de18bef494aea428ef92547ac840a3abe9f8452a2f488856d40bea"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING: filled by the release block (fill-restore-point.mjs)",
+    "verified_at": "2026-10-20T00:00:00.000Z",
+    "production_rule": "Pay ahead: staff_pay_requests.lines may now hold kind 'advance' lines {checkout_date, date, type turnover, base, transport, amount, guest} for a checkout that has no report yet (get_missed_cleanings, 30 days), made only through the new staff_pay_admin_create_v2(payee, sessions, claim_ids, advance, key) (reasons advance_not_owed, advance_taken; the 20-line cap counts them); staff_pay_admin_create_v1 is now a wrapper passing no advance lines. staff_pay_settle_v1 writes one expense row per advance line (external_ref cleanadv:<request>:<date>, idempotent on the ref), refuses a line of an unknown kind (bad_line) instead of paying it as a claim, and sets logged_by to the actor whenever no Telegram id is given. A new AFTER INSERT trigger on cleaning_sessions (cleaning_sessions_link_advance, definer, never fails the insert) joins a later report by the payee to the request that paid its checkout ahead and stamps it paid when the request is paid. staff_pay_candidates_v1 adds reports_owed, staff_pay_admin_list_v1 adds advance_candidates and the line guest, staff_pay_notice_v1 adds reports_owed (ISO dates). get_meter_photo_followups drops sessions with fee_paid_at set. New table meter_photo_prechecks (RLS on, service_role only). Cron verify-meter-photo-daily moves from 30 23 * * * to */10 * * * * (name and command unchanged) and job_heartbeats.expected_interval_seconds from 86400 to 600. Replaced bodies are the live ones of 2026-10-20 plus only these edits (guarded on their md5). The Honey 3,250 data step (supabase/sql/2026-10-20-s94-honey-3250.sql) runs AFTER this applies.",
+    "notes": "Additive: one new table, two new functions and one trigger, one wrapper and five replaced function bodies (guarded on the live md5), one cron schedule and one heartbeat interval. Old apps keep working: no key was removed from any payload and old clients never send advance lines. Deploy order: SQL, then the waves function verify-meter-photo (precheck mode and the cache), then the Staff app. Then run the Honey data step."
+  },
+  "forward_verification": [
+    {
+      "name": "s_advance_session_v1_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b409547087b83c382758d9922f708f8e' from pg_proc where oid = 'public.s_advance_session_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "s_advance_session_v1_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.s_advance_session_v1(uuid,date)', 'execute') and not has_function_privilege('authenticated', 'public.s_advance_session_v1(uuid,date)', 'execute') and not has_function_privilege('service_role', 'public.s_advance_session_v1(uuid,date)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.s_advance_session_v1(uuid,date)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.s_advance_session_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_admin_create_v2_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '6f86574dc9838bfe407f5266e6f0d860' from pg_proc where oid = 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_admin_create_v2_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_admin_create_v1_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'bb539235e19dbe1140f9d5642fac037c' from pg_proc where oid = 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_admin_create_v1_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_settle_v1_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '4725c9b95b892fcdfe64f3ff418ddf7e' from pg_proc where oid = 'public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_settle_v1_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)', 'execute') and not has_function_privilege('authenticated', 'public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "cleaning_sessions_link_advance_trg_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'ef3e2cb11270a7df42e6efac0e570cbc' from pg_proc where oid = 'public.cleaning_sessions_link_advance_trg()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "cleaning_sessions_link_advance_trg_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.cleaning_sessions_link_advance_trg()', 'execute') and not has_function_privilege('authenticated', 'public.cleaning_sessions_link_advance_trg()', 'execute') and not has_function_privilege('service_role', 'public.cleaning_sessions_link_advance_trg()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.cleaning_sessions_link_advance_trg()'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.cleaning_sessions_link_advance_trg()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_candidates_v1_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '2db19457e15a84197caef16c1d2f4123' from pg_proc where oid = 'public.staff_pay_candidates_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_candidates_v1_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_pay_candidates_v1()', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_candidates_v1()', 'execute') and has_function_privilege('service_role', 'public.staff_pay_candidates_v1()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_candidates_v1()'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_pay_candidates_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_admin_list_v1_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'ce16c2c93954caa253690e327ffbb474' from pg_proc where oid = 'public.staff_pay_admin_list_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_admin_list_v1_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_pay_admin_list_v1()', 'execute') and has_function_privilege('authenticated', 'public.staff_pay_admin_list_v1()', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_admin_list_v1()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_admin_list_v1()'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_pay_admin_list_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_notice_v1_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'daca24bfae25136519388dbbe1af374e' from pg_proc where oid = 'public.staff_pay_notice_v1(uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_notice_v1_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_pay_notice_v1(uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public.staff_pay_notice_v1(uuid,text)', 'execute') and has_function_privilege('service_role', 'public.staff_pay_notice_v1(uuid,text)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_notice_v1(uuid,text)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_pay_notice_v1(uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "get_meter_photo_followups_is_the_s94_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '05c12c435acd72f5f1f04e6f657f0b66' from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "get_meter_photo_followups_definer_with_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.get_meter_photo_followups(uuid,integer)', 'execute') and has_function_privilege('authenticated', 'public.get_meter_photo_followups(uuid,integer)', 'execute') and has_function_privilege('service_role', 'public.get_meter_photo_followups(uuid,integer)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "link_trigger_is_after_insert_row_enabled",
+      "query": "select exists (select 1 from pg_trigger t where t.tgrelid = 'public.cleaning_sessions'::regclass and t.tgname = 'cleaning_sessions_link_advance' and not t.tgisinternal and (t.tgtype & 1) = 1 and (t.tgtype & 4) = 4 and (t.tgtype & 2) = 0 and t.tgenabled = 'O')",
+      "expect": true
+    },
+    {
+      "name": "v1_is_a_wrapper_of_v2",
+      "query": "select position('staff_pay_admin_create_v2' in prosrc) > 0 and position('''[]''::jsonb' in prosrc) > 0 from pg_proc where oid = 'public.staff_pay_admin_create_v1(uuid,jsonb,uuid[],text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "settle_writes_cleanadv_and_refuses_unknown_kinds",
+      "query": "select position('cleanadv:' in prosrc) > 0 and position('bad_line' in prosrc) > 0 and position('v_web boolean := p_actor_tg is null' in prosrc) > 0 from pg_proc where oid = 'public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "followups_hide_settled_sessions",
+      "query": "select position('cs.fee_paid_at is null' in prosrc) > 0 from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "meter_photo_prechecks_is_service_role_only_with_rls",
+      "query": "select c.relrowsecurity and has_table_privilege('service_role', 'public.meter_photo_prechecks', 'select, insert, update, delete') and not has_table_privilege('anon', 'public.meter_photo_prechecks', 'select') and not has_table_privilege('authenticated', 'public.meter_photo_prechecks', 'select') and (select count(*) from pg_attribute a where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped and a.attname in ('object_name', 'meter', 'result', 'checked_at')) = 4 and exists (select 1 from pg_constraint k where k.conrelid = c.oid and k.contype = 'p') from pg_class c where c.oid = 'public.meter_photo_prechecks'::regclass",
+      "expect": true
+    },
+    {
+      "name": "meter_sweep_runs_every_ten_minutes",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select schedule::text s from cron.job where jobname = ''verify-meter-photo-daily'' and active', false, true, '')))[1]::text = '*/10 * * * *' end",
+      "expect": true
+    },
+    {
+      "name": "meter_sweep_command_unchanged",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/c/text()', query_to_xml('select (command like ''%x-cascade-cron-secret%'' and command like ''%/functions/v1/verify-meter-photo%'' and command like ''%\"notify\":false%'')::text c from cron.job where jobname = ''verify-meter-photo-daily''', false, true, '')))[1]::text = 'true' end",
+      "expect": true
+    },
+    {
+      "name": "meter_sweep_heartbeat_expects_ten_minutes",
+      "query": "select expected_interval_seconds = 600 from public.job_heartbeats where job_name = 'verify-meter-photo-daily'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always while no open pay request holds an advance line (the rollback script refuses otherwise: cancel it first). Cached meter prechecks are lost on rollback (the sweep simply reads the photos again). Paid advance requests, their cleanadv expense rows and linked sessions stay.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261027_s94_pay_ahead.sql with run-sql-on-host.sh. It restores staff_pay_admin_create_v1, staff_pay_settle_v1, staff_pay_candidates_v1, staff_pay_admin_list_v1, staff_pay_notice_v1 and get_meter_photo_followups byte for byte, drops create_v2, the link trigger and function, s_advance_session_v1 and meter_photo_prechecks, and puts the cron job back to 30 23 * * * (heartbeat 86400). Roll the Staff app back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff app only shows Pay ahead and Reports still owed once it ships and calls create_v2 and reads reports_owed / advance_candidates."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet. Run migration-rehearsal-on-host.sh on a fresh backup with supabase/tests/database/s94_pay_ahead.sql and set verified true with the log path."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run the migration and s94_pay_ahead.sql green on this commit (compatibility.verified is still false)",
+    "the Opus 5.5 / Fable 5.1 review of this SQL lane (money writes into the ledger: Fable) has not passed",
+    "any guarded function (staff_pay_admin_create_v1, staff_pay_settle_v1, staff_pay_candidates_v1, staff_pay_admin_list_v1, staff_pay_notice_v1, get_meter_photo_followups) no longer has the md5 the migration guard names"
+  ]
+}

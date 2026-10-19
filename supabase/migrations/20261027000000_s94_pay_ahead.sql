@@ -11,7 +11,7 @@
 -- (4) cleaning_sessions_link_advance (AFTER INSERT, definer, internal): a new non-mid_stay session with no request, filed by the payee of a live request that holds an advance
 --     line for that checkout, joins that request (and, when the request is paid, is stamped paid with the cleanadv row). It never shows again as an unpaid candidate.
 --     A cancel releases it with the others (telegram_staff_pay_step_v1 clears pay_request_id for every session on the request). The trigger never fails the insert.
--- (5) staff_pay_candidates_v1 adds reports_owed [{date, ref, status}]; (6) staff_pay_admin_list_v1 adds advance_candidates and the line's guest;
+-- (5) staff_pay_candidates_v1 adds reports_owed [{date, ref, status}]; (6) staff_pay_admin_list_v1 adds advance_candidates, payees [{user_id, name, has_qr}] and the line's guest / checkout_date;
 -- (7) staff_pay_notice_v1 adds reports_owed (ISO dates still owed) for the paid notice. staff_pay_my_requests_v1, telegram_staff_pay_step_v1, staff_pay_admin_step_v1,
 --     staff_pay_admin_settle_v1, staff_pay_notify_paid_trg and kpi_recompute_v1 were read and need no change (they use only line date and amount, or no lines).
 -- (8) get_meter_photo_followups: a session with fee_paid_at set drops out.
@@ -402,7 +402,7 @@ end $$;
 -- 6. admin list --------------------------------------------------------------------------------------------------------------------------------
 create or replace function public.staff_pay_admin_list_v1() returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
-declare c_prop constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'; v_rows jsonb; v_unreq jsonb; v_adv jsonb;
+declare c_prop constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'; v_rows jsonb; v_unreq jsonb; v_adv jsonb; v_payees jsonb;
 begin
   if auth.uid() is null or not public.current_staff_authorized('approve_payment', c_prop) then
     return jsonb_build_object('ok', false, 'reason', 'not_authorized');
@@ -413,7 +413,7 @@ begin
       'has_proof', q.proof_file_unique_id is not null, 'bank_reference', q.proof_reference,
       'has_qr', exists (select 1 from public.staff_details d where d.user_id = q.payee_user_id and d.payout_qrph is not null),
       'lines', (select coalesce(jsonb_agg(jsonb_build_object('kind', l ->> 'kind', 'date', l ->> 'date', 'type', l ->> 'type',
-                                                              'description', l ->> 'description', 'amount', l -> 'amount', 'guest', l ->> 'guest') order by l ->> 'date'), '[]'::jsonb)
+                                                              'description', l ->> 'description', 'amount', l -> 'amount', 'guest', l ->> 'guest', 'checkout_date', l ->> 'checkout_date') order by l ->> 'date'), '[]'::jsonb)
                   from jsonb_array_elements(q.lines) l)
     ) order by (q.status in ('requested', 'paying')) desc, q.created_at desc), '[]'::jsonb)
     into v_rows
@@ -459,7 +459,17 @@ begin
     cross join lateral public.s_pay_price_v1('turnover', m.d) r
    where not exists (select 1 from public.staff_pay_requests q, jsonb_array_elements(q.lines) l
                       where q.property_id = c_prop and q.status <> 'cancelled' and l ->> 'kind' = 'advance' and l ->> 'checkout_date' = m.d::text);
-  return jsonb_build_object('ok', true, 'requests', v_rows, 'unrequested', v_unreq, 'advance_candidates', v_adv);
+  -- S94: everyone who may be paid (current staff allowed to submit cleanings, not disabled), so pay-ahead can pick someone with no unpaid session
+  select coalesce(jsonb_agg(jsonb_build_object('user_id', p.user_id,
+      'name', coalesce((select nullif(btrim(c.cleaner_name), '') from public.cleaning_sessions c where c.property_id = c_prop and c.submitted_by_user_id = p.user_id order by c.cleaned_at desc limit 1),
+                       (select nullif(btrim(u.raw_app_meta_data ->> 'display_name'), '') from auth.users u where u.id = p.user_id),
+                       (select nullif(btrim(u.raw_user_meta_data ->> 'display_name'), '') from auth.users u where u.id = p.user_id), 'Staff'),
+      'has_qr', exists (select 1 from public.staff_details d where d.user_id = p.user_id and d.payout_qrph is not null)) order by p.user_id), '[]'::jsonb)
+    into v_payees
+    from public.staff_access_profiles p
+   where p.disabled_at is null and public.staff_access_allowed(p.role, 'submit_cleaning', p.disabled_at, null)
+     and exists (select 1 from public.staff_property_access a where a.user_id = p.user_id and a.property_id = c_prop);
+  return jsonb_build_object('ok', true, 'requests', v_rows, 'unrequested', v_unreq, 'advance_candidates', v_adv, 'payees', v_payees);
 end $$;
 
 -- 7. paid notice -------------------------------------------------------------------------------------------------------------------------------
