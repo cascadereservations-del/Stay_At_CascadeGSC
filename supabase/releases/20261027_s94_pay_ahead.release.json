@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s94/sql",
-    "commit": "0196ee312f433e44637ca0427aa65c84da93e9e5"
+    "commit": "a7a27535e74128b65e609e1d3389395b8054701c"
   },
   "migrations": [
     "20261027000000_s94_pay_ahead.sql"
   ],
   "migration_sha256": {
-    "20261027000000_s94_pay_ahead.sql": "a2754665e9de18bef494aea428ef92547ac840a3abe9f8452a2f488856d40bea"
+    "20261027000000_s94_pay_ahead.sql": "535bdc8bb3b27a51213fbaa772c8a559303f3518ba17ff7026f2ec4251184612"
   },
   "backup": {
     "required": true,
@@ -83,7 +83,7 @@
     },
     {
       "name": "staff_pay_admin_list_v1_is_the_s94_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'ce16c2c93954caa253690e327ffbb474' from pg_proc where oid = 'public.staff_pay_admin_list_v1()'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'e95f0323cd81df86f6ae324e84d42682' from pg_proc where oid = 'public.staff_pay_admin_list_v1()'::regprocedure",
       "expect": true
     },
     {
@@ -172,8 +172,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed yet. Run migration-rehearsal-on-host.sh on a fresh backup with supabase/tests/database/s94_pay_ahead.sql and set verified true with the log path."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-20 on backup cascade-supabase-20261016T080831Z (pre-s91 production copy), migration-rehearsal-on-host.sh, log Cascade/docs/s94/rehearsal-20261027_s94_pay_ahead.log: migration applied, forward verification 26/26 (cron checks pass vacuously: pg_cron is absent from the baseline, the release block must read them live), pgTAP s94_pay_ahead.sql 45/45, cleanup leftovers 0. The Honey data step was not rehearsed (it needs the live rows); it self-asserts and rolls back."
   },
   "approvals": {
     "production_required": true,
