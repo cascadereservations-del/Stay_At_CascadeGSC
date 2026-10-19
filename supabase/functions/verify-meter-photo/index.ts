@@ -49,7 +49,7 @@ import { recordUsage } from '../_shared/cascade-core/usage.ts';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
 import {
-  agreesAllowingForDecimalPoint, asVisionResult, ELECTRIC_TOLERANCE, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
+  agreesAllowingForDecimalPoint, asVisionResult, ELECTRIC_TOLERANCE, isPending, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
   precheckOutcome, PRECHECK_CAP, PRECHECK_WINDOW_MIN, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
 } from './logic.ts';
 
@@ -311,13 +311,15 @@ async function precheck(req: Request, body: any): Promise<Response> {
         .then((x: any) => x, () => ({ data: null }));
       if (row) {
         if (row.meter !== meter) return null;
+        // One model call per object: a pending row (timed out, garbled, or in flight) is not retried here; the sweep reads it.
+        if (isPending(row.result)) return null;
         const hit = asVisionResult(row.result);
         if (hit) return hit;
       }
       // Cost cap: this user's recent prechecks (placeholders count, so failed and timed-out calls do too).
       const since = new Date(Date.now() - PRECHECK_WINDOW_MIN * 60_000).toISOString();
       const { count } = await db.from('meter_photo_prechecks').select('object_name', { count: 'exact', head: true })
-        .like('object_name', `${PROPERTY_ID}/${identity.userId}/%`).gt('checked_at', since)
+        .ilike('object_name', `${PROPERTY_ID}/${identity.userId}/%`).gt('checked_at', since)
         .then((x: any) => x, () => ({ count: 0 }));
       if ((count ?? 0) >= PRECHECK_CAP) return null;
       const { data: blob, error } = await db.storage.from(BUCKET).download(path);
