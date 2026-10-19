@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s94/sql",
-    "commit": "a7a27535e74128b65e609e1d3389395b8054701c"
+    "commit": "f38dcd452a17be545eb760cefd72fd5bd0a67e17"
   },
   "migrations": [
     "20261027000000_s94_pay_ahead.sql"
   ],
   "migration_sha256": {
-    "20261027000000_s94_pay_ahead.sql": "535bdc8bb3b27a51213fbaa772c8a559303f3518ba17ff7026f2ec4251184612"
+    "20261027000000_s94_pay_ahead.sql": "b8b2562313a1ddd817af81fc43600baaba51d07f0b915218d9fa072795058b8d"
   },
   "backup": {
     "required": true,
@@ -23,7 +23,7 @@
   "forward_verification": [
     {
       "name": "s_advance_session_v1_is_the_s94_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'b409547087b83c382758d9922f708f8e' from pg_proc where oid = 'public.s_advance_session_v1(uuid,date)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '0eb6e102631baaab0a02936e4743642f' from pg_proc where oid = 'public.s_advance_session_v1(uuid,date)'::regprocedure",
       "expect": true
     },
     {
@@ -33,7 +33,7 @@
     },
     {
       "name": "staff_pay_admin_create_v2_is_the_s94_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '6f86574dc9838bfe407f5266e6f0d860' from pg_proc where oid = 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '54eddd292a0a6170d53582fc7b8f5c58' from pg_proc where oid = 'public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)'::regprocedure",
       "expect": true
     },
     {
@@ -63,7 +63,7 @@
     },
     {
       "name": "cleaning_sessions_link_advance_trg_is_the_s94_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'ef3e2cb11270a7df42e6efac0e570cbc' from pg_proc where oid = 'public.cleaning_sessions_link_advance_trg()'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd886f76965779c50bbaececb19d51072' from pg_proc where oid = 'public.cleaning_sessions_link_advance_trg()'::regprocedure",
       "expect": true
     },
     {
@@ -173,7 +173,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed 2026-10-20 on backup cascade-supabase-20261016T080831Z (pre-s91 production copy), migration-rehearsal-on-host.sh, log Cascade/docs/s94/rehearsal-20261027_s94_pay_ahead.log: migration applied, forward verification 26/26 (cron checks pass vacuously: pg_cron is absent from the baseline, the release block must read them live), pgTAP s94_pay_ahead.sql 45/45, cleanup leftovers 0. The Honey data step was not rehearsed (it needs the live rows); it self-asserts and rolls back."
+    "evidence": "Rehearsed 2026-10-20 (after the Fable fix round) on backup cascade-supabase-20261016T080831Z (pre-s91 production copy), migration-rehearsal-on-host.sh, log Cascade/docs/s94/rehearsal2-20261027_s94_pay_ahead.log: migration applied, forward verification 26/26 (cron checks pass vacuously: pg_cron is absent from the baseline, the release block must read them live), pgTAP s94_pay_ahead.sql 52/52, cleanup leftovers 0. The Honey data step was not rehearsed (it needs the live rows); it self-asserts and rolls back."
   },
   "approvals": {
     "production_required": true,

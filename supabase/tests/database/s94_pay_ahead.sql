@@ -2,7 +2,7 @@
 -- the link trigger on cleaning_sessions, reports_owed / advance_candidates, the paid notice, v1 as a wrapper, settled sessions leaving the meter follow-ups,
 -- meter_photo_prechecks. Synthetic fixtures only (uuids c9400000-...); every lookup is scoped to them because a real backup holds real rows. Everything rolls back.
 begin;
-select plan(51);
+select plan(52);
 
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -39,6 +39,9 @@ insert into public.calendar_events(property_id, uid, source, status, guest_name,
 insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_name, checkout_date, cleaning_type, submitted_by_user_id) values
   ('c9400000-0000-4000-8000-0000000000b4', 'zz-c94-d4', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zzhoney Reyes', current_date - 6, 'turnover', 'c9400000-0000-4000-8000-0000000000a1'),
   ('c9400000-0000-4000-8000-0000000000b9', 'zz-c94-old', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zzhoney Reyes', current_date - 9, 'turnover', 'c9400000-0000-4000-8000-0000000000a1');
+
+-- a real backup holds real sessions on the same dates: make them mid-stay (never a match for a checkout) so only the fixtures decide what is missed; rolled back with the suite
+update public.cleaning_sessions set cleaning_type = 'mid_stay' where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and submission_id not like 'zz-c94-%';
 
 -- 1. happy path: two advance dates, one with transport ---------------------------------------------------------------------------------------------
 select pg_temp.as_user('c9400000-0000-4000-8000-0000000000a3');
@@ -178,6 +181,7 @@ insert into _t select 'r4', public.staff_pay_admin_create_v2('c9400000-0000-4000
 insert into _t select 'noguest', public.staff_pay_admin_create_v2('c9400000-0000-4000-8000-0000000000a1', '[]'::jsonb, '{}'::uuid[],
   jsonb_build_array(jsonb_build_object('checkout_date', (current_date - 13)::text)), 'zz-c94-key-0012');
 reset role;
+select is((select coalesce(v->>'reason', 'ok') || ' ' || coalesce(v->>'date', '') from _t where k = 'r4'), 'ok ', 'D and D+1 advance request is made');
 select is((select v->>'reason' from _t where k = 'noguest'), 'advance_not_owed', 'a missed row with no guest is advance_not_owed');
 -- the report for D+1 (cd-11) is filed first, at midday Manila on its own day
 insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_name, checkout_date, cleaning_type, submitted_by_user_id, cleaned_at) values
