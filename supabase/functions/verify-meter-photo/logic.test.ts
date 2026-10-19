@@ -29,15 +29,32 @@ Deno.test('unavailable: provider failed or timed out (null)', () => {
   eq(precheckOutcome(null, 'water', 5).status, 'unavailable', 'status');
   eq(precheckOutcome(null, 'water', 5).message.includes('!'), false, 'no exclamation');
 });
-Deno.test('ownsPath: only <property>/<own user>/<submission>/<file>', () => {
-  const ok = `${P}/${U}/11111111-1111-1111-1111-111111111111/a-b.jpg`;
+Deno.test('ownsPath: only the exact upload-photo layout', () => {
+  const sub = '11111111-1111-1111-1111-111111111111';
+  const ok = `${P}/${U}/${sub}/${sub}-meter-1.jpg`;
   eq(ownsPath(ok, P, U), true, 'own');
+  eq(ownsPath(ok.toUpperCase().replace('JPG', 'jpg'), P, U), true, 'case-insensitive');
   eq(ownsPath(ok.replace(U, 'fea44ac5-61b0-41a6-8616-d7823e99151b'), P, U), false, 'other user');
-  eq(ownsPath(ok.replace(P, 'other'), P, U), false, 'other property');
-  eq(ownsPath(`${P}/${U}/../x/y.jpg`, P, U), false, 'traversal');
+  eq(ownsPath(ok.replace(P, '00000000-0000-0000-0000-000000000000'), P, U), false, 'other property');
+  eq(ownsPath(`${P}/${U}/../x/${sub}-a.jpg`, P, U), false, 'traversal');
+  for (const dots of ['%2e%2e', '.%2e', '%2E.', '%2F']) eq(ownsPath(`${P}/${U}/${dots}/${sub}-a.jpg`, P, U), false, dots);
+  eq(ownsPath(`${P}/${U}/${sub}/x.jpg`, P, U), false, 'file not <uuid>-name');
+  eq(ownsPath(`${P}/${U}/${sub}/${sub}-a.gif`, P, U), false, 'extension');
+  eq(ownsPath(`${P}/${U}/${sub}/${sub}-a.jpg/extra`, P, U), false, 'extra segment');
   eq(ownsPath(`${P}/${U}/x.jpg`, P, U), false, 'too short');
   eq(ownsPath(`/${ok}`, P, U), false, 'leading slash');
   eq(ownsPath(undefined, P, U), false, 'not a string');
+});
+Deno.test('retake carries a reason; garbled model reply is unavailable', () => {
+  eq(precheckOutcome(read({ is_meter: false }), 'electric', null).reason, 'not_a_meter', 'not a meter');
+  eq(precheckOutcome(read({ reading: null }), 'electric', null).reason, 'unreadable', 'unreadable');
+  eq(precheckOutcome(read({ is_meter: false, garbled: true }), 'electric', null).status, 'unavailable', 'garbled');
+});
+Deno.test('placeholder and malformed rows are cache misses', () => {
+  eq(asVisionResult({ pending: true }), null, 'pending');
+  eq(asVisionResult({ ...read(), garbled: true }), null, 'garbled');
+  eq(asVisionResult({ ...read(), reading: '5' }), null, 'reading type');
+  eq(asVisionResult({ ...read(), confidence: undefined }), null, 'confidence type');
 });
 Deno.test('auth branch: only mode precheck leaves the cron gate', () => {
   eq(isPrecheckBody({ mode: 'precheck' }), true, 'precheck');

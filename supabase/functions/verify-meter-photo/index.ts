@@ -50,7 +50,7 @@ import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts'
 import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
 import {
   agreesAllowingForDecimalPoint, asVisionResult, ELECTRIC_TOLERANCE, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
-  precheckOutcome, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
+  precheckOutcome, PRECHECK_CAP, PRECHECK_WINDOW_MIN, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
 } from './logic.ts';
 
 // Deliberately NOT importing ../_shared/observability.ts. Every other ops
@@ -162,7 +162,7 @@ function parseModelJson(text: string): VisionResult {
       note: String(o.note ?? '').slice(0, 300),
     };
   } catch {
-    return { ...EMPTY, note: 'model did not return usable JSON' };
+    return { ...EMPTY, note: 'model did not return usable JSON', garbled: true };
   }
 }
 
@@ -292,6 +292,7 @@ const PRECHECK_MODEL_MS = 18_000;
 // Instant check for the cleaner (s94). Auth: the staff user's own bearer must hold submit_cleaning, and the object must sit under
 // <property>/<their user id>/ (upload-photo's layout), so nobody can spend model calls on, or read a verdict for, another's photo.
 async function precheck(req: Request, body: any): Promise<Response> {
+  const hardStop = new Promise<null>((res) => setTimeout(() => res(null), PRECHECK_BUDGET_MS - 500));
   try {
     const meter = body.meter as Which;
     if (meter !== 'electric' && meter !== 'water') return json({ ok: false, error: 'invalid_meter' }, 400);
@@ -305,25 +306,38 @@ async function precheck(req: Request, body: any): Promise<Response> {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), PRECHECK_MODEL_MS);
     const work = (async (): Promise<VisionResult | null> => {
-      const cached = await cachedRead(db, path, meter);
-      if (cached) return cached;
+      // One row per object: a row for the other meter is not this photo's read, and costs nothing to refuse.
+      const { data: row } = await db.from('meter_photo_prechecks').select('meter, result').eq('object_name', path).maybeSingle()
+        .then((x: any) => x, () => ({ data: null }));
+      if (row) {
+        if (row.meter !== meter) return null;
+        const hit = asVisionResult(row.result);
+        if (hit) return hit;
+      }
+      // Cost cap: this user's recent prechecks (placeholders count, so failed and timed-out calls do too).
+      const since = new Date(Date.now() - PRECHECK_WINDOW_MIN * 60_000).toISOString();
+      const { count } = await db.from('meter_photo_prechecks').select('object_name', { count: 'exact', head: true })
+        .like('object_name', `${PROPERTY_ID}/${identity.userId}/%`).gt('checked_at', since)
+        .then((x: any) => x, () => ({ count: 0 }));
+      if ((count ?? 0) >= PRECHECK_CAP) return null;
       const { data: blob, error } = await db.storage.from(BUCKET).download(path);
       if (error || !blob) return null;
+      await db.from('meter_photo_prechecks').upsert({ object_name: path, meter, result: { pending: true }, checked_at: new Date().toISOString() }).then(() => {}, () => {});
       const mime = /^image\//.test(blob.type || '') ? blob.type : 'image/jpeg';
       const r = await readMeter(bytesToBase64(new Uint8Array(await blob.arrayBuffer())), mime, meter, ctl.signal);
+      if (r.garbled) return null; // placeholder stays: it still counts toward the cap and is a miss for the sweep
       await db.from('meter_photo_prechecks').upsert({ object_name: path, meter, result: r, checked_at: new Date().toISOString() }).then(() => {}, () => {});
       return r;
     })().catch((err) => { console.warn('precheck_unavailable', String(err).slice(0, 160)); return null; });
-    const hardStop = new Promise<null>((res) => setTimeout(() => res(null), PRECHECK_BUDGET_MS - 500));
     const r = await Promise.race([work, hardStop]);
     clearTimeout(timer);
     const out = precheckOutcome(r, meter, typed);
-    return json({ ok: true, ...out });
+    return json({ ok: true, meter, ...out });
   } catch (err) {
     const authResponse = staffAuthResponse(err, CORS);
     if (authResponse) return authResponse;
     console.warn('precheck_error', String(err).slice(0, 160));
-    return json({ ok: true, status: 'unavailable', reading: null, message: UNAVAILABLE_MESSAGE });
+    return json({ ok: true, meter: body.meter, status: 'unavailable', reading: null, message: UNAVAILABLE_MESSAGE });
   }
 }
 

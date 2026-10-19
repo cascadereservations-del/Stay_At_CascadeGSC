@@ -9,6 +9,7 @@ export type VisionResult = {
   confidence: number;
   note: string;
   via?: 'gemini' | 'openrouter';  // which provider actually read it (session 46 fallback)
+  garbled?: boolean;              // the model reply was not usable JSON: unavailable in precheck, never cached
 };
 
 // How far a read may sit from the typed number before it counts as a mismatch.
@@ -45,16 +46,17 @@ export function agreesAllowingForDecimalPoint(read: number, typed: number, tol: 
   return false;
 }
 
-/** The caller may check only a photo it uploaded: upload-photo writes <property>/<user id>/<submission>/<file>. */
+/** The caller may check only a photo it uploaded. Strict match of upload-photo's layout
+ *  <property>/<user id>/<submission uuid>/<uuid>-<safe file name>.(jpg|jpeg|png|webp); no dots-only segments, no percent signs. */
 export function ownsPath(path: unknown, propertyId: string, userId: string): path is string {
-  if (typeof path !== 'string' || path.length > 400 || path.includes('..') || path.includes(String.fromCharCode(92))) return false;
-  const parts = path.split('/');
-  return parts.length >= 4 && parts.every((p) => p !== '') &&
-    parts[0].toLowerCase() === propertyId.toLowerCase() && parts[1].toLowerCase() === userId.toLowerCase();
+  if (typeof path !== 'string' || path.length > 400 || path.includes('%') || path.includes('..')) return false;
+  const esc = (v: string) => v.toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const re = new RegExp(`^${esc(propertyId)}/${esc(userId)}/[0-9a-f-]{36}/[0-9a-f-]{36}-[a-z0-9._-]+[.](jpe?g|png|webp)$`);
+  return re.test(path.toLowerCase());
 }
 
 export type PrecheckStatus = 'pass' | 'retake' | 'check_number' | 'unavailable';
-export type PrecheckOutcome = { status: PrecheckStatus; reading: number | null; message: string };
+export type PrecheckOutcome = { status: PrecheckStatus; reading: number | null; message: string; reason?: 'not_a_meter' | 'unreadable' };
 
 const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 3 });
 
@@ -62,12 +64,12 @@ export const UNAVAILABLE_MESSAGE = 'The photo check is not available just now. Y
 
 /** One meter photo -> what the cleaner is told. Never blocks and never accuses (Cassy voice: calm, no exclamation marks). */
 export function precheckOutcome(r: VisionResult | null, which: Which, typed: number | null | undefined): PrecheckOutcome {
-  if (!r) return { status: 'unavailable', reading: null, message: UNAVAILABLE_MESSAGE };
+  if (!r || r.garbled) return { status: 'unavailable', reading: null, message: UNAVAILABLE_MESSAGE };
   if (!r.is_meter) {
-    return { status: 'retake', reading: null, message: 'This does not look like the meter. Please take the photo again, close and straight on.' };
+    return { status: 'retake', reason: 'not_a_meter', reading: null, message: 'This does not look like the meter. Please take the photo again, close and straight on.' };
   }
   if (r.reading === null || r.confidence < MIN_CONFIDENCE) {
-    return { status: 'retake', reading: null, message: 'The numbers are hard to read in this photo. Please take it again, close and straight on, with less glare.' };
+    return { status: 'retake', reason: 'unreadable', reading: null, message: 'The numbers are hard to read in this photo. Please take it again, close and straight on, with less glare.' };
   }
   const tol = which === 'electric' ? ELECTRIC_TOLERANCE : WATER_TOLERANCE;
   if (typed !== null && typed !== undefined && Number.isFinite(typed) && !agreesAllowingForDecimalPoint(r.reading, typed, tol)) {
@@ -76,12 +78,20 @@ export function precheckOutcome(r: VisionResult | null, which: Which, typed: num
   return { status: 'pass', reading: r.reading, message: `Photo looks clear - reading ${fmt(r.reading)}.` };
 }
 
-/** Does a cached jsonb value look like a VisionResult? A malformed row is ignored, not trusted. */
+/** A stored precheck row is a placeholder (counted for the per-user cap, no result yet). */
+export const isPending = (v: unknown) => !!v && typeof v === 'object' && (v as Record<string, unknown>).pending === true;
+
+/** Does a cached jsonb value look like a real VisionResult? A placeholder or malformed row is a cache miss, not trusted. */
 export function asVisionResult(v: unknown): VisionResult | null {
   const o = v as Record<string, unknown> | null;
-  if (!o || typeof o !== 'object' || typeof o.is_meter !== 'boolean') return null;
+  if (!o || typeof o !== 'object' || isPending(o) || o.garbled === true || typeof o.is_meter !== 'boolean') return null;
+  if (o.reading !== null && typeof o.reading !== 'number') return null;
+  if (typeof o.confidence !== 'number') return null;
   return o as unknown as VisionResult;
 }
+
+export const PRECHECK_CAP = 12;          // per user, per window
+export const PRECHECK_WINDOW_MIN = 10;
 
 /** Auth branch: only this body shape skips the cron secret (and then needs a staff bearer). */
 export function isPrecheckBody(body: unknown): boolean {
