@@ -176,3 +176,18 @@ Deno.test('amount QR: a non-GCash QR Ph base round-trips through qrphWithAmount 
   assertEquals(out.slice(-4), crc16(out.slice(0, -4)), 'the CRC is valid');
   assert(out.indexOf('5802PH') > out.indexOf('5407'), 'tag 54 sits before the country tag');
 });
+
+// s94: a turnover paid before its report exists is a line of kind 'advance'; it must show, count in the total and mark the ledger sentence.
+Deno.test('payBlock: advance lines render under Cleaning services as paid ahead, report owed, and the total includes them', () => {
+  const adv: PayLine = { kind: 'advance', checkout_date: '2026-10-14', date: '2026-10-14', type: 'turnover', base: 500, transport: 150, amount: 650, guest: 'Shasha' };
+  const r = req([clean('2026-10-11', 'Angeleen', 500, 150), adv, claim('Sugar', 20)]);
+  assertEquals(payBlock(r), [
+    'Cleaning services',
+    'Oct 11 Sun (Angeleen) = 650 (500 + 150 transport)',
+    'Oct 14 Wed (Shasha) = 650 (500 + 150 transport) · paid ahead, report owed',
+    'Other expenses',
+    'Sugar = 20',
+    `Total: ${CUR}1,320`,
+  ].join('\n'));
+  assert(financeCaption(req([adv], { status: 'paid', paid_at: '2026-10-19T10:11:45Z' }), true).includes('The cleans are marked paid in the ledger.'));
+});

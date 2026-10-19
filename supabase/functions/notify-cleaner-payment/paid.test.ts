@@ -152,3 +152,13 @@ Deno.test('M3: nothing delivered (OPS post failed, every push failed or none) gi
   const d = await runPaid('r', noChat.deps);
   assertEquals([d.ok, d.released, d.telegram], [false, true, 'skipped']);
 });
+
+Deno.test('s94: a paid-ahead notice names the reports still owed; none owed adds nothing; no exclamation marks', () => {
+  const base = { first_name: 'Honey', total: 3250 };
+  const t = noticeText({ ...base, reports_owed: ['2026-10-14', '2026-10-17', '2026-10-19'] });
+  assertStringIncludes(t, 'Paid ahead - please still send the cleaning report for 14 Oct, 17 Oct and 19 Oct.');
+  assert(!t.includes('!'));
+  assertStringIncludes(noticeText({ ...base, reports_owed: ['2026-10-14'] }), 'cleaning report for 14 Oct.');
+  assertEquals(noticeText({ ...base, reports_owed: [] }), noticeText(base));
+  assert(!t.toLowerCase().includes('booking'));
+});

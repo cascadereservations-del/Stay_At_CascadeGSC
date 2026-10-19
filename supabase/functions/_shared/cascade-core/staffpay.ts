@@ -8,6 +8,7 @@
 /** One line of the immutable snapshot staff_pay_request_create_v1 stores in staff_pay_requests.lines. */
 export type PayLine =
   | { kind: 'clean'; session_id: string; date: string; type?: string; base: number | string; transport: number | string; amount: number | string; guest?: string }
+  | { kind: 'advance'; checkout_date: string; date?: string; type?: string; base: number | string; transport: number | string; amount: number | string; guest?: string | null }
   | { kind: 'claim'; claim_id: string; date: string; description: string; amount: number | string; receipt?: boolean };
 
 /** The columns of staff_pay_requests the cards read. */
@@ -81,6 +82,7 @@ export function typeLabel(t: string | null | undefined): string {
 const one = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
 const isClean = (l: PayLine): l is Extract<PayLine, { kind: 'clean' }> => l.kind === 'clean';
+const isAdvance = (l: PayLine): l is Extract<PayLine, { kind: 'advance' }> => l.kind === 'advance';
 const isClaim = (l: PayLine): l is Extract<PayLine, { kind: 'claim' }> => l.kind === 'claim';
 const ref = (r: PayReq) => `Ref CASCADE-${r.ref}`;
 export const payReference = (r: PayReq) => `CASCADE-${r.ref}`;
@@ -90,6 +92,12 @@ function cleanLine(l: Extract<PayLine, { kind: 'clean' }>): string {
   const tr = n2(l.transport);
   const kind = l.type && l.type !== 'turnover' ? ` · ${typeLabel(l.type)}` : '';
   return `${dayLabel(l.date)}${guest ? ` (${guest})` : ''} = ${num(l.amount)}${tr > 0 ? ` (${num(l.base)} + ${num(tr)} transport)` : ''}${kind}`;
+}
+/** s94: a turnover paid before its report exists. Worded like a clean line, plus what is still owed. */
+function advanceLine(l: Extract<PayLine, { kind: 'advance' }>): string {
+  const guest = one(l.guest);
+  const tr = n2(l.transport);
+  return `${dayLabel(l.checkout_date || l.date || '')}${guest ? ` (${guest})` : ''} = ${num(l.amount)}${tr > 0 ? ` (${num(l.base)} + ${num(tr)} transport)` : ''} · paid ahead, report owed`;
 }
 function expenseLine(l: Extract<PayLine, { kind: 'claim' }>, o: { receipts?: boolean; clip?: number }): string {
   const d = one(l.description);
@@ -104,7 +112,7 @@ function expenseLine(l: Extract<PayLine, { kind: 'claim' }>, o: { receipts?: boo
  * and "+N more" says so. The total line always stays.
  */
 export function payBlock(r: PayReq, o: { receipts?: boolean; clip?: number; budget?: number } = {}): string {
-  const cleans = r.lines.filter(isClean).map(cleanLine);
+  const cleans = r.lines.filter((l) => isClean(l) || isAdvance(l)).map((l) => (isAdvance(l) ? advanceLine(l) : cleanLine(l as Extract<PayLine, { kind: 'clean' }>)));
   const exps = r.lines.filter(isClaim).map((l) => expenseLine(l, o));
   const total = `Total: ${peso(r.total_amount)}`;
   const all = [...cleans.map((l) => ({ c: true, l })), ...exps.map((l) => ({ c: false, l }))];
@@ -119,7 +127,7 @@ export function payBlock(r: PayReq, o: { receipts?: boolean; clip?: number; budg
 }
 
 const money = (r: PayReq) => peso(r.total_amount);
-const clean = (r: PayReq) => r.lines.some(isClean);
+const clean = (r: PayReq) => r.lines.some((l) => isClean(l) || isAdvance(l));
 const claims = (r: PayReq) => r.lines.filter(isClaim).length;
 function ledgerSentence(r: PayReq): string {
   const k = claims(r), c = clean(r);

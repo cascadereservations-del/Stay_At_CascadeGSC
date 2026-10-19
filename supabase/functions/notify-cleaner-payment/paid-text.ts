@@ -10,6 +10,8 @@ export type PaidNotice = {
   bank_reference?: string | null;
   bank_label?: string | null;
   ref?: string | null;
+  /** ISO checkout dates paid ahead whose cleaning report is still owed (staff_pay_notice_v1.reports_owed). */
+  reports_owed?: string[] | null;
 };
 
 /** "2026-10-10" -> "Oct 10". Anything else comes back unchanged. */
@@ -22,6 +24,18 @@ export function workRange(from?: string | null, to?: string | null): string {
   const a = dayShort(from), b = dayShort(to ?? from);
   if (!a) return '';
   return a === b || !b ? a : `${a} to ${b}`;
+}
+/** "2026-10-14" -> "14 Oct". */
+function dayMonth(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? ''));
+  return m ? `${Number(m[3])} ${MON[Number(m[2]) - 1] ?? m[2]}` : String(iso ?? '');
+}
+/** "Paid ahead - please still send the cleaning report for 14 Oct, 17 Oct and 19 Oct." Empty when nothing is owed. */
+export function reportsOwedText(owed?: string[] | null): string {
+  const d = (owed ?? []).filter(Boolean).map(dayMonth);
+  if (!d.length) return '';
+  const list = d.length === 1 ? d[0] : `${d.slice(0, -1).join(', ')} and ${d[d.length - 1]}`;
+  return `Paid ahead - please still send the cleaning report for ${list}.`;
 }
 /** 1235 -> "PHP 1,235"; 1235.5 -> "PHP 1,235.50". */
 export function php(n: number | string): string {
@@ -47,5 +61,5 @@ export function pushBody(n: PaidNotice): string {
 /** The notice in the app and on Telegram. */
 export function noticeText(n: PaidNotice): string {
   const r = workRange(n.date_from, n.date_to), ref = referenceText(n);
-  return `Hi ${n.first_name}, we have sent ${php(n.total)} to ${account(n)}${r ? ` for your work on ${r}` : ''}.${ref ? ` Reference: ${ref}.` : ''} Please let us know if anything looks different on your side. Thank you for your care with the house. Marifel & The Cascade Team`;
+  return `Hi ${n.first_name}, we have sent ${php(n.total)} to ${account(n)}${r ? ` for your work on ${r}` : ''}.${ref ? ` Reference: ${ref}.` : ''}${reportsOwedText(n.reports_owed) ? ` ${reportsOwedText(n.reports_owed)}` : ''} Please let us know if anything looks different on your side. Thank you for your care with the house. Marifel & The Cascade Team`;
 }
