@@ -2,7 +2,7 @@
 -- the link trigger on cleaning_sessions, reports_owed / advance_candidates, the paid notice, v1 as a wrapper, settled sessions leaving the meter follow-ups,
 -- meter_photo_prechecks. Synthetic fixtures only (uuids c9400000-...); every lookup is scoped to them because a real backup holds real rows. Everything rolls back.
 begin;
-select plan(45);
+select plan(51);
 
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -166,6 +166,40 @@ select pg_temp.as_user('c9400000-0000-4000-8000-0000000000a3');
 insert into _t select 'cancel3', public.staff_pay_admin_step_v1((select (v->>'id')::uuid from _t where k = 'r3'), 'cancel');
 reset role;
 select ok((select pay_request_id is null from public.cleaning_sessions where id = 'c9400000-0000-4000-8000-0000000000b3') and (select v->>'ok' = 'true' from _t where k = 'cancel3'), 'cancelling the request releases the linked report (it is a candidate again)');
+
+-- 9b. consecutive checkouts never take each other's report; a guest-less row is not a stay to pay ---------------------------------------------------------------
+insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date) values
+  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'zz-s94-e1', 'airbnb', 'confirmed', 'Aaazzfive Ong', current_date - 60, current_date - 12),
+  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'zz-s94-e2', 'airbnb', 'confirmed', 'Aaazzsix Tan',  current_date - 60, current_date - 11),
+  ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'zz-s94-e3', 'airbnb', 'confirmed', null,             current_date - 60, current_date - 13);
+select pg_temp.as_user('c9400000-0000-4000-8000-0000000000a3');
+insert into _t select 'r4', public.staff_pay_admin_create_v2('c9400000-0000-4000-8000-0000000000a1', '[]'::jsonb, '{}'::uuid[],
+  jsonb_build_array(jsonb_build_object('checkout_date', (current_date - 12)::text), jsonb_build_object('checkout_date', (current_date - 11)::text)), 'zz-c94-key-0011');
+insert into _t select 'noguest', public.staff_pay_admin_create_v2('c9400000-0000-4000-8000-0000000000a1', '[]'::jsonb, '{}'::uuid[],
+  jsonb_build_array(jsonb_build_object('checkout_date', (current_date - 13)::text)), 'zz-c94-key-0012');
+reset role;
+select is((select v->>'reason' from _t where k = 'noguest'), 'advance_not_owed', 'a missed row with no guest is advance_not_owed');
+-- the report for D+1 (cd-11) is filed first, at midday Manila on its own day
+insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_name, checkout_date, cleaning_type, submitted_by_user_id, cleaned_at) values
+  ('c9400000-0000-4000-8000-0000000000c2', 'zz-c94-e2', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zzhoney Reyes', current_date - 11, 'turnover', 'c9400000-0000-4000-8000-0000000000a1', ((current_date - 11)::text || ' 12:00+08')::timestamptz);
+select is((select pay_request_id from public.cleaning_sessions where id = 'c9400000-0000-4000-8000-0000000000c2'), (select (v->>'id')::uuid from _t where k = 'r4'), 'the D+1 report joins the request');
+select pg_temp.as_user('c9400000-0000-4000-8000-0000000000a1');
+insert into _t select 'cand4', public.staff_pay_candidates_v1();
+reset role;
+select is((select jsonb_agg(e->>'date') from jsonb_array_elements((select v->'reports_owed' from _t where k = 'cand4')) e where e->>'ref' = (select v->>'ref' from _t where k = 'r4')), to_jsonb(array[(current_date - 12)::text]),
+  'D is still owed after the D+1 report (it did not take the line of D)');
+insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_name, checkout_date, cleaning_type, submitted_by_user_id, cleaned_at) values
+  ('c9400000-0000-4000-8000-0000000000c1', 'zz-c94-e1', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zzhoney Reyes', current_date - 12, 'turnover', 'c9400000-0000-4000-8000-0000000000a1', ((current_date - 12)::text || ' 12:00+08')::timestamptz);
+select is((select pay_request_id from public.cleaning_sessions where id = 'c9400000-0000-4000-8000-0000000000c1'), (select (v->>'id')::uuid from _t where k = 'r4'), 'then the D report joins the same request');
+select pg_temp.as_user('c9400000-0000-4000-8000-0000000000a3');
+insert into _t select 'pay4', public.staff_pay_admin_step_v1((select (v->>'id')::uuid from _t where k = 'r4'), 'pay');
+reset role;
+insert into _t select 'settle4', public.staff_pay_settle_v1((select (v->>'id')::uuid from _t where k = 'r4'), null, 'Zz Admin', 'match',
+  jsonb_build_object('file_unique_id', 'zz-c94-proof-4', 'sha256', 'zz-c94-sha-4', 'amount', 1000, 'reference', 'ZZC94REF4'));
+select ok((select bool_and(cs.fee_txn_id = (select t.id from public.transactions t where t.external_ref = 'cleanadv:' || cs.pay_request_id || ':' || cs.checkout_date)) and count(*) = 2
+             from public.cleaning_sessions cs where cs.id in ('c9400000-0000-4000-8000-0000000000c1', 'c9400000-0000-4000-8000-0000000000c2') and cs.fee_paid_at is not null),
+          'each report is stamped with its own cleanadv transaction');
+select is((select count(*)::int from public.transactions where external_ref like 'cleanadv:' || (select v->>'id' from _t where k = 'r4') || ':%'), 2, 'and exactly two cleanadv rows exist for the request');
 
 -- 10. a line kind settle does not know is refused, not paid as a claim ------------------------------------------------------------------------------------------------
 insert into public.staff_pay_requests(id, property_id, payee_user_id, payee_name, idempotency_key, status, lines, total_amount)

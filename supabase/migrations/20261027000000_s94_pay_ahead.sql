@@ -40,7 +40,8 @@ begin
 end $$;
 
 -- 1. which session, if any, a request's advance line has been matched to ----------------------------------------------------------------------
--- Same matching as get_missed_cleanings (checkout date equal, or filed within a day after it, Manila date); a session that is itself a 'clean' line of the request is not a match.
+-- A session matches by its checkout date; only a session with no checkout date falls back to get_missed_cleanings' window (filed the same or next Manila day), so consecutive checkouts
+-- can never take each other's report. A session that is itself a 'clean' line of the request is not a match.
 create or replace function public.s_advance_session_v1(p_request_id uuid, p_date date)
 returns uuid
 language sql stable security definer set search_path = '' as $$
@@ -49,7 +50,7 @@ language sql stable security definer set search_path = '' as $$
     join public.staff_pay_requests r on r.id = cs.pay_request_id
    where r.id = p_request_id
      and coalesce(cs.cleaning_type, 'checkout') <> 'mid_stay'
-     and (cs.checkout_date = p_date or (cs.cleaned_at at time zone 'Asia/Manila')::date between p_date and p_date + 1)
+     and (cs.checkout_date = p_date or (cs.checkout_date is null and (cs.cleaned_at at time zone 'Asia/Manila')::date between p_date and p_date + 1))
      and not exists (select 1 from jsonb_array_elements(r.lines) x where x ->> 'session_id' = cs.id::text)
    order by (cs.checkout_date = p_date) desc nulls last, cs.cleaned_at
    limit 1;
@@ -156,7 +157,7 @@ begin
     v_dates := v_dates || v_date;
     perform pg_advisory_xact_lock(hashtextextended('staff_pay_advance:' || v_date::text, 0));
     select nullif(split_part(btrim(g.guest_name), ' ', 1), '') into v_guest
-      from public.get_missed_cleanings(c_prop, 30) g where g.checkout_date = v_date order by (nullif(btrim(coalesce(g.guest_name, '')), '') is null), g.checkin_date limit 1;
+      from public.get_missed_cleanings(c_prop, 30) g where g.checkout_date = v_date and nullif(btrim(coalesce(g.guest_name, '')), '') is not null order by g.checkin_date limit 1; -- a row with no guest (an Airbnb block) is not a stay to pay
     if not found then return jsonb_build_object('ok', false, 'reason', 'advance_not_owed', 'date', v_date); end if;
     select q.ref into v_ref from public.staff_pay_requests q, jsonb_array_elements(q.lines) l
      where q.property_id = c_prop and q.status <> 'cancelled' and l ->> 'kind' = 'advance' and l ->> 'checkout_date' = v_date::text limit 1;
@@ -316,12 +317,14 @@ declare v_id uuid; v_d date; v_r public.staff_pay_requests%rowtype; v_txn uuid;
 begin
   if new.pay_request_id is not null or new.submitted_by_user_id is null or coalesce(new.cleaning_type, 'checkout') = 'mid_stay' then return null; end if;
   begin -- the report must always be saved: a failure here is a warning, never a rollback of her submission
+    -- the same per-date lock create_v2 takes, so a request being made and a report arriving in the same instant see each other
+    perform pg_advisory_xact_lock(hashtextextended('staff_pay_advance:' || coalesce(new.checkout_date, (new.cleaned_at at time zone 'Asia/Manila')::date)::text, 0));
     select r.id, (l.value ->> 'checkout_date')::date into v_id, v_d
       from public.staff_pay_requests r cross join lateral jsonb_array_elements(r.lines) l
      where r.payee_user_id = new.submitted_by_user_id and r.property_id = new.property_id and r.status <> 'cancelled'
        and l.value ->> 'kind' = 'advance'
        and ((l.value ->> 'checkout_date')::date = new.checkout_date
-            or (new.cleaned_at at time zone 'Asia/Manila')::date between (l.value ->> 'checkout_date')::date and (l.value ->> 'checkout_date')::date + 1)
+            or (new.checkout_date is null and (new.cleaned_at at time zone 'Asia/Manila')::date between (l.value ->> 'checkout_date')::date and (l.value ->> 'checkout_date')::date + 1))
        and public.s_advance_session_v1(r.id, (l.value ->> 'checkout_date')::date) is null
      order by coalesce((l.value ->> 'checkout_date')::date = new.checkout_date, false) desc, (l.value ->> 'checkout_date')::date, r.created_at
      limit 1

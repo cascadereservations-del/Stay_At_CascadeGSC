@@ -22,7 +22,7 @@ declare
   c_s_erm constant uuid := 'a381f7fd-6ba3-4622-aa9b-6ec925cea3d6';
   c_paid  constant timestamptz := '2026-10-19 10:11:45+00';
   c_note  constant text := 'Settled: paid in full, photo follow-up cleared by Lloyd 2026-10-20';
-  v_old uuid; v_id uuid; v_res jsonb; n integer; v_claims_before integer; v_refs text[];
+  v_old uuid; v_id uuid; v_res jsonb; n integer; v_refs text[];
 begin
   if to_regprocedure('public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)') is null then
     raise exception 'release s94_pay_ahead_20261027 is not applied (staff_pay_admin_create_v2 missing); nothing changed';
@@ -37,7 +37,6 @@ begin
   if exists (select 1 from public.staff_pay_requests where proof_reference = '123160' or proof_file_unique_id = 'bpi:1629218520037') then
     raise exception 'before: this payment proof is already recorded; nothing changed';
   end if;
-  select count(*) into v_claims_before from public.cleaning_expense_claims where submitted_by_user_id = c_honey and status in ('pending_review', 'approved') and pay_request_id is null;
 
   -- act as Lloyd
   perform set_config('request.jwt.claims', json_build_object('sub', c_lloyd, 'role', 'authenticated', 'aal', 'aal2', 'iat', extract(epoch from now())::bigint)::text, true);
@@ -99,8 +98,9 @@ begin
   select count(*) into n from public.meter_readings where session_id in (c_s_erm, c_s_roh) and vision_resolved_at is not null and vision_resolved_note = c_note and vision_resolved_by = c_lloyd;
   if n <> 2 then raise exception 'after: % of 2 meter rows are resolved with the settled note', n; end if;
   if (select count(*) from public.get_meter_photo_followups(c_prop, 30) f where f.session_id in (c_s_erm, c_s_roh)) <> 0 then raise exception 'after: a settled session is still in the photo follow-ups'; end if;
-  if (select count(*) from public.cleaning_expense_claims where submitted_by_user_id = c_honey and status in ('pending_review', 'approved') and pay_request_id is null) <> v_claims_before then
-    raise exception 'after: Honey''s open claims changed (the two 20-peso sugar claims must stay as they were)';
+  if (select count(*) from public.cleaning_expense_claims where id in ('d3bf2dd1-9272-40da-8e37-10d5069369ff', '5c64d9d6-93c0-47b4-b7c2-abb7b5526930')
+         and status = 'rejected' and pay_request_id is null and amount = 20) <> 2 then
+    raise exception 'after: the two 20-peso sugar claims (d3bf2dd1, 5c64d9d6) must stay rejected and in no request';
   end if;
   if public.s_advance_session_v1(v_id, date '2026-10-14') is not null or public.s_advance_session_v1(v_id, date '2026-10-17') is not null
      or public.s_advance_session_v1(v_id, date '2026-10-19') is not null then
