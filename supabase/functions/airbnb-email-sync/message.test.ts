@@ -281,3 +281,28 @@ Deno.test('the log payload for a message never has a text field, even when the h
   const log = await handleMessage(d, ev('My number is 0917 123 4567 and a secret sentence'));
   assertEquals(Object.keys(log).sort(), ['carded', 'confirmation_code', 'guest_first_name', 'has_phone', 'matched', 'names_count']);
 });
+
+// ---- SPEC-47: notable topics ------------------------------------------------------------------------------------------------------------------
+Deno.test('topics: a matched message records topic KEYS through the rpc, and the log still has no text', async () => {
+  const f = fakeDb({ contact: null }); const calls: any[] = [];
+  (f.db as any).rpc = (fn: string, a: unknown) => { calls.push([fn, a]); return Promise.resolve({ error: null }); };
+  const { d, posts } = deps(f);
+  const log = await handleMessage(d, ev('Hello, what is the exact location? Also is there parking?'));
+  assertEquals(calls.map((c) => c[1]), [
+    { p_guest_id: GID, p_booking_id: null, p_topic: 'directions', p_source: 'airbnb' },
+    { p_guest_id: GID, p_booking_id: null, p_topic: 'parking', p_source: 'airbnb' }]);
+  assertEquals(posts.length, 0, 'no phone or names: no card');
+  assertEquals(Object.keys(log).sort(), ['carded', 'confirmation_code', 'guest_first_name', 'has_phone', 'matched', 'names_count']);
+  assert(!JSON.stringify(calls).includes('exact'), 'the words never reach the rpc');
+});
+
+Deno.test('topics: unmatched stay records nothing; a failing rpc never changes the card', async () => {
+  const f = fakeDb({ contact: null }); const calls: any[] = [];
+  (f.db as any).rpc = (_fn: string, a: unknown) => { calls.push(a); return Promise.resolve({ error: null }); };
+  await handleMessage(deps(f).d, ev('wifi password?', { confirmation_code: 'HMNOPE' }));
+  assertEquals(calls.length, 0);
+  const g = fakeDb({ contact: null }); (g.db as any).rpc = () => { throw new Error('down'); };
+  const { d, posts } = deps(g);
+  const log = await handleMessage(d, ev('wifi? My number is 0917 123 4567'));
+  assertEquals([log.matched, log.carded, posts.length], [true, true, 1]);
+});

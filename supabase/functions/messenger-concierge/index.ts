@@ -37,6 +37,7 @@ import { raiseWorkOrder } from '../_shared/cascade-core/workorders.ts';
 // SPEC-45: a guest's ID photo is read once (name + ID type, D-291) and saved privately to the booking's guest.
 import { GUEST_PROMPT, type GuestRead, parseGuestRead, sniffImage } from '../telegram-expense/guest.ts';
 import { visionExtractText } from '../_shared/cascade-core/vision.ts';
+import { recordTopics, topicsForTurn } from '../_shared/cascade-core/topics.ts'; // SPEC-47
 import { bookingIdOf, idOpsLine, type IdPlan, mayRead, planId, stayNotOver } from './id-capture.ts';
 import { idThanks } from './persona.ts';
 import { fireInboxPush, type InboxKind } from './inbox-push.ts'; // s82 XS: the owner/admin Inbox push, fire and forget
@@ -1598,11 +1599,29 @@ Reply in Messenger: ${link}`));
     last_mid: msg.mid ?? thread.last_mid ?? null,
     ...(thread.verified_until !== undefined ? { verified_until: thread.verified_until } : {}),
   });
+  // SPEC-47: notable topics (keys only) for the guest card. Not awaited: a slow or failed write never touches the reply or the history.
+  noteTopics(db, psid, thread.booking_flow, text, jev);
   // D-285: one stats row per guest turn for the Monday card. Advisory: a failed write never costs the reply or the history.
   try {
     const { error } = await db.from('concierge_turn_stats').insert(turnStats({ psid, text, replied: !!g.reply, lint: sentToGuest ? lint : [], jev, house, houseLocked, re: g0.risk, up: jevRisk !== g0.risk }));
     if (error) console.error('turn_stats_failed', String(error.message ?? error).slice(0, 160));
   } catch (e) { console.error('turn_stats_failed', String(e).slice(0, 160)); }
+}
+
+/** SPEC-47: booking_flow.booking_id -> booking_inquiries.guest_id, then record_guest_topic_v1 per topic. Fire-and-forget: returns nothing, never throws. */
+export function noteTopics(db: Db, psid: string, flow: Flow | null | undefined, text: string, jev: JevRoute | null): void {
+  try {
+    const id = bookingIdOf(flow);
+    if (!id || id === 'probe' || psid.startsWith('probe:')) return;
+    const topics = topicsForTurn(text, jev);
+    if (!topics.length) return;
+    const work = (async () => {
+      const { data } = await db.from('booking_inquiries').select('guest_id').eq('id', id).maybeSingle();
+      await recordTopics(db, data?.guest_id, id, topics, 'messenger');
+    })().catch((e) => console.warn('topic_write_failed', 'messenger', String(e).slice(0, 80)));
+    const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+    if (edge?.waitUntil) edge.waitUntil(work);
+  } catch (e) { console.warn('topic_write_failed', 'messenger', String(e).slice(0, 80)); }
 }
 
 // Session 59 (Lloyd 2026-09-28, "we're over complicating things ... revert to previous without any menu"): ?profile=get reads

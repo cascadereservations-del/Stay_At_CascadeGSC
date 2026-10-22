@@ -4,6 +4,7 @@
 // ponytail: deterministic parser only. SPEC-42 allows one routine-tier model call when the lines do not parse; add it after a real e-mail shows a miss
 // (it would send the guest's text to a provider, so it needs Lloyd's yes first).
 import { withHeader } from '../_shared/cascade-core/format.ts';
+import { recordTopics, topicsFromText } from '../_shared/cascade-core/topics.ts'; // SPEC-47: topic KEYS only
 import { maskMoney } from '../_shared/ops-money.ts'; // D-306: nothing in the OPS card is money; the masker is the backstop
 import { type Candidate, cleanName, confirmBody, normalizePhone, type Plan, planFor } from '../telegram-expense/guest.ts';
 
@@ -159,7 +160,8 @@ export function cardText(plan: Plan, emailDate: string, esc: (s: string) => stri
 export async function handleMessage(d: MessageDeps, ev: MessageEvent): Promise<MessageLog> {
   const read = extract(ev.text ?? '');
   const log: MessageLog = { guest_first_name: ev.guest_first_name ?? null, confirmation_code: ev.confirmation_code ?? null, matched: false, has_phone: !!read.phone, names_count: read.names.length, carded: false };
-  if (!read.phone && !read.names.length) return log;
+  const topics = topicsFromText(stripQuoted(ev.text ?? '')); // SPEC-47: keys only, the words are dropped here
+  if (!read.phone && !read.names.length && !topics.length) return log;
 
   let q = d.db.from('airbnb_reservations').select('guest_id,guest_name,confirmation_code,checkin_date,checkout_date')
     .eq('property_id', d.propertyId).eq('status', 'confirmed');
@@ -168,6 +170,8 @@ export async function handleMessage(d: MessageDeps, ev: MessageEvent): Promise<M
   const stay = matchStay((stays ?? []) as Stay[], ev);
   if (!stay?.guest_id) return log;
   log.matched = true;
+  void recordTopics(d.db, stay.guest_id, null, topics, 'airbnb'); // fire-and-forget: a failed write never changes the card
+  if (!read.phone && !read.names.length) return log;
 
   const [{ data: g }, { data: prof }, { data: comps }] = await Promise.all([
     d.db.from('guests').select('name').eq('id', stay.guest_id).maybeSingle(),
