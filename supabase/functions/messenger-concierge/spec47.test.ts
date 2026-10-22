@@ -1,4 +1,4 @@
-﻿// deno test -A --no-check messenger-concierge/spec47.test.ts
+// deno test -A --no-check messenger-concierge/spec47.test.ts
 // SPEC-47: notable topics from a Messenger turn. Fire-and-forget; a failure never reaches the reply.
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { noteTopics } from './index.ts';
