@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "release_id": "s96_spec47_20261029",
+  "phase": "backfill",
+  "source": {
+    "branch": "spec47-sql",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "migrations": [
+    "20261029000000_s96_spec47.sql"
+  ],
+  "migration_sha256": {
+    "20261029000000_s96_spec47.sql": "817f59faab13d426160f73293bef06bd7890a6cf79bafaed27e2ada033f95534"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING: filled by scripts/migrations/fill-restore-point.mjs before apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "SPEC-47 notable topics (D-346: ID photos are KEPT until staff delete them by hand; guest_companions and the SPEC-40 photo pipeline are not touched). New table guest_topics (topic keys only, never message text; one row per guest, topic and source; RLS on, no grants to any API role). record_guest_topic_v1(guest, booking, topic, source): SECURITY DEFINER upsert for the message readers, service_role only, silent no-op on an unknown topic, source or guest or a null guest. purge_guest_topics_v1(): deletes rows with last_seen older than 365 days, closed to every API role. pg_cron guest-retention-nightly at 20 16 * * * (00:20 Manila) runs the purge and then records the job_heartbeats success (172800 s). staff_guest_card_v1 gains ONE key, notable: up to 3 {topic, last_seen, source}, newest last_seen first, one per topic, [] when none; every other key and the tiers logic are byte for byte as in the s95 body (md5 e6423d7cbf16752a779f48774e765ffd, guarded).",
+    "notes": "Phase backfill (not expand) only because the expand scanner flags the DELETE FROM inside purge_guest_topics_v1, as it did for the SPEC-40 purge release. Additive: one empty table, two new functions, one replaced function (md5 guarded), one cron job and heartbeat seed. Old apps keep working: no key was removed from any payload and old clients ignore notable. Deploy order: SQL, then the waves functions (airbnb-email-sync, messenger-concierge: they call record_guest_topic_v1 and fail quietly before it exists), then the Staff app. No data is moved or deleted at apply."
+  },
+  "forward_verification": [
+    {
+      "name": "staff_guest_card_v1_is_the_s96_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '277af8fa1c5c6cefa746e4f78b8991a9' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "record_guest_topic_v1_is_the_s96_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a6b6dc6abbe3599675021cf7bdb4f882' from pg_proc where oid = 'public.record_guest_topic_v1(uuid,uuid,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "purge_guest_topics_v1_is_the_s96_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '95f34ae517a044bdc9a7660207ff61ea' from pg_proc where oid = 'public.purge_guest_topics_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "record_guest_topic_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute') and not has_function_privilege('authenticated', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute') and has_function_privilege('service_role', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.record_guest_topic_v1(uuid,uuid,text,text)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.record_guest_topic_v1(uuid,uuid,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "purge_guest_topics_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.purge_guest_topics_v1()', 'execute') and not has_function_privilege('authenticated', 'public.purge_guest_topics_v1()', 'execute') and not has_function_privilege('service_role', 'public.purge_guest_topics_v1()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.purge_guest_topics_v1()'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.purge_guest_topics_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_keeps_its_grants_closed",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and not has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and has_function_privilege('service_role', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "all_s96_functions_share_one_owner",
+      "query": "select count(distinct proowner) = 1 from pg_proc where oid in ('public.record_guest_topic_v1(uuid,uuid,text,text)'::regprocedure, 'public.purge_guest_topics_v1()'::regprocedure, 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "guest_topics_has_rls_and_no_api_grants",
+      "query": "select c.relrowsecurity and not has_table_privilege('anon', c.oid, 'select, insert, update, delete') and not has_table_privilege('authenticated', c.oid, 'select, insert, update, delete') and not has_table_privilege('service_role', c.oid, 'select, insert, update, delete') from pg_class c where c.oid = 'public.guest_topics'::regclass",
+      "expect": true
+    },
+    {
+      "name": "guest_topics_has_the_contract_columns",
+      "query": "select array_agg(attname::text order by attnum) = array['id','guest_id','booking_id','topic','source','first_seen','last_seen','hits'] from pg_attribute where attrelid = 'public.guest_topics'::regclass and attnum > 0 and not attisdropped",
+      "expect": true
+    },
+    {
+      "name": "guest_topics_has_its_unique_key_and_checks",
+      "query": "select (select count(*) from pg_constraint where conrelid = 'public.guest_topics'::regclass and contype = 'u') = 1 and (select count(*) from pg_constraint where conrelid = 'public.guest_topics'::regclass and contype = 'c') = 2 and (select count(*) from pg_constraint where conrelid = 'public.guest_topics'::regclass and contype = 'f' and confdeltype = 'c') = 1",
+      "expect": true
+    },
+    {
+      "name": "guest_topics_is_empty_at_apply",
+      "query": "select count(*) = 0 from public.guest_topics where first_seen < now() - interval '1 hour'",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_returns_notable_and_every_old_key",
+      "query": "select (c ?& array['repeat','stay_count','earlier_stays','notes','id_photo_path','tier','tier_line','notable']) and (select count(*) from jsonb_object_keys(c)) = 8 and jsonb_typeof(c -> 'notable') = 'array' from (select public.staff_guest_card_v1(g.property_id, g.id, (now() at time zone 'Asia/Manila')::date) c from public.guests g order by g.id limit 1) x",
+      "expect": true
+    },
+    {
+      "name": "heartbeat_guest_retention_nightly_is_every_two_days",
+      "query": "select expected_interval_seconds = 172800 and not ops_risk from public.job_heartbeats where job_name = 'guest-retention-nightly'",
+      "expect": true
+    },
+    {
+      "name": "guest_retention_nightly_cron_is_scheduled",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (schedule = ''20 16 * * *'' and active and command like ''%purge_guest_topics_v1%'' and command like ''%record_job_heartbeat%'')::text s from cron.job where jobname = ''guest-retention-nightly''', false, true, '')))[1]::text = 'true' end",
+      "expect": true
+    },
+    {
+      "name": "id_photos_are_untouched_no_release_function",
+      "query": "select not exists (select 1 from pg_proc where proname = 'release_expired_id_photos_v1') and exists (select 1 from pg_trigger where tgrelid = 'public.guest_companions'::regclass and tgname = 'guest_companions_release_photo' and not tgisinternal)",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always. The rollback script restores staff_guest_card_v1 byte for byte to the s95 body, drops the guest-retention-nightly job and heartbeat, the two functions and guest_topics. The recorded topic keys are lost by design; nothing else is touched.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261029_s96_spec47.sql with run-sql-on-host.sh. Stop the waves writers first (their calls fail quietly once the function is gone); the Staff app hides the Asked about line when notable is missing."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff app shows Asked about only once it ships and reads notable, and notable stays [] until the waves writers ship and record topics."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "NOT YET REHEARSED. The SQL lane had no local Postgres (no psql, no postgres image, no schema): the orchestrator rehearses on a fresh backup with migration-rehearsal-on-host.sh (migration, forward verification, pgTAP s96_spec47.sql plan 51 and s95_guest_tiers.sql plan 77) and sets verified to true with the log path here. The s95 tiers test key-count assertion was updated from 7 to 8 keys for notable."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run the migration, s96_spec47.sql and s95_guest_tiers.sql green on this commit (compatibility.verified is still false)",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "staff_guest_card_v1 no longer has the md5 the migration guard names (e6423d7cbf16752a779f48774e765ffd)"
+  ]
+}
