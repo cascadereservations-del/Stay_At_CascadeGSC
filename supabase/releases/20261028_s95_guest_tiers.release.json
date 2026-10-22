@@ -197,8 +197,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "NOT YET REHEARSED. The SQL lane had no database: the orchestrator rehearses on a fresh backup with migration-rehearsal-on-host.sh (migration, forward verification, pgTAP s95_guest_tiers.sql) and sets verified to true with the log path here."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-22 ~17:50Z on backup cascade-supabase-20261022T165848Z (taken 16:58Z that day), migration-rehearsal-on-host.sh, log Cascade/docs/s95/rehearsal2-20261028_s95_guest_tiers.log: migration applied 1/1, forward verification 31/31, pgTAP s95_guest_tiers.sql pass (plan 77). Rehearsal 1 (log rehearsal1-...) failed only staff_guest_card_v1_keeps_its_grants_closed because the --no-acl restore leaves PUBLIC execute; fixed by an explicit revoke (live proacl = postgres + service_role). cron checks pass vacuously on the baseline (no pg_cron): read cron.job live after apply."
   },
   "approvals": {
     "production_required": true,
