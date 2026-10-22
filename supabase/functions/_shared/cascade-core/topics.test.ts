@@ -46,7 +46,7 @@ Deno.test('topicsFromText: nothing for small talk, empty text or look-alike word
   assertEquals(topicsFromText('We are spinning the kid, dogged by traffic'), [], 'pin / dog inside other words');
   for (const t of ['Do you have a power outlet by the bed?', 'is there a power bank?', 'what is the door pin code?', 'The place was not dirty at all, very clean',
     'the smell of food nearby', 'sira ulo ako haha', 'check in at 3pm', 'check out at 11am', 'we have an extension cord', 'asa ka na?', 'your website is nice', 'strong signal at the beach',
-    'what time is the grocery open?']) assertEquals(topicsFromText(t), [], t);
+    'what time is the grocery open?', 'nothing was broken', 'no leaks at all', 'it smells like home']) assertEquals(topicsFromText(t), [], t);
 });
 
 Deno.test('topicsForTurn: a sure Jev intent adds its topic, an unsure one does not, Jev down uses words', () => {

@@ -6,12 +6,12 @@ export type Topic = typeof TOPICS[number];
 // English + common Tagalog/Bisaya. Matched on folded lowercase text; \b keeps "pin" out of "spinning". Phrases, not bare words:
 // a topic is a reason to look at the guest card, so a false hit costs more than a miss.
 const re = (r: RegExp) => (t: string) => r.test(t);
-const NEG = /\b(?:not|no|hindi|dili|wasn'?t|isn'?t|never|walang)\b/;
+const NEG = /\b(?:not|no|nothing|hindi|dili|wasn'?t|isn'?t|never|walang)\b/;
 /** True when the match is preceded by a negation within three words ("was not dirty at all"). */
 function negated(t: string, at: number): boolean {
   return NEG.test(t.slice(0, at).split(/\s+/).slice(-3).join(' '));
 }
-const COMPLAINT_ALWAYS = /\b(?:complain(?:t|ing|ed)?|not working|doesn'?t work|broken|no (?:hot )?water|walang (?:tubig|aircon)|sira ang|mabaho|smells? (?:bad|like)|smelly|ipis|cockroach|bulok|leak(?:ing|s)?|disappointed|unacceptable)\b/;
+const COMPLAINT_ALWAYS = /\b(?:complain(?:t|ing|ed)?|not working|doesn'?t work|broken|no (?:hot )?water|walang (?:tubig|aircon)|sira ang|mabaho|smells? bad|smelly|ipis|cockroach|bulok|leak(?:ing|s)?|disappointed|unacceptable)\b/g;
 const COMPLAINT_NEGATABLE = /\b(?:dirty|madumi)\b/g;
 /** Clock times after "check in at" / "check out at": 11am check-in is early, 2pm check-out is late. Standard times are 2pm in, 12pm out. */
 function timeAfter(t: string, cue: RegExp): number | null {
@@ -35,7 +35,7 @@ const MAP: Record<Topic, (t: string) => boolean> = {
   parking: re(/\b(?:parking|garage|paradahan|parkingan|(?:we|i)(?: will| can| shall|'ll)? park|we'?ll park|park (?:outside|inside|in front|the|our|a|my|at)|where (?:do|can) (?:we|i) park)\b/),
   pets: re(/\b(?:pets?|dogs?|cats?|puppy|aso|pusa|iro|iring)\b/),
   id: re(/\b(?:valid id|government id|gov(?:ernment)? id|ids?|id photo|passport|driver'?s? licen[cs]e|ipapakita ang id|photo of (?:my |our )?id)\b/),
-  complaint: (t) => COMPLAINT_ALWAYS.test(t) || [...t.matchAll(COMPLAINT_NEGATABLE)].some((m) => !negated(t, m.index ?? 0)),
+  complaint: (t) => [...t.matchAll(COMPLAINT_ALWAYS), ...t.matchAll(COMPLAINT_NEGATABLE)].some((m) => !negated(t, m.index ?? 0)),
 };
 
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
