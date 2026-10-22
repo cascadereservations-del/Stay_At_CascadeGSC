@@ -11,3 +11,8 @@ Deno.test('tierBadge: null or unknown tier reads as new', () => {
   assertEquals(tierBadge(null, 1), '🆕 New Guest');
   assertEquals(tierBadge('bogus', 3), '🆕 New Guest');
 });
+Deno.test('tierBadge: null tier falls back to the stays count', () => {
+  assertEquals(tierBadge(null, 2), '🔄 Returning Guest (2 stays)');
+  assertEquals(tierBadge(null, 1), '🆕 New Guest');
+  assertEquals(tierBadge('regular', 5), '🌟 Regular Guest (5 stays)');
+});
