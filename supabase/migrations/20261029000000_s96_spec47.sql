@@ -4,7 +4,7 @@
 -- (1) guest_topics: topic KEYS only a guest asked about (never message text); one row per guest, topic and source. RLS on, no grants to any API role.
 -- (2) record_guest_topic_v1: upsert for the message readers (service_role only). Unknown topic, source or guest, or a null guest = silent no-op (a writer must never fail a reply).
 -- (3) purge_guest_topics_v1: deletes rows whose last_seen is older than 365 days (a returning guest keeps topics for a year of silence). Closed to every API role.
--- (4) pg_cron guest-retention-nightly (20 16 * * * = 00:20 Manila) + job_heartbeats row: purge, then heartbeat succeeded (one cron command, so a failed purge records no success and the monitor reports it).
+-- (4) guest_retention_nightly_v1 (started / purge / succeeded, or failed with TOPIC_PURGE_FAILED and -1; closed to every API role) run by pg_cron guest-retention-nightly (20 16 * * * = 00:20 Manila) + job_heartbeats row.
 -- (5) staff_guest_card_v1: the live (s95) body plus ONE key, notable: up to 3 {topic, last_seen, source}, newest first, one per topic, [] when none. Every other key is byte for byte as before.
 -- To undo apply supabase/rollbacks/20261029_s96_spec47.sql.
 
@@ -14,6 +14,9 @@ do $$
 declare v_got text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.staff_guest_card_v1(uuid,uuid,date)');
+  if v_got = 'c0b8c068b8fffb86e0e812b7207d96a6' then
+    raise exception 's96 spec47: already applied (staff_guest_card_v1 already has the s96 body)' using errcode = '55000';
+  end if;
   if v_got is distinct from 'e6423d7cbf16752a779f48774e765ffd' then
     raise exception 's96 spec47: staff_guest_card_v1 is not the body this release was cut from (md5 %): re-cut it from the live body', v_got using errcode = '55000';
   end if;
@@ -34,6 +37,7 @@ create table public.guest_topics (
 comment on table public.guest_topics is 'S96 (SPEC-47): topic keys a guest asked about, never message text. Written only by record_guest_topic_v1, read only by staff_guest_card_v1, trimmed by purge_guest_topics_v1 (365 days since last_seen). No grants.';
 alter table public.guest_topics enable row level security;
 revoke all on public.guest_topics from public, anon, authenticated, service_role;
+revoke all on sequence public.guest_topics_id_seq from public, anon, authenticated, service_role;
 
 -- 2. writer --------------------------------------------------------------------------------------------------------------------------------------
 create or replace function public.record_guest_topic_v1(p_guest_id uuid, p_booking_id uuid, p_topic text, p_source text)
@@ -73,6 +77,28 @@ end;
 $$;
 
 -- 4. nightly job ---------------------------------------------------------------------------------------------------------------------------------
+-- Same pattern as refresh_all_guest_tiers_v1 (s95): heartbeat started, purge, heartbeat succeeded; any error records failed (TOPIC_PURGE_FAILED) and returns -1 without re-raising,
+-- because a raise would roll the failed heartbeat back with the rest of the transaction.
+create or replace function public.guest_retention_nightly_v1()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare v_n integer;
+begin
+  perform public.record_job_heartbeat('guest-retention-nightly', 'started');
+  begin
+    v_n := public.purge_guest_topics_v1();
+  exception when others then
+    perform public.record_job_heartbeat('guest-retention-nightly', 'failed', 'TOPIC_PURGE_FAILED');
+    return -1;
+  end;
+  perform public.record_job_heartbeat('guest-retention-nightly', 'succeeded');
+  return v_n;
+end;
+$$;
+
 -- record_job_heartbeat refuses an unknown job: seeded as succeeded now, expected within 2 days, no ops risk.
 insert into public.job_heartbeats (job_name, expected_interval_seconds, ops_risk, last_succeeded_at)
 values ('guest-retention-nightly', 172800, false, now())
@@ -86,9 +112,9 @@ begin
   end if;
   perform cron.unschedule(jobid) from cron.job where jobname = 'guest-retention-nightly';
   perform cron.schedule('guest-retention-nightly', '20 16 * * *',
-    $cmd$select public.purge_guest_topics_v1(); select public.record_job_heartbeat('guest-retention-nightly', 'succeeded');$cmd$);
+    $cmd$select public.guest_retention_nightly_v1();$cmd$);
   if (select count(*) from cron.job where jobname = 'guest-retention-nightly' and active and schedule = '20 16 * * *'
-        and command like '%purge_guest_topics_v1%') <> 1 then
+        and command like '%guest_retention_nightly_v1%') <> 1 then
     raise exception 'guest-retention-nightly not scheduled';
   end if;
 end $$;
@@ -122,7 +148,7 @@ returns jsonb language sql stable security definer set search_path to '' as $$
                           else public.guest_tier_line_v1(g.tier, (select count(*) from earlier)::int) end,
     'notable',       coalesce((select jsonb_agg(jsonb_build_object('topic', n.topic, 'last_seen', n.last_seen, 'source', n.source) order by n.last_seen desc, n.topic)
                                  from (select * from (select distinct on (t.topic) t.topic, t.last_seen, t.source from public.guest_topics t
-                                                       where t.guest_id = g.id order by t.topic, t.last_seen desc) one
+                                                       where t.guest_id = g.id order by t.topic, t.last_seen desc, t.source) one
                                         order by one.last_seen desc, one.topic limit 3) n), '[]'::jsonb))
   from (select 1) o
   left join public.guests g on g.id = p_guest_id and g.property_id = p_property_id
@@ -133,11 +159,13 @@ $$;
 revoke all on function public.record_guest_topic_v1(uuid, uuid, text, text) from public, anon, authenticated;
 grant execute on function public.record_guest_topic_v1(uuid, uuid, text, text) to service_role;
 revoke all on function public.purge_guest_topics_v1() from public, anon, authenticated, service_role;
+revoke all on function public.guest_retention_nightly_v1() from public, anon, authenticated, service_role;
 -- the card: postgres and service_role only (the Staff edge function needs service_role)
 revoke all on function public.staff_guest_card_v1(uuid, uuid, date) from public, anon, authenticated;
 grant execute on function public.staff_guest_card_v1(uuid, uuid, date) to service_role;
 
 comment on function public.record_guest_topic_v1(uuid, uuid, text, text) is 'S96: upsert one topic key for a guest (bumps last_seen and hits); unknown topic, source or guest is a silent no-op. service_role only.';
+comment on function public.guest_retention_nightly_v1() is 'S96: nightly (pg_cron guest-retention-nightly) purge with started / succeeded / failed heartbeats; returns rows purged, or -1 after a failure.';
 comment on function public.purge_guest_topics_v1() is 'S96: nightly (pg_cron guest-retention-nightly) deletes guest_topics rows with last_seen older than 365 days; returns rows deleted.';
 
 do $$
@@ -146,6 +174,8 @@ begin
      or not has_function_privilege('service_role', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute') then raise exception 'record_guest_topic_v1 grants are wrong'; end if;
   if has_function_privilege('anon', 'public.purge_guest_topics_v1()', 'execute') or has_function_privilege('authenticated', 'public.purge_guest_topics_v1()', 'execute')
      or has_function_privilege('service_role', 'public.purge_guest_topics_v1()', 'execute') then raise exception 'an API role can purge topics'; end if;
+  if has_function_privilege('anon', 'public.guest_retention_nightly_v1()', 'execute') or has_function_privilege('authenticated', 'public.guest_retention_nightly_v1()', 'execute')
+     or has_function_privilege('service_role', 'public.guest_retention_nightly_v1()', 'execute') then raise exception 'an API role can run the retention sweep'; end if;
   if has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') or has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') then
     raise exception 'an API role can read the staff guest card'; end if;
   if has_table_privilege('anon', 'public.guest_topics', 'select') or has_table_privilege('authenticated', 'public.guest_topics', 'select') or has_table_privilege('service_role', 'public.guest_topics', 'select') then

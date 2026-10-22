@@ -1,6 +1,6 @@
 -- Compensating rollback for release s96_spec47_20261029 (session 96).
 -- Puts staff_guest_card_v1 back byte for byte to the s95 body (md5 e6423d7cbf16752a779f48774e765ffd, no notable key), drops the guest-retention-nightly cron job and heartbeat,
--- purge_guest_topics_v1, record_guest_topic_v1 and the guest_topics table (DATA LOSS by design: the recorded topic keys). Nothing else changed in the release, so nothing else is undone.
+-- guest_retention_nightly_v1, purge_guest_topics_v1, record_guest_topic_v1 and the guest_topics table (DATA LOSS by design: the recorded topic keys). Nothing else changed in the release, so nothing else is undone.
 -- Roll the Staff app back first if it shows the Asked about line (it hides it when notable is missing, so it is safe either way), and stop the waves writers (airbnb-email-sync,
 -- messenger-concierge: their record_guest_topic_v1 calls fail quietly once the function is gone). Apply with run-sql-on-host.sh.
 
@@ -10,7 +10,7 @@ do $$
 declare v_got text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.staff_guest_card_v1(uuid,uuid,date)');
-  if v_got is distinct from '277af8fa1c5c6cefa746e4f78b8991a9' then
+  if v_got is distinct from 'c0b8c068b8fffb86e0e812b7207d96a6' then
     raise exception 's96 rollback: staff_guest_card_v1 is not the s96 body (md5 %): check what changed it before rolling back', v_got using errcode = '55000';
   end if;
 end $$;
@@ -22,6 +22,7 @@ begin
   end if;
 end $$;
 delete from public.job_heartbeats where job_name = 'guest-retention-nightly';
+drop function public.guest_retention_nightly_v1();
 
 create or replace function public.staff_guest_card_v1(p_property_id uuid, p_guest_id uuid, p_checkin date)
 returns jsonb language sql stable security definer set search_path to '' as $$

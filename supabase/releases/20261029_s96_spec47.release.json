@@ -4,26 +4,26 @@
   "phase": "backfill",
   "source": {
     "branch": "spec47-sql",
-    "commit": "815b6dbf3c6f85e78df6b0e0e68ab9ade9bbc809"
+    "commit": "0000000000000000000000000000000000000000"
   },
   "migrations": [
     "20261029000000_s96_spec47.sql"
   ],
   "migration_sha256": {
-    "20261029000000_s96_spec47.sql": "817f59faab13d426160f73293bef06bd7890a6cf79bafaed27e2ada033f95534"
+    "20261029000000_s96_spec47.sql": "4fec15027c18e8534bb3f83c2dcafeb28b2b3e279afbd9d19d0c07e433d29988"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING: filled by scripts/migrations/fill-restore-point.mjs before apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "SPEC-47 notable topics (D-346: ID photos are KEPT until staff delete them by hand; guest_companions and the SPEC-40 photo pipeline are not touched). New table guest_topics (topic keys only, never message text; one row per guest, topic and source; RLS on, no grants to any API role). record_guest_topic_v1(guest, booking, topic, source): SECURITY DEFINER upsert for the message readers, service_role only, silent no-op on an unknown topic, source or guest or a null guest. purge_guest_topics_v1(): deletes rows with last_seen older than 365 days, closed to every API role. pg_cron guest-retention-nightly at 20 16 * * * (00:20 Manila) runs the purge and then records the job_heartbeats success (172800 s). staff_guest_card_v1 gains ONE key, notable: up to 3 {topic, last_seen, source}, newest last_seen first, one per topic, [] when none; every other key and the tiers logic are byte for byte as in the s95 body (md5 e6423d7cbf16752a779f48774e765ffd, guarded).",
-    "notes": "Phase backfill (not expand) only because the expand scanner flags the DELETE FROM inside purge_guest_topics_v1, as it did for the SPEC-40 purge release. Additive: one empty table, two new functions, one replaced function (md5 guarded), one cron job and heartbeat seed. Old apps keep working: no key was removed from any payload and old clients ignore notable. Deploy order: SQL, then the waves functions (airbnb-email-sync, messenger-concierge: they call record_guest_topic_v1 and fail quietly before it exists), then the Staff app. No data is moved or deleted at apply."
+    "production_rule": "SPEC-47 notable topics (D-346: ID photos are KEPT until staff delete them by hand; guest_companions and the SPEC-40 photo pipeline are not touched). New table guest_topics (topic keys only, never message text; one row per guest, topic and source; RLS on, no grants to any API role). record_guest_topic_v1(guest, booking, topic, source): SECURITY DEFINER upsert for the message readers, service_role only, silent no-op on an unknown topic, source or guest or a null guest. purge_guest_topics_v1(): deletes rows with last_seen older than 365 days, closed to every API role. guest_retention_nightly_v1 (internal, closed to every API role; started / purge / succeeded, or failed with TOPIC_PURGE_FAILED and -1) is run by pg_cron guest-retention-nightly at 20 16 * * * (00:20 Manila) with a job_heartbeats row (172800 s). staff_guest_card_v1 gains ONE key, notable: up to 3 {topic, last_seen, source}, newest last_seen first, one per topic, [] when none; every other key and the tiers logic are byte for byte as in the s95 body (md5 e6423d7cbf16752a779f48774e765ffd, guarded).",
+    "notes": "Phase backfill (not expand) only because the expand scanner flags the DELETE FROM inside purge_guest_topics_v1, as it did for the SPEC-40 purge release. Additive: one empty table, three new functions, one replaced function (md5 guarded), one cron job and heartbeat seed. Old apps keep working: no key was removed from any payload and old clients ignore notable. Deploy order: SQL, then the waves functions (airbnb-email-sync, messenger-concierge: they call record_guest_topic_v1 and fail quietly before it exists), then the Staff app. No data is moved or deleted at apply."
   },
   "forward_verification": [
     {
       "name": "staff_guest_card_v1_is_the_s96_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '277af8fa1c5c6cefa746e4f78b8991a9' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'c0b8c068b8fffb86e0e812b7207d96a6' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
       "expect": true
     },
     {
@@ -34,6 +34,31 @@
     {
       "name": "purge_guest_topics_v1_is_the_s96_body",
       "query": "select md5(replace(prosrc, chr(13), '')) = '95f34ae517a044bdc9a7660207ff61ea' from pg_proc where oid = 'public.purge_guest_topics_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_retention_nightly_v1_is_the_s96_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '1e27418145110fa6b763178472ca3288' from pg_proc where oid = 'public.guest_retention_nightly_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_retention_nightly_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.guest_retention_nightly_v1()', 'execute') and not has_function_privilege('authenticated', 'public.guest_retention_nightly_v1()', 'execute') and not has_function_privilege('service_role', 'public.guest_retention_nightly_v1()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.guest_retention_nightly_v1()'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.guest_retention_nightly_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_topics_id_sequence_has_no_api_grants",
+      "query": "select not has_sequence_privilege('anon', 'public.guest_topics_id_seq', 'usage, select, update') and not has_sequence_privilege('authenticated', 'public.guest_topics_id_seq', 'usage, select, update') and not has_sequence_privilege('service_role', 'public.guest_topics_id_seq', 'usage, select, update')",
+      "expect": true
+    },
+    {
+      "name": "spec40_release_photo_function_is_unchanged",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'c0cb5a4104bcf7a4917c424c9110dded' from pg_proc where oid = 'public.guest_companions_release_photo()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "spec40_release_photo_trigger_is_unchanged",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.guest_companions'::regclass and tgname = 'guest_companions_release_photo' and not tgisinternal and pg_get_triggerdef(oid) like '%AFTER DELETE OR UPDATE OF id_photo_path ON public.guest_companions FOR EACH ROW EXECUTE FUNCTION %guest_companions_release_photo()'",
       "expect": true
     },
     {
@@ -72,7 +97,7 @@
       "expect": true
     },
     {
-      "name": "guest_topics_is_empty_at_apply",
+      "name": "no_guest_topic_older_than_the_apply_hour",
       "query": "select count(*) = 0 from public.guest_topics where first_seen < now() - interval '1 hour'",
       "expect": true
     },
@@ -88,7 +113,7 @@
     },
     {
       "name": "guest_retention_nightly_cron_is_scheduled",
-      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (schedule = ''20 16 * * *'' and active and command like ''%purge_guest_topics_v1%'' and command like ''%record_job_heartbeat%'')::text s from cron.job where jobname = ''guest-retention-nightly''', false, true, '')))[1]::text = 'true' end",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (schedule = ''20 16 * * *'' and active and command like ''%guest_retention_nightly_v1%'')::text s from cron.job where jobname = ''guest-retention-nightly''', false, true, '')))[1]::text = 'true' end",
       "expect": true
     },
     {
@@ -118,7 +143,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "NOT YET REHEARSED. The SQL lane had no local Postgres (no psql, no postgres image, no schema): the orchestrator rehearses on a fresh backup with migration-rehearsal-on-host.sh (migration, forward verification, pgTAP s96_spec47.sql plan 51 and s95_guest_tiers.sql plan 77) and sets verified to true with the log path here. The s95 tiers test key-count assertion was updated from 7 to 8 keys for notable."
+    "evidence": "NOT YET REHEARSED. The cron forward check passes vacuously on a rehearsal copy without pg_cron: the post-apply read (supabase/sql/2026-10-29-s96-post-apply-read.sql) is the real cron proof. The SQL lane had no local Postgres (no psql, no postgres image, no schema): the orchestrator rehearses on a fresh backup with migration-rehearsal-on-host.sh (migration, forward verification, pgTAP s96_spec47.sql plan 56 and s95_guest_tiers.sql plan 77) and sets verified to true with the log path here. The s95 tiers test key-count assertion was updated from 7 to 8 keys for notable."
   },
   "approvals": {
     "production_required": true,

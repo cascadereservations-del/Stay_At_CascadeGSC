@@ -3,7 +3,7 @@
 -- The ID photo release was REMOVED from this release (D-346: photos stay until staff delete them): a test below proves guest_companions is untouched.
 -- Synthetic fixtures only (uuids f9600000-...); every lookup is scoped to them because a real backup holds real rows. Everything rolls back.
 begin;
-select plan(51);
+select plan(56);
 
 grant usage on schema public to anon, authenticated, service_role;
 
@@ -45,7 +45,7 @@ delete from public.guest_topics where guest_id = 'f9600000-0000-4000-8000-000000
 -- 2. purge_guest_topics_v1 ---------------------------------------------------------------------------------------------------------------------
 update public.guest_topics set last_seen = now() - interval '366 days' where guest_id = 'f9600000-0000-4000-8000-0000000000c1' and source = 'messenger';
 update public.guest_topics set last_seen = now() - interval '364 days' where guest_id = 'f9600000-0000-4000-8000-0000000000c1' and source = 'airbnb';
-select ok((select public.purge_guest_topics_v1()) >= 1, 'purge returns the number of rows it deleted (at least the 366-day fixture)');
+select is((select public.purge_guest_topics_v1()), 1, 'purge returns the number of rows it deleted (exactly the 366-day fixture)');
 select is((select count(*)::int from public.guest_topics where guest_id = 'f9600000-0000-4000-8000-0000000000c1' and source = 'messenger'), 0, 'a topic unseen for 366 days is deleted');
 select is((select count(*)::int from public.guest_topics where guest_id = 'f9600000-0000-4000-8000-0000000000c1' and source = 'airbnb'), 1, 'a topic unseen for 364 days is kept');
 select is((select public.purge_guest_topics_v1()), 0, 'a second purge deletes nothing');
@@ -65,13 +65,13 @@ select is((select count(*)::int from public.guest_topics where guest_id = 'f9600
 -- 4. staff_guest_card_v1 notable ---------------------------------------------------------------------------------------------------------------
 insert into public.guest_topics(guest_id, topic, source, last_seen, first_seen) values
   ('f9600000-0000-4000-8000-0000000000c3', 'parking',  'airbnb',    now() - interval '1 hour',  now() - interval '1 hour'),
-  ('f9600000-0000-4000-8000-0000000000c3', 'parking',  'messenger', now() - interval '10 hours', now() - interval '10 hours'),
+  ('f9600000-0000-4000-8000-0000000000c3', 'parking',  'messenger', now() - interval '90 minutes', now() - interval '90 minutes'),
   ('f9600000-0000-4000-8000-0000000000c3', 'wifi',     'messenger', now() - interval '2 hours', now() - interval '2 hours'),
   ('f9600000-0000-4000-8000-0000000000c3', 'pets',     'airbnb',    now() - interval '3 hours', now() - interval '3 hours'),
   ('f9600000-0000-4000-8000-0000000000c3', 'complaint','staff',     now() - interval '4 hours', now() - interval '4 hours');
 select is(jsonb_array_length(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c3', current_date) -> 'notable'), 3, 'notable holds at most 3 entries');
 select is((select jsonb_agg(e ->> 'topic') from jsonb_array_elements(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c3', current_date) -> 'notable') e),
-  '["parking", "wifi", "pets"]'::jsonb, 'newest last_seen first, one entry per topic (parking is listed once)');
+  '["parking", "wifi", "pets"]'::jsonb, 'newest last_seen first, one entry per topic (parking 1h and 90 min old is listed once, so wifi and pets still fit)');
 select is(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c3', current_date) -> 'notable' -> 0 ->> 'source', 'airbnb', 'a topic seen from two sources shows the source of the newest sighting');
 select ok((select (e ? 'topic') and (e ? 'last_seen') and (e ? 'source') and (select count(*) from jsonb_object_keys(e)) = 3 and jsonb_typeof(e -> 'last_seen') = 'string'
              from jsonb_array_elements(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c3', current_date) -> 'notable') e limit 1), 'each entry is exactly {topic, last_seen, source}');
@@ -101,6 +101,17 @@ select is((select count(*)::int from pg_trigger where tgrelid = 'public.guest_co
 
 -- 6. heartbeat ----------------------------------------------------------------------------------------------------------------------------------
 select ok((select expected_interval_seconds = 172800 and not ops_risk and last_succeeded_at is not null from public.job_heartbeats where job_name = 'guest-retention-nightly'), 'guest-retention-nightly is seeded: 2 days, no ops risk, succeeded at apply');
+
+-- 6b. guest_retention_nightly_v1 -------------------------------------------------------------------------------------------------------------------
+update public.guest_topics set last_seen = now() - interval '400 days' where guest_id = 'f9600000-0000-4000-8000-0000000000c4';
+select is((select public.guest_retention_nightly_v1()), 1, 'the nightly wrapper returns the rows it purged');
+select is((select count(*)::int from public.guest_topics where guest_id = 'f9600000-0000-4000-8000-0000000000c4'), 0, 'and the old topic is gone');
+select ok((select last_started_at is not null and last_succeeded_at >= last_started_at and consecutive_failures = 0 and last_error_code is null from public.job_heartbeats where job_name = 'guest-retention-nightly'),
+  'the heartbeat shows a started and a succeeded run');
+select ok(not has_function_privilege('anon', 'public.guest_retention_nightly_v1()', 'execute') and not has_function_privilege('authenticated', 'public.guest_retention_nightly_v1()', 'execute')
+          and not has_function_privilege('service_role', 'public.guest_retention_nightly_v1()', 'execute'), 'no API role can run the wrapper');
+select ok(not has_sequence_privilege('anon', 'public.guest_topics_id_seq', 'usage, select, update') and not has_sequence_privilege('authenticated', 'public.guest_topics_id_seq', 'usage, select, update')
+          and not has_sequence_privilege('service_role', 'public.guest_topics_id_seq', 'usage, select, update'), 'no API role has any privilege on the id sequence');
 
 -- 7. grants (the migration revokes explicitly, so they hold in a --no-acl rehearsal too) ----------------------------------------------------------
 select ok(not has_function_privilege('anon', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute'), 'anon cannot record a topic');

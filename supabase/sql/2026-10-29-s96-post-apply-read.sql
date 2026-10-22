@@ -8,6 +8,8 @@ select count(*) as topic_rows, count(*) filter (where last_seen < now() - interv
 select has_function_privilege('anon', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute') as anon_can_record,
        has_function_privilege('authenticated', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute') as authenticated_can_record,
        has_function_privilege('service_role', 'public.record_guest_topic_v1(uuid,uuid,text,text)', 'execute') as service_role_can_record,
+       has_function_privilege('anon', 'public.guest_retention_nightly_v1()', 'execute') as anon_can_run_sweep,
+       has_function_privilege('service_role', 'public.guest_retention_nightly_v1()', 'execute') as service_role_can_run_sweep,
        has_function_privilege('anon', 'public.purge_guest_topics_v1()', 'execute') as anon_can_purge,
        has_function_privilege('authenticated', 'public.purge_guest_topics_v1()', 'execute') as authenticated_can_purge,
        has_function_privilege('service_role', 'public.purge_guest_topics_v1()', 'execute') as service_role_can_purge,
