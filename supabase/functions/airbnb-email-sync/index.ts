@@ -49,6 +49,7 @@ import { welcomeBack } from '../messenger-concierge/persona.ts';
 import { dmRange } from '../messenger-concierge/booking.ts';
 import { maskMoney } from '../_shared/ops-money.ts'; // D-306: OPS never shows booking money, guest-history free text included
 import { gateMessages, handleMessage, logRow, type MessageEvent } from './message.ts'; // session 72: guest-message e-mails -> one /guest review card in OPS
+import { tierBadge } from './tier.ts'; // SPEC-46: vip | regular | returning
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -157,11 +158,6 @@ interface GuestRecord {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-function tierBadge(tier: string|null, stays: number): string {
-  if (tier === 'vip')       return `⭐ VIP Guest (${stays} stays)`;
-  if (tier === 'returning') return `🔄 Returning Guest (${stays} stays)`;
-  return '🆕 New Guest';
-}
 
 async function reconcile(supabase: LegacyDatabaseClient, code: string): Promise<void> {
   try {
