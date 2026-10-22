@@ -156,7 +156,7 @@ export function cardText(plan: Plan, emailDate: string, esc: (s: string) => stri
   return withHeader('guest', 'details from Airbnb chat', b.map(maskMoney).join('\n'));
 }
 
-/** Read one message event; post at most one review card. Never writes guest data (the Save tap does) and never contacts the guest. */
+/** Read one message event; post at most one review card. Writes no guest data except topic keys (record_guest_topic_v1); the Save tap writes the rest. Never contacts the guest. */
 export async function handleMessage(d: MessageDeps, ev: MessageEvent): Promise<MessageLog> {
   const read = extract(ev.text ?? '');
   const log: MessageLog = { guest_first_name: ev.guest_first_name ?? null, confirmation_code: ev.confirmation_code ?? null, matched: false, has_phone: !!read.phone, names_count: read.names.length, carded: false };
@@ -170,7 +170,8 @@ export async function handleMessage(d: MessageDeps, ev: MessageEvent): Promise<M
   const stay = matchStay((stays ?? []) as Stay[], ev);
   if (!stay?.guest_id) return log;
   log.matched = true;
-  void recordTopics(d.db, stay.guest_id, null, topics, 'airbnb'); // fire-and-forget: a failed write never changes the card
+  // Attribution: only a stay matched by confirmation code, or by first name AND both dates, owns the topics. A first-name-only match could be another guest.
+  if (ev.confirmation_code || (ev.checkin_date && ev.checkout_date)) await recordTopics(d.db, stay.guest_id, null, topics, 'airbnb'); // never throws
   if (!read.phone && !read.names.length) return log;
 
   const [{ data: g }, { data: prof }, { data: comps }] = await Promise.all([

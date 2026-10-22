@@ -13,24 +13,31 @@ function fake(guest: string | null, rpcFails = false) {
   };
   return { db, calls };
 }
-const settle = () => new Promise((r) => setTimeout(r, 20));
+/** Stub EdgeRuntime.waitUntil so the test awaits the exact promise noteTopics hands the runtime. */
+async function run(fn: () => void): Promise<void> {
+  const g = globalThis as any, prev = g.EdgeRuntime, p: Promise<unknown>[] = [];
+  g.EdgeRuntime = { waitUntil: (x: Promise<unknown>) => p.push(x) };
+  try { fn(); await Promise.all(p); } finally { g.EdgeRuntime = prev; }
+}
 
 Deno.test('a turn on a booked thread records the keys with the booking guest', async () => {
   const { db, calls } = fake(GID);
-  noteTopics(db, '123', flow, 'May aso po kami. Saan ang location?', { intent: 'directions', confidence: 0.9 } as any);
-  await settle();
+  await run(() => noteTopics(db, '123', flow, 'May aso po kami. Saan ang location?', { intent: 'directions', confidence: 0.9 } as any));
   assertEquals(calls.map((c) => [c[1].p_topic, c[1].p_guest_id, c[1].p_booking_id, c[1].p_source]), [['directions', GID, BID, 'messenger'], ['pets', GID, BID, 'messenger']]);
 });
 
 Deno.test('no booking, probe thread, unlinked guest or no topic: nothing written', async () => {
-  const a = fake(GID); noteTopics(a.db, '123', null, 'wifi?', null); noteTopics(a.db, 'probe:1', flow, 'wifi?', null);
-  noteTopics(a.db, '123', { booking_id: 'probe' } as any, 'wifi?', null); noteTopics(a.db, '123', flow, 'thank you', null);
-  const b = fake(null); noteTopics(b.db, '123', flow, 'wifi?', null);
-  await settle(); assertEquals([a.calls.length, b.calls.length], [0, 0]);
+  const a = fake(GID), b = fake(null);
+  await run(() => {
+    noteTopics(a.db, '123', null, 'wifi?', null); noteTopics(a.db, 'probe:1', flow, 'wifi?', null);
+    noteTopics(a.db, '123', { booking_id: 'probe' } as any, 'wifi?', null); noteTopics(a.db, '123', flow, 'thank you', null);
+    noteTopics(b.db, '123', flow, 'wifi?', null);
+  });
+  assertEquals([a.calls.length, b.calls.length], [0, 0]);
 });
 
 Deno.test('a throwing database never throws out of noteTopics', async () => {
-  noteTopics({ from: () => { throw new Error('x'); } } as any, '123', flow, 'wifi?', null);
-  const { db } = fake(GID, true); noteTopics(db, '123', flow, 'wifi?', null);
-  await settle();
+  await run(() => noteTopics({ from: () => { throw new Error('x'); } } as any, '123', flow, 'wifi?', null));
+  const { db } = fake(GID, true);
+  await run(() => noteTopics(db, '123', flow, 'wifi?', null));
 });

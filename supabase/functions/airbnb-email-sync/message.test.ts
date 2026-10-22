@@ -306,3 +306,13 @@ Deno.test('topics: unmatched stay records nothing; a failing rpc never changes t
   const log = await handleMessage(d, ev('wifi? My number is 0917 123 4567'));
   assertEquals([log.matched, log.carded, posts.length], [true, true, 1]);
 });
+
+Deno.test('topics: a first-name-only match records nothing, the card is unchanged; first name plus both dates records', async () => {
+  const f = fakeDb({ contact: null }); const calls: any[] = [];
+  (f.db as any).rpc = (_fn: string, a: unknown) => { calls.push(a); return Promise.resolve({ error: null }); };
+  const { d, posts } = deps(f);
+  const log = await handleMessage(d, ev('wifi? My number is 0917 123 4567', { confirmation_code: undefined }));
+  assertEquals([log.matched, log.carded, posts.length, calls.length], [true, true, 1, 0]);
+  await handleMessage(deps(f).d, ev('wifi?', { confirmation_code: undefined, checkin_date: '2026-10-10', checkout_date: '2026-10-13' }));
+  assertEquals(calls.map((c) => c.p_topic), ['wifi']);
+});

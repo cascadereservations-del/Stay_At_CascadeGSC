@@ -23,6 +23,19 @@ Deno.test('topicsFromText: English, Tagalog and Bisaya wordings', () => {
     ['send me the guest guide link', ['links']],
     ['the aircon is not working and it is dirty', ['complaint']],
     ['Wifi and parking?', ['wifi', 'parking']],
+    ['maximum 4 guests ba?', ['guest_count']],
+    ['Ilan po ang pwede na tao?', ['guest_count']],
+    ['we will park outside', ['parking']],
+    ['Can we check in at 11am?', ['early_checkin']],
+    ['check out at 2pm', ['late_checkout']],
+    ['can you send the pin?', ['directions']],
+    ['the exact address please', ['directions']],
+    ['power is out since 8', ['brownout']],
+    ['Can we extend our stay by a day?', ['late_checkout']],
+    ['maaga kaming dumating bukas', ['early_checkin']],
+    // A TV that does not work is a real issue: complaint is intended here.
+    ['the TV is not working', ['complaint']],
+    ['the room smells bad and mabaho ang CR', ['complaint']],
   ];
   for (const [t, want] of cases) assertEquals(topicsFromText(t), want, t);
 });
@@ -31,13 +44,16 @@ Deno.test('topicsFromText: nothing for small talk, empty text or look-alike word
   assertEquals(topicsFromText(''), []);
   assertEquals(topicsFromText('Thank you, see you on the 10th!'), []);
   assertEquals(topicsFromText('We are spinning the kid, dogged by traffic'), [], 'pin / dog inside other words');
-  assertEquals(topicsFromText('Do you have a power outlet by the bed?').includes('brownout'), true, 'documented limit: bare "power" is a brownout cue');
+  for (const t of ['Do you have a power outlet by the bed?', 'is there a power bank?', 'what is the door pin code?', 'The place was not dirty at all, very clean',
+    'the smell of food nearby', 'sira ulo ako haha', 'check in at 3pm', 'check out at 11am', 'we have an extension cord', 'asa ka na?', 'your website is nice', 'strong signal at the beach',
+    'what time is the grocery open?']) assertEquals(topicsFromText(t), [], t);
 });
 
 Deno.test('topicsForTurn: a sure Jev intent adds its topic, an unsure one does not, Jev down uses words', () => {
   assertEquals(topicsForTurn('how do I get there', { intent: 'directions', confidence: 0.9 }), ['directions']);
   assertEquals(topicsForTurn('hello', { intent: 'directions', confidence: 0.5 }), []);
   assertEquals(topicsForTurn('walay tubig', { intent: 'complaint', confidence: 0.95 }), ['complaint']);
+  assertEquals(topicsForTurn('the TV is not working', null), [], 'Messenger takes complaint from Jev alone');
   assertEquals(topicsForTurn('wifi?', null), ['wifi']);
   assertEquals(topicsForTurn('price for 2 nights', { intent: 'price', confidence: 1 }), []);
 });
