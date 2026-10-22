@@ -142,8 +142,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "NOT YET REHEARSED. The cron forward check passes vacuously on a rehearsal copy without pg_cron: the post-apply read (supabase/sql/2026-10-29-s96-post-apply-read.sql) is the real cron proof. The SQL lane had no local Postgres (no psql, no postgres image, no schema): the orchestrator rehearses on a fresh backup with migration-rehearsal-on-host.sh (migration, forward verification, pgTAP s96_spec47.sql plan 56 and s95_guest_tiers.sql plan 77) and sets verified to true with the log path here. The s95 tiers test key-count assertion was updated from 7 to 8 keys for notable."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-23 on backup cascade-supabase-20261022T232800Z (taken after the s95 tiers apply), migration-rehearsal-on-host.sh, log Cascade/docs/s95/rehearsal2-20261029_s96_spec47.log: migration applied 1/1, forward verification 20/20, pgTAP s96_spec47.sql 56/56 and s95_guest_tiers.sql 77/77. Rehearsal 1 (backup 20261022T173424Z) stopped at the md5 guard by design: that backup predates the tiers apply. cron checks pass vacuously on the baseline (no pg_cron): read cron.job live after apply with supabase/sql/2026-10-29-s96-post-apply-read.sql."
   },
   "approvals": {
     "production_required": true,
