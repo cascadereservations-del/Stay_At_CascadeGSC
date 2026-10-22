@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "release_id": "s95_guest_tiers_20261028",
+  "phase": "expand",
+  "source": {
+    "branch": "s95/tiers-sql",
+    "commit": "bb30e0fed60a47b93082c6cef530275b4ff8ce19"
+  },
+  "migrations": [
+    "20261028000000_s95_guest_tiers.sql"
+  ],
+  "migration_sha256": {
+    "20261028000000_s95_guest_tiers.sql": "52bca1d58084c775579a700f16e4e82f9a2cbc1e81cacbf2aac206ab4dbbf696"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING: filled by the release block (fill-restore-point.mjs)",
+    "verified_at": "2026-10-23T00:00:00.000Z",
+    "production_rule": "Returning-guest tiers (SPEC-46, D-342): guests.tier becomes the EFFECTIVE tier = coalesce(tier_manual, computed) with four values NULL / returning / regular / vip (CHECK). New columns guests.tier_manual and guests.tier_changed_at. Completed stays = airbnb_reservations completed, or confirmed with checkout before today in Manila, excluding DIRECT:% mirrors, plus confirmed booking_inquiries with checkout before today; vip at 7 stays or 20 nights, regular at 4 stays or 10 nights, returning at 2 stays. refresh_guest_stats(uuid) is replaced with the same signature: total_stays / total_nights_stayed / first / last are computed exactly as before; the tier follows the new rule and a change of the effective tier stamps tier_changed_at and writes ONE guest_profile_history row (reasons 'Tier: Regular (4th completed stay)', 'Tier: none (fewer than 2 completed stays)', 'Manual tier: <tier or cleared> - <reason>'). It is now SECURITY DEFINER and is revoked from anon and authenticated (it was open to every API role); service_role (airbnb-email-sync) and the definer merge functions keep it. updated_at on guests now moves only when a stored value changes. staff_guest_card_v1 gains the keys tier and tier_line and nothing else. New: guest_tier_v1, guest_ordinal_v1, guest_completed_stats_v1, guest_tier_line_v1 (internal, closed to every API role), admin_set_guest_tier_v1 (owner/admin through current_staff_active, reason 3-200 chars required) and refresh_all_guest_tiers_v1 (closed to every API role) run by the pg_cron job guest-tiers-nightly at 10 16 * * * with a job_heartbeats row (86400 s). The migration backfills every guest once, so the first apply writes one history row per guest whose tier changes, then adds the tier CHECK. Replaced bodies are the live ones (md5 guarded).",
+    "notes": "Additive: two columns, eight functions (two replaced behind md5 guards, six new), one cron job and heartbeat seed, one CHECK on guests.tier added after the backfill. Old apps keep working: no key was removed from any payload; old clients read returning and vip as before and see regular only as a new string value (Cascade Staff 3.4.11, the admin dashboard and the waves airbnb-email-sync tierBadge learn it in this session). Deploy order: SQL, then the waves function airbnb-email-sync, then the Staff app and the admin dashboard. A stale tier until the nightly run (00:10 Manila) or the next booking e-mail is expected."
+  },
+  "forward_verification": [
+    {
+      "name": "guest_tier_v1_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '3fd9b97ce86f20bcb346fbd3530bc639' from pg_proc where oid = 'public.guest_tier_v1(integer,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_ordinal_v1_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '4663c8f1721a58f8160027bca03500ff' from pg_proc where oid = 'public.guest_ordinal_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_completed_stats_v1_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '85b6843153b5e500c0cd4f6d00411a1c' from pg_proc where oid = 'public.guest_completed_stats_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_tier_line_v1_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'bef6c1ed889d5f6697e0d9288298ecf1' from pg_proc where oid = 'public.guest_tier_line_v1(text,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "refresh_guest_stats_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '7d58615a6d35b0b6ccb7b0520c0cfc17' from pg_proc where oid = 'public.refresh_guest_stats(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '4d2e6a4df349597c7eef52adff2535e2' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "admin_set_guest_tier_v1_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '202a8c48bf5e86ad2f5ccc693343fbfa' from pg_proc where oid = 'public.admin_set_guest_tier_v1(uuid,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "refresh_all_guest_tiers_v1_is_the_s95_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'e6e4f850989fa95e3ffb91b976d39052' from pg_proc where oid = 'public.refresh_all_guest_tiers_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_tier_v1_has_the_stated_grants",
+      "query": "select not prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.guest_tier_v1(integer,integer)', 'execute') and not has_function_privilege('authenticated', 'public.guest_tier_v1(integer,integer)', 'execute') and not has_function_privilege('service_role', 'public.guest_tier_v1(integer,integer)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.guest_tier_v1(integer,integer)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.guest_tier_v1(integer,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_ordinal_v1_has_the_stated_grants",
+      "query": "select not prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.guest_ordinal_v1(integer)', 'execute') and not has_function_privilege('authenticated', 'public.guest_ordinal_v1(integer)', 'execute') and not has_function_privilege('service_role', 'public.guest_ordinal_v1(integer)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.guest_ordinal_v1(integer)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.guest_ordinal_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_completed_stats_v1_has_the_stated_grants",
+      "query": "select not prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.guest_completed_stats_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.guest_completed_stats_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.guest_completed_stats_v1(uuid)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.guest_completed_stats_v1(uuid)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.guest_completed_stats_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_tier_line_v1_has_the_stated_grants",
+      "query": "select not prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.guest_tier_line_v1(text,integer)', 'execute') and not has_function_privilege('authenticated', 'public.guest_tier_line_v1(text,integer)', 'execute') and not has_function_privilege('service_role', 'public.guest_tier_line_v1(text,integer)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.guest_tier_line_v1(text,integer)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.guest_tier_line_v1(text,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "refresh_guest_stats_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.refresh_guest_stats(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.refresh_guest_stats(uuid)', 'execute') and has_function_privilege('service_role', 'public.refresh_guest_stats(uuid)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.refresh_guest_stats(uuid)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.refresh_guest_stats(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "admin_set_guest_tier_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.admin_set_guest_tier_v1(uuid,text,text)', 'execute') and has_function_privilege('authenticated', 'public.admin_set_guest_tier_v1(uuid,text,text)', 'execute') and not has_function_privilege('service_role', 'public.admin_set_guest_tier_v1(uuid,text,text)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.admin_set_guest_tier_v1(uuid,text,text)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.admin_set_guest_tier_v1(uuid,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "refresh_all_guest_tiers_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.refresh_all_guest_tiers_v1()', 'execute') and not has_function_privilege('authenticated', 'public.refresh_all_guest_tiers_v1()', 'execute') and not has_function_privilege('service_role', 'public.refresh_all_guest_tiers_v1()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.refresh_all_guest_tiers_v1()'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.refresh_all_guest_tiers_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_keeps_its_grants_closed",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and not has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure and a.grantee = 0) from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "new_columns_exist",
+      "query": "select (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'guests' and column_name in ('tier_manual', 'tier_changed_at')) = 2",
+      "expect": true
+    },
+    {
+      "name": "tier_checks_are_validated",
+      "query": "select (select count(*) from pg_constraint where conrelid = 'public.guests'::regclass and contype = 'c' and convalidated and conname in ('guests_tier_check', 'guests_tier_manual_check')) = 2",
+      "expect": true
+    },
+    {
+      "name": "no_tier_outside_the_four_values",
+      "query": "select not exists (select 1 from public.guests where tier is not null and tier not in ('returning', 'regular', 'vip')) and not exists (select 1 from public.guests where tier_manual is not null and tier_manual not in ('returning', 'regular', 'vip'))",
+      "expect": true
+    },
+    {
+      "name": "every_guest_tier_equals_a_fresh_recompute",
+      "query": "select not exists (select 1 from public.guests g cross join lateral public.guest_completed_stats_v1(g.id) s where g.tier is distinct from coalesce(g.tier_manual, public.guest_tier_v1(s.stays, s.nights)))",
+      "expect": true
+    },
+    {
+      "name": "count_by_tier_equals_a_fresh_recompute",
+      "query": "select (select coalesce(jsonb_object_agg(t, n), '{}'::jsonb) from (select coalesce(tier, 'none') t, count(*) n from public.guests group by 1) a) = (select coalesce(jsonb_object_agg(t, n), '{}'::jsonb) from (select coalesce(g.tier_manual, public.guest_tier_v1(s.stays, s.nights), 'none') t, count(*) n from public.guests g cross join lateral public.guest_completed_stats_v1(g.id) s group by 1) b)",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_returns_the_tier_keys",
+      "query": "select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', null, current_date) ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'tier', 'tier_line']",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_for_tiered_guests_carries_a_line",
+      "query": "select coalesce(bool_and(c ?& array['tier', 'tier_line'] and c ->> 'tier' = g_tier and (c ->> 'tier_line') like case g_tier when 'vip' then 'VIP' else initcap(g_tier) end || ' guest (%'), true) from (select g.tier g_tier, public.staff_guest_card_v1(g.property_id, g.id, current_date) c from public.guests g where g.tier is not null limit 5) x",
+      "expect": true
+    },
+    {
+      "name": "the_tier_rule_boundaries",
+      "query": "select public.guest_tier_v1(1, 9) is null and public.guest_tier_v1(2, 2) = 'returning' and public.guest_tier_v1(4, 4) = 'regular' and public.guest_tier_v1(1, 10) = 'regular' and public.guest_tier_v1(7, 7) = 'vip' and public.guest_tier_v1(1, 20) = 'vip' and public.guest_tier_v1(6, 19) = 'regular'",
+      "expect": true
+    },
+    {
+      "name": "ordinals_are_correct_english",
+      "query": "select public.guest_ordinal_v1(2) = '2nd' and public.guest_ordinal_v1(3) = '3rd' and public.guest_ordinal_v1(11) = '11th' and public.guest_ordinal_v1(12) = '12th' and public.guest_ordinal_v1(13) = '13th' and public.guest_ordinal_v1(21) = '21st' and public.guest_ordinal_v1(22) = '22nd' and public.guest_ordinal_v1(112) = '112th'",
+      "expect": true
+    },
+    {
+      "name": "refresh_guest_stats_keeps_its_signature_and_returns_void",
+      "query": "select pronargs = 1 and prorettype = 'void'::regtype from pg_proc where oid = 'public.refresh_guest_stats(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "heartbeat_guest_tiers_nightly_is_daily",
+      "query": "select expected_interval_seconds = 86400 and not ops_risk from public.job_heartbeats where job_name = 'guest-tiers-nightly'",
+      "expect": true
+    },
+    {
+      "name": "guest_tiers_nightly_cron_is_scheduled",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (schedule = ''10 16 * * *'' and active and command like ''%refresh_all_guest_tiers_v1%'')::text s from cron.job where jobname = ''guest-tiers-nightly''', false, true, '')))[1]::text = 'true' end",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always. The rollback script restores refresh_guest_stats and staff_guest_card_v1 byte for byte, re-runs the old refresh for every guest (tiers return to the old two-value rule), drops the new functions, the guest-tiers-nightly job and heartbeat, the CHECKs and the two columns. Hand-set tiers (tier_manual) are lost by design; history rows written by the release stay. Roll the Staff app and the admin dashboard back first.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261028_s95_guest_tiers.sql with run-sql-on-host.sh. Roll the Staff app, the admin dashboard and airbnb-email-sync back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff app shows the tier chip and line only once it ships and reads tier / tier_line, and the admin dashboard only calls admin_set_guest_tier_v1 once it ships."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "NOT YET REHEARSED. The SQL lane had no database: the orchestrator rehearses on a fresh backup with migration-rehearsal-on-host.sh (migration, forward verification, pgTAP s95_guest_tiers.sql) and sets verified to true with the log path here."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run the migration and s95_guest_tiers.sql green on this commit (compatibility.verified is still false)",
+    "the Opus 5.5 / Fable 5.1 review of this SQL lane (guest tier writes read by Cassy and the staff app: Fable) has not passed",
+    "refresh_guest_stats or staff_guest_card_v1 no longer has the md5 the migration guard names (4c2739962ed0dbd0bc240756df488e93 / 9fae8f114017a3a98f0bd02541a7e0af)"
+  ]
+}
