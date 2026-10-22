@@ -4,7 +4,7 @@
 -- real rows. Refusals are tested by calling as the refused role. Grants are not asserted (a --no-acl rehearsal carries none); the release forward checks prove them.
 -- Everything rolls back.
 begin;
-select plan(73);
+select plan(77);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -65,7 +65,7 @@ select is((select tier from public.guests where id = 'f9500000-0000-4000-8000-00
 select is((select total_stays from public.guests where id = 'f9500000-0000-4000-8000-0000000000c1'), 2, 'total_stays is the airbnb count as before');
 select ok((select tier_changed_at is not null from public.guests where id = 'f9500000-0000-4000-8000-0000000000c1'), 'tier_changed_at is stamped on the change');
 select is((select count(*)::int from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1'), 1, 'one history row for the first tier');
-select is((select reason from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1'), 'Tier: Returning (2nd completed stay)', 'the history reason names the tier and the stay');
+select is((select reason from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1'), 'Tier: Returning (2 completed stays, 4 nights)', 'the history reason is the tier with the completed stays and nights as counts');
 select is((select after_state from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1'),
   '{"tier": "returning", "completed_stays": 2, "completed_nights": 4}'::jsonb, 'after_state carries the tier, completed stays and nights');
 select ok((select changed_by is null and before_state = '{"tier": null}'::jsonb from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1'), 'automatic change: changed_by null, before tier null');
@@ -97,8 +97,8 @@ insert into public.airbnb_reservations(property_id, confirmation_code, status, g
 select public.refresh_guest_stats('f9500000-0000-4000-8000-0000000000c1');
 select is((select tier from public.guests where id = 'f9500000-0000-4000-8000-0000000000c1'), 'regular', 'a confirmed stay past its checkout counts: 4 completed stays = regular');
 select is((select count(*)::int from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1'), 2, 'one more history row for the change');
-select ok(exists (select 1 from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1' and reason = 'Tier: Regular (4th completed stay)'
-  and before_state = '{"tier": "returning"}'::jsonb and (after_state ->> 'completed_stays')::int = 4 and (after_state ->> 'completed_nights')::int = 8), 'the Regular row has the stay ordinal, before tier and counts');
+select ok(exists (select 1 from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c1' and reason = 'Tier: Regular (4 completed stays, 8 nights)'
+  and before_state = '{"tier": "returning"}'::jsonb and (after_state ->> 'completed_stays')::int = 4 and (after_state ->> 'completed_nights')::int = 8), 'the Regular row has the counts in the reason, the before tier and the counts in after_state');
 
 -- nights alone: one 20-night stay is vip, one 10-night stay is regular; no stays is none
 select public.refresh_guest_stats('f9500000-0000-4000-8000-0000000000c2');
@@ -106,6 +106,11 @@ select public.refresh_guest_stats('f9500000-0000-4000-8000-0000000000c3');
 select public.refresh_guest_stats('f9500000-0000-4000-8000-0000000000c4');
 select is((select tier from public.guests where id = 'f9500000-0000-4000-8000-0000000000c2'), 'vip', 'one 20-night stay: vip');
 select is((select tier from public.guests where id = 'f9500000-0000-4000-8000-0000000000c3'), 'regular', 'one 10-night stay: regular');
+-- the 10-night guest drops to one 3-night stay: no tier, and the reason uses the singular
+update public.airbnb_reservations set checkout_date = current_date - 97 where confirmation_code = 'ZZS95C3';
+select public.refresh_guest_stats('f9500000-0000-4000-8000-0000000000c3');
+select is((select tier from public.guests where id = 'f9500000-0000-4000-8000-0000000000c3'), null, 'one 3-night stay: the regular tier is lost');
+select is((select reason from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c3' and after_state -> 'tier' = 'null'::jsonb), 'Tier: none (1 completed stay)', 'the reason reads 1 completed stay (singular)');
 select is((select tier from public.guests where id = 'f9500000-0000-4000-8000-0000000000c4'), null, 'a guest with no stays has no tier');
 select is((select count(*)::int from public.guest_profile_history where guest_id = 'f9500000-0000-4000-8000-0000000000c4'), 0, 'and no history row');
 select lives_ok($$select public.refresh_guest_stats('f9500000-0000-4000-8000-0000000000ff')$$, 'refreshing a guest that does not exist does nothing and does not fail');
@@ -165,6 +170,9 @@ select is(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9
 select is(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date) ->> 'tier_line',
   public.guest_tier_line_v1('regular', 4), 'and the line for the stay being prepared (4 completed so far)');
 select ok(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date) ->> 'tier_line' like 'Regular guest (5th stay)%', 'the 5th stay is named');
+-- the line ordinal is the card's own count: 5 earlier stays before current_date + 5 (the upcoming one has ended by then), so stay 6 in both
+select is(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date + 5) ->> 'stay_count', '6', 'a later check-in counts the finished upcoming stay: stay_count 6');
+select ok(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date + 5) ->> 'tier_line' like 'Regular guest (6th stay)%', 'and the tier line says 6th stay, equal to stay_count');
 select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'tier', 'tier_line'] and (select count(*) from jsonb_object_keys(c)) = 7
              from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date) c) x), 'the card has its five old keys and exactly the two new ones');
 select ok((select jsonb_typeof(c -> 'tier') = 'null' and jsonb_typeof(c -> 'tier_line') = 'null'

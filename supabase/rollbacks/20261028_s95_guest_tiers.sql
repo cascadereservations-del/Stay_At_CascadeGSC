@@ -1,19 +1,23 @@
 -- Compensating rollback for release s95_guest_tiers_20261028 (session 95).
 -- Puts refresh_guest_stats (live md5 4c2739962ed0dbd0bc240756df488e93, SECURITY INVOKER, executable by anon/authenticated/service_role as before) and staff_guest_card_v1
 -- (md5 9fae8f114017a3a98f0bd02541a7e0af) back byte for byte, drops the tier CHECKs, re-runs the OLD refresh for every guest (tiers return to the old two-value rule), then drops
--- admin_set_guest_tier_v1, refresh_all_guest_tiers_v1, guest_tier_line_v1, guest_completed_stats_v1, guest_ordinal_v1, guest_tier_v1, the guest-tiers-nightly cron job and
+-- admin_set_guest_tier_v1, the internal overload refresh_guest_stats(uuid, uuid, text), refresh_all_guest_tiers_v1, guest_tier_line_v1, guest_completed_stats_v1, guest_ordinal_v1, guest_tier_v1, the guest-tiers-nightly cron job and
 -- heartbeat, and the columns tier_manual and tier_changed_at (DATA LOSS by design: hand-set tiers). guest_profile_history rows written by the release stay (history).
 -- Roll the Staff app and the admin dashboard back first (they read tier_line and call admin_set_guest_tier_v1). Apply with run-sql-on-host.sh.
 
 begin;
 
 do $$
-declare v_got text;
+declare v_got text; r record;
 begin
-  select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.refresh_guest_stats(uuid)');
-  if v_got is distinct from '7d58615a6d35b0b6ccb7b0520c0cfc17' then
-    raise exception 's95 rollback: refresh_guest_stats is not the s95 body (md5 %): check what changed it before rolling back', v_got using errcode = '55000';
-  end if;
+  for r in select * from (values
+      ('public.refresh_guest_stats(uuid)', 'a6f1ed47dd79d245034104b67918510b'),
+      ('public.staff_guest_card_v1(uuid,uuid,date)', 'e6423d7cbf16752a779f48774e765ffd')) v(sig, md) loop
+    select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure(r.sig);
+    if v_got is distinct from r.md then
+      raise exception 's95 rollback: % is not the s95 body (md5 %): check what changed it before rolling back', r.sig, v_got using errcode = '55000';
+    end if;
+  end loop;
 end $$;
 
 do $$
@@ -89,7 +93,8 @@ BEGIN
   WHERE id = p_guest_id;
 END;
 $$;
-grant execute on function public.refresh_guest_stats(uuid) to anon, authenticated, service_role;
+grant execute on function public.refresh_guest_stats(uuid) to public, anon, authenticated, service_role;
+drop function public.refresh_guest_stats(uuid, uuid, text);
 
 drop function public.admin_set_guest_tier_v1(uuid, text, text);
 drop function public.refresh_all_guest_tiers_v1();
@@ -108,6 +113,8 @@ do $$
 begin
   if md5(replace((select prosrc from pg_proc where oid = 'public.refresh_guest_stats(uuid)'::regprocedure), chr(13), '')) <> '4c2739962ed0dbd0bc240756df488e93' then raise exception 'refresh_guest_stats not restored'; end if;
   if md5(replace((select prosrc from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure), chr(13), '')) <> '9fae8f114017a3a98f0bd02541a7e0af' then raise exception 'staff_guest_card_v1 not restored'; end if;
+  if to_regprocedure('public.refresh_guest_stats(uuid,uuid,text)') is not null then raise exception 'the internal refresh overload survived'; end if;
+  if (select prosecdef from pg_proc where oid = 'public.refresh_guest_stats(uuid)'::regprocedure) then raise exception 'refresh_guest_stats is still SECURITY DEFINER'; end if;
   if exists (select 1 from public.guests where tier = 'regular') then raise exception 'a regular tier survived the rollback'; end if;
 end $$;
 

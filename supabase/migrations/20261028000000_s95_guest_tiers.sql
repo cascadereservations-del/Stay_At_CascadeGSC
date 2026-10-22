@@ -7,9 +7,11 @@
 -- (2) refresh_guest_stats(uuid) replaced, same signature: total_stays / total_nights_stayed / first / last exactly as before (upcoming confirmed stays still count there),
 --     tier from the rule above; on a change of the effective tier it stamps tier_changed_at and writes ONE guest_profile_history row. It is now SECURITY DEFINER (it must
 --     write the history table, which service_role cannot) so it is revoked from anon and authenticated; service_role (airbnb-email-sync) and the definer merge functions keep it.
+--     The logic lives in an internal overload refresh_guest_stats(uuid, uuid, text) (actor and reason of the history row; closed to every API role); the 1-arg function calls it with NULLs.
 --     updated_at now moves only when a stored value changes (the nightly job must not touch every guest every night).
 -- (3) guest_tier_v1, guest_ordinal_v1, guest_completed_stats_v1 (internal helpers), guest_tier_line_v1 (staff-facing benefits line).
--- (4) staff_guest_card_v1: two new keys, tier and tier_line; nothing else changes (same grants as today).
+-- (4) staff_guest_card_v1: two new keys, tier and tier_line; nothing else changes. Its grants are closed explicitly (anon, authenticated, PUBLIC revoked; service_role stays as live).
+--     tier is the effective tier today; the tier_line ordinal comes from the card's own earlier stays, so it always equals stay_count.
 -- (5) admin_set_guest_tier_v1 (owner/admin): set or clear the manual tier with a required reason.
 -- (6) refresh_all_guest_tiers_v1 + job_heartbeats seed + pg_cron guest-tiers-nightly (10 16 * * * = 00:10 Manila).
 -- (7) backfill: every guest refreshed once, the tier CHECK then added.
@@ -84,8 +86,8 @@ returns text language sql stable set search_path = '' as $$
 $$;
 
 -- 3. refresh_guest_stats ------------------------------------------------------------------------------------------------------------------------
--- admin_set_guest_tier_v1 hands its actor and reason to this function through the transaction-local settings cascade.tier_actor / cascade.tier_reason.
-create or replace function public.refresh_guest_stats(p_guest_id uuid)
+-- The logic: internal overload with the actor and the reason of the history row (admin_set_guest_tier_v1 passes them; the automatic refresh passes NULLs).
+create or replace function public.refresh_guest_stats(p_guest_id uuid, p_actor uuid, p_reason text)
 returns void
 language plpgsql
 security definer
@@ -95,8 +97,6 @@ declare
   v_stays  integer; v_nights integer; v_first date; v_last date;
   v_cs integer; v_cn integer;
   v_old text; v_manual text; v_new text;
-  v_actor uuid := nullif(current_setting('cascade.tier_actor', true), '')::uuid;
-  v_reason text := nullif(current_setting('cascade.tier_reason', true), '');
 begin
   select tier, tier_manual into v_old, v_manual from public.guests where id = p_guest_id for update;
   if not found then return; end if;
@@ -127,13 +127,23 @@ begin
 
   if v_new is distinct from v_old then
     insert into public.guest_profile_history (guest_id, changed_by, before_state, after_state, reason)
-    values (p_guest_id, v_actor, jsonb_build_object('tier', v_old),
+    values (p_guest_id, p_actor, jsonb_build_object('tier', v_old),
             jsonb_build_object('tier', v_new, 'completed_stays', v_cs, 'completed_nights', v_cn),
-            coalesce(v_reason, case
-              when v_new is null then 'Tier: none (fewer than 2 completed stays)'
-              else 'Tier: ' || case v_new when 'vip' then 'VIP' else initcap(v_new) end
-                   || ' (' || public.guest_ordinal_v1(v_cs) || ' completed stay)' end));
+            coalesce(nullif(p_reason, ''), 'Tier: ' || coalesce(case v_new when 'vip' then 'VIP' else initcap(v_new) end, 'none')
+                   || ' (' || v_cs || ' completed ' || case when v_cs = 1 then 'stay' else 'stays' end
+                   || case when v_new is null then '' else ', ' || v_cn || case when v_cn = 1 then ' night' else ' nights' end end || ')'));
   end if;
+end;
+$$;
+
+create or replace function public.refresh_guest_stats(p_guest_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.refresh_guest_stats(p_guest_id, null::uuid, null::text);
 end;
 $$;
 
@@ -163,7 +173,7 @@ returns jsonb language sql stable security definer set search_path to '' as $$
                           then public.staff_primary_id_path_v1(p_guest_id) end,
     'tier',          g.tier,
     'tier_line',     case when g.tier is null then null
-                          else public.guest_tier_line_v1(g.tier, (select cs.stays from public.guest_completed_stats_v1(p_guest_id) cs)) end)
+                          else public.guest_tier_line_v1(g.tier, (select count(*) from earlier)::int) end)
   from (select 1) o
   left join public.guests g on g.id = p_guest_id and g.property_id = p_property_id
   left join public.guest_profile_details d on d.guest_id = g.id;
@@ -195,11 +205,7 @@ begin
   end if;
 
   update public.guests set tier_manual = p_tier where id = p_guest_id;
-  perform set_config('cascade.tier_actor', auth.uid()::text, true);
-  perform set_config('cascade.tier_reason', 'Manual tier: ' || coalesce(p_tier, 'cleared') || ' - ' || v_reason, true);
-  perform public.refresh_guest_stats(p_guest_id);
-  perform set_config('cascade.tier_actor', '', true);
-  perform set_config('cascade.tier_reason', '', true);
+  perform public.refresh_guest_stats(p_guest_id, auth.uid(), 'Manual tier: ' || coalesce(p_tier, 'cleared') || ' - ' || v_reason);
 
   select tier, tier_manual into v_after, v_manual from public.guests where id = p_guest_id;
   select s.stays, s.nights into v_cs, v_cn from public.guest_completed_stats_v1(p_guest_id) s;
@@ -232,8 +238,9 @@ begin
       v_n := v_n + 1;
     end loop;
   exception when others then
+    -- no re-raise: a raise would roll the failed heartbeat back with the rest of the transaction
     perform public.record_job_heartbeat('guest-tiers-nightly', 'failed', 'TIER_REFRESH_FAILED');
-    raise;
+    return -1;
   end;
   perform public.record_job_heartbeat('guest-tiers-nightly', 'succeeded');
   return v_n;
@@ -266,17 +273,23 @@ revoke all on function public.guest_ordinal_v1(integer) from public, anon, authe
 revoke all on function public.guest_completed_stats_v1(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.guest_tier_line_v1(text, integer) from public, anon, authenticated, service_role;
 revoke all on function public.refresh_all_guest_tiers_v1() from public, anon, authenticated, service_role;
+revoke all on function public.refresh_guest_stats(uuid, uuid, text) from public, anon, authenticated, service_role;
 revoke all on function public.refresh_guest_stats(uuid) from public, anon, authenticated;
 grant execute on function public.refresh_guest_stats(uuid) to service_role;
+-- the live ACL of the card is postgres and service_role only; written down so a rebuilt database cannot leave it open (service_role stays, the Staff edge function needs it)
+revoke all on function public.staff_guest_card_v1(uuid, uuid, date) from public, anon, authenticated;
 revoke all on function public.admin_set_guest_tier_v1(uuid, text, text) from public, anon, service_role;
 grant execute on function public.admin_set_guest_tier_v1(uuid, text, text) to authenticated;
 
 comment on function public.guest_tier_v1(integer, integer) is 'S95: the tier rule. vip 7+ stays or 20+ nights; regular 4+ or 10+; returning 2+; else NULL.';
-comment on function public.refresh_all_guest_tiers_v1() is 'S95: nightly (pg_cron guest-tiers-nightly) refresh of every guest of the property; returns rows refreshed.';
+comment on function public.refresh_all_guest_tiers_v1() is 'S95: nightly (pg_cron guest-tiers-nightly) refresh of every guest of the property; returns rows refreshed, or -1 after a failure (the failed heartbeat is recorded).';
 comment on function public.admin_set_guest_tier_v1(uuid, text, text) is 'S95: owner/admin set (or clear with NULL) a guest''s manual tier with a reason; the effective tier is recomputed and the change is written to guest_profile_history.';
 
 -- 8. backfill: every guest once, then the CHECK on the effective tier ---------------------------------------------------------------------------
-select public.refresh_all_guest_tiers_v1();
+do $$
+begin
+  if public.refresh_all_guest_tiers_v1() < 0 then raise exception 'the tier backfill failed (see job_heartbeats guest-tiers-nightly)'; end if;
+end $$;
 alter table public.guests add constraint guests_tier_check check (tier in ('returning', 'regular', 'vip'));
 
 do $$
@@ -285,6 +298,10 @@ begin
   if has_function_privilege('anon', 'public.refresh_guest_stats(uuid)', 'execute') or has_function_privilege('authenticated', 'public.refresh_guest_stats(uuid)', 'execute') then
     raise exception 'an API role can refresh guest stats';
   end if;
+  if has_function_privilege('anon', 'public.refresh_guest_stats(uuid,uuid,text)', 'execute') or has_function_privilege('authenticated', 'public.refresh_guest_stats(uuid,uuid,text)', 'execute')
+     or has_function_privilege('service_role', 'public.refresh_guest_stats(uuid,uuid,text)', 'execute') then raise exception 'an API role can call the internal refresh'; end if;
+  if has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') or has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') then
+    raise exception 'an API role can read the staff guest card'; end if;
   if has_function_privilege('anon', 'public.admin_set_guest_tier_v1(uuid,text,text)', 'execute') then raise exception 'anon can set a guest tier'; end if;
   if has_function_privilege('authenticated', 'public.refresh_all_guest_tiers_v1()', 'execute')
      or has_function_privilege('service_role', 'public.refresh_all_guest_tiers_v1()', 'execute') then raise exception 'an API role can run the tier sweep'; end if;
