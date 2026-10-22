@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "spec47-sql",
-    "commit": "0000000000000000000000000000000000000000"
+    "commit": "b17338dcd811dcbda944f8c33bd582395780dbe6"
   },
   "migrations": [
     "20261029000000_s96_spec47.sql"
