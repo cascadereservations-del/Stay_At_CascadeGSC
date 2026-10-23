@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261023T004316Z",
+    "verified_at": "2026-10-23T00:47:06.329Z",
     "production_rule": "SPEC-47b ID face box (D-346 unchanged: ID photos are KEPT; no photo is moved or deleted). New nullable column guest_companions.id_face_box (CHECK id_face_box_shape: null or exactly {x,y,w,h,src}, numbers normalised 0-1 in the stored frame, src vision or none; reset to null by a BEFORE UPDATE OF id_photo_path trigger, as id_photo_rotation is). id_face_todo_v1(p_limit) lists up to 20 {companion_id, path} whose photo has no box, oldest first; set_id_face_box_v1(companion, path, box) stores a box only while the path is current and returns false for a replaced photo or an invalid box; both service_role only. Second new nullable column id_face_tried_at (reset with the box): id_face_todo_v1 is VOLATILE, stamps it on the rows it hands out, skips a photo handed out in the last hour and lists never-tried first then newest photo first, so a photo that keeps failing cannot starve the queue. The box reaches the app only through staff_guest_card_v1, which gains ONE key, id_face_box, beside id_photo_path under the same gate (s96 body md5 c0b8c068b8fffb86e0e812b7207d96a6 guarded; staff_home_v1 merges the card with || so current_guest / next_guest carry it, and is unchanged). staff_photo_rotation_v1 is not touched. pg_cron id-face-locate-10m (*/10 * * * *) calls the id-face-locate edge function with the vault cron secret, plus job_heartbeats row id-face-locate (86400 s, no ops risk).",
     "notes": "Additive: one nullable column, two new functions, one trigger, one replaced function (md5 guarded; old clients ignore the extra key), one cron job and heartbeat seed. No data is moved or deleted at apply. Deploy order: SQL, then the id-face-locate edge function (--no-verify-jwt; the cron job fails quietly until it exists), then the Staff app. The cron job drains the existing photos at 20 per run."
   },
