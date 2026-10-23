@@ -83,12 +83,12 @@ select is(public.staff_guest_card_v1('f9600000-0000-4000-8000-0000000000aa', 'f9
 
 -- every old key is unchanged: a guest with no stays, and a returning guest
 select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'id_face_box', 'tier', 'tier_line', 'notable'] and (select count(*) from jsonb_object_keys(c)) = 9
-             from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c2', current_date) c) x), 'the card has its seven old keys and exactly one new one');
+             from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c2', current_date) c) x), 'the card has its seven old keys, id_face_box (s97) and exactly one new one (notable)');
 select is((select c - 'notable' - 'notes' - 'id_photo_path' - 'id_face_box' from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c2', current_date) c) x),
-  '{"repeat": false, "stay_count": 1, "earlier_stays": [], "tier": null, "tier_line": null}'::jsonb, 'no-stay guest: repeat, stay_count, earlier_stays, tier and tier_line as before');
+  '{"repeat": false, "stay_count": 1, "earlier_stays": [], "tier": null, "tier_line": null}'::jsonb, 'no-stay guest: repeat, stay_count, earlier_stays, tier and tier_line as before (notes, id_photo_path, id_face_box and notable not compared)');
 select public.refresh_guest_stats('f9600000-0000-4000-8000-0000000000c4');
 select is((select c - 'notable' - 'notes' - 'id_photo_path' - 'id_face_box' - 'earlier_stays' from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c4', current_date) c) x),
-  jsonb_build_object('repeat', true, 'stay_count', 3, 'tier', 'returning', 'tier_line', public.guest_tier_line_v1('returning', 2)), 'returning guest: repeat, stay_count, tier and tier_line as before');
+  jsonb_build_object('repeat', true, 'stay_count', 3, 'tier', 'returning', 'tier_line', public.guest_tier_line_v1('returning', 2)), 'returning guest: repeat, stay_count, tier and tier_line as before (notes, id_photo_path, id_face_box, notable and earlier_stays not compared)');
 select is((select jsonb_array_length(c -> 'earlier_stays') from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c4', current_date) c) x), 2, 'earlier_stays still lists both earlier stays');
 select is((select c -> 'earlier_stays' -> 0 ->> 'month' from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c4', current_date) c) x),
   to_char(current_date - 198, 'YYYY-MM'), 'earlier_stays is still newest checkout first');
