@@ -7,6 +7,7 @@
 -- same stamping of id_face_tried_at, same grants (service_role only, restated, ML-21). No table, column, trigger or other function is touched.
 -- Stay rule reused (ML-10, nothing new invented): the stay source of staff_current_next_stays_v1 (calendar_events status 'confirmed', check-out after today, Manila date),
 -- the guest of each stay resolved by the SAME helper staff_stay_guest_id_v1 that staff_home_v1 uses for current_guest / next_guest.
+-- Within the today-first group a photo due for retry may come before a never-tried photo of a later arrival (bounded: once an hour each).
 -- Guard: the live id_face_todo_v1 must be the s97 body (md5 of prosrc, CR stripped). To undo apply supabase/rollbacks/20261031_s98_face_queue_today_first.sql.
 begin;
 
@@ -14,6 +15,9 @@ do $$
 declare v_got text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.id_face_todo_v1(integer)');
+  if v_got = 'd28bb138c1e12aca783a5850014ad452' then
+    raise exception 's98 face queue: already applied' using errcode = '55000';
+  end if;
   if v_got is distinct from '1476750c20ccbbc6c6f3f6ca9941c4f4' then
     raise exception 's98 face queue: id_face_todo_v1 is not the s97 body this release was cut from (md5 %): re-cut it from the live body', v_got using errcode = '55000';
   end if;

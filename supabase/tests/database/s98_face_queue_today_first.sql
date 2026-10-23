@@ -69,14 +69,14 @@ select is((select jsonb_agg(e ->> 'companion_id') from jsonb_array_elements(publ
 -- 3. cap 20 with the today group ahead of a larger, newer backlog ---------------------------------------------------------------------------------
 update public.guest_companions set id_face_tried_at = null where id::text like 'e9800000-%';
 insert into public.guest_companions(id, guest_id, property_id, name, id_photo_path, created_at)
-  select ('e9800000-0000-4000-8000-000000000200' || lpad(g::text, 2, '0'))::uuid, 'e9800000-0000-4000-8000-0000000000c5', 'e9800000-0000-4000-8000-0000000000b0', 'Zz S98 Bulk ' || g,
-         'e9800000-0000-4000-8000-000000000200' || lpad(g::text, 2, '0') || '/p.jpg', now() + interval '10 days' + g * interval '1 minute'
+  select ('e9800000-0000-4000-8000-0000000002' || lpad(g::text, 2, '0'))::uuid, 'e9800000-0000-4000-8000-0000000000c5', 'e9800000-0000-4000-8000-0000000000b0', 'Zz S98 Bulk ' || g,
+         'e9800000-0000-4000-8000-0000000002' || lpad(g::text, 2, '0') || '/p.jpg', now() + interval '10 days' + g * interval '1 minute'
     from generate_series(1, 22) g;
 create temp table s98_first on commit drop as select e.v, e.n from jsonb_array_elements(public.id_face_todo_v1(1000)) with ordinality e(v, n);
 select is((select count(*)::int from s98_first), 20, 'rows due and a huge limit: exactly 20 are handed out');
 select is((select jsonb_agg(v ->> 'companion_id' order by n) from s98_first where n <= 3),
           '["e9800000-0000-4000-8000-000000000101", "e9800000-0000-4000-8000-000000000103", "e9800000-0000-4000-8000-000000000105"]'::jsonb, 'the three today-first photos lead, though 22 newer photos are due');
-select is((select count(*)::int from s98_first where (v ->> 'companion_id') like 'e9800000-0000-4000-8000-000000000200%'), 17, 'the other 17 places go to the newest backlog photos');
+select is((select count(*)::int from s98_first where (v ->> 'companion_id') like 'e9800000-0000-4000-8000-0000000002%'), 17, 'the other 17 places go to the newest backlog photos');
 select is((select (select count(*) from jsonb_object_keys(v))::int from s98_first limit 1), 2, 'an entry still has exactly two keys (companion_id, path)');
 
 -- 4. grants, volatility ------------------------------------------------------------------------------------------------------------------------

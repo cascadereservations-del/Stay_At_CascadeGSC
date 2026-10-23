@@ -10,7 +10,7 @@
     "20261031000000_s98_face_queue_today_first.sql"
   ],
   "migration_sha256": {
-    "20261031000000_s98_face_queue_today_first.sql": "7ed66b750c7a471e43724fddfdde5f3b486bd9ee7f6afb00796cd6003cbbd38c"
+    "20261031000000_s98_face_queue_today_first.sql": "b96cb778db0b5eff3f4d45e2d2ef8e526ffa13c372731959d50b27be3b68856d"
   },
   "backup": {
     "required": true,
