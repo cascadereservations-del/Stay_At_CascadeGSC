@@ -97,8 +97,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed yet (orchestrator): migration-rehearsal-on-host.sh on a fresh backup taken after the s97 apply, then pgTAP s98_face_queue_today_first.sql (17 assertions), s97_id_face_box.sql (57, unchanged) and s95_guest_tiers.sql."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-23 on backup cascade-supabase-20261023T010437Z (taken after the s97 apply), log Cascade/docs/s95/rehearsal1-20261031_s98.log: migration applied 1/1, pgTAP s98_face_queue_today_first.sql 17/17, s95_guest_tiers.sql 77/77. Forward 10/11 and s97_id_face_box.sql 54/57 in rehearsal: every failure is a grant assertion on a function already in the backup (staff_stay_guest_id_v1, set_id_face_box_v1, staff_guest_card_v1, the reset trigger fn), which a --no-acl restore leaves with default PUBLIC execute. Production read live 2026-10-23: staff_stay_guest_id_v1 proacl {postgres=X/postgres,service_role=X/postgres}, anon and authenticated cannot execute; s97 grants were verified by its own forward checks at apply (18/18)."
   },
   "approvals": {
     "production_required": true,
