@@ -27,7 +27,13 @@ Deno.serve(withObservability({ functionName: 'id-face-locate', route: 'ops' }, a
       },
       download: async (path) => {
         const { data, error } = await db.storage.from('guest-id-photos').download(path);
-        return error || !data ? null : new Uint8Array(await data.arrayBuffer());
+        if (error) {
+          // deno-lint-ignore no-explicit-any
+          const e = error as any, code = String(e.statusCode ?? e.status ?? '');
+          if (code === '404' || /not.?found/i.test(String(e.message))) return null; // object gone: permanent
+          throw new Error('download'); // anything else is transient
+        }
+        return new Uint8Array(await data.arrayBuffer());
       },
       vision: (bytes, mime) => visionExtractText(FACE_PROMPT, bytes, mime, 'Cascade ID face box'),
       save: async (id, path, box) => {
@@ -38,7 +44,7 @@ Deno.serve(withObservability({ functionName: 'id-face-locate', route: 'ops' }, a
       log: (m) => console.warn(m),
     });
     console.log(JSON.stringify({ event: 'id_face_locate', ...s }));
-    // A stopped run (3 failures in a row) is a failed beat; the next cron run retries the same photos.
+    // A stopped run (3 transient failures in a row) is a failed beat; a budget stop is not (the next run continues).
     await hb(s.stopped ? 'failed' : 'succeeded', s.stopped ? 'vision_failures' : null);
     return new Response(JSON.stringify({ ok: !s.stopped, ...s }), { status: 200, headers: JSON_H });
   } catch (e) {
