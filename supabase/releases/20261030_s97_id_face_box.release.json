@@ -132,8 +132,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING: rehearsal on a backup taken after the s96 apply (migration, forward verification, pgTAP s97_id_face_box.sql 57, s96_spec47.sql and s95_guest_tiers.sql with the card now at 9 keys). cron checks pass vacuously on the baseline (no pg_cron): read cron.job live after apply with supabase/sql/2026-10-30-s97-post-apply-read.sql."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-23 on backup cascade-supabase-20261023T002309Z (taken after the s96 apply), migration-rehearsal-on-host.sh, log Cascade/docs/s95/rehearsal1-20261030_s97_id_face_box.log: migration applied 1/1, forward verification 18/18, pgTAP s97_id_face_box.sql 57/57, s95_guest_tiers.sql 77/77. s96_spec47.sql 51/56: the 5 failures are its grant assertions on s96 functions (wrapper, record, purge), which a --no-acl restore leaves with default PUBLIC execute because the s96 migration is already in the backup and is not re-run; production grants were read live after the s96 apply (2026-10-23 post-apply read: anon/authenticated cannot record, sweep or purge). cron checks pass vacuously on the baseline (no pg_cron): read cron.job live with supabase/sql/2026-10-30-s97-post-apply-read.sql."
   },
   "approvals": {
     "production_required": true,
