@@ -2,7 +2,7 @@
 -- staff_photo_rotation_v1 (now also returns id_face_box, same gate) and the grants. Synthetic fixtures only (uuids e9700000-..., property ...b0); the fixtures carry
 -- created_at in 2000 so id_face_todo_v1 (oldest first) lists them ahead of any real row in a restored backup. Everything rolls back.
 begin;
-select plan(51);
+select plan(55);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -74,6 +74,12 @@ select is(public.set_id_face_box_v1('e9700000-0000-4000-8000-0000000000e4', 'e97
 select is(public.set_id_face_box_v1('e9700000-0000-4000-8000-0000000000fe', 'x', '{"x":0.2,"y":0.1,"w":0.3,"h":0.4,"src":"vision"}'), false, 'an unknown companion returns false');
 select is(public.set_id_face_box_v1('e9700000-0000-4000-8000-0000000000e4', 'e9700000-0000-4000-8000-0000000000e4/11111111-0000-4000-8000-000000000004.jpg', '{"x":0,"y":0,"w":1,"h":1,"src":"none"}'), true, 'src none (no face found) is stored');
 select ok(not exists (select 1 from jsonb_array_elements(public.id_face_todo_v1(20)) e where e ->> 'companion_id' in ('e9700000-0000-4000-8000-0000000000e1', 'e9700000-0000-4000-8000-0000000000e4')), 'a stored box (vision or none) leaves the todo list');
+
+-- 3b. the waves no-face payload (cross-lane): all five keys, {"x":0,"y":0,"w":1,"h":1,"src":"none"}
+select is(public.set_id_face_box_v1('e9700000-0000-4000-8000-0000000000e2', 'e9700000-0000-4000-8000-0000000000e2/11111111-0000-4000-8000-0000000000ff.jpg', '{"src":"none"}'), false, 'a bare {"src":"none"} is refused (false): the CHECK keeps all five keys');
+select is(public.set_id_face_box_v1('e9700000-0000-4000-8000-0000000000e2', 'e9700000-0000-4000-8000-0000000000e2/11111111-0000-4000-8000-0000000000ff.jpg', '{"x":0,"y":0,"w":1,"h":1,"src":"none"}'), true, 'the waves no-face payload is accepted (true)');
+select is((select id_face_box from public.guest_companions where id = 'e9700000-0000-4000-8000-0000000000e2'), '{"x":0,"y":0,"w":1,"h":1,"src":"none"}'::jsonb, 'and stored exactly as given');
+select ok(not exists (select 1 from jsonb_array_elements(public.id_face_todo_v1(20)) e where e ->> 'companion_id' = 'e9700000-0000-4000-8000-0000000000e2'), 'a row stored with the no-face payload is no longer in the todo list (not retried)');
 
 -- 4. staff_photo_rotation_v1 carries the box (same gate) --------------------------------------------------------------------------------------
 select is(pg_get_function_result('public.staff_photo_rotation_v1(text[])'::regprocedure), 'TABLE(path text, rotation smallint, id_face_box jsonb)', 'staff_photo_rotation_v1 returns path, rotation, id_face_box');
