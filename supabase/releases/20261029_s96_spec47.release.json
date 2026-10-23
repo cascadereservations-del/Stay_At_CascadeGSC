@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING: filled by scripts/migrations/fill-restore-point.mjs before apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261023T000134Z",
+    "verified_at": "2026-10-23T00:05:35.397Z",
     "production_rule": "SPEC-47 notable topics (D-346: ID photos are KEPT until staff delete them by hand; guest_companions and the SPEC-40 photo pipeline are not touched). New table guest_topics (topic keys only, never message text; one row per guest, topic and source; RLS on, no grants to any API role). record_guest_topic_v1(guest, booking, topic, source): SECURITY DEFINER upsert for the message readers, service_role only, silent no-op on an unknown topic, source or guest or a null guest. purge_guest_topics_v1(): deletes rows with last_seen older than 365 days, closed to every API role. guest_retention_nightly_v1 (internal, closed to every API role; started / purge / succeeded, or failed with TOPIC_PURGE_FAILED and -1) is run by pg_cron guest-retention-nightly at 20 16 * * * (00:20 Manila) with a job_heartbeats row (172800 s). staff_guest_card_v1 gains ONE key, notable: up to 3 {topic, last_seen, source}, newest last_seen first, one per topic, [] when none; every other key and the tiers logic are byte for byte as in the s95 body (md5 e6423d7cbf16752a779f48774e765ffd, guarded).",
     "notes": "Phase backfill (not expand) only because the expand scanner flags the DELETE FROM inside purge_guest_topics_v1, as it did for the SPEC-40 purge release. Additive: one empty table, three new functions, one replaced function (md5 guarded), one cron job and heartbeat seed. Old apps keep working: no key was removed from any payload and old clients ignore notable. Deploy order: SQL, then the waves functions (airbnb-email-sync, messenger-concierge: they call record_guest_topic_v1 and fail quietly before it exists), then the Staff app. No data is moved or deleted at apply."
   },
