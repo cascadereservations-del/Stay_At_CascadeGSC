@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261023T012107Z",
+    "verified_at": "2026-10-23T01:25:09.820Z",
     "production_rule": "SPEC-47c face queue serves today's guests first. Replaces ONLY public.id_face_todo_v1(integer) (s97 body md5 1476750c20ccbbc6c6f3f6ca9941c4f4 guarded): the 20 photos handed out per id-face-locate run are now the companions of guests with a stay in progress or a check-in within the next 7 days (Manila date), soonest check-in first, then the existing s97 order (never tried first, newest photo first). Stay source reused, not invented: calendar_events status confirmed with check-out after today (the staff_current_next_stays_v1 rule behind staff_home_v1 current_guest / next_guest), guest resolved by staff_stay_guest_id_v1. Same eligibility (photo present, face box null, not handed out in the last hour), same cap 20, same stamping of id_face_tried_at, still VOLATILE, security definer, search_path empty; grants restated: service_role only, no PUBLIC (ML-21). No table, column, trigger, cron job or other function is touched.",
     "notes": "Additive behaviour change to one function. No data is moved or deleted. Old callers (id-face-locate) are unaffected: same signature and same two-key entries. No deploy order constraint with the Staff 3.4.14 app."
   },
