@@ -18,4 +18,5 @@ select has_function_privilege('anon', 'public.id_face_todo_v1(integer)', 'execut
        has_function_privilege('service_role', 'public.set_id_face_box_v1(uuid,text,jsonb)', 'execute') as service_role_can_set,
        has_function_privilege('anon', 'public.staff_photo_rotation_v1(text[])', 'execute') as anon_can_read_rotation,
        has_function_privilege('authenticated', 'public.staff_photo_rotation_v1(text[])', 'execute') as authenticated_can_read_rotation;
+select (public.staff_guest_card_v1(g.property_id, g.id, (now() at time zone 'Asia/Manila')::date) ? 'id_face_box') as card_has_id_face_box from public.guests g order by g.id limit 1;
 commit;

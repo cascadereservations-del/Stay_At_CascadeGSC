@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "release_id": "s97_id_face_box_20261030",
+  "phase": "expand",
+  "source": {
+    "branch": "spec47b-sql",
+    "commit": "1ae8a49968f7d4edc05229ad0a1637d0eed2b0d3"
+  },
+  "migrations": [
+    "20261030000000_s97_id_face_box.sql"
+  ],
+  "migration_sha256": {
+    "20261030000000_s97_id_face_box.sql": "e3923cad54fc34bc67faf1d86b3a96c83e6e385ac359d79ee7e3ba6b64e31574"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "SPEC-47b ID face box (D-346 unchanged: ID photos are KEPT; no photo is moved or deleted). New nullable column guest_companions.id_face_box (CHECK id_face_box_shape: null or exactly {x,y,w,h,src}, numbers normalised 0-1 in the stored frame, src vision or none; reset to null by a BEFORE UPDATE OF id_photo_path trigger, as id_photo_rotation is). id_face_todo_v1(p_limit) lists up to 20 {companion_id, path} whose photo has no box, oldest first; set_id_face_box_v1(companion, path, box) stores a box only while the path is current and returns false for a replaced photo or an invalid box; both service_role only. The box reaches the app in two places: staff_guest_card_v1 gains ONE key, id_face_box, beside id_photo_path under the same gate (s96 body md5 c0b8c068b8fffb86e0e812b7207d96a6 guarded; staff_home_v1 merges the card with || so current_guest / next_guest carry it, and is unchanged), and staff_photo_rotation_v1 (the one function that carries id_photo_rotation) gains a third returned column id_face_box under the same gate (s91 body md5 ab62dcfe266d9a252eea95b732a2cff2 guarded; dropped and re-created because a result type cannot change in place, grants restated). pg_cron id-face-locate-10m (*/10 * * * *) calls the id-face-locate edge function with the vault cron secret, plus job_heartbeats row id-face-locate (86400 s, no ops risk).",
+    "notes": "Additive: one nullable column, two new functions, one trigger, two replaced functions (md5 guarded; old clients ignore the extra key and column), one cron job and heartbeat seed. No data is moved or deleted at apply. Deploy order: SQL, then the id-face-locate edge function (--no-verify-jwt; the cron job fails quietly until it exists), then the Staff app. The cron job drains the existing photos at 20 per run."
+  },
+  "forward_verification": [
+    {
+      "name": "staff_guest_card_v1_is_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a747282935c256cd2f6923e45f6c9aa5' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_photo_rotation_v1_is_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '08dffb41ea2d405560338896c6606b6b' from pg_proc where oid = 'public.staff_photo_rotation_v1(text[])'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "id_face_todo_v1_is_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '077fa78d10750917c39d9a65b9ca3f57' from pg_proc where oid = 'public.id_face_todo_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "set_id_face_box_v1_is_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'faedf5c1abc2a912b60c03e3401e0f23' from pg_proc where oid = 'public.set_id_face_box_v1(uuid,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_companions_reset_face_box_is_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '5a73e0a32aac5c2c702ad9a31f5cb0d5' from pg_proc where oid = 'public.guest_companions_reset_face_box()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_photo_rotation_v1_returns_the_box_column",
+      "query": "select pg_get_function_result('public.staff_photo_rotation_v1(text[])'::regprocedure) = 'TABLE(path text, rotation smallint, id_face_box jsonb)'",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_returns_id_face_box_and_every_old_key",
+      "query": "select (c ?& array['repeat','stay_count','earlier_stays','notes','id_photo_path','id_face_box','tier','tier_line','notable']) and (select count(*) from jsonb_object_keys(c)) = 9 from (select public.staff_guest_card_v1(g.property_id, g.id, (now() at time zone 'Asia/Manila')::date) c from public.guests g order by g.id limit 1) x",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_keeps_its_grants_closed",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure and a.grantee = 0) and not has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and has_function_privilege('service_role', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_photo_rotation_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.staff_photo_rotation_v1(text[])', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_photo_rotation_v1(text[])'::regprocedure and a.grantee = 0) and has_function_privilege('authenticated', 'public.staff_photo_rotation_v1(text[])', 'execute') and has_function_privilege('service_role', 'public.staff_photo_rotation_v1(text[])', 'execute') from pg_proc where oid = 'public.staff_photo_rotation_v1(text[])'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "id_face_todo_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.id_face_todo_v1(integer)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.id_face_todo_v1(integer)'::regprocedure and a.grantee = 0) and not has_function_privilege('authenticated', 'public.id_face_todo_v1(integer)', 'execute') and has_function_privilege('service_role', 'public.id_face_todo_v1(integer)', 'execute') from pg_proc where oid = 'public.id_face_todo_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "set_id_face_box_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.set_id_face_box_v1(uuid,text,jsonb)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.set_id_face_box_v1(uuid,text,jsonb)'::regprocedure and a.grantee = 0) and not has_function_privilege('authenticated', 'public.set_id_face_box_v1(uuid,text,jsonb)', 'execute') and has_function_privilege('service_role', 'public.set_id_face_box_v1(uuid,text,jsonb)', 'execute') from pg_proc where oid = 'public.set_id_face_box_v1(uuid,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "reset_trigger_function_is_closed_to_every_api_role",
+      "query": "select not has_function_privilege('anon', 'public.guest_companions_reset_face_box()', 'execute') and not has_function_privilege('authenticated', 'public.guest_companions_reset_face_box()', 'execute') and not has_function_privilege('service_role', 'public.guest_companions_reset_face_box()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.guest_companions_reset_face_box()'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "id_face_box_column_and_check_exist",
+      "query": "select (select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.guest_companions'::regclass and attname = 'id_face_box' and not attisdropped) = 'jsonb' and (select count(*) from pg_constraint where conrelid = 'public.guest_companions'::regclass and conname = 'id_face_box_shape' and contype = 'c') = 1",
+      "expect": true
+    },
+    {
+      "name": "reset_trigger_exists_before_update_of_photo_path",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.guest_companions'::regclass and tgname = 'guest_companions_reset_face_box' and not tgisinternal and pg_get_triggerdef(oid) like 'CREATE TRIGGER guest_companions_reset_face_box BEFORE UPDATE OF id_photo_path ON public.guest_companions FOR EACH ROW EXECUTE FUNCTION %guest_companions_reset_face_box()'",
+      "expect": true
+    },
+    {
+      "name": "every_stored_face_box_has_a_known_src",
+      "query": "select count(*) = 0 from public.guest_companions where id_face_box is not null and (id_face_box ->> 'src') not in ('vision','none')",
+      "expect": true
+    },
+    {
+      "name": "s91_rotation_setter_and_reset_trigger_are_unchanged",
+      "query": "select to_regprocedure('public.set_guest_photo_rotation_v1(text,smallint)') is not null and exists (select 1 from pg_trigger where tgrelid = 'public.guest_companions'::regclass and tgname = 'guest_companions_reset_rotation' and not tgisinternal)",
+      "expect": true
+    },
+    {
+      "name": "spec40_release_photo_trigger_is_unchanged",
+      "query": "select count(*) = 1 from pg_trigger where tgrelid = 'public.guest_companions'::regclass and tgname = 'guest_companions_release_photo' and not tgisinternal and pg_get_triggerdef(oid) like '%AFTER DELETE OR UPDATE OF id_photo_path ON public.guest_companions FOR EACH ROW EXECUTE FUNCTION %guest_companions_release_photo()'",
+      "expect": true
+    },
+    {
+      "name": "heartbeat_id_face_locate_is_daily_no_ops_risk",
+      "query": "select expected_interval_seconds = 86400 and not ops_risk from public.job_heartbeats where job_name = 'id-face-locate'",
+      "expect": true
+    },
+    {
+      "name": "id_face_locate_cron_is_scheduled",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (schedule = ''*/10 * * * *'' and active and command like ''%id-face-locate%'' and command like ''%cascade_cron_shared_secret%'')::text s from cron.job where jobname = ''id-face-locate-10m''', false, true, '')))[1]::text = 'true' end",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always. The rollback script restores staff_guest_card_v1 to the s96 body and staff_photo_rotation_v1 to the s91 body, drops the id-face-locate-10m job and heartbeat, the two functions, the trigger and its function, the CHECK and the column. The stored face boxes are lost by design (the cron job refills them); no photo is touched.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261030_s97_id_face_box.sql with run-sql-on-host.sh. Undeploy or disable id-face-locate first (its calls fail once the functions are gone); the Staff app falls back to the fixed crop when id_face_box is missing."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff app uses the box only once it ships and reads id_face_box, and the box stays null until id-face-locate runs."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "PENDING: rehearsal on a backup taken after the s96 apply (migration, forward verification, pgTAP s97_id_face_box.sql 55, s96_spec47.sql and s95_guest_tiers.sql with the card now at 9 keys). cron checks pass vacuously on the baseline (no pg_cron): read cron.job live after apply with supabase/sql/2026-10-30-s97-post-apply-read.sql."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run the migration, s97_id_face_box.sql, s96_spec47.sql and s95_guest_tiers.sql green on this commit (compatibility.verified is still false)",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "staff_photo_rotation_v1 or staff_guest_card_v1 no longer has the md5 the migration guard names (ab62dcfe266d9a252eea95b732a2cff2, c0b8c068b8fffb86e0e812b7207d96a6)"
+  ]
+}
