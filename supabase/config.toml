@@ -463,3 +463,6 @@ verify_jwt = true
 
 [functions.release-expired-holds]
 verify_jwt = false
+
+[functions.id-face-locate]
+verify_jwt = false
