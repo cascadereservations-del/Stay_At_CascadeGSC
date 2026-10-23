@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "release_id": "s98_face_queue_today_first_20261031",
+  "phase": "expand",
+  "source": {
+    "branch": "spec47c-sql",
+    "commit": "a6a50acc5b62cf78617a6c154709599313e3de35"
+  },
+  "migrations": [
+    "20261031000000_s98_face_queue_today_first.sql"
+  ],
+  "migration_sha256": {
+    "20261031000000_s98_face_queue_today_first.sql": "7ed66b750c7a471e43724fddfdde5f3b486bd9ee7f6afb00796cd6003cbbd38c"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "SPEC-47c face queue serves today's guests first. Replaces ONLY public.id_face_todo_v1(integer) (s97 body md5 1476750c20ccbbc6c6f3f6ca9941c4f4 guarded): the 20 photos handed out per id-face-locate run are now the companions of guests with a stay in progress or a check-in within the next 7 days (Manila date), soonest check-in first, then the existing s97 order (never tried first, newest photo first). Stay source reused, not invented: calendar_events status confirmed with check-out after today (the staff_current_next_stays_v1 rule behind staff_home_v1 current_guest / next_guest), guest resolved by staff_stay_guest_id_v1. Same eligibility (photo present, face box null, not handed out in the last hour), same cap 20, same stamping of id_face_tried_at, still VOLATILE, security definer, search_path empty; grants restated: service_role only, no PUBLIC (ML-21). No table, column, trigger, cron job or other function is touched.",
+    "notes": "Additive behaviour change to one function. No data is moved or deleted. Old callers (id-face-locate) are unaffected: same signature and same two-key entries. No deploy order constraint with the Staff 3.4.14 app."
+  },
+  "forward_verification": [
+    {
+      "name": "id_face_todo_v1_is_the_s98_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd28bb138c1e12aca783a5850014ad452' from pg_proc where oid = 'public.id_face_todo_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "id_face_todo_v1_has_the_stated_grants",
+      "query": "select prosecdef and proconfig @> array['search_path=\"\"'] and not has_function_privilege('anon', 'public.id_face_todo_v1(integer)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.id_face_todo_v1(integer)'::regprocedure and a.grantee = 0) and not has_function_privilege('authenticated', 'public.id_face_todo_v1(integer)', 'execute') and has_function_privilege('service_role', 'public.id_face_todo_v1(integer)', 'execute') from pg_proc where oid = 'public.id_face_todo_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "id_face_todo_v1_is_volatile",
+      "query": "select provolatile = 'v' from pg_proc where oid = 'public.id_face_todo_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "id_face_todo_v1_reuses_the_stay_helper_and_keeps_the_cap_and_stamp",
+      "query": "select prosrc like '%public.staff_stay_guest_id_v1(%' and prosrc like '%least(coalesce(p_limit, 20), 20)%' and prosrc like '%set id_face_tried_at = now()%' and prosrc like '%interval ''1 hour''%' from pg_proc where oid = 'public.id_face_todo_v1(integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_card_v1_is_still_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '2132ec407c3c1459a777c9c87ef2d8cc' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "set_id_face_box_v1_is_still_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'faedf5c1abc2a912b60c03e3401e0f23' from pg_proc where oid = 'public.set_id_face_box_v1(uuid,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_companions_reset_face_box_is_still_the_s97_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '34ad52e9d9c5f865ff9137bd1024998b' from pg_proc where oid = 'public.guest_companions_reset_face_box()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_photo_rotation_v1_is_untouched",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'ab62dcfe266d9a252eea95b732a2cff2' from pg_proc where oid = 'public.staff_photo_rotation_v1(text[])'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_stay_guest_id_v1_exists_and_stays_closed_to_api_roles",
+      "query": "select to_regprocedure('public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)') is not null and not has_function_privilege('anon', 'public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)', 'execute') and not has_function_privilege('authenticated', 'public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "id_face_box_and_tried_at_columns_still_exist",
+      "query": "select count(*) = 2 from pg_attribute where attrelid = 'public.guest_companions'::regclass and attname in ('id_face_box', 'id_face_tried_at') and not attisdropped",
+      "expect": true
+    },
+    {
+      "name": "id_face_locate_cron_is_scheduled",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (schedule = ''*/10 * * * *'' and active and command like ''%id-face-locate%'' and command like ''%cascade_cron_shared_secret%'')::text s from cron.job where jobname = ''id-face-locate-10m''', false, true, '')))[1]::text = 'true' end",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always. The rollback script restores id_face_todo_v1 to the exact s97 body (md5 1476750c20ccbbc6c6f3f6ca9941c4f4) and restates its grants. No data is touched.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261031_s98_face_queue_today_first.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_function_is_the_switch",
+      "required_state": "None. The change is the ordering inside one service_role function; id-face-locate needs no change."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet (orchestrator): migration-rehearsal-on-host.sh on a fresh backup taken after the s97 apply, then pgTAP s98_face_queue_today_first.sql (17 assertions), s97_id_face_box.sql (57, unchanged) and s95_guest_tiers.sql."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder",
+    "the rehearsal has not run the migration, s98_face_queue_today_first.sql, s97_id_face_box.sql and s95_guest_tiers.sql green on this commit (compatibility.verified is still false)",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "id_face_todo_v1 no longer has the md5 the migration guard names (1476750c20ccbbc6c6f3f6ca9941c4f4)"
+  ]
+}
