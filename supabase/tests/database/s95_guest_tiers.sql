@@ -173,7 +173,7 @@ select ok(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9
 -- the line ordinal is the card's own count: 5 earlier stays before current_date + 5 (the upcoming one has ended by then), so stay 6 in both
 select is(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date + 5) ->> 'stay_count', '6', 'a later check-in counts the finished upcoming stay: stay_count 6');
 select ok(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date + 5) ->> 'tier_line' like 'Regular guest (6th stay)%', 'and the tier line says 6th stay, equal to stay_count');
-select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'tier', 'tier_line'] and (select count(*) from jsonb_object_keys(c)) = 8
+select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'id_face_box', 'tier', 'tier_line'] and (select count(*) from jsonb_object_keys(c)) = 9
              from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c1', current_date) c) x), 'the card has its five old keys, the two tier keys and (since s96) notable');
 select ok((select jsonb_typeof(c -> 'tier') = 'null' and jsonb_typeof(c -> 'tier_line') = 'null'
              from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9500000-0000-4000-8000-0000000000c4', current_date) c) x), 'a guest with no tier: both keys are null');

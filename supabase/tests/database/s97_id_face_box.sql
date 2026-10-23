@@ -2,7 +2,7 @@
 -- staff_photo_rotation_v1 (now also returns id_face_box, same gate) and the grants. Synthetic fixtures only (uuids e9700000-..., property ...b0); the fixtures carry
 -- created_at in 2000 so id_face_todo_v1 (oldest first) lists them ahead of any real row in a restored backup. Everything rolls back.
 begin;
-select plan(47);
+select plan(51);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -91,6 +91,13 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"e9700000-0000-4000-8000-000000000004"}';
 select throws_ok($$select * from public.staff_photo_rotation_v1(array['x'])$$, '42501', 'forbidden', 'a user with no staff profile is refused');
 reset role;
+
+-- 4b. staff_guest_card_v1 carries id_face_box beside id_photo_path (same gate) -------------------------------------------------------------------
+select ok(public.staff_guest_card_v1('e9700000-0000-4000-8000-0000000000b0', 'e9700000-0000-4000-8000-0000000000c1', current_date) ? 'id_face_box', 'the card has an id_face_box key');
+select is(public.staff_guest_card_v1('e9700000-0000-4000-8000-0000000000b0', 'e9700000-0000-4000-8000-0000000000c1', current_date) -> 'id_face_box', 'null'::jsonb, 'no stay in the house: the gate hides the photo path, so the box is null too (never leaks past the gate)');
+select is(public.staff_guest_card_v1('e9700000-0000-4000-8000-0000000000b0', null, current_date) -> 'id_face_box', 'null'::jsonb, 'no guest at all: the box is null');
+select ok(not has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and not has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute')
+          and has_function_privilege('service_role', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute'), 'the card keeps its grants closed (service_role only)');
 
 -- 5. grants, heartbeat ------------------------------------------------------------------------------------------------------------------------
 select ok(not has_function_privilege('anon', 'public.id_face_todo_v1(integer)', 'execute') and not has_function_privilege('authenticated', 'public.id_face_todo_v1(integer)', 'execute')

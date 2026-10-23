@@ -11,7 +11,9 @@
 --     The live s91 body plus one returned column, id_face_box, under the same gate. A function cannot change its result columns in place: dropped and re-created, grants restated.
 --     Old clients read rows by key name (path, rotation) and ignore the extra key.
 -- (5) pg_cron id-face-locate-10m (*/10 * * * *): net.http_post to the id-face-locate function with the vault cron secret (same shape as release-expired-holds-hourly) + job_heartbeats row.
--- Guard: the live staff_photo_rotation_v1 must be the s91 body (md5 of prosrc, CR stripped). Everything below the guard is single shot. To undo apply supabase/rollbacks/20261030_s97_id_face_box.sql.
+-- (4b) staff_guest_card_v1: the live s96 body plus ONE key, id_face_box, beside id_photo_path (same gate; the primary photo's companion). staff_home_v1 merges the card with ||, so
+--     current_guest / next_guest carry it too; staff_home_v1 itself is unchanged (it emits only has_photo for companions).
+-- Guards: the live staff_photo_rotation_v1 must be the s91 body and staff_guest_card_v1 the s96 body (md5 of prosrc, CR stripped). Everything below the guard is single shot. To undo apply supabase/rollbacks/20261030_s97_id_face_box.sql.
 
 begin;
 
@@ -24,6 +26,10 @@ begin
   end if;
   if v_got is distinct from 'ab62dcfe266d9a252eea95b732a2cff2' then
     raise exception 's97 id face box: staff_photo_rotation_v1 is not the body this release was cut from (md5 %): re-cut it from the live body', v_got using errcode = '55000';
+  end if;
+  select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.staff_guest_card_v1(uuid,uuid,date)');
+  if v_got is distinct from 'c0b8c068b8fffb86e0e812b7207d96a6' then
+    raise exception 's97 id face box: staff_guest_card_v1 is not the s96 body this release was cut from (md5 %): re-cut it from the live body', v_got using errcode = '55000';
   end if;
 end $$;
 
@@ -110,6 +116,46 @@ begin
      group by c.id_photo_path;
 end $$;
 
+-- 4b. staff_guest_card_v1: the live s96 body plus ONE key, id_face_box, beside id_photo_path under the same gate. staff_home_v1 merges this card into current_guest / next_guest
+-- with ||, so the Today card reads the box from the same object as the photo path. The box belongs to the companion whose photo is the primary path the card already returns.
+create or replace function public.staff_guest_card_v1(p_property_id uuid, p_guest_id uuid, p_checkin date)
+returns jsonb language sql stable security definer set search_path to '' as $
+  with earlier as (
+    select distinct s.checkin_date, s.checkout_date, s.nights from (
+      select a.checkin_date, a.checkout_date, coalesce(a.nights, a.checkout_date - a.checkin_date) nights from public.airbnb_reservations a
+       where a.guest_id = p_guest_id and a.status <> 'cancelled'
+      union all
+      select b.checkin_date, b.checkout_date, coalesce(b.nights, b.checkout_date - b.checkin_date) nights from public.booking_inquiries b
+       where b.guest_id = p_guest_id and b.status = 'confirmed') s
+     where s.checkout_date <= p_checkin and s.checkin_date < p_checkin),
+  last3 as (select * from earlier order by checkout_date desc limit 3)
+  select jsonb_build_object(
+    'repeat',        case when p_guest_id is null then null else (select count(*) from earlier) >= 1 end,
+    'stay_count',    case when p_guest_id is null then null else (select count(*) from earlier) + 1 end,
+    'earlier_stays', case when p_guest_id is null then null
+                          else coalesce((select jsonb_agg(jsonb_build_object('month', to_char(l.checkout_date, 'YYYY-MM'), 'nights', l.nights)
+                                                          order by l.checkout_date desc) from last3 l), '[]'::jsonb) end,
+    'notes',         public.staff_redact_v1(nullif(btrim(concat_ws(' || ',
+                        nullif(btrim(d.stay_preferences), ''),
+                        case when nullif(btrim(d.vip_reason), '') is not null then 'VIP - ' || btrim(d.vip_reason) end,
+                        nullif(btrim(g.notes), ''))), '')),
+    'id_photo_path', case when p_guest_id is not null and public.staff_may_see_guest_id_v1(p_property_id)
+                          then public.staff_primary_id_path_v1(p_guest_id) end,
+    'id_face_box',   case when p_guest_id is not null and public.staff_may_see_guest_id_v1(p_property_id)
+                          then (select c.id_face_box from public.guest_companions c
+                                 where c.guest_id = p_guest_id and c.id_photo_path = public.staff_primary_id_path_v1(p_guest_id) limit 1) end,
+    'tier',          g.tier,
+    'tier_line',     case when g.tier is null then null
+                          else public.guest_tier_line_v1(g.tier, (select count(*) from earlier)::int) end,
+    'notable',       coalesce((select jsonb_agg(jsonb_build_object('topic', n.topic, 'last_seen', n.last_seen, 'source', n.source) order by n.last_seen desc, n.topic)
+                                 from (select * from (select distinct on (t.topic) t.topic, t.last_seen, t.source from public.guest_topics t
+                                                       where t.guest_id = g.id order by t.topic, t.last_seen desc, t.source) one
+                                        order by one.last_seen desc, one.topic limit 3) n), '[]'::jsonb))
+  from (select 1) o
+  left join public.guests g on g.id = p_guest_id and g.property_id = p_property_id
+  left join public.guest_profile_details d on d.guest_id = g.id;
+$;
+
 -- 5. cron + heartbeat ---------------------------------------------------------------------------------------------------------------------------
 -- record_job_heartbeat refuses an unknown job: seeded as succeeded now. The function runs every 10 minutes but a quiet day is fine: expected within 1 day, no ops risk.
 insert into public.job_heartbeats (job_name, expected_interval_seconds, ops_risk, last_succeeded_at)
@@ -146,6 +192,8 @@ revoke all on function public.id_face_todo_v1(integer) from public, anon, authen
 grant execute on function public.id_face_todo_v1(integer) to service_role;
 revoke all on function public.set_id_face_box_v1(uuid, text, jsonb) from public, anon, authenticated;
 grant execute on function public.set_id_face_box_v1(uuid, text, jsonb) to service_role;
+revoke all on function public.staff_guest_card_v1(uuid, uuid, date) from public, anon, authenticated;
+grant execute on function public.staff_guest_card_v1(uuid, uuid, date) to service_role;
 revoke all on function public.staff_photo_rotation_v1(text[]) from public, anon;
 grant execute on function public.staff_photo_rotation_v1(text[]) to authenticated, service_role;
 revoke all on function public.guest_companions_reset_face_box() from public, anon, authenticated, service_role;
@@ -159,6 +207,8 @@ begin
      or not has_function_privilege('service_role', 'public.id_face_todo_v1(integer)', 'execute') then raise exception 'id_face_todo_v1 grants are wrong'; end if;
   if has_function_privilege('anon', 'public.set_id_face_box_v1(uuid,text,jsonb)', 'execute') or has_function_privilege('authenticated', 'public.set_id_face_box_v1(uuid,text,jsonb)', 'execute')
      or not has_function_privilege('service_role', 'public.set_id_face_box_v1(uuid,text,jsonb)', 'execute') then raise exception 'set_id_face_box_v1 grants are wrong'; end if;
+  if has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') or has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute')
+     or not has_function_privilege('service_role', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') then raise exception 'staff_guest_card_v1 grants are wrong'; end if;
   if has_function_privilege('anon', 'public.staff_photo_rotation_v1(text[])', 'execute')
      or not has_function_privilege('authenticated', 'public.staff_photo_rotation_v1(text[])', 'execute')
      or not has_function_privilege('service_role', 'public.staff_photo_rotation_v1(text[])', 'execute') then raise exception 'staff_photo_rotation_v1 grants are wrong'; end if;
