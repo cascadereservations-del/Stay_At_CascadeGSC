@@ -85,7 +85,7 @@ export function mimeFor(path: string): string {
 
 export const MAX_CONSECUTIVE_FAILS = 3;
 // Free-tier edge wall clock is 150 s and one vision call can take ~110 s (55 s per provider with fallback): stop picking new rows early.
-export const BUDGET_MS = 35_000;
+export const BUDGET_MS = 25_000;
 
 export type Todo = { companion_id: string; path: string };
 export type Deps = {
@@ -107,7 +107,7 @@ export async function run(d: Deps): Promise<Summary> {
   // A provider 400 is usually this image, but Gemini also answers a bad key or region with 400: hold bad-image nones and only
   // save them once a later row succeeds or the run ends; 3 in a row stop the run (failed heartbeat) and save none of them.
   // shortcut: no per-row attempt cap for transient errors; add an attempts column if 'skipped' stalls in the summaries.
-  let held: Todo[] = [];
+  let held: Todo[] = [], ok = false;
   const flush = async () => { for (const h of held) await keep(h, NONE); held = []; };
   const keep = async (r: Todo, box: FaceBox) => {
     if (!(await d.save(r.companion_id, r.path, box))) { s.save_refused++; d.log(`id-face-locate save_refused ${String(r.companion_id).slice(0, 8)}`); return; } // replaced meanwhile, or refused
@@ -137,10 +137,10 @@ export async function run(d: Deps): Promise<Summary> {
       if (fails >= MAX_CONSECUTIVE_FAILS) { s.stopped = true; break; }
       continue;
     }
-    fails = 0;
+    fails = 0; ok = true;
     await flush();
     await keep(r, box);
   }
-  if (!s.stopped) await flush();
+  if (!s.stopped && ok) await flush(); // nothing succeeded: a 400 may be a bad key, so leave held rows for the next run
   return s;
 }

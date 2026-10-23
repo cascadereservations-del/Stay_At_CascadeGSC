@@ -21,7 +21,7 @@ Deno.serve(withObservability({ functionName: 'id-face-locate', route: 'ops' }, a
     if (!hasVisionKey()) throw new Error('no_vision_key');
     const s = await run({
       todo: async () => {
-        const { data, error } = await db.rpc('id_face_todo_v1', { p_limit: 20 });
+        const { data, error } = await db.rpc('id_face_todo_v1', { p_limit: 6 });
         if (error) throw new Error('id_face_todo_v1: ' + error.message);
         return Array.isArray(data) ? data : [];
       },

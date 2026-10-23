@@ -143,12 +143,12 @@ Deno.test('run: rotated EXIF photo -> none without calling vision', async () => 
   assertEquals(await run(d), S({ todo: 2, none: 2, exif_rotated: 1 }));
   assertEquals(calls, 1);
 });
-Deno.test('run: stops picking rows after the 35 s budget (one slow call still fits the 150 s wall clock)', async () => {
+Deno.test('run: stops picking rows after the 25 s budget (one slow call still fits the 150 s wall clock)', async () => {
   let t = 0;
   const d = deps(['{"face":null}', '{"face":null}', '{"face":null}']);
   d.now = () => t;
   const v = d.vision;
-  d.vision = (b, m) => { t += 20_000; return v(b, m); };
+  d.vision = (b, m) => { t += 15_000; return v(b, m); };
   assertEquals(await run(d), S({ todo: 3, none: 2, budget_stopped: true }));
 });
 Deno.test('run: 3 provider 400s in a row (bad key looks like a bad image) stop the run and save nothing', async () => {
@@ -165,4 +165,7 @@ Deno.test('run: held bad-image nones are saved once a later row succeeds or the 
   assertEquals(saved.map(([, b]) => b.src), ['none', 'none', 'vision']);
   const tail: Array<[string, FaceBox]> = [];
   assertEquals(await run(deps(['{"face":null}', e], tail)), S({ todo: 2, none: 2 }));
+  const alone: Array<[string, FaceBox]> = [];
+  assertEquals(await run(deps([e], alone)), S({ todo: 1 }), 'a lone 400 with no success in the run is left for the next run');
+  assertEquals(alone.length, 0);
 });
