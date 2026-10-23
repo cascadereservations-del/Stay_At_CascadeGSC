@@ -143,11 +143,26 @@ Deno.test('run: rotated EXIF photo -> none without calling vision', async () => 
   assertEquals(await run(d), S({ todo: 2, none: 2, exif_rotated: 1 }));
   assertEquals(calls, 1);
 });
-Deno.test('run: stops picking rows after the 100 s budget', async () => {
+Deno.test('run: stops picking rows after the 35 s budget (one slow call still fits the 150 s wall clock)', async () => {
   let t = 0;
   const d = deps(['{"face":null}', '{"face":null}', '{"face":null}']);
   d.now = () => t;
   const v = d.vision;
-  d.vision = (b, m) => { t += 60_000; return v(b, m); };
+  d.vision = (b, m) => { t += 20_000; return v(b, m); };
   assertEquals(await run(d), S({ todo: 3, none: 2, budget_stopped: true }));
+});
+Deno.test('run: 3 provider 400s in a row (bad key looks like a bad image) stop the run and save nothing', async () => {
+  const saved: Array<[string, FaceBox]> = [];
+  const e = new Error('gemini_400: API_KEY_INVALID');
+  const s = await run(deps([e, e, e, '{"face":[200,300,400,500]}'], saved));
+  assertEquals(s, S({ todo: 4, stopped: true }));
+  assertEquals(saved.length, 0);
+});
+Deno.test('run: held bad-image nones are saved once a later row succeeds or the run ends', async () => {
+  const saved: Array<[string, FaceBox]> = [];
+  const e = new Error('openrouter_400: bad image');
+  assertEquals(await run(deps([e, e, '{"face":[200,300,400,500]}'], saved)), S({ todo: 3, none: 2, saved: 1 }));
+  assertEquals(saved.map(([, b]) => b.src), ['none', 'none', 'vision']);
+  const tail: Array<[string, FaceBox]> = [];
+  assertEquals(await run(deps(['{"face":null}', e], tail)), S({ todo: 2, none: 2 }));
 });

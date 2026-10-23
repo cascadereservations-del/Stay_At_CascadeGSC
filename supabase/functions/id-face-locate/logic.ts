@@ -84,7 +84,8 @@ export function mimeFor(path: string): string {
 }
 
 export const MAX_CONSECUTIVE_FAILS = 3;
-export const BUDGET_MS = 100_000;
+// Free-tier edge wall clock is 150 s and one vision call can take ~110 s (55 s per provider with fallback): stop picking new rows early.
+export const BUDGET_MS = 35_000;
 
 export type Todo = { companion_id: string; path: string };
 export type Deps = {
@@ -103,6 +104,15 @@ export async function run(d: Deps): Promise<Summary> {
   const rows = await d.todo();
   const s: Summary = { todo: rows.length, saved: 0, none: 0, skipped: 0, save_refused: 0, exif_rotated: 0, stopped: false, budget_stopped: false };
   let fails = 0;
+  // A provider 400 is usually this image, but Gemini also answers a bad key or region with 400: hold bad-image nones and only
+  // save them once a later row succeeds or the run ends; 3 in a row stop the run (failed heartbeat) and save none of them.
+  // shortcut: no per-row attempt cap for transient errors; add an attempts column if 'skipped' stalls in the summaries.
+  let held: Todo[] = [];
+  const flush = async () => { for (const h of held) await keep(h, NONE); held = []; };
+  const keep = async (r: Todo, box: FaceBox) => {
+    if (!(await d.save(r.companion_id, r.path, box))) { s.save_refused++; d.log(`id-face-locate save_refused ${String(r.companion_id).slice(0, 8)}`); return; } // replaced meanwhile, or refused
+    if (box.src === 'none') s.none++; else s.saved++;
+  };
   for (const r of rows) {
     if (now() - t0 > BUDGET_MS) { s.budget_stopped = true; break; }
     const tag = String(r.companion_id).slice(0, 8);
@@ -113,7 +123,12 @@ export async function run(d: Deps): Promise<Summary> {
       else if ((exifOrientation(bytes) ?? 1) !== 1) { box = NONE; s.exif_rotated++; } // box would be in a frame the app cannot know
       else {
         try { box = parseFaceReply(await d.vision(bytes, mimeFor(r.path))); }
-        catch (e) { if (isBadImage(e)) box = NONE; else throw e; }
+        catch (e) {
+          if (!isBadImage(e)) throw e;
+          held.push(r);
+          if (held.length >= MAX_CONSECUTIVE_FAILS) { held = []; s.stopped = true; break; }
+          continue;
+        }
       }
     } catch {
       // transient (429, 5xx, network, timeout, storage error): leave the row null, retried next run. Never log the error text.
@@ -123,8 +138,9 @@ export async function run(d: Deps): Promise<Summary> {
       continue;
     }
     fails = 0;
-    if (!(await d.save(r.companion_id, r.path, box))) { s.save_refused++; d.log(`id-face-locate save_refused ${tag}`); continue; } // replaced meanwhile, or refused
-    if (box.src === 'none') s.none++; else s.saved++;
+    await flush();
+    await keep(r, box);
   }
+  if (!s.stopped) await flush();
   return s;
 }
