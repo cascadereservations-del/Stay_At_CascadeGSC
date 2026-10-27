@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "release_id": "s99e_missed_and_pay_20261102",
+  "phase": "expand",
+  "source": {
+    "branch": "s99e/missed-and-pay-2700",
+    "commit": "04b938b4d8f8d1ebbb39c933f4b970143a09ea7b"
+  },
+  "migrations": [
+    "20261102000000_s99e_missed_cleanings.sql"
+  ],
+  "migration_sha256": {
+    "20261102000000_s99e_missed_cleanings.sql": "ed44b4448bcbff20b42d45b07f7dcf3bf5ff01d3f2df810f7e9ad50cc4bfd079"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00Z",
+    "production_rule": "get_missed_cleanings counted a cleaning session as covering a checkout when its checkout_date matched OR its cleaned_at UTC date fell on the checkout day or the day after. The second branch fired for a report that names ANOTHER checkout: Honey filed her late reports for 14 and 17 Oct on 21 Oct 22:36 Manila, which hid the real 21 Oct checkout (no report) from get_missed_cleanings, from the cleaner's Pay screen 'No report yet', from the 'Cleaning report missing' follow-up tasks, and made staff_pay_admin_create_v2 / staff_pay_request_create_v2 refuse it as advance_not_owed. The window now applies ONLY to a session with no checkout_date and uses the Manila date ((cleaned_at at time zone 'Asia/Manila')::date), the rule s_advance_session_v1 already uses. Replaces ONLY public.get_missed_cleanings(uuid,integer) (s91 body md5 ce6a29c3a3ad63ea4eef3e4eba410885 guarded, 55000 on mismatch); signature, plpgsql, stable, SECURITY INVOKER, search_path '', the D-290 same-guest clause and the order are unchanged. Grants restated (ML-21): revoke from public, anon; execute to authenticated and service_role. Callers: missed-cleaning-alert (edge, service_role), get_admin_overview_v1 (14 days), staff_pay_admin_create_v2, staff_pay_request_create_v2, staff_pay_candidates_v1 (30 days). Expected effect: every checkout hidden ONLY by the old date-window fallback becomes visible again (21 Oct, Ysabel, is the known one). The data step supabase/sql/2026-10-27-s99e-honey-2700.sql (Lloyd's block, AFTER this migration) records Honey's PHP 2,700 BPI payment 2026-10-27 (21, 22, 24, 25 Oct at 650 + KitKat claim corrected 50 to 100).",
+    "notes": "Phase expand: one function body replaced, no table, column or data touched. Old callers keep working (same signature and columns). Deploy order: SQL, then the data step. No edge or app deploy is needed: missed-cleaning-alert, the Pay screen and the pay functions read the function. First daily missed-cleaning-alert run after the apply (00:00 UTC = 08:00 Manila): every row with 4+ days overdue becomes a Follow-ups task 'Cleaning report missing' (21 Oct = 7 days overdue at the 28 Oct run, 22 Oct = 6), a checkout exactly 3 days overdue gets the one OPS reminder (25 Oct at the 28 Oct run), 0-1 days an alert. The tasks close themselves when the report is filed; paying a date ahead does not file a report, so the tasks for 21, 22 and 25 Oct stay until Honey files them. The live ACL of get_missed_cleanings could not be read offline (hand-applied before the migration history): read proacl once before the apply; the restated grants match the stay_chains notes and its pgTAP (service_role execute)."
+  },
+  "forward_verification": [
+    {
+      "name": "get_missed_cleanings_is_the_s99e_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'def6d3ea1ae7c3c05bc2ae178df2d0aa' from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "get_missed_cleanings_keeps_its_shape_and_has_the_stated_grants",
+      "query": "select not prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] and prolang = (select oid from pg_language where lanname = 'plpgsql') and pg_get_function_result(oid) = 'TABLE(guest_name text, checkin_date date, checkout_date date, source text, days_overdue integer)' and not has_function_privilege('anon', oid, 'execute') and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and has_function_privilege('authenticated', oid, 'execute') and has_function_privilege('service_role', oid, 'execute') from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "get_missed_cleanings_window_is_manila_and_only_for_a_report_without_a_date",
+      "query": "select position('cs.checkout_date is null and (cs.cleaned_at at time zone ''Asia/Manila'')::date between ce.checkout_date and ce.checkout_date + 1' in prosrc) > 0 and position('cs.cleaned_at::date' in prosrc) = 0 and position('public.stay_same_guest_v1(ce.id, nx.id)' in prosrc) > 0 and position('v_today   := public.manila_today()' in prosrc) > 0 from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "the_pay_functions_the_data_step_needs_exist",
+      "query": "select to_regprocedure('public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)') is not null and to_regprocedure('public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)') is not null and to_regprocedure('public.staff_pay_settle_v1(uuid,bigint,text,text,jsonb)') is not null and to_regprocedure('public.s_advance_session_v1(uuid,date)') is not null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always. The rollback script restores get_missed_cleanings to the exact s91 body (md5 ce6a29c3a3ad63ea4eef3e4eba410885) and restates its grants. No data is touched; the data step (a paid request, its ledger rows, the corrected KitKat claim) is not undone.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261102_s99e_missed_cleanings.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_function_is_the_switch",
+      "required_state": "None. The change is the body of one read function; every caller picks it up on its next call."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not yet rehearsed: the orchestrator runs the rehearsal (migration, pgTAP s99e_missed_cleanings.sql, then the data step on the restored backup) and sets verified true with the log path."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder or verified_at is still 1970",
+    "the rehearsal has not run the migration, s99e_missed_cleanings.sql, s99_staff_pay_ahead.sql, s94_pay_ahead.sql and stay_chains.sql green on this commit and then the data step supabase/sql/2026-10-27-s99e-honey-2700.sql twice (second run a no-op), compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane (money path) has not passed",
+    "get_missed_cleanings no longer has the md5 the migration guard names (ce6a29c3a3ad63ea4eef3e4eba410885)",
+    "Honey has filed a pay request after 520B672A or a report for 21, 22 or 25 Oct before the data step runs (the data step refuses; re-cut it)"
+  ]
+}
