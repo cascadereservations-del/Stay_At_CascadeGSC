@@ -62,8 +62,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not yet rehearsed: the orchestrator runs the rehearsal (migration, pgTAP s99e_missed_cleanings.sql, then the data step on the restored backup) and sets verified true with the log path."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-27 on backup cascade-supabase-20261027T050035Z (after the s99d apply), log Cascade/docs/s99e/rehearsal4.log: migration applied 1/1, md5 guard passed (live s91 body ce6a29c3 read 2026-10-27), forward 4/4, pgTAP s99e_missed_cleanings.sql 17/17, data step run twice through docs/s99e/rehearsal-wrap/zz_s99e_data_step.sql 5/5 (second run a no-op). s94 51/52, s99 78/85, stay_chains 52/57: every failure is a grant assertion on a function already in the backup, which a --no-acl restore leaves with default PUBLIC execute; production grants were verified by their own forward checks at apply (s99d 18/18)."
   },
   "approvals": {
     "production_required": true,
