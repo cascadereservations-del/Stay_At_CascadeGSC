@@ -10,6 +10,7 @@
 --   * release s99f not applied (s_apply_inventory_count_core_v1 or inventory_qty_at_v1 missing)
 --   * not exactly one owner profile
 --   * any counted name that matches no item, or more than one item, of the Cascade property (exact name)
+--   * PREVIEW GUARD: any pc item with since_delta < -10, or more than 3 items that would clamp at 0 (the per-item preview is printed in the error)
 --   * any item that is movement-controlled (the core refuses it; the whole count aborts)
 --   * the core refuses for any reason (stock_changed, bad_as_of, ...), or any after-check fails
 -- IDEMPOTENT: every audit row carries the marker note below. When any telegram_count row with that note exists the script changes nothing (raises a notice).
@@ -32,6 +33,12 @@ declare
   v_cnt   numeric;
   v_after numeric;
   v_audit integer;
+  v_unit  text;
+  v_at    numeric;
+  v_d     numeric;
+  v_prev  text := '';
+  v_bad   integer := 0;
+  v_clamp integer := 0;
 begin
   -- a second run is a no-op
   if exists (select 1 from public.inventory_audit_log where action = 'telegram_count' and after ->> 'note' = c_note) then
@@ -72,10 +79,21 @@ begin
   loop
     select count(*) into v_n from public.inventory_items where property_id = c_prop and name = v_name;
     if v_n <> 1 then raise exception 'item "%" matches % rows in the Cascade property, expected exactly 1; nothing changed', v_name, v_n; end if;
-    select id, qty_on_hand into v_id, v_qty from public.inventory_items where property_id = c_prop and name = v_name;
+    select id, qty_on_hand, unit into v_id, v_qty, v_unit from public.inventory_items where property_id = c_prop and name = v_name;
+    -- PREVIEW (one-off guard, not in the core): the same since_delta the core will compute, read-only
+    v_at := public.inventory_qty_at_v1(v_id, c_asof);
+    v_d := v_qty - v_at;
+    if v_unit = 'pc' and v_d < -10 then v_bad := v_bad + 1; end if;
+    if v_cnt + v_d < 0 then v_clamp := v_clamp + 1; end if;
+    v_prev := v_prev || format(chr(10) || '  %s (%s) | counted %s | now %s | at T %s | since_delta %s | -> %s', v_name, v_unit, v_cnt, v_qty, v_at, v_d, greatest(0, v_cnt + v_d));
     v_rows := v_rows || jsonb_build_object('item_id', v_id, 'counted', v_cnt, 'expected_before', v_qty);
   end loop;
   if jsonb_array_length(v_rows) <> 17 then raise exception 'expected 17 count rows, built %; nothing changed', jsonb_array_length(v_rows); end if;
+  -- guard for this one-off: a pc item whose usage/purchases since T net below -10, or more than 3 clamped items, means qty_at(T) cannot be trusted
+  if v_bad > 0 or v_clamp > 3 then
+    raise exception 's99f preview refused (% pc items with since_delta < -10, % items would clamp at 0, limits 0 and 3); nothing written. Per item:%', v_bad, v_clamp, v_prev;
+  end if;
+  raise notice 's99f preview (% clamp, limit 3):%', v_clamp, v_prev;
 
   v_res := public.s_apply_inventory_count_core_v1('owner:' || v_owner::text || ':s99f-data-step', v_rows, c_note, c_asof);
   if not coalesce((v_res ->> 'ok')::boolean, false) then raise exception 'count refused: %; nothing changed', v_res; end if;

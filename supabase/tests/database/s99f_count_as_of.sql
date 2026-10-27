@@ -9,7 +9,7 @@
 --   N1 now 10, counted through v1 (wrapper) -> 9;  N2 now 10, v2 with a null time -> 9, since_delta 0
 --   K  movement-controlled: refused by v1 and v2
 begin;
-select plan(44);
+select plan(52);
 
 select has_function('public', 'inventory_qty_at_v1', array['uuid', 'timestamp with time zone'], 'qty_at exists');
 select has_function('public', 'telegram_apply_inventory_count_v2', array['bigint', 'jsonb', 'text', 'timestamp with time zone'], 'the as-of count RPC exists');
@@ -138,6 +138,34 @@ select is(public.s_apply_inventory_count_core_v1('owner:test:s99f-data-step',
   '[{"item_id":"f99f0000-0000-4000-8000-0000000000b6","counted":4,"expected_before":9}]'::jsonb, 'pgTAP core', now() - interval '2 days') ->> 'updated', '1', 'core: a direct call applies a row with no Telegram id');
 select is((select a.actor from public.inventory_audit_log a where a.entity_id = 'f99f0000-0000-4000-8000-0000000000b6' and a.after ->> 'note' = 'pgTAP core'),
   'owner:test:s99f-data-step', 'core: the audit actor is the one passed in');
+
+-- fix round 2: items are isolated. F1 used 3 after T, F2 untouched, F3 bought 5 after T, G (ANOTHER property) used 9 after T. Each since_delta is asserted on its own.
+insert into public.properties(id, name, is_active) values ('f99f0000-0000-4000-8000-0000000000f2', 'Synthetic s99f other property', true);
+insert into public.inventory_items(id, name, category, unit, qty_on_hand, is_consumable, is_active, sort_order, property_id, movement_controlled_at) values
+  ('f99f0000-0000-4000-8000-0000000000b9', 'Zz s99f F1', 'Consumables', 'pc', 10, true, true, 9909, 'f99f0000-0000-4000-8000-0000000000f1', null),
+  ('f99f0000-0000-4000-8000-0000000000ba', 'Zz s99f F2', 'Consumables', 'pc', 10, true, true, 9910, 'f99f0000-0000-4000-8000-0000000000f1', null),
+  ('f99f0000-0000-4000-8000-0000000000bb', 'Zz s99f F3', 'Consumables', 'pc', 10, true, true, 9911, 'f99f0000-0000-4000-8000-0000000000f1', null),
+  ('f99f0000-0000-4000-8000-0000000000bc', 'Zz s99f G',  'Consumables', 'pc', 7,  true, true, 9912, 'f99f0000-0000-4000-8000-0000000000f2', null);
+insert into public.inventory_usage(property_id, item_id, used_qty, session_date, created_at) values
+  ('f99f0000-0000-4000-8000-0000000000f1', 'f99f0000-0000-4000-8000-0000000000b9', 3, public.manila_today() - 1, now() - interval '1 day'),
+  ('f99f0000-0000-4000-8000-0000000000f2', 'f99f0000-0000-4000-8000-0000000000bc', 9, public.manila_today() - 1, now() - interval '1 day');
+insert into public.inventory_purchases(item_id, qty, notes, created_at) values
+  ('f99f0000-0000-4000-8000-0000000000bb', 5, 'Admin receipt [key:zz-s99f-f3]', now() - interval '1 day');
+select is(public.inventory_qty_at_v1('f99f0000-0000-4000-8000-0000000000b9', now() - interval '2 days'), 13::numeric, 'qty_at F1: 10 + 3 used = 13');
+select is(public.inventory_qty_at_v1('f99f0000-0000-4000-8000-0000000000ba', now() - interval '2 days'), 10::numeric, 'qty_at F2: no activity, so neighbours usage and purchases do not touch it = 10');
+select is(public.inventory_qty_at_v1('f99f0000-0000-4000-8000-0000000000bb', now() - interval '2 days'), 5::numeric, 'qty_at F3: 10 - 5 bought = 5');
+select is(public.inventory_qty_at_v1('f99f0000-0000-4000-8000-0000000000bc', now() - interval '2 days'), 16::numeric, 'qty_at G (other property): 7 + its own 9 used = 16');
+create temp table _r2 on commit drop as
+select public.telegram_apply_inventory_count_v2(9900000001,
+  '[{"item_id":"f99f0000-0000-4000-8000-0000000000b9","counted":4,"expected_before":10},
+    {"item_id":"f99f0000-0000-4000-8000-0000000000ba","counted":4,"expected_before":10},
+    {"item_id":"f99f0000-0000-4000-8000-0000000000bb","counted":4,"expected_before":10}]'::jsonb,
+  'pgTAP isolation', now() - interval '2 days') as j;
+select is((select (j #>> '{rows,0,since_delta}')::numeric from _r2), -3::numeric, 'F1 since_delta -3 (its own usage only)');
+select is((select (j #>> '{rows,1,since_delta}')::numeric from _r2), 0::numeric, 'F2 since_delta 0 (not the -3 of F1, not the +5 of F3, not the 9 of the other property)');
+select is((select (j #>> '{rows,2,since_delta}')::numeric from _r2), 5::numeric, 'F3 since_delta +5 (its own purchase only)');
+select is((select array_agg(qty_on_hand order by sort_order) from public.inventory_items where id in ('f99f0000-0000-4000-8000-0000000000b9','f99f0000-0000-4000-8000-0000000000ba','f99f0000-0000-4000-8000-0000000000bb')),
+  array[1, 4, 9]::numeric[], 'F1 4 + -3 = 1, F2 4 + 0 = 4, F3 4 + 5 = 9');
 
 select * from finish();
 rollback;
