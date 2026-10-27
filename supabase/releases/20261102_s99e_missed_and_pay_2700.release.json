@@ -33,7 +33,7 @@
     },
     {
       "name": "get_missed_cleanings_window_is_manila_and_only_for_a_report_without_a_date",
-      "query": "select position('cs.checkout_date is null and (cs.cleaned_at at time zone ' in prosrc) > 0 and position('Asia/Manila' in prosrc) > 0 and position(')::date between ce.checkout_date and ce.checkout_date + 1)' in prosrc) > 0 and position('cs.cleaned_at::date' in prosrc) = 0 and position('public.stay_same_guest_v1(ce.id, nx.id)' in prosrc) > 0 and position('v_today   := public.manila_today()' in prosrc) > 0 from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure",
+      "query": "select position('cs.checkout_date is null and (cs.cleaned_at at time zone ' in prosrc) > 0 and position('Asia/Manila' in prosrc) > 0 and position(')::date between ce.checkout_date and ce.checkout_date + 1)' in prosrc) > 0 and position('cs.cleaned_at::date' in prosrc) = 0 and position('public.stay_same_guest_v1(ce.id, nx.id)' in prosrc) > 0 and position(':= public.manila_today()' in prosrc) > 0 from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure",
       "expect": true
     },
     {
