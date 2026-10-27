@@ -42,9 +42,9 @@ import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSig
 import {
   meterReasons, parseMeterSkip,
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
-  meterBackwardsMessage, METER_WRONG_NUMBER_FLAGS,
   type PriorMismatch,
 } from './meter-skip.ts';
+import { meterNeighbours, meterOrderMessage, repointNext, type MeterRow, type Neighbours } from '../_shared/meter-order.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
@@ -515,21 +515,23 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
 
     const elecNum  = parseFloat(String(payload.electricReading ?? ''));
     const waterNum = parseFloat(String(payload.waterReading    ?? ''));
-    // v30: previous = latest stored reading for this property; the page's value only fills a gap; 0 = unknown.
+    // v30: previous = the stored reading for the stay before this one; the page's value only fills a gap; 0 = unknown.
+    // 2026-10-27: "before" is by stay check-out date (meter-order.ts), so a late report is checked against its own
+    // neighbours instead of the newest reading on file, and the later stay's usage is re-pointed after the insert.
     const asPrev = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
     let prevElec = asPrev(payload.previousElectricReading), prevWater = asPrev(payload.previousWaterReading);
+    const stayDate = (checkOutDate && /^\d{4}-\d{2}-\d{2}$/.test(checkOutDate) && !isMidStay) ? checkOutDate : cleaningDate;
+    let around: Neighbours = { prevElec: null, nextElec: null, prevWater: null, nextWater: null, next: null };
     if (propertyId) {
-      // D-219: a reading flagged as wrong numbers (misread, re_entry, duplicate) is never the previous one.
-      const { data: last } = await supabase.from('meter_readings').select('electric_curr, water_curr, recorded_at')
+      const { data: rows } = await supabase.from('meter_readings')
+        .select('id, electric_curr, water_curr, electric_prev, water_prev, recorded_at, meter_flag, cleaning_sessions(cleaning_type, checkout_date, nights_stayed)')
         .eq('property_id', propertyId)
-        .or(`meter_flag.is.null,meter_flag.not.in.(${METER_WRONG_NUMBER_FLAGS.join(',')})`)
-        .order('recorded_at', { ascending: false }).limit(1).maybeSingle();
-      if (last) {
-        if (asPrev(last.electric_curr) !== null) prevElec = asPrev(last.electric_curr);
-        if (asPrev(last.water_curr) !== null) prevWater = asPrev(last.water_curr);
-        if (prevElec !== asPrev(payload.previousElectricReading) || prevWater !== asPrev(payload.previousWaterReading)) {
-          console.log(JSON.stringify({ event: 'meter_prev_corrected', page: [payload.previousElectricReading, payload.previousWaterReading], server: [prevElec, prevWater], last_recorded_at: last.recorded_at }));
-        }
+        .order('recorded_at', { ascending: false }).limit(400);
+      around = meterNeighbours(rows as MeterRow[] | null, stayDate);
+      if (around.prevElec) prevElec = around.prevElec.value;
+      if (around.prevWater) prevWater = around.prevWater.value;
+      if (prevElec !== asPrev(payload.previousElectricReading) || prevWater !== asPrev(payload.previousWaterReading)) {
+        console.log(JSON.stringify({ event: 'meter_prev_corrected', page: [payload.previousElectricReading, payload.previousWaterReading], server: [prevElec, prevWater], stay: stayDate }));
       }
     }
     const deltaKwh = (!isNaN(elecNum)  && prevElec  !== null) ? Number((elecNum  - prevElec).toFixed(2))  : null;
@@ -537,12 +539,11 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const kwhPerNight = (deltaKwh !== null && nights > 0) ? Number((deltaKwh / nights).toFixed(2)) : null;
     const m3PerNight  = (deltaM3  !== null && nights > 0) ? Number((deltaM3  / nights).toFixed(3)) : null;
 
-    /* D-219 (Lloyd 2026-09-23): a meter does not run backwards, so a reading below the last one is refused,
-       before anything is written. The checklist refuses it first; this makes it a rule, not a suggestion. */
-    const backwards = meterBackwardsMessage(
-      isNaN(elecNum) ? null : elecNum, prevElec, isNaN(waterNum) ? null : waterNum, prevWater);
+    /* D-219 (Lloyd 2026-09-23): a meter does not run backwards, so a reading below the stay before it, or above the
+       stay after it, is refused before anything is written. The checklist refuses it first; this makes it a rule. */
+    const backwards = meterOrderMessage(isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum, around);
     if (backwards) {
-      console.log(JSON.stringify({ event: 'meter_backwards_refused', typed: [elecNum, waterNum], prev: [prevElec, prevWater] }));
+      console.log(JSON.stringify({ event: 'meter_backwards_refused', typed: [elecNum, waterNum], prev: [prevElec, prevWater], next: [around.nextElec?.value ?? null, around.nextWater?.value ?? null], stay: stayDate }));
       return json({ ok: false, error: 'meter_backwards', message: backwards }, 409);
     }
     const urgentItems = String(payload.urgentItems ?? '');
@@ -680,6 +681,12 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         console.error('meter_readings insert (non-fatal):', meterErr);
       } else {
         meterWritten = true;
+        // A late report sits between two stays: the later stay's usage was measured across both, so re-point it here.
+        const patch = isMidStay ? null : repointNext(around.next, isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum);
+        if (patch) {
+          const { error: rpErr } = await supabase.from('meter_readings').update(patch).eq('id', around.next!.id!);
+          console.log(JSON.stringify({ event: 'meter_next_repointed', next_id: around.next!.id, patch, error: rpErr?.message ?? null }));
+        }
       }
     }
 

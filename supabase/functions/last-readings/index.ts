@@ -2,6 +2,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
+import { meterNeighbours, type MeterRow } from '../_shared/meter-order.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -15,7 +16,8 @@ Deno.serve(withObservability({ functionName: 'last-readings', route: 'ops' }, as
   }
 
   try {
-    const propertyId = new URL(req.url).searchParams.get('property_id') ?? '';
+    const params = new URL(req.url).searchParams;
+    const propertyId = params.get('property_id') ?? '';
     await requireStaffAccess(req, 'read_operations', propertyId);
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -23,26 +25,30 @@ Deno.serve(withObservability({ functionName: 'last-readings', route: 'ops' }, as
       { auth: { persistSession: false } }
     );
 
-    // The single most-recent meter_readings row whose numbers are not flagged wrong (D-219). The list must
-    // match submit-cleaning's METER_WRONG_NUMBER_FLAGS, or the page and the server disagree about "previous".
-    // Sprint 0 (D-160): a mid-stay reading is never the next turnover's baseline. Session 45 wrote D-219 into
-    // a copy that lacked this line and deployed it; restored 2026-09-25 (session 51).
+    // The readings either side of the stay being reported, by stay check-out date (2026-10-27), with the same
+    // rules submit-cleaning uses (meter-order.ts): flagged-wrong numbers (D-219) and mid-stays (D-160) never count.
+    // No checkout_date = today, which gives the newest reading as before.
+    const asked = params.get('checkout_date') ?? '';
+    const key = /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
     const { data, error } = await supabase
       .from('meter_readings')
-      .select('electric_curr, water_curr, recorded_at, cleaning_sessions!inner(cleaning_type)')
+      .select('electric_curr, water_curr, recorded_at, meter_flag, cleaning_sessions(cleaning_type, checkout_date)')
       .eq('property_id', propertyId)
-      .neq('cleaning_sessions.cleaning_type', 'mid_stay')
-      .or('meter_flag.is.null,meter_flag.not.in.(misread,re_entry,duplicate)')
       .order('recorded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(400);
 
     if (error) throw error;
+    const n = meterNeighbours(data as MeterRow[] | null, key);
 
     const payload = {
-      electric: data?.electric_curr ?? null,
-      water:    data?.water_curr    ?? null,
-      date:     data?.recorded_at   ?? null,
+      electric: n.prevElec?.value ?? null,
+      water:    n.prevWater?.value ?? null,
+      date:     n.prevElec?.key ?? n.prevWater?.key ?? null,
+      next: (n.nextElec || n.nextWater) ? {
+        electric: n.nextElec?.value ?? null,
+        water:    n.nextWater?.value ?? null,
+        date:     n.nextElec?.key ?? n.nextWater?.key ?? null,
+      } : null,
     };
 
     return new Response(JSON.stringify(payload), {

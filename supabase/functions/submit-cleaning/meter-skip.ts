@@ -79,7 +79,7 @@ export function meterBlockMessage(
 
 /** Flags that mean a stored reading's NUMBERS are wrong, so it must never be the "previous reading" a new
  *  one is compared with (D-219). first_reading and under_review are real numbers and still count. */
-export const METER_WRONG_NUMBER_FLAGS = ['misread', 're_entry', 'duplicate'];
+export { METER_WRONG_NUMBER_FLAGS } from '../_shared/meter-order.ts';
 
 /** A meter does not run backwards (D-219, Lloyd 2026-09-23: block, not nudge). The refusal, or null.
  *  A missing number or a missing previous reading never blocks: there is nothing to compare. */
