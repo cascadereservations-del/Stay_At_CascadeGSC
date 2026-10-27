@@ -2,7 +2,7 @@
 -- staff_pay_request_create_v2 (advance lines), the v1 wrapper, staff_pay_candidates_v1.advance, and the reminder ledger (staff_report_reminders, due_v1, claim/release/sent).
 -- Synthetic fixtures only (uuids c9900000-...); every lookup is scoped to them because a real backup holds real rows. Everything rolls back.
 begin;
-select plan(83);
+select plan(84);
 
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -15,13 +15,13 @@ create function pg_temp.as_user(p_uid uuid) returns void language sql as $$
          set_config('role', 'authenticated', true);
 $$;
 
--- fixtures: payee Zzhoney (a1), another cleaner (a2), admin (a3), inspector (a4: may not submit cleanings).
+-- fixtures: payee Zzhoney (a1), another cleaner (a2), admin (a3), maintenance (a4: may not submit cleanings).
 -- Check-outs: D1 -3, D2 -4, D3 -5, D4 -6 (already reported), D5 -7 (the admin pays it ahead), D6 -8 (a rate row with no transport applies on that day only).
 insert into auth.users(id, email) values
   ('c9900000-0000-4000-8000-0000000000a1', 'zz-s99-honey@example.com'), ('c9900000-0000-4000-8000-0000000000a2', 'zz-s99-other@example.com'),
-  ('c9900000-0000-4000-8000-0000000000a3', 'zz-s99-admin@example.com'), ('c9900000-0000-4000-8000-0000000000a4', 'zz-s99-inspector@example.com');
+  ('c9900000-0000-4000-8000-0000000000a3', 'zz-s99-admin@example.com'), ('c9900000-0000-4000-8000-0000000000a4', 'zz-s99-maintenance@example.com');
 insert into public.staff_access_profiles(user_id, role) values
-  ('c9900000-0000-4000-8000-0000000000a1', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a2', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a3', 'admin'), ('c9900000-0000-4000-8000-0000000000a4', 'inspector');
+  ('c9900000-0000-4000-8000-0000000000a1', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a2', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a3', 'admin'), ('c9900000-0000-4000-8000-0000000000a4', 'maintenance');
 insert into public.properties(id, name, is_active) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Cascade Hideaway', true) on conflict (id) do nothing;
 insert into public.staff_property_access(user_id, property_id) select u, '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
   from unnest(array['c9900000-0000-4000-8000-0000000000a1', 'c9900000-0000-4000-8000-0000000000a2', 'c9900000-0000-4000-8000-0000000000a3', 'c9900000-0000-4000-8000-0000000000a4']::uuid[]) u;
@@ -49,7 +49,9 @@ insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_nam
   ('c9900000-0000-4000-8000-0000000000b9', 'zz-c99-s9', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zzhoney Reyes', current_date - 9,  'turnover', 'c9900000-0000-4000-8000-0000000000a1'),
   ('c9900000-0000-4000-8000-0000000000b6', 'zz-c99-s10', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zzhoney Reyes', current_date - 10, 'turnover', 'c9900000-0000-4000-8000-0000000000a1');
 -- a real backup holds real sessions on the same dates: make them mid-stay (never a match for a checkout) so only the fixtures decide what is missed; rolled back with the suite
-update public.cleaning_sessions set cleaning_type = 'mid_stay' where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and submission_id not like 'zz-c99-%';
+update public.cleaning_sessions set cleaning_type = 'mid_stay' where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and coalesce(submission_id, '') not like 'zz-c99-%';
+-- the same for real calendar stays (guests, Airbnb blocks): get_missed_cleanings reads calendar_events and the suite must see only its own zz-s99 rows; rolled back with the suite
+update public.calendar_events set status = 'cancelled' where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and coalesce(uid, '') not like 'zz-s99-%';
 -- a real backup holds live advance lines on real dates: cancel every non-fixture request inside this transaction so only the fixtures hold dates; rolled back with the suite
 update public.staff_pay_requests set status = 'cancelled', cancelled_at = now() where status <> 'cancelled' and idempotency_key not like 'zz-c99-%';
 
@@ -153,7 +155,8 @@ reset role;
 select is((select count(*)::int from jsonb_array_elements((select v->'advance' from _t where k = 'cand2')) a
             where a->>'checkout_date' in ((current_date - 3)::text, (current_date - 4)::text, (current_date - 5)::text, (current_date - 7)::text)), 0, 'candidates.advance no longer offers any date a live request holds');
 select is((select count(*)::int from jsonb_array_elements((select v->'advance' from _t where k = 'cand2')) a where a->>'checkout_date' = (current_date - 8)::text), 1, 'it still offers the free one');
-select is((select jsonb_array_length(v->'reports_owed') from _t where k = 'cand2'), 5, 'reports_owed (s94) lists the five advance lines, unchanged');
+-- r1 holds two dates, the mixed request one, the admin request one
+select is((select jsonb_array_length(v->'reports_owed') from _t where k = 'cand2'), 4, 'reports_owed (s94) lists the four advance lines, unchanged');
 update public.staff_pay_requests set status = 'cancelled' where id = (select (v->>'request_id')::uuid from _t where k = 'r1');
 select pg_temp.as_user('c9900000-0000-4000-8000-0000000000a1');
 insert into _t select 'cand3', public.staff_pay_candidates_v1();
@@ -164,8 +167,10 @@ select is((select v->>'ok' from _t where k = 'again'), 'true', 'and a new reques
 
 -- 7. who may call ----------------------------------------------------------------------------------------------------------------------------------
 select pg_temp.as_user('c9900000-0000-4000-8000-0000000000a4');
+insert into _t select 'a4_may', to_jsonb(public.current_staff_authorized('submit_cleaning', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'));
 insert into _t select 'admin_self', public.staff_pay_request_create_v2('[]'::jsonb, '{}'::uuid[], '[]'::jsonb, jsonb_build_array(jsonb_build_object('checkout_date', (current_date - 4)::text)), 'zz-c99-key-0005');
 reset role;
+select is((select v from _t where k = 'a4_may'), 'false'::jsonb, 'the maintenance user is not authorised to submit cleanings');
 select is((select v->>'reason' from _t where k = 'admin_self'), 'not_authorized', 'a role that may not submit cleanings gets not_authorized (and no row)');
 select ok(has_function_privilege('authenticated', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute')
           and not has_function_privilege('anon', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute')
