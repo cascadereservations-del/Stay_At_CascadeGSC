@@ -9,7 +9,7 @@
 --   N1 now 10, counted through v1 (wrapper) -> 9;  N2 now 10, v2 with a null time -> 9, since_delta 0
 --   K  movement-controlled: refused by v1 and v2
 begin;
-select plan(37);
+select plan(44);
 
 select has_function('public', 'inventory_qty_at_v1', array['uuid', 'timestamp with time zone'], 'qty_at exists');
 select has_function('public', 'telegram_apply_inventory_count_v2', array['bigint', 'jsonb', 'text', 'timestamp with time zone'], 'the as-of count RPC exists');
@@ -61,6 +61,14 @@ insert into public.inventory_audit_log(entity_type, entity_id, action, before, a
    '{"qty_on_hand": 102, "purchase_id": "f99f0000-0000-4000-8000-0000000000c2", "qty_added": 100}'::jsonb, 'telegram-ocr', now() - interval '1 day'),
   ('inventory_items', 'f99f0000-0000-4000-8000-0000000000b5', 'telegram_count', '{"qty_on_hand": 5}'::jsonb, '{"qty_on_hand": 8}'::jsonb, 'telegram:1:admin', now() - interval '1 day');
 
+-- the internal core: nobody may call it (the migration's own revokes run even under --no-acl)
+select has_function('public', 's_apply_inventory_count_core_v1', array['text', 'jsonb', 'text', 'timestamp with time zone', 'uuid'], 'the internal core exists');
+select ok(not has_function_privilege('anon', 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)', 'execute')
+      and not has_function_privilege('authenticated', 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)', 'execute')
+      and not has_function_privilege('service_role', 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)', 'execute'), 'core: not executable by anon, authenticated or service_role');
+select ok((select p.prosecdef and p.proconfig = array['search_path=""'] and not exists (select 1 from aclexplode(p.proacl) a where a.grantee = 0)
+             from pg_proc p where p.oid = 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)'::regprocedure), 'core: definer, empty search_path, nothing granted to PUBLIC');
+
 -- qty_at, hand-computed
 select is(public.inventory_qty_at_v1('f99f0000-0000-4000-8000-0000000000b1', now() - interval '2 days'), 13::numeric, 'qty_at A: 10 now + 3 used after T = 13');
 select is(public.inventory_qty_at_v1('f99f0000-0000-4000-8000-0000000000b2', now() - interval '2 days'), 2::numeric, 'qty_at B: 8 now - 6 bought after T = 2 (usage before T ignored)');
@@ -96,7 +104,7 @@ select is((select qty_on_hand from public.inventory_items where id = 'f99f0000-0
 select is(public.telegram_apply_inventory_count_v1(9900000001, '[{"item_id":"f99f0000-0000-4000-8000-0000000000b8","counted":6,"expected_before":7}]'::jsonb) ->> 'reason', 'movement_controlled', 'v1 wrapper: a controlled item is still refused');
 
 -- v2 with a null time equals v1
-select is(public.telegram_apply_inventory_count_v2(9900000001, '[{"item_id":"f99f0000-0000-4000-8000-0000000000b7","counted":9,"expected_before":10}]'::jsonb, 'pgTAP v2 null') #>> '{rows,0,since_delta}', '0', 'v2 with no time: since_delta is 0');
+select is((public.telegram_apply_inventory_count_v2(9900000001, '[{"item_id":"f99f0000-0000-4000-8000-0000000000b7","counted":9,"expected_before":10}]'::jsonb, 'pgTAP v2 null') #>> '{rows,0,since_delta}')::numeric, 0::numeric, 'v2 with no time: since_delta is 0');
 select is((select qty_on_hand from public.inventory_items where id = 'f99f0000-0000-4000-8000-0000000000b7'), 9::numeric, 'v2 with no time: stored as counted, exactly like v1');
 
 -- the as-of count: five rows, hand-computed results
@@ -121,6 +129,15 @@ select ok((select a.after ->> 'note' = 'pgTAP as of' and (a.after ->> 'counted')
                    and (a.before ->> 'qty_on_hand')::numeric = 10 and (a.after ->> 'qty_on_hand')::numeric = 17
              from public.inventory_audit_log a where a.entity_id = 'f99f0000-0000-4000-8000-0000000000b1' and a.action = 'telegram_count' and a.after ? 'as_of'),
   'the audit row carries note, as_of, counted and since_delta');
+
+-- the Telegram path still writes the 'telegram:<id>:<role>' actor (A: the as-of count above); the core run directly (owner data step) writes its own actor
+select is((select a.actor from public.inventory_audit_log a where a.entity_id = 'f99f0000-0000-4000-8000-0000000000b1' and a.action = 'telegram_count' and a.after ? 'as_of'),
+  'telegram:9900000001:admin', 'v2 path: the audit actor is telegram:<id>:<role>');
+select is((select j ->> 'by_role' from _r), 'admin', 'v2 path: the result still carries by_role');
+select is(public.s_apply_inventory_count_core_v1('owner:test:s99f-data-step',
+  '[{"item_id":"f99f0000-0000-4000-8000-0000000000b6","counted":4,"expected_before":9}]'::jsonb, 'pgTAP core', now() - interval '2 days') ->> 'updated', '1', 'core: a direct call applies a row with no Telegram id');
+select is((select a.actor from public.inventory_audit_log a where a.entity_id = 'f99f0000-0000-4000-8000-0000000000b6' and a.after ->> 'note' = 'pgTAP core'),
+  'owner:test:s99f-data-step', 'core: the audit actor is the one passed in');
 
 select * from finish();
 rollback;

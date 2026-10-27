@@ -24,7 +24,8 @@
 -- v2 = v1 (same auth, two passes, duplicate/bad_row/bad_count/item_not_found/movement_controlled/not_authorized/stock_changed guards, same result keys) plus p_as_of.
 -- v1 becomes a wrapper calling v2 with null (delta 0 = the old behaviour; its result gains the extra keys counted, since_delta, clamped, as_of, which no caller reads).
 -- Guard (55000, nothing changes): the live v1 body must be the 20260918 body, md5(prosrc, CR stripped) fd6a1b06d326f87b73e6522b5d8f154a.
--- Grants restated (ML-21): revoke all from public, anon, authenticated; execute to service_role only, for all three functions.
+-- Grants restated (ML-21): revoke all from public, anon, authenticated; execute to service_role only, for qty_at, v2 and v1. The core s_apply_inventory_count_core_v1 has no grants at all (revoked from service_role too).
+-- Fix round 1: the apply logic moved into that core so the owner data step (the owner has no Telegram id) can call it with actor 'owner:<user_id>:s99f-data-step'.
 -- Rollback: supabase/rollbacks/20261103_s99f_count_as_of.sql. The data step is supabase/sql/2026-10-27-s99f-count-16oct.sql (Lloyd's block, AFTER this migration).
 
 begin;
@@ -72,11 +73,12 @@ comment on function public.inventory_qty_at_v1(uuid, timestamptz) is
 revoke all on function public.inventory_qty_at_v1(uuid, timestamptz) from public, anon, authenticated;
 grant execute on function public.inventory_qty_at_v1(uuid, timestamptz) to service_role;
 
-create or replace function public.telegram_apply_inventory_count_v2(
-  p_telegram_user_id bigint, p_rows jsonb, p_note text default null, p_as_of timestamptz default null)
+-- The apply logic lives in an internal core with NO grants to anyone (not even service_role): only definer functions in this schema reach it.
+-- v2 does the Telegram auth and passes the audit actor; the owner data step calls the core directly with its own actor, because the owner has no Telegram id.
+create or replace function public.s_apply_inventory_count_core_v1(
+  p_actor text, p_rows jsonb, p_note text, p_as_of timestamptz, p_access_user uuid default null)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
-  p public.staff_access_profiles%rowtype;
   it public.inventory_items%rowtype;
   r jsonb;
   v_counted numeric;
@@ -87,12 +89,7 @@ declare
   v_n int := 0;
   v_out jsonb := '[]'::jsonb;
 begin
-  if p_telegram_user_id is null then return jsonb_build_object('ok', false, 'reason', 'unmapped_telegram_user'); end if;
-  select * into p from public.staff_access_profiles where telegram_user_id = p_telegram_user_id;
-  if not found then return jsonb_build_object('ok', false, 'reason', 'unmapped_telegram_user'); end if;
-  if not public.staff_access_allowed(p.role, 'manage_inventory', p.disabled_at, null) then
-    return jsonb_build_object('ok', false, 'reason', 'not_authorized');
-  end if;
+  if coalesce(p_actor, '') = '' then return jsonb_build_object('ok', false, 'reason', 'bad_actor'); end if;
 
   -- a count "as of" must be a time in the past, within 60 days (qty_at is only trusted over the recent ledger)
   if p_as_of is not null and (p_as_of >= now() or p_as_of < now() - interval '60 days') then
@@ -124,9 +121,10 @@ begin
     if it.movement_controlled_at is not null then
       return jsonb_build_object('ok', false, 'reason', 'movement_controlled', 'item', it.name);
     end if;
-    if not (p.role = 'owner' or exists (
+    -- property access is decided by the caller: p_access_user is the staff user whose property list must contain the item, null = no check (owner, or the owner's data step)
+    if p_access_user is not null and not exists (
       select 1 from public.staff_property_access s
-       where s.user_id = p.user_id and s.property_id = it.property_id)) then
+       where s.user_id = p_access_user and s.property_id = it.property_id) then
       return jsonb_build_object('ok', false, 'reason', 'not_authorized');
     end if;
     -- Someone logged a purchase or a cleaning since the list was shown: the whole count is stale.
@@ -149,17 +147,42 @@ begin
     values ('inventory_items', it.id, 'telegram_count',
             jsonb_build_object('qty_on_hand', it.qty_on_hand),
             jsonb_build_object('qty_on_hand', v_new, 'note', p_note, 'as_of', p_as_of, 'counted', v_counted, 'since_delta', v_delta, 'clamped', v_clamped),
-            'telegram:' || p_telegram_user_id::text || ':' || p.role);
+            p_actor);
     v_out := v_out || jsonb_build_object('name', it.name, 'before', it.qty_on_hand, 'after', v_new,
                                          'counted', v_counted, 'since_delta', v_delta, 'clamped', v_clamped);
     v_n := v_n + 1;
   end loop;
 
-  return jsonb_build_object('ok', true, 'updated', v_n, 'by_role', p.role, 'as_of', p_as_of, 'rows', v_out);
+  return jsonb_build_object('ok', true, 'updated', v_n, 'as_of', p_as_of, 'rows', v_out);
+end $$;
+
+comment on function public.s_apply_inventory_count_core_v1(text, jsonb, text, timestamptz, uuid) is
+  'S99f (D-351): internal two-pass stock count (guards, as-of rule, clamp at 0, audit telegram_count with actor p_actor). No grants; called by telegram_apply_inventory_count_v2 and the owner data step only.';
+
+revoke all on function public.s_apply_inventory_count_core_v1(text, jsonb, text, timestamptz, uuid) from public, anon, authenticated, service_role;
+
+create or replace function public.telegram_apply_inventory_count_v2(
+  p_telegram_user_id bigint, p_rows jsonb, p_note text default null, p_as_of timestamptz default null)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  p public.staff_access_profiles%rowtype;
+  v jsonb;
+begin
+  if p_telegram_user_id is null then return jsonb_build_object('ok', false, 'reason', 'unmapped_telegram_user'); end if;
+  select * into p from public.staff_access_profiles where telegram_user_id = p_telegram_user_id;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'unmapped_telegram_user'); end if;
+  if not public.staff_access_allowed(p.role, 'manage_inventory', p.disabled_at, null) then
+    return jsonb_build_object('ok', false, 'reason', 'not_authorized');
+  end if;
+
+  v := public.s_apply_inventory_count_core_v1('telegram:' || p_telegram_user_id::text || ':' || p.role, p_rows, p_note, p_as_of,
+                                              case when p.role = 'owner' then null else p.user_id end);
+  if coalesce((v ->> 'ok')::boolean, false) then v := v || jsonb_build_object('by_role', p.role); end if;
+  return v;
 end $$;
 
 comment on function public.telegram_apply_inventory_count_v2(bigint, jsonb, text, timestamptz) is
-  'S99f (D-351): v1 plus p_as_of. A count taken at a past time T (within 60 days) applies counted + (qty_now - qty_at(T)), clamped at 0, and audits counted, since_delta, as_of, clamped. Null as_of is exactly v1.';
+  'S99f (D-351): v1 plus p_as_of. Telegram auth, then s_apply_inventory_count_core_v1. A count taken at a past time T (within 60 days) applies counted + (qty_now - qty_at(T)), clamped at 0, and audits counted, since_delta, as_of, clamped. Null as_of is exactly v1.';
 
 revoke all on function public.telegram_apply_inventory_count_v2(bigint, jsonb, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.telegram_apply_inventory_count_v2(bigint, jsonb, text, timestamptz) to service_role;

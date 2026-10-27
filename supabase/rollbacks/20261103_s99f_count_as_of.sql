@@ -1,6 +1,6 @@
 -- Compensating rollback for release s99f_count_as_of_20261103 (migration 20261103000000_s99f_count_as_of.sql).
 -- Puts back, byte for byte, the 20260918 body of public.telegram_apply_inventory_count_v1(bigint,jsonb,text): md5(prosrc, CR stripped) fd6a1b06d326f87b73e6522b5d8f154a,
--- then drops telegram_apply_inventory_count_v2 and inventory_qty_at_v1. It refuses (55000, nothing changes) unless the live v1 is the s99f wrapper
+-- then drops telegram_apply_inventory_count_v2, s_apply_inventory_count_core_v1 and inventory_qty_at_v1. It refuses (55000, nothing changes) unless the live v1 is the s99f wrapper
 -- (md5 b1e07fedbd705a8065d973d735a1b964); the bot as deployed before s99f only calls v1, so it keeps working. Deploy the bot rollback FIRST if a build that calls v2 is live.
 -- NOT undone: counts already applied (their telegram_count audit rows keep note, as_of, counted, since_delta) and the data step supabase/sql/2026-10-27-s99f-count-16oct.sql.
 -- Apply with run-sql-on-host.sh.
@@ -96,6 +96,7 @@ revoke all on function public.telegram_apply_inventory_count_v1(bigint, jsonb, t
 grant execute on function public.telegram_apply_inventory_count_v1(bigint, jsonb, text) to service_role;
 
 drop function public.telegram_apply_inventory_count_v2(bigint, jsonb, text, timestamptz);
+drop function public.s_apply_inventory_count_core_v1(text, jsonb, text, timestamptz, uuid);
 drop function public.inventory_qty_at_v1(uuid, timestamptz);
 
 commit;

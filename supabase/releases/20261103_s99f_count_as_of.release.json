@@ -10,15 +10,15 @@
     "20261103000000_s99f_count_as_of.sql"
   ],
   "migration_sha256": {
-    "20261103000000_s99f_count_as_of.sql": "e35d6a1b15d66db8339994476972ea8208c70bc9d2849d6e72b3bd39b7a33f30"
+    "20261103000000_s99f_count_as_of.sql": "f3765e846f3ca08075500a631f72c66270cc785c9aaeb8d017e327dbe86f1e98"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "A stock count taken at a past time T (the handwritten printout \"Printed 16 Oct 2026, 08:21\") says what was on hand at T; usage, purchases and other counts logged since then still happened. D-351: the applied quantity is counted + (qty_now - qty_at(T)), never below 0. Adds public.inventory_qty_at_v1(uuid,timestamptz) (stable, definer) and public.telegram_apply_inventory_count_v2(bigint,jsonb,text,timestamptz) (v1 plus p_as_of: 60-day window else bad_as_of, audit row carries note, as_of, counted, since_delta, clamped), and turns telegram_apply_inventory_count_v1 into a wrapper calling v2 with a null time (the deployed bot keeps working unchanged). Replaces ONLY v1 (20260918 body md5 fd6a1b06d326f87b73e6522b5d8f154a guarded, 55000 on mismatch). Grants restated (ML-21) for all three: revoke from public, anon, authenticated; execute to service_role. HOW qty_at IS BUILT (every writer of inventory_items.qty_on_hand was read): usage (record_inventory_usage v3) and admin receipts (record_inventory_receipt_v1) on a normal item are NOT in inventory_audit_log, so qty_at reads inventory_usage and inventory_purchases (created_at after T), OCR restocks from the ocr_restock audit row (the purchase row held packs before 2026-10-20) only while their purchase row still exists (a staff undo deletes it), and counts / other audited changes from before/after qty_on_hand; a movement-controlled item (0 in production, refused by the count anyway) uses inventory_stock_movements. Known limits: record_inventory_usage clamps at zero (qty_at can read high by the clamped part), a hand-run SQL edit of qty_on_hand leaves no trace.",
-    "notes": "Phase expand: two functions added, one body replaced (v1 becomes a wrapper), no table, column or data touched. Old callers keep working (v1 same signature; its result gains the extra keys counted, since_delta, clamped, as_of). Deploy order: SQL, then the data step supabase/sql/2026-10-27-s99f-count-16oct.sql (Lloyd block: 17 items counted as of 2026-10-16 08:21 Manila, one transaction, idempotent by the audit note), then the waves lane (Cassy count by photo or text) which calls v2. The data step is NOT part of the migration. The live ACL of v1 could not be read offline: v1 was created by migration 20260918 with service_role only; the restated grants match it."
+    "production_rule": "A stock count taken at a past time T (the handwritten printout \"Printed 16 Oct 2026, 08:21\") says what was on hand at T; usage, purchases and other counts logged since then still happened. D-351: the applied quantity is counted + (qty_now - qty_at(T)), never below 0. Adds public.inventory_qty_at_v1(uuid,timestamptz) (stable, definer), the internal public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid) (the two-pass apply logic, NO grants to anyone, not even service_role) and public.telegram_apply_inventory_count_v2(bigint,jsonb,text,timestamptz) (Telegram auth, then the core: v1 plus p_as_of: 60-day window else bad_as_of, audit row carries note, as_of, counted, since_delta, clamped; actor telegram:<id>:<role>). The owner data step calls the core directly with actor owner:<user_id>:s99f-data-step because the owner has no Telegram id, and turns telegram_apply_inventory_count_v1 into a wrapper calling v2 with a null time (the deployed bot keeps working unchanged). Replaces ONLY v1 (20260918 body md5 fd6a1b06d326f87b73e6522b5d8f154a guarded, 55000 on mismatch). Grants restated (ML-21): qty_at, v2 and v1 revoke from public, anon, authenticated and execute to service_role; the core revokes from public, anon, authenticated AND service_role. HOW qty_at IS BUILT (every writer of inventory_items.qty_on_hand was read): usage (record_inventory_usage v3) and admin receipts (record_inventory_receipt_v1) on a normal item are NOT in inventory_audit_log, so qty_at reads inventory_usage and inventory_purchases (created_at after T), OCR restocks from the ocr_restock audit row (the purchase row held packs before 2026-10-20) only while their purchase row still exists (a staff undo deletes it), and counts / other audited changes from before/after qty_on_hand; a movement-controlled item (0 in production, refused by the count anyway) uses inventory_stock_movements. Known limits: record_inventory_usage clamps at zero (qty_at can read high by the clamped part), a hand-run SQL edit of qty_on_hand leaves no trace.",
+    "notes": "Phase expand: three functions added, one body replaced (v1 becomes a wrapper), no table, column or data touched. Old callers keep working (v1 same signature; its result gains the extra keys counted, since_delta, clamped, as_of). Deploy order: SQL, then the data step supabase/sql/2026-10-27-s99f-count-16oct.sql (Lloyd block: 17 items counted as of 2026-10-16 08:21 Manila, one transaction, idempotent by the audit note), then the waves lane (Cassy count by photo or text) which calls v2. The data step is NOT part of the migration. The live ACL of v1 could not be read offline: v1 was created by migration 20260918 with service_role only; the restated grants match it."
   },
   "forward_verification": [
     {
@@ -28,7 +28,7 @@
     },
     {
       "name": "count_v2_is_the_s99f_body",
-      "query": "select md5(replace(prosrc, chr(13), substr(chr(13), 2))) = '3723162897be6b0b5940cc7eae4054ed' from pg_proc where oid = 'public.telegram_apply_inventory_count_v2(bigint,jsonb,text,timestamptz)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), substr(chr(13), 2))) = '357ba53ddc3bc26a150e6f92c5bc4a87' from pg_proc where oid = 'public.telegram_apply_inventory_count_v2(bigint,jsonb,text,timestamptz)'::regprocedure",
       "expect": true
     },
     {
@@ -42,8 +42,8 @@
       "expect": true
     },
     {
-      "name": "v2_keeps_the_v1_guards_and_adds_bad_as_of_and_the_clamp",
-      "query": "select position('bad_as_of' in prosrc) > 0 and position('inventory_qty_at_v1(it.id, p_as_of)' in prosrc) > 0 and position('v_clamped' in prosrc) > 0 and position('movement_controlled' in prosrc) > 0 and position('stock_changed' in prosrc) > 0 and position('duplicate_item' in prosrc) > 0 and position('for update' in prosrc) > 0 from pg_proc where oid = 'public.telegram_apply_inventory_count_v2(bigint,jsonb,text,timestamptz)'::regprocedure",
+      "name": "core_keeps_the_v1_guards_and_adds_bad_as_of_and_the_clamp",
+      "query": "select position('bad_as_of' in prosrc) > 0 and position('inventory_qty_at_v1(it.id, p_as_of)' in prosrc) > 0 and position('v_clamped' in prosrc) > 0 and position('movement_controlled' in prosrc) > 0 and position('stock_changed' in prosrc) > 0 and position('duplicate_item' in prosrc) > 0 and position('for update' in prosrc) > 0 from pg_proc where oid = 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -57,8 +57,23 @@
       "expect": true
     },
     {
+      "name": "core_is_the_s99f_body",
+      "query": "select md5(replace(prosrc, chr(13), substr(chr(13), 2))) = '3937a6da154fe1ed60471689833f96e2' from pg_proc where oid = 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "core_has_no_grants_to_anyone",
+      "query": "select (select count(*) from pg_proc where oid = 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)'::regprocedure and prosecdef and proconfig = array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('authenticated', oid, 'execute') and not has_function_privilege('service_role', oid, 'execute')) = 1",
+      "expect": true
+    },
+    {
+      "name": "v2_calls_the_core_with_the_telegram_actor",
+      "query": "select position('s_apply_inventory_count_core_v1(' in prosrc) > 0 and position('telegram:' in prosrc) > 0 and position('p_telegram_user_id::text' in prosrc) > 0 and position('staff_access_allowed' in prosrc) > 0 from pg_proc where oid = 'public.telegram_apply_inventory_count_v2(bigint,jsonb,text,timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
       "name": "the_data_step_prerequisites_exist",
-      "query": "select (select count(*) = 1 from public.staff_access_profiles where role = 'owner' and telegram_user_id is not null) and (select count(*) = 17 from (values ('Liquid Hand Soap (Safeguard)'), ('Breeze Fabric Conditioner Liquid'), ('Garbage Bags (Small)'), ('Lysol Disinfectant Spray'), ('Mr Muscle Glass Cleaner (Blue)'), ('Natural Air'), ('Liquid Body Soap (Dove)'), ('Ambi Pur'), ('Garbage Bags (Large)'), ('Mr Muscle Mold & Mildew (Orange)'), ('Baygon Spray'), ('Bottled Water'), ('Coffee (3-in-1)'), ('Sugar & Creamer Sticks'), ('Shampoo (Palmolive)'), ('Dishwashing Liquid (Joy)'), ('Toiletries (toothbrush, toothpaste, soap)')) t(n) where (select count(*) from public.inventory_items i where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and i.name = t.n) = 1) and (select count(*) = 0 from public.inventory_items i where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and i.movement_controlled_at is not null)",
+      "query": "select (select count(*) = 1 from public.staff_access_profiles where role = 'owner') and (select count(*) = 17 from (values ('Liquid Hand Soap (Safeguard)'), ('Breeze Fabric Conditioner Liquid'), ('Garbage Bags (Small)'), ('Lysol Disinfectant Spray'), ('Mr Muscle Glass Cleaner (Blue)'), ('Natural Air'), ('Liquid Body Soap (Dove)'), ('Ambi Pur'), ('Garbage Bags (Large)'), ('Mr Muscle Mold & Mildew (Orange)'), ('Baygon Spray'), ('Bottled Water'), ('Coffee (3-in-1)'), ('Sugar & Creamer Sticks'), ('Shampoo (Palmolive)'), ('Dishwashing Liquid (Joy)'), ('Toiletries (toothbrush, toothpaste, soap)')) t(n) where (select count(*) from public.inventory_items i where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and i.name = t.n) = 1) and (select count(*) = 0 from public.inventory_items i where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and i.movement_controlled_at is not null)",
       "expect": true
     }
   ],
@@ -83,7 +98,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "PENDING: the orchestrator rehearses on a fresh backup (migration, forward checks, pgTAP s99f_count_as_of.sql 37/37 and telegram_inventory_count.sql 18/18, the data step twice with the second run a no-op) and fills this in. Not run by the SQL lane (offline only)."
+    "evidence": "PENDING: the orchestrator rehearses on a fresh backup (migration, forward checks, pgTAP s99f_count_as_of.sql 44/44 and telegram_inventory_count.sql 18/18, the data step twice with the second run a no-op) and fills this in. Not run by the SQL lane (offline only)."
   },
   "approvals": {
     "production_required": true,
