@@ -193,3 +193,36 @@ Deno.test('end to end: a photo sheet becomes a card with as-of and a Not read li
   assert(card.includes('• Dishwashing Liquid (Joy): counted 0.5 pc  (now 2)'));
   assertEquals(countRpc({ v2: true, as_of: out.sheet.asOf, changes }, 1, 'n').args.p_as_of, '2026-10-16T08:21:00+08:00');
 });
+
+// ---- fix round 1 ----
+Deno.test('as-of time never swallows the next line (am/pm boundary)', () => {
+  const a = parseCountText('count as of 16 Oct 8:21\nPalmolive shampoo 2', NOW);
+  assertEquals(a.asOf, '2026-10-16T08:21:00+08:00');
+  assertEquals(a.rows, [{ name: 'Palmolive shampoo', counted: 2 }]);
+  const b = parseCountText('count as of 16 Oct 8:21 Ambi Pur 1', NOW);
+  assertEquals(b.rows, [{ name: 'Ambi Pur', counted: 1 }]);
+  assertEquals(parseCountText('count as of 16 Oct 8:21pm\nwater 3', NOW).asOf, '2026-10-16T20:21:00+08:00');
+});
+Deno.test('thousands comma stays inside the number; a bare-number fragment blocks Confirm', () => {
+  assertEquals(parseCountText('count water 1,000, lysol 2', NOW).rows, [{ name: 'water', counted: 1000 }, { name: 'lysol', counted: 2 }]);
+  const res = matchItems([{ name: 'Lysol', counted: 2 }], ITEMS);
+  const base = { source: 'typed' as const, asOf: null, changes: toChanges(res.matched, null), res, notRead: [] };
+  assertFalse(countCard({ ...base, unreadable: ['5'] }, (x) => String(x)).canConfirm);
+  assert(countCard({ ...base, unreadable: ['junk'] }, (x) => String(x)).canConfirm);
+});
+Deno.test('photo: prose around the JSON is tolerated; a sure non-sheet in count mode goes to the receipt path', async () => {
+  const sheet = '{"is_count_sheet":true,"confidence":0.9,"printed_at":null,"rows":[{"name":"Lysol","counted":2,"confidence":0.9}]}';
+  const o = await readCountPhoto(async () => `Here is the JSON:\n${sheet}\nHope that helps`, 'count', NOW);
+  assertEquals(o.kind, 'sheet');
+  const rc = await readCountPhoto(async () => '{"is_count_sheet":false,"confidence":0.95,"rows":[]}', 'count', NOW);
+  assertEquals(rc.kind, 'receipt');
+  const unsure = await readCountPhoto(async () => '{"is_count_sheet":false,"confidence":0.3,"rows":[]}', 'count', NOW);
+  assertEquals(unsure.kind, 'failed');
+});
+Deno.test('index.ts wiring: a typed count that parses no row falls through unless the bot is addressed; v2 copy says send again', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assert(src.includes('if(!p.rows.length&&!addressed)return false;'));
+  assert(src.includes('handleTypedCount(db,chatId,text,isBotAddressed(msg))'));
+  assert(src.includes("payload?.v2?'Send the count again'"));
+  assert(src.includes('count Lysol 2, water 20'));
+});

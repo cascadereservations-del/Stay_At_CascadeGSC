@@ -26,7 +26,7 @@ export function parseNumber(s: unknown): number | null {
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const DAY = 86_400_000;
-const AS_OF_RE = /\bas\s+of\s+(?:(\d{1,2})\s+([a-z]{3,9})|([a-z]{3,9})\s+(\d{1,2}))(?:\s*,?\s*(\d{4}))?(?:\s*,?\s*(?:at\s+)?(\d{1,2}):(\d{2})\s*([ap])?\.?m?\.?)?/i;
+const AS_OF_RE = /\bas\s+of\s+(?:(\d{1,2})\s+([a-z]{3,9})|([a-z]{3,9})\s+(\d{1,2}))(?:[ \t]*,?[ \t]*(\d{4}))?(?:[ \t]*,?[ \t]*(?:at[ \t]+)?(\d{1,2}):(\d{2})(?:[ \t]*([ap])\.?m\.?(?![a-z]))?)?/i;
 
 /** Manila wall-clock parts to an ISO instant with +08:00, or null when it is not a real date. */
 export function manilaIso(y: number, mo: number, d: number, h: number, mi: number): string | null {
@@ -65,7 +65,8 @@ export const isCountCaption = (c: unknown) => /^\s*(count|inventory)\b/i.test(St
 
 export function parseCountText(text: string, nowMs: number): ParsedText {
   const a = parseAsOf(String(text ?? ''), nowMs);
-  const body = a.rest.replace(/^\s*(count|inventory)\b[\s:.\-]*/i, '');
+  // a thousands comma (1,000) is part of the number, not a separator
+  const body = a.rest.replace(/^\s*(count|inventory)\b[\s:.\-]*/i, '').replace(/(\d),(?=\d{3}\b)/g, '$1');
   const byName = new Map<string, Row>();
   const unreadable: string[] = [];
   for (const raw of body.split(/[\n;,]+/)) {
@@ -84,7 +85,7 @@ export const COUNT_CONF = 0.8;
 export const countSheetPrompt = () =>
   'You are reading a photo of a hand-filled stock count sheet for a small guest house. Return ONLY a JSON object, no markdown:\n' +
   '{"is_count_sheet":boolean,"confidence":number,"printed_at":"YYYY-MM-DDTHH:MM"|null,"rows":[{"name":string,"counted":number|string|null,"confidence":number}]}\n' +
-  'Rules:\n- is_count_sheet is true only for a list of item names with handwritten quantities. A shop receipt, an ID, a chat screenshot or any other photo is false; set confidence below 0.3.\n' +
+  'Rules:\n- is_count_sheet is true only for a list of item names with handwritten quantities. A shop receipt, an ID, a chat screenshot or any other photo is false. confidence is how sure you are of that true/false answer.\n' +
   '- One row per line item: name exactly as printed, and the HANDWRITTEN number beside it as "counted". Ignore printed stock figures.\n' +
   '- Fractions (1/2, 1 1/2) and sums written as a+b (16+46) may be returned as the text exactly as written. Use null when a number is blank or you cannot read it. Never guess.\n' +
   '- printed_at is any printed date and time on the sheet (for example "Printed 16 Oct 2026, 08:21") as 24-hour YYYY-MM-DDTHH:MM, else null.\n' +
@@ -160,8 +161,8 @@ export function countCard(i: CardIn, esc: (s: unknown) => string): { chunks: str
   if (i.changes.length) {
     if (i.asOf) {
       lines.push('_Stock logged since then is kept: the new figure is the count plus that movement._');
-      for (const c of i.changes) lines.push(`• ${esc(c.name)}: counted ${c.counted} ${c.unit}  (now ${c.before})`);
-    } else lines.push(...reviewLines(i.changes.map((c) => ({ ...c, name: esc(c.name) }))));
+      for (const c of i.changes) lines.push(`• ${esc(c.name)}: counted ${c.counted} ${esc(c.unit)}  (now ${c.before})`);
+    } else lines.push(...reviewLines(i.changes.map((c) => ({ ...c, name: esc(c.name), unit: esc(c.unit) }))));
   } else lines.push('Nothing to change, so there is nothing to save.');
   const note = (title: string, xs: string[]) => { if (xs.length) lines.push('', title, ...xs.map((x) => `• ${esc(x)}`)); };
   note('Not read - type them:', i.notRead);
@@ -170,7 +171,7 @@ export function countCard(i: CardIn, esc: (s: unknown) => string): { chunks: str
   note('Counted through the ledger, not here:', i.res.blocked);
   note('Which one? Type the full name:', i.res.ambiguous.map((a) => `${a.name} (${a.options.join(' / ')})`));
   if (i.changes.length) lines.push('', 'Nothing is saved until you tap Confirm.');
-  return { chunks: chunkLines(lines), canConfirm: i.changes.length > 0 };
+  return { chunks: chunkLines(lines), canConfirm: i.changes.length > 0 && !i.unreadable.some((u) => /^[\d\s.\/+]+$/.test(u)) }; // a bare number with no name may be a count left out
 }
 
 /** The result lines after Confirm, from the database rows (counted, since_delta, clamped). */
@@ -186,9 +187,10 @@ export type PhotoOutcome = { kind: 'receipt' } | { kind: 'sheet'; sheet: SheetRe
 /** One vision call. 'detect' (no caption) hands a non-sheet back to the receipt path untouched; 'count' (caption) trusts the person and reads whatever rows it finds. */
 export async function readCountPhoto(read: (prompt: string) => Promise<string>, mode: 'count' | 'detect', nowMs: number): Promise<PhotoOutcome> {
   let j: any;
-  try { j = JSON.parse((await read(countSheetPrompt())).replace(/^```json\s*|\s*```$/g, '').trim()); } catch { return mode === 'detect' ? { kind: 'receipt' } : { kind: 'failed', why: 'unreadable' }; }
+  try { const t = await read(countSheetPrompt()); j = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)); } catch { return mode === 'detect' ? { kind: 'receipt' } : { kind: 'failed', why: 'unreadable' }; }
   const sheet = readSheet(j, nowMs);
   if (mode === 'detect') return isCountSheet(sheet) ? { kind: 'sheet', sheet } : { kind: 'receipt' };
+  if (j?.is_count_sheet === false && sheet.confidence >= COUNT_CONF) return { kind: 'receipt' }; // a captioned photo the reader is sure is not a sheet (a receipt) takes the receipt path
   return sheet.rows.length || sheet.notRead.length ? { kind: 'sheet', sheet } : { kind: 'failed', why: 'no_rows' };
 }
 

@@ -540,7 +540,7 @@ const MENU_MAIN='🏠 *Cascade Finance*\n\nSelect a section:';
 const OPS_MENU_TEXT='📌 *Cascade OPS*\n\nWhat do you need?';
 const MENU_TIPS:Record<string,string>={
   fastentry:['💡 *Fast entry*','Type `<amount> <category>` — amount must be first.','','e.g. `250 supplies Puregold`','e.g. `1500 electricity`','','_Category is auto-detected from keywords._'].join('\n'),
-  ocr:['📸 *Receipt photo (OCR)*','Send any photo directly to this chat.','The bot reads it automatically, then you review each item before confirming.'].join('\n'),
+  ocr:['📸 *Receipt photo (OCR)*','Send any photo directly to this chat.','The bot reads it automatically, then you review each item before confirming.','','_Stock counts: type `count Lysol 2, water 20`, or send a photo captioned `count`._'].join('\n'),
   void:['❌ *Void an entry*','Type `/void REFCODE` to discard a transaction.','','e.g. `/void 28DCABC7`','','_Ref code is shown when the expense is logged._'].join('\n'),
   cassy:['🤖 *Ask Cassy*','Type `/cassy` and your question. A message that *starts* with `Cassy` works too.','Anything else in this chat she never sees.','','e.g. `/cassy when did Ashley Abutazil stay with us?`','e.g. `Cassy, who arrives this week?`','e.g. `/deep …` for the deeper model','','_She reads bookings, guests, stock and the ledger. She never writes without a tap._'].join('\n'),
   draft:['✍️ *Draft a guest reply*','`/draft <what the guest wrote>` or `cassy reply: …`','Or send a chat screenshot captioned `cassy draft`.','','_You get a reply to copy, in our voice, with a risk flag. Nothing is sent._'].join('\n'),
@@ -845,14 +845,15 @@ async function sendTypedCountCard(db:any,chatId:any,source:'typed'|'photo',asOf:
     if(!pid){await tgSend(chatId,'⚠️ Could not start that count. Try again in a minute.');return;}
   }
   const last=card.chunks.length-1;
+  if(last>0&&pid)card.chunks[last]+='\n\n_Confirm or Cancel applies to the whole count above._';
   for(let i=0;i<card.chunks.length;i++)await tgSend(chatId,card.chunks[i],i===last&&pid?{reply_markup:{inline_keyboard:[[{text:'✅ Confirm',callback_data:`inv:ok:${pid}`},{text:'❌ Cancel',callback_data:`inv:no:${pid}`}]]}}:{});
 }
 /** Finance text "count ..." / "inventory ...". Returns true when it took the message. */
-async function handleTypedCount(db:any,chatId:any,text:string):Promise<boolean>{
+async function handleTypedCount(db:any,chatId:any,text:string,addressed:boolean):Promise<boolean>{
   if(!isCountText(text))return false;
   const p=parseCountText(text,Date.now());
   if(p.asOfBad){await tgSend(chatId,'⚠️ I could not read that as-of time, so nothing was prepared. Use the form "as of 16 Oct 8:21": a date in the last 60 days and a time.');return true;}
-  if(!p.rows.length&&!p.unreadable.length)return false;
+  if(!p.rows.length&&!addressed)return false; // "count me in for saturday" is ordinary chat: fall through unless the bot was spoken to
   await sendTypedCountCard(db,chatId,'typed',p.asOf,p.rows,p.unreadable,[]);return true;
 }
 /** Finance photo that is a count sheet. Returns true when it took the photo; false hands it to the receipt path untouched. */
@@ -1462,7 +1463,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
       await tgEdit(chatId,msgId,`${firstLine}\n\n❌ Cancelled by ${who}, stock unchanged.`);return;
     }
     const payload=await consumePending(db,pid);
-    if(!payload){await tgEdit(chatId,msgId,`${cq.message?.text??firstLine}\n\n⏰ That count expired. Run /count again.`);return;}
+    if(!payload){await tgEdit(chatId,msgId,`${cq.message?.text??firstLine}\n\n⏰ That count expired. Send the count again (or run /count).`);return;}
     const changes=(payload.changes??[]) as any[];
         const rpc=countRpc(payload,cq.from?.id,`Telegram count by ${whoFrom(cq.from)}`);const{data:r,error}=await db.rpc(rpc.fn,rpc.args); // s99f: a typed or photo count goes through v2 (as-of time); /count stays on v1
     let line:string,keep=false;
@@ -1472,13 +1473,13 @@ async function handleCallbackQueryInner(cq:any,db:any){
       keep=['unmapped_telegram_user','not_authorized'].includes(k);
       line=({unmapped_telegram_user:`⛔ ${who}, your Telegram account is not mapped to a staff profile — ask Lloyd to map it.`,
              not_authorized:`⛔ ${who} is not authorized to update stock.`,
-             stock_changed:`⚠️ Stock moved since this list (${mdEsc(String(r?.item??''))}). Nothing was saved — run /count again.`,
+             stock_changed:`⚠️ Stock moved since this list (${mdEsc(String(r?.item??''))}). Nothing was saved — ${payload?.v2?'Send the count again':'run /count again'}.`,
              movement_controlled:`⚠️ ${mdEsc(String(r?.item??''))} is movement-controlled and must be counted through the ledger.`,
-             duplicate_item:'⚠️ The same item appeared twice — run /count again.',
+             duplicate_item:`⚠️ The same item appeared twice — ${payload?.v2?'Send the count again':'run /count again'}.`,
              bad_count:'⚠️ A count was negative or had more than two decimals.',
              bad_row_count:'⚠️ That count had no usable lines.',
              bad_as_of:'⚠️ The as-of time must be in the past and within 60 days. Send the count again with the right time.',
-             item_not_found:'⚠️ An item on that list no longer exists — run /count again.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
+             item_not_found:`⚠️ An item on that list no longer exists — ${payload?.v2?'Send the count again':'run /count again'}.`} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
     else line=`✅ Applied by ${who} · ${r.updated} item${r.updated===1?'':'s'} updated · dashboard is current`;
     // A refused count must stay tappable, so the card (and its pending row) go back.
     if(keep&&!data.startsWith('inv:no:')&&payload) await db.from('telegram_pending').insert({id:pid,chat_id:chatId,kind:'inventory_count',payload,expires_at:new Date(Date.now()+60*60_000).toISOString()});
@@ -1835,7 +1836,7 @@ async function handleTextMessage(msg:any,db:any){
     if(route.kind==='flow'){await handleAnswer(db,chatId,msg,aw!,text,loggedBy);return;}
     if(route.kind==='count_lines'){await handleCountReply(db,chatId,msg,card!,text);return;}
     if(route.kind==='refuse'){await tgReply(chatId,msg.message_id,NOT_WAITING);return;}
-    if(await handleTypedCount(db,chatId,text))return; // s99f: "count Lysol 2, bottled water 20" in Finance
+    if(await handleTypedCount(db,chatId,text,isBotAddressed(msg)))return; // s99f: "count Lysol 2, bottled water 20" in Finance
   }
   // A reply-keyboard tap arrives as the button's LABEL - no slash, no @mention - so it has to be
   // recognised BEFORE the addressed-the-bot gate, which would otherwise drop it. Tapping a button
