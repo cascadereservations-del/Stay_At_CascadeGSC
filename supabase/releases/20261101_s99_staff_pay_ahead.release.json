@@ -10,7 +10,7 @@
     "20261101000000_s99_staff_pay_ahead.sql"
   ],
   "migration_sha256": {
-    "20261101000000_s99_staff_pay_ahead.sql": "da9ee94ceb4e6e2e9cf1155986f30da5b605df1a2db14e8fbd507878454aba58"
+    "20261101000000_s99_staff_pay_ahead.sql": "1826e4c8bdc7e4b2bcbf2588cd0c2e9349cc93a213543fd70dcb5130fdf8e56c"
   },
   "backup": {
     "required": true,
@@ -23,7 +23,7 @@
   "forward_verification": [
     {
       "name": "staff_pay_request_create_v2_is_the_s99_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '36cb3ca78e300f5f6f93f1dbcd3c66b1' from pg_proc where oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a95f98dedb25f139451f38b80032f9d6' from pg_proc where oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
       "expect": true
     },
     {
@@ -72,8 +72,28 @@
       "expect": true
     },
     {
+      "name": "staff_report_reminders_due_v1_is_the_s99_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '93a304e8b3ba1a0a396a6d84e5b44c68' from pg_proc where oid = 'public.staff_report_reminders_due_v1(timestamptz)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminder_claim_v1_is_the_s99_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd58cfe7da91bcde34fb12193b5139df2' from pg_proc where oid = 'public.staff_report_reminder_claim_v1(uuid,date,smallint)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminder_release_v1_is_the_s99_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd2952700939bb0df58a84f0b00efc86c' from pg_proc where oid = 'public.staff_report_reminder_release_v1(uuid,date,smallint)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminder_sent_v1_is_the_s99_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b1929742edf13bd75bf47d891ec3a627' from pg_proc where oid = 'public.staff_report_reminder_sent_v1(uuid,date,smallint)'::regprocedure",
+      "expect": true
+    },
+    {
       "name": "staff_report_reminders_table_closed_to_api_roles",
-      "query": "select (select relrowsecurity from pg_class where oid = 'public.staff_report_reminders'::regclass) and has_table_privilege('service_role', 'public.staff_report_reminders', 'select') and has_table_privilege('service_role', 'public.staff_report_reminders', 'insert') and has_table_privilege('service_role', 'public.staff_report_reminders', 'update') and has_table_privilege('service_role', 'public.staff_report_reminders', 'delete') and not has_table_privilege('anon', 'public.staff_report_reminders', 'select') and not has_table_privilege('authenticated', 'public.staff_report_reminders', 'select') and not has_table_privilege('authenticated', 'public.staff_report_reminders', 'insert')",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.staff_report_reminders'::regclass) and has_table_privilege('service_role', 'public.staff_report_reminders', 'select') and has_table_privilege('service_role', 'public.staff_report_reminders', 'insert') and has_table_privilege('service_role', 'public.staff_report_reminders', 'update') and has_table_privilege('service_role', 'public.staff_report_reminders', 'delete') and not has_table_privilege('service_role', 'public.staff_report_reminders', 'truncate') and not has_table_privilege('service_role', 'public.staff_report_reminders', 'references') and not has_table_privilege('service_role', 'public.staff_report_reminders', 'trigger') and not has_table_privilege('anon', 'public.staff_report_reminders', 'select') and not has_table_privilege('authenticated', 'public.staff_report_reminders', 'select') and not has_table_privilege('authenticated', 'public.staff_report_reminders', 'insert')",
       "expect": true
     },
     {

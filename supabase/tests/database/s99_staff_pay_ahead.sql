@@ -2,7 +2,7 @@
 -- staff_pay_request_create_v2 (advance lines), the v1 wrapper, staff_pay_candidates_v1.advance, and the reminder ledger (staff_report_reminders, due_v1, claim/release/sent).
 -- Synthetic fixtures only (uuids c9900000-...); every lookup is scoped to them because a real backup holds real rows. Everything rolls back.
 begin;
-select plan(84);
+select plan(85);
 
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -264,6 +264,10 @@ select throws_ok($q$select * from public.staff_report_reminders_due_v1()$q$, '42
 reset role;
 select is((select count(*)::int from public.staff_pay_requests, jsonb_array_elements(lines) l where idempotency_key like 'zz-c99-key-%' and l->>'kind' = 'advance' and status <> 'cancelled' and created_by_user_id is not null), 0,
   'invariant: no cleaner-made advance line carries created_by_user_id');
+
+select ok(has_table_privilege('service_role', 'public.staff_report_reminders', 'select') and has_table_privilege('service_role', 'public.staff_report_reminders', 'insert')
+          and not has_table_privilege('service_role', 'public.staff_report_reminders', 'truncate') and not has_table_privilege('service_role', 'public.staff_report_reminders', 'references')
+          and not has_table_privilege('service_role', 'public.staff_report_reminders', 'trigger'), 'S1: service_role has table DML only, no truncate, references or trigger');
 
 select * from finish();
 rollback;

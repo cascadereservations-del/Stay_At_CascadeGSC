@@ -12,6 +12,7 @@
 -- (4) staff_report_reminders_due_v1(p_now): live requests (last 30 days) whose advance line still has no report (s_advance_session_v1 null); stage 1 from 1 day after the request,
 --     stage 3 from 3 days, only the highest due stage with no row yet (never stage 1 after stage 3 was claimed); only 08:00-19:59 Manila; owed_dates = every date the payee still owes.
 -- (5) staff_report_reminder_claim_v1 / _release_v1 / _sent_v1: the claim-before-send trio the push drain uses. service_role only. (A1) A claim never sent and older than 1 hour counts as not taken: due_v1 returns it again and claim_v1 takes it over.
+-- Lock order in create_v2 (S2): idempotency lock -> cleans (id order, FOR UPDATE) -> attach session (FOR KEY SHARE, only when extras are present) -> per-date advance locks (date order) -> claims.
 -- Guards: each replaced body must be the live one this was cut from (md5 of prosrc, CR stripped), else 55000 and nothing changes. staff_pay_request_create_v1 is the live body: its
 -- 20261005 text with cleaned_at::date patched in place to the Manila form by 20261007110000 (the same patch reproduces the live candidates md5 6cdafb86..., checked offline);
 -- staff_pay_candidates_v1 is the s94 body. Grants restated on every function (ML-21). To undo apply supabase/rollbacks/20261101_s99_staff_pay_ahead.sql.
@@ -121,6 +122,15 @@ begin
   end loop;
   select coalesce(jsonb_agg(l order by l->>'date', l->>'session_id'), '[]'::jsonb) into v_cleans from jsonb_array_elements(v_cleans) l;
 
+  -- S2 (deadlock): the session the extras attach to is resolved and locked HERE, before any per-date advance lock, so every caller takes locks in the same order:
+  -- idempotency lock -> cleans (id order, FOR UPDATE) -> attach session (FOR KEY SHARE) -> per-date advance locks (date order) -> claims. Same rule as v1: the latest clean of this request, else her latest session.
+  if jsonb_array_length(v_extras) > 0 then
+    v_attach := v_latest_sid;
+    if v_attach is null then
+      select id into v_attach from public.cleaning_sessions where property_id = c_prop and submitted_by_user_id = v_uid order by cleaned_at desc limit 1 for key share;
+    end if;
+  end if;
+
   -- S99 advance lines (D-348): a checkout with no report yet (get_missed_cleanings, 30 days, a named guest), turnover rate on that date, no other live request paying it ahead.
   -- Copied from staff_pay_admin_create_v2 (s94): the per-date lock makes two taps (hers and the admin's) on the same date wait for each other, so the second reads the first one's line.
   for v_e in select value from jsonb_array_elements(p_advance) order by value->>'checkout_date' loop
@@ -196,13 +206,7 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'too_many_lines');
   end if;
   if v_total <= 0 then return jsonb_build_object('ok', false, 'reason', 'bad_total'); end if;
-  if jsonb_array_length(v_extras) > 0 then
-    v_attach := v_latest_sid;
-    if v_attach is null then
-      select id into v_attach from public.cleaning_sessions where property_id = c_prop and submitted_by_user_id = v_uid order by cleaned_at desc limit 1;
-    end if;
-    if v_attach is null then return jsonb_build_object('ok', false, 'reason', 'extra_needs_a_clean'); end if;
-  end if;
+  if jsonb_array_length(v_extras) > 0 and v_attach is null then return jsonb_build_object('ok', false, 'reason', 'extra_needs_a_clean'); end if; -- v_attach was resolved and locked before the advance loop
 
   -- 6. write: the extras become claims, then the request, then the links
   for v_e in select value from jsonb_array_elements(v_extras) loop
@@ -302,7 +306,7 @@ create table if not exists public.staff_report_reminders (
   primary key (request_id, checkout_date, stage)
 );
 alter table public.staff_report_reminders enable row level security;
-revoke all on table public.staff_report_reminders from public, anon, authenticated;
+revoke all on table public.staff_report_reminders from public, anon, authenticated, service_role; -- S1 (ML-21): prod default privileges hand service_role ALL (truncate, references, trigger) on a new table
 grant select, insert, update, delete on table public.staff_report_reminders to service_role;
 comment on table public.staff_report_reminders is 'S99 (D-348): one row per (request, checkout date, stage 1|3) claimed before a "send the cleaning report" push; sent_at is stamped after the push. Rows go with the request. RLS on, no policy: service_role only.';
 
