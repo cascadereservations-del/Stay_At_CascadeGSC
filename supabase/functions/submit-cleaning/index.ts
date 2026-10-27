@@ -44,7 +44,7 @@ import {
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
   type PriorMismatch,
 } from './meter-skip.ts';
-import { meterNeighbours, meterOrderMessage, repointNext, stayKey, usageSamples, type MeterRow, type Neighbours } from '../_shared/meter-order.ts';
+import { meterNeighbours, meterOrderMessage, repointNext, stayKey, stayDays, usageSamples, type MeterRow, type Neighbours } from '../_shared/meter-order.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
@@ -691,12 +691,23 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       }
     }
 
+    if (meterWritten && !meterRows) console.warn('[anomaly] skipped: meter history was not read');
     if (meterWritten && meterRows && TG_TOKEN && TG_FINANCE_ID) {
-      const samples = usageSamples(meterRows, Date.now() - 90 * 86_400_000, repointed.map(r => r.id));
+      const since = Date.now() - 90 * 86_400_000, skip = repointed.map(r => r.id);
+      let samples = usageSamples(meterRows, since, skip);
+      if (samples.length < 3) {   // too few clean stays: the old, looser history beats no alert at all
+        const loose = usageSamples(meterRows, since, skip, false);
+        console.log(`[anomaly] clean samples ${samples.length}, using all ${loose.length}`);
+        samples = loose;
+      }
+      // An alert says when its own usage covers more days than the stay (a vacancy or a report still missing).
+      const span = (days: number | null, n: number) => days !== null && n > 0 && days > n + 1 ? `_Covers ${days} days for ${n} night${n === 1 ? '' : 's'}._` : null;
+      const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+      const keep = (p: Promise<void>, what: string) => { const q = p.catch(err => console.warn(`[anomaly] ${what} non-fatal:`, err)); if (edge?.waitUntil) edge.waitUntil(q); };
       // Mid-stay does not establish a turnover baseline; skip anomaly check.
       if (!isMidStay && (kwhPerNight !== null || m3PerNight !== null)) {
-        checkUtilityAnomaly(samples, kwhPerNight, m3PerNight, cleaningDate, cleanerName, nights, deltaKwh, deltaM3, TG_TOKEN, TG_FINANCE_ID)
-          .catch(err => console.warn('[anomaly] non-fatal:', err));
+        keep(checkUtilityAnomaly(samples, kwhPerNight, m3PerNight, cleaningDate, cleanerName, nights, deltaKwh, deltaM3, TG_TOKEN, TG_FINANCE_ID,
+          span(stayDays(around.prevElec?.key, stayDate), nights)), 'this stay');
       }
       // The later stay's usage just changed: it gets the same 2x check, once, with its own numbers (2026-10-27).
       for (const { id, patch } of repointed) {
@@ -704,10 +715,10 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         if (!row || row.cleaning_sessions?.cleaning_type === 'mid_stay') continue;
         const kpn = 'kwh_per_night' in patch ? patch.kwh_per_night : null, mpn = 'm3_per_night' in patch ? patch.m3_per_night : null;
         if (kpn === null && mpn === null) continue;
-        checkUtilityAnomaly(samples, kpn, mpn, stayKey(row), '—', Number(row.cleaning_sessions?.nights_stayed) || 0,
-          patch.electric_delta ?? null, patch.water_delta ?? null, TG_TOKEN, TG_FINANCE_ID,
-          `_Re-measured after the late report for the stay out ${stayDate}._`)
-          .catch(err => console.warn('[anomaly] re-measured non-fatal:', err));
+        const rn = Number(row.cleaning_sessions?.nights_stayed) || 0;
+        const note = [`_Re-measured after the late report for the stay out ${stayDate}._`, span(stayDays(stayDate, stayKey(row)), rn)].filter(Boolean).join('\n');
+        keep(checkUtilityAnomaly(samples, kpn, mpn, stayKey(row), '—', rn,
+          patch.electric_delta ?? null, patch.water_delta ?? null, TG_TOKEN, TG_FINANCE_ID, note), 're-measured');
       }
     }
 

@@ -1,7 +1,7 @@
 // Pins stay-order meter checks with the real October 2026 numbers from the unit's paper log (Lloyd, 2026-10-27).
 // Honey's 17-19 Oct report (4273 kWh, 81.580 m³) was refused because 23-24 Oct (4326, 82.743) was already on file.
 import { assertEquals } from 'jsr:@std/assert@1';
-import { meterNeighbours, meterOrderMessage, repointNext, stayKey, usageSamples, type MeterRow } from './meter-order.ts';
+import { meterNeighbours, meterOrderMessage, repointNext, stayDays, stayKey, usageSamples, type MeterRow } from './meter-order.ts';
 
 const row = (id: string, co: string, e: number, w: number, extra: Partial<MeterRow> = {}): MeterRow => ({
   id, electric_curr: e, water_curr: w, recorded_at: `${co}T06:00:00Z`,
@@ -90,4 +90,16 @@ Deno.test('anomaly history leaves out a row still spanning a gap, and rows being
   assertEquals(usageSamples(quiet, since).map(s => s.kwh_per_night), [19, 16], 'one quiet day between stays still counts');
   const flagged = [...rows, { ...r('typo', '2026-10-15', 4225, 9999, 999), meter_flag: 'misread' }];
   assertEquals(usageSamples(flagged, since).map(s => s.kwh_per_night), [19, 16], 'flagged-wrong rows never count');
+});
+
+Deno.test('mid-stays and the turnover after one stay out of the strict history; loose keeps every real row', () => {
+  const r = (id: string, co: string, prev: number, curr: number, kpn: number, type = 'turnover', nights = 1) =>
+    ({ ...row(id, co, curr, 80, { electric_prev: prev, water_prev: 80 }), kwh_per_night: kpn, m3_per_night: 0.2,
+       cleaning_sessions: { cleaning_type: type, checkout_date: co, nights_stayed: nights } });
+  const rows = [r('a', '2026-10-01', 4000, 4020, 20), r('m', '2026-10-02', 4020, 4030, 10, 'mid_stay', 3),
+    r('t', '2026-10-04', 4030, 4040, 3.3, 'turnover', 3), r('b', '2026-10-05', 4040, 4060, 20)];
+  const since = Date.parse('2026-09-01T00:00:00Z');
+  assertEquals(usageSamples(rows, since).map(s => s.kwh_per_night), [20, 20]);
+  assertEquals(usageSamples(rows, since, [], false).map(s => s.kwh_per_night), [20, 10, 3.3, 20]);
+  assertEquals([stayDays('2026-10-17', '2026-10-24'), stayDays(null, '2026-10-24')], [7, null]);
 });
