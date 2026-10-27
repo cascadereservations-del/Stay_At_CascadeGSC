@@ -132,8 +132,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING: rehearse on a fresh backup (migration-rehearsal-on-host.sh), then pgTAP s99_staff_pay_ahead.sql 83/83 and s94_pay_ahead.sql 52/52. Not run by the SQL lane (no database available there)."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-27 on backup cascade-supabase-20261027T034255Z, log Cascade/docs/s99/rehearsal3-s99d.log: migration applied 1/1, md5 guards passed, forward 18/18, pgTAP s99_staff_pay_ahead.sql 85/85, s94_pay_ahead.sql 51/52. The one failure (s94 #52 only service_role can touch meter_photo_prechecks) is a --no-acl restore artefact; production read live 2026-10-27: anon and authenticated cannot select it, service_role can; live staff_pay_request_create_v1 md5 374416fd matches the guard."
   },
   "approvals": {
     "production_required": true,
