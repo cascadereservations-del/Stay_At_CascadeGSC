@@ -48,6 +48,7 @@ import { overTotalWarning, parseDirRef, refundCard, refundGate, type Payer } fro
 import { issueReceiptUploadToken } from '../_shared/receipt-security.ts';
 import { loadCard, quote } from '../_shared/cascade-core/pricing.ts';
 import { S_noticeUrl } from '../_shared/S_notice-url.ts'; // s82: the link a saved notice keeps
+import { appliedLines, countCard, countRpc, isCountText, matchItems, parseCountText, photoRoute, readCountPhoto, type SheetRead, type StockItem, toChanges } from './countsheet.ts'; // s99f (D-351): a count typed or photographed in Finance
 import { type Change, type CountItem, GROUP_LABEL, inventoryGroup, parseCountReply, reviewLines, SCOPE_GROUPS } from './count.ts'; // session 33: SPEC-03 /count
 // session 37 (SPEC-16, D-196): the bot keeps who it asked, and for what, in telegram_pending ('awaiting_reply').
 import { answersOpen, ASK_CASSY_PROMPT, CASSY_LABELS, cassyAsk, DRAFT_LABELS, DRAFT_PROMPT, draftAsk, CANCELLED, COUNT_EXPIRED, countCardKeyboard, countCardText, countQtyPrompt, type Flow, NOT_WAITING, parseAmount as parseMoney, parseExpenseAnswer, parseManualClean, parseNamePriceQty, parseQty, refusal, routeText, setChange } from './reply.ts';
@@ -831,6 +832,42 @@ async function handleCountReply(db:any,chatId:any,msg:any,card:{id:string;payloa
   await tgEdit(chatId,card.payload.card_mid,countCardText(card.payload.label??'Count',items.length,changes.length),countCardKeyboard(card.id,items,changes));
   await tgReply(chatId,msg.message_id,[`✔ The card now shows ${changes.length} change${changes.length===1?'':'s'}. Nothing is saved until Apply.`,...(gripes.length?['',..._italic(gripes)]:[])].join('\n'));
 }
+// ---- s99f (D-351): a count typed as a message, or photographed as a handwritten sheet. One review card, then the same Confirm / Cancel as /count. ----
+const COUNT_AUTODETECT=(Deno.env.get('COUNT_PHOTO_AUTODETECT')??'')==='1'; // off: an uncaptioned photo is a receipt, exactly as before (no extra vision call per receipt)
+async function sendTypedCountCard(db:any,chatId:any,source:'typed'|'photo',asOf:string|null,rows:{name:string;counted:number}[],unreadable:string[],notRead:string[]){
+  const raw=await loadCountItems(db);
+  const items:StockItem[]=raw.map(r=>({id:r.id,name:r.name,unit:r.unit,qty:Number(r.qty_on_hand),reorder:r.reorder_below===null?null:Number(r.reorder_below),controlled:!!r.movement_controlled_at}));
+  const res=matchItems(rows,items);const changes=toChanges(res.matched,asOf);
+  const card=countCard({source,asOf,changes,res,unreadable,notRead},mdEsc);
+  let pid='';
+  if(card.canConfirm){
+    pid=await createPending(db,chatId,'inventory_count',{label:source==='photo'?'Photo count':'Typed count',v2:true,as_of:asOf,changes},60);
+    if(!pid){await tgSend(chatId,'⚠️ Could not start that count. Try again in a minute.');return;}
+  }
+  const last=card.chunks.length-1;
+  for(let i=0;i<card.chunks.length;i++)await tgSend(chatId,card.chunks[i],i===last&&pid?{reply_markup:{inline_keyboard:[[{text:'✅ Confirm',callback_data:`inv:ok:${pid}`},{text:'❌ Cancel',callback_data:`inv:no:${pid}`}]]}}:{});
+}
+/** Finance text "count ..." / "inventory ...". Returns true when it took the message. */
+async function handleTypedCount(db:any,chatId:any,text:string):Promise<boolean>{
+  if(!isCountText(text))return false;
+  const p=parseCountText(text,Date.now());
+  if(p.asOfBad){await tgSend(chatId,'⚠️ I could not read that as-of time, so nothing was prepared. Use the form "as of 16 Oct 8:21": a date in the last 60 days and a time.');return true;}
+  if(!p.rows.length&&!p.unreadable.length)return false;
+  await sendTypedCountCard(db,chatId,'typed',p.asOf,p.rows,p.unreadable,[]);return true;
+}
+/** Finance photo that is a count sheet. Returns true when it took the photo; false hands it to the receipt path untouched. */
+async function handleCountPhoto(db:any,chatId:any,msg:any,mode:'count'|'detect'):Promise<boolean>{
+  if(!hasVisionKey()){if(mode==='count')await tgSend(chatId,'⚠️ I cannot read photos right now, so type the count instead: count Lysol 2, Bottled Water 20.');return mode==='count';}
+  const ph=await fetchPhotoBytes(msg);
+  if(!ph){if(mode==='count')await tgSend(chatId,'⚠️ Could not fetch the photo. Send it again.');return mode==='count';}
+  if(mode==='count')await tgSend(chatId,'📦 Count received - reading it now...');
+  const out=await readCountPhoto(p=>visionExtractText(p,ph.bytes,ph.mime,'Cascade Count Sheet'),mode,Date.now()).catch(e=>{console.warn('count photo:',String(e).slice(0,200));return {kind:mode==='count'?'failed':'receipt',why:'unreadable'} as any});
+  if(out.kind==='receipt')return false;
+  if(out.kind==='failed'){await tgSend(chatId,out.why==='no_rows'?'⚠️ I could not find any counts on that photo. Send a clearer one, or type them: count Lysol 2, Bottled Water 20.':'⚠️ I could not read that photo. Send it again, or type the count.');return true;}
+  const sh:SheetRead=out.sheet;
+  if(sh.asOfBad){await tgSend(chatId,'⚠️ The printed time on that sheet is not in the last 60 days, so nothing was prepared. Type the count with "as of 16 Oct 8:21".');return true;}
+  await sendTypedCountCard(db,chatId,'photo',sh.asOf,sh.rows,[],sh.notRead);return true;
+}
 const _italic=(ls:string[])=>ls.map(l=>`_${mdEsc(l)}_`);
 
 async function runOcr(db:any,chatId:any,objectPath:string,bytes:Uint8Array,mime:string,loggedBy:string|null,notes:string|null,cat=''){if(!hasVisionKey()){await tgSend(chatId,`⚠️ No key for VISION_PROVIDER=${VISION_PROVIDER}. Tap a category:`,{reply_markup:categoryKeyboard(0)});return;}let extracted:any;try{extracted=await geminiExtract(bytes,mime,cat);}catch(e){console.warn('OCR:',String(e));await tgSend(chatId,'🧾 Could not read receipt. Tap a category:',{reply_markup:categoryKeyboard(0)});return;}const cats=await getCategories(db);const validSlugs=new Set(cats.map(c=>c.slug));const rawCat=String(extracted.category_hint??'').toLowerCase().trim();const category=cat&&validSlugs.has(cat)?cat:(validSlugs.has(rawCat)?rawCat:'other');const catLabel=cats.find(c=>c.slug===category)?.label??category;const amount=Number(extracted.amount);const grossAmount=isFinite(amount)&&amount>0?amount:0;const confidence=clamp01(extracted.confidence);const txnDate=validDate(extracted.date);const vendor=extracted.vendor?String(extracted.vendor).slice(0,200):null;const itemsText=lineItemsToText(extracted.line_items);const noteParts=[notes,itemsText?`items: ${itemsText}`:null].filter(Boolean);const insertRow:Record<string,unknown>={property_id:PROPERTY_ID,txn_type:'expense',category,status:'pending_review',source:'ocr',gross_amount:grossAmount,payee_name:vendor,receipt_image_path:objectPath,ocr_confidence:confidence,ocr_raw:extracted,logged_by:loggedBy,notes:noteParts.length?noteParts.join(' | '):null};if(txnDate)insertRow.transaction_date=txnDate;const{data:row,error}=await db.from('transactions').insert(insertRow).select('id').single();if(error||!row){await tgSend(chatId,`⚠️ OCR save error: ${errMsg(error?.message)}`);return;}const txnId=row.id;const card=renderReceiptCard({id:txnId,gross_amount:grossAmount,payee_name:vendor,transaction_date:txnDate,ocr_confidence:confidence,ocr_raw:extracted},catLabel);await tgSend(chatId,card.text,{reply_markup:card.reply_markup});notifyOps(category,loggedBy,true);}
@@ -1427,8 +1464,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
     const payload=await consumePending(db,pid);
     if(!payload){await tgEdit(chatId,msgId,`${cq.message?.text??firstLine}\n\n⏰ That count expired. Run /count again.`);return;}
     const changes=(payload.changes??[]) as any[];
-    const p_rows=changes.map(c=>({item_id:c.item_id,counted:c.counted,expected_before:c.before}));
-    const{data:r,error}=await db.rpc('telegram_apply_inventory_count_v1',{p_telegram_user_id:cq.from?.id,p_rows,p_note:`Telegram count by ${whoFrom(cq.from)}`});
+        const rpc=countRpc(payload,cq.from?.id,`Telegram count by ${whoFrom(cq.from)}`);const{data:r,error}=await db.rpc(rpc.fn,rpc.args); // s99f: a typed or photo count goes through v2 (as-of time); /count stays on v1
     let line:string,keep=false;
     if(error){keep=true;line=/does not exist|not found|could not find/i.test(error.message)?'⚠️ Telegram counts are not switched on yet — the count release is not applied.':`⚠️ ${String(error.message).slice(0,150)}`;}
     else if(!r?.ok){const k=String(r?.reason??'');
@@ -1441,11 +1477,12 @@ async function handleCallbackQueryInner(cq:any,db:any){
              duplicate_item:'⚠️ The same item appeared twice — run /count again.',
              bad_count:'⚠️ A count was negative or had more than two decimals.',
              bad_row_count:'⚠️ That count had no usable lines.',
+             bad_as_of:'⚠️ The as-of time must be in the past and within 60 days. Send the count again with the right time.',
              item_not_found:'⚠️ An item on that list no longer exists — run /count again.'} as Record<string,string>)[k]??`⚠️ ${k||'unknown result'}`;}
     else line=`✅ Applied by ${who} · ${r.updated} item${r.updated===1?'':'s'} updated · dashboard is current`;
     // A refused count must stay tappable, so the card (and its pending row) go back.
     if(keep&&!data.startsWith('inv:no:')&&payload) await db.from('telegram_pending').insert({id:pid,chat_id:chatId,kind:'inventory_count',payload,expires_at:new Date(Date.now()+60*60_000).toISOString()});
-    const result=keep?`${cq.message?.text??firstLine}\n\n${line}`:[`📦 Count · ${payload.label??'Count'}`,...reviewLines(changes),'',line].join('\n');
+    const result=keep?`${cq.message?.text??firstLine}\n\n${line}`:[`📦 Count · ${payload.label??'Count'}`,...(payload.v2&&Array.isArray(r?.rows)?appliedLines(r.rows,mdEsc):reviewLines(changes)),'',line].join('\n');
     await tgEdit(chatId,msgId,result,keep?cq.message?.reply_markup:undefined);
     return;
   }
@@ -1798,6 +1835,7 @@ async function handleTextMessage(msg:any,db:any){
     if(route.kind==='flow'){await handleAnswer(db,chatId,msg,aw!,text,loggedBy);return;}
     if(route.kind==='count_lines'){await handleCountReply(db,chatId,msg,card!,text);return;}
     if(route.kind==='refuse'){await tgReply(chatId,msg.message_id,NOT_WAITING);return;}
+    if(await handleTypedCount(db,chatId,text))return; // s99f: "count Lysol 2, bottled water 20" in Finance
   }
   // A reply-keyboard tap arrives as the button's LABEL - no slash, no @mention - so it has to be
   // recognised BEFORE the addressed-the-bot gate, which would otherwise drop it. Tapping a button
@@ -1895,6 +1933,8 @@ async function handlePhotoMessage(msg:any,db:any){
   // SPEC-16: a receipt photo sent while this person is being asked for an expense takes that category.
   const aw=await findAwaiting(db,chatId,from.id);
   if(await onPayReqPhoto(payDeps(db),msg,aw))return; // session 70 (SPEC-37): a transfer screenshot for a staff payment request is never a receipt
+  const pr=photoRoute(msg.caption,COUNT_AUTODETECT&&!aw); // s99f: only a count caption (or autodetect, off by default) leaves the receipt path
+  if(pr!=='receipt'&&await handleCountPhoto(db,chatId,msg,pr))return;
   const cat=aw?.payload?.flow==='expense'?String(aw.payload.slug??''):'';
   if(cat)await db.from('telegram_pending').delete().eq('id',aw!.id);
   try{

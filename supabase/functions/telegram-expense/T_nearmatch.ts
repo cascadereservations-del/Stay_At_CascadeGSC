@@ -15,7 +15,7 @@ const addDays = (ymd: string, n: number) => { const d = new Date(ymd + 'T00:00:0
 const monthDay = (ymd: string) => `${MON3[Number(ymd.slice(5, 7)) - 1]} ${Number(ymd.slice(8, 10))}`;
 
 // Optimal string alignment distance: Levenshtein plus one adjacent swap ("wtaer" is 1 from "water").
-function osa(a: string, b: string): number {
+export function osa(a: string, b: string): number {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
   for (let j = 1; j <= b.length; j++) d[0][j] = j;
   for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
