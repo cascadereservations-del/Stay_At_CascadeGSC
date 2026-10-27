@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "release_id": "s99_staff_pay_ahead_20261101",
+  "phase": "backfill",
+  "source": {
+    "branch": "s99/staff-pay-ahead-sql",
+    "commit": "7ff1c6be763ce75d67461401818fc567bfd2888f"
+  },
+  "migrations": [
+    "20261101000000_s99_staff_pay_ahead.sql"
+  ],
+  "migration_sha256": {
+    "20261101000000_s99_staff_pay_ahead.sql": "da9ee94ceb4e6e2e9cf1155986f30da5b605df1a2db14e8fbd507878454aba58"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "D-348 staff pay ahead. staff_pay_requests.lines may now also hold kind 'advance' lines made by the cleaner herself: new staff_pay_request_create_v2(sessions, claim_ids, extras, advance, key) = the live v1 body plus the advance block of staff_pay_admin_create_v2 (refusals advance_not_owed, advance_taken + ref, no_rate, transport_not_allowed, bad_request on a repeated or malformed date; the 20-line cap and no_lines count advance lines; payee = auth.uid()). staff_pay_request_create_v1 becomes a wrapper passing '[]' (guard: live v1 body md5 374416fd95fcc1c0668ab5b486eb2f2d, the 20261005 text with the 20261007 Manila patch; candidates guard md5 2db19457e15a84197caef16c1d2f4123 = the s94 body). staff_pay_candidates_v1 gains key advance [{checkout_date, base, transport}] (dates and prices only, no guest names; every existing key unchanged). New table staff_report_reminders (RLS on, no policy, service_role only) and four service_role-only functions: staff_report_reminders_due_v1 (stage 1 after 1 day, stage 3 after 3 days, 08:00-19:59 Manila, requests of the last 30 days, owed_dates per payee; an unsent claim older than 1 hour counts as not taken, A1), staff_report_reminder_claim_v1 (insert or take over a stale unsent claim), _release_v1, _sent_v1. Grants restated on every function (ML-21): create_v2 and create_v1 authenticated only (service_role revoked explicitly), candidates authenticated + service_role, reminder functions service_role only. No existing row is changed.",
+    "notes": "Phase is backfill only because release_v1 contains DELETE FROM (the expand-phase scanner refuses that text; s96 did the same): it deletes only unsent reminder claims, nothing existing. Otherwise additive. One new table, five new functions, two bodies replaced (one as a wrapper). Old Staff apps keep working: no key removed from any payload and old clients never send advance. Deploy order: SQL first, then waves (notify-cleaner-payment calls create_v2; release-expired-holds runs the reminder drain), then the Staff app. WAVES falls back to create_v1 on PGRST202 when the advance list is empty, so a waves deploy before SQL is safe for ordinary requests. The live md5 of staff_pay_request_create_v1 could not be read offline: it is computed from the repo text plus the 20261007 Manila patch (the same method reproduces the live candidates md5 6cdafb8627ee6d3081a486ccd832ee66); if the guard stops the apply with 55000, re-cut from the live body."
+  },
+  "forward_verification": [
+    {
+      "name": "staff_pay_request_create_v2_is_the_s99_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '36cb3ca78e300f5f6f93f1dbcd3c66b1' from pg_proc where oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_request_create_v2_definer_with_the_stated_grants",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)'::regprocedure and a.grantee = 0) and has_function_privilege('authenticated', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute') and not has_function_privilege('anon', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_request_create_v2(jsonb,uuid[],jsonb,jsonb,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_request_create_v1_is_the_s99_wrapper",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b8a33a3102f83f1ebbc7b0dfde551e76' from pg_proc where oid = 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_request_create_v1_definer_with_the_stated_grants",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)'::regprocedure) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)'::regprocedure and a.grantee = 0) and has_function_privilege('authenticated', 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)', 'execute') and not has_function_privilege('anon', 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_request_create_v1(jsonb,uuid[],jsonb,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_candidates_v1_is_the_s99_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd85d90050a488ebd435884f3b023a102' from pg_proc where oid = 'public.staff_pay_candidates_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_candidates_v1_definer_with_the_stated_grants",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_pay_candidates_v1()'::regprocedure) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_pay_candidates_v1()'::regprocedure and a.grantee = 0) and has_function_privilege('authenticated', 'public.staff_pay_candidates_v1()', 'execute') and has_function_privilege('service_role', 'public.staff_pay_candidates_v1()', 'execute') and not has_function_privilege('anon', 'public.staff_pay_candidates_v1()', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminders_due_v1_service_role_only",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_report_reminders_due_v1(timestamptz)'::regprocedure) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_report_reminders_due_v1(timestamptz)'::regprocedure and a.grantee = 0) and has_function_privilege('service_role', 'public.staff_report_reminders_due_v1(timestamptz)', 'execute') and not has_function_privilege('anon', 'public.staff_report_reminders_due_v1(timestamptz)', 'execute') and not has_function_privilege('authenticated', 'public.staff_report_reminders_due_v1(timestamptz)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminder_claim_v1_service_role_only",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_report_reminder_claim_v1(uuid,date,smallint)'::regprocedure) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_report_reminder_claim_v1(uuid,date,smallint)'::regprocedure and a.grantee = 0) and has_function_privilege('service_role', 'public.staff_report_reminder_claim_v1(uuid,date,smallint)', 'execute') and not has_function_privilege('anon', 'public.staff_report_reminder_claim_v1(uuid,date,smallint)', 'execute') and not has_function_privilege('authenticated', 'public.staff_report_reminder_claim_v1(uuid,date,smallint)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminder_release_v1_service_role_only",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_report_reminder_release_v1(uuid,date,smallint)'::regprocedure) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_report_reminder_release_v1(uuid,date,smallint)'::regprocedure and a.grantee = 0) and has_function_privilege('service_role', 'public.staff_report_reminder_release_v1(uuid,date,smallint)', 'execute') and not has_function_privilege('anon', 'public.staff_report_reminder_release_v1(uuid,date,smallint)', 'execute') and not has_function_privilege('authenticated', 'public.staff_report_reminder_release_v1(uuid,date,smallint)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminder_sent_v1_service_role_only",
+      "query": "select (select prosecdef and proconfig @> array['search_path=\"\"'] from pg_proc where oid = 'public.staff_report_reminder_sent_v1(uuid,date,smallint)'::regprocedure) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.staff_report_reminder_sent_v1(uuid,date,smallint)'::regprocedure and a.grantee = 0) and has_function_privilege('service_role', 'public.staff_report_reminder_sent_v1(uuid,date,smallint)', 'execute') and not has_function_privilege('anon', 'public.staff_report_reminder_sent_v1(uuid,date,smallint)', 'execute') and not has_function_privilege('authenticated', 'public.staff_report_reminder_sent_v1(uuid,date,smallint)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminders_table_closed_to_api_roles",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.staff_report_reminders'::regclass) and has_table_privilege('service_role', 'public.staff_report_reminders', 'select') and has_table_privilege('service_role', 'public.staff_report_reminders', 'insert') and has_table_privilege('service_role', 'public.staff_report_reminders', 'update') and has_table_privilege('service_role', 'public.staff_report_reminders', 'delete') and not has_table_privilege('anon', 'public.staff_report_reminders', 'select') and not has_table_privilege('authenticated', 'public.staff_report_reminders', 'select') and not has_table_privilege('authenticated', 'public.staff_report_reminders', 'insert')",
+      "expect": true
+    },
+    {
+      "name": "staff_report_reminders_has_the_contract_shape",
+      "query": "select (select count(*) from pg_attribute where attrelid = 'public.staff_report_reminders'::regclass and attnum > 0 and not attisdropped and attname in ('request_id','checkout_date','stage','payee_user_id','claimed_at','sent_at')) = 6 and (select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.staff_report_reminders'::regclass and contype = 'p') = 'PRIMARY KEY (request_id, checkout_date, stage)' and exists (select 1 from pg_constraint where conrelid = 'public.staff_report_reminders'::regclass and contype = 'f' and confdeltype = 'c')",
+      "expect": true
+    },
+    {
+      "name": "claim_takes_over_a_stale_unsent_claim_and_due_ignores_it_A1",
+      "query": "select (select prosrc like '%on conflict (request_id, checkout_date, stage) do update%' and prosrc like '%interval ''1 hour''%' from pg_proc where oid = 'public.staff_report_reminder_claim_v1(uuid,date,smallint)'::regprocedure) and (select prosrc like '%x.sent_at is null and x.claimed_at < p_now - interval ''1 hour''%' from pg_proc where oid = 'public.staff_report_reminders_due_v1(timestamptz)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "s94_pieces_this_release_builds_on_still_exist",
+      "query": "select to_regprocedure('public.s_advance_session_v1(uuid,date)') is not null and to_regprocedure('public.s_pay_price_v1(text,date)') is not null and to_regprocedure('public.staff_pay_admin_create_v2(uuid,jsonb,uuid[],jsonb,text)') is not null and exists (select 1 from pg_trigger where tgname = 'cleaning_sessions_link_advance' and not tgisinternal)",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always while no open cleaner-made request holds an advance line (the rollback refuses otherwise: cancel or settle it first). Reminder rows are lost on rollback (they only gate a push). Paid advance requests, their cleanadv expense rows and linked sessions stay.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261101_s99_staff_pay_ahead.sql with run-sql-on-host.sh. It restores staff_pay_request_create_v1 and staff_pay_candidates_v1 byte for byte, drops create_v2, the four reminder functions and staff_report_reminders. Roll the Staff and waves deploys back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff app shows the No report yet group only once cands.advance exists, and the reminder drain only finds rows once cleaners make advance requests."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "PENDING: rehearse on a fresh backup (migration-rehearsal-on-host.sh), then pgTAP s99_staff_pay_ahead.sql 83/83 and s94_pay_ahead.sql 52/52. Not run by the SQL lane (no database available there)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder or verified_at is still 1970",
+    "the rehearsal has not run the migration, s99_staff_pay_ahead.sql and s94_pay_ahead.sql green on this commit (compatibility.verified is still false)",
+    "the Opus 5.5 review of this SQL lane (money writes: staff pay requests) has not passed",
+    "staff_pay_request_create_v1 or staff_pay_candidates_v1 no longer has the md5 the migration guard names"
+  ]
+}
