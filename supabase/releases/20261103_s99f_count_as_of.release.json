@@ -97,8 +97,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING: the orchestrator rehearses on a fresh backup (migration, forward checks, pgTAP s99f_count_as_of.sql 44/44 and telegram_inventory_count.sql 18/18, the data step twice with the second run a no-op) and fills this in. Not run by the SQL lane (offline only)."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-27 on backup cascade-supabase-20261027T052315Z, log Cascade/docs/s99f/rehearsal3.log: migration applied 1/1, md5 guard passed, forward 11/11, pgTAP s99f_count_as_of.sql 52/52, telegram_inventory_count.sql 18/18 (v1 /count unchanged), data step twice through docs/s99f/rehearsal-wrap/zz_s99f_data_step.sql: 17 items land exactly on the sheet values, 0 clamped, second run a no-op (the wrapper ends with a deliberate failing SHOW test to print the per-item lines)."
   },
   "approvals": {
     "production_required": true,
