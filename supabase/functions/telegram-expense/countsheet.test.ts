@@ -250,3 +250,9 @@ Deno.test('fix 3: a bare number swaps the closing line; fix 1: no note when as-o
   const typed = countCard({ ...base, asOf: '2026-10-16T08:21:00+08:00', printedAt: '2026-10-16T08:21:00+08:00', unreadable: [] }, esc).chunks.join('\n');
   assertFalse(typed.includes('Sheet printed'));
 });
+
+Deno.test('fix 2b: the qty_at preview never chains .catch on a supabase builder (thenable only) and is capped at 100 rows', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assert(!/rpc\([^;]*\)\.catch\(/.test(src));
+  assert(src.includes("if(asOf&&changes.length<=100)await Promise.all"));
+});

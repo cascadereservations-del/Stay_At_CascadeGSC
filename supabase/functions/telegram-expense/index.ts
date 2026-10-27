@@ -839,7 +839,7 @@ async function sendTypedCountCard(db:any,chatId:any,source:'typed'|'photo',asOf:
   const items:StockItem[]=raw.map(r=>({id:r.id,name:r.name,unit:r.unit,qty:Number(r.qty_on_hand),reorder:r.reorder_below===null?null:Number(r.reorder_below),controlled:!!r.movement_controlled_at}));
   const res=matchItems(rows,items);const changes=toChanges(res.matched,asOf);
   const qtyAt:Record<string,number>={}; // the figure Confirm will save: one RPC per row; if the function is not released yet, the card keeps its plain text
-  if(asOf)await Promise.all(changes.map(async c=>{const{data,error}=await db.rpc('inventory_qty_at_v1',{p_item_id:c.item_id,p_at:asOf}).catch(()=>({data:null,error:true}));if(!error&&data!==null&&data!==undefined&&Number.isFinite(Number(data)))qtyAt[c.item_id]=Number(data);}));
+  if(asOf&&changes.length<=100)await Promise.all(changes.map(async c=>{let data:any=null,error:any=true;try{({data,error}=await db.rpc('inventory_qty_at_v1',{p_item_id:c.item_id,p_at:asOf}));}catch{/* builder is thenable only: no .catch */}if(!error&&data!==null&&data!==undefined&&Number.isFinite(Number(data)))qtyAt[c.item_id]=Number(data);}));
   const card=countCard({source,asOf,changes,res,unreadable,notRead,printedAt,qtyAt},mdEsc);
   let pid='';
   if(card.canConfirm){
