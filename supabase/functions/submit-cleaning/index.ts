@@ -44,7 +44,7 @@ import {
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
   type PriorMismatch,
 } from './meter-skip.ts';
-import { meterNeighbours, meterOrderMessage, repointNext, type MeterRow, type Neighbours } from '../_shared/meter-order.ts';
+import { meterNeighbours, meterOrderMessage, repointNext, stayKey, usageSamples, type MeterRow, type Neighbours } from '../_shared/meter-order.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
@@ -345,10 +345,10 @@ async function processExtraExpenses(
   }
 }
 
+// 2026-10-27: the 90-day history comes from usageSamples (meter-order.ts), which leaves out rows still spanning a gap
+// a late report has not filled. `note` marks a later stay re-measured after a late report.
 async function checkUtilityAnomaly(
-  supabase:       LegacyDatabaseClient,
-  propertyId:     string,
-  sessionId:      string,
+  samples:        UtilityHistoryRow[],
   kwhPerNight:    number | null,
   m3PerNight:     number | null,
   cleaningDate:   string,
@@ -358,26 +358,17 @@ async function checkUtilityAnomaly(
   deltaM3:        number | null,
   tgToken:        string,
   tgFinanceId:    string,
+  note:           string | null = null,
 ): Promise<void> {
   if (!tgToken || !tgFinanceId) return;
   if (kwhPerNight === null && m3PerNight === null) return;
 
   try {
-    const { data: rows, error } = await supabase
-      .from('meter_readings')
-      .select('kwh_per_night, m3_per_night')
-      .eq('property_id', propertyId)
-      .neq('session_id', sessionId)
-      .gte('recorded_at', new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString())
-      .gt('kwh_per_night', 0)
-      .not('kwh_per_night', 'is', null);
-
-    if (error || !rows || rows.length < 3) {
-      console.log(`[anomaly] skipped: ${rows?.length ?? 0} samples (need \u22653)`);
+    if (samples.length < 3) {
+      console.log(`[anomaly] skipped: ${samples.length} samples (need \u22653)`);
       return;
     }
 
-    const samples = rows as UtilityHistoryRow[];
     const meanKwh = samples.reduce((s, r) => s + Number(r.kwh_per_night), 0) / samples.length;
     const meanM3  = samples.filter(r => r.m3_per_night !== null)
                         .reduce((s, r) => s + Number(r.m3_per_night), 0)
@@ -393,6 +384,7 @@ async function checkUtilityAnomaly(
       `\u26A1\uD83D\uDCA7 *Utility Anomaly Detected*`,
       `\uD83D\uDCCD Cascade Hideaway`,
       `\uD83D\uDCC5 ${cleaningDate}  \u00b7  \uD83E\uDDF9 ${cleanerName}  \u00b7  \uD83C\uDF19 ${nights}n`,
+      ...(note ? [note] : []),
       ``,
     ];
 
@@ -524,12 +516,14 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const stayDate = (checkOutDate && /^\d{4}-\d{2}-\d{2}$/.test(checkOutDate) && !isMidStay && checkOutDate < cleaningDate)
       ? checkOutDate : cleaningDate;
     let around: Neighbours = { prevElec: null, nextElec: null, prevWater: null, nextWater: null };
+    let meterRows: MeterRow[] | null = null;   // also the anomaly history (usageSamples); null = not read, no alert
     if (propertyId) {
       const { data: rows, error: rowsErr } = await supabase.from('meter_readings')
-        .select('id, electric_curr, water_curr, electric_prev, water_prev, recorded_at, meter_flag, cleaning_sessions(cleaning_type, checkout_date, nights_stayed)')
+        .select('id, electric_curr, water_curr, electric_prev, water_prev, kwh_per_night, m3_per_night, recorded_at, meter_flag, cleaning_sessions(cleaning_type, checkout_date, nights_stayed)')
         .eq('property_id', propertyId)
         .order('recorded_at', { ascending: false }).limit(400);
       if (!rowsErr) {
+        meterRows = rows as MeterRow[];
         // Mid-stays included: stored deltas chain through them, as before. Once the rows are read the page's
         // "previous" no longer fills a gap - an old cached page sends the newest reading, not this stay's neighbour.
         around = meterNeighbours(rows as MeterRow[] | null, stayDate, true);
@@ -668,6 +662,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     ).catch(err => console.warn('[extra-expenses] non-fatal:', err));
 
     let meterWritten = false;
+    const repointed: { id: string; patch: Record<string, number | null> }[] = [];
     if (!isNaN(elecNum) || !isNaN(waterNum)) {
       const { error: meterErr } = await supabase.from('meter_readings').insert({
         session_id:     sessionId,
@@ -691,20 +686,29 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         for (const { id, patch } of repointNext(around, isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum)) {
           const { error: rpErr } = await supabase.from('meter_readings').update(patch).eq('id', id).eq('property_id', propertyId);
           if (rpErr) console.error(JSON.stringify({ event: 'meter_next_repoint_failed', next_id: id, patch, error: rpErr.message }));
-          else console.log(JSON.stringify({ event: 'meter_next_repointed', next_id: id, patch }));
+          else { console.log(JSON.stringify({ event: 'meter_next_repointed', next_id: id, patch })); repointed.push({ id, patch }); }
         }
       }
     }
 
-    // Mid-stay does not establish a turnover baseline; skip anomaly check.
-    if (!isMidStay && meterWritten && propertyId && TG_TOKEN && TG_FINANCE_ID && (kwhPerNight !== null || m3PerNight !== null)) {
-      checkUtilityAnomaly(
-        supabase, propertyId, sessionId,
-        kwhPerNight, m3PerNight,
-        cleaningDate, cleanerName, nights,
-        deltaKwh, deltaM3,
-        TG_TOKEN, TG_FINANCE_ID,
-      ).catch(err => console.warn('[anomaly] non-fatal:', err));
+    if (meterWritten && meterRows && TG_TOKEN && TG_FINANCE_ID) {
+      const samples = usageSamples(meterRows, Date.now() - 90 * 86_400_000, repointed.map(r => r.id));
+      // Mid-stay does not establish a turnover baseline; skip anomaly check.
+      if (!isMidStay && (kwhPerNight !== null || m3PerNight !== null)) {
+        checkUtilityAnomaly(samples, kwhPerNight, m3PerNight, cleaningDate, cleanerName, nights, deltaKwh, deltaM3, TG_TOKEN, TG_FINANCE_ID)
+          .catch(err => console.warn('[anomaly] non-fatal:', err));
+      }
+      // The later stay's usage just changed: it gets the same 2x check, once, with its own numbers (2026-10-27).
+      for (const { id, patch } of repointed) {
+        const row = [around.nextElec?.row, around.nextWater?.row].find(r => r?.id === id);
+        if (!row || row.cleaning_sessions?.cleaning_type === 'mid_stay') continue;
+        const kpn = 'kwh_per_night' in patch ? patch.kwh_per_night : null, mpn = 'm3_per_night' in patch ? patch.m3_per_night : null;
+        if (kpn === null && mpn === null) continue;
+        checkUtilityAnomaly(samples, kpn, mpn, stayKey(row), '—', Number(row.cleaning_sessions?.nights_stayed) || 0,
+          patch.electric_delta ?? null, patch.water_delta ?? null, TG_TOKEN, TG_FINANCE_ID,
+          `_Re-measured after the late report for the stay out ${stayDate}._`)
+          .catch(err => console.warn('[anomaly] re-measured non-fatal:', err));
+      }
     }
 
     if (TG_TOKEN && TG_FINANCE_ID) {

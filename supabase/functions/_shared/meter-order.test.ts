@@ -1,7 +1,7 @@
 // Pins stay-order meter checks with the real October 2026 numbers from the unit's paper log (Lloyd, 2026-10-27).
 // Honey's 17-19 Oct report (4273 kWh, 81.580 m³) was refused because 23-24 Oct (4326, 82.743) was already on file.
 import { assertEquals } from 'jsr:@std/assert@1';
-import { meterNeighbours, meterOrderMessage, repointNext, stayKey, type MeterRow } from './meter-order.ts';
+import { meterNeighbours, meterOrderMessage, repointNext, stayKey, usageSamples, type MeterRow } from './meter-order.ts';
 
 const row = (id: string, co: string, e: number, w: number, extra: Partial<MeterRow> = {}): MeterRow => ({
   id, electric_curr: e, water_curr: w, recorded_at: `${co}T06:00:00Z`,
@@ -73,4 +73,21 @@ Deno.test('each meter re-points the row that holds its next number', () => {
   const noElec = { ...row('w-only', '2026-10-20', 0, 81.7), electric_curr: null };
   const n = meterNeighbours([...onFile, noElec], '2026-10-19');
   assertEquals(repointNext(n, 4273, 81.58).map(x => x.id).sort(), ['frances', 'w-only']);
+});
+
+Deno.test('anomaly history leaves out a row still spanning a gap, and rows being re-pointed', () => {
+  const r = (id: string, co: string, prev: number, curr: number, kpn: number) =>
+    ({ ...row(id, co, curr, 80, { electric_prev: prev, water_prev: 80 }), kwh_per_night: kpn, m3_per_night: 0.2 });
+  const rows = [r('a', '2026-10-13', 4190, 4209, 19), r('b', '2026-10-14', 4209, 4225, 16), r('c', '2026-10-17', 4225, 4240, 15),
+    r('frances', '2026-10-24', 4240, 4326, 86)];   // 24 Oct measured from 17 Oct: three stays in one night
+  const since = Date.parse('2026-10-01T00:00:00Z');
+  assertEquals(usageSamples(rows, since).map(s => s.kwh_per_night), [19, 16], '24 Oct covers 7 days for 1 night, 17 Oct 3 days for 1 night: both left out');
+  const filed = [...rows, r('d', '2026-10-19', 4240, 4273, 16.5)];   // 19 Oct filed late, 24 Oct not re-pointed yet
+  assertEquals(usageSamples(filed, since).map(s => s.kwh_per_night), [19, 16, 16.5], '19 Oct (2 days, 1 night) counts; 24 Oct now spans a gap: left out');
+  assertEquals(usageSamples([rows[0], rows[1]], since, ['b']).map(s => s.kwh_per_night), [19], 'a row being re-pointed: left out');
+  assertEquals(usageSamples(rows, Date.parse('2026-10-14T00:00:00Z')).map(s => s.kwh_per_night), [16], 'only the window');
+  const quiet = [r('x', '2026-10-13', 4190, 4209, 19), { ...r('y', '2026-10-15', 4209, 4225, 16), cleaning_sessions: { cleaning_type: 'turnover', checkout_date: '2026-10-15', nights_stayed: 1 } }];
+  assertEquals(usageSamples(quiet, since).map(s => s.kwh_per_night), [19, 16], 'one quiet day between stays still counts');
+  const flagged = [...rows, { ...r('typo', '2026-10-15', 4225, 9999, 999), meter_flag: 'misread' }];
+  assertEquals(usageSamples(flagged, since).map(s => s.kwh_per_night), [19, 16], 'flagged-wrong rows never count');
 });

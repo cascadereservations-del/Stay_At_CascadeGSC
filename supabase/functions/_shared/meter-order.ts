@@ -16,6 +16,8 @@ export type MeterRow = {
   water_curr: number | string | null;
   electric_prev?: number | string | null;
   water_prev?: number | string | null;
+  kwh_per_night?: number | string | null;
+  m3_per_night?: number | string | null;
   recorded_at: string;
   meter_flag?: string | null;
   cleaning_sessions?: { cleaning_type?: string | null; checkout_date?: string | null; nights_stayed?: number | null } | null;
@@ -105,4 +107,32 @@ export function repointNext(n: Neighbours, elec: number | null, water: number | 
   one(n.nextElec, elec, 2, ['electric', 'electric_delta', 'kwh_per_night']);
   one(n.nextWater, water, 3, ['water', 'water_delta', 'm3_per_night']);
   return [...out].map(([id, patch]) => ({ id, patch }));
+}
+
+/** The usage history the 2x anomaly check averages over (2026-10-27). Only rows whose usage covers ONE stay: a row
+ *  whose stored previous is not the electric reading of the stay right before it (in stay order, mid-stays
+ *  included, as the server chains) still spans a gap a late report has not filled, and would inflate the average
+ *  (24 Oct 2026: 86 kWh in one night, measured from 17 Oct). Rows being re-pointed right now are left out too:
+ *  their stored numbers are stale. */
+export function usageSamples(rows: MeterRow[] | null | undefined, sinceMs: number, skipIds: string[] = []):
+  { kwh_per_night: number; m3_per_night: number | null }[] {
+  const sorted = usableRows(rows, true)
+    .map(r => ({ r, k: stayKey(r) }))
+    .sort((a, b) => a.k < b.k ? -1 : a.k > b.k ? 1 : a.r.recorded_at < b.r.recorded_at ? -1 : 1);
+  const out: { kwh_per_night: number; m3_per_night: number | null }[] = [];
+  let before: number | null = null, beforeKey: string | null = null;
+  for (const { r, k: key } of sorted) {
+    // A gap shows two ways: the stored previous is not the stay before's reading, or the reading covers more days
+    // than the stay's nights plus one quiet day (a report still missing, or a long vacancy: per night is inflated).
+    const nights = Number(r.cleaning_sessions?.nights_stayed) || 0;
+    const days = beforeKey ? Math.round((Date.parse(key) - Date.parse(beforeKey)) / 86_400_000) : 0;
+    const prev = num(r.electric_prev), spansGap = before !== null && (prev !== before || (nights > 0 && days > nights + 1));
+    const k = num(r.kwh_per_night);
+    if (!spansGap && k !== null && Date.parse(r.recorded_at) >= sinceMs && !(r.id && skipIds.includes(r.id))) {
+      const m = Number(r.m3_per_night);
+      out.push({ kwh_per_night: k, m3_per_night: r.m3_per_night !== null && r.m3_per_night !== undefined && Number.isFinite(m) ? m : null });
+    }
+    if (num(r.electric_curr) !== null) { before = num(r.electric_curr); beforeKey = key; }
+  }
+  return out;
 }
