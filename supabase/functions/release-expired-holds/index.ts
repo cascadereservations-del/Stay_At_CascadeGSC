@@ -7,6 +7,7 @@
 // today; the expiry template is Lloyd's to add) - until then the Finance card carries the message.
 // ponytail: no per-guest state table; idempotent because the status flips to expired.
 // s89: also drains staff_payout_change_notices each run (payout-notices.ts): Finance Telegram + the person's own push.
+// s99 (D-348): then report-reminders.ts: the push that asks for the cleaning report on a turnover paid ahead.
 // v4 (s74 G8): needs x-cascade-cron-secret (the cron sends it from Vault); it was open to any POST. Fails closed when CASCADE_CRON_SHARED_SECRET is unset.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
@@ -16,6 +17,7 @@ import { withHeader, groups, doSend, autoKeyboard } from '../_shared/cascade-cor
 import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
 import { drain } from './payout-notices.ts';
+import { drain as drainReminders } from './report-reminders.ts';
 import { readPaidSubs } from '../notify-cleaner-payment/subs.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -76,6 +78,31 @@ async function drainPayoutNotices(db: any): Promise<void> {
     });
     if (res.rows) console.log(JSON.stringify({ event: 'payout_notices_drain', ...res }));
   } catch (e) { console.warn('payout notices drain failed:', String(e).slice(0, 120)); }
+}
+
+/** s99 (D-348): phone reminders for reports still owed on turnovers paid ahead (report-reminders.ts). Never throws, never blocks the hold job. */
+// deno-lint-ignore no-explicit-any
+async function drainReportReminders(db: any): Promise<void> {
+  try {
+    const vapid = vapidFromEnv((k) => Deno.env.get(k));
+    const args = (r: { request_id: string; checkout_date: string; stage: number }) => ({ p_request_id: r.request_id, p_checkout_date: r.checkout_date, p_stage: r.stage });
+    const res = await drainReminders({
+      due: async () => {
+        const { data, error } = await db.rpc('staff_report_reminders_due_v1');
+        if (error) { if (error.code === '42883' || error.code === 'PGRST202') return { rows: [], missing: true }; throw new Error(error.code ?? error.message); }
+        return { rows: Array.isArray(data) ? data : [] };
+      },
+      claim: async (r) => { const { data, error } = await db.rpc('staff_report_reminder_claim_v1', args(r)); if (error) throw new Error(error.code ?? error.message); return data === true; },
+      release: async (r) => { await db.rpc('staff_report_reminder_release_v1', args(r)); },
+      sent: async (r) => { await db.rpc('staff_report_reminder_sent_v1', args(r)); },
+      subs: (userId) => readPaidSubs(db, userId),
+      push: vapid ? (sub, m) => sendPush(sub, m, vapid, { nowSec: Math.floor(Date.now() / 1000) }) : null,
+      deleteSub: async (id) => { await db.from('staff_push_subscriptions').delete().eq('id', id); },
+      touchSub: async (id) => { await db.from('staff_push_subscriptions').update({ last_ok_at: new Date().toISOString() }).eq('id', id); },
+      log: (m) => console.warn(m),
+    });
+    if (res.groups) console.log(JSON.stringify({ event: 'report_reminders_drain', ...res }));
+  } catch (e) { console.warn('report reminders drain failed:', String(e).slice(0, 120)); }
 }
 
 Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'finance' }, async (req: Request) => {
@@ -141,12 +168,12 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
       }
     }
     console.log(JSON.stringify({ event: 'release_expired_holds', dry, cutoff, candidates: (rows ?? []).length, released, nudged }));
-    if (!dry) await drainPayoutNotices(db);
+    if (!dry) { await drainPayoutNotices(db); await drainReportReminders(db); }
     await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, dry, cutoff, released, nudged }), { status: 200, headers: JSON_H });
   } catch (err) {
     console.error('release-expired-holds error:', String(err));
-    if (!dry) await drainPayoutNotices(db);   // a failed hold job must not strand a payout-change notice
+    if (!dry) { await drainPayoutNotices(db); await drainReportReminders(db); }   // a failed hold job must not strand a payout-change notice or a reminder
     await hb('failed', String(err).slice(0, 80));
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: JSON_H });
   }

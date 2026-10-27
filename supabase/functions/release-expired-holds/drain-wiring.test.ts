@@ -6,6 +6,7 @@ const realServe = Deno.serve;
 Deno.env.set('SUPABASE_URL', 'http://127.0.0.1:9');
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'service-role-test');
 Deno.env.set('CASCADE_CRON_SHARED_SECRET', 'cascade-test-cron-secret');
+for (const k of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']) Deno.env.set(k, 'x-test'); // the reminder drain needs push configured to read
 await import('./index.ts');
 // deno-lint-ignore no-explicit-any
 (Deno as any).serve = realServe;
@@ -25,4 +26,6 @@ Deno.test('drain wiring: a real run reads the payout notices even when the hold 
   const dry = await urlsFor('?dry=1');
   if (!real.some((u) => u.includes('staff_payout_change_notices'))) throw new Error('real run did not drain: ' + real.join(' '));
   if (dry.some((u) => u.includes('staff_payout_change_notices'))) throw new Error('dry run drained');
+  if (!real.some((u) => u.includes('staff_report_reminders_due_v1'))) throw new Error('real run did not read report reminders: ' + real.join(' '));
+  if (dry.some((u) => u.includes('staff_report_reminders_due_v1'))) throw new Error('dry run read report reminders');
 });

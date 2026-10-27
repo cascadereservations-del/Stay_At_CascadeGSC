@@ -2,7 +2,7 @@
 // It was the old dashboard "Send Invoice" (v1, session I): it inserted telegram_pending kind 'cleanpay_invoice', which the kind CHECK has
 // refused since B53, and nothing in the new dashboard called it. It is now what the Cascade Staff app calls when a staff member sends a
 // payment request: the request is validated and written by ONE definer RPC under the staff member's own JWT
-// (staff_pay_request_create_v1: ownership, locks, rates, the 20-line cap, idempotency), then this function posts it:
+// (staff_pay_request_create_v2: ownership, locks, rates, the 20-line cap, idempotency), then this function posts it:
 //   Finance  a photo card (the payee's payout QR rebuilt with the amount by qrph.ts, no storage, no URL) or a text card when no QR is saved,
 //            with the Copy / I'm paying this / Cancel buttons; receipt photos (private bucket, signed 15 minutes) as replies under it;
 //   OPS      the same block without the QR, the buttons or the receipt marker (D-297.1: OPS may see staff-pay amounts, D-289 unchanged).
@@ -153,21 +153,21 @@ Deno.serve(withObservability({ functionName: 'notify-cleaner-payment', route: 'o
 
   const parsed = parseRequest(raw);
   if (!parsed.ok) return reply({ ok: false, reason: parsed.reason }, 400);
-  const { key, sessions, claim_ids, extras } = parsed.value;
+  const { key, sessions, claim_ids, extras, advance } = parsed.value;
 
   // 1. The request is written under the staff member's own JWT, so auth.uid() is the payee.
   const userDb = createClient(SUPABASE_URL, SUPABASE_ANON, {
     global: { headers: { Authorization: `Bearer ${identity.accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
-  const { data: created, error } = await userDb.rpc('staff_pay_request_create_v1', {
-    p_sessions: sessions, p_claim_ids: claim_ids, p_extras: extras, p_idempotency_key: key,
+  const { data: created, error } = await userDb.rpc('staff_pay_request_create_v2', {
+    p_sessions: sessions, p_claim_ids: claim_ids, p_extras: extras, p_advance: advance, p_idempotency_key: key,
   });
   if (error) {
-    console.error('staff_pay_request_create_v1 failed:', error.code);
+    console.error('staff_pay_request_create_v2 failed:', error.code);
     return error.code === '22P02' ? reply({ ok: false, reason: 'bad_request' }, 400) : reply({ ok: false, reason: 'create_failed' }, 500);
   }
-  if (!created?.ok) return reply({ ok: false, reason: created?.reason ?? 'refused' }, created?.reason === 'not_authorized' ? 403 : 409);
+  if (!created?.ok) return reply({ ok: false, reason: created?.reason ?? 'refused', ...(typeof created?.date === 'string' ? { date: created.date } : {}), ...(typeof created?.ref === 'string' ? { ref: created.ref } : {}) }, created?.reason === 'not_authorized' ? 403 : 409);
   // A retry of a request whose card is already posted (or that moved on) posts nothing again.
   if (created.replay && (created.finance_message_id || created.status !== 'requested')) return reply({ ok: true, replay: true, ref: created.ref, total: created.total });
 
