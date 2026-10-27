@@ -1,8 +1,9 @@
 -- 2026-10-27 (session 99f, lane sql): apply Lloyd's handwritten stock count of the printout "Printed 16 Oct 2026, 08:21". NOT a migration; Lloyd's block runs it with
 -- scripts/migrations/run-sql-on-host.sh AFTER release s99f_count_as_of_20261103 is applied (it calls the internal core s_apply_inventory_count_core_v1, which has no grants; this script runs as the database owner). Owner decision D-351.
 --
--- A count taken at 16 Oct 08:21 Manila says what was on the shelf then. Cleaner usage and purchases logged since then still happened, so each item becomes
---   counted + (qty_now - qty_at(16 Oct 08:21)),  never below 0 (a clamp is reported in the NOTICE).
+-- Lloyd 2026-10-27 (D-351 amended): the sheet is recorded AS TODAY'S STOCK (p_as_of null, new = counted). The usage logged since 16 Oct is not
+-- real consumption: the checklist supply log pre-fills every item with its typical use and every Save appends again (Lysol 11 rows x 2 = 22 since
+-- 16 Oct), so qty_at(16 Oct) rebuilt from it is wrong. Future counts may still use an as-of time through the core.
 -- Audit actor 'owner:<owner user_id>:s99f-data-step' (staff_access_profiles where role = owner; refuses unless there is exactly one; the owner needs NO Telegram id).
 -- NOT changed (unclear on the sheet, D-351): Tea, Tissues / Paper Towels.
 --
@@ -20,8 +21,8 @@ begin;
 do $$
 declare
   c_prop  constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
-  c_note  constant text := 'Count of 16 Oct 08:21 printout (Lloyd, s99f)';
-  c_asof  constant timestamptz := timestamptz '2026-10-16 08:21:00+08';
+  c_note  constant text := 'Count of 16 Oct printout recorded as current stock (Lloyd, s99f)';
+  c_asof  constant timestamptz := null;  -- D-351 amended: as of now
   v_owner uuid;
   v_n     integer;
   v_rows  jsonb := '[]'::jsonb;
@@ -81,7 +82,7 @@ begin
     if v_n <> 1 then raise exception 'item "%" matches % rows in the Cascade property, expected exactly 1; nothing changed', v_name, v_n; end if;
     select id, qty_on_hand, unit into v_id, v_qty, v_unit from public.inventory_items where property_id = c_prop and name = v_name;
     -- PREVIEW (one-off guard, not in the core): the same since_delta the core will compute, read-only
-    v_at := public.inventory_qty_at_v1(v_id, c_asof);
+    v_at := case when c_asof is null then v_qty else public.inventory_qty_at_v1(v_id, c_asof) end;
     v_d := v_qty - v_at;
     if v_unit = 'pc' and v_d < -10 then v_bad := v_bad + 1; end if;
     if v_cnt + v_d < 0 then v_clamp := v_clamp + 1; end if;
@@ -113,18 +114,18 @@ begin
     if (v_row ->> 'after')::numeric < 0 then raise exception 'after: % went negative', v_row ->> 'name'; end if;
   end loop;
   select count(*) into v_audit from public.inventory_audit_log
-   where action = 'telegram_count' and after ->> 'note' = c_note and (after ->> 'as_of')::timestamptz = c_asof
+   where action = 'telegram_count' and after ->> 'note' = c_note and (after ->> 'as_of')::timestamptz is not distinct from c_asof
      and actor = 'owner:' || v_owner::text || ':s99f-data-step';
   if v_audit <> 17 then raise exception 'after: % audit rows carry the marker note and the count time, expected 17', v_audit; end if;
   if exists (select 1 from public.inventory_items i join public.inventory_audit_log l on l.entity_id = i.id and l.after ->> 'note' = c_note
               where i.property_id = c_prop and i.name in ('Tea', 'Tissues / Paper Towels')) then
     raise exception 'after: Tea or Tissues / Paper Towels was counted; D-351 leaves them out';
   end if;
-  raise notice 's99f count of 16 Oct 08:21 recorded: 17 items, % clamped at 0', (select count(*) from jsonb_array_elements(v_res -> 'rows') e where (e ->> 'clamped')::boolean);
+  raise notice 's99f count of the 16 Oct printout recorded as current stock: 17 items, % clamped at 0', (select count(*) from jsonb_array_elements(v_res -> 'rows') e where (e ->> 'clamped')::boolean);
 end $$;
 commit;
 
 -- Forward checks (all true):
--- select count(*) = 17 from public.inventory_audit_log where action = 'telegram_count' and after ->> 'note' = 'Count of 16 Oct 08:21 printout (Lloyd, s99f)' and (after ->> 'as_of')::timestamptz = '2026-10-16 00:21:00+00';
--- select count(*) = 0 from public.inventory_items i join public.inventory_audit_log a on a.entity_id = i.id and a.after ->> 'note' = 'Count of 16 Oct 08:21 printout (Lloyd, s99f)' where i.name in ('Tea', 'Tissues / Paper Towels');
+-- select count(*) = 17 from public.inventory_audit_log where action = 'telegram_count' and after ->> 'note' = 'Count of 16 Oct printout recorded as current stock (Lloyd, s99f)';
+-- select count(*) = 0 from public.inventory_items i join public.inventory_audit_log a on a.entity_id = i.id and a.after ->> 'note' = 'Count of 16 Oct printout recorded as current stock (Lloyd, s99f)' where i.name in ('Tea', 'Tissues / Paper Towels');
 -- select count(*) = 0 from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and qty_on_hand < 0;
