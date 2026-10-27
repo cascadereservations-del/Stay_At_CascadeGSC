@@ -13,11 +13,14 @@ export type Col = 'finance_sent_at' | 'staff_sent_at';
 export type FinanceResult = 'sent' | 'retry' | 'permanent';
 export const BATCH = 10;
 export const BUDGET_MS = 45_000;
+export const WORST_ITEM_MS = 55_000; // Finance send 15 s + MAX 2 phones x (10 s push + one 10 s retry); ML-24: no new row after deadlineMs - this
 export const PUSH_TITLE = 'Your payout details changed';
 
 export interface Deps {
   now: () => string;
   nowMs?: () => number;
+  /** Absolute epoch ms by which the whole request must be done (shared with the other drains); a new row starts only if a worst-case row still fits. */
+  deadlineMs?: number;
   /** Unsent rows (created in the last 7 days), oldest first, at most `limit`. missing = the table is not there yet. */
   unsent(limit: number): Promise<{ rows: Notice[]; missing?: boolean }>;
   /** update ... set col = at where id = id and col is null; true when a row came back (this run owns the send). */
@@ -38,7 +41,7 @@ export interface DrainResult { rows: number; finance: number; staff: number; fai
 export async function drain(d: Deps): Promise<DrainResult> {
   const out: DrainResult = { rows: 0, finance: 0, staff: 0, failed: 0 };
   const nowMs = d.nowMs ?? Date.now;
-  const stopAt = nowMs() + BUDGET_MS;
+  const stopAt = Math.min(nowMs() + BUDGET_MS, (d.deadlineMs ?? Infinity) - WORST_ITEM_MS);
   let rows: Notice[];
   try {
     const r = await d.unsent(BATCH);

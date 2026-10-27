@@ -18,7 +18,7 @@ import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
 import { drain } from './payout-notices.ts';
 import { drain as drainReminders } from './report-reminders.ts';
-import { readPaidSubs } from '../notify-cleaner-payment/subs.ts';
+import { readPaidSubs, readPaidSubsOrThrow } from '../notify-cleaner-payment/subs.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -45,10 +45,11 @@ const peso = (n: unknown) => Number(n ?? 0).toLocaleString('en-PH');
 
 /** s89: payout-change notices (staff_payout_change_notices) -> Finance Telegram + the person's own phones. Never throws, never blocks the hold job. */
 // deno-lint-ignore no-explicit-any
-async function drainPayoutNotices(db: any): Promise<void> {
+async function drainPayoutNotices(db: any, deadlineMs: number): Promise<void> {
   try {
     const vapid = vapidFromEnv((k) => Deno.env.get(k));
     const res = await drain({
+      deadlineMs,
       now: () => new Date().toISOString(),
       unsent: async (limit) => {
         // A row older than 7 days is not retried any more: a poisoned row ages out instead of repeating every hour.
@@ -82,20 +83,22 @@ async function drainPayoutNotices(db: any): Promise<void> {
 
 /** s99 (D-348): phone reminders for reports still owed on turnovers paid ahead (report-reminders.ts). Never throws, never blocks the hold job. */
 // deno-lint-ignore no-explicit-any
-async function drainReportReminders(db: any): Promise<void> {
+async function drainReportReminders(db: any, deadlineMs: number): Promise<void> {
   try {
     const vapid = vapidFromEnv((k) => Deno.env.get(k));
     const args = (r: { request_id: string; checkout_date: string; stage: number }) => ({ p_request_id: r.request_id, p_checkout_date: r.checkout_date, p_stage: r.stage });
     const res = await drainReminders({
+      deadlineMs,
       due: async () => {
         const { data, error } = await db.rpc('staff_report_reminders_due_v1');
         if (error) { if (error.code === '42883' || error.code === 'PGRST202') return { rows: [], missing: true }; throw new Error(error.code ?? error.message); }
         return { rows: Array.isArray(data) ? data : [] };
       },
       claim: async (r) => { const { data, error } = await db.rpc('staff_report_reminder_claim_v1', args(r)); if (error) throw new Error(error.code ?? error.message); return data === true; },
-      release: async (r) => { await db.rpc('staff_report_reminder_release_v1', args(r)); },
-      sent: async (r) => { await db.rpc('staff_report_reminder_sent_v1', args(r)); },
-      subs: (userId) => readPaidSubs(db, userId),
+      release: async (r) => { const { error } = await db.rpc('staff_report_reminder_release_v1', args(r)); if (error) throw new Error(error.code ?? error.message); },
+      // A failed sent_v1 leaves the claim; after an hour the SQL claim takeover offers it again (one repeat push at worst).
+      sent: async (r) => { const { error } = await db.rpc('staff_report_reminder_sent_v1', args(r)); if (error) console.warn('report reminders: sent_v1 failed', error.code ?? error.message); },
+      subs: (userId) => readPaidSubsOrThrow(db, userId),
       push: vapid ? (sub, m) => sendPush(sub, m, vapid, { nowSec: Math.floor(Date.now() / 1000) }) : null,
       deleteSub: async (id) => { await db.from('staff_push_subscriptions').delete().eq('id', id); },
       touchSub: async (id) => { await db.from('staff_push_subscriptions').update({ last_ok_at: new Date().toISOString() }).eq('id', id); },
@@ -113,6 +116,7 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
   const hb = heartbeat(db, 'release-expired-holds-hourly');
   await hb('started');
   const dry = new URL(req.url).searchParams.get('dry') === '1';
+  const deadlineMs = Date.now() + 140_000; // ML-24: Supabase Free wall clock is 150 s; hold job + both drains share this one deadline
   try {
     // v2 (D-162): only rows that hold a booking_holds row can expire, and only the definer RPC can
     // touch that table. A pay-first request (within 5 days, no hold row) is never expired here,
@@ -168,12 +172,12 @@ Deno.serve(withObservability({ functionName: 'release-expired-holds', route: 'fi
       }
     }
     console.log(JSON.stringify({ event: 'release_expired_holds', dry, cutoff, candidates: (rows ?? []).length, released, nudged }));
-    if (!dry) { await drainPayoutNotices(db); await drainReportReminders(db); }
+    if (!dry) { await drainPayoutNotices(db, deadlineMs); await drainReportReminders(db, deadlineMs); }
     await hb('succeeded');
     return new Response(JSON.stringify({ ok: true, dry, cutoff, released, nudged }), { status: 200, headers: JSON_H });
   } catch (err) {
     console.error('release-expired-holds error:', String(err));
-    if (!dry) { await drainPayoutNotices(db); await drainReportReminders(db); }   // a failed hold job must not strand a payout-change notice or a reminder
+    if (!dry) { await drainPayoutNotices(db, deadlineMs); await drainReportReminders(db, deadlineMs); }   // a failed hold job must not strand a payout-change notice or a reminder
     await hb('failed', String(err).slice(0, 80));
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: JSON_H });
   }

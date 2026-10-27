@@ -36,10 +36,14 @@ Deno.test('claim race: a lost first claim sends nothing; a lost later claim is n
   await drain(part.deps);
   assertEquals([part.pushes.length, part.sents], [1, ['2026-10-19']]);
 });
-Deno.test('stages and requests are separate messages', async () => {
-  const w = world([due('2026-10-19'), due('2026-10-19', { stage: 3 }), due('2026-10-19', { request_id: 'bbbbbbbb-0000-4000-8000-000000000002' })]);
-  assertEquals((await drain(w.deps)).sent, 3);
-  assertEquals(w.pushes.length, 3);
+Deno.test('W3: two requests and stages 1+3 due together for one payee -> ONE push, every row claimed and marked sent', async () => {
+  const w = world([due('2026-10-19'), due('2026-10-19', { stage: 3 }), due('2026-10-22', { request_id: 'bbbbbbbb-0000-4000-8000-000000000002' })]);
+  assertEquals(await drain(w.deps), { groups: 1, sent: 1, failed: 0 });
+  assertEquals(w.pushes.length, 1);
+  assertEquals([w.claims.length, w.sents.length], [3, 3]);
+  const two = world([due('2026-10-19'), due('2026-10-19', { payee_user_id: 'u2' })]);
+  assertEquals((await drain(two.deps)).sent, 2);
+  assertEquals(two.pushes.length, 2);
 });
 Deno.test('transient failure releases every claim; a retry that works does not; permanent refusal closes; a dead sub is deleted and closes', async () => {
   const t = world([due('2026-10-19'), due('2026-10-22')], { push: async () => ({ ok: false, status: 503, gone: false, transient: true }) });
@@ -60,6 +64,21 @@ Deno.test('a throw after the claim releases it and does not stop the next group'
   const w = world([due('2026-10-19'), due('2026-10-19', { payee_user_id: 'u2' })], { subs: async () => { if (++n === 1) throw new Error('db down'); return [sub]; } });
   assertEquals(await drain(w.deps), { groups: 2, sent: 1, failed: 1 });
   assertEquals(w.releases, ['2026-10-19']);
+});
+Deno.test('W1: a subs read error releases every claim and marks nothing sent (never "no phone")', async () => {
+  const w = world([due('2026-10-19'), due('2026-10-22')], { subs: async () => { throw new Error('57014'); } });
+  assertEquals(await drain(w.deps), { groups: 1, sent: 0, failed: 1 });
+  assertEquals([w.releases, w.sents, w.pushes.length], [['2026-10-19', '2026-10-22'], [], 0]);
+});
+Deno.test('W2: a release that throws does not stop the next payee', async () => {
+  const w = world([due('2026-10-19'), due('2026-10-19', { payee_user_id: 'u2' })], { push: async () => ({ ok: false, status: 503, gone: false, transient: true }), release: async () => { throw new Error('rpc'); } });
+  assertEquals((await drain(w.deps)).groups, 2);
+});
+Deno.test('W4: the shared deadline stops a new group when a worst-case group no longer fits', async () => {
+  const w = world([due('2026-10-19')], { nowMs: () => 1_000_000, deadlineMs: 1_000_000 + 39_000 });
+  assertEquals(await drain(w.deps), { groups: 0, sent: 0, failed: 0 });
+  const ok2 = world([due('2026-10-19')], { nowMs: () => 1_000_000, deadlineMs: 1_000_000 + 41_000 });
+  assertEquals((await drain(ok2.deps)).sent, 1);
 });
 Deno.test('no VAPID: nothing claimed; function missing or read failure: nothing thrown', async () => {
   const off = world([due('2026-10-19')], { push: null });

@@ -31,3 +31,16 @@ export function parseRequest(body: unknown): { ok: true; value: PayRequestBody }
   if (!sessions || !claim_ids || !extras || !advance) return { ok: false, reason: 'bad_request' };
   return { ok: true, value: { key, sessions, claim_ids, extras, advance } };
 }
+
+// deno-lint-ignore no-explicit-any
+type RpcFn = (name: string, args: Record<string, unknown>) => PromiseLike<{ data: any; error: { code?: string; message?: string } | null }>;
+type Parsed = { key: string; sessions: unknown; claim_ids: unknown; extras: unknown; advance: unknown[] };
+
+/** create_v2; before the SQL release (PGRST202 / 42883) an ordinary request, with no advance lines, still goes through the old v1. */
+export async function createRequest(rpc: RpcFn, p: Parsed) {
+  const r = await rpc('staff_pay_request_create_v2', { p_sessions: p.sessions, p_claim_ids: p.claim_ids, p_extras: p.extras, p_advance: p.advance, p_idempotency_key: p.key });
+  if ((r.error?.code === 'PGRST202' || r.error?.code === '42883') && p.advance.length === 0) {
+    return await rpc('staff_pay_request_create_v1', { p_sessions: p.sessions, p_claim_ids: p.claim_ids, p_extras: p.extras, p_idempotency_key: p.key });
+  }
+  return r;
+}

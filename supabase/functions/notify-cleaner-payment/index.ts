@@ -16,7 +16,7 @@ import { qrphWithAmount, qrPng } from '../_shared/cascade-core/qrph.ts';
 import { financeCaption, financeKeyboard, opsPaidKeyboard, opsRequestText, type PayReq, peso } from '../_shared/cascade-core/staffpay.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { sendPush, vapidFromEnv } from '../_shared/C_webpush.ts';
-import { parseRequest } from './request.ts';
+import { createRequest, parseRequest } from './request.ts';
 import { readPaidSubs } from './subs.ts';
 import { type NoticeData, runPaid } from './paid.ts';
 import { type CardReq, redrawFinanceCard } from './card.ts';
@@ -160,9 +160,7 @@ Deno.serve(withObservability({ functionName: 'notify-cleaner-payment', route: 'o
     global: { headers: { Authorization: `Bearer ${identity.accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
-  const { data: created, error } = await userDb.rpc('staff_pay_request_create_v2', {
-    p_sessions: sessions, p_claim_ids: claim_ids, p_extras: extras, p_advance: advance, p_idempotency_key: key,
-  });
+  const { data: created, error } = await createRequest((n, a) => userDb.rpc(n, a), { key, sessions, claim_ids, extras, advance });
   if (error) {
     console.error('staff_pay_request_create_v2 failed:', error.code);
     return error.code === '22P02' ? reply({ ok: false, reason: 'bad_request' }, 400) : reply({ ok: false, reason: 'create_failed' }, 500);

@@ -1,6 +1,6 @@
 // deno test --no-check --allow-env notify-cleaner-payment/request.test.ts
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { type PayRequestBody, parseRequest } from './request.ts';
+import { createRequest, type PayRequestBody, parseRequest } from './request.ts';
 
 Deno.test('a well-formed body passes with empty lists defaulted', () => {
   const r = parseRequest({ idempotency_key: 'zz-key-00000001', sessions: [{ id: 'x', transport: true }] });
@@ -35,4 +35,25 @@ Deno.test('advance: bad shape, bad or impossible date, duplicate date, non-boole
   const day = (i: number) => ({ checkout_date: `2026-10-${String(i + 1).padStart(2, '0')}`, transport: false });
   assertEquals(parseRequest({ idempotency_key: K, advance: Array.from({ length: 21 }, (_, i) => ({ checkout_date: i < 9 ? `2026-09-0${i + 1}` : `2026-09-${i + 1}`, transport: false })) }), { ok: false, reason: 'bad_request' });
   assertEquals(parseRequest({ idempotency_key: K, advance: Array.from({ length: 20 }, (_, i) => (i < 9 ? { checkout_date: `2026-09-0${i + 1}`, transport: false } : day(i - 9))) }).ok, true);
+});
+
+const base = { key: 'zz-key-00000001', sessions: [], claim_ids: [], extras: [] };
+function fake(code: string | null) {
+  const calls: string[] = [];
+  return { calls, rpc: (n: string) => { calls.push(n); return Promise.resolve(n.endsWith('_v2') && code ? { data: null, error: { code } } : { data: { ok: true }, error: null }); } };
+}
+Deno.test('W6: create_v2 missing + empty advance falls back to v1 (PGRST202 and 42883)', async () => {
+  for (const code of ['PGRST202', '42883']) {
+    const f = fake(code);
+    const r = await createRequest(f.rpc, { ...base, advance: [] });
+    assertEquals([f.calls, r.error], [['staff_pay_request_create_v2', 'staff_pay_request_create_v1'], null]);
+  }
+});
+Deno.test('W6: create_v2 missing + a non-empty advance keeps the error; other errors never fall back', async () => {
+  const f = fake('PGRST202');
+  const r = await createRequest(f.rpc, { ...base, advance: [{ checkout_date: '2026-10-19', transport: false }] });
+  assertEquals([f.calls, r.error?.code], [['staff_pay_request_create_v2'], 'PGRST202']);
+  const g = fake('22P02');
+  await createRequest(g.rpc, { ...base, advance: [] });
+  assertEquals(g.calls, ['staff_pay_request_create_v2']);
 });
