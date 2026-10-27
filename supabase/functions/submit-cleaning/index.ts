@@ -520,16 +520,22 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     // neighbours instead of the newest reading on file, and the later stay's usage is re-pointed after the insert.
     const asPrev = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
     let prevElec = asPrev(payload.previousElectricReading), prevWater = asPrev(payload.previousWaterReading);
-    const stayDate = (checkOutDate && /^\d{4}-\d{2}-\d{2}$/.test(checkOutDate) && !isMidStay) ? checkOutDate : cleaningDate;
-    let around: Neighbours = { prevElec: null, nextElec: null, prevWater: null, nextWater: null, next: null };
+    // Never later than the cleaning day: a future check-out (typo, check-in autofill) is not a later stay.
+    const stayDate = (checkOutDate && /^\d{4}-\d{2}-\d{2}$/.test(checkOutDate) && !isMidStay && checkOutDate < cleaningDate)
+      ? checkOutDate : cleaningDate;
+    let around: Neighbours = { prevElec: null, nextElec: null, prevWater: null, nextWater: null };
     if (propertyId) {
-      const { data: rows } = await supabase.from('meter_readings')
+      const { data: rows, error: rowsErr } = await supabase.from('meter_readings')
         .select('id, electric_curr, water_curr, electric_prev, water_prev, recorded_at, meter_flag, cleaning_sessions(cleaning_type, checkout_date, nights_stayed)')
         .eq('property_id', propertyId)
         .order('recorded_at', { ascending: false }).limit(400);
-      around = meterNeighbours(rows as MeterRow[] | null, stayDate);
-      if (around.prevElec) prevElec = around.prevElec.value;
-      if (around.prevWater) prevWater = around.prevWater.value;
+      if (!rowsErr) {
+        // Mid-stays included: stored deltas chain through them, as before. Once the rows are read the page's
+        // "previous" no longer fills a gap - an old cached page sends the newest reading, not this stay's neighbour.
+        around = meterNeighbours(rows as MeterRow[] | null, stayDate, true);
+        prevElec = around.prevElec?.value ?? null;
+        prevWater = around.prevWater?.value ?? null;
+      }
       if (prevElec !== asPrev(payload.previousElectricReading) || prevWater !== asPrev(payload.previousWaterReading)) {
         console.log(JSON.stringify({ event: 'meter_prev_corrected', page: [payload.previousElectricReading, payload.previousWaterReading], server: [prevElec, prevWater], stay: stayDate }));
       }
@@ -682,10 +688,10 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       } else {
         meterWritten = true;
         // A late report sits between two stays: the later stay's usage was measured across both, so re-point it here.
-        const patch = isMidStay ? null : repointNext(around.next, isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum);
-        if (patch) {
-          const { error: rpErr } = await supabase.from('meter_readings').update(patch).eq('id', around.next!.id!);
-          console.log(JSON.stringify({ event: 'meter_next_repointed', next_id: around.next!.id, patch, error: rpErr?.message ?? null }));
+        for (const { id, patch } of repointNext(around, isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum)) {
+          const { error: rpErr } = await supabase.from('meter_readings').update(patch).eq('id', id).eq('property_id', propertyId);
+          if (rpErr) console.error(JSON.stringify({ event: 'meter_next_repoint_failed', next_id: id, patch, error: rpErr.message }));
+          else console.log(JSON.stringify({ event: 'meter_next_repointed', next_id: id, patch }));
         }
       }
     }

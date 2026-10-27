@@ -35,12 +35,23 @@ Deno.test('today\'s report still compares with the newest stay, as before', () =
   assertEquals(meterOrderMessage(4273, 81.58, n)!.includes('lower than the reading for the stay that checked out Oct 24 (4326)'), true);
 });
 
-Deno.test('flagged-wrong numbers and mid-stays are never neighbours', () => {
+Deno.test('flagged-wrong numbers never count; mid-stays count only on the server (deltas chain through them)', () => {
   const rows = [...onFile,
     row('typo', '2026-10-16', 9999, 99, { meter_flag: 'misread' }),
-    row('mid', '2026-10-18', 4300, 82, { cleaning_sessions: { cleaning_type: 'mid_stay', checkout_date: null } })];
-  const n = meterNeighbours(rows, '2026-10-19');
-  assertEquals([n.prevElec?.value, n.nextElec?.value], [4225, 4326]);
+    row('mid', '2026-10-18', 4260, 81, { cleaning_sessions: { cleaning_type: 'mid_stay', checkout_date: '2026-10-20' } })];
+  const page = meterNeighbours(rows, '2026-10-19');
+  assertEquals([page.prevElec?.value, page.nextElec?.value], [4225, 4326]);
+  const server = meterNeighbours(rows, '2026-10-19', true);
+  assertEquals([server.prevElec?.value, server.prevElec?.row.id], [4260, 'mid'], 'mid-stay keyed by its reading day, not its future check-out');
+});
+
+Deno.test('a future check-out on a stored row does not make it a later stay', () => {
+  const typo = row('typo-co', '2026-10-30', 4250, 80.9);
+  typo.recorded_at = '2026-10-16T06:00:00Z';
+  assertEquals(stayKey(typo), '2026-10-16');
+  const n = meterNeighbours([...onFile, typo], '2026-10-19');
+  assertEquals([n.prevElec?.value, n.nextElec?.value], [4250, 4326]);
+  assertEquals(meterOrderMessage(4273, 81.58, n), null);
 });
 
 Deno.test('a reading with no session falls back to its Manila recording day', () => {
@@ -49,11 +60,17 @@ Deno.test('a reading with no session falls back to its Manila recording day', ()
 
 Deno.test('the later stay is re-pointed to the late reading, per meter, with per-night usage', () => {
   const n = meterNeighbours(onFile, '2026-10-19');
-  assertEquals(n.next?.id, 'frances');
-  assertEquals(repointNext(n.next, 4273, 81.58),
-    { electric_prev: 4273, electric_delta: 53, kwh_per_night: 53, water_prev: 81.58, water_delta: 1.163, m3_per_night: 1.163 });
-  assertEquals(repointNext(n.next, 4273, null), { electric_prev: 4273, electric_delta: 53, kwh_per_night: 53 }, 'water untouched');
-  assertEquals(repointNext({ ...n.next!, electric_prev: 4273, water_prev: 81.58 }, 4273, 81.58), null, 'already right');
-  assertEquals(repointNext(n.next, 4400, null), null, 'never makes a negative delta');
-  assertEquals(repointNext(null, 4273, 81.58), null);
+  assertEquals(repointNext(n, 4273, 81.58), [{ id: 'frances',
+    patch: { electric_prev: 4273, electric_delta: 53, kwh_per_night: 53, water_prev: 81.58, water_delta: 1.163, m3_per_night: 1.163 } }]);
+  assertEquals(repointNext(n, 4273, null), [{ id: 'frances', patch: { electric_prev: 4273, electric_delta: 53, kwh_per_night: 53 } }], 'water untouched');
+  const done = meterNeighbours([onFile[0], { ...onFile[1], electric_prev: 4273, water_prev: 81.58 }], '2026-10-19');
+  assertEquals(repointNext(done, 4273, 81.58), [], 'already right');
+  assertEquals(repointNext(n, 4400, null), [], 'never makes a negative delta');
+  assertEquals(repointNext({ prevElec: null, nextElec: null, prevWater: null, nextWater: null }, 4273, 81.58), []);
+});
+
+Deno.test('each meter re-points the row that holds its next number', () => {
+  const noElec = { ...row('w-only', '2026-10-20', 0, 81.7), electric_curr: null };
+  const n = meterNeighbours([...onFile, noElec], '2026-10-19');
+  assertEquals(repointNext(n, 4273, 81.58).map(x => x.id).sort(), ['frances', 'w-only']);
 });

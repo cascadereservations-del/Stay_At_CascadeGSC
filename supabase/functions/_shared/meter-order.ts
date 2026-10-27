@@ -25,30 +25,32 @@ export type Neighbour = { value: number; key: string; row: MeterRow };
 export type Neighbours = {
   prevElec: Neighbour | null; nextElec: Neighbour | null;
   prevWater: Neighbour | null; nextWater: Neighbour | null;
-  /** The first later turnover row, whose usage was computed across this stay and must be re-pointed. */
-  next: MeterRow | null;
 };
 
 const num = (v: unknown) => { const n = Number(v); return v !== null && v !== '' && Number.isFinite(n) && n > 0 ? n : null; };
 
-/** The stay a reading belongs to: its session's check-out date, else the Manila day it was recorded. */
+/** The stay a reading belongs to: its session's check-out date, else the Manila day it was recorded. Never later
+ *  than the day it was recorded: a meter cannot be read before its stay ends, so a future check-out (a typo, or a
+ *  check-in day's autofill) must not make the reading look like a later stay (Opus review 2026-10-27). */
 export function stayKey(row: MeterRow): string {
+  const day = new Date(row.recorded_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const co = row.cleaning_sessions?.checkout_date;
-  if (co && /^\d{4}-\d{2}-\d{2}/.test(co)) return co.slice(0, 10);
-  return new Date(row.recorded_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  return co && /^\d{4}-\d{2}-\d{2}/.test(co) && co.slice(0, 10) < day ? co.slice(0, 10) : day;
 }
 
-/** Rows that may be a neighbour: real numbers, and not a mid-stay (D-160: a mid-stay is never a baseline). */
-export function usableRows(rows: MeterRow[] | null | undefined): MeterRow[] {
+/** Rows that may be a neighbour: real numbers only (D-219). The page leaves mid-stays out (D-160: never the shown
+ *  baseline); the server keeps them, as it always has, so stored deltas chain through a mid-stay and are not
+ *  counted twice. */
+export function usableRows(rows: MeterRow[] | null | undefined, withMidStay = false): MeterRow[] {
   return (rows ?? []).filter(r =>
     !(r.meter_flag && METER_WRONG_NUMBER_FLAGS.includes(r.meter_flag)) &&
-    r.cleaning_sessions?.cleaning_type !== 'mid_stay');
+    (withMidStay || r.cleaning_sessions?.cleaning_type !== 'mid_stay'));
 }
 
 /** The readings either side of a stay that checked out on `key`. An existing reading for the same day counts as
  *  earlier (the new one is being recorded now). */
-export function meterNeighbours(rows: MeterRow[] | null | undefined, key: string): Neighbours {
-  const sorted = usableRows(rows)
+export function meterNeighbours(rows: MeterRow[] | null | undefined, key: string, withMidStay = false): Neighbours {
+  const sorted = usableRows(rows, withMidStay)
     .map(r => ({ r, k: stayKey(r) }))
     .sort((a, b) => a.k < b.k ? -1 : a.k > b.k ? 1 : a.r.recorded_at < b.r.recorded_at ? -1 : 1);
   const before = sorted.filter(x => x.k <= key), after = sorted.filter(x => x.k > key);
@@ -60,7 +62,6 @@ export function meterNeighbours(rows: MeterRow[] | null | undefined, key: string
   return {
     prevElec: pick(before, 'electric_curr', true), nextElec: pick(after, 'electric_curr', false),
     prevWater: pick(before, 'water_curr', true), nextWater: pick(after, 'water_curr', false),
-    next: after[0]?.r ?? null,
   };
 }
 
@@ -85,20 +86,23 @@ export function meterOrderMessage(elec: number | null, water: number | null, n: 
   ].join(' ');
 }
 
-/** The later stay's usage, recomputed from this reading. Null when nothing changes or a number is missing. */
-export function repointNext(next: MeterRow | null, elec: number | null, water: number | null):
-  Record<string, number | null> | null {
-  if (!next?.id) return null;
-  const nights = Number(next.cleaning_sessions?.nights_stayed) || 0;
-  const patch: Record<string, number | null> = {};
-  const one = (v: number | null, curr: unknown, prev: unknown, dp: number, f: [string, string, string]) => {
-    const c = num(curr);
-    if (v === null || !Number.isFinite(v) || v <= 0 || c === null || c < v || num(prev) === v) return;
-    const delta = Number((c - v).toFixed(dp));
-    patch[f[0]] = v; patch[f[1]] = delta;
+/** The later stays' usage, recomputed from this reading: per meter, the row that holds the next electric and the
+ *  row that holds the next water number (usually the same row). Empty when nothing changes. */
+export function repointNext(n: Neighbours, elec: number | null, water: number | null):
+  { id: string; patch: Record<string, number | null> }[] {
+  const out = new Map<string, Record<string, number | null>>();
+  const one = (nb: Neighbour | null, v: number | null, dp: number, f: ['electric' | 'water', string, string]) => {
+    const r = nb?.row;
+    if (!r?.id || v === null || !Number.isFinite(v) || v <= 0 || nb!.value < v) return;
+    if (num(f[0] === 'electric' ? r.electric_prev : r.water_prev) === v) return;
+    const nights = Number(r.cleaning_sessions?.nights_stayed) || 0;
+    const delta = Number((nb!.value - v).toFixed(dp));
+    const patch = out.get(r.id) ?? {};
+    patch[`${f[0]}_prev`] = v; patch[f[1]] = delta;
     patch[f[2]] = nights > 0 ? Number((delta / nights).toFixed(dp)) : null;
+    out.set(r.id, patch);
   };
-  one(elec, next.electric_curr, next.electric_prev, 2, ['electric_prev', 'electric_delta', 'kwh_per_night']);
-  one(water, next.water_curr, next.water_prev, 3, ['water_prev', 'water_delta', 'm3_per_night']);
-  return Object.keys(patch).length ? patch : null;
+  one(n.nextElec, elec, 2, ['electric', 'electric_delta', 'kwh_per_night']);
+  one(n.nextWater, water, 3, ['water', 'water_delta', 'm3_per_night']);
+  return [...out].map(([id, patch]) => ({ id, patch }));
 }
