@@ -834,11 +834,13 @@ async function handleCountReply(db:any,chatId:any,msg:any,card:{id:string;payloa
 }
 // ---- s99f (D-351): a count typed as a message, or photographed as a handwritten sheet. One review card, then the same Confirm / Cancel as /count. ----
 const COUNT_AUTODETECT=(Deno.env.get('COUNT_PHOTO_AUTODETECT')??'')==='1'; // off: an uncaptioned photo is a receipt, exactly as before (no extra vision call per receipt)
-async function sendTypedCountCard(db:any,chatId:any,source:'typed'|'photo',asOf:string|null,rows:{name:string;counted:number}[],unreadable:string[],notRead:string[]){
+async function sendTypedCountCard(db:any,chatId:any,source:'typed'|'photo',asOf:string|null,rows:{name:string;counted:number}[],unreadable:string[],notRead:string[],printedAt:string|null=null){
   const raw=await loadCountItems(db);
   const items:StockItem[]=raw.map(r=>({id:r.id,name:r.name,unit:r.unit,qty:Number(r.qty_on_hand),reorder:r.reorder_below===null?null:Number(r.reorder_below),controlled:!!r.movement_controlled_at}));
   const res=matchItems(rows,items);const changes=toChanges(res.matched,asOf);
-  const card=countCard({source,asOf,changes,res,unreadable,notRead},mdEsc);
+  const qtyAt:Record<string,number>={}; // the figure Confirm will save: one RPC per row; if the function is not released yet, the card keeps its plain text
+  if(asOf)await Promise.all(changes.map(async c=>{const{data,error}=await db.rpc('inventory_qty_at_v1',{p_item_id:c.item_id,p_at:asOf}).catch(()=>({data:null,error:true}));if(!error&&data!==null&&data!==undefined&&Number.isFinite(Number(data)))qtyAt[c.item_id]=Number(data);}));
+  const card=countCard({source,asOf,changes,res,unreadable,notRead,printedAt,qtyAt},mdEsc);
   let pid='';
   if(card.canConfirm){
     pid=await createPending(db,chatId,'inventory_count',{label:source==='photo'?'Photo count':'Typed count',v2:true,as_of:asOf,changes},60);
@@ -861,13 +863,11 @@ async function handleCountPhoto(db:any,chatId:any,msg:any,mode:'count'|'detect')
   if(!hasVisionKey()){if(mode==='count')await tgSend(chatId,'⚠️ I cannot read photos right now, so type the count instead: count Lysol 2, Bottled Water 20.');return mode==='count';}
   const ph=await fetchPhotoBytes(msg);
   if(!ph){if(mode==='count')await tgSend(chatId,'⚠️ Could not fetch the photo. Send it again.');return mode==='count';}
-  if(mode==='count')await tgSend(chatId,'📦 Count received - reading it now...');
   const out=await readCountPhoto(p=>visionExtractText(p,ph.bytes,ph.mime,'Cascade Count Sheet'),mode,Date.now()).catch(e=>{console.warn('count photo:',String(e).slice(0,200));return {kind:mode==='count'?'failed':'receipt',why:'unreadable'} as any});
   if(out.kind==='receipt')return false;
   if(out.kind==='failed'){await tgSend(chatId,out.why==='no_rows'?'⚠️ I could not find any counts on that photo. Send a clearer one, or type them: count Lysol 2, Bottled Water 20.':'⚠️ I could not read that photo. Send it again, or type the count.');return true;}
   const sh:SheetRead=out.sheet;
-  if(sh.asOfBad){await tgSend(chatId,'⚠️ The printed time on that sheet is not in the last 60 days, so nothing was prepared. Type the count with "as of 16 Oct 8:21".');return true;}
-  await sendTypedCountCard(db,chatId,'photo',sh.asOf,sh.rows,[],sh.notRead);return true;
+  await sendTypedCountCard(db,chatId,'photo',null,sh.rows,[],sh.notRead,sh.printedAt);return true;
 }
 const _italic=(ls:string[])=>ls.map(l=>`_${mdEsc(l)}_`);
 

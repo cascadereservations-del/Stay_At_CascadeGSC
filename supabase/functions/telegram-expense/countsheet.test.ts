@@ -146,9 +146,8 @@ Deno.test('photo reading: low confidence and blank numbers go to notRead, never 
   const s = readSheet(JSON.parse(sheetJson()), NOW);
   assertEquals(s.rows, [{ name: 'Lysol', counted: 1 }, { name: 'Joy', counted: 0.5 }, { name: 'Sugar', counted: 62 }]);
   assertEquals(s.notRead, ['Natural Air', 'Ambi Pur']);
-  assertEquals(s.asOf, '2026-10-16T08:21:00+08:00');
-  assertFalse(s.asOfBad);
-  assert(readSheet({ printed_at: '2025-01-01T08:00', rows: [] }, NOW).asOfBad);
+  assertEquals(s.printedAt, '2026-10-16T08:21:00+08:00');
+  assertEquals(readSheet({ printed_at: '2025-01-01T08:00', rows: [] }, NOW).printedAt, null);
 });
 
 Deno.test('routing: caption count/inventory -> count; no caption -> receipt unless autodetect; any other caption -> receipt', () => {
@@ -186,12 +185,13 @@ Deno.test('end to end: a photo sheet becomes a card with as-of and a Not read li
   assertEquals(out.kind, 'sheet');
   if (out.kind !== 'sheet') return;
   const res = matchItems(out.sheet.rows, ITEMS);
-  const changes = toChanges(res.matched, out.sheet.asOf);
-  const card = countCard({ source: 'photo', asOf: out.sheet.asOf, changes, res, unreadable: [], notRead: out.sheet.notRead }, esc).chunks.join('\n');
-  assert(card.includes('as of 16 Oct 08:21'));
+  const changes = toChanges(res.matched, null);
+  const card = countCard({ source: 'photo', asOf: null, printedAt: out.sheet.printedAt, changes, res, unreadable: [], notRead: out.sheet.notRead }, esc).chunks.join('\n');
+  assert(card.includes('Sheet printed 16 Oct 08:21. Counted as stock now. To count it as of that time, send: count as of 16 Oct 8:21 ...'), card);
+  assertFalse(card.includes('· as of'));
   assert(card.includes('Not read - type them:\n• Natural Air\n• Ambi Pur'));
-  assert(card.includes('• Dishwashing Liquid (Joy): counted 0.5 pc  (now 2)'));
-  assertEquals(countRpc({ v2: true, as_of: out.sheet.asOf, changes }, 1, 'n').args.p_as_of, '2026-10-16T08:21:00+08:00');
+  assert(card.includes('Dishwashing Liquid (Joy): 2 → 0.5'), card);
+  assertEquals(countRpc({ v2: true, as_of: null, changes }, 1, 'n').args.p_as_of, null);
 });
 
 // ---- fix round 1 ----
@@ -225,4 +225,28 @@ Deno.test('index.ts wiring: a typed count that parses no row falls through unles
   assert(src.includes('handleTypedCount(db,chatId,text,isBotAddressed(msg))'));
   assert(src.includes("payload?.v2?'Send the count again'"));
   assert(src.includes('count Lysol 2, water 20'));
+});
+
+Deno.test('fix 2: as-of rows show counted, used since and the new figure; clamp says would be 0; missing function falls back', () => {
+  const res = matchItems([{ name: 'lysol', counted: 5 }, { name: 'safeguard', counted: 1 }], ITEMS);
+  const asOf = '2026-10-16T08:21:00+08:00';
+  const changes = toChanges(res.matched, asOf);
+  const ids = changes.map((c) => c.item_id);
+  const before = changes.map((c) => c.before);
+  const qtyAt = { [ids[0]]: before[0] + 4, [ids[1]]: before[1] + 10 };
+  const t = countCard({ source: 'typed', asOf, changes, res, unreadable: [], notRead: [], qtyAt }, esc).chunks.join('\n');
+  assert(t.includes('counted 5 pc, used since 4, new 1'), t);
+  assert(t.includes('counted 1 pc, used since 10, would be 0'), t);
+  const fb = countCard({ source: 'typed', asOf, changes, res, unreadable: [], notRead: [] }, esc).chunks.join('\n');
+  assert(fb.includes(`counted 5 pc  (now ${before[0]})`), fb);
+});
+
+Deno.test('fix 3: a bare number swaps the closing line; fix 1: no note when as-of is typed', () => {
+  const res = matchItems([{ name: 'Lysol', counted: 2 }], ITEMS);
+  const base = { source: 'typed' as const, asOf: null, changes: toChanges(res.matched, null), res, notRead: [] };
+  const t = countCard({ ...base, unreadable: ['5'] }, esc).chunks.join('\n');
+  assert(t.includes('A number with no item name was found. Send the count again with the item names.'));
+  assertFalse(t.includes('Nothing is saved until you tap Confirm.'));
+  const typed = countCard({ ...base, asOf: '2026-10-16T08:21:00+08:00', printedAt: '2026-10-16T08:21:00+08:00', unreadable: [] }, esc).chunks.join('\n');
+  assertFalse(typed.includes('Sheet printed'));
 });

@@ -91,7 +91,8 @@ export const countSheetPrompt = () =>
   '- printed_at is any printed date and time on the sheet (for example "Printed 16 Oct 2026, 08:21") as 24-hour YYYY-MM-DDTHH:MM, else null.\n' +
   '- Each confidence is 0 to 1: how sure you are of that row number.';
 
-export type SheetRead = { isSheet: boolean; confidence: number; asOf: string | null; asOfBad: boolean; rows: Row[]; notRead: string[] };
+// printedAt is the time printed on the sheet, shown as a note only: it is never the as-of time (D-351 amended, logged usage can be inflated).
+export type SheetRead = { isSheet: boolean; confidence: number; printedAt: string | null; rows: Row[]; notRead: string[] };
 export function readSheet(j: any, nowMs: number): SheetRead {
   const conf = (x: unknown) => { const n = Number(x); return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0; };
   const rows: Row[] = [], notRead: string[] = [];
@@ -104,8 +105,8 @@ export function readSheet(j: any, nowMs: number): SheetRead {
     if (n === null || conf(r?.confidence) < COUNT_CONF) notRead.push(name); else rows.push({ name, counted: n });
   }
   const p = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(j?.printed_at ?? ''));
-  const asOf = inWindow(p ? manilaIso(+p[1], +p[2], +p[3], +p[4], +p[5]) : null, nowMs);
-  return { isSheet: j?.is_count_sheet === true, confidence: conf(j?.confidence), asOf, asOfBad: !!j?.printed_at && !asOf, rows, notRead };
+  const printedAt = inWindow(p ? manilaIso(+p[1], +p[2], +p[3], +p[4], +p[5]) : null, nowMs);
+  return { isSheet: j?.is_count_sheet === true, confidence: conf(j?.confidence), printedAt, rows, notRead };
 }
 /** A photo goes to the count reader only with a "count"/"inventory" caption, or (autodetect on, no caption) when the reader says it is a sheet. */
 export const photoRoute = (caption: unknown, autodetect: boolean): 'count' | 'detect' | 'receipt' =>
@@ -154,24 +155,39 @@ export function toChanges(m: Matched[], asOf: string | null): Change[] {
 const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 export const asOfLabel = (iso: string) => `${Number(iso.slice(8, 10))} ${MON3[Number(iso.slice(5, 7)) - 1]} ${iso.slice(11, 16)}`;
 
-export type CardIn = { source: 'typed' | 'photo'; asOf: string | null; changes: Change[]; res: MatchResult; unreadable: string[]; notRead: string[] };
+/** qtyAt: item_id -> stock at the as-of time (inventory_qty_at_v1); a missing id means the lookup failed and the row falls back to the plain text. */
+export type CardIn = { source: 'typed' | 'photo'; asOf: string | null; changes: Change[]; res: MatchResult; unreadable: string[]; notRead: string[]; printedAt?: string | null; qtyAt?: Record<string, number> };
+const num = (n: number) => String(Math.round(n * 100) / 100);
+/** What Confirm will save for an as-of row: counted + (now - stock at that time), clamped at 0. Same rule as the SQL core. */
+export function asOfRow(c: Change, qtyAt: number | undefined, esc: (s: unknown) => string): string {
+  const head = `• ${esc(c.name)}: counted ${c.counted} ${esc(c.unit)}`;
+  if (qtyAt === undefined || !Number.isFinite(qtyAt)) return `${head}  (now ${c.before})`;
+  const d = Math.round((c.before - qtyAt) * 100) / 100, n = Math.round((c.counted + d) * 100) / 100;
+  const since = d < 0 ? `used since ${num(-d)}` : d > 0 ? `added since ${num(d)}` : 'nothing logged since';
+  return `${head}, ${since}, ${n < 0 ? 'would be 0 (not below zero)' : `new ${num(n)}`}`;
+}
 /** The review card as chunks of at most 3,500 characters; the caller puts the Confirm / Cancel buttons on the last one. */
 export function countCard(i: CardIn, esc: (s: unknown) => string): { chunks: string[]; canConfirm: boolean } {
   const lines = [`📦 *${i.source === 'photo' ? 'Count from photo' : 'Count from message'}*${i.asOf ? ` · as of ${asOfLabel(i.asOf)}` : ''}`, ''];
   if (i.changes.length) {
     if (i.asOf) {
       lines.push('_Stock logged since then is kept: the new figure is the count plus that movement._');
-      for (const c of i.changes) lines.push(`• ${esc(c.name)}: counted ${c.counted} ${esc(c.unit)}  (now ${c.before})`);
+      for (const c of i.changes) lines.push(asOfRow(c, i.qtyAt?.[c.item_id], esc));
     } else lines.push(...reviewLines(i.changes.map((c) => ({ ...c, name: esc(c.name), unit: esc(c.unit) }))));
   } else lines.push('Nothing to change, so there is nothing to save.');
+  if (i.printedAt && !i.asOf) {
+    const l = asOfLabel(i.printedAt);
+    lines.push('', `Sheet printed ${l}. Counted as stock now. To count it as of that time, send: count as of ${l.replace(/ 0(\d:)/, ' $1')} ...`);
+  }
   const note = (title: string, xs: string[]) => { if (xs.length) lines.push('', title, ...xs.map((x) => `• ${esc(x)}`)); };
   note('Not read - type them:', i.notRead);
   note('Could not read:', i.unreadable);
   note('No item by that name:', i.res.unmatched);
   note('Counted through the ledger, not here:', i.res.blocked);
   note('Which one? Type the full name:', i.res.ambiguous.map((a) => `${a.name} (${a.options.join(' / ')})`));
-  if (i.changes.length) lines.push('', 'Nothing is saved until you tap Confirm.');
-  return { chunks: chunkLines(lines), canConfirm: i.changes.length > 0 && !i.unreadable.some((u) => /^[\d\s.\/+]+$/.test(u)) }; // a bare number with no name may be a count left out
+  const bare = i.unreadable.some((u) => /^[\d\s.\/+]+$/.test(u)); // a bare number with no name may be a count left out
+  if (i.changes.length) lines.push('', bare ? 'A number with no item name was found. Send the count again with the item names.' : 'Nothing is saved until you tap Confirm.');
+  return { chunks: chunkLines(lines), canConfirm: i.changes.length > 0 && !bare };
 }
 
 /** The result lines after Confirm, from the database rows (counted, since_delta, clamped). */
