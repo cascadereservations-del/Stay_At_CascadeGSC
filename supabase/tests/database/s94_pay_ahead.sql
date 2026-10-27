@@ -42,6 +42,8 @@ insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_nam
 
 -- a real backup holds real sessions on the same dates: make them mid-stay (never a match for a checkout) so only the fixtures decide what is missed; rolled back with the suite
 update public.cleaning_sessions set cleaning_type = 'mid_stay' where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and submission_id not like 'zz-c94-%';
+-- a real backup holds live advance lines on real dates: cancel every non-fixture request inside this transaction so only the fixtures hold dates; rolled back with the suite
+update public.staff_pay_requests set status = 'cancelled', cancelled_at = now() where status <> 'cancelled' and idempotency_key not like 'zz-c94-%';
 
 -- 1. happy path: two advance dates, one with transport ---------------------------------------------------------------------------------------------
 select pg_temp.as_user('c9400000-0000-4000-8000-0000000000a3');

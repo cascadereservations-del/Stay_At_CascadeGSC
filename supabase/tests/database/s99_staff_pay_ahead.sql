@@ -15,16 +15,16 @@ create function pg_temp.as_user(p_uid uuid) returns void language sql as $$
          set_config('role', 'authenticated', true);
 $$;
 
--- fixtures: payee Zzhoney (a1), another cleaner (a2), admin (a3).
+-- fixtures: payee Zzhoney (a1), another cleaner (a2), admin (a3), inspector (a4: may not submit cleanings).
 -- Check-outs: D1 -3, D2 -4, D3 -5, D4 -6 (already reported), D5 -7 (the admin pays it ahead), D6 -8 (a rate row with no transport applies on that day only).
 insert into auth.users(id, email) values
   ('c9900000-0000-4000-8000-0000000000a1', 'zz-s99-honey@example.com'), ('c9900000-0000-4000-8000-0000000000a2', 'zz-s99-other@example.com'),
-  ('c9900000-0000-4000-8000-0000000000a3', 'zz-s99-admin@example.com');
+  ('c9900000-0000-4000-8000-0000000000a3', 'zz-s99-admin@example.com'), ('c9900000-0000-4000-8000-0000000000a4', 'zz-s99-inspector@example.com');
 insert into public.staff_access_profiles(user_id, role) values
-  ('c9900000-0000-4000-8000-0000000000a1', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a2', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a3', 'admin');
+  ('c9900000-0000-4000-8000-0000000000a1', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a2', 'cleaner'), ('c9900000-0000-4000-8000-0000000000a3', 'admin'), ('c9900000-0000-4000-8000-0000000000a4', 'inspector');
 insert into public.properties(id, name, is_active) values ('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Cascade Hideaway', true) on conflict (id) do nothing;
 insert into public.staff_property_access(user_id, property_id) select u, '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
-  from unnest(array['c9900000-0000-4000-8000-0000000000a1', 'c9900000-0000-4000-8000-0000000000a2', 'c9900000-0000-4000-8000-0000000000a3']::uuid[]) u;
+  from unnest(array['c9900000-0000-4000-8000-0000000000a1', 'c9900000-0000-4000-8000-0000000000a2', 'c9900000-0000-4000-8000-0000000000a3', 'c9900000-0000-4000-8000-0000000000a4']::uuid[]) u;
 insert into public.cleaner_rate_schedule(property_id, effective_from, regular_rate, general_rate, note)
 select '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', date '1900-01-01', 250, 250, 'zz baseline'
 where not exists (select 1 from public.cleaner_rate_schedule where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and effective_from = date '1900-01-01');
@@ -50,6 +50,8 @@ insert into public.cleaning_sessions(id, submission_id, property_id, cleaner_nam
   ('c9900000-0000-4000-8000-0000000000b6', 'zz-c99-s10', '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'Zzhoney Reyes', current_date - 10, 'turnover', 'c9900000-0000-4000-8000-0000000000a1');
 -- a real backup holds real sessions on the same dates: make them mid-stay (never a match for a checkout) so only the fixtures decide what is missed; rolled back with the suite
 update public.cleaning_sessions set cleaning_type = 'mid_stay' where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and submission_id not like 'zz-c99-%';
+-- a real backup holds live advance lines on real dates: cancel every non-fixture request inside this transaction so only the fixtures hold dates; rolled back with the suite
+update public.staff_pay_requests set status = 'cancelled', cancelled_at = now() where status <> 'cancelled' and idempotency_key not like 'zz-c99-%';
 
 -- 1. candidates.advance before anything is held ---------------------------------------------------------------------------------------------------
 select pg_temp.as_user('c9900000-0000-4000-8000-0000000000a1');
@@ -60,7 +62,7 @@ select is((select count(*)::int from jsonb_array_elements((select v->'advance' f
   'candidates.advance lists the five owed fixture checkouts, once each');
 select is((select count(*)::int from jsonb_array_elements((select v->'advance' from _t where k = 'cand0')) a where a->>'checkout_date' = (current_date - 6)::text), 0,
   'a checkout that already has a report is not offered');
-select is((select (a->>'base')::numeric || '/' || (a->>'transport')::numeric from jsonb_array_elements((select v->'advance' from _t where k = 'cand0')) a where a->>'checkout_date' = (current_date - 3)::text), '500/150',
+select ok((select (a->>'base')::numeric = 500 and (a->>'transport')::numeric = 150 from jsonb_array_elements((select v->'advance' from _t where k = 'cand0')) a where a->>'checkout_date' = (current_date - 3)::text),
   'priced as a turnover with the transport the rate allows');
 select ok((select (a->'transport') = 'null'::jsonb and (a->>'base')::numeric = 500 from jsonb_array_elements((select v->'advance' from _t where k = 'cand0')) a where a->>'checkout_date' = (current_date - 8)::text),
   'transport is null on a day whose rate has none');
@@ -161,7 +163,7 @@ select is((select count(*)::int from jsonb_array_elements((select v->'advance' f
 select is((select v->>'ok' from _t where k = 'again'), 'true', 'and a new request may take a freed date');
 
 -- 7. who may call ----------------------------------------------------------------------------------------------------------------------------------
-select pg_temp.as_user('c9900000-0000-4000-8000-0000000000a3');
+select pg_temp.as_user('c9900000-0000-4000-8000-0000000000a4');
 insert into _t select 'admin_self', public.staff_pay_request_create_v2('[]'::jsonb, '{}'::uuid[], '[]'::jsonb, jsonb_build_array(jsonb_build_object('checkout_date', (current_date - 4)::text)), 'zz-c99-key-0005');
 reset role;
 select is((select v->>'reason' from _t where k = 'admin_self'), 'not_authorized', 'a role that may not submit cleanings gets not_authorized (and no row)');
