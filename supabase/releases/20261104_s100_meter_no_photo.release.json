@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "release_id": "s100_meter_no_photo_20261104",
+  "phase": "expand",
+  "source": {
+    "branch": "s100/meter-no-photo",
+    "commit": "05612adda23c1b768e07476b3863772eba1c7668"
+  },
+  "migrations": [
+    "20261104000000_s100_meter_no_photo.sql"
+  ],
+  "migration_sha256": {
+    "20261104000000_s100_meter_no_photo.sql": "b30635952a3eca6f303a67934a7864e506798ef05304f31b56798d7021d06c29"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "D-352 (s100): a cleaner can always report \"No meter photo was taken\"; never two neighbouring STAYS (calendar order, not filing order) without a photo unless BOTH hold an admin exception (meter_skip_exceptions). A reading with no photo is flagged estimate_pending: never a neighbour or history sample. When the next confirmed stay has a vision-ok, unflagged reading, the typed numbers are kept if A <= p1 <= .. <= pn <= B (flag typed_accepted), else every pending reading in the gap gets A + (B - A) * cumulative nights / total nights, the next stay included (electric 2 dp, water 3 dp, flag estimated). Adds table meter_skip_exceptions (RLS on, no policy, service_role only), can_skip_meter_photos_v2(uuid,date) (authenticated + service_role), report_no_meter_photo_v1(uuid,text) (authenticated; submitter or admin), meter_no_photo_notice_v1(uuid) and meter_settle_estimates_v1(uuid) (service_role only), the internal s_meter_skip_check_v1 and s_meter_nights_v1 (no grants), and the pg_cron job meter-settle-estimates every 30 minutes. Replaces ONLY review_meter_reading_v1 (20260914200000 body md5 1b23dc6085db7eeee408fe63bc0f50be guarded, 55000 on mismatch) to whitelist estimate_pending, typed_accepted, estimated. Grants restated for every function (ML-21). can_skip_meter_photos (v1) is not touched.",
+    "notes": "Phase expand: one table, six functions added, one body replaced, one cron job. No column added; meter_readings.meter_flag has no CHECK and gets none. Old Staff app + new SQL is safe (v1 untouched). Order: SQL, then the data step supabase/sql/2026-10-29-s100-exceptions.sql (Lloyd block: exceptions for 2026-10-19 and 2026-10-21, Shaneen session declared skipped and her reading estimate_pending, task opened; idempotent), then deploy submit-cleaning and EVERY function that bundles _shared/meter-order.ts, then push Cascade-Staff. The data step is NOT part of the migration. The settle job needs no deploy: it is plain SQL under pg_cron."
+  },
+  "forward_verification": [
+    {
+      "name": "exceptions_table_rls_on_closed_to_api_roles",
+      "query": "select relrowsecurity and not has_table_privilege('anon', oid, 'select,insert,update,delete') and not has_table_privilege('authenticated', oid, 'select,insert,update,delete') and has_table_privilege('service_role', oid, 'select,insert,update,delete') from pg_class where oid = 'public.meter_skip_exceptions'::regclass",
+      "expect": true
+    },
+    {
+      "name": "exceptions_table_unique_per_property_and_date",
+      "query": "select count(*) = 1 from pg_constraint where conrelid = 'public.meter_skip_exceptions'::regclass and contype = 'u' and pg_get_constraintdef(oid) = 'UNIQUE (property_id, checkout_date)'",
+      "expect": true
+    },
+    {
+      "name": "all_six_functions_exist_once",
+      "query": "select count(*) = 6 from pg_proc where pronamespace = 'public'::regnamespace and proname in ('s_meter_nights_v1','s_meter_skip_check_v1','can_skip_meter_photos_v2','report_no_meter_photo_v1','meter_no_photo_notice_v1','meter_settle_estimates_v1')",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path_no_public_or_anon_s_meter_nights_v1",
+      "query": "select (prosecdef and proconfig = array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and not has_function_privilege('anon', oid, 'execute')) from pg_proc where oid = 'public.s_meter_nights_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path_no_public_or_anon_s_meter_skip_check_v1",
+      "query": "select (prosecdef and proconfig = array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and not has_function_privilege('anon', oid, 'execute')) from pg_proc where oid = 'public.s_meter_skip_check_v1(uuid,date,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path_no_public_or_anon_can_skip_meter_photos_v2",
+      "query": "select (prosecdef and proconfig = array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and not has_function_privilege('anon', oid, 'execute')) from pg_proc where oid = 'public.can_skip_meter_photos_v2(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path_no_public_or_anon_report_no_meter_photo_v1",
+      "query": "select (prosecdef and proconfig = array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and not has_function_privilege('anon', oid, 'execute')) from pg_proc where oid = 'public.report_no_meter_photo_v1(uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path_no_public_or_anon_meter_no_photo_notice_v1",
+      "query": "select (prosecdef and proconfig = array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and not has_function_privilege('anon', oid, 'execute')) from pg_proc where oid = 'public.meter_no_photo_notice_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path_no_public_or_anon_meter_settle_estimates_v1",
+      "query": "select (prosecdef and proconfig = array['search_path=\"\"'] and not exists (select 1 from aclexplode(proacl) a where a.grantee = 0) and not has_function_privilege('anon', oid, 'execute')) from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "grants_per_contract",
+      "query": "select has_function_privilege('authenticated','public.can_skip_meter_photos_v2(uuid,date)','execute') and has_function_privilege('service_role','public.can_skip_meter_photos_v2(uuid,date)','execute') and has_function_privilege('authenticated','public.report_no_meter_photo_v1(uuid,text)','execute') and not has_function_privilege('service_role','public.report_no_meter_photo_v1(uuid,text)','execute') and not has_function_privilege('authenticated','public.meter_settle_estimates_v1(uuid)','execute') and has_function_privilege('service_role','public.meter_settle_estimates_v1(uuid)','execute') and not has_function_privilege('authenticated','public.meter_no_photo_notice_v1(uuid)','execute') and has_function_privilege('service_role','public.meter_no_photo_notice_v1(uuid)','execute') and not has_function_privilege('authenticated','public.s_meter_skip_check_v1(uuid,date,uuid)','execute') and not has_function_privilege('service_role','public.s_meter_skip_check_v1(uuid,date,uuid)','execute') and not has_function_privilege('authenticated','public.s_meter_nights_v1(uuid)','execute') and not has_function_privilege('service_role','public.s_meter_nights_v1(uuid)','execute')",
+      "expect": true
+    },
+    {
+      "name": "review_meter_reading_is_the_s100_body_authenticated_only",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'daaff99a3e67b8a156669973f5f8733a' and has_function_privilege('authenticated', oid, 'execute') and not has_function_privilege('anon', oid, 'execute') and not has_function_privilege('service_role', oid, 'execute') from pg_proc where oid = 'public.review_meter_reading_v1(uuid,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "meter_flag_still_has_no_check_constraint",
+      "query": "select count(*) = 0 from pg_constraint where conrelid = 'public.meter_readings'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%meter_flag%'",
+      "expect": true
+    },
+    {
+      "name": "v1_can_skip_is_untouched_and_still_there",
+      "query": "select to_regprocedure('public.can_skip_meter_photos(uuid)') is not null and has_function_privilege('authenticated', 'public.can_skip_meter_photos(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "rule_allows_an_unknown_property_and_a_null_date",
+      "query": "select (public.s_meter_skip_check_v1('00000000-0000-0000-0000-000000000000'::uuid, null, null) ->> 'allowed') = 'true' and (public.s_meter_skip_check_v1('00000000-0000-0000-0000-000000000000'::uuid, date '2000-01-01', null) ->> 'allowed') = 'true'",
+      "expect": true
+    },
+    {
+      "name": "settle_job_is_scheduled_every_30_minutes",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (schedule = ''*/30 * * * *'' and active and command like ''%meter_settle_estimates_v1%'')::text s from cron.job where jobname = ''meter-settle-estimates''', false, true, '')))[1]::text = 'true' end",
+      "expect": true
+    },
+    {
+      "name": "no_pending_reading_without_a_session",
+      "query": "select count(*) = 0 from public.meter_readings where meter_flag = 'estimate_pending' and session_id is null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always. The rollback script restores review_meter_reading_v1 to the 20260914200000 body (md5 1b23dc6085db7eeee408fe63bc0f50be), unschedules meter-settle-estimates, drops the six functions and drops meter_skip_exceptions when it holds only the two data-step rows. Flags already written (estimate_pending, typed_accepted, estimated), numbers the settle job replaced (the meter_estimate_settled task keeps typed and final values), sessions declared skipped and tasks opened are not undone.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261104_s100_meter_no_photo.sql with run-sql-on-host.sh. Roll the Staff app and submit-cleaning back first if a build that calls the v2 functions is live."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_functions_are_the_switch",
+      "required_state": "None. Nothing calls the new functions until submit-cleaning and Cascade-Staff are deployed; the cron job only touches rows flagged estimate_pending, and none exist until the data step or a cleaner report creates them."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "PENDING: rehearse on a fresh backup (migration-rehearsal-on-host.sh), pgTAP s100_meter_no_photo.sql, then the data step twice (second run a no-op)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is still the PENDING placeholder or verified_at is still 1970",
+    "the rehearsal has not run the migration and s100_meter_no_photo.sql green on this commit, then the data step supabase/sql/2026-10-29-s100-exceptions.sql twice (second run a no-op), compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane (meter numbers, estimates written over typed readings) has not passed",
+    "review_meter_reading_v1 no longer has the md5 the migration guard names (1b23dc6085db7eeee408fe63bc0f50be)"
+  ]
+}
