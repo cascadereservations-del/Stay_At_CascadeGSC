@@ -135,6 +135,7 @@ declare
   cs     public.cleaning_sessions%rowtype;
   v_note text := btrim(coalesce(p_note, ''));
   v_chk  jsonb;
+  v_unanswered boolean;
 begin
   if auth.uid() is null then
     raise exception 'authentication required' using errcode = '42501';
@@ -154,27 +155,34 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'note_required', 'message', 'Please say in a few words why there is no meter photo.');
   end if;
 
-  -- A second tap changes nothing.
-  if cs.meter_photos_skipped then
+  -- A second tap changes nothing, unless the skip was declared at submit and a reading of this session is still unanswered (F1): then only the answer is missing.
+  v_unanswered := exists (select 1 from public.meter_readings mr where mr.session_id = cs.id and mr.vision_resolved_at is null);
+  if cs.meter_photos_skipped and not v_unanswered then
     return jsonb_build_object('ok', true);
   end if;
 
-  v_chk := public.s_meter_skip_check_v1(cs.property_id, cs.checkout_date, cs.id);
-  if not (v_chk ->> 'allowed')::boolean then
-    return jsonb_build_object('ok', false, 'reason', 'neighbour_skipped',
-      'message', 'The stay next to this one also has no meter photo, so this one needs them. If you truly cannot, message Lloyd.');
+  if not cs.meter_photos_skipped then
+    v_chk := public.s_meter_skip_check_v1(cs.property_id, cs.checkout_date, cs.id);
+    if not (v_chk ->> 'allowed')::boolean then
+      return jsonb_build_object('ok', false, 'reason', 'neighbour_skipped',
+        'message', 'The stay next to this one also has no meter photo, so this one needs them. If you truly cannot, message Lloyd.');
+    end if;
+
+    update public.cleaning_sessions
+       set meter_photos_skipped = true, meter_photo_skip_note = v_note
+     where id = cs.id;
   end if;
 
-  update public.cleaning_sessions
-     set meter_photos_skipped = true, meter_photo_skip_note = v_note
-   where id = cs.id;
-
+  -- F6: an earlier answer is kept (at, by) and the new sentence is appended to its note. first_reading is a real number and stays; under_review becomes estimate_pending.
   update public.meter_readings mr
-     set meter_flag           = case when mr.meter_flag in ('misread', 're_entry', 'duplicate') then mr.meter_flag else 'estimate_pending' end,
-         vision_resolved_at   = now(),
-         vision_resolved_by   = auth.uid(),
-         vision_resolved_note = 'No meter photo was taken: ' || v_note
-   where mr.session_id = cs.id;
+     set meter_flag           = case when mr.meter_flag in ('misread', 're_entry', 'duplicate', 'first_reading', 'estimate_pending', 'typed_accepted', 'estimated')
+                                     then mr.meter_flag else 'estimate_pending' end,
+         vision_resolved_at   = coalesce(mr.vision_resolved_at, now()),
+         vision_resolved_by   = coalesce(mr.vision_resolved_by, auth.uid()),
+         vision_resolved_note = case when nullif(btrim(mr.vision_resolved_note), '') is null then 'No meter photo was taken: ' || v_note
+                                     else mr.vision_resolved_note || ' | No meter photo was taken: ' || v_note end
+   where mr.session_id = cs.id
+     and (not cs.meter_photos_skipped or mr.vision_resolved_at is null);
 
   perform public.meter_no_photo_notice_v1(cs.id);
   return jsonb_build_object('ok', true);
@@ -187,6 +195,8 @@ $function$;
 -- B = the reading of the NEXT confirmed calendar stay after the last pending row's stay, only if it is vision ok and unflagged; otherwise the gap waits.
 -- Pass A <= p1 <= .. <= pn <= B: keep typed, flag typed_accepted. Fail: pending rows get A + (B - A) * cumulative nights / total nights (B's stay included),
 -- electric 2 dp, water 3 dp, flag estimated. A typed value that is null stays null. Either way prev/delta/per-night are recomputed for every pending row and for B.
+-- A missing number on one meter makes the whole gap wait (accepted: half-settling a gap would leave the chain of prev/delta inconsistent).
+-- A gap whose last stay checked out more than 7 days ago and whose B is still missing/unverified opens a low task meter_estimate_waiting (F2).
 -- A gap whose A or B number is missing, or where B is below A, does not change (the last case also opens a low-priority task). Idempotent.
 create or replace function public.meter_settle_estimates_v1(p_property_id uuid default null)
 returns jsonb language plpgsql volatile security definer set search_path to '' as $function$
@@ -275,7 +285,20 @@ begin
          where mr.property_id = v_prop and cs.checkout_date = v_b_stay and mr.meter_flag is null and mr.vision_verdict = 'ok'
          order by mr.recorded_at desc, mr.id limit 1;
       end if;
-      if b.id is null then v_gaps_waiting := v_gaps_waiting + 1; continue; end if;
+      if b.id is null then
+        v_gaps_waiting := v_gaps_waiting + 1;
+        if v_last_stay < (now() at time zone 'Asia/Manila')::date - 7 then
+          select string_agg(distinct coalesce(nullif(btrim(n), ''), 'a guest'), ', ') into v_guests from unnest(v_names) n;
+          perform public.system_task_open_v1(v_prop, 'meter_estimate_waiting',
+            coalesce((select mr.session_id from public.meter_readings mr where mr.id = v_ids[1]), v_ids[1])::text,
+            'Meter readings waiting for the next stay''s report',
+            'The meter readings of ' || coalesce(v_guests, 'a guest') || ' are still estimates. The report for the next stay'
+              || case when v_b_stay is not null then ' (checking out ' || to_char(v_b_stay, 'FMDD Mon') || ')' else '' end
+              || ' has not been filed, or its meter photo has not been verified. They settle on their own once it is.',
+            'low');
+        end if;
+        continue;
+      end if;
       v_b_nights := public.s_meter_nights_v1(b.session_id);
 
       v_wait := false; v_stuck := false;
@@ -379,7 +402,9 @@ begin
         update public.meter_readings
            set meter_flag = case when v_repl[1] or v_repl[2] then 'estimated' else 'typed_accepted' end,
                meter_override_note = case when v_repl[1] or v_repl[2]
-                 then 'D-352 per-night average between ' || to_char(coalesce(v_a_dates[1], v_a_dates[2]), 'YYYY-MM-DD') || ' and ' || to_char(v_b_stay, 'YYYY-MM-DD')
+                 then 'D-352 ' || concat_ws('; ',
+                        case when v_repl[1] then 'electric per-night average between ' || to_char(v_a_dates[1], 'YYYY-MM-DD') || ' and ' || to_char(v_b_stay, 'YYYY-MM-DD') end,
+                        case when v_repl[2] then 'water per-night average between ' || to_char(v_a_dates[2], 'YYYY-MM-DD') || ' and ' || to_char(v_b_stay, 'YYYY-MM-DD') end)
                  else meter_override_note end
          where id = v_ids[v_i];
         v_rows := v_rows + 1;

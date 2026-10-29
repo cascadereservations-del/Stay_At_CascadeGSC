@@ -58,6 +58,10 @@ begin
 
   perform public.meter_no_photo_notice_v1(v_sess);
 
+  if exists (select 1 from public.meter_readings where session_id = v_sess and (meter_flag is null or meter_flag not in ('estimate_pending', 'typed_accepted', 'estimated'))) then
+    raise exception 's100 data step: Shaneen''s meter row carries a flag other than estimate_pending, typed_accepted or estimated (it was left as %)',
+      (select string_agg(coalesce(meter_flag, 'null'), ',') from public.meter_readings where session_id = v_sess);
+  end if;
   if not exists (select 1 from public.meter_readings where session_id = v_sess and meter_flag is not null and vision_resolved_at is not null)
      or not exists (select 1 from public.cleaning_sessions where id = v_sess and meter_photos_skipped) then
     raise exception 's100 data step: Shaneen''s session was not left skipped, flagged and answered';

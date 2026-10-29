@@ -6,7 +6,7 @@
 -- Every fixture is created inside this transaction and goes with the closing rollback. RPCs are called as authenticated with the jwt claim set like
 -- meter_followup_resolution.sql; tables are read after reset role.
 begin;
-select plan(78);
+select plan(99);
 
 -- catalogue and grants ------------------------------------------------------------------------------------------------------------------------------
 select has_table('public', 'meter_skip_exceptions', 'meter_skip_exceptions exists');
@@ -32,7 +32,10 @@ insert into public.properties(id, name, is_active) values
  ('d1000000-0000-4000-8000-000000000004', 'S100 settle wait unchecked', true),
  ('d1000000-0000-4000-8000-000000000005', 'S100 stay order', true),
  ('d1000000-0000-4000-8000-000000000006', 'S100 report', true),
- ('d1000000-0000-4000-8000-000000000007', 'S100 other', true) on conflict (id) do nothing;
+ ('d1000000-0000-4000-8000-000000000007', 'S100 other', true),
+ ('d1000000-0000-4000-8000-000000000008', 'S100 waiting old', true),
+ ('d1000000-0000-4000-8000-000000000009', 'S100 waiting recent', true),
+ ('d1000000-0000-4000-8000-00000000000a', 'S100 water only', true) on conflict (id) do nothing;
 insert into auth.users(id) values
  ('d2000000-0000-4000-8000-000000000001'), ('d2000000-0000-4000-8000-000000000002'),
  ('d2000000-0000-4000-8000-000000000003'), ('d2000000-0000-4000-8000-000000000004') on conflict (id) do nothing;
@@ -86,7 +89,7 @@ select is((select water_curr from public.meter_readings where id = md5('p1sha-m'
 select is((select electric_curr from public.meter_readings where id = md5('p1ysa-m')::uuid), 4294.00::numeric, 'Ysabel electric 4294.00');
 select is((select water_curr from public.meter_readings where id = md5('p1ysa-m')::uuid), 82.050::numeric, 'Ysabel water 82.050 (82.04975 rounded)');
 select is((select count(*) from public.meter_readings where id in (md5('p1sha-m')::uuid, md5('p1ysa-m')::uuid) and meter_flag = 'estimated'
-             and meter_override_note = 'D-352 per-night average between 2026-10-17 and 2026-10-22'), 2::bigint, 'both pending rows are estimated and say how');
+             and meter_override_note = 'D-352 electric per-night average between 2026-10-17 and 2026-10-22; water per-night average between 2026-10-17 and 2026-10-22'), 2::bigint, 'both pending rows are estimated and say which meters and between which dates');
 select is((select electric_prev from public.meter_readings where id = md5('p1jam-m')::uuid), 4294.00::numeric, 'James prev is the last pending value');
 select is((select electric_delta from public.meter_readings where id = md5('p1jam-m')::uuid), 18.00::numeric, 'James delta 18.00');
 select is((select water_prev from public.meter_readings where id = md5('p1jam-m')::uuid), 82.050::numeric, 'James water prev 82.050');
@@ -119,6 +122,10 @@ select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000003
 select is((select count(*) from public.meter_readings where property_id = 'd1000000-0000-4000-8000-000000000003' and meter_flag = 'estimate_pending' and electric_curr in (4273, 4200)), 2::bigint, 'B missing: both rows stay pending with their typed numbers');
 select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000004') ->> 'waiting', '1', 'B not vision ok (unchecked): the gap waits');
 select is((select count(*) from public.meter_readings where property_id = 'd1000000-0000-4000-8000-000000000004' and meter_flag = 'estimate_pending'), 2::bigint, 'B unchecked: both rows stay pending');
+select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000003') ->> 'settled', '0', 'B missing: nothing settled');
+select is((select count(*) from public.meter_readings where (id, electric_curr, water_curr, meter_flag) in ((md5('p3sha-m')::uuid, 4273, 81.58, 'estimate_pending'), (md5('p3ysa-m')::uuid, 4200, 81.0, 'estimate_pending')) and electric_prev is null and electric_delta is null), 2::bigint, 'B missing: the pending rows keep their typed numbers and gain no prev/delta');
+select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000004') ->> 'settled', '0', 'B unchecked: nothing settled');
+select is((select count(*) from public.meter_readings where (id, electric_curr, water_curr, meter_flag) in ((md5('p4sha-m')::uuid, 4273, 81.58, 'estimate_pending'), (md5('p4ysa-m')::uuid, 4200, 81.0, 'estimate_pending')) and electric_prev is null and electric_delta is null), 2::bigint, 'B unchecked: the pending rows keep their typed numbers and gain no prev/delta');
 -- the next stay's report arrives, verified: now it settles
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, last_guest_name, nights_stayed, checkout_date, cleaned_at)
 values (md5('p3jam')::uuid, 'p3-jam', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000003', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'James', 1, '2026-10-22', '2026-10-30 09:00+08');
@@ -126,6 +133,46 @@ insert into public.meter_readings(id, session_id, property_id, submitted_by_user
 values (md5('p3jam-m')::uuid, md5('p3jam')::uuid, 'd1000000-0000-4000-8000-000000000003', 'd2000000-0000-4000-8000-000000000001', 4312, 82.5, 'ok', null);
 select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000003') ->> 'settled', '1', 'once the next stay is verified the waiting gap settles');
 select is((select electric_curr from public.meter_readings where id = md5('p3ysa-m')::uuid), 4294.00::numeric, 'and the average lands (Ysabel 4294.00)');
+
+-- F2 / F5: a mini gap: A verified 100 / 10, one pending stay (Gwen, 2 nights), the next stay B (2 nights, 140 / 12 when it has filed) ----------------------------
+create function pg_temp.s100_mini(p_prop uuid, p_tag text, p_a date, p_e numeric, p_w numeric, p_b boolean) returns void language plpgsql as $f$
+declare v_u constant uuid := 'd2000000-0000-4000-8000-000000000001';
+begin
+  insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date) values
+    (p_prop, p_tag || '-a', 'airbnb', 'confirmed', p_a - 1, p_a),
+    (p_prop, p_tag || '-p', 'airbnb', 'confirmed', p_a, p_a + 2),
+    (p_prop, p_tag || '-b', 'airbnb', 'confirmed', p_a + 2, p_a + 4);
+  insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, last_guest_name, nights_stayed, checkout_date, cleaned_at) values
+    (md5(p_tag || 'a')::uuid, p_tag || '-a', 'Synthetic Cleaner', p_prop, 'turnover', v_u, 'Abe', 1, p_a, '2026-06-01 12:00+08'),
+    (md5(p_tag || 'p')::uuid, p_tag || '-p', 'Synthetic Cleaner', p_prop, 'turnover', v_u, 'Gwen', 2, p_a + 2, '2026-06-02 12:00+08');
+  insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict, meter_flag) values
+    (md5(p_tag || 'a-m')::uuid, md5(p_tag || 'a')::uuid, p_prop, v_u, 100, 10, 'ok', null),
+    (md5(p_tag || 'p-m')::uuid, md5(p_tag || 'p')::uuid, p_prop, v_u, p_e, p_w, null, 'estimate_pending');
+  if p_b then
+    insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, last_guest_name, nights_stayed, checkout_date, cleaned_at)
+    values (md5(p_tag || 'b')::uuid, p_tag || '-b', 'Synthetic Cleaner', p_prop, 'turnover', v_u, 'Hal', 2, p_a + 4, '2026-06-03 12:00+08');
+    insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict, meter_flag)
+    values (md5(p_tag || 'b-m')::uuid, md5(p_tag || 'b')::uuid, p_prop, v_u, 140, 12, 'ok', null);
+  end if;
+end $f$;
+-- 8: the last pending stay checked out long ago (2026-08-05) and B never filed; 9: it checked out 4 days ago; 10: water below A, electric in order, B verified.
+select pg_temp.s100_mini('d1000000-0000-4000-8000-000000000008', 'w8', date '2026-08-03', 120, 12, false);
+select pg_temp.s100_mini('d1000000-0000-4000-8000-000000000009', 'w9', ((now() at time zone 'Asia/Manila')::date - 6), 120, 12, false);
+select pg_temp.s100_mini('d1000000-0000-4000-8000-00000000000a', 'wa', date '2026-06-03', 120, 9, true);
+
+select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000008') ->> 'waiting', '1', 'F2: an old gap with no B waits');
+select is((select count(*) from public.follow_up_tasks where source_kind = 'meter_estimate_waiting' and source_ref = md5('w8p')::uuid::text and priority = 'low' and status = 'open'
+             and title = 'Meter readings waiting for the next stay''s report' and detail like 'The meter readings of Gwen are still estimates. The report for the next stay (checking out 7 Aug) has not been filed%'), 1::bigint, 'F2: and opens one low task that says which stay and which report');
+select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000008') ->> 'waiting', '1', 'F2: a second run still waits');
+select is((select count(*) from public.follow_up_tasks where source_kind = 'meter_estimate_waiting' and source_ref = md5('w8p')::uuid::text), 1::bigint, 'F2: and opens no second task');
+select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000009') ->> 'waiting', '1', 'F2: a recent gap with no B waits');
+select is((select count(*) from public.follow_up_tasks where source_kind = 'meter_estimate_waiting' and property_id = 'd1000000-0000-4000-8000-000000000009'), 0::bigint, 'F2: a gap under 7 days old opens no task');
+
+select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-00000000000a') ->> 'settled', '1', 'F5: water-only gap settles');
+select is((select count(*) from public.meter_readings where id = md5('wap-m')::uuid and electric_curr = 120.00 and water_curr = 11.000 and meter_flag = 'estimated'), 1::bigint,
+          'F5: electric kept, water 10 + 2 x 2 / 4 = 11.000, flag estimated');
+select is((select meter_override_note from public.meter_readings where id = md5('wap-m')::uuid), 'D-352 water per-night average between 2026-06-03 and 2026-06-07',
+          'F5: the note names water and the dates, not electric');
 
 -- stay order: can_skip_meter_photos_v2 -----------------------------------------------------------------------------------------------------------------
 -- stays check out 10, 12, 14, 16 Sep. The 10 Sep report (no photos) was filed LAST; the 14 Sep report was filed earlier. A blocked calendar row is not a stay.
@@ -243,6 +290,38 @@ reset role;
 select is((select count(*) from public.cleaning_sessions where id = 'd3000000-0000-4000-8000-000000000109' and not meter_photos_skipped), 1::bigint, 'the refused session was not changed');
 select is((select vision_resolved_by from public.meter_readings where id = 'd4000000-0000-4000-8000-000000000120'), 'd2000000-0000-4000-8000-000000000004'::uuid, 'the admin is on the record as the one who answered');
 select is((select meter_flag from public.meter_readings where id = 'd4000000-0000-4000-8000-000000000131'), 'misread', 'misread stays misread');
+
+-- F1: the skip was declared at submit and the reading is a vision mismatch nobody has answered -> the report answers it and lifts the block ---------------------
+insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, last_guest_name, checkout_date, cleaned_at, meter_photos_skipped, meter_photo_skip_note) values
+ ('d3000000-0000-4000-8000-000000000150', 'r-s150', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest F1', '2026-07-15', now(), true, 'declared at submit');
+insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict, vision_checked_at, meter_flag) values
+ ('d4000000-0000-4000-8000-000000000150', 'd3000000-0000-4000-8000-000000000150', 'd1000000-0000-4000-8000-000000000006', 'd2000000-0000-4000-8000-000000000001', 4350, 83.5, 'mismatch', now(), null);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"d2000000-0000-4000-8000-000000000001","aal":"aal1"}';
+select is((select count(*) from public.get_meter_photo_followups('d1000000-0000-4000-8000-000000000006', 3650) where session_id = 'd3000000-0000-4000-8000-000000000150'), 1::bigint, 'F1: before the report the session is raised at sign-in');
+select is(public.report_no_meter_photo_v1('d3000000-0000-4000-8000-000000000150', 'Phone broke, no meter photo') -> 'ok', 'true'::jsonb, 'F1: a session already skipped but unanswered is answered: ok');
+select is((select count(*) from public.get_meter_photo_followups('d1000000-0000-4000-8000-000000000006', 3650) where session_id = 'd3000000-0000-4000-8000-000000000150'), 0::bigint, 'F1: and is no longer raised');
+reset role;
+select is((select count(*) from public.meter_readings where id = 'd4000000-0000-4000-8000-000000000150' and meter_flag = 'estimate_pending' and vision_resolved_at is not null
+             and vision_resolved_by = 'd2000000-0000-4000-8000-000000000001' and vision_resolved_note = 'No meter photo was taken: Phone broke, no meter photo' and electric_curr = 4350), 1::bigint,
+          'F1: the reading is estimate_pending and answered, typed number kept');
+
+-- F6: an earlier answer is kept and added to; under_review becomes estimate_pending, first_reading stays ---------------------------------------------------
+insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, last_guest_name, checkout_date, cleaned_at) values
+ ('d3000000-0000-4000-8000-000000000151', 'r-s151', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest F6a', '2026-07-16', now()),
+ ('d3000000-0000-4000-8000-000000000152', 'r-s152', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest F6b', '2026-07-17', now());
+insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict, vision_checked_at, meter_flag, vision_resolved_at, vision_resolved_by, vision_resolved_note) values
+ ('d4000000-0000-4000-8000-000000000151', 'd3000000-0000-4000-8000-000000000151', 'd1000000-0000-4000-8000-000000000006', 'd2000000-0000-4000-8000-000000000001', 4360, 83.6, 'mismatch', now(), 'under_review', timestamptz '2026-09-01 10:00+00', 'd2000000-0000-4000-8000-000000000004', 'Checked by Lloyd'),
+ ('d4000000-0000-4000-8000-000000000152', 'd3000000-0000-4000-8000-000000000152', 'd1000000-0000-4000-8000-000000000006', 'd2000000-0000-4000-8000-000000000001', 4370, 83.7, null, null, 'first_reading', null, null, null);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"d2000000-0000-4000-8000-000000000001","aal":"aal1"}';
+select is(public.report_no_meter_photo_v1('d3000000-0000-4000-8000-000000000151', 'Camera was broken') -> 'ok', 'true'::jsonb, 'F6: the report on an already answered reading is ok');
+select is(public.report_no_meter_photo_v1('d3000000-0000-4000-8000-000000000152', 'Camera was broken') -> 'ok', 'true'::jsonb, 'F6: and on a first reading');
+reset role;
+select is((select count(*) from public.meter_readings where id = 'd4000000-0000-4000-8000-000000000151' and meter_flag = 'estimate_pending' and vision_resolved_at = timestamptz '2026-09-01 10:00+00'
+             and vision_resolved_by = 'd2000000-0000-4000-8000-000000000004' and vision_resolved_note = 'Checked by Lloyd | No meter photo was taken: Camera was broken'), 1::bigint,
+          'F6: under_review becomes estimate_pending; the earlier answer (when, who) is kept and the note appended');
+select is((select meter_flag from public.meter_readings where id = 'd4000000-0000-4000-8000-000000000152'), 'first_reading', 'F6: a first reading is a real number and keeps its flag');
 
 select * from finish();
 rollback;
