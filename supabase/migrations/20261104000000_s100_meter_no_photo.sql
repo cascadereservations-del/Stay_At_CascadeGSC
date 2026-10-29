@@ -411,7 +411,7 @@ begin
 end $g$;
 
 create or replace function public.review_meter_reading_v1(p_reading_id uuid, p_flag text, p_reason text)
-returns jsonb language plpgsql security definer set search_path = '' as $
+returns jsonb language plpgsql security definer set search_path = '' as $$
 declare v_prop uuid; v_flag text := nullif(btrim(coalesce(p_flag, '')), '');
 begin
   select property_id into v_prop from public.meter_readings where id = p_reading_id;
@@ -423,7 +423,7 @@ begin
   update public.meter_readings set meter_flag = v_flag, meter_override_note = btrim(p_reason) where id = p_reading_id;
   return jsonb_build_object('ok', true, 'id', p_reading_id, 'flag', v_flag, 'auditId', (select id from public.admin_audit_log where entity_table = 'meter_readings' and entity_id = p_reading_id order by created_at desc limit 1));
 end;
-$;
+$$;
 revoke all on function public.review_meter_reading_v1(uuid, text, text) from public, anon, authenticated, service_role;
 grant execute on function public.review_meter_reading_v1(uuid, text, text) to authenticated;
 
