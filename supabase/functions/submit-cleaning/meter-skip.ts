@@ -16,7 +16,8 @@ export function parseMeterSkip(
   noteField: unknown,
 ): { skipped: boolean; note: string } {
   const note = typeof noteField === 'string' ? noteField.trim().slice(0, 300) : '';
-  return { skipped: skippedFlag === true && note.length >= 4, note };
+  // "....": four characters and no reason. Needs at least one letter or digit.
+  return { skipped: skippedFlag === true && note.length >= 4 && /[\p{L}\p{N}]/u.test(note), note };
 }
 
 /** Incomplete-reason codes for the meter photos on a turnover or deep clean.
@@ -134,7 +135,7 @@ export function meterNoPhotoNotice(
     : '';
   return [
     `${who} reports that no meter photo was taken for ${stay}${when}.`,
-    `Reason given: ${note.replace(/[.!?\s]+$/, '')}.`,
+    `Reason given: ${note.replace(/[.!?\s]+$/, '') || note}.`,
     refused
       ? `The stay next to it also has no meter photo, so the report is marked incomplete and Lloyd needs to decide what to do. The typed readings are kept for now. The follow-up is in the admin app for Lloyd and Marifel.`
       : `Nothing to do now. The typed readings are kept until the next verified reading, then checked and averaged if they do not fit. The follow-up is in the admin app for Lloyd and Marifel.`,
@@ -145,6 +146,12 @@ export function meterNoPhotoNotice(
  *  out of order. Anything else keeps the D-219 refusal. */
 export function backwardsRefusal(orderMessage: string | null, meterFlag: string | null): string | null {
   return meterFlag === 'estimate_pending' ? null : orderMessage;
+}
+
+/** F5: a pending reading accepted out of order (backwards) is stored without deltas or per-night usage; the settle
+ *  step recomputes them, and a negative delta would otherwise show in get_data_integrity_report. */
+export function keepDeltas(orderMessage: string | null, meterFlag: string | null): boolean {
+  return !(meterFlag && orderMessage);
 }
 
 /** True when an estimate_pending row sits strictly between two stay keys: usage measured across it spans a gap the

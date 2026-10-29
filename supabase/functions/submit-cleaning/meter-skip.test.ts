@@ -18,6 +18,20 @@ Deno.test('a skip counts only when declared AND carrying a reason', () => {
   assertEquals(parseMeterSkip(true, undefined).skipped, false);
 });
 
+Deno.test('F4 a note of only punctuation is no reason', () => {
+  assertEquals(parseMeterSkip(true, '....').skipped, false);
+  assertEquals(parseMeterSkip(true, '!!! ???').skipped, false);
+  assertEquals(parseMeterSkip(true, 'ab12').skipped, true);
+  assertEquals(meterNoPhotoNotice('Honey', 'G', null, '...?').includes('Reason given: ...?.'), true, 'raw note when trimming empties it');
+});
+
+Deno.test('F5 a pending reading accepted out of order stores no deltas; otherwise they are kept', () => {
+  assertEquals(keepDeltas('electric 4200 is lower', 'estimate_pending'), false);
+  assertEquals(keepDeltas(null, 'estimate_pending'), true);
+  assertEquals(keepDeltas('electric 4200 is lower', null), true);
+  assertEquals(keepDeltas(null, null), true);
+});
+
 Deno.test('the note is trimmed and capped at 300 characters', () => {
   assertEquals(parseMeterSkip(true, '  locked  ').note, 'locked');
   assertEquals(parseMeterSkip(true, 'x'.repeat(400)).note.length, 300);
@@ -122,7 +136,7 @@ Deno.test('only flags that mean wrong numbers are skipped as the previous readin
 });
 
 // ── D-352 "No meter photo was taken" ──────────────────────────────────────────
-import { skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween } from './meter-skip.ts';
+import { keepDeltas, skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween } from './meter-skip.ts';
 import { meterNeighbours, meterOrderMessage, type MeterRow } from '../_shared/meter-order.ts';
 
 Deno.test('v2 answer: allowed false means refused; allowed true means allowed; anything odd means fall back', () => {
@@ -156,7 +170,7 @@ Deno.test('the Finance line copes with a missing guest, cleaner or date', () => 
 });
 
 Deno.test('index.ts wiring guard (D-352): v2 rpc with the check-out date, pending flag, no repoint, notice rpc', async () => {
-  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  const src = (await Deno.readTextFile(new URL('./index.ts', import.meta.url))).replace(/\r\n/g, '\n');
   assertEquals(src.includes("rpc('can_skip_meter_photos_v2',\n          { p_property_id: propertyId, p_checkout_date: checkOutDate }"), true);
   assertEquals(src.includes("rpc('meter_no_photo_notice_v1', { p_session_id: sessionId }"), true);
   assertEquals(src.includes('...(meterFlag ? { meter_flag: meterFlag } : {})'), true);
@@ -202,10 +216,21 @@ Deno.test('W3 a pending row between the verified neighbour and this stay skips t
 });
 
 Deno.test('W4/W6/W8 wiring guard: notice gated on meterWritten, finance send not awaited, duplicate path re-asks', async () => {
-  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  const src = (await Deno.readTextFile(new URL('./index.ts', import.meta.url))).replace(/\r\n/g, '\n');
   assertEquals(src.includes('if (meterPhotosSkipped && meterFlag && meterWritten) {'), true);
   assertEquals(/await tgPost\(TG_TOKEN, 'sendMessage', \{\s+chat_id: TG_FINANCE_ID, text: withHeader\('finance', 'no meter photo'/.test(src), false);
   assertEquals(src.includes('rt.waitUntil(sentP)'), true);
   assertEquals(src.includes('meter_backwards_accepted_pending'), true);
   assertEquals(src.includes('p_session_id: dupes[0].id'), true);
+});
+
+Deno.test('F2/F3/F5 wiring guard: Finance text from the reasons, dup path typed and checked, deltas nulled', async () => {
+  const src = (await Deno.readTextFile(new URL('./index.ts', import.meta.url))).replace(/\r\n/g, '\n');
+  assertEquals(src.includes("meterSkipNote, reasons.includes('meter_skip_consecutive_not_permitted'))"), true);
+  assertEquals(src.includes("meter_photos_skipped, cleaning_type'"), true);
+  assertEquals(src.includes('METER_BLOCKING_TYPES.has(String(dupes[0].cleaning_type))'), true);
+  assertEquals(src.includes(".eq('session_id', dupes[0].id)"), true);
+  assertEquals(src.includes('const { error: dupErr } = await supabase.rpc('), true);
+  assertEquals(src.includes('electric_delta: kd ? deltaKwh : null'), true);
+  assertEquals(src.includes('m3_per_night:   kd ? m3PerNight : null'), true);
 });

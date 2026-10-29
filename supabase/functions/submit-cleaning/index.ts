@@ -40,7 +40,7 @@ import { evaluateGasResponse, gasTimeoutMs } from './gas-response.ts';
 import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import {
-  meterReasons, parseMeterSkip, skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween,
+  meterReasons, parseMeterSkip, skipRefusedFromV2, keepDeltas, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween,
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
   type PriorMismatch,
 } from './meter-skip.ts';
@@ -439,13 +439,19 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     if (payload.submissionId) {
       const { data: dupes, count } = await supabase
         .from('cleaning_sessions')
-        .select('id, meter_photos_skipped', { count: 'exact' })
+        .select('id, meter_photos_skipped, cleaning_type', { count: 'exact' })
         .eq('submission_id', payload.submissionId).limit(1);
       if ((count ?? 0) > 0) {
         // D-352: a retry after a lost response re-asks for the notice task; the rpc is idempotent.
-        if (dupes?.[0]?.meter_photos_skipped === true) {
-          try { await supabase.rpc('meter_no_photo_notice_v1', { p_session_id: dupes[0].id }); }
-          catch (err) { console.warn('[meter-skip] duplicate notice threw (non-fatal):', err); }
+        if (dupes?.[0]?.meter_photos_skipped === true && METER_BLOCKING_TYPES.has(String(dupes[0].cleaning_type))) {
+          try {
+            // Only when this session's reading was stored (flagged), as on the first pass.
+            const { data: mr } = await supabase.from('meter_readings').select('id').eq('session_id', dupes[0].id).limit(1);
+            if (mr?.length) {
+              const { error: dupErr } = await supabase.rpc('meter_no_photo_notice_v1', { p_session_id: dupes[0].id });
+              if (dupErr) console.warn('[meter-skip] duplicate notice non-fatal:', dupErr.message);
+            }
+          } catch (err) { console.warn('[meter-skip] duplicate notice threw (non-fatal):', err); }
         }
         return json({ ok: true, status: 'duplicate_ignored', message: 'Already recorded.' });
       }
@@ -686,16 +692,17 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     let meterWritten = false;
     const repointed: { id: string; patch: Record<string, number | null> }[] = [];
     if (!isNaN(elecNum) || !isNaN(waterNum)) {
+      const kd = keepDeltas(orderMsg, meterFlag);
       const { error: meterErr } = await supabase.from('meter_readings').insert({
         session_id:     sessionId,
         electric_prev:  prevElec,
         electric_curr:  isNaN(elecNum)  ? null : elecNum,
-        electric_delta: deltaKwh,
+        electric_delta: kd ? deltaKwh : null,
         water_prev:     prevWater,
         water_curr:     isNaN(waterNum) ? null : waterNum,
-        water_delta:    deltaM3,
-        kwh_per_night:  kwhPerNight,
-        m3_per_night:   m3PerNight,
+        water_delta:    kd ? deltaM3 : null,
+        kwh_per_night:  kd ? kwhPerNight : null,
+        m3_per_night:   kd ? m3PerNight : null,
         recorded_at:    new Date().toISOString(),
         property_id:    propertyId,
         submitted_by_user_id: identity.userId,
@@ -723,7 +730,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       } catch (err) { console.warn('[meter-skip] notice task threw (non-fatal):', err); }
       if (TG_TOKEN && TG_FINANCE_ID) {
         const sentP = tgPost(TG_TOKEN, 'sendMessage', {
-          chat_id: TG_FINANCE_ID, text: withHeader('finance', 'no meter photo', meterNoPhotoNotice(cleanerName, lastGuestName, checkOutDate, meterSkipNote, previousSkipped)),
+          chat_id: TG_FINANCE_ID, text: withHeader('finance', 'no meter photo', meterNoPhotoNotice(cleanerName, lastGuestName, checkOutDate, meterSkipNote, reasons.includes('meter_skip_consecutive_not_permitted'))),
         }).catch(err => console.warn('[meter-skip] finance line non-fatal:', err));
         const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
         if (rt?.waitUntil) rt.waitUntil(sentP);
