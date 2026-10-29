@@ -122,8 +122,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING: rehearse on a fresh backup (migration-rehearsal-on-host.sh), pgTAP s100_meter_no_photo.sql, then the data step twice (second run a no-op)."
+    "verified": true,
+    "evidence": "Rehearsed 2026-10-29 on backup cascade-supabase-20261029T002626Z (taken after the Shaneen unblock), log Cascade/docs/s100/rehearsal5.log: migration applied 1/1, forward 16/16, pgTAP s100_meter_no_photo.sql 99/99, data step twice through docs/s100/rehearsal-wrap/zz_s100_data_step_twice.sql 7/7 (2 exceptions, Shaneen estimate_pending and skipped, 0 open mismatches, one admin task, settle waits with 0 settled, typed 4273/81.58 untouched). Opus SQL audit GO_WITH_FIXES fixed in fd0b57d; final cross-lane Opus review GO."
   },
   "approvals": {
     "production_required": true,
