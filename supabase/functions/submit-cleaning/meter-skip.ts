@@ -100,3 +100,40 @@ export function meterBackwardsMessage(
     `Read the meter again and type the number exactly as it shows. If the meter really shows this number, take a photo of it and message Lloyd - the last reading on file is the one that is wrong.`,
   ].join(' ');
 }
+
+/* ── "No meter photo was taken" (D-352, 2026-10-29) ───────────────────────────
+   The never-two-in-a-row rule now follows STAY order (can_skip_meter_photos_v2),
+   and a declared skip stores its typed reading as estimate_pending. Pure here
+   so the branches are tested; index.ts only runs the queries. */
+
+/** Reads the v2 answer: true = refused (the neighbouring stay also had no photos), false = allowed, null = the
+ *  answer is unusable, so the caller falls back to the old latest-by-filing-order query. */
+export function skipRefusedFromV2(data: unknown): boolean | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const allowed = (data as { allowed?: unknown }).allowed;
+  return typeof allowed === 'boolean' ? !allowed : null;
+}
+
+/** The meter_flag a new reading is written with. Only a declared skip on a turnover or deep clean has no photo
+ *  behind it; everything else keeps the column's default (null). */
+export function meterFlagForSkip(skipped: boolean, cleaningType: string): 'estimate_pending' | null {
+  return skipped && METER_BLOCKING_TYPES.has(cleaningType) ? 'estimate_pending' : null;
+}
+
+/** The one Finance line for a declared skip: what happened, who looks, what happens to the number. No amounts,
+ *  no key=value, no row ids (D-197, Telegram wording rules). Plain text, no Markdown, so a stray underscore in a
+ *  guest's name or the cleaner's note cannot break the send. */
+export function meterNoPhotoNotice(
+  cleaner: string, guest: string, checkOutDate: string | null, note: string,
+): string {
+  const who = cleaner && cleaner !== '—' ? cleaner : 'The cleaner';
+  const stay = guest && guest !== '—' ? `the stay of ${guest}` : 'the latest stay';
+  const when = checkOutDate && /^\d{4}-\d{2}-\d{2}$/.test(checkOutDate)
+    ? ` (checked out ${new Date(`${checkOutDate}T00:00:00+08:00`).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' })})`
+    : '';
+  return [
+    `${who} reports that no meter photo was taken for ${stay}${when}.`,
+    `Reason given: ${note}.`,
+    `Nothing to do now. The typed readings are kept until the next verified reading, then checked and averaged if they do not fit. The follow-up is in the admin app for Lloyd and Marifel.`,
+  ].join('\n');
+}

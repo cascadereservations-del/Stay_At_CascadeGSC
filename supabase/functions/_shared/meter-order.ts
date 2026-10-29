@@ -10,6 +10,11 @@
 /** Flags that mean a stored reading's NUMBERS are wrong, so it is never a neighbour (D-219). */
 export const METER_WRONG_NUMBER_FLAGS = ['misread', 're_entry', 'duplicate'];
 
+/** Flags that mean a stored reading has NO photo behind it (D-352): typed numbers kept, not yet verified. Never a
+ *  neighbour and never a usage sample until meter_settle_estimates_v1 flags it typed_accepted or estimated. Kept apart
+ *  from the list above: those numbers are known wrong, these are only unproven. */
+export const METER_UNVERIFIED_FLAGS = ['estimate_pending'];
+
 export type MeterRow = {
   id?: string | null;
   electric_curr: number | string | null;
@@ -40,12 +45,12 @@ export function stayKey(row: MeterRow): string {
   return co && /^\d{4}-\d{2}-\d{2}/.test(co) && co.slice(0, 10) < day ? co.slice(0, 10) : day;
 }
 
-/** Rows that may be a neighbour: real numbers only (D-219). The page leaves mid-stays out (D-160: never the shown
+/** Rows that may be a neighbour: real, photo-backed numbers only (D-219, D-352). The page leaves mid-stays out (D-160: never the shown
  *  baseline); the server keeps them, as it always has, so stored deltas chain through a mid-stay and are not
  *  counted twice. */
 export function usableRows(rows: MeterRow[] | null | undefined, withMidStay = false): MeterRow[] {
   return (rows ?? []).filter(r =>
-    !(r.meter_flag && METER_WRONG_NUMBER_FLAGS.includes(r.meter_flag)) &&
+    !(r.meter_flag && (METER_WRONG_NUMBER_FLAGS.includes(r.meter_flag) || METER_UNVERIFIED_FLAGS.includes(r.meter_flag))) &&
     (withMidStay || r.cleaning_sessions?.cleaning_type !== 'mid_stay'));
 }
 

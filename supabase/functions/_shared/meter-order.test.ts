@@ -1,7 +1,7 @@
 // Pins stay-order meter checks with the real October 2026 numbers from the unit's paper log (Lloyd, 2026-10-27).
 // Honey's 17-19 Oct report (4273 kWh, 81.580 m³) was refused because 23-24 Oct (4326, 82.743) was already on file.
 import { assertEquals } from 'jsr:@std/assert@1';
-import { meterNeighbours, meterOrderMessage, repointNext, stayDays, stayKey, usageSamples, type MeterRow } from './meter-order.ts';
+import { meterNeighbours, meterOrderMessage, repointNext, stayDays, stayKey, usableRows, usageSamples, METER_WRONG_NUMBER_FLAGS, type MeterRow } from './meter-order.ts';
 
 const row = (id: string, co: string, e: number, w: number, extra: Partial<MeterRow> = {}): MeterRow => ({
   id, electric_curr: e, water_curr: w, recorded_at: `${co}T06:00:00Z`,
@@ -102,4 +102,21 @@ Deno.test('mid-stays and the turnover after one stay out of the strict history; 
   assertEquals(usageSamples(rows, since).map(s => s.kwh_per_night), [20, 20]);
   assertEquals(usageSamples(rows, since, [], false).map(s => s.kwh_per_night), [20, 10, 3.3, 20]);
   assertEquals([stayDays('2026-10-17', '2026-10-24'), stayDays(null, '2026-10-24')], [7, null]);
+});
+
+Deno.test('D-352: an estimate_pending reading is never a neighbour and never a usage sample', () => {
+  const rows = [
+    row('abe', '2026-10-17', 4240, 80.699),
+    row('shaneen', '2026-10-19', 4273, 81.58, { meter_flag: 'estimate_pending', electric_prev: 4240, kwh_per_night: 16.5 }),
+    row('james', '2026-10-22', 4312, 82.5, { electric_prev: 4273, kwh_per_night: 13 }),
+  ];
+  const n = meterNeighbours(rows, '2026-10-21', true);
+  assertEquals([n.prevElec?.value, n.nextElec?.value, n.prevWater?.value], [4240, 4312, 80.699], 'the pending 4273 is skipped');
+  assertEquals(usableRows(rows).map(r => r.id), ['abe', 'james']);
+  assertEquals(meterOrderMessage(4260, 81, n), null, 'lower than the pending 4273 but above the verified 4240');
+  // james chains from the pending value, so he spans a gap and is left out of the history; a settled flag counts again
+  assertEquals(usageSamples(rows, 0).length, 0);
+  assertEquals(usableRows([{ ...rows[1], meter_flag: 'typed_accepted' }]).length, 1);
+  assertEquals(usableRows([{ ...rows[1], meter_flag: 'estimated' }]).length, 1);
+  assertEquals(METER_WRONG_NUMBER_FLAGS.includes('estimate_pending'), false, 'wrong-number list keeps its meaning');
 });

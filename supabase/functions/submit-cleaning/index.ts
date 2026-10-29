@@ -40,7 +40,7 @@ import { evaluateGasResponse, gasTimeoutMs } from './gas-response.ts';
 import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import {
-  meterReasons, parseMeterSkip,
+  meterReasons, parseMeterSkip, skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice,
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
   type PriorMismatch,
 } from './meter-skip.ts';
@@ -569,10 +569,20 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const { skipped: meterPhotosSkipped, note: meterSkipNote } =
       parseMeterSkip(payload.meterPhotosSkipped, payload.meterPhotoSkipNote);
 
-    // Was the PREVIOUS turnover also skipped? Service role reads this directly;
-    // can_skip_meter_photos needs an auth.uid() this function does not have.
+    // Was the NEIGHBOURING stay also skipped? By stay order (D-352): the stays either side of this check-out date,
+    // not the latest filed. can_skip_meter_photos_v2 accepts service_role; on any error or odd answer the old
+    // latest-by-filing-order query below still runs, so a missing v2 function never opens or closes the rule.
     let previousSkipped = false;
     if (meterPhotosSkipped && propertyId) {
+      let verdict: boolean | null = null;
+      try {
+        const { data: v2, error: v2Err } = await supabase.rpc('can_skip_meter_photos_v2',
+          { p_property_id: propertyId, p_checkout_date: checkOutDate });
+        if (v2Err) console.warn('[meter-skip] v2 failed, using the old check:', v2Err.message);
+        else verdict = skipRefusedFromV2(v2);
+      } catch (err) { console.warn('[meter-skip] v2 threw, using the old check:', err); }
+      if (verdict !== null) previousSkipped = verdict;
+      else {
       const { data: prev } = await supabase
         .from('cleaning_sessions')
         .select('meter_photos_skipped')
@@ -581,6 +591,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         .order('cleaned_at', { ascending: false })
         .limit(1);
       previousSkipped = prev?.[0]?.meter_photos_skipped === true;
+      }
     }
 
     if (cleaningType === 'emergency') {
@@ -663,6 +674,8 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
 
     let meterWritten = false;
     const repointed: { id: string; patch: Record<string, number | null> }[] = [];
+    // A declared skip has no photo behind its numbers: estimate_pending until the next verified reading (D-352).
+    const meterFlag = meterFlagForSkip(meterPhotosSkipped, cleaningType);
     if (!isNaN(elecNum) || !isNaN(waterNum)) {
       const { error: meterErr } = await supabase.from('meter_readings').insert({
         session_id:     sessionId,
@@ -677,17 +690,32 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         recorded_at:    new Date().toISOString(),
         property_id:    propertyId,
         submitted_by_user_id: identity.userId,
+        ...(meterFlag ? { meter_flag: meterFlag } : {}),
       });
       if (meterErr) {
         console.error('meter_readings insert (non-fatal):', meterErr);
       } else {
         meterWritten = true;
         // A late report sits between two stays: the later stay's usage was measured across both, so re-point it here.
-        for (const { id, patch } of repointNext(around, isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum)) {
+        // A pending reading is unproven, so it must not move the later stay's usage either.
+        if (!meterFlag) for (const { id, patch } of repointNext(around, isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum)) {
           const { error: rpErr } = await supabase.from('meter_readings').update(patch).eq('id', id).eq('property_id', propertyId);
           if (rpErr) console.error(JSON.stringify({ event: 'meter_next_repoint_failed', next_id: id, patch, error: rpErr.message }));
           else { console.log(JSON.stringify({ event: 'meter_next_repointed', next_id: id, patch })); repointed.push({ id, patch }); }
         }
+      }
+    }
+
+    // D-352: tell the admins (follow-up task, then one Finance line). Both non-fatal: the report is already saved.
+    if (meterPhotosSkipped && meterFlag) {
+      try {
+        const { error: noticeErr } = await supabase.rpc('meter_no_photo_notice_v1', { p_session_id: sessionId });
+        if (noticeErr) console.warn('[meter-skip] notice task non-fatal:', noticeErr.message);
+      } catch (err) { console.warn('[meter-skip] notice task threw (non-fatal):', err); }
+      if (TG_TOKEN && TG_FINANCE_ID) {
+        await tgPost(TG_TOKEN, 'sendMessage', {
+          chat_id: TG_FINANCE_ID, text: withHeader('finance', 'no meter photo', meterNoPhotoNotice(cleanerName, lastGuestName, checkOutDate, meterSkipNote)),
+        });
       }
     }
 
@@ -705,7 +733,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
       const keep = (p: Promise<void>, what: string) => { const q = p.catch(err => console.warn(`[anomaly] ${what} non-fatal:`, err)); if (edge?.waitUntil) edge.waitUntil(q); };
       // Mid-stay does not establish a turnover baseline; skip anomaly check.
-      if (!isMidStay && (kwhPerNight !== null || m3PerNight !== null)) {
+      if (!isMidStay && !meterFlag && (kwhPerNight !== null || m3PerNight !== null)) {
         keep(checkUtilityAnomaly(samples, kwhPerNight, m3PerNight, cleaningDate, cleanerName, nights, deltaKwh, deltaM3, TG_TOKEN, TG_FINANCE_ID,
           span(stayDays(around.prevElec?.key, stayDate), nights)), 'this stay');
       }

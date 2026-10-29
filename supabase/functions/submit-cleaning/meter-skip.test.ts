@@ -120,3 +120,46 @@ Deno.test('only flags that mean wrong numbers are skipped as the previous readin
   assertEquals([...METER_WRONG_NUMBER_FLAGS].sort(), ['duplicate', 'misread', 're_entry']);
   assertEquals(METER_WRONG_NUMBER_FLAGS.includes('first_reading'), false);
 });
+
+// ── D-352 "No meter photo was taken" ──────────────────────────────────────────
+import { skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice } from './meter-skip.ts';
+
+Deno.test('v2 answer: allowed false means refused; allowed true means allowed; anything odd means fall back', () => {
+  assertEquals(skipRefusedFromV2({ allowed: false, reason: 'neighbour_skipped', neighbour_checkout: '2026-10-19' }), true);
+  assertEquals(skipRefusedFromV2({ allowed: true, reason: null, neighbour_checkout: null }), false);
+  assertEquals(skipRefusedFromV2(null), null);
+  assertEquals(skipRefusedFromV2([]), null);
+  assertEquals(skipRefusedFromV2({}), null);
+  assertEquals(skipRefusedFromV2({ allowed: 'false' }), null, 'a string is not a verdict');
+});
+
+Deno.test('only a declared skip on a turnover or deep clean is written estimate_pending', () => {
+  assertEquals(meterFlagForSkip(true, 'turnover'), 'estimate_pending');
+  assertEquals(meterFlagForSkip(true, 'deep_clean'), 'estimate_pending');
+  assertEquals(meterFlagForSkip(true, 'mid_stay'), null);
+  assertEquals(meterFlagForSkip(true, 'emergency'), null);
+  assertEquals(meterFlagForSkip(false, 'turnover'), null);
+});
+
+Deno.test('the Finance line says who, which stay, why, and what happens; no key=value, no amounts', () => {
+  const t = meterNoPhotoNotice('Honey', 'Ysabel Trajico', '2026-10-21', 'Phone malfunction');
+  assertEquals(t.split('\n')[0], 'Honey reports that no meter photo was taken for the stay of Ysabel Trajico (checked out Oct 21).');
+  assertEquals(t.includes('Reason given: Phone malfunction.'), true);
+  assertEquals(t.includes('kept until the next verified reading'), true);
+  assertEquals(/=|!|\d{3,}/.test(t.replace('Oct 21', '')), false, t);
+});
+
+Deno.test('the Finance line copes with a missing guest, cleaner or date', () => {
+  const t = meterNoPhotoNotice('—', '—', null, 'Phone malfunction');
+  assertEquals(t.split('\n')[0], 'The cleaner reports that no meter photo was taken for the latest stay.');
+});
+
+Deno.test('index.ts wiring guard (D-352): v2 rpc with the check-out date, pending flag, no repoint, notice rpc', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertEquals(src.includes("rpc('can_skip_meter_photos_v2',\n          { p_property_id: propertyId, p_checkout_date: checkOutDate }"), true);
+  assertEquals(src.includes("rpc('meter_no_photo_notice_v1', { p_session_id: sessionId }"), true);
+  assertEquals(src.includes('...(meterFlag ? { meter_flag: meterFlag } : {})'), true);
+  assertEquals(src.includes('if (!meterFlag) for (const { id, patch } of repointNext('), true);
+  assertEquals(src.includes('!isMidStay && !meterFlag && (kwhPerNight'), true);
+  assertEquals(/\.rpc\([^)]*\)[^;]*\.(catch|finally)\(/.test(src), false, 'supabase builders are thenable only');
+});
