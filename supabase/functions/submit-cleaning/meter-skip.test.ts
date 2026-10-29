@@ -122,7 +122,8 @@ Deno.test('only flags that mean wrong numbers are skipped as the previous readin
 });
 
 // ── D-352 "No meter photo was taken" ──────────────────────────────────────────
-import { skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice } from './meter-skip.ts';
+import { skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween } from './meter-skip.ts';
+import { meterNeighbours, meterOrderMessage, type MeterRow } from '../_shared/meter-order.ts';
 
 Deno.test('v2 answer: allowed false means refused; allowed true means allowed; anything odd means fall back', () => {
   assertEquals(skipRefusedFromV2({ allowed: false, reason: 'neighbour_skipped', neighbour_checkout: '2026-10-19' }), true);
@@ -160,6 +161,51 @@ Deno.test('index.ts wiring guard (D-352): v2 rpc with the check-out date, pendin
   assertEquals(src.includes("rpc('meter_no_photo_notice_v1', { p_session_id: sessionId }"), true);
   assertEquals(src.includes('...(meterFlag ? { meter_flag: meterFlag } : {})'), true);
   assertEquals(src.includes('if (!meterFlag) for (const { id, patch } of repointNext('), true);
-  assertEquals(src.includes('!isMidStay && !meterFlag && (kwhPerNight'), true);
+  assertEquals(src.includes('!isMidStay && !meterFlag && !thisGap && (kwhPerNight'), true);
   assertEquals(/\.rpc\([^)]*\)[^;]*\.(catch|finally)\(/.test(src), false, 'supabase builders are thenable only');
+});
+
+const verified = (elec: number, co: string): MeterRow => ({
+  id: 'v' + co, electric_curr: elec, water_curr: 100, recorded_at: co + 'T09:00:00+08:00',
+  cleaning_sessions: { cleaning_type: 'turnover', checkout_date: co, nights_stayed: 1 },
+});
+
+Deno.test('W1 Ysabel: 4200 typed after a verified 4240 is refused with photos, accepted pending without', () => {
+  const around = meterNeighbours([verified(4240, '2026-10-20')], '2026-10-27', true);
+  const msg = meterOrderMessage(4200, null, around);
+  assertEquals(typeof msg, 'string');
+  assertEquals(backwardsRefusal(msg, null), msg, 'a photographed reading is still refused');
+  assertEquals(backwardsRefusal(msg, meterFlagForSkip(true, 'turnover')), null, 'a declared skip is kept pending');
+});
+
+Deno.test('W2 the Finance line says Lloyd must decide when v2 refused the skip', () => {
+  const t = meterNoPhotoNotice('Honey', 'Ysabel Trajico', '2026-10-21', 'Phone malfunction', true);
+  assertEquals(t.includes('Nothing to do now'), false);
+  assertEquals(t.includes('also has no meter photo'), true);
+  assertEquals(t.includes('marked incomplete'), true);
+  assertEquals(t.includes('Lloyd needs to decide'), true);
+});
+
+Deno.test('W5 the note loses trailing punctuation before the full stop', () => {
+  assertEquals(meterNoPhotoNotice('Honey', 'G', null, 'Meter room locked!').includes('Reason given: Meter room locked.' + String.fromCharCode(10)), true);
+  assertEquals(meterNoPhotoNotice('Honey', 'G', null, 'Locked...?').includes('Reason given: Locked.' + String.fromCharCode(10)), true);
+});
+
+Deno.test('W3 a pending row between the verified neighbour and this stay skips the anomaly alert', () => {
+  const pending: MeterRow = { ...verified(4300, '2026-10-22'), id: 'p', meter_flag: 'estimate_pending' };
+  const rows = [verified(4240, '2026-10-20'), pending];
+  assertEquals(pendingBetween(rows, '2026-10-20', '2026-10-25'), true);
+  assertEquals(pendingBetween(rows, '2026-10-22', '2026-10-25'), false, 'pending on the boundary is not between');
+  assertEquals(pendingBetween(rows, '2026-10-23', '2026-10-25'), false, 'pending before the neighbour');
+  assertEquals(pendingBetween(rows, null, '2026-10-25'), false);
+  assertEquals(pendingBetween([verified(4240, '2026-10-20')], '2026-10-19', '2026-10-25'), false, 'verified rows never gap');
+});
+
+Deno.test('W4/W6/W8 wiring guard: notice gated on meterWritten, finance send not awaited, duplicate path re-asks', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertEquals(src.includes('if (meterPhotosSkipped && meterFlag && meterWritten) {'), true);
+  assertEquals(/await tgPost\(TG_TOKEN, 'sendMessage', \{\s+chat_id: TG_FINANCE_ID, text: withHeader\('finance', 'no meter photo'/.test(src), false);
+  assertEquals(src.includes('rt.waitUntil(sentP)'), true);
+  assertEquals(src.includes('meter_backwards_accepted_pending'), true);
+  assertEquals(src.includes('p_session_id: dupes[0].id'), true);
 });

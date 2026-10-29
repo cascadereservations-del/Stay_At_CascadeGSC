@@ -79,6 +79,7 @@ export function meterBlockMessage(
 
 /** Flags that mean a stored reading's NUMBERS are wrong, so it must never be the "previous reading" a new
  *  one is compared with (D-219). first_reading and under_review are real numbers and still count. */
+import { stayKey, type MeterRow } from '../_shared/meter-order.ts';
 export { METER_WRONG_NUMBER_FLAGS } from '../_shared/meter-order.ts';
 
 /** A meter does not run backwards (D-219, Lloyd 2026-09-23: block, not nudge). The refusal, or null.
@@ -124,7 +125,7 @@ export function meterFlagForSkip(skipped: boolean, cleaningType: string): 'estim
  *  no key=value, no row ids (D-197, Telegram wording rules). Plain text, no Markdown, so a stray underscore in a
  *  guest's name or the cleaner's note cannot break the send. */
 export function meterNoPhotoNotice(
-  cleaner: string, guest: string, checkOutDate: string | null, note: string,
+  cleaner: string, guest: string, checkOutDate: string | null, note: string, refused = false,
 ): string {
   const who = cleaner && cleaner !== '—' ? cleaner : 'The cleaner';
   const stay = guest && guest !== '—' ? `the stay of ${guest}` : 'the latest stay';
@@ -133,7 +134,29 @@ export function meterNoPhotoNotice(
     : '';
   return [
     `${who} reports that no meter photo was taken for ${stay}${when}.`,
-    `Reason given: ${note}.`,
-    `Nothing to do now. The typed readings are kept until the next verified reading, then checked and averaged if they do not fit. The follow-up is in the admin app for Lloyd and Marifel.`,
+    `Reason given: ${note.replace(/[.!?\s]+$/, '')}.`,
+    refused
+      ? `The stay next to it also has no meter photo, so the report is marked incomplete and Lloyd needs to decide what to do. The typed readings are kept for now. The follow-up is in the admin app for Lloyd and Marifel.`
+      : `Nothing to do now. The typed readings are kept until the next verified reading, then checked and averaged if they do not fit. The follow-up is in the admin app for Lloyd and Marifel.`,
   ].join('\n');
+}
+
+/** D-352: a typed number with no photo is kept and averaged later, so a pending reading is never refused for being
+ *  out of order. Anything else keeps the D-219 refusal. */
+export function backwardsRefusal(orderMessage: string | null, meterFlag: string | null): string | null {
+  return meterFlag === 'estimate_pending' ? null : orderMessage;
+}
+
+/** True when an estimate_pending row sits strictly between two stay keys: usage measured across it spans a gap the
+ *  pending stay hides, so the 2x anomaly check would raise a false alert. */
+export function pendingBetween(
+  rows: MeterRow[] | null | undefined,
+  fromKey: string | null | undefined, toKey: string,
+): boolean {
+  if (!fromKey) return false;
+  return (rows ?? []).some(r => {
+    if (r.meter_flag !== 'estimate_pending') return false;
+    const k = stayKey(r);
+    return k > fromKey && k < toKey;
+  });
 }

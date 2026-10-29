@@ -40,7 +40,7 @@ import { evaluateGasResponse, gasTimeoutMs } from './gas-response.ts';
 import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import {
-  meterReasons, parseMeterSkip, skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice,
+  meterReasons, parseMeterSkip, skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween,
   METER_BLOCKING_TYPES, METER_BLOCK_LOOKBACK_DAYS, meterBlockMessage,
   type PriorMismatch,
 } from './meter-skip.ts';
@@ -437,11 +437,16 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     );
 
     if (payload.submissionId) {
-      const { count } = await supabase
+      const { data: dupes, count } = await supabase
         .from('cleaning_sessions')
-        .select('id', { count: 'exact', head: true })
-        .eq('submission_id', payload.submissionId);
+        .select('id, meter_photos_skipped', { count: 'exact' })
+        .eq('submission_id', payload.submissionId).limit(1);
       if ((count ?? 0) > 0) {
+        // D-352: a retry after a lost response re-asks for the notice task; the rpc is idempotent.
+        if (dupes?.[0]?.meter_photos_skipped === true) {
+          try { await supabase.rpc('meter_no_photo_notice_v1', { p_session_id: dupes[0].id }); }
+          catch (err) { console.warn('[meter-skip] duplicate notice threw (non-fatal):', err); }
+        }
         return json({ ok: true, status: 'duplicate_ignored', message: 'Already recorded.' });
       }
     }
@@ -541,7 +546,17 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
 
     /* D-219 (Lloyd 2026-09-23): a meter does not run backwards, so a reading below the stay before it, or above the
        stay after it, is refused before anything is written. The checklist refuses it first; this makes it a rule. */
-    const backwards = meterOrderMessage(isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum, around);
+    // The one-time meter-photo allowance (checklist 2026-09-13, ported from the never-deployed
+    // stay-site v28 on 2026-09-18). The client requires the note; it is re-checked in meter-skip.ts.
+    const { skipped: meterPhotosSkipped, note: meterSkipNote } =
+      parseMeterSkip(payload.meterPhotosSkipped, payload.meterPhotoSkipNote);
+    // A declared skip has no photo behind its numbers: estimate_pending until the next verified reading (D-352).
+    const meterFlag = meterFlagForSkip(meterPhotosSkipped, cleaningType);
+    const orderMsg = meterOrderMessage(isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum, around);
+    const backwards = backwardsRefusal(orderMsg, meterFlag);
+    if (orderMsg && !backwards) {
+      console.log(JSON.stringify({ event: 'meter_backwards_accepted_pending', typed: [elecNum, waterNum], prev: [prevElec, prevWater], next: [around.nextElec?.value ?? null, around.nextWater?.value ?? null], stay: stayDate }));
+    }
     if (backwards) {
       console.log(JSON.stringify({ event: 'meter_backwards_refused', typed: [elecNum, waterNum], prev: [prevElec, prevWater], next: [around.nextElec?.value ?? null, around.nextWater?.value ?? null], stay: stayDate }));
       return json({ ok: false, error: 'meter_backwards', message: backwards }, 409);
@@ -564,10 +579,6 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       : 0;
 
     const reasons: string[] = [];
-    // The one-time meter-photo allowance (checklist 2026-09-13, ported from the never-deployed
-    // stay-site v28 on 2026-09-18). The client requires the note; it is re-checked in meter-skip.ts.
-    const { skipped: meterPhotosSkipped, note: meterSkipNote } =
-      parseMeterSkip(payload.meterPhotosSkipped, payload.meterPhotoSkipNote);
 
     // Was the NEIGHBOURING stay also skipped? By stay order (D-352): the stays either side of this check-out date,
     // not the latest filed. can_skip_meter_photos_v2 accepts service_role; on any error or odd answer the old
@@ -674,8 +685,6 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
 
     let meterWritten = false;
     const repointed: { id: string; patch: Record<string, number | null> }[] = [];
-    // A declared skip has no photo behind its numbers: estimate_pending until the next verified reading (D-352).
-    const meterFlag = meterFlagForSkip(meterPhotosSkipped, cleaningType);
     if (!isNaN(elecNum) || !isNaN(waterNum)) {
       const { error: meterErr } = await supabase.from('meter_readings').insert({
         session_id:     sessionId,
@@ -707,15 +716,17 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     }
 
     // D-352: tell the admins (follow-up task, then one Finance line). Both non-fatal: the report is already saved.
-    if (meterPhotosSkipped && meterFlag) {
+    if (meterPhotosSkipped && meterFlag && meterWritten) {
       try {
         const { error: noticeErr } = await supabase.rpc('meter_no_photo_notice_v1', { p_session_id: sessionId });
         if (noticeErr) console.warn('[meter-skip] notice task non-fatal:', noticeErr.message);
       } catch (err) { console.warn('[meter-skip] notice task threw (non-fatal):', err); }
       if (TG_TOKEN && TG_FINANCE_ID) {
-        await tgPost(TG_TOKEN, 'sendMessage', {
-          chat_id: TG_FINANCE_ID, text: withHeader('finance', 'no meter photo', meterNoPhotoNotice(cleanerName, lastGuestName, checkOutDate, meterSkipNote)),
-        });
+        const sentP = tgPost(TG_TOKEN, 'sendMessage', {
+          chat_id: TG_FINANCE_ID, text: withHeader('finance', 'no meter photo', meterNoPhotoNotice(cleanerName, lastGuestName, checkOutDate, meterSkipNote, previousSkipped)),
+        }).catch(err => console.warn('[meter-skip] finance line non-fatal:', err));
+        const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+        if (rt?.waitUntil) rt.waitUntil(sentP);
       }
     }
 
@@ -733,7 +744,9 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       const edge = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
       const keep = (p: Promise<void>, what: string) => { const q = p.catch(err => console.warn(`[anomaly] ${what} non-fatal:`, err)); if (edge?.waitUntil) edge.waitUntil(q); };
       // Mid-stay does not establish a turnover baseline; skip anomaly check.
-      if (!isMidStay && !meterFlag && (kwhPerNight !== null || m3PerNight !== null)) {
+      const thisGap = pendingBetween(meterRows, around.prevElec?.key ?? around.prevWater?.key, stayDate);
+      if (thisGap) console.log(JSON.stringify({ event: 'anomaly_skipped_pending_gap', stay: stayDate }));
+      if (!isMidStay && !meterFlag && !thisGap && (kwhPerNight !== null || m3PerNight !== null)) {
         keep(checkUtilityAnomaly(samples, kwhPerNight, m3PerNight, cleaningDate, cleanerName, nights, deltaKwh, deltaM3, TG_TOKEN, TG_FINANCE_ID,
           span(stayDays(around.prevElec?.key, stayDate), nights)), 'this stay');
       }
@@ -741,6 +754,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
       for (const { id, patch } of repointed) {
         const row = [around.nextElec?.row, around.nextWater?.row].find(r => r?.id === id);
         if (!row || row.cleaning_sessions?.cleaning_type === 'mid_stay') continue;
+        if (pendingBetween(meterRows, stayDate, stayKey(row))) { console.log(JSON.stringify({ event: 'anomaly_skipped_pending_gap', repointed: id })); continue; }
         const kpn = 'kwh_per_night' in patch ? patch.kwh_per_night : null, mpn = 'm3_per_night' in patch ? patch.m3_per_night : null;
         if (kpn === null && mpn === null) continue;
         const rn = Number(row.cleaning_sessions?.nights_stayed) || 0;
