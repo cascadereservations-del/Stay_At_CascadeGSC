@@ -94,7 +94,7 @@ select is((select count(*) from public.meter_readings where id = md5('p1jam-m'):
 select is((select electric_prev from public.meter_readings where id = md5('p1sha-m')::uuid), 4240.00::numeric, 'Shaneen prev is Abe');
 select is((select electric_delta from public.meter_readings where id = md5('p1sha-m')::uuid), 36.00::numeric, 'Shaneen delta 36.00');
 select is((select kwh_per_night from public.meter_readings where id = md5('p1sha-m')::uuid), 18.00::numeric, 'Shaneen 18.00 kWh a night');
-select is((select count(*) from public.follow_up_tasks where source_kind = 'meter_estimate_settled' and source_ref = md5('p1jam')::text and title like 'Meter readings settled for %Shaneen%'), 1::bigint, 'one settled task, on the next stay');
+select is((select count(*) from public.follow_up_tasks where source_kind = 'meter_estimate_settled' and source_ref = md5('p1jam')::uuid::text and title like 'Meter readings settled for %Shaneen%'), 1::bigint, 'one settled task, on the next stay');
 
 -- idempotence: a second run changes nothing -----------------------------------------------------------------------------------------------------------
 create temp table s100_snap as
@@ -105,7 +105,7 @@ select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000001
 select is((select md5(string_agg(mr.id::text || coalesce(mr.electric_curr::text, '') || coalesce(mr.electric_prev::text, '') || coalesce(mr.water_curr::text, '') || coalesce(mr.water_prev::text, '')
          || coalesce(mr.meter_flag, '') || coalesce(mr.meter_override_note, ''), '|' order by mr.id)) from public.meter_readings mr where mr.property_id = 'd1000000-0000-4000-8000-000000000001'),
           (select h from s100_snap), 'second run leaves every value and flag as it was');
-select is((select count(*) from public.follow_up_tasks where source_kind = 'meter_estimate_settled' and source_ref = md5('p1jam')::text), 1::bigint, 'second run opens no second task');
+select is((select count(*) from public.follow_up_tasks where source_kind = 'meter_estimate_settled' and source_ref = md5('p1jam')::uuid::text), 1::bigint, 'second run opens no second task');
 
 -- settle: the pass case keeps the typed numbers -----------------------------------------------------------------------------------------------------
 select is(public.meter_settle_estimates_v1('d1000000-0000-4000-8000-000000000002') ->> 'settled', '1', 'pass case: one gap settled');
@@ -183,12 +183,13 @@ insert into public.calendar_events(property_id, uid, source, status, checkin_dat
  ('d1000000-0000-4000-8000-000000000006', 'r-07', 'airbnb', 'confirmed', '2026-08-05', '2026-08-07'),
  ('d1000000-0000-4000-8000-000000000006', 'r-09', 'airbnb', 'confirmed', '2026-08-07', '2026-08-09'),
  ('d1000000-0000-4000-8000-000000000006', 'r-20', 'airbnb', 'confirmed', '2026-08-19', '2026-08-20'),
- ('d1000000-0000-4000-8000-000000000006', 'r-sep01', 'airbnb', 'confirmed', '2026-08-30', '2026-09-01');
+ ('d1000000-0000-4000-8000-000000000006', 'r-sep01', 'airbnb', 'confirmed', '2026-08-30', '2026-09-01'),
+ ('d1000000-0000-4000-8000-000000000006', 'r-sep03', 'airbnb', 'confirmed', '2026-09-01', '2026-09-03');
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, last_guest_name, checkout_date, cleaned_at) values
  ('d3000000-0000-4000-8000-000000000107', 'r-s07', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest R1', '2026-08-07', now()),
  ('d3000000-0000-4000-8000-000000000109', 'r-s09', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest R2', '2026-08-09', now()),
  ('d3000000-0000-4000-8000-000000000120', 'r-s20', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest R3', '2026-08-20', now()),
- ('d3000000-0000-4000-8000-000000000131', 'r-s01', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest R4', '2026-09-01', now());
+ ('d3000000-0000-4000-8000-000000000131', 'r-s01', 'Synthetic Cleaner', 'd1000000-0000-4000-8000-000000000006', 'turnover', 'd2000000-0000-4000-8000-000000000001', 'Test Guest R4', '2026-09-03', now());
 insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict, vision_checked_at, meter_flag) values
  ('d4000000-0000-4000-8000-000000000107', 'd3000000-0000-4000-8000-000000000107', 'd1000000-0000-4000-8000-000000000006', 'd2000000-0000-4000-8000-000000000001', 4273, 81.58, 'mismatch', now(), null),
  ('d4000000-0000-4000-8000-000000000120', 'd3000000-0000-4000-8000-000000000120', 'd1000000-0000-4000-8000-000000000006', 'd2000000-0000-4000-8000-000000000001', 4300, 82.0, 'mismatch', now(), null),
