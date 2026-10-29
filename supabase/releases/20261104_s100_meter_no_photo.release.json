@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s100/meter-no-photo",
-    "commit": "b12b668ab65affdcd0422d1b72120b51bb75f7a5"
+    "commit": "fd0b57d01c215facf8f8a0c9b45379852dc0b04e"
   },
   "migrations": [
     "20261104000000_s100_meter_no_photo.sql"
   ],
   "migration_sha256": {
-    "20261104000000_s100_meter_no_photo.sql": "08a2c262702a503e5affb449f32c714354673899e417344e2d85f46110190c99"
+    "20261104000000_s100_meter_no_photo.sql": "39bd432254470fd701c092f29f9cc0a118e68baebfa72a41b32f158f905ce1c1"
   },
   "backup": {
     "required": true,
