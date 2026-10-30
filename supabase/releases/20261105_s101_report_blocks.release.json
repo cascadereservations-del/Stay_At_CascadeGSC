@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s101/report-blocks",
-    "commit": "318b42f54e6001bfad50c98a3376a06b2dc80c1d"
+    "commit": "a6ea981d4dc9189d146cdcb1af2455b119b1f297"
   },
   "migrations": [
     "20261105000000_s101_report_blocks.sql"
