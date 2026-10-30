@@ -96,7 +96,9 @@ Deno.test('the refusal names the day in Manila and tells her what to do', () => 
   // "Sep 15" on her phone would not find the report she is being asked about.
   const msg = meterBlockMessage('turnover', [{ recorded_at: '2026-09-15T22:10:00Z' }])!;
   assertEquals(msg.includes('Sep 16'), true, 'the date is the Manila date');
-  assertEquals(msg.includes('Open the checklist again'), true, 'it says what to do');
+  assertEquals(msg.startsWith('Report not sent yet.'), true, 'the outcome comes first');
+  assertEquals(msg.includes('1) Tap Back and open the checklist again.'), true, 'it says what to do');
+  assertEquals(msg.includes('tap Retry'), true, 'it ends on the way back in');
   assertEquals(/[0-9a-f]{8}-[0-9a-f]{4}/.test(msg), false, 'no row id is ever shown to her');
 });
 

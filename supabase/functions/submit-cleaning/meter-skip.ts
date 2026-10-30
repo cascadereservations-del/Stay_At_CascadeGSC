@@ -73,8 +73,8 @@ export function meterBlockMessage(
       })
     : 'an earlier report';
   return [
-    `The meter photo from ${when} does not match the reading that was typed, and nobody has answered for it yet.`,
-    `Open the checklist again: there is a notice at the top about it. Say what you did about the photo, and this report will go straight through.`,
+    `Report not sent yet. The meter photo from ${when} does not match the number typed.`,
+    `1) Tap Back and open the checklist again. 2) Answer the meter notice at the top. 3) Come back and tap Retry.`,
   ].join(' ');
 }
 
