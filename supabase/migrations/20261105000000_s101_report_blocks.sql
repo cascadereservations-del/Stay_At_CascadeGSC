@@ -10,9 +10,9 @@
 --
 -- Two new functions, additive only (no column, table, trigger or cron change):
 --  (1) public.admin_report_blocks_v1(property, lookback): the held readings, newest first, with the photo reader's numbers, notes and photo paths.
---      Gate read_operations (the gate get_meter_photo_followups uses).
+--      Gate inspect_cleaning, the same as the answer (admins, owner and inspector; never cleaners).
 --  (2) public.admin_resolve_report_block_v1(reading, action, electric, water, note): 'typed_is_right' clears the block; 'correct_numbers' replaces the typed
---      numbers (never below the previous reading, never above the next stay's reading: D-219), recomputes this row's usage and re-points the next stay's usage
+--      numbers (never below the previous reading, never above the next stay's reading: D-219; refused on a row already flagged misread / re_entry / duplicate), recomputes this row's usage and re-points the next stay's usage
 --      EXACTLY as submit-cleaning does (_shared/meter-order.ts repointNext, index.ts delta lines), then clears the block. Gate inspect_cleaning (the capability
 --      admin_table_action_v1 names for meter_readings, used by review_meter_reading_v1). The write is audited by the existing admin_audit_row trigger on
 --      meter_readings (reason set through admin_audit_context_v1), so it shows in Settings -> Audit history.
@@ -49,8 +49,8 @@ security definer
 set search_path to ''
 as $function$
 begin
-  if not public.current_staff_authorized('read_operations', p_property_id) then
-    raise exception 'not authorized to read operations for this property'
+  if not public.current_staff_authorized('inspect_cleaning', p_property_id) then
+    raise exception 'not authorized to inspect cleaning for this property'
       using errcode = '42501';
   end if;
 
@@ -150,6 +150,11 @@ begin
   end if;
 
   -- correct_numbers ------------------------------------------------------------------------------------------------------------------------------
+  -- a row already flagged as wrong numbers is not a reading to correct (it is never a neighbour either): release the report, then fix it from the cleaning detail
+  if v_r.meter_flag in ('misread', 're_entry', 'duplicate') then
+    raise exception 'This reading is already marked as wrong numbers. Use Typed numbers are right to release the report, then fix the numbers from the cleaning detail.'
+      using errcode = '22023';
+  end if;
   if p_electric is null or p_water is null then
     raise exception 'Both the electric and the water number are required.' using errcode = '22023';
   end if;
@@ -226,9 +231,11 @@ begin
          vision_resolved_note = v_reason
    where id = p_reading_id;
 
-  -- the later stay's usage was measured from the old number: re-point it (meter-order.ts repointNext). Only a photo-backed row moves it
-  -- (submit-cleaning: `if (!meterFlag)`); a next row that already points at the new number is left alone.
-  if v_r.meter_flag is null then
+  -- the later stay's usage was measured from the old number: re-point it (meter-order.ts repointNext). A row that is not a usable neighbour
+  -- (misread / re_entry / duplicate / estimate_pending, meter-order.ts usableRows) never moves it; first_reading / typed_accepted / estimated rows do.
+  -- Fires whenever the next row's previous differs from the new number (repointNext semantics), not only when it equalled the old typed number.
+  -- A next row that already points at the new number is left alone.
+  if v_r.meter_flag is null or v_r.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending') then
     if v_ne.id is not null and v_ne.val >= p_electric and v_ne.prev is distinct from p_electric then
       update public.meter_readings
          set electric_prev = p_electric,
@@ -256,7 +263,7 @@ grant execute on function public.admin_report_blocks_v1(uuid, integer) to authen
 grant execute on function public.admin_resolve_report_block_v1(uuid, text, numeric, numeric, text) to authenticated;
 
 comment on function public.admin_report_blocks_v1(uuid, integer) is
-  's101: the meter photo mismatches that hold up the next cleaning report (unresolved, within the lookback), newest first, with the photo reader numbers, notes and photo paths. read_operations.';
+  's101: the meter photo mismatches that hold up the next cleaning report (unresolved, within the lookback), newest first, with the photo reader numbers, notes and photo paths. inspect_cleaning.';
 comment on function public.admin_resolve_report_block_v1(uuid, text, numeric, numeric, text) is
   's101: clear a held cleaning report. typed_is_right confirms the typed numbers; correct_numbers replaces them (never backwards: D-219), recomputes usage and re-points the next stay as submit-cleaning does. inspect_cleaning; audited.';
 

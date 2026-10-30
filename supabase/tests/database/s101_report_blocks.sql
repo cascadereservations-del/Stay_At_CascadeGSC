@@ -7,10 +7,13 @@
 --   M  electric delta 4300 - 4000 = 300.00, per night 300 / 2 = 150.00; water delta 81.000 - 80.000 = 1.000, per night 0.500.
 --   N  re-pointed: electric prev 4300, delta 4312 - 4300 = 12.00, per night 12.00; water prev 81.000, delta 82.500 - 81.000 = 1.500, per night 1.500.
 -- Property P2 holds three mismatch rows for typed_is_right: two inside the 14-day lookback, one 20 days old (listed nowhere, never touched).
+-- More fixtures: P4 a first_reading row with no previous electric (null delta, null per night) whose next stay is re-pointed anyway; P5 a row already flagged
+-- misread (correct_numbers refused, typed_is_right allowed with a 300-character note, 301 refused); P6 a 0-night stay (null per night) whose next stay already points at
+-- the new number (no update, no audit row). Listing and answering are both inspect_cleaning: a cleaner is refused 42501 for either.
 -- Every fixture is created inside this transaction and goes with the closing rollback. RPCs are called as authenticated with the jwt claim set like
 -- meter_followup_resolution.sql; tables are read after reset role.
 begin;
-select plan(65);
+select plan(89);
 
 -- catalogue and grants ------------------------------------------------------------------------------------------------------------------------------
 select has_function('public', 'admin_report_blocks_v1', array['uuid', 'integer'], 'admin_report_blocks_v1 exists');
@@ -25,7 +28,10 @@ select ok(not has_function_privilege('service_role', 'public.admin_report_blocks
 insert into public.properties(id, name, is_active) values
  ('e1000000-0000-4000-8000-000000000001', 'S101 held readings', true),
  ('e1000000-0000-4000-8000-000000000002', 'S101 typed is right', true),
- ('e1000000-0000-4000-8000-000000000003', 'S101 other', true) on conflict (id) do nothing;
+ ('e1000000-0000-4000-8000-000000000003', 'S101 other', true),
+ ('e1000000-0000-4000-8000-000000000004', 'S101 first reading', true),
+ ('e1000000-0000-4000-8000-000000000005', 'S101 flagged wrong', true),
+ ('e1000000-0000-4000-8000-000000000006', 'S101 zero nights', true) on conflict (id) do nothing;
 insert into auth.users(id) values
  ('e2000000-0000-4000-8000-000000000001'), ('e2000000-0000-4000-8000-000000000002'), ('e2000000-0000-4000-8000-000000000003') on conflict (id) do nothing;
 insert into public.staff_access_profiles(user_id, role, disabled_at, sessions_revoked_after) values
@@ -36,6 +42,9 @@ on conflict (user_id) do update set role = excluded.role, disabled_at = null, se
 insert into public.staff_property_access(user_id, property_id) values
  ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001'),
  ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000002'),
+ ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000004'),
+ ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000005'),
+ ('e2000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000006'),
  ('e2000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001'),
  ('e2000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000003') on conflict do nothing;
 
@@ -60,9 +69,38 @@ insert into public.meter_readings(id, property_id, recorded_at, electric_curr, w
  ('e4000000-0000-4000-8000-000000000013', 'e1000000-0000-4000-8000-000000000002', now() - interval '1 day', 4300, 82, 'mismatch'),
  ('e4000000-0000-4000-8000-000000000014', 'e1000000-0000-4000-8000-000000000002', now() - interval '20 days', 4100, 80, 'mismatch');
 
--- the cleaner of P1 may read the list (read_operations) but not answer it; a cleaner of another property may do neither -------------------------------
+-- P4: F (held, first_reading, no previous electric, 2 nights) then G (next stay, 1 night, previous pointing at F's typed 1090 / 61.000)
+-- P6: Z (held, 0 nights) then Y (next stay) whose previous already equals the number the admin will type
+insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, nights_stayed, checkout_date, cleaned_at) values
+ ('e3000000-0000-4000-8000-000000000004', 's101-f', 'First Synthetic', 'e1000000-0000-4000-8000-000000000004', 'turnover', 'e2000000-0000-4000-8000-000000000002', 2, current_date - 5, now() - interval '3 days'),
+ ('e3000000-0000-4000-8000-000000000005', 's101-g', 'After Synthetic', 'e1000000-0000-4000-8000-000000000004', 'turnover', 'e2000000-0000-4000-8000-000000000002', 1, current_date - 3, now() - interval '1 day'),
+ ('e3000000-0000-4000-8000-000000000006', 's101-z', 'Zero Synthetic', 'e1000000-0000-4000-8000-000000000006', 'turnover', 'e2000000-0000-4000-8000-000000000002', 0, current_date - 5, now() - interval '3 days'),
+ ('e3000000-0000-4000-8000-000000000007', 's101-y', 'Equal Synthetic', 'e1000000-0000-4000-8000-000000000006', 'turnover', 'e2000000-0000-4000-8000-000000000002', 1, current_date - 3, now() - interval '1 day');
+insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, recorded_at, electric_prev, electric_curr, electric_delta, water_prev, water_curr, water_delta,
+                                  kwh_per_night, m3_per_night, vision_verdict, meter_flag) values
+ ('e4000000-0000-4000-8000-000000000022', 'e3000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000004', 'e2000000-0000-4000-8000-000000000002', now() - interval '3 days',
+  null, 1090, null, 50.000, 61.000, 11.000, null, 5.500, 'mismatch', 'first_reading'),
+ ('e4000000-0000-4000-8000-000000000023', 'e3000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000004', 'e2000000-0000-4000-8000-000000000002', now() - interval '1 day',
+  1090, 1120, 30.00, 61.000, 62.500, 1.500, 30.00, 1.500, 'ok', null),
+ ('e4000000-0000-4000-8000-000000000021', null, 'e1000000-0000-4000-8000-000000000005', null, now() - interval '2 days',
+  500, 510, 10.00, 20.000, 21.000, 1.000, null, null, 'mismatch', 'misread'),
+ ('e4000000-0000-4000-8000-000000000024', 'e3000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000006', 'e2000000-0000-4000-8000-000000000002', now() - interval '3 days',
+  100, 105, 5.00, 10.000, 11.000, 1.000, null, null, 'mismatch', null),
+ ('e4000000-0000-4000-8000-000000000025', 'e3000000-0000-4000-8000-000000000007', 'e1000000-0000-4000-8000-000000000006', 'e2000000-0000-4000-8000-000000000002', now() - interval '1 day',
+  110, 125, 99.00, 12.000, 14.000, 9.000, 99.00, 9.000, 'ok', null);
+
+-- a cleaner of P1 can neither list nor answer (inspect_cleaning); a cleaner of another property cannot either --------------------------------------------
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000002","aal":"aal1"}';
+select throws_ok($$select * from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)$$, '42501', null, 'a cleaner of P1 is refused the list (inspect_cleaning, never cleaners)');
+select throws_ok($$select * from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', 14)$$, '42501', null, 'a cleaner without access to the property cannot list it');
+select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'typed_is_right', null, null, null)$$, '42501', null, 'a cleaner cannot clear a held report (inspect_cleaning)');
+set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000003","aal":"aal1"}';
+select throws_ok($$select * from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)$$, '42501', null, 'a cleaner of another property cannot list P1');
+select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'typed_is_right', null, null, null)$$, '42501', null, 'a cleaner of another property cannot clear it');
+
+-- the admin: every refusal first, nothing may be written ------------------------------------------------------------------------------------------------
+set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal1"}';
 select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)), 1::bigint, 'the list holds exactly the one mismatch of P1');
 select is((select reading_id from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)), 'e4000000-0000-4000-8000-000000000001'::uuid, 'it is the held reading');
 select is((select typed_electric from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)), 4292::numeric, 'typed electric is shown');
@@ -73,14 +111,6 @@ select is((select photo_note_water from public.admin_report_blocks_v1('e1000000-
 select is((select photo_path_electric from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)), 's101/m-electric.jpg', 'the photo path comes from vision_raw');
 select is((select cleaner_name from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)), 'Honey Synthetic', 'the cleaner is named');
 select is((select checkout_date from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)), current_date - 5, 'the stay is named by its check-out date');
-select throws_ok($$select * from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', 14)$$, '42501', null, 'a cleaner without access to the property cannot list it');
-select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'typed_is_right', null, null, null)$$, '42501', null, 'a cleaner cannot clear a held report (inspect_cleaning)');
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000003","aal":"aal1"}';
-select throws_ok($$select * from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)$$, '42501', null, 'a cleaner of another property cannot list P1');
-select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'typed_is_right', null, null, null)$$, '42501', null, 'a cleaner of another property cannot clear it');
-
--- the admin: every refusal first, nothing may be written ------------------------------------------------------------------------------------------------
-set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal1"}';
 select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'delete_it', null, null, null)$$, '22023', null, 'an unknown action is refused');
 select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'correct_numbers', 4300, null, null)$$, '22023', null, 'correct_numbers needs the water number');
 select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'correct_numbers', null, 81, null)$$, '22023', null, 'correct_numbers needs the electric number');
@@ -125,6 +155,10 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal1"}';
 select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', 14)), 2::bigint, 'P2 lists its two recent mismatches and not the 20-day-old one');
 select is((select cleaner_name from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', 14) limit 1), null, 'a row with no session still lists');
+select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', 30)), 3::bigint, 'a 30-day lookback also lists the 20-day-old row');
+select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', null)), 2::bigint, 'a null lookback means 14 days');
+select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000012', 'typed_is_right', null, null, repeat('x', 301))$$, '22023', 'a note is at most 300 characters', 'a note over 300 characters is refused');
+select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', 14)), 2::bigint, 'the refused note left both on hold');
 select is(public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000012', 'typed_is_right', null, null, 'photo is blurry') ->> 'action', 'typed_is_right', 'typed_is_right succeeds with a note');
 select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000002', 14)), 1::bigint, 'one is left on hold');
 select is(public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000013', 'typed_is_right', null, null, null) ->> 'ok', 'true', 'typed_is_right succeeds without a note');
@@ -135,6 +169,31 @@ select ok((select electric_curr = 4292 and water_curr = 81.852 and vision_resolv
 select is((select count(*) from public.meter_readings where property_id = 'e1000000-0000-4000-8000-000000000002' and vision_verdict = 'mismatch' and vision_resolved_at is null and recorded_at >= now() - interval '14 days'), 0::bigint, 'submit-cleaning no longer finds a block on P2');
 select is((select vision_resolved_at from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000014'), null, 'the 20-day-old row was never touched');
 select ok(exists (select 1 from public.admin_audit_log where entity_table = 'meter_readings' and entity_id = 'e4000000-0000-4000-8000-000000000012' and reason = 'Typed numbers confirmed by an admin: photo is blurry'), 'typed_is_right is in the audit history');
+
+-- flagged wrong, first reading, zero nights ---------------------------------------------------------------------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e2000000-0000-4000-8000-000000000001","aal":"aal1"}';
+select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000021', 'correct_numbers', 505, 20.5, null)$$, '22023',
+  'This reading is already marked as wrong numbers. Use Typed numbers are right to release the report, then fix the numbers from the cleaning detail.', 'a row flagged misread cannot be corrected');
+select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000005', 14)), 1::bigint, 'the refused correction left P5 on hold');
+select is(public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000021', 'typed_is_right', null, null, repeat('y', 300)) ->> 'ok', 'true', 'typed_is_right still releases a flagged row, a 300-character note is accepted');
+select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000005', 14)), 0::bigint, 'P5 is released');
+select is(public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000022', 'correct_numbers', 1100, 60, null) ->> 'ok', 'true', 'a first_reading row is corrected');
+select is(public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000024', 'correct_numbers', 110, 12, null) ->> 'ok', 'true', 'a 0-night row is corrected');
+reset role;
+select is((select electric_curr from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000021'), 510::numeric, 'the flagged row kept its numbers');
+select is((select electric_delta from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000022'), null, 'F: no previous electric gives a null electric delta');
+select is((select kwh_per_night from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000022'), null, 'F: and a null kWh per night');
+select is((select water_delta from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000022'), 10::numeric, 'F: water delta 60.000 - 50.000');
+select is((select m3_per_night from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000022'), 5::numeric, 'F: m3 per night 10.000 / 2');
+select is((select electric_prev from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000023'), 1100::numeric, 'G: a first_reading row re-points the next stay (electric previous 1100)');
+select is((select electric_delta from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000023'), 20::numeric, 'G: electric delta 1120 - 1100');
+select is((select m3_per_night from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000023'), 2.5::numeric, 'G: water previous 60.000, delta 62.500 - 60.000, m3 per night 2.5');
+select is((select electric_delta from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000024'), 10::numeric, 'Z: electric delta 110 - 100');
+select is((select water_delta from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000024'), 2::numeric, 'Z: water delta 12.000 - 10.000');
+select ok((select kwh_per_night is null and m3_per_night is null from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000024'), 'Z: 0 nights gives a null usage per night');
+select ok((select electric_prev = 110 and electric_delta = 99 and kwh_per_night = 99 and water_prev = 12 and water_delta = 9 and m3_per_night = 9 from public.meter_readings where id = 'e4000000-0000-4000-8000-000000000025'), 'Y: a next stay that already points at the new numbers is unchanged');
+select ok(not exists (select 1 from public.admin_audit_log where entity_table = 'meter_readings' and entity_id = 'e4000000-0000-4000-8000-000000000025' and action = 'update'), 'Y: and no update audit row was written for it');
 
 select * from finish();
 rollback;

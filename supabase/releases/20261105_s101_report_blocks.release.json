@@ -10,14 +10,14 @@
     "20261105000000_s101_report_blocks.sql"
   ],
   "migration_sha256": {
-    "20261105000000_s101_report_blocks.sql": "5c20930e0eeede606e5426d26c42f66fa6ddfabd4248d64d8d3fc1b4861844e8"
+    "20261105000000_s101_report_blocks.sql": "ed10fd31a2224c0319d1f915d88996f013acef5d4809326743fce8aee3f6715a"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PENDING - name the backup set taken immediately before this apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "D-353 (s101): an admin can see every cleaning report that is on hold and clear it. The hold is a meter_readings row with vision_verdict mismatch, vision_resolved_at null and recorded_at within 14 days (submit-cleaning refuses the next turnover or deep clean while one exists). admin_report_blocks_v1(uuid,integer) lists them (read_operations). admin_resolve_report_block_v1(uuid,text,numeric,numeric,text) answers one (inspect_cleaning, audited by the admin_audit_row trigger): typed_is_right only stamps vision_resolved_at, _by and _note; correct_numbers also replaces the typed numbers (refused below the previous reading or above the next stay's reading, D-219), recomputes the row's delta and per-night usage as submit-cleaning does (electric 2 dp, water 3 dp, nights = the session's nights_stayed) and re-points the next unflagged stay's previous, delta and per-night the way meter-order.ts repointNext does. Both functions are authenticated only; grants are restated in full (ML-21). No column, table, trigger or cron job is added or changed.",
+    "production_rule": "D-353 (s101): an admin can see every cleaning report that is on hold and clear it. The hold is a meter_readings row with vision_verdict mismatch, vision_resolved_at null and recorded_at within 14 days (submit-cleaning refuses the next turnover or deep clean while one exists). admin_report_blocks_v1(uuid,integer) lists them (inspect_cleaning, the same gate as the answer: admins, owner and inspector, never cleaners). admin_resolve_report_block_v1(uuid,text,numeric,numeric,text) answers one (inspect_cleaning, audited by the admin_audit_row trigger): typed_is_right only stamps vision_resolved_at, _by and _note; correct_numbers (refused on a row already flagged misread, re_entry or duplicate) also replaces the typed numbers (refused below the previous reading or above the next stay's reading, D-219), recomputes the row's delta and per-night usage as submit-cleaning does (electric 2 dp, water 3 dp, nights = the session's nights_stayed) and re-points the next stay's previous, delta and per-night the way meter-order.ts repointNext does, unless the corrected row is itself flagged misread, re_entry, duplicate or estimate_pending (first_reading, typed_accepted and estimated rows re-point normally), and whenever the next row's previous differs from the new number. Both functions are authenticated only; grants are restated in full (ML-21). No column, table, trigger or cron job is added or changed.",
     "notes": "Phase expand: two functions added, nothing replaced. Old admin dashboard + new SQL is safe (nothing calls them until the dashboard build ships). Order: SQL first, then the admin dashboard build (Cleaning reports on hold card). No edge function changes and none to redeploy: submit-cleaning is untouched. The first real use is the live example (Honey, reading 60a5d80a, typed 4292 / 81.852, photo 431.2 / 806): an admin picks Correct the numbers and types what the photo shows (about 4312 / 80.7), or Typed numbers are right."
   },
   "forward_verification": [
@@ -42,8 +42,8 @@
       "expect": true
     },
     {
-      "name": "list_is_gated_on_read_operations",
-      "query": "select position('read_operations' in prosrc) > 0 and position('current_staff_authorized' in prosrc) > 0 and position('vision_resolved_at is null' in prosrc) > 0 from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure",
+      "name": "list_is_gated_on_inspect_cleaning",
+      "query": "select position('inspect_cleaning' in prosrc) > 0 and position('current_staff_authorized' in prosrc) > 0 and position('vision_resolved_at is null' in prosrc) > 0 from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure",
       "expect": true
     },
     {
@@ -74,7 +74,7 @@
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Always. The rollback script drops the two functions. Readings an admin already cleared or corrected stay as written (each change is in the audit history and can be undone from Settings).",
+    "safe_until": "Always. The rollback script drops the two functions. Readings an admin already cleared or corrected stay as written. An admin correction writes one audit row for the corrected reading plus one for every later reading it re-pointed: undo them together from Settings -> Audit history, never one alone.",
     "steps": [
       {
         "name": "run_compensating_script",
