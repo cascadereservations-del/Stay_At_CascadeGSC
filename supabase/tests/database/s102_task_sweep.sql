@@ -1,4 +1,4 @@
-﻿-- s102 "system tasks close themselves": system_tasks_sweep_v1 (hourly sweep) and the meter_settle_estimates_v1 change (an admin-answered mismatch counts as B).
+-- s102 "system tasks close themselves": system_tasks_sweep_v1 (hourly sweep) and the meter_settle_estimates_v1 change (an admin-answered mismatch counts as B).
 --
 -- Behavioural, hand-computed. Everything is created inside this transaction on synthetic properties (e5... uuids) and goes with the closing rollback.
 -- The rehearsal database is a restored backup, so it also holds REAL open tasks that the sweep may close: the first sweep's counts are asserted as ">= the
