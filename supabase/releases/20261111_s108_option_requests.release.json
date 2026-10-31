@@ -10,7 +10,7 @@
     "20261111000000_s108_option_requests.sql"
   ],
   "migration_sha256": {
-    "20261111000000_s108_option_requests.sql": "4633938b956b110e9e7c337321d75b912dca234f29b5f9ee40ae642758b0a5d8"
+    "20261111000000_s108_option_requests.sql": "0c506dc5544ad41ab3d52fb7e2d2b0433c3e97f67bf55001f7bda6e92121ec2d"
   },
   "backup": {
     "required": true,
@@ -69,6 +69,11 @@
     {
       "name": "s106_s107_rpcs_untouched",
       "query": "select (select count(*) from pg_proc where oid in ('public.inventory_item_options_v1(uuid)'::regprocedure, 'public.inventory_item_option_set_usual_v1(uuid)'::regprocedure, 'public.s_inventory_option_make_usual_v1(uuid)'::regprocedure)) = 3",
+      "expect": true
+    },
+    {
+      "name": "four_items_renamed",
+      "query": "select count(*) = 4 from public.inventory_items where (id, name) in (('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid,'Laundry Detergent'),('0bdd783a-77f8-4211-bf53-e1cbebcc284b'::uuid,'Hand Soap'),('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid,'Body Wash'),('513ffc56-3f9d-4e58-a061-3747d7c31189'::uuid,'Insect Spray'))",
       "expect": true
     }
   ],

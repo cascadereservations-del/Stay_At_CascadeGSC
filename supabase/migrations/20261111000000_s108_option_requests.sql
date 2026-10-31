@@ -288,3 +288,11 @@ grant execute on function public.inventory_option_request_cancel_v1(uuid) to aut
 revoke all on function public.s_inventory_option_payload_v1(uuid, jsonb, boolean) from public, anon, authenticated, service_role;
 revoke all on function public.s_inventory_option_apply_v1(uuid, uuid, text, uuid, jsonb, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.s_inventory_option_request_task_v1(uuid, uuid) from public, anon, authenticated, service_role;
+
+-- 4. Item names follow Lloyd's default products (2026-10-31): renamed only while the old name is still in place.
+update public.inventory_items i set name = v.new_name, updated_at = now()
+  from (values ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid, 'Breeze Fabric Conditioner Liquid', 'Laundry Detergent'),
+               ('0bdd783a-77f8-4211-bf53-e1cbebcc284b'::uuid, 'Liquid Hand Soap (Safeguard)', 'Hand Soap'),
+               ('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid, 'Liquid Body Soap (Dove)', 'Body Wash'),
+               ('513ffc56-3f9d-4e58-a061-3747d7c31189'::uuid, 'Baygon Spray', 'Insect Spray')) as v(id, old_name, new_name)
+ where i.id = v.id and i.name = v.old_name;

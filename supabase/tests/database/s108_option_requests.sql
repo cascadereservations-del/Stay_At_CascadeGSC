@@ -2,7 +2,8 @@
 -- price gating (a cleaner never sends or sees a price), approval with a price override, idempotency, property isolation, url checks, and the follow-up task.
 -- Fixtures use uuids d1080000-... on properties of their own; everything rolls back. Needs the s106 + s107 + s108 migrations applied.
 begin;
-select plan(60);
+select plan(61);
+select is((select string_agg(name, '|' order by name) from public.inventory_items where id in ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03','0bdd783a-77f8-4211-bf53-e1cbebcc284b','3179e10e-105f-47eb-8955-c2c2111948f8','513ffc56-3f9d-4e58-a061-3747d7c31189')), 'Body Wash|Hand Soap|Insect Spray|Laundry Detergent', 'the four items carry the generic names of their new default products');
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
