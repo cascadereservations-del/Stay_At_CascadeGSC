@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261031T020329Z",
+    "verified_at": "2026-10-31T02:07:24.483Z",
     "production_rule": "s102 (Lloyd 2026-10-31: tasks and notifications close themselves once the problem is fixed). public.system_tasks_sweep_v1() runs hourly (pg_cron system-tasks-sweep, minute 50, as postgres, no grants) and closes OPEN system tasks: guest_details when the guest is no longer returned by guests_missing_details_v1 or no confirmed stay checks in on the ref date; missed_cleaning when a cleaning_sessions row of the property (not mid_stay) has that checkout date or no confirmed stay checks out that day (no lookback, so aged-out real problems stay open); meter_no_photo and meter_estimate_waiting when no meter_readings row of that session is estimate_pending. A malformed ref is skipped. low_stock and verifier findings already close themselves and are untouched. meter_settle_estimates_v1(uuid) is replaced with the live body (md5 of replace(prosrc, chr(13), '') before: e3eaf07237d1fdfb39ac3d643d0bd6a3) changed in one place: the B reading also counts when vision_verdict is mismatch, vision_resolved_at is not null and the note is an s101 admin answer ('Typed numbers confirmed by an admin' / 'Numbers corrected by an admin'); a cleaner's own release through resolve_meter_followup_v1 does not count. Open and in_progress tasks are swept; a sweep error on one task raises a warning and skips it.",
     "notes": "Phase expand: one function added, one replaced (grants restated: service_role only), one cron job. No table or column change. Nothing in the apps calls the sweep. First sweep after apply closes the stale live tasks (about 5 of 8 guest_details whose details are on file, missed_cleaning 2026-10-16 which has no confirmed stay); 2026-10-22 and 2026-10-25 stay open until their reports exist."
   },
