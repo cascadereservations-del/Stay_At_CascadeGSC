@@ -494,11 +494,11 @@ Deno.serve(async (req: Request) => {
         timeZone: 'Asia/Manila', month: 'short', day: 'numeric',
       });
       const head = verdict === 'not_a_meter' ? '🚩 *Meter photo is not a meter*'
-                 : verdict === 'mismatch'    ? '🚩 *Meter photo disagrees with the reading*'
+                 : verdict === 'mismatch'    ? '🚩 *Meter photo and typed reading disagree - the report was accepted*'
                  : '👀 *Meter photo could not be read*';
-      const resolvable = MONEY_VERDICTS.has(verdict); // mismatch and not_a_meter
+      // only a mismatch is listed on the admin card the button opens (admin_report_blocks_v1)
+      const resolvable = verdict === 'mismatch';
       const text = [
-        ...(resolvable ? ['Meter photo and typed reading disagree - the report was accepted.'] : []),
         head,
         `🏠 Cascade Hideaway`,
         `${when} · ${t.cleaner_name ?? 'unknown cleaner'}`,
