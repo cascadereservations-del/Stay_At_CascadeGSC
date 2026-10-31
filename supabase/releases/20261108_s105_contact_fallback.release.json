@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261031T084613Z",
+    "verified_at": "2026-10-31T08:50:32.147Z",
     "production_rule": "s105 (Lloyd 2026-10-31: the Today card shows the guest's contact number with a Call link). public.staff_guest_contact_v1(uuid) is replaced with the live body (md5 of replace(prosrc, chr(13), '') before: fa16d92c8d608b945e06cd5627ecc399; the migration refuses to run if it differs) changed in one place: phone is the first non-blank of guests.phone_e164, guests.phone, guest_profile_details.contact_number (the number the admin dashboard saves). The owner/admin gate, e-mail, Messenger and grants (none) are unchanged; cleaners still get {}. Only staff_home_v1 (security definer) calls it.",
     "notes": "Phase expand: one function body replaced, no table, column, grant or cron change. Read-only for data. Live counts 2026-10-31: 36 guests have a number only in guest_profile_details.contact_number, 7 in guests.phone."
   },
