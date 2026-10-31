@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s106/item-options",
-    "commit": ""
+    "commit": "edc0581f0ab0464a15a8d84ca2683b50c62f54ba"
   },
   "migrations": [
     "20261109000000_s106_item_options.sql"
@@ -102,8 +102,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": ""
+    "verified": true,
+    "evidence": "Rehearsal on cascade-supabase-20261031T084613Z (prefix cascade-migration-rehearsal-01adcf69f2d3), source commit edc0581f0ab0464a15a8d84ca2683b50c62f54ba: migration applied 1/1, forward 12/12, pgTAP s106_item_options.sql 50/50, public tables 125 -> 126. Log Cascade/docs/s106/rehearsal3.log."
   },
   "approvals": {
     "production_required": true,
