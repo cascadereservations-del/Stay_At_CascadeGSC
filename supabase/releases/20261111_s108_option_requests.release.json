@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s108/option-requests",
-    "commit": "601ea18be3261fbf8cedadbd22f7c5ec76ccc568"
+    "commit": "82bdeefcc8d0dc3a0f9134ae4d7460123d47284f"
   },
   "migrations": [
     "20261111000000_s108_option_requests.sql"
@@ -97,8 +97,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Chain rehearsal with s107 on cascade-supabase-20261031T101528Z (Cascade/docs/s108/rehearsal2.log, prefix cascade-migration-rehearsal-043c305ea41d): migrations 2/2, fwd 30/30, pgTAP s107 + s108_option_requests.sql pass, public tables 126 -> 127."
+    "verified": true,
+    "evidence": "Chain rehearsal with s107 on cascade-supabase-20261031T101528Z (Cascade/docs/s108/rehearsal4.log, prefix cascade-migration-rehearsal-33a8e3f5efea): migrations 2/2, fwd 31/31, pgTAP s107 + s108_option_requests.sql (61) pass, public tables 126 -> 127. Opus final review GO_WITH_CHANGES fixes applied (task reopen/close, price >= 0.01) + item renames (Lloyd)."
   },
   "approvals": {
     "production_required": true,
