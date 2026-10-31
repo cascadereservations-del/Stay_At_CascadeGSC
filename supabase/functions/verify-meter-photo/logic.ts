@@ -58,9 +58,19 @@ export function alignToTyped(read: number, typed: number | null | undefined, whi
   return Number(best.toFixed(which === 'water' ? 3 : 2));
 }
 
+/** Lloyd's rule: auto-correct only when the numbers are correct. The aligned read is used only if it agrees with the typed
+ *  number within the existing tolerance (same test as agreesAllowingForDecimalPoint, which also accepts the whole-number part);
+ *  otherwise the reader's raw number stands. */
+export function alignedIfAgrees(read: number, typed: number | null | undefined, which: Which): number {
+  const a = alignToTyped(read, typed, which);
+  if (a === read || typed === null || typed === undefined) return read;
+  const tol = which === 'electric' ? ELECTRIC_TOLERANCE : WATER_TOLERANCE;
+  return Math.abs(a - typed) <= tol || Math.abs(a - Math.floor(typed)) <= tol ? a : read;
+}
+
 /** What to store in vision_electric / vision_water: the aligned read (the raw one stays in vision_raw). */
 export const storedVision = (r: VisionResult | null, typed: number | null | undefined, which: Which): number | null =>
-  r?.reading === null || r?.reading === undefined ? null : alignToTyped(r.reading, typed, which);
+  r?.reading === null || r?.reading === undefined ? null : alignedIfAgrees(r.reading, typed, which);
 
 /** "4312 (reader saw 431.2)"; the raw part only when it differs. */
 export function readText(aligned: number, raw: number): string {
@@ -93,7 +103,7 @@ export function precheckOutcome(r: VisionResult | null, which: Which, typed: num
     return { status: 'retake', reason: 'unreadable', reading: null, message: 'The numbers are hard to read in this photo. Please take it again, close and straight on, with less glare.' };
   }
   const tol = which === 'electric' ? ELECTRIC_TOLERANCE : WATER_TOLERANCE;
-  const a = alignToTyped(r.reading, typed, which);
+  const a = alignedIfAgrees(r.reading, typed, which);
   const shown = a === r.reading ? fmt(a) : `${fmt(a)} (reader saw ${fmt(r.reading)})`;
   if (typed !== null && typed !== undefined && Number.isFinite(typed) && !agreesAllowingForDecimalPoint(r.reading, typed, tol)) {
     return { status: 'check_number', reading: a, message: `The photo reads ${shown} but you typed ${fmt(typed)}. Please check the number.` };

@@ -65,7 +65,7 @@ Deno.test('asVisionResult rejects malformed cache rows', () => {
   eq(asVisionResult(read())?.reading, 12345, 'good');
 });
 
-import { alignToTyped, readText, storedVision } from './logic.ts';
+import { alignedIfAgrees, alignToTyped, readText, storedVision } from './logic.ts';
 Deno.test('alignToTyped picks the power of ten closest to the typed number', () => {
   eq(alignToTyped(431.2, 4292), 4312, '431.2 vs 4292');
   eq(alignToTyped(806, 81.852, 'water'), 80.6, '806 vs 81.852');
@@ -75,14 +75,23 @@ Deno.test('alignToTyped picks the power of ten closest to the typed number', () 
   eq(alignToTyped(431.2, undefined), 431.2, 'undefined typed');
 });
 Deno.test('stored value is aligned; raw text only when it differs', () => {
-  eq(storedVision(read({ reading: 431.2 }), 4292, 'electric'), 4312, 'stored');
+  eq(storedVision(read({ reading: 431.2 }), 4313, 'electric'), 4312, 'stored');
+  eq(storedVision(read({ reading: 5 }), 4292, 'electric'), 5, 'disagreeing read stays raw');
   eq(storedVision(null, 4292, 'electric'), null, 'no result');
   eq(storedVision(read({ reading: null }), 4292, 'electric'), null, 'null reading');
   eq(readText(4312, 431.2), '4312 (reader saw 431.2)', 'differs');
   eq(readText(4326, 4326), '4326', 'same');
 });
 Deno.test('precheck reports the aligned read', () => {
-  const r = precheckOutcome(read({ reading: 431.2 }), 'electric', 4292);
-  eq(r.reading, 4312, 'reading'); eq(r.status, 'check_number', 'status');
-  eq(r.message, 'The photo reads 4,312 (reader saw 431.2) but you typed 4,292. Please check the number.', 'message');
+  const ok = precheckOutcome(read({ reading: 431.2 }), 'electric', 4313);
+  eq(ok.reading, 4312, 'reading'); eq(ok.status, 'pass', 'status');
+  eq(ok.message, 'Photo looks clear - reading 4,312 (reader saw 431.2).', 'message');
+  const r = precheckOutcome(read({ reading: 5 }), 'electric', 4292);
+  eq(r.reading, 5, 'raw kept'); eq(r.status, 'check_number', 'status');
+  eq(r.message, 'The photo reads 5 but you typed 4,292. Please check the number.', 'message');
+  eq(alignedIfAgrees(431.2, 4292, 'electric'), 431.2, 'aligned 4312 is 20 off 4292: raw');
+  eq(alignedIfAgrees(806, 82.9, 'water'), 806, 'aligned 80.6 is 2.3 off: raw');
+  eq(alignedIfAgrees(806, 81.852, 'water'), 80.6, 'whole part 81 within 0.5');
+  eq(alignedIfAgrees(806, 80.6, 'water'), 80.6, 'agrees');
+  eq(alignedIfAgrees(68, 68.827, 'water'), 68, 'whole part');
 });

@@ -50,7 +50,7 @@ import { recordUsage } from '../_shared/cascade-core/usage.ts';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
 import {
-  agreesAllowingForDecimalPoint, alignToTyped, asVisionResult, ELECTRIC_TOLERANCE, isPending, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
+  agreesAllowingForDecimalPoint, alignedIfAgrees, asVisionResult, ELECTRIC_TOLERANCE, isPending, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
   precheckOutcome, PRECHECK_CAP, readText, storedVision, PRECHECK_WINDOW_MIN, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
 } from './logic.ts';
 
@@ -268,7 +268,7 @@ function verdictFor(
     }
     if (typed !== null && !agreesAllowingForDecimalPoint(r.reading, typed, tol)) {
       mismatch = true;
-      lines.push(`${label}: the photo reads ${readText(alignToTyped(r.reading, typed, which), r.reading)}, the report says ${typed}`);
+      lines.push(`${label}: the photo reads ${readText(alignedIfAgrees(r.reading, typed, which), r.reading)}, the report says ${typed}`);
     }
   };
 
