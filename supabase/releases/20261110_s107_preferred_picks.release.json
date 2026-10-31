@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s107/preferred-picks",
-    "commit": ""
+    "commit": "6cd4e94427e5098dded24d2a5a24dc61e1aff53f"
   },
   "migrations": [
     "20261110000000_s107_preferred_picks.sql"
@@ -142,8 +142,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed yet. Old readers ignore the extra preferred key and the extra rows; the RPC signatures and the set-usual result are unchanged. To be filled after the rehearsal: migration applied 1/1, forward checks, pgTAP s107_preferred_picks.sql 44/44, s106_item_options.sql Part 1 and the 16-column checks no longer apply after this release (64 options, 16 columns, 19 links become 76, 17, 20)."
+    "verified": true,
+    "evidence": "Rehearsal on cascade-supabase-20261031T101528Z (post-s106 production): s107 alone fwd 20/20 pgTAP s107 pass (Cascade/docs/s107/rehearsal1.log); chain with s108 (Cascade/docs/s108/rehearsal2.log, prefix cascade-migration-rehearsal-043c305ea41d) fwd 30/30, pgTAP s107+s108 pass, public tables 126 -> 127."
   },
   "approvals": {
     "production_required": true,
