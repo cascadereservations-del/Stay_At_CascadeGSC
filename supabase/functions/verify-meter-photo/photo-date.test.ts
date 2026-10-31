@@ -23,3 +23,8 @@ Deno.test('unknown anything is silent: no taken_at, no archive, bad checkout', (
   assertEquals(photoDateLines(files('2026-10-23T02:00:00Z'), null), []);
   assertEquals(photoDateLines(files('garbage'), '2026-10-21'), []);
 });
+
+Deno.test('s103 review: a lone water photo is labelled Water from its stored slot', () => {
+  const only = [{ section: 'Meter_Readings', taken_at: '2026-10-23T02:00:00Z', meter: 'water' }];
+  assertEquals(photoDateLines(only, '2026-10-21'), ['Water photo taken Oct 23, checkout Oct 21']);
+});

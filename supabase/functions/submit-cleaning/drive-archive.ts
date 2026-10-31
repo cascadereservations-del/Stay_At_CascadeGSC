@@ -6,7 +6,7 @@ import type { PhotoEntry } from './photos.ts';
 // Code.gs v3.10 returns { folderId, folderUrl, files: [{ section, name, fileId, url }] }; older
 // versions return folderId/folderUrl only, and anything malformed is dropped rather than stored.
 
-export interface DriveFile { section: string; name: string; fileId: string; url: string; taken_at?: string | null }
+export interface DriveFile { section: string; name: string; fileId: string; url: string; taken_at?: string | null; meter?: 'electric' | 'water' }
 export interface DriveArchive { folderId: string; folderUrl: string | null; files: DriveFile[] | null }
 
 const ID = /^[A-Za-z0-9_-]{10,200}$/;
@@ -67,9 +67,12 @@ export function tagTakenAt(files: DriveFile[] | null, sectionMeter: PhotoEntry[]
   const meterFiles = files.filter((f) => isMeterSection(f.section));
   if (meterFiles.length !== sectionMeter.length) return files;
   sectionMeter.forEach((p, k) => {
+    if (!p || typeof p !== 'object') return;   // untrusted payload: a null entry must not throw inside the GAS .then
     const m = (meta as Record<string, unknown>[]).find((x) => x && typeof x === 'object' &&
       ((p.fileId && x.fileId === p.fileId) || (!p.fileId && p.name && x.name === p.name)));
     meterFiles[k].taken_at = parseTakenAt(m?.takenAt, nowMs);
+    // the slot the phone photographed it for; uploadedOnly() can drop the electric photo, so position alone can mislabel
+    if (m?.meter === 'electric' || m?.meter === 'water') meterFiles[k].meter = m.meter;
   });
   return files;
 }

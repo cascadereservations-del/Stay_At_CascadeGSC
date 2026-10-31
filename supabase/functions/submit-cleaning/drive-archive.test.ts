@@ -117,3 +117,11 @@ Deno.test('old client (no meterPhotoMeta) and a count mismatch add no key', () =
   assertEquals('taken_at' in tagTakenAt(mk(), [photos[0]], [{ fileId: 'p/e', takenAt: '2026-10-22T01:00:00Z' }], NOW)![0], false);
   assertEquals(tagTakenAt(null, photos, [], NOW), null);
 });
+
+Deno.test('s103 review: the meter slot is kept, and a null photo entry never throws', () => {
+  const files = [df('Meter_Readings', 'W')];
+  const out = tagTakenAt(files, [{ fileId: 'p/w' }], [{ fileId: 'p/w', meter: 'water', takenAt: '2026-10-22T01:00:00Z' }], NOW)!;
+  assertEquals(out[0].meter, 'water');
+  const bad = tagTakenAt([df('Meter_Readings', 'E')], [null as unknown as { fileId: string }], [{ fileId: 'x' }], NOW)!;
+  assertEquals('taken_at' in bad[0], false);
+});

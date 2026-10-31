@@ -16,7 +16,8 @@ export function photoDateLines(driveFiles: unknown, checkoutDate: unknown): stri
     if (!Number.isFinite(t)) return;
     const day = new Date(t).toLocaleDateString('en-CA', MANILA);
     const gap = Math.abs(Date.parse(`${day}T00:00:00Z`) - Date.parse(`${co}T00:00:00Z`)) / 86_400_000;
-    if (gap > 1) out.push(`${k === 0 ? 'Electric' : 'Water'} photo taken ${fmt(day)}, checkout ${fmt(co)}`);
+    const label = f.meter === 'water' ? 'Water' : f.meter === 'electric' ? 'Electric' : k === 0 ? 'Electric' : 'Water';
+    if (gap > 1) out.push(`${label} photo taken ${fmt(day)}, checkout ${fmt(co)}`);
   });
   return out;
 }

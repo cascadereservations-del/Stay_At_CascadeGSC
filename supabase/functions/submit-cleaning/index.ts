@@ -828,7 +828,9 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
           // SPEC-15 phase 1: keep the Drive ids so the archive is findable without the e-mail.
           const archive = parseDriveArchive(bodyText);
           if (!archive) return;
-          archive.files = tagTakenAt(archive.files, payload.photos?.section_meter, (payload as { meterPhotoMeta?: unknown }).meterPhotoMeta);
+          try {
+            archive.files = tagTakenAt(archive.files, payload.photos?.section_meter, (payload as { meterPhotoMeta?: unknown }).meterPhotoMeta);
+          } catch (e) { console.warn('taken_at skipped:', String(e).slice(0, 120)); }   // optional; never a false "GAS FAILED"
           const { error: archiveErr } = await supabase.from('cleaning_sessions').update({
             session_folder_id:  archive.folderId,
             session_folder_url: archive.folderUrl,
