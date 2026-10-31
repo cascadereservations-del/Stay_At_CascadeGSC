@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "release_id": "s108_option_requests_20261111",
+  "phase": "backfill",
+  "source": {
+    "branch": "s108/option-requests",
+    "commit": ""
+  },
+  "migrations": [
+    "20261111000000_s108_option_requests.sql"
+  ],
+  "migration_sha256": {
+    "20261111000000_s108_option_requests.sql": "5d6219ed8a25ebeb8c23d8a8e0fb99d84cdae53d325c96a6230b057997863aa7"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "s108 (Lloyd: any staff user can add, edit or delete product options under a stock item, admins approve). New table public.inventory_option_requests (RLS on, no grants to any client role, not in realtime), four security definer RPCs for authenticated (inventory_option_request_v1 create/apply, inventory_option_requests_v1 list, inventory_option_request_decide_v1, inventory_option_request_cancel_v1) and three internal functions with no grants. Nothing existing is changed. Run only on a restore point younger than one hour, after the s106 and s107 releases are applied.",
+    "notes": "Additive. Applying changes no existing row. The only writes to existing tables happen later, through the RPCs: options added/edited/deleted by approved requests, and follow_up_tasks rows (source_kind option_request) opened for pending requests."
+  },
+  "forward_verification": [
+    {
+      "name": "requests_table_exists",
+      "query": "select to_regclass('public.inventory_option_requests') is not null",
+      "expect": true
+    },
+    {
+      "name": "requests_table_16_columns",
+      "query": "select count(*) = 16 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_option_requests'",
+      "expect": true
+    },
+    {
+      "name": "requests_table_rls_on",
+      "query": "select relrowsecurity from pg_class where oid = 'public.inventory_option_requests'::regclass",
+      "expect": true
+    },
+    {
+      "name": "requests_table_no_grants",
+      "query": "select not exists (select 1 from unnest(array['anon','authenticated','service_role']) r, unnest(array['select','insert','update','delete']) p where has_table_privilege(r, 'public.inventory_option_requests', p)) and not exists (select 1 from pg_class c, aclexplode(c.relacl) a where c.oid = 'public.inventory_option_requests'::regclass and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "requests_table_not_in_realtime",
+      "query": "select not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'inventory_option_requests')",
+      "expect": true
+    },
+    {
+      "name": "requests_idempotency_unique",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.inventory_option_requests'::regclass and conname = 'inventory_option_requests_key_uq' and contype = 'u')",
+      "expect": true
+    },
+    {
+      "name": "rpcs_definer_empty_search_path",
+      "query": "select count(*) = 7 from pg_proc where oid in ('public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)'::regprocedure, 'public.inventory_option_requests_v1(uuid,text)'::regprocedure, 'public.inventory_option_request_decide_v1(uuid,text,jsonb,text)'::regprocedure, 'public.inventory_option_request_cancel_v1(uuid)'::regprocedure, 'public.s_inventory_option_payload_v1(uuid,jsonb,boolean)'::regprocedure, 'public.s_inventory_option_apply_v1(uuid,uuid,text,uuid,jsonb,uuid)'::regprocedure, 'public.s_inventory_option_request_task_v1(uuid,uuid)'::regprocedure) and prosecdef and proconfig = array['search_path=\"\"']",
+      "expect": true
+    },
+    {
+      "name": "rpcs_grants_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_option_requests_v1(uuid,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_option_request_decide_v1(uuid,text,jsonb,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_option_request_cancel_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)', 'execute') and not has_function_privilege('anon', 'public.inventory_option_requests_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.inventory_option_request_decide_v1(uuid,text,jsonb,text)', 'execute') and not has_function_privilege('anon', 'public.inventory_option_request_cancel_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_option_requests_v1(uuid,text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_option_request_decide_v1(uuid,text,jsonb,text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_option_request_cancel_v1(uuid)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid in ('public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)'::regprocedure, 'public.inventory_option_requests_v1(uuid,text)'::regprocedure, 'public.inventory_option_request_decide_v1(uuid,text,jsonb,text)'::regprocedure, 'public.inventory_option_request_cancel_v1(uuid)'::regprocedure) and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_have_no_grants",
+      "query": "select not has_function_privilege('anon', 'public.s_inventory_option_payload_v1(uuid,jsonb,boolean)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_option_payload_v1(uuid,jsonb,boolean)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_option_payload_v1(uuid,jsonb,boolean)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_option_apply_v1(uuid,uuid,text,uuid,jsonb,uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_option_apply_v1(uuid,uuid,text,uuid,jsonb,uuid)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_option_apply_v1(uuid,uuid,text,uuid,jsonb,uuid)', 'execute') and not has_function_privilege('anon', 'public.s_inventory_option_request_task_v1(uuid,uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_option_request_task_v1(uuid,uuid)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_option_request_task_v1(uuid,uuid)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid in ('public.s_inventory_option_payload_v1(uuid,jsonb,boolean)'::regprocedure, 'public.s_inventory_option_apply_v1(uuid,uuid,text,uuid,jsonb,uuid)'::regprocedure, 'public.s_inventory_option_request_task_v1(uuid,uuid)'::regprocedure) and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "s106_s107_rpcs_untouched",
+      "query": "select (select count(*) from pg_proc where oid in ('public.inventory_item_options_v1(uuid)'::regprocedure, 'public.inventory_item_option_set_usual_v1(uuid)'::regprocedure, 'public.s_inventory_option_make_usual_v1(uuid)'::regprocedure)) = 3",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always for the schema. Options changed by approved requests, and open option_request follow-up tasks, are not undone by the script.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261111_s108_option_requests.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag",
+      "required_state": "None. Nothing in the apps calls the RPCs until the front-end lane ships; the rollback script is the switch."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": ""
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is empty or verified_at is empty",
+    "the rehearsal has not run the migration and s108_option_requests.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane (price gating, RPC gates, approval path) has not passed",
+    "the s106 and s107 releases are not applied (the migration references inventory_item_options and s_inventory_option_make_usual_v1)"
+  ]
+}
