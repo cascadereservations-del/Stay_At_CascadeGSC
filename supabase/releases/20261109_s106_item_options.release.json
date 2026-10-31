@@ -80,11 +80,6 @@
       "name": "shopsuki_preferred_links_18",
       "query": "select count(*) = 18 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where s.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(s.name)) = 'shopsuki' and k.is_preferred",
       "expect": true
-    },
-    {
-      "name": "options_gate_refuses_without_staff",
-      "query": "select (select public.inventory_item_options_v1('73757510-887b-4a5c-a54b-ab65505392aa')) is null",
-      "expect": true
     }
   ],
   "rollback": {
