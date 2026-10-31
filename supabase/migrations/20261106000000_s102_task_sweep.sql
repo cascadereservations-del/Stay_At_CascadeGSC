@@ -73,7 +73,8 @@ begin
         -- meter_no_photo / meter_estimate_waiting: the reading(s) of that session are no longer waiting for an estimate
         if t.source_ref ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then
           if not exists (select 1 from public.meter_readings mr
-                          where mr.session_id = t.source_ref::uuid and mr.meter_flag = 'estimate_pending') then
+                          -- s100 falls back to the reading id when the gap's first row has no session
+                          where (mr.session_id = t.source_ref::uuid or mr.id = t.source_ref::uuid) and mr.meter_flag = 'estimate_pending') then
             v_note := 'Closed automatically: the meter readings have settled.';
           end if;
         end if;
@@ -116,6 +117,16 @@ begin
 end $$;
 
 -- 3. meter_settle_estimates_v1: the live body, B also counts an admin-answered mismatch ----------------------------------------------------------------
+-- Guarded: replaces ONLY the live s100 body (md5 of prosrc, CR stripped) or this release's own body on a re-run; 55000 if it changed since.
+do $g$
+declare v_src text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.meter_settle_estimates_v1(uuid)');
+  if md5(v_src) is distinct from 'e3eaf07237d1fdfb39ac3d643d0bd6a3' and position('mr.vision_resolved_at is not null' in coalesce(v_src, '')) = 0 then
+    raise exception 's102: public.meter_settle_estimates_v1 is not the body this release was cut from (md5 %)', md5(v_src) using errcode = '55000';
+  end if;
+end $g$;
+
 CREATE OR REPLACE FUNCTION public.meter_settle_estimates_v1(p_property_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
