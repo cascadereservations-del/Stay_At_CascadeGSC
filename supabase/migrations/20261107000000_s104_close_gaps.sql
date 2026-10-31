@@ -16,9 +16,13 @@
 --  (4) system_tasks_sweep_v1: also closes OPEN meter_estimate_settled tasks older than 3 days ("Information only - closed after 3 days."); a ref that matches the pattern but is not a
 --      real date (invalid_datetime_format / datetime_field_overflow) is skipped silently, only other errors raise the warning. Returns the same keys plus "info".
 --  (5) get_meter_photo_followups (DROP + CREATE): checkout_date date and guest_name text (cleaning_sessions.last_guest_name, trimmed, null if blank) at the END of the return table.
--- Grants are restated in full (ML-21: the rehearsal restore is --no-acl, production has default privileges). No table, column, trigger or cron change.
--- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 7b716ca816ea57de257faa7643a24278, admin_resolve_report_block_v1 3c46fb55f19a4edfa82e383eb5642744, meter_settle_estimates_v1 c6f2a465cbf6ad7694a4281e5fa13190,
---   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups 361b27faff2200dadbca86c30ac78e1a.
+--  (8) addendum Q (nothing blocks a report): rows with meter_flag under_review are listed (reason meter_order); the answer accepts them and clears the flag; new admin_request_meter_resend_v1 (asks the cleaner for a new photo,
+--      stamps vision_raw.resend_requested_*, posts a staff notice in ops_notices); resend_requested_at is the last column of both list functions; the follow-ups also raise a reading with a resend request.
+--  (6) a BEFORE UPDATE trigger on meter_readings (s104_meter_vision_guard, security invoker): a direct write by authenticated or anon that changes any vision_* column or meter_flag is refused (42501).
+--  (7) settle B ignores a reading with a non-empty photo_date_lines unless it was answered (vision_resolved_at); the list shows photo_date rows only for verdict ok, and the answer matches.
+-- Grants are restated in full (ML-21: the rehearsal restore is --no-acl, production has default privileges). No table, column or cron change.
+-- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 437b4a6bfb30df1c47a6cff06ee3371b, admin_resolve_report_block_v1 b882191dbc2d651d55c46cb74b8dfa12, meter_settle_estimates_v1 a239c861c8656cd76f372b07d4e6e64b,
+--   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups 8d49875bdd4f94e4040c7de55c8c2c55, admin_request_meter_resend_v1 44ef5eab6a378d9a33beccc08f21dfad, s104_meter_vision_guard_v1 0ce8d9932da9a0bd7982e25353409d1e.
 
 begin;
 
@@ -27,15 +31,15 @@ do $g$
 declare v_md5 text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.admin_report_blocks_v1(uuid,integer)');
-  if v_md5 is distinct from 'e1093804346d7488d3c2b617ceae2205' and v_md5 is distinct from '7b716ca816ea57de257faa7643a24278' then
+  if v_md5 is distinct from 'e1093804346d7488d3c2b617ceae2205' and v_md5 is distinct from '437b4a6bfb30df1c47a6cff06ee3371b' then
     raise exception 's104: public.admin_report_blocks_v1(uuid,integer) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)');
-  if v_md5 is distinct from 'f23647ef6a039daf1999faf9c33e35fd' and v_md5 is distinct from '3c46fb55f19a4edfa82e383eb5642744' then
+  if v_md5 is distinct from 'f23647ef6a039daf1999faf9c33e35fd' and v_md5 is distinct from 'b882191dbc2d651d55c46cb74b8dfa12' then
     raise exception 's104: public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.meter_settle_estimates_v1(uuid)');
-  if v_md5 is distinct from '36726d52dccd5911ac473f607f4aab06' and v_md5 is distinct from 'c6f2a465cbf6ad7694a4281e5fa13190' then
+  if v_md5 is distinct from '36726d52dccd5911ac473f607f4aab06' and v_md5 is distinct from 'a239c861c8656cd76f372b07d4e6e64b' then
     raise exception 's104: public.meter_settle_estimates_v1(uuid) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.system_tasks_sweep_v1()');
@@ -43,7 +47,7 @@ begin
     raise exception 's104: public.system_tasks_sweep_v1() is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.get_meter_photo_followups(uuid,integer)');
-  if v_md5 is distinct from '05c12c435acd72f5f1f04e6f657f0b66' and v_md5 is distinct from '361b27faff2200dadbca86c30ac78e1a' then
+  if v_md5 is distinct from '05c12c435acd72f5f1f04e6f657f0b66' and v_md5 is distinct from '8d49875bdd4f94e4040c7de55c8c2c55' then
     raise exception 's104: public.get_meter_photo_followups(uuid,integer) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
 end $g$;
@@ -51,7 +55,7 @@ end $g$;
 -- 1. admin_report_blocks_v1 (return table changes: drop + create, then re-grant) ----------------------------------------------------------------------------
 drop function public.admin_report_blocks_v1(uuid, integer);
 CREATE OR REPLACE FUNCTION public.admin_report_blocks_v1(p_property_id uuid DEFAULT '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid, p_lookback integer DEFAULT 14)
- RETURNS TABLE(reading_id uuid, session_id uuid, cleaner_name text, checkout_date date, recorded_at timestamp with time zone, typed_electric numeric, typed_water numeric, prev_electric numeric, prev_water numeric, photo_electric numeric, photo_water numeric, photo_note_electric text, photo_note_water text, photo_path_electric text, photo_path_water text, reason text, photo_date_lines text[], photo_archived boolean)
+ RETURNS TABLE(reading_id uuid, session_id uuid, cleaner_name text, checkout_date date, recorded_at timestamp with time zone, typed_electric numeric, typed_water numeric, prev_electric numeric, prev_water numeric, photo_electric numeric, photo_water numeric, photo_note_electric text, photo_note_water text, photo_path_electric text, photo_path_water text, reason text, photo_date_lines text[], photo_archived boolean, resend_requested_at timestamptz)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO ''
@@ -80,20 +84,22 @@ begin
     nullif(mr.vision_raw -> 'water' ->> 'note', ''),
     nullif(mr.vision_raw -> 'paths' ->> 'electric', ''),
     nullif(mr.vision_raw -> 'paths' ->> 'water', ''),
-    -- s104: a mismatch is a hold; a photo that is only the wrong day (vision_raw.photo_date_lines, verdict still ok) is listed for a look and never holds a report
-    case when mr.vision_verdict = 'mismatch' then 'mismatch' else 'photo_date' end,
+    -- s104: a mismatch is a hold; a photo that is only the wrong day (vision_raw.photo_date_lines, verdict ok; unreadable / not_a_meter stay with the cleaner follow-up) is listed for a look and never holds a report
+    case when mr.vision_verdict = 'mismatch' then 'mismatch' when mr.meter_flag = 'under_review' then 'meter_order' else 'photo_date' end,
     array(select jsonb_array_elements_text(case when jsonb_typeof(mr.vision_raw -> 'photo_date_lines') = 'array' then mr.vision_raw -> 'photo_date_lines' else '[]'::jsonb end)),
     -- archived: a photo path is on file but its storage object is gone (the photo moved to the Drive archive); a meter with no path is not archived
     ((nullif(mr.vision_raw -> 'paths' ->> 'electric', '') is not null
         and not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = (mr.vision_raw -> 'paths' ->> 'electric')))
      or (nullif(mr.vision_raw -> 'paths' ->> 'water', '') is not null
-        and not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = (mr.vision_raw -> 'paths' ->> 'water'))))
+        and not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = (mr.vision_raw -> 'paths' ->> 'water')))),
+    case when mr.vision_raw ->> 'resend_requested_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' then (mr.vision_raw ->> 'resend_requested_at')::timestamptz end
   from public.meter_readings mr
   left join public.cleaning_sessions cs on cs.id = mr.session_id
   where mr.property_id = p_property_id
     and mr.vision_resolved_at is null
     and (mr.vision_verdict = 'mismatch'
-         or (case when jsonb_typeof(mr.vision_raw -> 'photo_date_lines') = 'array' then jsonb_array_length(mr.vision_raw -> 'photo_date_lines') else 0 end) > 0)
+         or mr.meter_flag = 'under_review'
+         or (mr.vision_verdict = 'ok' and (case when jsonb_typeof(mr.vision_raw -> 'photo_date_lines') = 'array' then jsonb_array_length(mr.vision_raw -> 'photo_date_lines') else 0 end) > 0))
     and mr.recorded_at >= (now() - make_interval(days => greatest(coalesce(p_lookback, 14), 1)))
   order by mr.recorded_at desc, mr.id;
 end;
@@ -150,7 +156,7 @@ begin
     raise exception 'That reading has already been answered.' using errcode = '22023';
   end if;
   -- s104: a reading whose only finding is the photo date (vision_raw.photo_date_lines) can be answered too
-  if v_r.vision_verdict is distinct from 'mismatch' and v_r.n_date_lines = 0 then
+  if v_r.vision_verdict is distinct from 'mismatch' and v_r.meter_flag is distinct from 'under_review' and not (v_r.vision_verdict = 'ok' and v_r.n_date_lines > 0) then
     raise exception 'That reading is not holding up a report.' using errcode = '22023';
   end if;
 
@@ -158,7 +164,8 @@ begin
     v_reason := 'Typed numbers confirmed by an admin' || coalesce(': ' || v_note, '');
     perform public.admin_audit_context_v1(v_reason, null, null);
     update public.meter_readings
-       set vision_resolved_at = now(), vision_resolved_by = auth.uid(), vision_resolved_note = v_reason
+       set vision_resolved_at = now(), vision_resolved_by = auth.uid(), vision_resolved_note = v_reason,
+         meter_flag = case when meter_flag = 'under_review' then null else meter_flag end
      where id = p_reading_id;
     return jsonb_build_object('ok', true, 'action', v_action, 'reading_id', p_reading_id);
   end if;
@@ -242,7 +249,8 @@ begin
          m3_per_night  = case when v_dw is not null and v_nights > 0 then round(v_dw / v_nights, 3) end,
          vision_resolved_at = now(),
          vision_resolved_by = auth.uid(),
-         vision_resolved_note = v_reason
+         vision_resolved_note = v_reason,
+         meter_flag = case when meter_flag = 'under_review' then null else meter_flag end
    where id = p_reading_id;
 
   -- the later stay's usage was measured from the old number: re-point it (meter-order.ts repointNext). A row that is not a usable neighbour
@@ -360,7 +368,7 @@ begin
       if v_b_stay is not null then
         select mr.* into b
           from public.meter_readings mr join public.cleaning_sessions cs on cs.id = mr.session_id
-         where mr.property_id = v_prop and cs.checkout_date = v_b_stay and mr.meter_flag is null and (mr.vision_verdict = 'ok' or (mr.vision_verdict = 'mismatch' and mr.vision_resolved_at is not null and (mr.vision_resolved_note like 'Typed numbers confirmed by an admin%' or mr.vision_resolved_note like 'Numbers corrected by an admin%') and exists (select 1 from public.staff_access_profiles sp where sp.user_id = mr.vision_resolved_by and public.staff_access_allowed(sp.role, 'inspect_cleaning', null, 'aal2'))))
+         where mr.property_id = v_prop and cs.checkout_date = v_b_stay and mr.meter_flag is null and (mr.vision_verdict = 'ok' or (mr.vision_verdict = 'mismatch' and mr.vision_resolved_at is not null and (mr.vision_resolved_note like 'Typed numbers confirmed by an admin%' or mr.vision_resolved_note like 'Numbers corrected by an admin%') and exists (select 1 from public.staff_access_profiles sp where sp.user_id = mr.vision_resolved_by and public.staff_access_allowed(sp.role, 'inspect_cleaning', null, 'aal2')))) and (case when jsonb_typeof(mr.vision_raw -> 'photo_date_lines') = 'array' then jsonb_array_length(mr.vision_raw -> 'photo_date_lines') else 0 end = 0 or mr.vision_resolved_at is not null)
          order by mr.recorded_at desc, mr.id limit 1;
       end if;
       if b.id is null then
@@ -599,7 +607,7 @@ $function$
 -- 5. get_meter_photo_followups (return table changes: drop + create, then re-grant) --------------------------------------------------------------------------
 drop function public.get_meter_photo_followups(uuid, integer);
 CREATE OR REPLACE FUNCTION public.get_meter_photo_followups(p_property_id uuid DEFAULT '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid, p_lookback integer DEFAULT 14)
- RETURNS TABLE(session_id uuid, submission_id text, cleaned_at timestamp with time zone, cleaner_name text, reason text, typed_electric numeric, typed_water numeric, vision_electric numeric, vision_water numeric, vision_verdict text, checkout_date date, guest_name text)
+ RETURNS TABLE(session_id uuid, submission_id text, cleaned_at timestamp with time zone, cleaner_name text, reason text, typed_electric numeric, typed_water numeric, vision_electric numeric, vision_water numeric, vision_verdict text, checkout_date date, guest_name text, resend_requested_at timestamptz)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO ''
@@ -621,6 +629,7 @@ begin
       when mr.vision_verdict = 'mismatch'       then 'the photo does not show the number that was typed'
       when mr.vision_verdict = 'not_a_meter'    then 'the photo does not look like a meter'
       when mr.vision_verdict = 'unreadable'     then 'the photo could not be read'
+      when mr.vision_raw ->> 'resend_requested_at' is not null then 'a new photo of this meter was asked for'
       else 'needs another look'
     end,
     mr.electric_curr,
@@ -629,7 +638,8 @@ begin
     mr.vision_water,
     mr.vision_verdict,
     cs.checkout_date,
-    nullif(btrim(cs.last_guest_name), '')
+    nullif(btrim(cs.last_guest_name), ''),
+    case when mr.vision_raw ->> 'resend_requested_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' then (mr.vision_raw ->> 'resend_requested_at')::timestamptz end
   from public.cleaning_sessions cs
   left join public.meter_readings mr on mr.session_id = cs.id
   where cs.property_id = p_property_id
@@ -639,11 +649,98 @@ begin
     and (
       cs.meter_photos_skipped
       or mr.vision_verdict in ('mismatch', 'not_a_meter', 'unreadable')
+      or mr.vision_raw ->> 'resend_requested_at' is not null
     )
   order by cs.cleaned_at desc;
 end;
 $function$
 ;
+
+-- 5c. admin_request_meter_resend_v1: ask the cleaner for a new photo of the meter (does NOT resolve the row) ------------------------------------------------------
+-- Notice path: the staff Notices board, public.ops_notices (read by notices_v1 / staff_home_v1 for audience staff), the same table ops_notice_add_v1 writes. It has no per-person
+-- target, so the notice is for the property's staff: type note, source system, audience staff, expires after 7 days. The push trigger only fires for brownout and water, so no push is sent.
+create or replace function public.admin_request_meter_resend_v1(p_reading_id uuid, p_note text default null)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path to ''
+as $function$
+declare
+  v_note   text := nullif(btrim(coalesce(p_note, '')), '');
+  v_prop   uuid;
+  v_r      record;
+  v_guest  text;
+  v_text   text;
+begin
+  if v_note is not null and length(v_note) > 150 then
+    raise exception 'a note is at most 150 characters' using errcode = '22023';
+  end if;
+
+  select mr.property_id into v_prop from public.meter_readings mr where mr.id = p_reading_id;
+  if v_prop is null then
+    -- a missing id answers exactly like a refusal (same code and message as admin_require), so ids cannot be probed
+    raise exception using errcode = '42501', message = case when auth.uid() is null then 'authentication required' else 'inspect_cleaning denied' end;
+  end if;
+  perform public.admin_require('inspect_cleaning', v_prop);
+
+  select mr.id, mr.vision_resolved_at, cs.checkout_date, nullif(btrim(cs.last_guest_name), '') as guest
+    into v_r
+    from public.meter_readings mr
+    left join public.cleaning_sessions cs on cs.id = mr.session_id
+   where mr.id = p_reading_id
+     for update of mr;
+  if not found then
+    raise exception using errcode = '42501', message = 'inspect_cleaning denied';
+  end if;
+  if v_r.vision_resolved_at is not null then
+    raise exception 'That reading has already been answered.' using errcode = '22023';
+  end if;
+  -- the note goes to staff screens: a phone number, e-mail or amount is refused, never stored
+  if v_note is not null and public.staff_redact_v1(v_note) <> v_note then
+    raise exception 'A note cannot hold a phone number, e-mail or amount.' using errcode = '22023';
+  end if;
+
+  perform public.admin_audit_context_v1('Asked the cleaner to resend the meter photo' || coalesce(': ' || v_note, ''), null, null);
+  update public.meter_readings
+     set vision_raw = coalesce(vision_raw, '{}'::jsonb)
+                      || jsonb_build_object('resend_requested_at', now(), 'resend_requested_by', auth.uid(), 'resend_requested_note', v_note)
+   where id = p_reading_id;
+
+  v_guest := case when v_r.guest is null then null else public.staff_redact_v1(v_r.guest) end;
+  v_text := 'Please send a new photo of the meter for the '
+            || case when v_r.checkout_date is not null then to_char(v_r.checkout_date, 'FMDD Mon') || ' ' else '' end
+            || 'stay' || case when v_guest is not null then ' (' || v_guest || ')' else '' end || '.'
+            || coalesce(' ' || v_note, '');
+  insert into public.ops_notices (property_id, notice_type, title, description, effective_date, expires_at, source, audience)
+  values (v_prop, 'note', 'New meter photo needed', v_text, (now() at time zone 'Asia/Manila')::date, now() + interval '7 days', 'system', 'staff');
+
+  return jsonb_build_object('ok', true, 'reading_id', p_reading_id);
+end;
+$function$;
+
+-- 5b. a cleaner cannot rewrite the photo check on her own reading (policy meters_staff_update + grant update let a direct PostgREST PATCH do it) --------------------
+-- BEFORE UPDATE guard: when the caller is the authenticated or anon role itself (a direct write, not a security definer function, which runs as its owner, and not service_role)
+-- and any vision_* column or meter_flag changes, refuse with 42501. Every function that writes those columns (resolve_meter_followup_v1, review_meter_reading_v1,
+-- report_no_meter_photo_v1, meter_settle_estimates_v1, admin_resolve_report_block_v1, admin_undo_v1) is security definer, and the edge functions use service_role. Other columns stay as the policy allows.
+create or replace function public.s104_meter_vision_guard_v1()
+returns trigger
+language plpgsql
+security invoker
+set search_path to ''
+as $function$
+begin
+  if current_user in ('authenticated', 'anon')
+     and exists (select 1 from jsonb_each(to_jsonb(new)) n join jsonb_each(to_jsonb(old)) o on o.key = n.key
+                  where (left(n.key, 7) = 'vision_' or n.key = 'meter_flag') and n.value is distinct from o.value) then
+    raise exception 'The photo check result of a meter reading can only be changed by the system or an admin.' using errcode = '42501';
+  end if;
+  return new;
+end;
+$function$;
+revoke all on function public.s104_meter_vision_guard_v1() from public, anon, authenticated, service_role;
+drop trigger if exists s104_meter_vision_guard on public.meter_readings;
+create trigger s104_meter_vision_guard before update on public.meter_readings for each row execute function public.s104_meter_vision_guard_v1();
 
 -- 6. grants restated in full (ML-21) and comments ----------------------------------------------------------------------------------------------------------
 revoke all on function public.admin_report_blocks_v1(uuid, integer) from public, anon, authenticated, service_role;
@@ -651,6 +748,8 @@ revoke all on function public.admin_resolve_report_block_v1(uuid, text, numeric,
 revoke all on function public.meter_settle_estimates_v1(uuid) from public, anon, authenticated, service_role;
 revoke all on function public.system_tasks_sweep_v1() from public, anon, authenticated, service_role;
 revoke all on function public.get_meter_photo_followups(uuid, integer) from public, anon, authenticated, service_role;
+revoke all on function public.admin_request_meter_resend_v1(uuid, text) from public, anon, authenticated, service_role;
+grant execute on function public.admin_request_meter_resend_v1(uuid, text) to authenticated;
 grant execute on function public.admin_report_blocks_v1(uuid, integer) to authenticated;
 grant execute on function public.admin_resolve_report_block_v1(uuid, text, numeric, numeric, text) to authenticated;
 grant execute on function public.meter_settle_estimates_v1(uuid) to service_role;
@@ -664,17 +763,20 @@ comment on function public.meter_settle_estimates_v1(uuid) is
   'D-352: settles estimate_pending readings once the next stay has a verified reading (or an answer by a staff user who may inspect_cleaning): typed kept if in order, else a per-night average. Idempotent. service_role only (cron meter-settle-estimates).';
 comment on function public.system_tasks_sweep_v1() is
   's102/s104: closes open system tasks (guest_details, missed_cleaning, meter_no_photo, meter_estimate_waiting) whose problem is gone, and meter_estimate_settled information tasks after 3 days. Hourly cron system-tasks-sweep as postgres; no grants.';
+comment on function public.admin_request_meter_resend_v1(uuid, text) is
+  's104: an admin asks the cleaner for a new photo of a meter: stamps vision_raw.resend_requested_at/by/note (the row stays unresolved) and posts one staff notice (ops_notices, type note). inspect_cleaning; a missing id looks like a refusal (42501).';
 comment on function public.get_meter_photo_followups(uuid, integer) is
   'Meter photo follow-ups raised at sign-in and in the staff app; s104 adds the checkout date and the guest name (last_guest_name, trimmed). read_operations.';
 
 -- 7. in-migration check (a failed assert rolls the whole migration back) -------------------------------------------------------------------------------------
 do $$
 declare v_blocks text[] := array[
-  'public.admin_report_blocks_v1(uuid,integer)|7b716ca816ea57de257faa7643a24278',
-  'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)|3c46fb55f19a4edfa82e383eb5642744',
-  'public.meter_settle_estimates_v1(uuid)|c6f2a465cbf6ad7694a4281e5fa13190',
+  'public.admin_report_blocks_v1(uuid,integer)|437b4a6bfb30df1c47a6cff06ee3371b',
+  'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)|b882191dbc2d651d55c46cb74b8dfa12',
+  'public.meter_settle_estimates_v1(uuid)|a239c861c8656cd76f372b07d4e6e64b',
   'public.system_tasks_sweep_v1()|0fdd80d252523c39cc30003475fb21bb',
-  'public.get_meter_photo_followups(uuid,integer)|361b27faff2200dadbca86c30ac78e1a'];
+  'public.get_meter_photo_followups(uuid,integer)|8d49875bdd4f94e4040c7de55c8c2c55',
+  'public.admin_request_meter_resend_v1(uuid,text)|44ef5eab6a378d9a33beccc08f21dfad'];
   v_e text;
 begin
   foreach v_e in array v_blocks loop
@@ -682,6 +784,15 @@ begin
       raise exception 's104: % is not the intended body', split_part(v_e, '|', 1);
     end if;
   end loop;
+  if not exists (select 1 from pg_trigger where tgrelid = 'public.meter_readings'::regclass and tgname = 's104_meter_vision_guard' and not tgisinternal and tgenabled = 'O') then
+    raise exception 's104: the meter vision guard trigger is missing';
+  end if;
+  if to_regprocedure('public.admin_request_meter_resend_v1(uuid,text)') is null
+     or has_function_privilege('anon', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute')
+     or has_function_privilege('service_role', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute')
+     or not has_function_privilege('authenticated', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute') then
+    raise exception 's104: admin_request_meter_resend_v1 is missing or its grants are wrong';
+  end if;
   if (select count(*) from pg_proc where pronamespace = 'public'::regnamespace
         and proname in ('admin_report_blocks_v1', 'admin_resolve_report_block_v1', 'meter_settle_estimates_v1', 'system_tasks_sweep_v1', 'get_meter_photo_followups')) <> 5 then
     raise exception 's104: a function is missing or has more than one overload';

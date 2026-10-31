@@ -17,23 +17,23 @@
     "scope": "production",
     "restore_point": "",
     "verified_at": "",
-    "production_rule": "s104 (Lloyd 2026-10-31: close every remaining meter-check gap). admin_report_blocks_v1 lists, besides the unresolved photo mismatches, any unresolved reading whose vision_raw.photo_date_lines (written by verify-meter-photo, s103) is a non-empty array, with reason (mismatch | photo_date), photo_date_lines text[] and photo_archived (a photo path on file whose storage object in bucket cleaning-photos is gone); the 15 existing columns keep their order and the three new ones are at the end (drop + create, re-granted authenticated only). admin_resolve_report_block_v1 also answers such a photo-date finding (both actions), answers a missing id with the same 42501 'inspect_cleaning denied' as a refusal, and re-points the NEXT reading by (stay date, recorded_at, id) so a later reading of the same checkout day is not skipped. meter_settle_estimates_v1 counts an answered mismatch as B only when vision_resolved_by is a staff user whose role may inspect_cleaning (a cleaner who typed the admin sentence through resolve_meter_followup_v1 no longer makes B). system_tasks_sweep_v1 also closes open meter_estimate_settled tasks older than 3 days and skips a pattern-matching but impossible date silently; it returns the extra key info. get_meter_photo_followups gains checkout_date and guest_name at the end (drop + create, re-granted authenticated and service_role). Each replaced function is guarded on its live md5 (or this release's own) with errcode 55000. Live md5s read 2026-10-31 (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 e1093804346d7488d3c2b617ceae2205, admin_resolve_report_block_v1 f23647ef6a039daf1999faf9c33e35fd, get_meter_photo_followups 05c12c435acd72f5f1f04e6f657f0b66, meter_settle_estimates_v1 36726d52dccd5911ac473f607f4aab06, system_tasks_sweep_v1 e92e15b99917ab19cd8c9bf3c6510b44.",
+    "production_rule": "s104 (Lloyd 2026-10-31: close every remaining meter-check gap). admin_report_blocks_v1 lists, besides the unresolved photo mismatches, any unresolved reading whose vision_raw.photo_date_lines (written by verify-meter-photo, s103) is a non-empty array, with reason (mismatch | photo_date), photo_date_lines text[] and photo_archived (a photo path on file whose storage object in bucket cleaning-photos is gone); the 15 existing columns keep their order and the three new ones are at the end (drop + create, re-granted authenticated only). admin_resolve_report_block_v1 also answers such a photo-date finding (both actions), answers a missing id with the same 42501 'inspect_cleaning denied' as a refusal, and re-points the NEXT reading by (stay date, recorded_at, id) so a later reading of the same checkout day is not skipped. meter_settle_estimates_v1 counts an answered mismatch as B only when vision_resolved_by is a staff user whose role may inspect_cleaning (a cleaner who typed the admin sentence through resolve_meter_followup_v1 no longer makes B). system_tasks_sweep_v1 also closes open meter_estimate_settled tasks older than 3 days and skips a pattern-matching but impossible date silently; it returns the extra key info. get_meter_photo_followups gains checkout_date and guest_name at the end (drop + create, re-granted authenticated and service_role). Each replaced function is guarded on its live md5 (or this release's own) with errcode 55000. Live md5s read 2026-10-31 (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 e1093804346d7488d3c2b617ceae2205, admin_resolve_report_block_v1 f23647ef6a039daf1999faf9c33e35fd, get_meter_photo_followups 05c12c435acd72f5f1f04e6f657f0b66, meter_settle_estimates_v1 36726d52dccd5911ac473f607f4aab06, system_tasks_sweep_v1 e92e15b99917ab19cd8c9bf3c6510b44. s104 also adds the BEFORE UPDATE trigger s104_meter_vision_guard on meter_readings (security invoker, search_path empty): a direct write by the authenticated or anon role that changes any vision_* column or meter_flag is refused with 42501; definer functions and service_role are unaffected. Settle B ignores a reading with a non-empty photo_date_lines unless vision_resolved_at is set. The list shows photo_date rows only for verdict ok. Addendum Q (nothing blocks a report): admin_report_blocks_v1 also lists unresolved rows with meter_flag under_review (reason meter_order) and ends with resend_requested_at (from vision_raw.resend_requested_at); the answer accepts such rows and clears the flag (typed_is_right and correct_numbers); new admin_request_meter_resend_v1(uuid, text) (inspect_cleaning, authenticated only, probe-safe 42501) stamps vision_raw.resend_requested_at/by/note without resolving the row and posts one staff notice in public.ops_notices (type note, source system, audience staff, 7 days; the board has no per-person target, and the push trigger only fires for brownout and water, so no push); get_meter_photo_followups ends with resend_requested_at and also raises a reading that has a resend request.",
     "notes": "Phase expand: five functions replaced, no table, column, trigger or cron change. Old apps keep working: the admin dashboard reads the new fields as optional, Cascade Staff falls back to 'Report sent <date>' when checkout_date is absent. Order: SQL first, then the admin dashboard and Cascade Staff builds. The sweep returns an extra jsonb key (info); nothing reads its result but the cron job. Earlier tests changed for the new behaviour: s101_report_blocks.sql (unknown id is now 42501) and s102_task_sweep.sql (the answered B needs a staff resolver; the sweep result has info)."
   },
   "forward_verification": [
     {
       "name": "admin_report_blocks_v1_is_the_s104_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '7b716ca816ea57de257faa7643a24278' from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '437b4a6bfb30df1c47a6cff06ee3371b' from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure",
       "expect": true
     },
     {
       "name": "admin_resolve_report_block_v1_is_the_s104_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '3c46fb55f19a4edfa82e383eb5642744' from pg_proc where oid = 'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b882191dbc2d651d55c46cb74b8dfa12' from pg_proc where oid = 'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)'::regprocedure",
       "expect": true
     },
     {
       "name": "meter_settle_estimates_v1_is_the_s104_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'c6f2a465cbf6ad7694a4281e5fa13190' from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a239c861c8656cd76f372b07d4e6e64b' from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -43,7 +43,7 @@
     },
     {
       "name": "get_meter_photo_followups_is_the_s104_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '361b27faff2200dadbca86c30ac78e1a' from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '8d49875bdd4f94e4040c7de55c8c2c55' from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure",
       "expect": true
     },
     {
@@ -52,13 +52,13 @@
       "expect": true
     },
     {
-      "name": "list_has_the_three_new_columns_at_the_end",
-      "query": "select proargnames[18:20] = array['reason','photo_date_lines','photo_archived'] and array_length(proargnames, 1) = 20 from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure",
+      "name": "list_has_the_four_new_columns_at_the_end",
+      "query": "select proargnames[18:21] = array['reason','photo_date_lines','photo_archived','resend_requested_at'] and array_length(proargnames, 1) = 21 from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure",
       "expect": true
     },
     {
-      "name": "followups_has_checkout_and_guest_at_the_end",
-      "query": "select proargnames[13:14] = array['checkout_date','guest_name'] and array_length(proargnames, 1) = 14 from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure",
+      "name": "followups_has_checkout_guest_and_resend_at_the_end",
+      "query": "select proargnames[13:15] = array['checkout_date','guest_name','resend_requested_at'] and array_length(proargnames, 1) = 15 from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure",
       "expect": true
     },
     {
@@ -95,11 +95,41 @@
       "name": "dependencies_exist",
       "query": "select to_regclass('storage.objects') is not null and exists (select 1 from storage.buckets where id = 'cleaning-photos') and to_regclass('public.staff_access_profiles') is not null and to_regprocedure('public.staff_access_allowed(text,text,timestamptz,text)') is not null and to_regprocedure('public.current_staff_authorized(text,uuid)') is not null and to_regprocedure('public.admin_require(text,uuid)') is not null and to_regprocedure('public.system_task_open_v1(uuid,text,text,text,text,text)') is not null",
       "expect": true
+    },
+    {
+      "name": "report_blocks_owner_bypasses_rls",
+      "query": "select r.rolsuper or r.rolbypassrls from pg_proc p join pg_roles r on r.oid = p.proowner where p.oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "meter_vision_guard_trigger_is_on_and_invoker",
+      "query": "select exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid where t.tgrelid = 'public.meter_readings'::regclass and t.tgname = 's104_meter_vision_guard' and not t.tgisinternal and t.tgenabled = 'O' and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16 and not p.prosecdef and p.proconfig = array['search_path=\"\"'])",
+      "expect": true
+    },
+    {
+      "name": "admin_request_meter_resend_v1_is_the_s104_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '44ef5eab6a378d9a33beccc08f21dfad' from pg_proc where oid = 'public.admin_request_meter_resend_v1(uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "s104_meter_vision_guard_v1_is_the_s104_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '0ce8d9932da9a0bd7982e25353409d1e' from pg_proc where oid = 'public.s104_meter_vision_guard_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "resend_function_authenticated_only",
+      "query": "select has_function_privilege('authenticated','public.admin_request_meter_resend_v1(uuid,text)','execute') and not has_function_privilege('anon','public.admin_request_meter_resend_v1(uuid,text)','execute') and not has_function_privilege('service_role','public.admin_request_meter_resend_v1(uuid,text)','execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.admin_request_meter_resend_v1(uuid,text)'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "ops_notices_has_the_columns_the_resend_notice_writes",
+      "query": "select count(*) = 8 from information_schema.columns where table_schema = 'public' and table_name = 'ops_notices' and column_name in ('property_id','notice_type','title','description','effective_date','expires_at','source','audience')",
+      "expect": true
     }
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Always. The rollback script drops admin_report_blocks_v1 and get_meter_photo_followups and recreates all five functions with the previous bodies verbatim, re-grants and proves the md5s. Readings an admin answered and tasks the sweep closed stay as they are. Roll the admin dashboard and Cascade Staff builds back first if they are live (they tolerate the old SQL).",
+    "safe_until": "Always. The rollback script drops admin_report_blocks_v1 and get_meter_photo_followups and drops the meter vision guard trigger and function and admin_request_meter_resend_v1, and recreates all five functions with the previous bodies verbatim, re-grants and proves the md5s. Readings an admin answered and tasks the sweep closed stay as they are. Roll the admin dashboard and Cascade Staff builds back first if they are live (they tolerate the old SQL).",
     "steps": [
       {
         "name": "run_compensating_script",
@@ -118,7 +148,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "PENDING - rehearsal on a fresh backup: migration applied 1/1, forward checks, pgTAP s104_close_gaps.sql 74/74 plus s101_report_blocks.sql, s102_task_sweep.sql, s100_meter_no_photo.sql, meter_followup_resolution.sql and security_grants.sql. Built without a local database."
+    "evidence": "PENDING - rehearsal on a fresh backup: migration applied 1/1, forward checks, pgTAP s104_close_gaps.sql 112/112 plus s101_report_blocks.sql, s102_task_sweep.sql, s100_meter_no_photo.sql, meter_followup_resolution.sql and security_grants.sql. Built without a local database."
   },
   "approvals": {
     "production_required": true,

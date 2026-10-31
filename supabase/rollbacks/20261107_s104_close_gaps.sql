@@ -2,10 +2,14 @@
 -- Restores the LIVE bodies read 2026-10-31 verbatim (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 e1093804346d7488d3c2b617ceae2205, admin_resolve_report_block_v1 f23647ef6a039daf1999faf9c33e35fd,
 -- get_meter_photo_followups 05c12c435acd72f5f1f04e6f657f0b66 (the live text in docs/s104/live/live-defs.sql), meter_settle_estimates_v1 36726d52dccd5911ac473f607f4aab06 and system_tasks_sweep_v1 e92e15b99917ab19cd8c9bf3c6510b44 (the s102 text),
 -- re-grants exactly as before and proves the md5s. admin_report_blocks_v1 and get_meter_photo_followups are dropped and created again (their return tables change back).
+-- Also drops the s104_meter_vision_guard trigger and its function, and admin_request_meter_resend_v1 (resend requests already stamped in vision_raw and notices already posted stay).
 -- NOT undone: readings an admin answered and tasks the sweep closed stay as they are. Apply with run-sql-on-host.sh.
 
 begin;
 
+drop trigger if exists s104_meter_vision_guard on public.meter_readings;
+drop function if exists public.s104_meter_vision_guard_v1();
+drop function if exists public.admin_request_meter_resend_v1(uuid, text);
 drop function if exists public.admin_report_blocks_v1(uuid, integer);
 drop function if exists public.get_meter_photo_followups(uuid, integer);
 
