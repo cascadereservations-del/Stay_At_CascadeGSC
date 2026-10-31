@@ -2,7 +2,7 @@
 -- price gating (a cleaner never sends or sees a price), approval with a price override, idempotency, property isolation, url checks, and the follow-up task.
 -- Fixtures use uuids d1080000-... on properties of their own; everything rolls back. Needs the s106 + s107 + s108 migrations applied.
 begin;
-select plan(59);
+select plan(60);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -205,10 +205,15 @@ select pg_temp.as_user(pg_temp.id('a1'));
 insert into _t select 'r6', pg_temp.try($$select public.inventory_option_request_v1(pg_temp.id('c1'), 'add', null, jsonb_build_object('title', 'Second wave', 'supplier_id', pg_temp.id('e1')), null, 'zz108-key-cl-add-0002x')$$);
 reset role;
 select is((select status from public.follow_up_tasks where source_kind = 'option_request' and source_ref = pg_temp.id('c1')::text), 'open', 'a new request reopens the closed task');
+update public.follow_up_tasks set status = 'cancelled' where source_kind = 'option_request' and source_ref = pg_temp.id('c1')::text;
+select pg_temp.as_user(pg_temp.id('a1'));
+insert into _t select 'r7', pg_temp.try($$select public.inventory_option_request_v1(pg_temp.id('c1'), 'add', null, jsonb_build_object('title', 'Third wave', 'supplier_id', pg_temp.id('e1')), null, 'zz108-key-cl-add-0003x')$$);
+reset role;
+select is((select status from public.follow_up_tasks where source_kind = 'option_request' and source_ref = pg_temp.id('c1')::text), 'open', 'a new request also reopens a task an admin cancelled');
 select pg_temp.as_user(pg_temp.id('a3'));
 insert into _t select 'ad_list_all', pg_temp.try($$select public.inventory_option_requests_v1(pg_temp.id('b0'), 'all')$$);
 reset role;
-select ok((select jsonb_array_length(v -> 'requests') = 9 and (select e ->> 'option_title' from jsonb_array_elements(v -> 'requests') e where e ->> 'id' = pg_temp.rid('ow_del')::text) = 'Plain Soap 90g' from _t where k = 'ad_list_all'),
+select ok((select jsonb_array_length(v -> 'requests') = 10 and (select e ->> 'option_title' from jsonb_array_elements(v -> 'requests') e where e ->> 'id' = pg_temp.rid('ow_del')::text) = 'Plain Soap 90g' from _t where k = 'ad_list_all'),
   'status all lists every request newest first and keeps the title of a deleted option');
 
 select * from finish();

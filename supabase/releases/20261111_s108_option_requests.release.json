@@ -10,7 +10,7 @@
     "20261111000000_s108_option_requests.sql"
   ],
   "migration_sha256": {
-    "20261111000000_s108_option_requests.sql": "786d59af6a98442907b373149c085044bb86fd9a4ab5c9dcc5bd88d8149c01fc"
+    "20261111000000_s108_option_requests.sql": "4633938b956b110e9e7c337321d75b912dca234f29b5f9ee40ae642758b0a5d8"
   },
   "backup": {
     "required": true,
@@ -92,7 +92,7 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": true,
+    "verified": false,
     "evidence": "Chain rehearsal with s107 on cascade-supabase-20261031T101528Z (Cascade/docs/s108/rehearsal2.log, prefix cascade-migration-rehearsal-043c305ea41d): migrations 2/2, fwd 30/30, pgTAP s107 + s108_option_requests.sql pass, public tables 126 -> 127."
   },
   "approvals": {

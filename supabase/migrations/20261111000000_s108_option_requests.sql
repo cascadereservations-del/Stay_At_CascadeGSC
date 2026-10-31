@@ -1,5 +1,5 @@
 -- 20261111000000_s108_option_requests.sql
--- Session 108, lane SQL: release s108_option_requests_20261111 (phase expand). Any staff user can ask to add, edit or delete a product option under a stock
+-- Session 108, lane SQL: release s108_option_requests_20261111 (phase backfill). Any staff user can ask to add, edit or delete a product option under a stock
 -- item (Lloyd); the owner/admin (manage_inventory) approves. Staff with read_operations only create REQUESTS that wait; manage_inventory callers apply at once
 -- (they are the approvers) and the change is recorded as an approved request. A caller without read_finance/manage_inventory never sends or sees a price.
 --   1. Table  inventory_option_requests: RLS on, no grants to any client role, not in realtime; all access through the four definer RPCs.
@@ -66,7 +66,7 @@ begin
     if k = 'brand' and char_length(v #>> '{}') > 60 then raise exception using errcode = '22023', message = 'brand is too long'; end if;
     if k = 'pack_label' and char_length(v #>> '{}') > 40 then raise exception using errcode = '22023', message = 'pack label is too long'; end if;
     if k = 'pack_size' and not ((v #>> '{}')::numeric > 0 and (v #>> '{}')::numeric < 100000) then raise exception using errcode = '22023', message = 'pack size must be more than 0 and below 100000'; end if;
-    if k = 'price' and not ((v #>> '{}')::numeric > 0 and (v #>> '{}')::numeric < 1000000) then raise exception using errcode = '22023', message = 'price must be more than 0 and below 1000000'; end if;
+    if k = 'price' and not ((v #>> '{}')::numeric >= 0.01 and (v #>> '{}')::numeric < 1000000) then raise exception using errcode = '22023', message = 'price must be at least 0.01 and below 1000000'; end if;
     if k = 'image_url' and (v #>> '{}') !~ '^https://(cdn\.shopify\.com|down-ph\.img\.susercontent\.com)/' then raise exception using errcode = '22023', message = 'image link must be https on cdn.shopify.com or down-ph.img.susercontent.com'; end if;
     if k = 'source_url' and (v #>> '{}') !~ '^https://(shopsuki\.ph|shopee\.ph)/' then raise exception using errcode = '22023', message = 'product link must be https on shopsuki.ph or shopee.ph'; end if;
     if k in ('image_url', 'source_url') and char_length(v #>> '{}') > 500 then raise exception using errcode = '22023', message = k || ' is too long'; end if;
@@ -133,11 +133,15 @@ begin
     select i.name into v_name from public.inventory_items i where i.id = p_item;
     v_id := public.system_task_open_v1(p_prop, 'option_request', p_item::text, 'Product change to approve: ' || v_name,
                                        v_n || ' staff request(s) wait in Inventory > Options for approval.', 'normal');
-    update public.follow_up_tasks set status = 'open', completed_at = null, completed_by = null, completion_note = null, updated_at = now(), version = version + 1
-     where id = v_id and status = 'done';
+    -- s108 review: reopen a task an admin closed or cancelled, and keep the count in the detail current
+    update public.follow_up_tasks set status = 'open', completed_at = null, completed_by = null, completion_note = null,
+           detail = v_n || ' staff request(s) wait in Inventory > Options for approval.', updated_at = now(), version = version + 1
+     where id = v_id and (status in ('done','cancelled') or detail is distinct from v_n || ' staff request(s) wait in Inventory > Options for approval.');
   else
-    perform public.system_task_close_missing_v1('option_request',
-      array(select r.item_id::text from public.inventory_option_requests r where r.status = 'pending'), null, 'No product change is waiting for approval.');
+    -- s108 review: close only this item's task (no cross-property scan, no race with another item)
+    update public.follow_up_tasks set status = 'done', completed_at = now(), completion_note = 'No product change is waiting for approval.',
+           updated_at = now(), version = version + 1
+     where idempotency_key = 'system:option_request:' || p_item::text and status in ('open','in_progress');
   end if;
 end;
 $$;
