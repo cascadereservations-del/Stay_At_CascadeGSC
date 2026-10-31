@@ -28,18 +28,18 @@ grant all on _t to public;
 -- =============================================================================================================================================
 -- Part 1: the seed on the restored production copy (8)
 -- =============================================================================================================================================
-select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 60, 'seed: 60 options');
-select is((select count(distinct item_id)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 18, 'seed: they belong to 18 items');
+select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 64, 'seed: 64 options');
+select is((select count(distinct item_id)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 19, 'seed: they belong to 18 items');
 select is((select count(*)::int from (select item_id from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
-            group by item_id having count(*) filter (where is_usual) = 1) q), 18, 'seed: every one of the 18 items has exactly one usual option');
+            group by item_id having count(*) filter (where is_usual) = 1) q), 19, 'seed: every one of the 19 items has exactly one usual option');
 select is((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(name) = 'shopsuki'), 1, 'seed: the Shopsuki supplier exists once');
 select is((select count(*)::int from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
-            where lower(s.name) = 'shopsuki' and k.is_preferred), 18, 'seed: 18 preferred links to Shopsuki');
+            where lower(s.name) = 'shopsuki' and k.is_preferred), 19, 'seed: 19 preferred links to Shopsuki');
 select ok((select bool_and(k.quoted_pack_price = o.price and char_length(k.pack_label) between 1 and 40)
              from public.inventory_item_suppliers k join public.inventory_item_options o on o.item_id = k.item_id and o.supplier_id = k.supplier_id and o.is_usual
             where k.is_preferred), 'seed: each preferred link quotes the usual option price and has a pack label of at most 40 characters');
 select is(public.s_inventory_item_options_seed_v1(), '{"suppliers": 0, "options": 0, "links": 0}'::jsonb, 'seed: running it again inserts nothing');
-select ok((select count(*) from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') = 60
+select ok((select count(*) from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') = 64
           and (select count(*) from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki') = 18, 'seed: counts are unchanged after the second run');
 
 -- =============================================================================================================================================

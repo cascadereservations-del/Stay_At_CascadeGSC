@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const migration = join(here, '..', '..', 'supabase', 'migrations', '20261109000000_s106_item_options.sql');
 const ids = {
+  'Natural Air': '66c7ec14-b20c-450d-9576-492c56e6d1c1',
   'Tea': '73757510-887b-4a5c-a54b-ab65505392aa',
   'Tissues / Paper Towels': '4f139d96-f1fa-4be6-bbf2-a593a5383202',
   'Liquid Hand Soap (Safeguard)': '0bdd783a-77f8-4211-bf53-e1cbebcc284b',
@@ -28,7 +29,7 @@ const ids = {
 };
 const q = (s) => (s == null || s === '' ? 'null' : `'${String(s).replace(/'/g, "''")}'`);
 const rows = JSON.parse(readFileSync(join(here, 'shopsuki-capture.json'), 'utf8')).rows;
-if (rows.length !== 60) throw new Error(`expected 60 rows, got ${rows.length}`);
+if (rows.length !== 64) throw new Error(`expected 64 rows, got ${rows.length}`);
 const lines = rows.map(([item, usual, title, brand, price, avail, image, handle]) => {
   if (!ids[item]) throw new Error(`no item id for ${item}`);
   if (!/^\d+(\.\d{1,2})?$/.test(price)) throw new Error(`bad price ${price}`);

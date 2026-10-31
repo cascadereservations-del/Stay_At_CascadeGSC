@@ -5,7 +5,7 @@
 --   2. RPCs   inventory_item_options_v1(item)            read_operations; price key only when read_finance passes (a cleaner never gets it).
 --             inventory_item_option_set_usual_v1(option) manage_inventory (the gate inventory_item_supplier_link_v1 uses for preferred); flips the usual option and
 --                                                         upserts the item/supplier link as preferred with the option's pack label and price.
---   3. Seed   supplier Shopsuki + 60 options read from shopsuki.ph on 2026-10-31 + one preferred link per item that has none (18 items). Generated from
+--   3. Seed   supplier Shopsuki + 64 options read from shopsuki.ph on 2026-10-31 + one preferred link per item that has none (19 items). Generated from
 --             docs/s106/shopsuki-capture.json by docs/s106/gen-item-options-seed.mjs. The seed lives in an internal function (no grants) so a test can re-run it.
 -- Additive only: no existing table, column, policy or function is changed.
 
@@ -165,7 +165,11 @@ begin
     ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, true, 'Colgate Oral Care Travel Kit', 'Colgate', 88.95::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/102051508_4a51e63a-5f82-41d4-9641-71a9bcb7ae02.jpg', 'colgate-oral-care-travel-kit'),
     ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, false, 'Colgate Toothbrush Extra Clean Buy 5''s', 'Colgate', 140.65::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/107799193.jpg', 'colgate-toothbrush-extra-clean-buy-5s'),
     ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, false, 'Colgate Toothpaste Great Regular Flavor 74g', 'Colgate', 85.85::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8850006320518.jpg', 'colgate-toothpaste-great-regular-flavor-74g'),
-    ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, false, 'Colgate Classic Deep Clean Toothbrush Medium x 2''s', 'Colgate', 37.00::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8932102111335.jpg', 'colgate-classic-deep-clean-toothbrush-medium-x-2s')
+    ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, false, 'Colgate Classic Deep Clean Toothbrush Medium x 2''s', 'Colgate', 37.00::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8932102111335.jpg', 'colgate-classic-deep-clean-toothbrush-medium-x-2s'),
+    ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, true, 'Ambi Pur Gel Room Fresh Downy 180g', 'Ambi Pur', 184.25::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4987176133458_ffd73b18-f762-4742-b8eb-70c208db0cd7.jpg', 'ambi-pur-gel-room-fresh-downy-180g'),
+    ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, false, 'Ambi Pur Gel Fresh Romantic Rose Value Pack 180g x 2''s', 'Ambi Pur', 283.50::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4902430518284.jpg', 'ambi-pur-gel-fresh-romantic-rose-value-pack-180g-by-2s'),
+    ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, false, 'Ambi Pur Gel Fresh Romantic Rose 180g', 'Ambi Pur', 164.25::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/9556076012665.jpg', 'ambi-pur-gel-fresh-romantic-rose-180g'),
+    ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, false, 'Ambi Pur Gel Fresh Relaxing Lavender Value Pack 180g x 2''s', 'Ambi Pur', 283.50::numeric, true, 'https://cdn.shopify.com/s/files/1/0358/1335/9748/files/105727287.jpg', 'ambi-pur-gel-fresh-relaxing-lavender-value-pack-180g-by-2s')
     -- END GENERATED
   ) as v(item_id, usual, title, brand, price, available, image_url, handle)
   join public.inventory_items i on i.id = v.item_id and i.property_id = v_prop
