@@ -20,3 +20,21 @@ export function drivePhotos(driveFiles: unknown): Record<string, ResendPhoto[]> 
   }
   return Object.keys(photos).length ? photos : null;
 }
+
+type Tagged = { section: string; taken_at?: string | null; meter?: 'electric' | 'water' };
+const isMeter = (s: unknown) => typeof s === 'string' && /meter/i.test(s);
+
+/** s104: a resend that re-files the photos must not drop the s103 keys. Carries taken_at/meter over from the previous
+ *  drive_files to the new list by position within the meter section, only when both sides have the same meter count
+ *  (same rule as submit-cleaning tagTakenAt); otherwise the new list is returned untouched. */
+export function carryMeterTags<T extends Tagged>(oldFiles: unknown, next: T[] | null): T[] | null {
+  if (!next || !Array.isArray(oldFiles)) return next;
+  const prev = (oldFiles as Tagged[]).filter((f) => f && isMeter(f.section));
+  const cur = next.filter((f) => isMeter(f.section));
+  if (!cur.length || prev.length !== cur.length) return next;
+  cur.forEach((f, k) => {
+    if ('taken_at' in prev[k]) f.taken_at = prev[k].taken_at;
+    if (prev[k].meter === 'electric' || prev[k].meter === 'water') f.meter = prev[k].meter;
+  });
+  return next;
+}

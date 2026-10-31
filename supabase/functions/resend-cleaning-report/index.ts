@@ -24,7 +24,7 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { evaluateGasResponse, GAS_TIMEOUT_MS } from '../submit-cleaning/gas-response.ts';
-import { drivePhotos, type ResendPhoto } from './archive-photos.ts';
+import { carryMeterTags, drivePhotos, type ResendPhoto } from './archive-photos.ts';
 import { parseDriveArchive } from '../submit-cleaning/drive-archive.ts';
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type, x-cascade-cron-secret' };
@@ -138,7 +138,7 @@ Deno.serve(async (req: Request) => {
     const archive = parseDriveArchive(bodyText);
     if (archive) {
       const { error: upErr } = await db.from('cleaning_sessions').update({
-        session_folder_id: archive.folderId, session_folder_url: archive.folderUrl, drive_files: archive.files,
+        session_folder_id: archive.folderId, session_folder_url: archive.folderUrl, drive_files: carryMeterTags(session.drive_files, archive.files), // s104: keep s103 taken_at/meter
       }).eq('id', sessionId);
       idsStored = !upErr;
       if (upErr) console.warn('resend: drive archive not stored:', upErr.message);
