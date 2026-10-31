@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "release_id": "s106_item_options_20261109",
+  "phase": "expand",
+  "source": {
+    "branch": "s106/item-options",
+    "commit": ""
+  },
+  "migrations": [
+    "20261109000000_s106_item_options.sql"
+  ],
+  "migration_sha256": {
+    "20261109000000_s106_item_options.sql": "9aed06c8df6e414ed55ec8a2129d24dd7c616142d9c49dd101b757491420a18f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "s106 (Lloyd: brands and sizes are OPTIONS under one stock item). New table public.inventory_item_options (RLS on, no grants to any client role, not in realtime), two security definer RPCs for authenticated (inventory_item_options_v1: read_operations, price key only when read_finance passes; inventory_item_option_set_usual_v1: manage_inventory, flips the usual option and upserts the item/supplier link as preferred), one internal seed function with no grants. The migration seeds supplier Shopsuki (online, notes 'Prices read from shopsuki.ph on 2026-10-31'), 60 options for 18 items of property 6ae230f4-c189-4547-84b1-cb6e0b2cc9bd, and one preferred inventory_item_suppliers link per item that has no preferred link (live read 2026-10-31: none had any supplier link, so 18 links). No existing table, column, policy or function is changed.",
+    "notes": "Phase expand: additive. The seed writes one inventory_suppliers row and 18 inventory_item_suppliers rows; the rollback script removes them again (only if nothing else uses the supplier)."
+  },
+  "forward_verification": [
+    {
+      "name": "options_table_exists",
+      "query": "select to_regclass('public.inventory_item_options') is not null",
+      "expect": true
+    },
+    {
+      "name": "options_table_16_columns",
+      "query": "select count(*) = 16 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_item_options'",
+      "expect": true
+    },
+    {
+      "name": "options_table_rls_on",
+      "query": "select relrowsecurity from pg_class where oid = 'public.inventory_item_options'::regclass",
+      "expect": true
+    },
+    {
+      "name": "options_table_no_grants",
+      "query": "select not exists (select 1 from unnest(array['anon','authenticated','service_role']) r, unnest(array['select','insert','update','delete']) p where has_table_privilege(r, 'public.inventory_item_options', p)) and not exists (select 1 from pg_class c, aclexplode(c.relacl) a where c.oid = 'public.inventory_item_options'::regclass and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "options_table_not_in_realtime",
+      "query": "select not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'inventory_item_options')",
+      "expect": true
+    },
+    {
+      "name": "rpcs_definer_empty_search_path",
+      "query": "select count(*) = 2 from pg_proc where oid in ('public.inventory_item_options_v1(uuid)'::regprocedure, 'public.inventory_item_option_set_usual_v1(uuid)'::regprocedure) and prosecdef and proconfig = array['search_path=\"\"']",
+      "expect": true
+    },
+    {
+      "name": "rpcs_grants_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.inventory_item_options_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_item_option_set_usual_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_item_options_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_item_option_set_usual_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_item_options_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_item_option_set_usual_v1(uuid)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.inventory_item_options_v1(uuid)'::regprocedure and a.grantee = 0) and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.inventory_item_option_set_usual_v1(uuid)'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "seed_function_has_no_grants",
+      "query": "select not has_function_privilege('anon', 'public.s_inventory_item_options_seed_v1()', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_item_options_seed_v1()', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_item_options_seed_v1()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.s_inventory_item_options_seed_v1()'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "options_seeded_60",
+      "query": "select count(*) = 60 from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'",
+      "expect": true
+    },
+    {
+      "name": "options_18_items_one_usual_each",
+      "query": "select count(*) = 18 from (select item_id from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' group by item_id having count(*) filter (where is_usual) = 1) q",
+      "expect": true
+    },
+    {
+      "name": "shopsuki_supplier_once",
+      "query": "select count(*) = 1 from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(name)) = 'shopsuki'",
+      "expect": true
+    },
+    {
+      "name": "shopsuki_preferred_links_18",
+      "query": "select count(*) = 18 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where s.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(s.name)) = 'shopsuki' and k.is_preferred",
+      "expect": true
+    },
+    {
+      "name": "options_gate_refuses_without_staff",
+      "query": "select (select public.inventory_item_options_v1('73757510-887b-4a5c-a54b-ab65505392aa')) is null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always for the schema. Data written through inventory_item_option_set_usual_v1 after the release (preferred links moved to a Shopsuki option) is not restored by the script.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261109_s106_item_options.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag",
+      "required_state": "None. Nothing in the apps calls the RPCs until the front-end lane ships; the rollback script is the switch."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": ""
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is empty or verified_at is empty",
+    "the rehearsal has not run the migration and s106_item_options.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane (price gating, RPC gates, seed) has not passed",
+    "the live inventory_item_suppliers already has a preferred link for one of the 18 items (the seed would then link fewer than 18 items; re-plan the count checks)"
+  ]
+}
