@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261031T112350Z",
+    "verified_at": "2026-10-31T11:28:20.357Z",
     "production_rule": "s108 (Lloyd: any staff user can add, edit or delete product options under a stock item, admins approve). New table public.inventory_option_requests (RLS on, no grants to any client role, not in realtime), four security definer RPCs for authenticated (inventory_option_request_v1 create/apply, inventory_option_requests_v1 list, inventory_option_request_decide_v1, inventory_option_request_cancel_v1) and three internal functions with no grants. Nothing existing is changed. Run only on a restore point younger than one hour, after the s106 and s107 releases are applied.",
     "notes": "Additive. Applying changes no existing row. The only writes to existing tables happen later, through the RPCs: options added/edited/deleted by approved requests, and follow_up_tasks rows (source_kind option_request) opened for pending requests."
   },

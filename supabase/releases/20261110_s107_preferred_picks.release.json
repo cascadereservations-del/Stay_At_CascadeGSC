@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261031T112350Z",
+    "verified_at": "2026-10-31T11:28:20.357Z",
     "production_rule": "s107 (Lloyd: his preferred products are flagged options under their stock items). Adds inventory_item_options.is_preferred (boolean not null default false), widens the image_url check to the Shopee image host, replaces inventory_item_options_v1 (adds 'preferred' per option; order usual, preferred, then price or title) and inventory_item_option_set_usual_v1 (same signature, gates and result; its data part moves into the new internal function s_inventory_option_make_usual_v1, no grants). The migration refuses to run unless the live s106 bodies of both RPCs match the s106 migration (md5 guard). Data step s_inventory_preferred_picks_v1() (internal, no grants, idempotent) runs once on property 6ae230f4-c189-4547-84b1-cb6e0b2cc9bd: inserts supplier Shopee and item 'All-Purpose Cleaner (Mr Muscle)', upserts 19 picks as preferred options (3 already exist: Ambi Pur Downy 180g, Mr Muscle Mold & Mildew Primary 500ml, Nescafe Creamy Latte 20s), makes the order-1 pick of 11 items the usual option and its supplier link the preferred link (clears other usual and preferred links of those items), deletes the 4 Colgate options of Toiletries and its Shopsuki link. Expected first-run result: suppliers 1, items 1, options 19, removed 4, usual 11, links_removed 1.",
     "notes": "Phase backfill (the data step deletes rows, which the expand phase refuses; the schema part is additive). The data step changes usual choices, preferred supplier links and deletes 4 options (Toiletries); the restore point is the way back for those. Nothing in the apps changes until the front-end lane ships."
   },
