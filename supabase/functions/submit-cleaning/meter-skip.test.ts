@@ -95,7 +95,7 @@ Deno.test('only flags that mean wrong numbers are skipped as the previous readin
 });
 
 // ── D-352 "No meter photo was taken" ──────────────────────────────────────────
-import { keepDeltas, skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween } from './meter-skip.ts';
+import { keepDeltas, skipRefusedFromV2, meterFlagForSkip, meterNoPhotoNotice, pendingBetween } from './meter-skip.ts';
 import { meterNeighbours, meterOrderMessage, type MeterRow } from '../_shared/meter-order.ts';
 
 Deno.test('v2 answer: allowed false means refused; allowed true means allowed; anything odd means fall back', () => {
@@ -143,12 +143,10 @@ const verified = (elec: number, co: string): MeterRow => ({
   cleaning_sessions: { cleaning_type: 'turnover', checkout_date: co, nights_stayed: 1 },
 });
 
-Deno.test('W1 Ysabel: 4200 typed after a verified 4240 is refused with photos, accepted pending without', () => {
+Deno.test('W1 Ysabel: 4200 typed after a verified 4240 is an out-of-order finding', () => {
   const around = meterNeighbours([verified(4240, '2026-10-20')], '2026-10-27', true);
   const msg = meterOrderMessage(4200, null, around);
   assertEquals(typeof msg, 'string');
-  assertEquals(backwardsRefusal(msg, null), msg, 'a photographed reading is still refused');
-  assertEquals(backwardsRefusal(msg, meterFlagForSkip(true, 'turnover')), null, 'a declared skip is kept pending');
 });
 
 Deno.test('W2 the Finance line says Lloyd must decide when v2 refused the skip', () => {

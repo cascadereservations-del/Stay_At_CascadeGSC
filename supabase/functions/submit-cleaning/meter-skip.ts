@@ -40,7 +40,7 @@ export function meterReasons(
 export const METER_BLOCKING_TYPES = new Set(['turnover', 'deep_clean']);
 
 /** Flags that mean a stored reading's NUMBERS are wrong, so it must never be the "previous reading" a new
- *  one is compared with (D-219). first_reading and under_review are real numbers and still count. */
+ *  one is compared with (D-219). first_reading is a real number and still counts; estimate_pending and under_review do not (meter-order.ts). */
 import { stayKey, type MeterRow } from '../_shared/meter-order.ts';
 export { METER_WRONG_NUMBER_FLAGS } from '../_shared/meter-order.ts';
 
@@ -129,12 +129,6 @@ export function meterOrderNotice(cleaner: string, guest: string, checkOutDate: s
     `${who} sent a reading${stay}${when}. The ${parts.join(', and the ')}.`,
     'The numbers are kept but not used for usage until someone checks them. Lloyd or Marifel can reinstate it, correct it or ask for a new photo.',
   ].join('\n');
-}
-
-/** D-352: a typed number with no photo is kept and averaged later, so a pending reading is never refused for being
- *  out of order. Anything else keeps the D-219 refusal. */
-export function backwardsRefusal(orderMessage: string | null, meterFlag: string | null): string | null {
-  return meterFlag === 'estimate_pending' ? null : orderMessage;
 }
 
 /** F5: a pending reading accepted out of order (backwards) is stored without deltas or per-night usage; the settle

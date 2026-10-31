@@ -137,3 +137,18 @@ Deno.test('a late report for an earlier checkout, filed after a later stay, gets
   assertEquals(patch.length, 1);
   assertEquals([patch[0].id, patch[0].patch.electric_prev, patch[0].patch.electric_delta], ['frances', 4273, 53]);
 });
+
+Deno.test('s104 an unresolved under_review reading is never a neighbour or a usage sample', () => {
+  const rows = [
+    row('a', '2026-10-20', 4240, 80, {}),
+    row('b', '2026-10-22', 4200, 79, { meter_flag: 'under_review' }),
+  ];
+  const n = meterNeighbours(rows, '2026-10-25', true);
+  assertEquals(n.prevElec!.value, 4240, 'compared with the reading before the under_review one');
+  assertEquals(n.prevElec!.key, '2026-10-20');
+  const later = meterNeighbours(rows, '2026-10-21', true);
+  assertEquals(later.nextElec, null, 'and not as the next stay either');
+  assertEquals(meterOrderMessage(4260, 81, n), null);
+  assertEquals(usableRows(rows).length, 1);
+  assertEquals(usableRows([{ ...rows[1], meter_flag: 'first_reading' }]).length, 1, 'other flags still count');
+});

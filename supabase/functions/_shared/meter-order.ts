@@ -13,7 +13,7 @@ export const METER_WRONG_NUMBER_FLAGS = ['misread', 're_entry', 'duplicate'];
 /** Flags that mean a stored reading has NO photo behind it (D-352): typed numbers kept, not yet verified. Never a
  *  neighbour and never a usage sample until meter_settle_estimates_v1 flags it typed_accepted or estimated. Kept apart
  *  from the list above: those numbers are known wrong, these are only unproven. */
-export const METER_UNVERIFIED_FLAGS = ['estimate_pending'];
+export const METER_UNVERIFIED_FLAGS = ['estimate_pending', 'under_review'];
 
 export type MeterRow = {
   id?: string | null;
