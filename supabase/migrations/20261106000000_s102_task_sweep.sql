@@ -40,7 +40,7 @@ begin
   for t in
     select f.id, f.property_id, f.source_kind, f.source_ref
       from public.follow_up_tasks f
-     where f.status = 'open'
+     where f.status in ('open', 'in_progress')
        and f.idempotency_key like 'system:%'
        and f.source_kind in ('guest_details', 'missed_cleaning', 'meter_no_photo', 'meter_estimate_waiting')
   loop
@@ -51,7 +51,8 @@ begin
         if t.source_ref ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' then
           v_date := split_part(t.source_ref, ':', 1)::date;
           v_guest := split_part(t.source_ref, ':', 2)::uuid;
-          if not exists (select 1 from public.guests_missing_details_v1(array[v_guest])) then
+          if exists (select 1 from public.guests g where g.id = v_guest)
+             and not exists (select 1 from public.guests_missing_details_v1(array[v_guest])) then
             v_note := 'Closed automatically: the guest''s ID or contact details are now on file.';
           elsif not exists (select 1 from public.calendar_events ce
                              where ce.property_id = t.property_id and ce.status = 'confirmed' and ce.checkin_date = v_date) then
@@ -62,7 +63,9 @@ begin
         if t.source_ref ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
           v_date := t.source_ref::date;
           if exists (select 1 from public.cleaning_sessions cs
-                      where cs.property_id = t.property_id and cs.checkout_date = v_date) then
+                      where cs.property_id = t.property_id and cs.checkout_date = v_date
+                        -- a mid-stay clean carries the stay's checkout date but is not the turnover report (get_missed_cleanings excludes it too)
+                        and coalesce(cs.cleaning_type, 'checkout') <> 'mid_stay') then
             v_note := 'Closed automatically: the cleaning report for this checkout is now on file.';
           elsif not exists (select 1 from public.calendar_events ce
                              where ce.property_id = t.property_id and ce.status = 'confirmed' and ce.checkout_date = v_date) then
@@ -80,13 +83,14 @@ begin
         end if;
       end if;
     exception when others then
+      raise warning 's102 sweep skipped task % (%): %', t.id, t.source_kind, sqlerrm;
       v_note := null;
     end;
 
     if v_note is not null then
       update public.follow_up_tasks
          set status = 'done', completed_at = now(), completion_note = v_note
-       where id = t.id and status = 'open';
+       where id = t.id and status in ('open', 'in_progress');
       if t.source_kind = 'guest_details' then v_gd := v_gd + 1;
       elsif t.source_kind = 'missed_cleaning' then v_mc := v_mc + 1;
       else v_me := v_me + 1;
@@ -122,11 +126,13 @@ do $g$
 declare v_src text;
 begin
   select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.meter_settle_estimates_v1(uuid)');
-  if md5(v_src) is distinct from 'e3eaf07237d1fdfb39ac3d643d0bd6a3' and position('mr.vision_resolved_at is not null' in coalesce(v_src, '')) = 0 then
+  if md5(v_src) is distinct from 'e3eaf07237d1fdfb39ac3d643d0bd6a3' and md5(v_src) is distinct from '36726d52dccd5911ac473f607f4aab06' then
     raise exception 's102: public.meter_settle_estimates_v1 is not the body this release was cut from (md5 %)', md5(v_src) using errcode = '55000';
   end if;
 end $g$;
 
+-- shortcut: "answered by an admin" is read from the s101 note prefixes (resolve_meter_followup_v1, the cleaner's tap, writes other notes); switch to a
+-- vision_resolved_by role check if a third writer of those prefixes ever appears.
 CREATE OR REPLACE FUNCTION public.meter_settle_estimates_v1(p_property_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -215,7 +221,7 @@ begin
       if v_b_stay is not null then
         select mr.* into b
           from public.meter_readings mr join public.cleaning_sessions cs on cs.id = mr.session_id
-         where mr.property_id = v_prop and cs.checkout_date = v_b_stay and mr.meter_flag is null and (mr.vision_verdict = 'ok' or (mr.vision_verdict = 'mismatch' and mr.vision_resolved_at is not null))
+         where mr.property_id = v_prop and cs.checkout_date = v_b_stay and mr.meter_flag is null and (mr.vision_verdict = 'ok' or (mr.vision_verdict = 'mismatch' and mr.vision_resolved_at is not null and (mr.vision_resolved_note like 'Typed numbers confirmed by an admin%' or mr.vision_resolved_note like 'Numbers corrected by an admin%')))
          order by mr.recorded_at desc, mr.id limit 1;
       end if;
       if b.id is null then

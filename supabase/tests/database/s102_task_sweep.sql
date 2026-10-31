@@ -22,10 +22,12 @@
 --   G  flag typed_accepted; electric prev 100, delta 110 - 100 = 10.00, per night 10.00 / 2 = 5.00; water prev 10, delta 11 - 10 = 1.000, per night 1.000 / 2 = 0.500.
 --   B  electric prev 110, delta 140 - 110 = 30.00, per night 30.00 / 2 = 15.00; water prev 11, delta 12 - 11 = 1.000, per night 0.500.
 --   A meter_estimate_waiting task for G's session is opened before the settle: once G is settled the sweep closes it.
+--   T11 ref 2026-11-05 a confirmed stay checks out, the only session is mid_stay                -> stays OPEN
+-- P7 the same gap as P6 but B was released by the cleaner's tap ('I photographed the meter today'): not an admin answer, nothing settles.
 -- P6 the same gap but B's mismatch is NOT answered: nothing settles (waiting 1, settled 0), G stays estimate_pending, and the settle itself opens the
 --   meter_estimate_waiting task for G's session (G checked out 2026-10-12, more than 7 days before any date this runs): the sweep must leave it open.
 begin;
-select plan(35);
+select plan(37);
 
 -- catalogue and grants ------------------------------------------------------------------------------------------------------------------------------
 select has_function('public', 'system_tasks_sweep_v1', array[]::name[], 'system_tasks_sweep_v1 exists');
@@ -50,7 +52,8 @@ insert into public.properties(id, name, is_active) values
  ('e5000000-0000-4000-8000-000000000003', 'S102 other property', true),
  ('e5000000-0000-4000-8000-000000000004', 'S102 meter tasks', true),
  ('e5000000-0000-4000-8000-000000000005', 'S102 settle answered', true),
- ('e5000000-0000-4000-8000-000000000006', 'S102 settle unanswered', true) on conflict (id) do nothing;
+ ('e5000000-0000-4000-8000-000000000006', 'S102 settle unanswered', true),
+ ('e5000000-0000-4000-8000-000000000007', 'S102 settle cleaner tap', true) on conflict (id) do nothing;
 insert into auth.users(id) values ('e6000000-0000-4000-8000-000000000001') on conflict (id) do nothing;
 
 -- P1
@@ -69,10 +72,12 @@ insert into public.calendar_events(property_id, uid, source, status, checkin_dat
  ('e5000000-0000-4000-8000-000000000002', 's102-p2-a', 'airbnb', 'confirmed', '2026-10-30', '2026-11-01'),
  ('e5000000-0000-4000-8000-000000000002', 's102-p2-b', 'airbnb', 'blocked',   '2026-11-01', '2026-11-02'),
  ('e5000000-0000-4000-8000-000000000002', 's102-p2-c', 'airbnb', 'confirmed', current_date - 32, current_date - 30),
- ('e5000000-0000-4000-8000-000000000002', 's102-p2-d', 'airbnb', 'confirmed', '2026-11-01', '2026-11-03');
+ ('e5000000-0000-4000-8000-000000000002', 's102-p2-d', 'airbnb', 'confirmed', '2026-11-01', '2026-11-03'),
+ ('e5000000-0000-4000-8000-000000000002', 's102-p2-e', 'airbnb', 'confirmed', '2026-11-03', '2026-11-05');
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, nights_stayed, checkout_date, cleaned_at) values
  ('e8000000-0000-4000-8000-000000000001', 's102-p2-s', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000002', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-11-01', '2026-11-01 12:00+08'),
- ('e8000000-0000-4000-8000-000000000002', 's102-p3-s', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000003', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-11-03', '2026-11-03 12:00+08');
+ ('e8000000-0000-4000-8000-000000000002', 's102-p3-s', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000003', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-11-03', '2026-11-03 12:00+08'),
+ ('e8000000-0000-4000-8000-000000000003', 's102-p2-m', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000002', 'mid_stay', 'e6000000-0000-4000-8000-000000000001', 2, '2026-11-05', '2026-11-04 12:00+08');
 
 -- P4: four sessions, readings with different flags
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, nights_stayed, checkout_date, cleaned_at) values
@@ -93,17 +98,24 @@ insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_i
  ('e8000000-0000-4000-8000-000000000023', 's102-p5-b', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000005', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-10-14', '2026-10-14 12:00+08'),
  ('e8000000-0000-4000-8000-000000000031', 's102-p6-a', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000006', 'turnover', 'e6000000-0000-4000-8000-000000000001', 1, '2026-10-10', '2026-10-10 12:00+08'),
  ('e8000000-0000-4000-8000-000000000032', 's102-p6-g', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000006', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-10-12', '2026-10-12 12:00+08'),
- ('e8000000-0000-4000-8000-000000000033', 's102-p6-b', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000006', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-10-14', '2026-10-14 12:00+08');
+ ('e8000000-0000-4000-8000-000000000033', 's102-p6-b', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000006', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-10-14', '2026-10-14 12:00+08'),
+ ('e8000000-0000-4000-8000-000000000041', 's102-p7-a', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000007', 'turnover', 'e6000000-0000-4000-8000-000000000001', 1, '2026-10-10', '2026-10-10 12:00+08'),
+ ('e8000000-0000-4000-8000-000000000042', 's102-p7-g', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000007', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-10-12', '2026-10-12 12:00+08'),
+ ('e8000000-0000-4000-8000-000000000043', 's102-p7-b', 'Synthetic Cleaner', 'e5000000-0000-4000-8000-000000000007', 'turnover', 'e6000000-0000-4000-8000-000000000001', 2, '2026-10-14', '2026-10-14 12:00+08');
 insert into public.calendar_events(property_id, uid, source, status, checkin_date, checkout_date) values
  ('e5000000-0000-4000-8000-000000000005', 's102-p5-ce', 'airbnb', 'confirmed', '2026-10-12', '2026-10-14'),
- ('e5000000-0000-4000-8000-000000000006', 's102-p6-ce', 'airbnb', 'confirmed', '2026-10-12', '2026-10-14');
-insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict, vision_resolved_at, meter_flag) values
- ('e9000000-0000-4000-8000-000000000021', 'e8000000-0000-4000-8000-000000000021', 'e5000000-0000-4000-8000-000000000005', 'e6000000-0000-4000-8000-000000000001', 100, 10, 'ok', null, null),
- ('e9000000-0000-4000-8000-000000000022', 'e8000000-0000-4000-8000-000000000022', 'e5000000-0000-4000-8000-000000000005', 'e6000000-0000-4000-8000-000000000001', 110, 11, null, null, 'estimate_pending'),
- ('e9000000-0000-4000-8000-000000000023', 'e8000000-0000-4000-8000-000000000023', 'e5000000-0000-4000-8000-000000000005', 'e6000000-0000-4000-8000-000000000001', 140, 12, 'mismatch', now(), null),
- ('e9000000-0000-4000-8000-000000000031', 'e8000000-0000-4000-8000-000000000031', 'e5000000-0000-4000-8000-000000000006', 'e6000000-0000-4000-8000-000000000001', 100, 10, 'ok', null, null),
- ('e9000000-0000-4000-8000-000000000032', 'e8000000-0000-4000-8000-000000000032', 'e5000000-0000-4000-8000-000000000006', 'e6000000-0000-4000-8000-000000000001', 110, 11, null, null, 'estimate_pending'),
- ('e9000000-0000-4000-8000-000000000033', 'e8000000-0000-4000-8000-000000000033', 'e5000000-0000-4000-8000-000000000006', 'e6000000-0000-4000-8000-000000000001', 140, 12, 'mismatch', null, null);
+ ('e5000000-0000-4000-8000-000000000006', 's102-p6-ce', 'airbnb', 'confirmed', '2026-10-12', '2026-10-14'),
+ ('e5000000-0000-4000-8000-000000000007', 's102-p7-ce', 'airbnb', 'confirmed', '2026-10-12', '2026-10-14');
+insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict, vision_resolved_at, meter_flag, vision_resolved_note) values
+ ('e9000000-0000-4000-8000-000000000021', 'e8000000-0000-4000-8000-000000000021', 'e5000000-0000-4000-8000-000000000005', 'e6000000-0000-4000-8000-000000000001', 100, 10, 'ok', null, null, null),
+ ('e9000000-0000-4000-8000-000000000022', 'e8000000-0000-4000-8000-000000000022', 'e5000000-0000-4000-8000-000000000005', 'e6000000-0000-4000-8000-000000000001', 110, 11, null, null, 'estimate_pending', null),
+ ('e9000000-0000-4000-8000-000000000023', 'e8000000-0000-4000-8000-000000000023', 'e5000000-0000-4000-8000-000000000005', 'e6000000-0000-4000-8000-000000000001', 140, 12, 'mismatch', now(), null, 'Typed numbers confirmed by an admin'),
+ ('e9000000-0000-4000-8000-000000000031', 'e8000000-0000-4000-8000-000000000031', 'e5000000-0000-4000-8000-000000000006', 'e6000000-0000-4000-8000-000000000001', 100, 10, 'ok', null, null, null),
+ ('e9000000-0000-4000-8000-000000000032', 'e8000000-0000-4000-8000-000000000032', 'e5000000-0000-4000-8000-000000000006', 'e6000000-0000-4000-8000-000000000001', 110, 11, null, null, 'estimate_pending', null),
+ ('e9000000-0000-4000-8000-000000000033', 'e8000000-0000-4000-8000-000000000033', 'e5000000-0000-4000-8000-000000000006', 'e6000000-0000-4000-8000-000000000001', 140, 12, 'mismatch', null, null, null),
+ ('e9000000-0000-4000-8000-000000000041', 'e8000000-0000-4000-8000-000000000041', 'e5000000-0000-4000-8000-000000000007', 'e6000000-0000-4000-8000-000000000001', 100, 10, 'ok', null, null, null),
+ ('e9000000-0000-4000-8000-000000000042', 'e8000000-0000-4000-8000-000000000042', 'e5000000-0000-4000-8000-000000000007', 'e6000000-0000-4000-8000-000000000001', 110, 11, null, null, 'estimate_pending', null),
+ ('e9000000-0000-4000-8000-000000000043', 'e8000000-0000-4000-8000-000000000043', 'e5000000-0000-4000-8000-000000000007', 'e6000000-0000-4000-8000-000000000001', 140, 12, 'mismatch', now(), null, 'I photographed the meter today');
 
 -- the open tasks, exactly as the jobs file them -------------------------------------------------------------------------------------------------------
 do $do$
@@ -118,6 +130,7 @@ begin
   perform public.system_task_open_v1('e5000000-0000-4000-8000-000000000002', 'missed_cleaning', (current_date - 30)::text, 'Missed cleaning T8', null, 'low');
   perform public.system_task_open_v1('e5000000-0000-4000-8000-000000000002', 'missed_cleaning', '2026-11-03', 'Missed cleaning T9', null, 'low');
   perform public.system_task_open_v1('e5000000-0000-4000-8000-000000000002', 'missed_cleaning', '2026-11-04', 'Missed cleaning T10', null, 'low');
+  perform public.system_task_open_v1('e5000000-0000-4000-8000-000000000002', 'missed_cleaning', '2026-11-05', 'Missed cleaning T11', null, 'low');
   update public.follow_up_tasks set status = 'done', completed_at = '2026-01-01 00:00+00', completion_note = 'kept as is'
    where idempotency_key = 'system:missed_cleaning:2026-11-04';
   perform public.system_task_open_v1('e5000000-0000-4000-8000-000000000004', 'meter_no_photo', 'e8000000-0000-4000-8000-000000000011', 'Meter no photo S1', null, 'low');
@@ -136,6 +149,7 @@ select ok((select electric_prev = 100 and electric_delta = 10.00 and kwh_per_nig
 select ok((select electric_prev = 110 and electric_delta = 30.00 and kwh_per_night = 15.00 and water_prev = 11 and water_delta = 1.000 and m3_per_night = 0.500 from public.meter_readings where id = 'e9000000-0000-4000-8000-000000000023'), 'B: prev 110 / 11, delta 30.00 / 1.000, per night 15.00 / 0.500');
 select is(public.meter_settle_estimates_v1('e5000000-0000-4000-8000-000000000006') ->> 'settled', '0', 'unanswered mismatch as B: nothing settles');
 select is((select count(*) from public.meter_readings where id = 'e9000000-0000-4000-8000-000000000032' and meter_flag = 'estimate_pending' and electric_prev is null), 1::bigint, 'unanswered: G stays estimate_pending, untouched');
+select is(public.meter_settle_estimates_v1('e5000000-0000-4000-8000-000000000007') ->> 'settled', '0', 'a mismatch released by the cleaner''s own tap is not B: nothing settles');
 
 -- the sweep -------------------------------------------------------------------------------------------------------------------------------------------
 create temp table s102_first as select public.system_tasks_sweep_v1() as r;
@@ -156,6 +170,7 @@ select ok((select status = 'done' and completed_at is not null and completion_no
              from public.follow_up_tasks where idempotency_key = 'system:missed_cleaning:2026-11-02'), 'T7: only a blocked event -> closed as no confirmed stay');
 select is((select status from public.follow_up_tasks where idempotency_key = 'system:missed_cleaning:' || (current_date - 30)::text), 'open', 'T8: a confirmed stay with no report stays open even when 30 days old');
 select is((select status from public.follow_up_tasks where idempotency_key = 'system:missed_cleaning:2026-11-03'), 'open', 'T9: a session of another property does not close it');
+select is((select status from public.follow_up_tasks where idempotency_key = 'system:missed_cleaning:2026-11-05'), 'open', 'T11: a mid-stay clean on the checkout date is not the report');
 select ok((select status = 'done' and completion_note = 'kept as is' and completed_at = '2026-01-01 00:00+00' from public.follow_up_tasks where idempotency_key = 'system:missed_cleaning:2026-11-04'), 'T10: an already-done task is not touched');
 select ok((select status = 'done' and completion_note = 'Closed automatically: the meter readings have settled.' from public.follow_up_tasks where idempotency_key = 'system:meter_no_photo:e8000000-0000-4000-8000-000000000011'), 'S1: reading no longer pending -> meter_no_photo closed');
 select is((select status from public.follow_up_tasks where idempotency_key = 'system:meter_estimate_waiting:e8000000-0000-4000-8000-000000000012'), 'open', 'S2: reading still estimate_pending -> meter_estimate_waiting stays open');

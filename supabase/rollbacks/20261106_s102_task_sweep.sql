@@ -248,4 +248,18 @@ $function$
 revoke all on function public.meter_settle_estimates_v1(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.meter_settle_estimates_v1(uuid) to service_role;
 
+-- the rollback proves itself: live body back, sweep and job gone
+do $chk$
+begin
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure) <> 'e3eaf07237d1fdfb39ac3d643d0bd6a3' then
+    raise exception 's102 rollback: meter_settle_estimates_v1 is not the live s100 body';
+  end if;
+  if to_regprocedure('public.system_tasks_sweep_v1()') is not null then
+    raise exception 's102 rollback: system_tasks_sweep_v1 still exists';
+  end if;
+  if to_regclass('cron.job') is not null and exists (select 1 from cron.job where jobname = 'system-tasks-sweep') then
+    raise exception 's102 rollback: cron job system-tasks-sweep still scheduled';
+  end if;
+end $chk$;
+
 commit;
