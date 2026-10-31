@@ -193,3 +193,42 @@ Deno.test('F2/F3/F5 wiring guard: Finance text from the reasons, dup path typed 
   assertEquals(src.includes('electric_delta: kd ? deltaKwh : null'), true);
   assertEquals(src.includes('m3_per_night:   kd ? m3PerNight : null'), true);
 });
+
+import { flagForOrder, meterBackwardsParts, meterOrderNotice } from './meter-skip.ts';
+import { meterOrderParts } from '../_shared/meter-order.ts';
+
+Deno.test('s104 nothing blocks: an out-of-order reading is flagged under_review; a declared skip keeps estimate_pending', () => {
+  const around = meterNeighbours([verified(4240, '2026-10-20')], '2026-10-27', true);
+  const parts = meterOrderParts(4200, null, around);
+  assertEquals(parts.length, 1);
+  assertEquals(parts[0].startsWith('electric 4200 kWh is lower than the reading for the stay that checked out Oct 20 (4240)'), true);
+  assertEquals(flagForOrder(null, parts.join('; ')), 'under_review');
+  assertEquals(flagForOrder('estimate_pending', parts.join('; ')), 'estimate_pending');
+  assertEquals(flagForOrder(null, null), null);
+  assertEquals(meterOrderParts(4300, null, around), []);
+});
+
+Deno.test('s104 the fallback finds a backwards number when the history could not be read', () => {
+  assertEquals(meterBackwardsParts(4200, 4240, null, null), ['electric 4200 kWh is lower than the last reading (4240)']);
+  assertEquals(meterBackwardsParts(4300, 4240, 50, 49), []);
+});
+
+Deno.test('s104 the OPS notice leads with what happened, carries the numbers and the way forward, no ids', () => {
+  const t = meterOrderNotice('Honey', 'Ysabel Trajico', '2026-10-21', ['electric 4200 kWh is lower than the last reading (4240)']);
+  assertEquals(t.split('\n')[0], 'Meter reading out of order - the report was accepted.');
+  assertEquals(t.includes('Honey sent a reading for the stay of Ysabel Trajico (checked out Oct 21). The electric 4200 kWh is lower'), true);
+  assertEquals(t.includes('reinstate it, correct it or ask for a new photo'), true);
+  assertEquals(meterOrderNotice('—', '—', null, ['x']).includes('The cleaner sent a reading. The x.'), true);
+});
+
+Deno.test('s104 wiring guard: no 409, flagged row, no re-point, deltas nulled, notice with the resolve button', async () => {
+  const src = (await Deno.readTextFile(new URL('./index.ts', import.meta.url))).replace(/\r\n/g, '\n');
+  assertEquals(src.includes('meter_backwards'), true, 'the accepted-pending log event');
+  assertEquals(src.includes("error: 'meter_backwards'"), false, 'the 409 refusal is gone');
+  assertEquals(src.includes(', 409)'), false);
+  assertEquals(src.includes('const meterFlag = flagForOrder(meterFlagForSkip('), true);
+  assertEquals(src.includes('const kd = keepDeltas(orderMsg, meterFlag);'), true);
+  assertEquals(src.includes('if (!meterFlag) for (const { id, patch } of repointNext('), true);
+  assertEquals(src.includes("meterFlag === 'under_review' && TG_TOKEN && TG_CHAT_ID"), true);
+  assertEquals(src.includes("text: 'Open and resolve', url: RESOLVE_URL"), true);
+});

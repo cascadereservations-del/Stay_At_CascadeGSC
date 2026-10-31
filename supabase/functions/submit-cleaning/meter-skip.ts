@@ -50,6 +50,19 @@ export function meterBackwardsMessage(
   elec: number | null, prevElec: number | null,
   water: number | null, prevWater: number | null,
 ): string | null {
+  const back = meterBackwardsParts(elec, prevElec, water, prevWater);
+  if (back.length === 0) return null;
+  return [
+    `The ${back.join(', and the ')}. A meter does not run backwards, so this report was not sent.`,
+    `Read the meter again and type the number exactly as it shows. If the meter really shows this number, take a photo of it and message Lloyd - the last reading on file is the one that is wrong.`,
+  ].join(' ');
+}
+
+/** The "lower than the last reading" findings alone (used when no stay-order neighbours could be read). */
+export function meterBackwardsParts(
+  elec: number | null, prevElec: number | null,
+  water: number | null, prevWater: number | null,
+): string[] {
   const back: string[] = [];
   if (elec !== null && Number.isFinite(elec) && prevElec !== null && elec < prevElec) {
     back.push(`electric ${elec} kWh is lower than the last reading (${prevElec})`);
@@ -57,11 +70,7 @@ export function meterBackwardsMessage(
   if (water !== null && Number.isFinite(water) && prevWater !== null && water < prevWater) {
     back.push(`water ${water} m³ is lower than the last reading (${prevWater})`);
   }
-  if (back.length === 0) return null;
-  return [
-    `The ${back.join(', and the ')}. A meter does not run backwards, so this report was not sent.`,
-    `Read the meter again and type the number exactly as it shows. If the meter really shows this number, take a photo of it and message Lloyd - the last reading on file is the one that is wrong.`,
-  ].join(' ');
+  return back;
 }
 
 /* ── "No meter photo was taken" (D-352, 2026-10-29) ───────────────────────────
@@ -100,6 +109,25 @@ export function meterNoPhotoNotice(
     refused
       ? `The stay next to it also has no meter photo, so the report is marked incomplete and Lloyd needs to decide what to do. The typed readings are kept for now. The follow-up is in the admin app for Lloyd and Marifel.`
       : `Nothing to do now. The typed readings are kept until the next verified reading, then checked and averaged if they do not fit. The follow-up is in the admin app for Lloyd and Marifel.`,
+  ].join('\n');
+}
+
+/** s104 (Lloyd 2026-10-31): nothing blocks a report. A reading that is out of order is saved flagged 'under_review' (an
+ *  admin reinstates, edits or asks for a resend); a declared skip keeps its own estimate_pending flag. */
+export function flagForOrder(meterFlag: string | null, orderMessage: string | null): string | null {
+  return meterFlag ?? (orderMessage ? 'under_review' : null);
+}
+
+/** The OPS line for an out-of-order reading that was accepted. Plain text, numbers first, no ids (D-197). */
+export function meterOrderNotice(cleaner: string, guest: string, checkOutDate: string | null, parts: string[]): string {
+  const who = cleaner && cleaner !== '—' ? cleaner : 'The cleaner';
+  const stay = guest && guest !== '—' ? ` for the stay of ${guest}` : '';
+  const when = checkOutDate && /^\d{4}-\d{2}-\d{2}$/.test(checkOutDate)
+    ? ` (checked out ${new Date(`${checkOutDate}T00:00:00+08:00`).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' })})` : '';
+  return [
+    'Meter reading out of order - the report was accepted.',
+    `${who} sent a reading${stay}${when}. The ${parts.join(', and the ')}.`,
+    'The numbers are kept but not used for usage until someone checks them. Lloyd or Marifel can reinstate it, correct it or ask for a new photo.',
   ].join('\n');
 }
 

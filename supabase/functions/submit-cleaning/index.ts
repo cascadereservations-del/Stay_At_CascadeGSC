@@ -42,10 +42,10 @@ import { evaluateGasResponse, gasTimeoutMs } from './gas-response.ts';
 import { parseDriveArchive, archiveNotice, tagTakenAt } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import {
-  meterReasons, parseMeterSkip, skipRefusedFromV2, keepDeltas, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween,
-  METER_BLOCKING_TYPES,
+  meterReasons, parseMeterSkip, skipRefusedFromV2, keepDeltas, meterFlagForSkip, meterNoPhotoNotice, pendingBetween,
+  flagForOrder, meterBackwardsParts, meterOrderNotice, METER_BLOCKING_TYPES,
 } from './meter-skip.ts';
-import { meterNeighbours, meterOrderMessage, repointNext, stayKey, stayDays, usageSamples, type MeterRow, type Neighbours } from '../_shared/meter-order.ts';
+import { meterNeighbours, meterOrderParts, repointNext, stayKey, stayDays, usageSamples, type MeterRow, type Neighbours } from '../_shared/meter-order.ts';
 // v29 (session 26, 2026-09-16, Telegram plan §5/§6): OPS report and Finance cards open with the
 //   shared header line; every [URGENT] note raises a work order (raise_work_order_v1, idempotent
 //   per session + note index) and posts an OPS card with a lite-tier suggested action. The
@@ -116,6 +116,9 @@ interface Payload {
 // v28: returns whether the send actually landed, instead of only console.warn
 // on failure — a Telegram failure was exactly as silent as the GAS/email one
 // used to be (see the GAS-forward comment below), just never yet observed.
+// D-354: same resolve link verify-meter-photo uses.
+const RESOLVE_URL = 'https://cascadereservations-del.github.io/cascade-admin-dashboard/#/operations';
+
 async function tgPost(token: string, method: string, body: Record<string, unknown>): Promise<{ ok: boolean; reason?: string }> {
   try {
     const resp = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
@@ -525,22 +528,20 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
     const kwhPerNight = (deltaKwh !== null && nights > 0) ? Number((deltaKwh / nights).toFixed(2)) : null;
     const m3PerNight  = (deltaM3  !== null && nights > 0) ? Number((deltaM3  / nights).toFixed(3)) : null;
 
-    /* D-219 (Lloyd 2026-09-23): a meter does not run backwards, so a reading below the stay before it, or above the
-       stay after it, is refused before anything is written. The checklist refuses it first; this makes it a rule. */
-    // The one-time meter-photo allowance (checklist 2026-09-13, ported from the never-deployed
-    // stay-site v28 on 2026-09-18). The client requires the note; it is re-checked in meter-skip.ts.
+    /* D-219 (2026-09-23) refused a reading below the stay before it or above the stay after it. Lloyd 2026-10-31: nothing
+       blocks a report. The report is saved, the reading is flagged 'under_review' with no deltas (never a negative one),
+       the later stay is not re-pointed from it, and OPS is told; an admin reinstates, edits or asks for a resend. */
     const { skipped: meterPhotosSkipped, note: meterSkipNote } =
       parseMeterSkip(payload.meterPhotosSkipped, payload.meterPhotoSkipNote);
-    // A declared skip has no photo behind its numbers: estimate_pending until the next verified reading (D-352).
-    const meterFlag = meterFlagForSkip(meterPhotosSkipped, cleaningType);
-    const orderMsg = meterOrderMessage(isNaN(elecNum) ? null : elecNum, isNaN(waterNum) ? null : waterNum, around);
-    const backwards = backwardsRefusal(orderMsg, meterFlag);
-    if (orderMsg && !backwards) {
-      console.log(JSON.stringify({ event: 'meter_backwards_accepted_pending', typed: [elecNum, waterNum], prev: [prevElec, prevWater], next: [around.nextElec?.value ?? null, around.nextWater?.value ?? null], stay: stayDate }));
-    }
-    if (backwards) {
-      console.log(JSON.stringify({ event: 'meter_backwards_refused', typed: [elecNum, waterNum], prev: [prevElec, prevWater], next: [around.nextElec?.value ?? null, around.nextWater?.value ?? null], stay: stayDate }));
-      return json({ ok: false, error: 'meter_backwards', message: backwards }, 409);
+    const elecIn = isNaN(elecNum) ? null : elecNum, waterIn = isNaN(waterNum) ? null : waterNum;
+    // Stay-order findings first; when the history could not be read, fall back to "lower than the previous" so a negative delta is never stored.
+    let orderParts = meterOrderParts(elecIn, waterIn, around);
+    if (!orderParts.length) orderParts = meterBackwardsParts(elecIn, prevElec, waterIn, prevWater);
+    const orderMsg = orderParts.length ? orderParts.join('; ') : null;
+    // A declared skip has no photo behind its numbers: estimate_pending until the next verified reading (D-352), which wins over under_review.
+    const meterFlag = flagForOrder(meterFlagForSkip(meterPhotosSkipped, cleaningType), orderMsg);
+    if (orderMsg) {
+      console.log(JSON.stringify({ event: 'meter_backwards_accepted_pending', flag: meterFlag, typed: [elecNum, waterNum], prev: [prevElec, prevWater], next: [around.nextElec?.value ?? null, around.nextWater?.value ?? null], stay: stayDate }));
     }
     const urgentItems = String(payload.urgentItems ?? '');
 
@@ -710,6 +711,16 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
         const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
         if (rt?.waitUntil) rt.waitUntil(sentP);
       }
+    }
+
+    // s104: an out-of-order reading was accepted; tell OPS once, with the way to resolve it. Non-fatal and not awaited.
+    if (meterWritten && meterFlag === 'under_review' && TG_TOKEN && TG_CHAT_ID) {
+      const sentO = tgPost(TG_TOKEN, 'sendMessage', {
+        chat_id: TG_CHAT_ID, text: withHeader('cleaning', `meter out of order ${cleaningDate}`, meterOrderNotice(cleanerName, lastGuestName, checkOutDate, orderParts)),
+        reply_markup: { inline_keyboard: [[{ text: 'Open and resolve', url: RESOLVE_URL }]] },
+      }).catch(err => console.warn('[meter-order] notice non-fatal:', err));
+      const rtO = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+      if (rtO?.waitUntil) rtO.waitUntil(sentO);
     }
 
     if (meterWritten && !meterRows) console.warn('[anomaly] skipped: meter history was not read');

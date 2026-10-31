@@ -78,6 +78,16 @@ const day = (key: string) => new Date(`${key}T00:00:00+08:00`).toLocaleDateStrin
 /** The refusal, or null. A reading must not be below the stay before it or above the stay after it: a meter does
  *  not run backwards (D-219). A missing number or neighbour never blocks: there is nothing to compare. */
 export function meterOrderMessage(elec: number | null, water: number | null, n: Neighbours): string | null {
+  const out = meterOrderParts(elec, water, n);
+  if (!out.length) return null;
+  return [
+    `The ${out.join(', and the ')}. A meter does not run backwards, so this report was not sent.`,
+    `Check the check-out date first, then read the photo again and type the number exactly as it shows. If both are right, message Lloyd - one of the readings on file is wrong.`,
+  ].join(' ');
+}
+
+/** The out-of-order findings alone, one phrase each (s104: the report is no longer refused, the phrases go in the OPS notice). */
+export function meterOrderParts(elec: number | null, water: number | null, n: Neighbours): string[] {
   const out: string[] = [];
   const check = (label: string, unit: string, v: number | null, p: Neighbour | null, q: Neighbour | null) => {
     if (v === null || !Number.isFinite(v)) return;
@@ -86,11 +96,7 @@ export function meterOrderMessage(elec: number | null, water: number | null, n: 
   };
   check('electric', 'kWh', elec, n.prevElec, n.nextElec);
   check('water', 'm³', water, n.prevWater, n.nextWater);
-  if (!out.length) return null;
-  return [
-    `The ${out.join(', and the ')}. A meter does not run backwards, so this report was not sent.`,
-    `Check the check-out date first, then read the photo again and type the number exactly as it shows. If both are right, message Lloyd - one of the readings on file is wrong.`,
-  ].join(' ');
+  return out;
 }
 
 /** The later stays' usage, recomputed from this reading: per meter, the row that holds the next electric and the
