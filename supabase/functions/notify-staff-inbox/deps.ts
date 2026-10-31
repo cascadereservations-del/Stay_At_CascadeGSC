@@ -18,6 +18,17 @@ export function makeDeps(db: DbLike, push: InboxDeps['push'], nowMs: () => numbe
       if (error) { console.error('staff_push_notice_recipients_v1 failed:', error.code); return null; }
       return (data ?? []) as Sub[];
     },
+    // s104: one staff member's phones that hold the notices topic (the default topics are paid + notices); before the topics column exists every phone of that user.
+    userRecipients: async (userId) => {
+      const base = () => db.from('staff_push_subscriptions').select('id,endpoint,p256dh,auth').eq('user_id', userId);
+      const first = await base().contains('topics', ['notices']);
+      if (!first.error) return (first.data ?? []) as Sub[];
+      const absent = first.error.code === '42703' || (first.error.code === 'PGRST204' && /topics/i.test(first.error.message ?? ''));
+      if (!absent) { console.error('staff_push_subscriptions read failed:', first.error.code); return null; }
+      const again = await base();
+      if (again.error) { console.error('staff_push_subscriptions read failed:', again.error.code); return null; }
+      return (again.data ?? []) as Sub[];
+    },
     notice: async (id) => {
       const { data, error } = await db.from('ops_notices').select('id,property_id,notice_type,effective_date,effective_time,duration_hours,is_active').eq('id', id).maybeSingle();
       if (error) { console.error('ops_notices read failed:', error.code); return null; }

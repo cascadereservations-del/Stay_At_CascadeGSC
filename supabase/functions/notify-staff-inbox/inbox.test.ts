@@ -151,3 +151,53 @@ Deno.test('the database calls use the exact RPC names and argument keys', async 
   assertEquals(await failing.recipients(), null);
   assertEquals(await failing.claim('k'), null);
 });
+
+// ---- s104: meter_resend, a push to the ONE cleaner who submitted the report ----
+const U = '9c1e4a52-3b7d-4f08-8a21-5e6f7a8b9c0d';
+const R = '1b2c3d4e-5f60-4a71-8b92-a3b4c5d6e7f8';
+Deno.test('meter_resend: parses, rejects bad ids and a bad stay', () => {
+  assertEquals(parseEvent({ kind: 'meter_resend', user_id: U.toUpperCase(), reading_id: R, stay: '2026-10-22' }), { ok: true, value: { kind: 'meter_resend', userId: U, readingId: R, stay: '2026-10-22' } });
+  assertEquals(parseEvent({ kind: 'meter_resend', user_id: U, reading_id: R }), { ok: true, value: { kind: 'meter_resend', userId: U, readingId: R, stay: null } });
+  assertEquals(parseEvent({ kind: 'meter_resend', user_id: 'x', reading_id: R }), { ok: false, reason: 'bad_user_id' });
+  assertEquals(parseEvent({ kind: 'meter_resend', user_id: U, reading_id: 'x' }), { ok: false, reason: 'bad_reading_id' });
+  assertEquals(parseEvent({ kind: 'meter_resend', user_id: U, reading_id: R, stay: '22 Oct' }), { ok: false, reason: 'bad_stay' });
+});
+
+Deno.test('meter_resend: one claim per reading per 15 minutes, the payload is the plain sentence, only that user phones are asked', async () => {
+  const e = { kind: 'meter_resend' as const, userId: U, readingId: R, stay: '2026-10-22' };
+  assertEquals(claimKey(e, NOW), `meter_resend:${R}:${Math.floor(NOW / 900_000)}`);
+  const asked: string[] = [];
+  const f = fake({ userRecipients: async (u) => { asked.push(u); return subs; } });
+  const out = await runInbox(e, f.deps);
+  assertEquals(out.push.sent, 2);
+  assertEquals(asked, [U]);
+  assert(!f.calls.includes('recipients'));
+  assertEquals(f.sent[0].m, { title: 'Cascade Staff', body: 'New meter photo needed for the Thu 22 Oct stay.', url: './#calendar/notices', tag: 'meter-resend' });
+  assert(!/[!]|PHP|@/.test((f.sent[0].m as { body: string }).body));
+  const none = await runInbox({ ...e, stay: null }, fake({ userRecipients: async () => subs }).deps);
+  assertEquals(none.ok, true);
+});
+
+Deno.test('meter_resend: no phone for that user sends and claims nothing; a failed read is a 502; a second ask in the bucket sends nothing', async () => {
+  const f = fake({ userRecipients: async () => [] });
+  const e = { kind: 'meter_resend' as const, userId: U, readingId: R, stay: null };
+  assertEquals((await runInbox(e, f.deps)).skipped, 'no_recipients');
+  assert(!f.calls.some((c) => c.startsWith('claim:')));
+  assertEquals((await runInbox(e, fake({ userRecipients: async () => null }).deps)).reason, 'rpc_failed');
+  const g = fake({ userRecipients: async () => subs, claim: async () => false });
+  assertEquals((await runInbox(e, g.deps)).skipped, 'already_sent');
+  assertEquals(g.sent.length, 0);
+});
+
+Deno.test('meter_resend: userRecipients reads staff_push_subscriptions by user and notices topic, falls back when topics is absent', async () => {
+  const seen: string[] = [];
+  const mk = (firstErr: { code?: string; message?: string } | null) => {
+    // deno-lint-ignore no-explicit-any
+    const q: any = { select: () => q, eq: (c: string, v: string) => { seen.push(`${c}=${v}`); return q; }, contains: (c: string, v: string[]) => { seen.push(`${c}~${v}`); return Promise.resolve({ data: firstErr ? null : subs, error: firstErr }); }, then: (r: (x: unknown) => void) => r({ data: subs, error: null }) };
+    return { rpc: async () => ({ data: null, error: null }), from: (t: string) => { seen.push(`from:${t}`); return q; } } as unknown as DbLike;
+  };
+  assertEquals(await makeDeps(mk(null), null, () => NOW).userRecipients!(U), subs);
+  assertEquals(seen, ['from:staff_push_subscriptions', `user_id=${U}`, 'topics~notices']);
+  assertEquals(await makeDeps(mk({ code: '42703' }), null, () => NOW).userRecipients!(U), subs);
+  assertEquals(await makeDeps(mk({ code: '57014' }), null, () => NOW).userRecipients!(U), null);
+});

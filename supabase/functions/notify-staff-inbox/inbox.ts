@@ -6,7 +6,7 @@
 //   3. Web Push to every phone. One retry for a transient answer (429, 5xx, no answer), none after that; a 404 or 410 deletes that subscription.
 // The lock-screen text carries no guest name, contact, message text or amount, ever. Same four keys as the paid notice: title, body, url, tag.
 import type { PushResult } from '../_shared/C_webpush.ts';
-import { HOUSE_PROPERTY_ID, isImportant, manilaDate, NOTICE_TAG, NOTICE_URL, noticeBody, rainBody, rainKey, type NoticeEvent, type NoticeRow, parseNoticeEvent } from './notices.ts';
+import { dayLabel, HOUSE_PROPERTY_ID, isImportant, manilaDate, NOTICE_TAG, NOTICE_URL, noticeBody, rainBody, rainKey, type NoticeEvent, type NoticeRow, parseNoticeEvent } from './notices.ts';
 // XS2 (s84): the same function also tells every active staff phone (topic `notices`) about a scheduled brownout or water interruption (kind `notice`)
 // and about rain during a brownout (kind `rain`); see notices.ts. The inbox kinds above are unchanged.
 
@@ -26,13 +26,24 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const PSID = /^[A-Za-z0-9_.:-]{1,64}$/;
 
 export type GuestEvent = { kind: InboxKind; psid: string; handoffId: string | null };
-export type InboxEvent = GuestEvent | NoticeEvent;
+/** s104: an admin asked the cleaner who submitted a report for a new photo of the meter (sent by admin_request_meter_resend_v1 through the database). */
+export type ResendEvent = { kind: 'meter_resend'; userId: string; readingId: string; stay: string | null };
+export type InboxEvent = GuestEvent | NoticeEvent | ResendEvent;
+export const RESEND_TAG = 'meter-resend';
+/** The lock-screen sentence: plain, no amount, no guest name, no admin note. The stay date is the checkout day ("Thu 22 Oct"). */
+export const resendBody = (stay: string | null): string => stay ? `New meter photo needed for the ${dayLabel(stay)} stay.` : 'New meter photo needed.';
 
 /** Parses the request body; the reason is a short code, never an echo of the input. */
 export function parseEvent(raw: unknown): { ok: true; value: InboxEvent } | { ok: false; reason: string } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, reason: 'bad_request' };
   const b = raw as Record<string, unknown>;
   if (b.kind === 'notice' || b.kind === 'rain') return parseNoticeEvent(b);
+  if (b.kind === 'meter_resend') {
+    if (typeof b.user_id !== 'string' || !UUID.test(b.user_id)) return { ok: false, reason: 'bad_user_id' };
+    if (typeof b.reading_id !== 'string' || !UUID.test(b.reading_id)) return { ok: false, reason: 'bad_reading_id' };
+    if (b.stay != null && (typeof b.stay !== 'string' || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(b.stay))) return { ok: false, reason: 'bad_stay' };
+    return { ok: true, value: { kind: 'meter_resend', userId: b.user_id.toLowerCase(), readingId: b.reading_id.toLowerCase(), stay: typeof b.stay === 'string' ? b.stay : null } };
+  }
   if (b.kind !== 'handover' && b.kind !== 'guest_wrote') return { ok: false, reason: 'bad_kind' };
   if (typeof b.psid !== 'string' || !PSID.test(b.psid)) return { ok: false, reason: 'bad_psid' };
   const handoffId = typeof b.handoff_id === 'string' ? b.handoff_id : null;
@@ -44,6 +55,7 @@ export function parseEvent(raw: unknown): { ok: true; value: InboxEvent } | { ok
 export function claimKey(e: InboxEvent, nowMs: number): string {
   if (e.kind === 'notice') return `notice:${e.noticeId}`;
   if (e.kind === 'rain') return rainKey(e.from);
+  if (e.kind === 'meter_resend') return `meter_resend:${e.readingId}:${Math.floor(nowMs / BUCKET_MS)}`;
   return e.kind === 'handover' ? `handover:${e.handoffId}` : `guest_wrote:${e.psid}:${Math.floor(nowMs / BUCKET_MS)}`;
 }
 
@@ -52,6 +64,8 @@ export type InboxDeps = {
   recipients: () => Promise<Sub[] | null>; // null = the read failed
   /** XS2: phones holding the notices topic, for active staff of the property. null = the read failed. */
   noticeRecipients: (propertyId: string) => Promise<Sub[] | null>;
+  /** s104: the phones of ONE staff member (the cleaner a resend request is for). null = the read failed. Optional so older callers still type-check. */
+  userRecipients?: (userId: string) => Promise<Sub[] | null>;
   /** XS2: the notice row; undefined = no such notice; null = the read failed. */
   notice: (id: string) => Promise<NoticeRow | null | undefined>;
   claim: (key: string) => Promise<boolean | null>; // null = the claim failed
@@ -90,6 +104,9 @@ export async function runInbox(e: InboxEvent, d: InboxDeps): Promise<InboxOutcom
       subs = await d.noticeRecipients(HOUSE_PROPERTY_ID);
       message = { title: INBOX_TITLE, body: rainBody(e, brownout, d.nowMs()), url: NOTICE_URL, tag: NOTICE_TAG };
     }
+  } else if (e.kind === 'meter_resend') {
+    subs = d.userRecipients ? await d.userRecipients(e.userId) : null;
+    message = { title: INBOX_TITLE, body: resendBody(e.stay), url: NOTICE_URL, tag: RESEND_TAG };
   } else {
     subs = await d.recipients();
     message = { title: INBOX_TITLE, body: INBOX_BODY[e.kind], url: INBOX_URL, tag: INBOX_TAG };
