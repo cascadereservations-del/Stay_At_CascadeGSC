@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s104/close-gaps",
-    "commit": "f1e4347a279d80e68887e32a80e0769a02e7fa72"
+    "commit": "d38a3673765e49f7ab3e9ef2cb5d88e9b7ce8f6e"
   },
   "migrations": [
     "20261107000000_s104_close_gaps.sql"
   ],
   "migration_sha256": {
-    "20261107000000_s104_close_gaps.sql": "6a69477d8253e0f3d1bda543f93fa38fbd5a7d5d0161128a2a64440ca486439b"
+    "20261107000000_s104_close_gaps.sql": "8840eb9024588b8c8488c5401a5a3d5330211fc00da37b12b88b9fab904de5bc"
   },
   "backup": {
     "required": true,
