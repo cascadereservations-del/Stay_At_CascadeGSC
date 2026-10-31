@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "release_id": "s105_contact_fallback_20261108",
+  "phase": "expand",
+  "source": {
+    "branch": "s105/contact-fallback",
+    "commit": ""
+  },
+  "migrations": [
+    "20261108000000_s105_contact_fallback.sql"
+  ],
+  "migration_sha256": {
+    "20261108000000_s105_contact_fallback.sql": "d33e5aaffedab540b9dc07d20b78df1b4df687218b8fbe6fea820b9626e6a0c7"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "s105 (Lloyd 2026-10-31: the Today card shows the guest's contact number with a Call link). public.staff_guest_contact_v1(uuid) is replaced with the live body (md5 of replace(prosrc, chr(13), '') before: fa16d92c8d608b945e06cd5627ecc399; the migration refuses to run if it differs) changed in one place: phone is the first non-blank of guests.phone_e164, guests.phone, guest_profile_details.contact_number (the number the admin dashboard saves). The owner/admin gate, e-mail, Messenger and grants (none) are unchanged; cleaners still get {}. Only staff_home_v1 (security definer) calls it.",
+    "notes": "Phase expand: one function body replaced, no table, column, grant or cron change. Read-only for data. Live counts 2026-10-31: 36 guests have a number only in guest_profile_details.contact_number, 7 in guests.phone."
+  },
+  "forward_verification": [
+    {
+      "name": "contact_is_the_s105_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '9a4f24ac5d48e4ae0c68e4967aa18710' from pg_proc where oid = 'public.staff_guest_contact_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "contact_definer_empty_search_path",
+      "query": "select (prosecdef and proconfig = array['search_path=\"\"']) from pg_proc where oid = 'public.staff_guest_contact_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "contact_has_no_grants",
+      "query": "select not has_function_privilege('anon', 'public.staff_guest_contact_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.staff_guest_contact_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.staff_guest_contact_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "contact_gate_refuses_without_staff",
+      "query": "select public.staff_guest_contact_v1(gen_random_uuid()) = '{}'::jsonb",
+      "expect": true
+    },
+    {
+      "name": "staff_home_still_calls_it",
+      "query": "select pg_get_functiondef('public.staff_home_v1'::regproc) like '%staff_guest_contact_v1%'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always. The rollback script restores the previous staff_guest_contact_v1 body verbatim (md5 fa16d92c8d608b945e06cd5627ecc399). No data is written by this release.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261108_s105_contact_fallback.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag",
+      "required_state": "None. The rollback script is the switch."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": ""
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is empty or verified_at is empty",
+    "the rehearsal has not run the migration and s105_contact_fallback.sql green on this commit, compatibility.verified is still false",
+    "the live md5(replace(prosrc, chr(13), '')) of staff_guest_contact_v1 is not fa16d92c8d608b945e06cd5627ecc399 at apply time (the migration guard also refuses)",
+    "the Opus 5.5 review of this SQL lane (guest contact data shown to staff) has not passed"
+  ]
+}
