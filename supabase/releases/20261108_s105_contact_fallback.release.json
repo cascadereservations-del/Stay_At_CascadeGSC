@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s105/contact-fallback",
-    "commit": ""
+    "commit": "367cc134da14be0ce9a29aaa10cc7cd9a57f0071"
   },
   "migrations": [
     "20261108000000_s105_contact_fallback.sql"
@@ -67,8 +67,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": ""
+    "verified": true,
+    "evidence": "Rehearsal on cascade-supabase-20261031T083146Z (prefix cascade-migration-rehearsal-0799931440e0), source commit 367cc134da14be0ce9a29aaa10cc7cd9a57f0071: migration applied 1/1, forward 5/5, pgTAP s105_contact_fallback.sql 9/9, public tables 125 -> 125. Log Cascade/docs/s105/rehearsal1.log."
   },
   "approvals": {
     "production_required": true,
