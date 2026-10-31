@@ -65,7 +65,7 @@ Deno.test('asVisionResult rejects malformed cache rows', () => {
   eq(asVisionResult(read())?.reading, 12345, 'good');
 });
 
-import { alignedIfAgrees, alignToTyped, readText, storedVision } from './logic.ts';
+import { agreesAllowingForDecimalPoint, alignedIfAgrees, alignToTyped, readText, storedVision } from './logic.ts';
 Deno.test('alignToTyped picks the power of ten closest to the typed number', () => {
   eq(alignToTyped(431.2, 4292), 4312, '431.2 vs 4292');
   eq(alignToTyped(806, 81.852, 'water'), 80.6, '806 vs 81.852');
@@ -91,7 +91,11 @@ Deno.test('precheck reports the aligned read', () => {
   eq(r.message, 'The photo reads 5 but you typed 4,292. Please check the number.', 'message');
   eq(alignedIfAgrees(431.2, 4292, 'electric'), 431.2, 'aligned 4312 is 20 off 4292: raw');
   eq(alignedIfAgrees(806, 82.9, 'water'), 806, 'aligned 80.6 is 2.3 off: raw');
-  eq(alignedIfAgrees(806, 81.852, 'water'), 80.6, 'whole part 81 within 0.5');
+  eq(alignedIfAgrees(806, 81.852, 'water'), 806, 'whole part applies only to a whole-number read: 80.6 is 1.25 off');
+  eq(agreesAllowingForDecimalPoint(806, 81.852, 0.5), false, 'now a mismatch');
+  eq(agreesAllowingForDecimalPoint(82, 82.743, 0.5), true, 'whole read still agrees');
+  eq(alignedIfAgrees(4.312, 4312, 'electric'), 4312, 'same shift set in both');
+  eq(agreesAllowingForDecimalPoint(4.312, 4312, 2), true, 'x1000 shift agrees');
   eq(alignedIfAgrees(806, 80.6, 'water'), 80.6, 'agrees');
   eq(alignedIfAgrees(68, 68.827, 'water'), 68, 'whole part');
 });

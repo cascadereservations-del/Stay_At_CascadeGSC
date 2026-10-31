@@ -32,18 +32,22 @@ export const MIN_CONFIDENCE     = 0.55;
    no power of ten makes different digits agree. Loosening the tolerance
    instead would have hidden real differences. */
 export function agreesAllowingForDecimalPoint(read: number, typed: number, tol: number): boolean {
-  // The prompt asks for the WHOLE cubic metres and to ignore the fraction
-  // dials, so a correct read of a 68.827 face is "68" and comparing that to
-  // the typed 68.827 flagged a mismatch on the first full sweep. The
-  // whole-number part of the typed reading is therefore an accepted answer.
-  const targets = [typed, Math.floor(typed)];
-  for (let k = -2; k <= 3; k++) {
-    const scaled = read / Math.pow(10, k);
-    for (const t of targets) {
-      if (Math.abs(scaled - t) <= tol) return true;
-    }
+  return agreeingShift(read, typed, tol) !== null;
+}
+
+/* The shifted read (read x 10^k, k -3..3, the same set alignToTyped tries) that agrees with the typed number, the closest
+   one; null when none does. The prompt asks for the WHOLE cubic metres and to ignore the fraction dials, so a correct read
+   of a 68.827 face is "68": the whole-number part of the typed reading is an accepted answer, but only for a shifted read
+   that is itself a whole number (the reader dropped the decimals only then; 80.6 against 81.852 is 1.25 off, a mismatch). */
+function agreeingShift(read: number, typed: number, tol: number): number | null {
+  let best: number | null = null;
+  for (let k = -3; k <= 3; k++) {
+    const scaled = read * Math.pow(10, k);
+    const whole = Math.abs(scaled - Math.round(scaled)) < 1e-9;
+    const d = Math.min(Math.abs(scaled - typed), whole ? Math.abs(scaled - Math.floor(typed)) : Infinity);
+    if (d <= tol && (best === null || Math.abs(scaled - typed) < Math.abs(best - typed))) best = scaled;
   }
-  return false;
+  return best;
 }
 
 /* s104: the reader often misplaces the decimal point (431.2 for 4312, 806 for 80.6). Returns read x 10^k (k -3..3) closest to
@@ -62,10 +66,9 @@ export function alignToTyped(read: number, typed: number | null | undefined, whi
  *  number within the existing tolerance (same test as agreesAllowingForDecimalPoint, which also accepts the whole-number part);
  *  otherwise the reader's raw number stands. */
 export function alignedIfAgrees(read: number, typed: number | null | undefined, which: Which): number {
-  const a = alignToTyped(read, typed, which);
-  if (a === read || typed === null || typed === undefined) return read;
-  const tol = which === 'electric' ? ELECTRIC_TOLERANCE : WATER_TOLERANCE;
-  return Math.abs(a - typed) <= tol || Math.abs(a - Math.floor(typed)) <= tol ? a : read;
+  if (typed === null || typed === undefined || !Number.isFinite(typed) || !Number.isFinite(read)) return read;
+  const hit = agreeingShift(read, typed, which === 'electric' ? ELECTRIC_TOLERANCE : WATER_TOLERANCE);
+  return hit === null || hit === read ? read : Number(hit.toFixed(which === 'water' ? 3 : 2));
 }
 
 /** What to store in vision_electric / vision_water: the aligned read (the raw one stays in vision_raw). */
