@@ -21,7 +21,7 @@
 --   are not dates (2026-13-45, 2026-02-30) stay open without an error.
 -- P5 follow-ups: SF1 (1 day ago, guest 'Ysabel ' with a trailing blank, checkout 2026-10-21, mismatch), SF2 (2 days ago, blank guest, no checkout, unreadable).
 begin;
-select plan(119);
+select plan(120);
 
 -- catalogue, bodies and grants ---------------------------------------------------------------------------------------------------------------------
 select has_function('public', 'admin_report_blocks_v1', array['uuid', 'integer'], 'admin_report_blocks_v1 exists');
@@ -253,6 +253,14 @@ set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000002","a
 select throws_ok($$select * from public.admin_report_blocks_v1('b1000000-0000-4000-8000-000000000001', 14)$$, '42501', null, 'a cleaner is refused the list');
 select throws_ok($$select public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000001', 'typed_is_right', null, null, null)$$, '42501', 'inspect_cleaning denied', 'a cleaner is refused an existing id: 42501');
 select throws_ok($$select public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-0000000000ff', 'typed_is_right', null, null, null)$$, '42501', 'inspect_cleaning denied', 'a missing id looks exactly the same to a cleaner (ids cannot be probed)');
+-- Production gives authenticated no table privilege on meter_readings at all (live read 2026-10-31), so a cleaner cannot write it directly.
+-- The guard is defence in depth: grant the privileges for this transaction only (rolled back) so the trigger itself is exercised.
+reset role;
+select ok(not has_table_privilege('authenticated', 'public.meter_readings', 'update') and not has_table_privilege('authenticated', 'public.meter_readings', 'insert'),
+  'authenticated has no direct write on meter_readings (the first wall)');
+grant select, insert, update on public.meter_readings to authenticated;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000002","aal":"aal1"}';
 select throws_ok($$update public.meter_readings set vision_verdict = 'mismatch' where id = 'b4000000-0000-4000-8000-000000000091'$$, '42501', 'The photo check result of a meter reading can only be changed by the system or an admin.', 'a cleaner PATCH of vision_verdict is refused');
 select throws_ok($$update public.meter_readings set meter_flag = 'misread' where id = 'b4000000-0000-4000-8000-000000000091'$$, '42501', 'The photo check result of a meter reading can only be changed by the system or an admin.', 'a cleaner PATCH of meter_flag is refused');
 select throws_ok($$update public.meter_readings set vision_resolved_at = now(), vision_resolved_note = 'self answered' where id = 'b4000000-0000-4000-8000-000000000092'$$, '42501', 'The photo check result of a meter reading can only be changed by the system or an admin.', 'a cleaner cannot stamp vision_resolved_* on her own reading');
