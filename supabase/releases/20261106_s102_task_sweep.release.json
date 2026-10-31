@@ -77,8 +77,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING - rehearsal on a fresh backup: migration applied 1/1, forward checks, pgTAP s102_task_sweep.sql (35 tests). Written without a local PostgreSQL; not executed on the build host."
+    "verified": true,
+    "evidence": "Rehearsal on cascade-supabase-20261031T013444Z (prefix cascade-migration-rehearsal-16627eac8912), source commit 825e1b2: migration applied 1/1, forward 7/7, pgTAP s102_task_sweep.sql 37/37, public tables 125 -> 125. Log Cascade/docs/s102/rehearsal3.log."
   },
   "approvals": {
     "production_required": true,

@@ -14,7 +14,7 @@
 --      It never touches a task that is already done, a task of another kind, or a ref it cannot parse. No grants to anyone (only cron as postgres calls it).
 --  (2) pg_cron job system-tasks-sweep at minute 50 of every hour (no-op where pg_cron is absent, e.g. a rehearsal copy).
 --  (3) public.meter_settle_estimates_v1(uuid) replaced with the LIVE body changed in ONE place: the B reading also counts when its photo verdict is
---      'mismatch' but an admin has answered it (vision_resolved_at is not null). s101's "Typed numbers are right" / "Correct the numbers" stamp
+--      'mismatch' but an admin has answered it (vision_resolved_at set AND an s101 admin note; a cleaner's own release does not count). s101's "Typed numbers are right" / "Correct the numbers" stamp
 --      vision_resolved_at and leave the verdict 'mismatch', so the next stay's answered reading never counted as B and the estimates (and their task) waited forever.
 --      Live md5(replace(prosrc, chr(13), '')) before this change: e3eaf07237d1fdfb39ac3d643d0bd6a3. Grants restated exactly as s100 set them (ML-21).
 
