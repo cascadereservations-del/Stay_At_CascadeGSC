@@ -11,13 +11,13 @@
 --      are the same 42501 'inspect_cleaning denied' (ids cannot be probed). Fixes the s101 known gap: the NEXT reading is the first by (stay date, recorded_at, id), so a later
 --      reading of the SAME checkout day (a deep clean after the turnover) is re-pointed instead of being skipped for the following stay.
 --  (3) meter_settle_estimates_v1: the s102 note-prefix test for an answered mismatch stays, and vision_resolved_by must be a staff user who may inspect_cleaning
---      (staff_access_profiles + staff_access_allowed(role, 'inspect_cleaning', disabled_at, 'aal2'); inspect_cleaning has no aal rule, 'aal2' only keeps a future rule from refusing an admin).
+--      (staff_access_profiles + staff_access_allowed(role, 'inspect_cleaning', null, 'aal2'); an answer given while the admin was active keeps counting after a later disable; inspect_cleaning has no aal rule, 'aal2' only keeps a future rule from refusing an admin).
 --      A cleaner who typed the admin sentence through resolve_meter_followup_v1 no longer makes B.
 --  (4) system_tasks_sweep_v1: also closes OPEN meter_estimate_settled tasks older than 3 days ("Information only - closed after 3 days."); a ref that matches the pattern but is not a
 --      real date (invalid_datetime_format / datetime_field_overflow) is skipped silently, only other errors raise the warning. Returns the same keys plus "info".
 --  (5) get_meter_photo_followups (DROP + CREATE): checkout_date date and guest_name text (cleaning_sessions.last_guest_name, trimmed, null if blank) at the END of the return table.
 -- Grants are restated in full (ML-21: the rehearsal restore is --no-acl, production has default privileges). No table, column, trigger or cron change.
--- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 7b716ca816ea57de257faa7643a24278, admin_resolve_report_block_v1 3c46fb55f19a4edfa82e383eb5642744, meter_settle_estimates_v1 4f1a23a2cd78ac53ccc455c4f6913497,
+-- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 7b716ca816ea57de257faa7643a24278, admin_resolve_report_block_v1 3c46fb55f19a4edfa82e383eb5642744, meter_settle_estimates_v1 c6f2a465cbf6ad7694a4281e5fa13190,
 --   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups 361b27faff2200dadbca86c30ac78e1a.
 
 begin;
@@ -35,7 +35,7 @@ begin
     raise exception 's104: public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.meter_settle_estimates_v1(uuid)');
-  if v_md5 is distinct from '36726d52dccd5911ac473f607f4aab06' and v_md5 is distinct from '4f1a23a2cd78ac53ccc455c4f6913497' then
+  if v_md5 is distinct from '36726d52dccd5911ac473f607f4aab06' and v_md5 is distinct from 'c6f2a465cbf6ad7694a4281e5fa13190' then
     raise exception 's104: public.meter_settle_estimates_v1(uuid) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.system_tasks_sweep_v1()');
@@ -360,7 +360,7 @@ begin
       if v_b_stay is not null then
         select mr.* into b
           from public.meter_readings mr join public.cleaning_sessions cs on cs.id = mr.session_id
-         where mr.property_id = v_prop and cs.checkout_date = v_b_stay and mr.meter_flag is null and (mr.vision_verdict = 'ok' or (mr.vision_verdict = 'mismatch' and mr.vision_resolved_at is not null and (mr.vision_resolved_note like 'Typed numbers confirmed by an admin%' or mr.vision_resolved_note like 'Numbers corrected by an admin%') and exists (select 1 from public.staff_access_profiles sp where sp.user_id = mr.vision_resolved_by and public.staff_access_allowed(sp.role, 'inspect_cleaning', sp.disabled_at, 'aal2'))))
+         where mr.property_id = v_prop and cs.checkout_date = v_b_stay and mr.meter_flag is null and (mr.vision_verdict = 'ok' or (mr.vision_verdict = 'mismatch' and mr.vision_resolved_at is not null and (mr.vision_resolved_note like 'Typed numbers confirmed by an admin%' or mr.vision_resolved_note like 'Numbers corrected by an admin%') and exists (select 1 from public.staff_access_profiles sp where sp.user_id = mr.vision_resolved_by and public.staff_access_allowed(sp.role, 'inspect_cleaning', null, 'aal2'))))
          order by mr.recorded_at desc, mr.id limit 1;
       end if;
       if b.id is null then
@@ -672,7 +672,7 @@ do $$
 declare v_blocks text[] := array[
   'public.admin_report_blocks_v1(uuid,integer)|7b716ca816ea57de257faa7643a24278',
   'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)|3c46fb55f19a4edfa82e383eb5642744',
-  'public.meter_settle_estimates_v1(uuid)|4f1a23a2cd78ac53ccc455c4f6913497',
+  'public.meter_settle_estimates_v1(uuid)|c6f2a465cbf6ad7694a4281e5fa13190',
   'public.system_tasks_sweep_v1()|0fdd80d252523c39cc30003475fb21bb',
   'public.get_meter_photo_followups(uuid,integer)|361b27faff2200dadbca86c30ac78e1a'];
   v_e text;

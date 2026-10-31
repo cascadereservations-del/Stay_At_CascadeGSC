@@ -33,7 +33,7 @@
     },
     {
       "name": "meter_settle_estimates_v1_is_the_s104_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '4f1a23a2cd78ac53ccc455c4f6913497' from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'c6f2a465cbf6ad7694a4281e5fa13190' from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure",
       "expect": true
     },
     {

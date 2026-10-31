@@ -29,7 +29,7 @@ select has_function('public', 'admin_resolve_report_block_v1', array['uuid', 'te
 select has_function('public', 'get_meter_photo_followups', array['uuid', 'integer'], 'get_meter_photo_followups exists');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure), '7b716ca816ea57de257faa7643a24278', 'admin_report_blocks_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)'::regprocedure), '3c46fb55f19a4edfa82e383eb5642744', 'admin_resolve_report_block_v1 is the s104 body');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure), '4f1a23a2cd78ac53ccc455c4f6913497', 'meter_settle_estimates_v1 is the s104 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure), 'c6f2a465cbf6ad7694a4281e5fa13190', 'meter_settle_estimates_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.system_tasks_sweep_v1()'::regprocedure), '0fdd80d252523c39cc30003475fb21bb', 'system_tasks_sweep_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure), '361b27faff2200dadbca86c30ac78e1a', 'get_meter_photo_followups is the s104 body');
 select ok(has_function_privilege('authenticated', 'public.admin_report_blocks_v1(uuid,integer)', 'execute') and not has_function_privilege('anon', 'public.admin_report_blocks_v1(uuid,integer)', 'execute')
