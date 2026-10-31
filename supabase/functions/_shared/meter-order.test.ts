@@ -120,3 +120,20 @@ Deno.test('D-352: an estimate_pending reading is never a neighbour and never a u
   assertEquals(usableRows([{ ...rows[1], meter_flag: 'estimated' }]).length, 1);
   assertEquals(METER_WRONG_NUMBER_FLAGS.includes('estimate_pending'), false, 'wrong-number list keeps its meaning');
 });
+
+// s103 W2: filing order never matters. The 17-19 Oct stay is filed LAST (recorded 27 Oct), after the 23-24 Oct stay,
+// with a reading between its neighbours: accepted, previous = the 14 Oct reading, delta right, and the 24 Oct stay is re-pointed.
+Deno.test('a late report for an earlier checkout, filed after a later stay, gets its own neighbours and delta', () => {
+  const filed = [
+    { ...row('shasha', '2026-10-14', 4225, 80.499), recorded_at: '2026-10-14T06:00:00Z' },
+    { ...row('frances', '2026-10-24', 4326, 82.743, { electric_prev: 4225, water_prev: 80.499 }), recorded_at: '2026-10-24T06:00:00Z' },
+  ];
+  const lateReading = { elec: 4273, water: 81.58 }; // filed 27 Oct for checkout 19 Oct
+  const n = meterNeighbours(filed, '2026-10-19', true);
+  assertEquals([n.prevElec?.value, n.prevWater?.value], [4225, 80.499]);
+  assertEquals(Number((lateReading.elec - n.prevElec!.value).toFixed(2)), 48);
+  assertEquals(meterOrderMessage(lateReading.elec, lateReading.water, n), null);
+  const patch = repointNext(n, lateReading.elec, lateReading.water);
+  assertEquals(patch.length, 1);
+  assertEquals([patch[0].id, patch[0].patch.electric_prev, patch[0].patch.electric_delta], ['frances', 4273, 53]);
+});
