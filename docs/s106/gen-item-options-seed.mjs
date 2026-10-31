@@ -30,10 +30,10 @@ const ids = {
 const q = (s) => (s == null || s === '' ? 'null' : `'${String(s).replace(/'/g, "''")}'`);
 const rows = JSON.parse(readFileSync(join(here, 'shopsuki-capture.json'), 'utf8')).rows;
 if (rows.length !== 64) throw new Error(`expected 64 rows, got ${rows.length}`);
-const lines = rows.map(([item, usual, title, brand, price, avail, image, handle]) => {
+const lines = rows.map(([item, usual, title, brand, price, avail, image, handle, pack]) => {
   if (!ids[item]) throw new Error(`no item id for ${item}`);
   if (!/^\d+(\.\d{1,2})?$/.test(price)) throw new Error(`bad price ${price}`);
-  return `    ('${ids[item]}'::uuid, ${usual ? 'true' : 'false'}, ${q(title)}, ${q(brand)}, ${price}::numeric, ${avail ? 'true' : 'false'}, ${q(image)}, ${q(handle)})`;
+  return `    ('${ids[item]}'::uuid, ${usual ? 'true' : 'false'}, ${q(title)}, ${q(brand)}, ${price}::numeric, ${avail ? 'true' : 'false'}, ${q(image)}, ${q(handle)}, ${pack == null ? "null" : Number(pack)}::numeric)`;
 });
 const sql = readFileSync(migration, 'utf8');
 const re = /(-- BEGIN GENERATED[^\n]*\n)[\s\S]*?(\n\s*-- END GENERATED)/;

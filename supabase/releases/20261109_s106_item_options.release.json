@@ -4,20 +4,20 @@
   "phase": "expand",
   "source": {
     "branch": "s106/item-options",
-    "commit": "edc0581f0ab0464a15a8d84ca2683b50c62f54ba"
+    "commit": ""
   },
   "migrations": [
     "20261109000000_s106_item_options.sql"
   ],
   "migration_sha256": {
-    "20261109000000_s106_item_options.sql": "c05fa58fce42cd567ca81a675bac7a0fda06500cb0e5838f3ca2f418880d3c12"
+    "20261109000000_s106_item_options.sql": "e5065ccde3776ebff025376d6ac3562f17f97fbb4d069667ca5d1486b2798fc9"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "",
     "verified_at": "",
-    "production_rule": "s106 (Lloyd: brands and sizes are OPTIONS under one stock item). New table public.inventory_item_options (RLS on, no grants to any client role, not in realtime), two security definer RPCs for authenticated (inventory_item_options_v1: read_operations, price key only when read_finance passes; inventory_item_option_set_usual_v1: manage_inventory, flips the usual option and upserts the item/supplier link as preferred), one internal seed function with no grants. The migration seeds supplier Shopsuki (online, notes 'Prices read from shopsuki.ph on 2026-10-31'), 64 options for 19 items of property 6ae230f4-c189-4547-84b1-cb6e0b2cc9bd, and one preferred inventory_item_suppliers link per item that has no preferred link (live read 2026-10-31: none had any supplier link, so 18 links). No existing table, column, policy or function is changed.",
+    "production_rule": "s106 (Lloyd: brands and sizes are OPTIONS under one stock item). New table public.inventory_item_options (RLS on, no grants to any client role, not in realtime), two security definer RPCs for authenticated (inventory_item_options_v1: read_operations, price key only when read_finance passes; inventory_item_option_set_usual_v1: manage_inventory, flips the usual option and upserts the item/supplier link as preferred), one internal seed function with no grants. The migration seeds supplier Shopsuki (online, notes 'Prices read from shopsuki.ph on 2026-10-31'), 64 options for 19 items of property 6ae230f4-c189-4547-84b1-cb6e0b2cc9bd, and one preferred inventory_item_suppliers link per item that has no preferred link (live read 2026-10-31: none had any supplier link, so 19 links). No existing table, column, policy or function is changed.",
     "notes": "Phase expand: additive. The seed writes one inventory_suppliers row and 19 inventory_item_suppliers rows; the rollback script removes them again (only if nothing else uses the supplier)."
   },
   "forward_verification": [
@@ -62,12 +62,12 @@
       "expect": true
     },
     {
-      "name": "options_seeded_60",
+      "name": "options_seeded_64",
       "query": "select count(*) = 64 from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'",
       "expect": true
     },
     {
-      "name": "options_18_items_one_usual_each",
+      "name": "options_19_items_one_usual_each",
       "query": "select count(*) = 19 from (select item_id from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' group by item_id having count(*) filter (where is_usual) = 1) q",
       "expect": true
     },
@@ -77,7 +77,7 @@
       "expect": true
     },
     {
-      "name": "shopsuki_preferred_links_18",
+      "name": "shopsuki_preferred_links_19",
       "query": "select count(*) = 19 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where s.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(s.name)) = 'shopsuki' and k.is_preferred",
       "expect": true
     }
@@ -102,8 +102,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": true,
-    "evidence": "Rehearsal on cascade-supabase-20261031T084613Z (prefix cascade-migration-rehearsal-01adcf69f2d3), source commit edc0581f0ab0464a15a8d84ca2683b50c62f54ba: migration applied 1/1, forward 12/12, pgTAP s106_item_options.sql 50/50, public tables 125 -> 126. Log Cascade/docs/s106/rehearsal3.log."
+    "verified": false,
+    "evidence": ""
   },
   "approvals": {
     "production_required": true,

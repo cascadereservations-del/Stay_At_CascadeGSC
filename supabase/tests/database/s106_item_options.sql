@@ -2,7 +2,7 @@
 -- (price hidden from a cleaner, gates, set-usual upserting the supplier link), and the Shopsuki seed. Part 1 reads the migration's own seed on the restored
 -- production copy (rehearsal only, before any fixture is added). Fixtures use uuids d1060000-... on properties of their own; everything rolls back.
 begin;
-select plan(50);
+select plan(51);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -29,12 +29,13 @@ grant all on _t to public;
 -- Part 1: the seed on the restored production copy (8)
 -- =============================================================================================================================================
 select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 64, 'seed: 64 options');
-select is((select count(distinct item_id)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 19, 'seed: they belong to 18 items');
+select is((select count(distinct item_id)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 19, 'seed: they belong to 19 items');
 select is((select count(*)::int from (select item_id from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
             group by item_id having count(*) filter (where is_usual) = 1) q), 19, 'seed: every one of the 19 items has exactly one usual option');
 select is((select count(*)::int from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(name) = 'shopsuki'), 1, 'seed: the Shopsuki supplier exists once');
 select is((select count(*)::int from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
             where lower(s.name) = 'shopsuki' and k.is_preferred), 19, 'seed: 19 preferred links to Shopsuki');
+select is((select k.pack_size from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki' and k.item_id = '73757510-887b-4a5c-a54b-ab65505392aa'), 50::numeric, 'seed: the Tea link carries the usual pack size (50 bags) so the per-piece price is right');
 select ok((select bool_and(k.quoted_pack_price = o.price and char_length(k.pack_label) between 1 and 40)
              from public.inventory_item_suppliers k join public.inventory_item_options o on o.item_id = k.item_id and o.supplier_id = k.supplier_id and o.is_usual
             where k.is_preferred), 'seed: each preferred link quotes the usual option price and has a pack label of at most 40 characters');

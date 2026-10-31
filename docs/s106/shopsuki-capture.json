@@ -8,7 +8,8 @@
   "price",
   "available",
   "image",
-  "handle"
+  "handle",
+  "pack_size_pc"
  ],
  "rows": [
   [
@@ -19,7 +20,8 @@
    "262.50",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4902430304726.jpg",
-   "ambi-pur-air-freshener-spray-blossom-and-breeze-275g"
+   "ambi-pur-air-freshener-spray-blossom-and-breeze-275g",
+   null
   ],
   [
    "Ambi Pur",
@@ -29,7 +31,8 @@
    "262.50",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/103692375.png",
-   "ambi-pur-air-freshener-spray-lavender-vanilla-and-comfort-275g"
+   "ambi-pur-air-freshener-spray-lavender-vanilla-and-comfort-275g",
+   null
   ],
   [
    "Ambi Pur",
@@ -39,7 +42,8 @@
    "283.50",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4902430518291.jpg",
-   "ambi-pur-gel-fresh-refreshing-lemon-value-pack-180g-by-2s"
+   "ambi-pur-gel-fresh-refreshing-lemon-value-pack-180g-by-2s",
+   2
   ],
   [
    "Baygon Spray",
@@ -49,7 +53,8 @@
    "352.55",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4801234108021.jpg",
-   "baygon-multi-insect-killer-aerosol-kerosene-based-500ml"
+   "baygon-multi-insect-killer-aerosol-kerosene-based-500ml",
+   null
   ],
   [
    "Baygon Spray",
@@ -59,7 +64,8 @@
    "238.90",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4801234108014.jpg",
-   "baygon-multi-insect-killer-aerosol-kerosene-based-300ml"
+   "baygon-multi-insect-killer-aerosol-kerosene-based-300ml",
+   null
   ],
   [
    "Baygon Spray",
@@ -69,7 +75,8 @@
    "413.05",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/106162544.jpg",
-   "baygon-multi-insect-killer-odorless-500ml"
+   "baygon-multi-insect-killer-odorless-500ml",
+   null
   ],
   [
    "Baygon Spray",
@@ -79,7 +86,8 @@
    "425.25",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4801234106027.jpg",
-   "baygon-aerosol-anti-dengue-mosquito-killer-500ml"
+   "baygon-aerosol-anti-dengue-mosquito-killer-500ml",
+   null
   ],
   [
    "Breeze Fabric Conditioner Liquid",
@@ -89,7 +97,8 @@
    "123.25",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800888290182.jpg",
-   "breeze-advanced-liquid-power-machine-fresh-clean-535g"
+   "breeze-advanced-liquid-power-machine-fresh-clean-535g",
+   null
   ],
   [
    "Breeze Fabric Conditioner Liquid",
@@ -99,7 +108,8 @@
    "284.20",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800888290212.jpg",
-   "breeze-advanced-liquid-power-machine-rose-gold-1-27kg"
+   "breeze-advanced-liquid-power-machine-rose-gold-1-27kg",
+   null
   ],
   [
    "Breeze Fabric Conditioner Liquid",
@@ -109,7 +119,8 @@
    "212.95",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8934868182535_cd79576f-2e06-40ab-8803-90525bd57fcf.jpg",
-   "breeze-liquid-detergent-power-machine-luxe-red-950g"
+   "breeze-liquid-detergent-power-machine-luxe-red-950g",
+   null
   ],
   [
    "Dishwashing Liquid (Joy)",
@@ -119,7 +130,8 @@
    "115.65",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/110375265.jpg",
-   "joy-dishwashing-liquid-kalamansi-375ml"
+   "joy-dishwashing-liquid-kalamansi-375ml",
+   null
   ],
   [
    "Dishwashing Liquid (Joy)",
@@ -129,7 +141,8 @@
    "115.30",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/107390382.jpg",
-   "joy-dishwashing-liquid-lemon-pouch-355ml"
+   "joy-dishwashing-liquid-lemon-pouch-355ml",
+   null
   ],
   [
    "Dishwashing Liquid (Joy)",
@@ -139,7 +152,8 @@
    "86.85",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4902430093767.jpg",
-   "joy-dishwashing-liquid-lemon-250ml"
+   "joy-dishwashing-liquid-lemon-250ml",
+   null
   ],
   [
    "Dishwashing Liquid (Joy)",
@@ -149,7 +163,8 @@
    "286.95",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108188891.jpg",
-   "joy-dishwashing-liquid-kalamansi-sup-1050ml"
+   "joy-dishwashing-liquid-kalamansi-sup-1050ml",
+   null
   ],
   [
    "Garbage Bags (Large)",
@@ -159,7 +174,8 @@
    "61.80",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/1234603225808.jpg",
-   "mnm-garbage-bag-large"
+   "mnm-garbage-bag-large",
+   null
   ],
   [
    "Garbage Bags (Large)",
@@ -169,7 +185,8 @@
    "75.05",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108177724.jpg",
-   "mnm-garbage-bag-xl-10s"
+   "mnm-garbage-bag-xl-10s",
+   null
   ],
   [
    "Garbage Bags (Large)",
@@ -179,7 +196,8 @@
    "49.20",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4806507662125.jpg",
-   "calypso-garbage-bag-seals-large-26in-x-32in-10s"
+   "calypso-garbage-bag-seals-large-26in-x-32in-10s",
+   null
   ],
   [
    "Garbage Bags (Small)",
@@ -189,7 +207,8 @@
    "32.05",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108180556.png",
-   "mnm-garbage-bag-small"
+   "mnm-garbage-bag-small",
+   null
   ],
   [
    "Garbage Bags (Small)",
@@ -199,7 +218,8 @@
    "28.65",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/102050463.jpg",
-   "calypso-garbage-bag-seals-medium-22in-x-24in-10s"
+   "calypso-garbage-bag-seals-medium-22in-x-24in-10s",
+   null
   ],
   [
    "Garbage Bags (Small)",
@@ -209,7 +229,8 @@
    "50.35",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108177704.png",
-   "mnm-garbage-bag-medium"
+   "mnm-garbage-bag-medium",
+   null
   ],
   [
    "Lysol Disinfectant Spray",
@@ -219,7 +240,8 @@
    "627.30",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/9556111408088.jpg",
-   "lysol-liquid-disinfectant-spray-crisp-linen-510g"
+   "lysol-liquid-disinfectant-spray-crisp-linen-510g",
+   null
   ],
   [
    "Lysol Disinfectant Spray",
@@ -229,7 +251,8 @@
    "281.10",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/102064969.png",
-   "lysol-liquid-disinfectant-spray-crisp-linen-170g"
+   "lysol-liquid-disinfectant-spray-crisp-linen-170g",
+   null
   ],
   [
    "Lysol Disinfectant Spray",
@@ -239,7 +262,8 @@
    "627.30",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4801002062883.jpg",
-   "lysol-liquid-disinfectant-spray-fresh-blossoms-510g"
+   "lysol-liquid-disinfectant-spray-fresh-blossoms-510g",
+   null
   ],
   [
    "Mr Muscle Glass Cleaner (Blue)",
@@ -249,7 +273,8 @@
    "157.95",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/9555222610625.jpg",
-   "mr-muscle-glass-and-multi-surface-cleaner-spray-fresh-fragrance-350ml"
+   "mr-muscle-glass-and-multi-surface-cleaner-spray-fresh-fragrance-350ml",
+   null
   ],
   [
    "Mr Muscle Glass Cleaner (Blue)",
@@ -259,7 +284,8 @@
    "108.40",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4801234072629.jpg",
-   "mr-muscle-glass-and-multi-surface-cleaner-fresh-fragrance-refill-500ml"
+   "mr-muscle-glass-and-multi-surface-cleaner-fresh-fragrance-refill-500ml",
+   null
   ],
   [
    "Mr Muscle Glass Cleaner (Blue)",
@@ -269,7 +295,8 @@
    "76.55",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/9555222611103.jpg",
-   "mr-muscle-glass-and-multi-surface-cleaner-fresh-refill-300ml"
+   "mr-muscle-glass-and-multi-surface-cleaner-fresh-refill-300ml",
+   null
   ],
   [
    "Mr Muscle Mold & Mildew (Orange)",
@@ -279,7 +306,8 @@
    "194.05",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/mr-muscle-mold-and-mildew-killer-primary-500ml.jpg",
-   "mr-muscle-mold-mildew-killer-primary-500ml"
+   "mr-muscle-mold-mildew-killer-primary-500ml",
+   null
   ],
   [
    "Mr Muscle Mold & Mildew (Orange)",
@@ -289,7 +317,8 @@
    "181.35",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4801234072124.jpg",
-   "mr-muscle-mold-mildew-killer-refill-500ml"
+   "mr-muscle-mold-mildew-killer-refill-500ml",
+   null
   ],
   [
    "Bottled Water",
@@ -299,7 +328,8 @@
    "10.05",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800049720114.jpg",
-   "natures-spring-purified-water-500ml"
+   "natures-spring-purified-water-500ml",
+   null
   ],
   [
    "Bottled Water",
@@ -309,7 +339,8 @@
    "8.65",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800049720190.jpg",
-   "wet-drinking-water-500ml"
+   "wet-drinking-water-500ml",
+   null
   ],
   [
    "Bottled Water",
@@ -319,7 +350,8 @@
    "11.80",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800014141081.jpg",
-   "summit-mineral-water-500ml"
+   "summit-mineral-water-500ml",
+   null
   ],
   [
    "Bottled Water",
@@ -329,7 +361,8 @@
    "16.30",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800014144082.jpg",
-   "absolute-distilled-water-500ml"
+   "absolute-distilled-water-500ml",
+   null
   ],
   [
    "Coffee (3-in-1)",
@@ -339,7 +372,8 @@
    "9.00",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/105123009.jpg",
-   "nescafe-3-in-1-coffee-mix-creamy-white-25-5g"
+   "nescafe-3-in-1-coffee-mix-creamy-white-25-5g",
+   1
   ],
   [
    "Coffee (3-in-1)",
@@ -349,7 +383,8 @@
    "186.15",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800361426589.jpg",
-   "nescafe-3-in-1-coffee-mix-creamy-latte-20g-x-20s"
+   "nescafe-3-in-1-coffee-mix-creamy-latte-20g-x-20s",
+   20
   ],
   [
    "Coffee (3-in-1)",
@@ -359,7 +394,8 @@
    "131.40",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/110411499_bda72166-cf03-4f07-a726-170cdeb46793.jpg",
-   "nescafe-3-in-1-coffee-mix-creamylatte-twin-pack-40g-x-10-s"
+   "nescafe-3-in-1-coffee-mix-creamylatte-twin-pack-40g-x-10-s",
+   20
   ],
   [
    "Sugar & Creamer Sticks",
@@ -369,7 +405,8 @@
    "73.55",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/102053406.png",
-   "ecb-white-sugar-sachet-7g-by-50s"
+   "ecb-white-sugar-sachet-7g-by-50s",
+   50
   ],
   [
    "Sugar & Creamer Sticks",
@@ -379,7 +416,8 @@
    "61.45",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/102053405_1.png",
-   "ecb-brown-sugar-sachet-7g-by-50s"
+   "ecb-brown-sugar-sachet-7g-by-50s",
+   50
   ],
   [
    "Sugar & Creamer Sticks",
@@ -389,7 +427,8 @@
    "99.80",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/103019116.jpg",
-   "coffeemate-coffee-creamer-5g-by-48s"
+   "coffeemate-coffee-creamer-5g-by-48s",
+   48
   ],
   [
    "Sugar & Creamer Sticks",
@@ -399,7 +438,8 @@
    "52.85",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/109720694_0232d758-7f7e-4ca3-9b0a-70f5c152cdc3.jpg",
-   "coffeemate-creamer-5g-x-24-s"
+   "coffeemate-creamer-5g-x-24-s",
+   24
   ],
   [
    "Tea",
@@ -409,7 +449,8 @@
    "307.55",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8888086022008.jpg",
-   "lipton-yellow-label-tea-2g-by-50s"
+   "lipton-yellow-label-tea-2g-by-50s",
+   50
   ],
   [
    "Tea",
@@ -419,7 +460,8 @@
    "114.45",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8999999057411.jpg",
-   "lipton-green-tea-fresh-1-5g-by-10s"
+   "lipton-green-tea-fresh-1-5g-by-10s",
+   10
   ],
   [
    "Tea",
@@ -429,7 +471,8 @@
    "377.65",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8720608019977.jpg",
-   "lipton-exclusive-selection-camomile-linden-1-and-3g-by-25s"
+   "lipton-exclusive-selection-camomile-linden-1-and-3g-by-25s",
+   25
   ],
   [
    "Liquid Body Soap (Dove)",
@@ -439,7 +482,8 @@
    "211.35",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8934868080015.jpg",
-   "dove-body-wash-deeply-nourishing-400ml"
+   "dove-body-wash-deeply-nourishing-400ml",
+   null
   ],
   [
    "Liquid Body Soap (Dove)",
@@ -449,7 +493,8 @@
    "274.20",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/107811601.jpg",
-   "dove-deeply-nourishing-body-wash-550ml"
+   "dove-deeply-nourishing-body-wash-550ml",
+   null
   ],
   [
    "Liquid Body Soap (Dove)",
@@ -459,7 +504,8 @@
    "455.00",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108010581.jpg",
-   "dove-body-wash-deeply-nourishing-1000ml"
+   "dove-body-wash-deeply-nourishing-1000ml",
+   null
   ],
   [
    "Liquid Hand Soap (Safeguard)",
@@ -469,7 +515,8 @@
    "151.85",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4902430805322_2.png",
-   "safeguard-liquid-hand-soap-pure-white-450ml"
+   "safeguard-liquid-hand-soap-pure-white-450ml",
+   null
   ],
   [
    "Liquid Hand Soap (Safeguard)",
@@ -479,7 +526,8 @@
    "121.35",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4902430805346.png",
-   "safeguard-liquid-hand-soap-pure-white-pouch-420ml"
+   "safeguard-liquid-hand-soap-pure-white-pouch-420ml",
+   null
   ],
   [
    "Liquid Hand Soap (Safeguard)",
@@ -489,7 +537,8 @@
    "68.10",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4902430805384.jpg",
-   "safeguard-liquid-hand-soap-pure-white-pouch-200ml"
+   "safeguard-liquid-hand-soap-pure-white-pouch-200ml",
+   null
   ],
   [
    "Liquid Hand Soap (Safeguard)",
@@ -499,7 +548,8 @@
    "180.00",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108332832.png",
-   "safeguard-liquid-hand-soap-floral-pink-sup-620ml"
+   "safeguard-liquid-hand-soap-floral-pink-sup-620ml",
+   null
   ],
   [
    "Shampoo (Palmolive)",
@@ -509,7 +559,8 @@
    "142.70",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4808888411705.png",
-   "palmolive-naturals-shampoo-and-conditioner-ultra-smooth-180ml"
+   "palmolive-naturals-shampoo-and-conditioner-ultra-smooth-180ml",
+   null
   ],
   [
    "Shampoo (Palmolive)",
@@ -519,7 +570,8 @@
    "334.85",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108002156.jpg",
-   "palmolive-naturals-shampoo-and-conditioner-ultra-smooth-600ml"
+   "palmolive-naturals-shampoo-and-conditioner-ultra-smooth-600ml",
+   null
   ],
   [
    "Shampoo (Palmolive)",
@@ -529,7 +581,8 @@
    "212.60",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/107968436.jpg",
-   "palmolive-naturals-shampoo-and-conditioner-ultra-smooth-180ml-2s"
+   "palmolive-naturals-shampoo-and-conditioner-ultra-smooth-180ml-2s",
+   2
   ],
   [
    "Tissues / Paper Towels",
@@ -539,7 +592,8 @@
    "59.00",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4806502352113.jpg",
-   "femme-facial-tissue-econo-box-2ply-130-pulls"
+   "femme-facial-tissue-econo-box-2ply-130-pulls",
+   null
   ],
   [
    "Tissues / Paper Towels",
@@ -549,7 +603,8 @@
    "86.30",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4806502352557.jpg",
-   "femme-facial-tissue-large-box-2ply-250-pulls"
+   "femme-facial-tissue-large-box-2ply-250-pulls",
+   null
   ],
   [
    "Tissues / Paper Towels",
@@ -559,7 +614,8 @@
    "59.35",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/kami-house-care-kami-interfolded-paper-towel-1ply-175pulls-15556380754052.jpg",
-   "kami-interfolded-paper-towel-1-ply-175-pulls"
+   "kami-interfolded-paper-towel-1-ply-175-pulls",
+   null
   ],
   [
    "Tissues / Paper Towels",
@@ -569,7 +625,8 @@
    "152.85",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108752904_4becad1b-caef-4fe6-a2af-ddae8d7f84a6.png",
-   "tidy-interfolded-paper-towel-white-175-sheets-x-3s"
+   "tidy-interfolded-paper-towel-white-175-sheets-x-3s",
+   3
   ],
   [
    "Toiletries (toothbrush, toothpaste, soap)",
@@ -579,7 +636,8 @@
    "88.95",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/102051508_4a51e63a-5f82-41d4-9641-71a9bcb7ae02.jpg",
-   "colgate-oral-care-travel-kit"
+   "colgate-oral-care-travel-kit",
+   null
   ],
   [
    "Toiletries (toothbrush, toothpaste, soap)",
@@ -589,7 +647,8 @@
    "140.65",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/107799193.jpg",
-   "colgate-toothbrush-extra-clean-buy-5s"
+   "colgate-toothbrush-extra-clean-buy-5s",
+   5
   ],
   [
    "Toiletries (toothbrush, toothpaste, soap)",
@@ -599,7 +658,8 @@
    "85.85",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8850006320518.jpg",
-   "colgate-toothpaste-great-regular-flavor-74g"
+   "colgate-toothpaste-great-regular-flavor-74g",
+   null
   ],
   [
    "Toiletries (toothbrush, toothpaste, soap)",
@@ -609,7 +669,8 @@
    "37.00",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8932102111335.jpg",
-   "colgate-classic-deep-clean-toothbrush-medium-x-2s"
+   "colgate-classic-deep-clean-toothbrush-medium-x-2s",
+   2
   ],
   [
    "Natural Air",
@@ -619,7 +680,8 @@
    "184.25",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4987176133458_ffd73b18-f762-4742-b8eb-70c208db0cd7.jpg",
-   "ambi-pur-gel-room-fresh-downy-180g"
+   "ambi-pur-gel-room-fresh-downy-180g",
+   null
   ],
   [
    "Natural Air",
@@ -629,7 +691,8 @@
    "283.50",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/products/4902430518284.jpg",
-   "ambi-pur-gel-fresh-romantic-rose-value-pack-180g-by-2s"
+   "ambi-pur-gel-fresh-romantic-rose-value-pack-180g-by-2s",
+   2
   ],
   [
    "Natural Air",
@@ -639,7 +702,8 @@
    "164.25",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/9556076012665.jpg",
-   "ambi-pur-gel-fresh-romantic-rose-180g"
+   "ambi-pur-gel-fresh-romantic-rose-180g",
+   null
   ],
   [
    "Natural Air",
@@ -649,9 +713,11 @@
    "283.50",
    1,
    "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/105727287.jpg",
-   "ambi-pur-gel-fresh-relaxing-lavender-value-pack-180g-by-2s"
+   "ambi-pur-gel-fresh-relaxing-lavender-value-pack-180g-by-2s",
+   2
   ]
  ],
  "not_found": [],
- "note": "Natural Air = Ambi Pur gel room freshener (Lloyd 2026-10-31)"
+ "note": "Natural Air = Ambi Pur gel room freshener (Lloyd 2026-10-31)",
+ "pack_note": "pack_size_pc = pieces of the item (unit pc) in one listing; null = the listing is one piece (or the item is counted in packs)"
 }
