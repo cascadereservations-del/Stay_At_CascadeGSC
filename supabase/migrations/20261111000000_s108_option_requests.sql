@@ -22,7 +22,7 @@ create table public.inventory_option_requests (
   status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'cancelled')),
   note text check (note is null or char_length(note) <= 500),
   idempotency_key text not null check (char_length(idempotency_key) between 16 and 160),
-  requested_by uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  requested_by uuid default auth.uid() references auth.users(id) on delete set null, -- s108 review: keep history when an account is deleted
   requested_at timestamptz not null default now(),
   decided_by uuid references auth.users(id) on delete set null,
   decided_at timestamptz,

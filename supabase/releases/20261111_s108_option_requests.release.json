@@ -10,7 +10,7 @@
     "20261111000000_s108_option_requests.sql"
   ],
   "migration_sha256": {
-    "20261111000000_s108_option_requests.sql": "5d6219ed8a25ebeb8c23d8a8e0fb99d84cdae53d325c96a6230b057997863aa7"
+    "20261111000000_s108_option_requests.sql": "786d59af6a98442907b373149c085044bb86fd9a4ab5c9dcc5bd88d8149c01fc"
   },
   "backup": {
     "required": true,
