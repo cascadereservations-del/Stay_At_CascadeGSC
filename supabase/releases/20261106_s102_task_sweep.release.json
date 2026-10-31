@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s102/task-sweep",
-    "commit": "825e1b2a054eac7254f60c5d77638a478e4d143d"
+    "commit": "ab9b0629eb73c931a007dc8de7555c6cd6dca586"
   },
   "migrations": [
     "20261106000000_s102_task_sweep.sql"
   ],
   "migration_sha256": {
-    "20261106000000_s102_task_sweep.sql": "7928787af690664de3aa7666216662f464023ca17c745a7aacb7f576beda4eda"
+    "20261106000000_s102_task_sweep.sql": "5637f79195616780781d2fcbadbc85004d9d5a84be8f0e7aece0f9657bbf8ff8"
   },
   "backup": {
     "required": true,
@@ -78,7 +78,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsal on cascade-supabase-20261031T013444Z (prefix cascade-migration-rehearsal-16627eac8912), source commit 825e1b2: migration applied 1/1, forward 7/7, pgTAP s102_task_sweep.sql 37/37, public tables 125 -> 125. Log Cascade/docs/s102/rehearsal3.log."
+    "evidence": "Rehearsal on cascade-supabase-20261031T013444Z (prefix cascade-migration-rehearsal-16627eac8912), source commit 825e1b2: migration applied 1/1, forward 7/7, pgTAP s102_task_sweep.sql 37/37, public tables 125 -> 125. Log Cascade/docs/s102/rehearsal3.log. Later commits changed only a header comment and this file (Opus re-review GO on the SQL)."
   },
   "approvals": {
     "production_required": true,
