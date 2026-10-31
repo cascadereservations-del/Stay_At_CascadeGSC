@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "",
-    "verified_at": "",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261031T092728Z",
+    "verified_at": "2026-10-31T09:31:34.967Z",
     "production_rule": "s106 (Lloyd: brands and sizes are OPTIONS under one stock item). New table public.inventory_item_options (RLS on, no grants to any client role, not in realtime), two security definer RPCs for authenticated (inventory_item_options_v1: read_operations, price key only when read_finance passes; inventory_item_option_set_usual_v1: manage_inventory, flips the usual option and upserts the item/supplier link as preferred), one internal seed function with no grants. The migration seeds supplier Shopsuki (online, notes 'Prices read from shopsuki.ph on 2026-10-31'), 64 options for 19 items of property 6ae230f4-c189-4547-84b1-cb6e0b2cc9bd, and one preferred inventory_item_suppliers link per item that has no preferred link (live read 2026-10-31: none had any supplier link, so 19 links). No existing table, column, policy or function is changed.",
     "notes": "Phase expand: additive. The seed writes one inventory_suppliers row and 19 inventory_item_suppliers rows; the rollback script removes them again (only if nothing else uses the supplier)."
   },
