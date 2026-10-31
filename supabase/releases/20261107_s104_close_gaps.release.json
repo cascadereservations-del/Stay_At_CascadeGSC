@@ -152,8 +152,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING - rehearsal on a fresh backup: migration applied 1/1, forward checks, pgTAP s104_close_gaps.sql 143/143 plus s101_report_blocks.sql, s102_task_sweep.sql, s100_meter_no_photo.sql, meter_followup_resolution.sql and security_grants.sql. Built without a local database."
+    "verified": true,
+    "evidence": "Rehearsal on cascade-supabase-20261031T041918Z, source 8fc757f: migration 1/1, forward 22/22, pgTAP s104_close_gaps 143/143, s101_report_blocks 89/89, s102_task_sweep 37/37 (Cascade/docs/s104/rehearsal5.log). s100_meter_no_photo, s94_pay_ahead, meter_followup_resolution and security_grants fail identically on the live baseline without s104 (docs/s104/baseline-suites.log): restore-ACL artifacts; live anon grants read correct 2026-10-31."
   },
   "approvals": {
     "production_required": true,
