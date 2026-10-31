@@ -39,7 +39,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { withObservability } from '../_shared/observability.ts';
 import { evaluateGasResponse, gasTimeoutMs } from './gas-response.ts';
-import { parseDriveArchive, archiveNotice } from './drive-archive.ts';
+import { parseDriveArchive, archiveNotice, tagTakenAt } from './drive-archive.ts';
 import { countUploaded, type PhotoEntry, photoOutsideScope, photoUrl, refreshSignedPhotoUrls } from './photos.ts';
 import {
   meterReasons, parseMeterSkip, skipRefusedFromV2, keepDeltas, meterFlagForSkip, meterNoPhotoNotice, backwardsRefusal, pendingBetween,
@@ -828,6 +828,7 @@ Deno.serve(withObservability({ functionName: 'submit-cleaning', route: 'ops' }, 
           // SPEC-15 phase 1: keep the Drive ids so the archive is findable without the e-mail.
           const archive = parseDriveArchive(bodyText);
           if (!archive) return;
+          archive.files = tagTakenAt(archive.files, payload.photos?.section_meter, (payload as { meterPhotoMeta?: unknown }).meterPhotoMeta);
           const { error: archiveErr } = await supabase.from('cleaning_sessions').update({
             session_folder_id:  archive.folderId,
             session_folder_url: archive.folderUrl,

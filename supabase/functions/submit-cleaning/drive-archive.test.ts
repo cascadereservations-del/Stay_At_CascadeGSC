@@ -85,3 +85,35 @@ Deno.test('an older Code.gs with no files list claims no count, and falls back t
     `📸 Photos archived to Drive — Cascade Bria · 2026-09-19\nhttps://drive.google.com/drive/folders/${FOLDER}`,
   );
 });
+
+// s103 W2: taken_at on the meter entries of drive_files
+import { parseTakenAt, tagTakenAt, type DriveFile } from './drive-archive.ts';
+const NOW = Date.parse('2026-10-31T00:00:00Z');
+const df = (section: string, id: string): DriveFile => ({ section, name: 'photo_1.jpg', fileId: id, url: 'https://drive.google.com/x' });
+
+Deno.test('parseTakenAt accepts an ISO date up to a day ahead, else null', () => {
+  assertEquals(parseTakenAt('2026-10-21T04:00:00.000Z', NOW), '2026-10-21T04:00:00.000Z');
+  assertEquals(parseTakenAt('2026-11-01T00:00:00Z', NOW), '2026-11-01T00:00:00.000Z');
+  assertEquals(parseTakenAt('2026-11-02T00:00:00Z', NOW), null);
+  for (const v of [null, undefined, 5, '', 'yesterday']) assertEquals(parseTakenAt(v, NOW), null);
+});
+
+Deno.test('tagTakenAt matches meter files by position and meta by fileId; other sections untouched', () => {
+  const files = [df('section_afterclean', 'A'), df('Meter_Readings', 'E'), df('Meter_Readings', 'W')];
+  const photos = [{ name: 'a.jpg', fileId: 'p/e' }, { name: 'b.jpg', fileId: 'p/w' }];
+  // meta arrives in a different order and with a null: matching is by fileId, not index
+  const meta = [{ fileId: 'p/w', takenAt: '2026-10-22T01:00:00Z' }, { fileId: 'p/e', takenAt: null }];
+  const out = tagTakenAt(files, photos, meta, NOW)!;
+  assertEquals(out[0].taken_at, undefined);
+  assertEquals(out[1].taken_at, null);
+  assertEquals(out[2].taken_at, '2026-10-22T01:00:00.000Z');
+});
+
+Deno.test('old client (no meterPhotoMeta) and a count mismatch add no key', () => {
+  const mk = () => [df('Meter_Readings', 'E'), df('Meter_Readings', 'W')];
+  const photos = [{ fileId: 'p/e' }, { fileId: 'p/w' }];
+  assertEquals('taken_at' in tagTakenAt(mk(), photos, undefined, NOW)![0], false);
+  assertEquals('taken_at' in tagTakenAt(mk(), photos, [{ fileId: 'p/e', takenAt: '2026-10-22T01:00:00Z' }], NOW)![0], true);
+  assertEquals('taken_at' in tagTakenAt(mk(), [photos[0]], [{ fileId: 'p/e', takenAt: '2026-10-22T01:00:00Z' }], NOW)![0], false);
+  assertEquals(tagTakenAt(null, photos, [], NOW), null);
+});

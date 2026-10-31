@@ -1,3 +1,4 @@
+import type { PhotoEntry } from './photos.ts';
 // SPEC-15 phase 1: where Code.gs put the photos, as a pure function so it can be tested.
 //
 // Until this, the Drive folder id and every file id lived only in the sent e-mail
@@ -5,7 +6,7 @@
 // Code.gs v3.10 returns { folderId, folderUrl, files: [{ section, name, fileId, url }] }; older
 // versions return folderId/folderUrl only, and anything malformed is dropped rather than stored.
 
-export interface DriveFile { section: string; name: string; fileId: string; url: string }
+export interface DriveFile { section: string; name: string; fileId: string; url: string; taken_at?: string | null }
 export interface DriveArchive { folderId: string; folderUrl: string | null; files: DriveFile[] | null }
 
 const ID = /^[A-Za-z0-9_-]{10,200}$/;
@@ -43,4 +44,32 @@ export function archiveNotice(archive: DriveArchive, unitName: string, cleaningD
     : `📸 Photos archived to Drive`;
   const link = archive.folderUrl ?? `https://drive.google.com/drive/folders/${archive.folderId}`;
   return `${what} — ${unitName} · ${cleaningDate}\n${link}`;
+}
+
+/* s103 W2: when a meter photo was taken (the phone's file time, sent by the checklist as meterPhotoMeta[i].takenAt). Stored as
+   taken_at inside the existing drive_files JSON, so no SQL change. A valid ISO date no more than a day ahead, else null. */
+export function parseTakenAt(v: unknown, nowMs = Date.now()): string | null {
+  if (typeof v !== 'string') return null;
+  const t = Date.parse(v);
+  return Number.isFinite(t) && t <= nowMs + 86_400_000 ? new Date(t).toISOString() : null;
+}
+
+const isMeterSection = (s: string) => /meter/i.test(s);
+
+/** Adds taken_at to the meter entries of `files`. Matching, in two steps:
+ *  1) the k-th meter-section file Code.gs returned is the k-th photo of payload.photos.section_meter (Code.gs files them in
+ *     payload order; the drive names are generic, "photo_1.jpg" in every section, so a name cannot match);
+ *  2) that photo's meterPhotoMeta entry is found by fileId (Storage path), else by name.
+ *  A missing/non-array meterPhotoMeta (old client) leaves `files` untouched; a different meter-file count than
+ *  section_meter photos (a photo Code.gs skipped) tags nothing, because the position would be a guess. */
+export function tagTakenAt(files: DriveFile[] | null, sectionMeter: PhotoEntry[] | undefined, meta: unknown, nowMs = Date.now()): DriveFile[] | null {
+  if (!files || !Array.isArray(meta) || !Array.isArray(sectionMeter)) return files;
+  const meterFiles = files.filter((f) => isMeterSection(f.section));
+  if (meterFiles.length !== sectionMeter.length) return files;
+  sectionMeter.forEach((p, k) => {
+    const m = (meta as Record<string, unknown>[]).find((x) => x && typeof x === 'object' &&
+      ((p.fileId && x.fileId === p.fileId) || (!p.fileId && p.name && x.name === p.name)));
+    meterFiles[k].taken_at = parseTakenAt(m?.takenAt, nowMs);
+  });
+  return files;
 }

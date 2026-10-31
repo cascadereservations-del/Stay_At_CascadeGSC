@@ -41,6 +41,7 @@
 // without this any caller could pick a property_id or submission_id and write meter verdicts. The only caller is the
 // 'verify-meter-photo-daily' pg_cron job; a hand check sends the same header (Vault 'cascade_cron_shared_secret').
 
+import { photoDateLines } from './photo-date.ts';
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { heartbeat } from '../_shared/heartbeat.ts';
@@ -468,11 +469,21 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
-    const { verdict, lines } = verdictFor(
+    const { verdict, lines: verdictLines } = verdictFor(
       t.electric_curr === null ? null : Number(t.electric_curr),
       t.water_curr === null ? null : Number(t.water_curr),
       e, w,
     );
+
+    // s103 W2: a photo from the wrong day is a line, never a verdict and never a message of its own (a verdict of 'ok'
+    // does not notify, so a date-only finding stays in the recorded lines).
+    let dateLines: string[] = [];
+    try {
+      // the pending-sweep rpc may not return drive_files, so read both here
+      const { data: cs } = await db.from('cleaning_sessions').select('checkout_date, drive_files').eq('id', t.session_id).maybeSingle();
+      dateLines = photoDateLines(cs?.drive_files ?? t.drive_files, cs?.checkout_date);
+    } catch { /* a date note is never worth a failed check */ }
+    const lines = [...verdictLines, ...dateLines];
 
     await db.from('meter_readings').update({
       vision_electric: e?.reading ?? null,
@@ -483,7 +494,7 @@ Deno.serve(async (req: Request) => {
       vision_raw: {
         provider: e?.via ?? w?.via ?? PROVIDER,
         model: (e?.via ?? w?.via ?? PROVIDER) === 'openrouter' ? OPENROUTER_MODEL : GEMINI_MODEL,
-        electric: e, water: w, paths,
+        electric: e, water: w, paths, photo_date_lines: dateLines,
       },
     }).eq('session_id', t.session_id);
 
