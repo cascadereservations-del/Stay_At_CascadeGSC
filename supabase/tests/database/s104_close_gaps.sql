@@ -21,18 +21,18 @@
 --   are not dates (2026-13-45, 2026-02-30) stay open without an error.
 -- P5 follow-ups: SF1 (1 day ago, guest 'Ysabel ' with a trailing blank, checkout 2026-10-21, mismatch), SF2 (2 days ago, blank guest, no checkout, unreadable).
 begin;
-select plan(120);
+select plan(138);
 
 -- catalogue, bodies and grants ---------------------------------------------------------------------------------------------------------------------
 select has_function('public', 'admin_report_blocks_v1', array['uuid', 'integer'], 'admin_report_blocks_v1 exists');
 select has_function('public', 'admin_resolve_report_block_v1', array['uuid', 'text', 'numeric', 'numeric', 'text'], 'admin_resolve_report_block_v1 exists');
 select has_function('public', 'get_meter_photo_followups', array['uuid', 'integer'], 'get_meter_photo_followups exists');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure), '437b4a6bfb30df1c47a6cff06ee3371b', 'admin_report_blocks_v1 is the s104 body');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)'::regprocedure), 'b882191dbc2d651d55c46cb74b8dfa12', 'admin_resolve_report_block_v1 is the s104 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_report_blocks_v1(uuid,integer)'::regprocedure), '478f48d5cdb88c788c5ec04cc6eb1688', 'admin_report_blocks_v1 is the s104 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)'::regprocedure), '63bb95dbeb9b5e240664cdaaa25baced', 'admin_resolve_report_block_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure), 'a239c861c8656cd76f372b07d4e6e64b', 'meter_settle_estimates_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.system_tasks_sweep_v1()'::regprocedure), '0fdd80d252523c39cc30003475fb21bb', 'system_tasks_sweep_v1 is the s104 body');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure), '8d49875bdd4f94e4040c7de55c8c2c55', 'get_meter_photo_followups is the s104 body');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_request_meter_resend_v1(uuid,text)'::regprocedure), 'f8765be7b8160c623b9f3484e41806cd', 'admin_request_meter_resend_v1 is the s104 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure), 'e803d66d7ed4ceaf85049884b851bfa2', 'get_meter_photo_followups is the s104 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_request_meter_resend_v1(uuid,text)'::regprocedure), '805d0873092e2152b8fad0092ce30ca3', 'admin_request_meter_resend_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.s104_meter_vision_guard_v1()'::regprocedure), '34da981813ba3f38838356d5957ea5f0', 's104_meter_vision_guard_v1 is the s104 body');
 select ok(has_function_privilege('authenticated', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute')
           and not has_function_privilege('service_role', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute'), 'resend: authenticated only');
@@ -69,7 +69,12 @@ insert into public.properties(id, name, is_active) values
  ('b1000000-0000-4000-8000-000000000010', 'S104 settle dated photo unanswered', true),
  ('b1000000-0000-4000-8000-000000000011', 'S104 settle dated photo answered', true),
  ('b1000000-0000-4000-8000-000000000012', 'S104 out of order and resend', true),
- ('b1000000-0000-4000-8000-000000000013', 'S104 out of order correct', true) on conflict (id) do nothing;
+ ('b1000000-0000-4000-8000-000000000013', 'S104 out of order correct', true),
+ ('b1000000-0000-4000-8000-000000000014', 'S104 cleaner answered under review', true),
+ ('b1000000-0000-4000-8000-000000000015', 'S104 next row under review', true),
+ ('b1000000-0000-4000-8000-000000000016', 'S104 typed repairs the chain', true),
+ ('b1000000-0000-4000-8000-000000000017', 'S104 typed below the verified', true),
+ ('b1000000-0000-4000-8000-000000000018', 'S104 old paid resend', true) on conflict (id) do nothing;
 insert into auth.users(id) values ('b2000000-0000-4000-8000-000000000001'), ('b2000000-0000-4000-8000-000000000002') on conflict (id) do nothing;
 insert into public.staff_access_profiles(user_id, role, disabled_at, sessions_revoked_after) values
  ('b2000000-0000-4000-8000-000000000001', 'admin', null, null),
@@ -82,6 +87,12 @@ insert into public.staff_property_access(user_id, property_id) values
  ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000006'),
  ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000012'),
  ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000013'),
+ ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000014'),
+ ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000015'),
+ ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000016'),
+ ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000017'),
+ ('b2000000-0000-4000-8000-000000000001', 'b1000000-0000-4000-8000-000000000018'),
+ ('b2000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000014'),
  ('b2000000-0000-4000-8000-000000000002', 'b1000000-0000-4000-8000-000000000009') on conflict do nothing;
 
 -- P1: the list --------------------------------------------------------------------------------------------------------------------------------------
@@ -205,6 +216,41 @@ insert into public.meter_readings(id, session_id, property_id, submitted_by_user
  ('b4000000-0000-4000-8000-000000000121', 'b3000000-0000-4000-8000-000000000121', 'b1000000-0000-4000-8000-000000000012', 'b2000000-0000-4000-8000-000000000002', now() - interval '1 day', 100, 90, 10, 9, 'ok', 'under_review'),
  ('b4000000-0000-4000-8000-000000000122', 'b3000000-0000-4000-8000-000000000122', 'b1000000-0000-4000-8000-000000000012', 'b2000000-0000-4000-8000-000000000002', now() - interval '12 hours', 100, 95, 10, 9.5, 'ok', 'under_review'),
  ('b4000000-0000-4000-8000-000000000131', 'b3000000-0000-4000-8000-000000000131', 'b1000000-0000-4000-8000-000000000013', 'b2000000-0000-4000-8000-000000000002', now() - interval '1 day', 100, 90, 10, 9, 'ok', 'under_review');
+
+-- P14 (M1): U1 is under_review; the cleaner answers it through resolve_meter_followup_v1 and the admin must still be able to answer it.
+-- P15 (M2): H is a held mismatch (4000 -> 4292, 2 nights); the next reading N1 is an UNANSWERED under_review row (4250, lower than H): it must not bound or move H's correction.
+--   H corrected to 4300 / 82: electric delta 300.00, per night 150.00; water delta 82 - 80.000 = 2.000, per night 1.000. N1 stays prev 4292 / null delta.
+-- P16 (M4): V0 verified 4000 / 80, U under_review typed 4010 / 81 (2 nights, no usage stored), V2 verified 4030 / 83 pointing at V0 (1 night). Confirming U:
+--   U prev 4000 / 80, delta 10.00 / 1.000, per night 5.00 / 0.500; V2 re-pointed to 4010 / 81, delta 20.00 / 2.000, per night 20.00 / 2.000. No note.
+-- P17 (M4 negative): same chain but U' typed 3990 / 81: electric is below V0 (4000) so electric usage stays empty and V2' electric stays prev 4000 / delta 30.00; water is fine:
+--   U' water prev 80, delta 1.000, per night 0.500; V2' water re-pointed to 81, delta 2.000, per night 2.000. The answer carries a note.
+-- P18 (minor): RA is under_review, answered by the cleaner, on a session 40 days old that is paid; the admin asks for a resend: the row is reopened and the follow-ups raise it
+--   (SB, the same age and paid with an unresolved mismatch and no request, is not raised).
+insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaning_type, submitted_by_user_id, nights_stayed, checkout_date, cleaned_at, last_guest_name, fee_paid_at) values
+ ('b3000000-0000-4000-8000-000000000141', 's104-p14-1', 'Cleaner Synthetic', 'b1000000-0000-4000-8000-000000000014', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-10-21', now() - interval '1 day', null, null),
+ ('b3000000-0000-4000-8000-000000000151', 's104-p15-h', 'Held Synthetic', 'b1000000-0000-4000-8000-000000000015', 'turnover', 'b2000000-0000-4000-8000-000000000002', 2, '2026-10-20', '2026-10-20 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000152', 's104-p15-n', 'Next Synthetic', 'b1000000-0000-4000-8000-000000000015', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-10-22', '2026-10-22 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000161', 's104-p16-0', 'Before Synthetic', 'b1000000-0000-4000-8000-000000000016', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-10-18', '2026-10-18 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000162', 's104-p16-u', 'Review Synthetic', 'b1000000-0000-4000-8000-000000000016', 'turnover', 'b2000000-0000-4000-8000-000000000002', 2, '2026-10-20', '2026-10-20 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000163', 's104-p16-2', 'After Synthetic', 'b1000000-0000-4000-8000-000000000016', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-10-22', '2026-10-22 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000171', 's104-p17-0', 'Before Synthetic', 'b1000000-0000-4000-8000-000000000017', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-10-18', '2026-10-18 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000172', 's104-p17-u', 'Review Synthetic', 'b1000000-0000-4000-8000-000000000017', 'turnover', 'b2000000-0000-4000-8000-000000000002', 2, '2026-10-20', '2026-10-20 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000173', 's104-p17-2', 'After Synthetic', 'b1000000-0000-4000-8000-000000000017', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-10-22', '2026-10-22 12:00+08', null, null),
+ ('b3000000-0000-4000-8000-000000000181', 's104-p18-a', 'Old Synthetic', 'b1000000-0000-4000-8000-000000000018', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-09-21', now() - interval '40 days', 'Ysabel', now() - interval '30 days'),
+ ('b3000000-0000-4000-8000-000000000182', 's104-p18-b', 'Old Synthetic', 'b1000000-0000-4000-8000-000000000018', 'turnover', 'b2000000-0000-4000-8000-000000000002', 1, '2026-09-22', now() - interval '40 days', null, now() - interval '30 days');
+insert into public.meter_readings(id, session_id, property_id, submitted_by_user_id, recorded_at, electric_prev, electric_curr, electric_delta, water_prev, water_curr, water_delta,
+                                  kwh_per_night, m3_per_night, vision_verdict, vision_resolved_at, vision_resolved_by, vision_resolved_note, meter_flag) values
+ ('b4000000-0000-4000-8000-000000000141', 'b3000000-0000-4000-8000-000000000141', 'b1000000-0000-4000-8000-000000000014', 'b2000000-0000-4000-8000-000000000002', now() - interval '1 day', 100, 90, null, 10, 9, null, null, null, 'ok', null, null, null, 'under_review'),
+ ('b4000000-0000-4000-8000-000000000151', 'b3000000-0000-4000-8000-000000000151', 'b1000000-0000-4000-8000-000000000015', 'b2000000-0000-4000-8000-000000000002', '2026-10-20 12:00+08', 4000.00, 4292, 292.00, 80.000, 81.852, 1.852, 146.00, 0.926, 'mismatch', null, null, null, null),
+ ('b4000000-0000-4000-8000-000000000152', 'b3000000-0000-4000-8000-000000000152', 'b1000000-0000-4000-8000-000000000015', 'b2000000-0000-4000-8000-000000000002', '2026-10-22 12:00+08', 4292.00, 4250, null, 81.852, 81.000, null, null, null, 'ok', null, null, null, 'under_review'),
+ ('b4000000-0000-4000-8000-000000000161', 'b3000000-0000-4000-8000-000000000161', 'b1000000-0000-4000-8000-000000000016', 'b2000000-0000-4000-8000-000000000002', '2026-10-18 12:00+08', 3990, 4000, 10.00, 79, 80, 1.000, 10.00, 1.000, 'ok', null, null, null, null),
+ ('b4000000-0000-4000-8000-000000000162', 'b3000000-0000-4000-8000-000000000162', 'b1000000-0000-4000-8000-000000000016', 'b2000000-0000-4000-8000-000000000002', '2026-10-20 12:00+08', null, 4010, null, null, 81, null, null, null, 'ok', null, null, null, 'under_review'),
+ ('b4000000-0000-4000-8000-000000000163', 'b3000000-0000-4000-8000-000000000163', 'b1000000-0000-4000-8000-000000000016', 'b2000000-0000-4000-8000-000000000002', '2026-10-22 12:00+08', 4000, 4030, 30.00, 80, 83, 3.000, 30.00, 3.000, 'ok', null, null, null, null),
+ ('b4000000-0000-4000-8000-000000000171', 'b3000000-0000-4000-8000-000000000171', 'b1000000-0000-4000-8000-000000000017', 'b2000000-0000-4000-8000-000000000002', '2026-10-18 12:00+08', 3990, 4000, 10.00, 79, 80, 1.000, 10.00, 1.000, 'ok', null, null, null, null),
+ ('b4000000-0000-4000-8000-000000000172', 'b3000000-0000-4000-8000-000000000172', 'b1000000-0000-4000-8000-000000000017', 'b2000000-0000-4000-8000-000000000002', '2026-10-20 12:00+08', null, 3990, null, null, 81, null, null, null, 'ok', null, null, null, 'under_review'),
+ ('b4000000-0000-4000-8000-000000000173', 'b3000000-0000-4000-8000-000000000173', 'b1000000-0000-4000-8000-000000000017', 'b2000000-0000-4000-8000-000000000002', '2026-10-22 12:00+08', 4000, 4030, 30.00, 80, 83, 3.000, 30.00, 3.000, 'ok', null, null, null, null),
+ ('b4000000-0000-4000-8000-000000000181', 'b3000000-0000-4000-8000-000000000181', 'b1000000-0000-4000-8000-000000000018', 'b2000000-0000-4000-8000-000000000002', now() - interval '40 days', 100, 90, null, 10, 9, null, null, null, 'ok', now() - interval '39 days', 'b2000000-0000-4000-8000-000000000002', 'I re-sent the photo', 'under_review'),
+ ('b4000000-0000-4000-8000-000000000182', 'b3000000-0000-4000-8000-000000000182', 'b1000000-0000-4000-8000-000000000018', 'b2000000-0000-4000-8000-000000000002', now() - interval '40 days', 100, 101, 1.00, 10, 10.5, 0.500, null, null, 'mismatch', null, null, null, null);
 
 -- meter settle: only a staff answer makes B ---------------------------------------------------------------------------------------------------------
 select is(public.meter_settle_estimates_v1('b1000000-0000-4000-8000-000000000003') ->> 'settled', '0', 'a cleaner who typed the admin sentence does not make B: nothing settles');
@@ -334,6 +380,21 @@ select is(public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-00000000
 select throws_ok($$select public.admin_request_meter_resend_v1('b4000000-0000-4000-8000-000000000121', null)$$, '22023', 'That reading has already been answered.', 'an answered reading cannot be asked for a resend');
 select is(public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000131', 'correct_numbers', 110, 11, null) ->> 'ok', 'true', 'correct_numbers answers an under_review reading');
 select throws_ok($$select public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000131', 'correct_numbers', 120, 12, null)$$, '22023', 'That reading has already been answered.', 'and it is answered once');
+
+-- M1 / M2 / M4 / follow-ups: under_review rows -------------------------------------------------------------------------------------------------------------
+select is(public.admin_request_meter_resend_v1('b4000000-0000-4000-8000-000000000141', null) ->> 'ok', 'true', 'U1: a resend is requested');
+set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000002","aal":"aal1"}';
+select is(public.resolve_meter_followup_v1('b3000000-0000-4000-8000-000000000141', 'I sent a new photo') ->> 'outcome', 'resolved', 'U1: the cleaner answers through resolve_meter_followup_v1');
+set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000001","aal":"aal1"}';
+select is((select count(*) from public.admin_report_blocks_v1('b1000000-0000-4000-8000-000000000014', 14)), 1::bigint, 'U1: answered by the cleaner but still under_review, it stays on the admin card');
+select is(public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000141', 'typed_is_right', null, null, null) ->> 'ok', 'true', 'U1: the admin can still answer it (not refused as already answered)');
+select is((select count(*) from public.admin_report_blocks_v1('b1000000-0000-4000-8000-000000000014', 14)), 0::bigint, 'U1: and it leaves the card once the flag is cleared');
+select is(public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000151', 'correct_numbers', 4300, 82, null) ->> 'ok', 'true', 'H: the correction is not bounded by the unanswered under_review reading after it');
+select is(public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000162', 'typed_is_right', null, null, null) ? 'note', false, 'U: confirming an under_review reading above the verified one before it carries no note');
+select is((public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000172', 'typed_is_right', null, null, null) ->> 'note') is not null, true, 'U2: a typed electric number below the verified reading before it answers with a note');
+select is(public.admin_request_meter_resend_v1('b4000000-0000-4000-8000-000000000181', 'please') ->> 'ok', 'true', 'RA: an under_review reading the cleaner already answered can be asked again');
+select ok((select count(*) = 1 and bool_and(session_id = 'b3000000-0000-4000-8000-000000000181' and resend_requested_at is not null) from public.get_meter_photo_followups('b1000000-0000-4000-8000-000000000018', 14)),
+  'RA: the request reaches the cleaner follow-ups although the session is 40 days old and paid; the old paid mismatch SB is not raised');
 reset role;
 
 select is((select count(*) from public.meter_readings where id in ('b4000000-0000-4000-8000-000000000093', 'b4000000-0000-4000-8000-000000000094', 'b4000000-0000-4000-8000-000000000096')), 0::bigint, 'the refused inserts left no row');
@@ -356,6 +417,22 @@ select is((select count(*) from public.ops_notices where property_id = 'b1000000
 select ok((select notice_type = 'note' and source = 'system' and audience = 'staff' and is_active and title = 'New meter photo needed'
                   and description = 'Please send a new photo of the meter for the 22 Oct stay (Ysabel). photo was blurry' and expires_at > now() + interval '6 days'
              from public.ops_notices where property_id = 'b1000000-0000-4000-8000-000000000012'), 'the notice: type note, source system, audience staff, the agreed sentence plus the note, 7 days');
+select ok((select meter_flag is null and vision_resolved_by = 'b2000000-0000-4000-8000-000000000001' and vision_resolved_note = 'Typed numbers confirmed by an admin' from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000141'),
+  'U1: the admin answer replaced the cleaner answer and cleared the flag');
+select ok((select electric_curr = 4300 and water_curr = 82 and electric_delta = 300.00 and kwh_per_night = 150.00 and water_delta = 2.000 and m3_per_night = 1.000 and vision_resolved_at is not null
+             from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000151'), 'H: 4300 / 82, delta 300.00 / 2.000, per night 150.00 / 1.000');
+select ok((select electric_prev = 4292 and electric_delta is null and water_prev = 81.852 and meter_flag = 'under_review' from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000152'),
+  'N1: the unanswered under_review reading after H was not re-pointed');
+select ok((select meter_flag is null and electric_prev = 4000 and electric_delta = 10.00 and kwh_per_night = 5.00 and water_prev = 80 and water_delta = 1.000 and m3_per_night = 0.500 and vision_resolved_at is not null
+             from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000162'), 'U: usage repaired from the verified reading before it: prev 4000 / 80, delta 10.00 / 1.000, per night 5.00 / 0.500');
+select ok((select electric_prev = 4010 and electric_delta = 20.00 and kwh_per_night = 20.00 and water_prev = 81 and water_delta = 2.000 and m3_per_night = 2.000 from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000163'),
+  'V2: the next verified reading is re-pointed to 4010 / 81, delta 20.00 / 2.000, per night 20.00 / 2.000');
+select ok((select meter_flag is null and electric_prev is null and electric_delta is null and kwh_per_night is null and water_prev = 80 and water_delta = 1.000 and m3_per_night = 0.500
+             from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000172'), 'U2: electric below the verified reading keeps empty usage, water (above it) is repaired: prev 80, delta 1.000, per night 0.500');
+select ok((select electric_prev = 4000 and electric_delta = 30.00 and kwh_per_night = 30.00 and water_prev = 81 and water_delta = 2.000 and m3_per_night = 2.000 from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000173'),
+  'V2: electric is not re-pointed from a backwards number, water is re-pointed to 81 (delta 2.000, per night 2.000)');
+select ok((select meter_flag = 'under_review' and vision_resolved_at is null and vision_resolved_by is null and vision_raw ->> 'resend_requested_at' is not null from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000181'),
+  'RA: the resend request reopened the answered row');
 select ok((select vision_resolved_note = 'Typed numbers confirmed by an admin: dates are fine' and vision_verdict = 'ok' and vision_resolved_by = 'b2000000-0000-4000-8000-000000000001'
              from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000002'), 'R2: the note, the admin and the untouched verdict are stored');
 select ok((select electric_curr = 106 and water_curr = 11.5 and electric_delta = 6.00 and kwh_per_night = 3.00 and water_delta = 1.500 and m3_per_night = 0.750

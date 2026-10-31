@@ -21,8 +21,8 @@
 --  (6) a BEFORE INSERT OR UPDATE trigger on meter_readings (s104_meter_vision_guard, security invoker): a direct write by authenticated or anon that changes any vision_* column or meter_flag, or inserts a row with one set, is refused (42501).
 --  (7) settle B ignores a reading with a non-empty photo_date_lines unless it was answered (vision_resolved_at); the list shows photo_date rows only for verdict ok, and the answer matches.
 -- Grants are restated in full (ML-21: the rehearsal restore is --no-acl, production has default privileges). No table, column or cron change.
--- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 437b4a6bfb30df1c47a6cff06ee3371b, admin_resolve_report_block_v1 b882191dbc2d651d55c46cb74b8dfa12, meter_settle_estimates_v1 a239c861c8656cd76f372b07d4e6e64b,
---   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups 8d49875bdd4f94e4040c7de55c8c2c55, admin_request_meter_resend_v1 f8765be7b8160c623b9f3484e41806cd, s104_meter_vision_guard_v1 34da981813ba3f38838356d5957ea5f0.
+-- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 478f48d5cdb88c788c5ec04cc6eb1688, admin_resolve_report_block_v1 63bb95dbeb9b5e240664cdaaa25baced, meter_settle_estimates_v1 a239c861c8656cd76f372b07d4e6e64b,
+--   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups e803d66d7ed4ceaf85049884b851bfa2, admin_request_meter_resend_v1 805d0873092e2152b8fad0092ce30ca3, s104_meter_vision_guard_v1 34da981813ba3f38838356d5957ea5f0.
 
 begin;
 
@@ -31,11 +31,11 @@ do $g$
 declare v_md5 text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.admin_report_blocks_v1(uuid,integer)');
-  if v_md5 is distinct from 'e1093804346d7488d3c2b617ceae2205' and v_md5 is distinct from '437b4a6bfb30df1c47a6cff06ee3371b' then
+  if v_md5 is distinct from 'e1093804346d7488d3c2b617ceae2205' and v_md5 is distinct from '478f48d5cdb88c788c5ec04cc6eb1688' then
     raise exception 's104: public.admin_report_blocks_v1(uuid,integer) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)');
-  if v_md5 is distinct from 'f23647ef6a039daf1999faf9c33e35fd' and v_md5 is distinct from 'b882191dbc2d651d55c46cb74b8dfa12' then
+  if v_md5 is distinct from 'f23647ef6a039daf1999faf9c33e35fd' and v_md5 is distinct from '63bb95dbeb9b5e240664cdaaa25baced' then
     raise exception 's104: public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.meter_settle_estimates_v1(uuid)');
@@ -47,7 +47,7 @@ begin
     raise exception 's104: public.system_tasks_sweep_v1() is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.get_meter_photo_followups(uuid,integer)');
-  if v_md5 is distinct from '05c12c435acd72f5f1f04e6f657f0b66' and v_md5 is distinct from '8d49875bdd4f94e4040c7de55c8c2c55' then
+  if v_md5 is distinct from '05c12c435acd72f5f1f04e6f657f0b66' and v_md5 is distinct from 'e803d66d7ed4ceaf85049884b851bfa2' then
     raise exception 's104: public.get_meter_photo_followups(uuid,integer) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
 end $g$;
@@ -96,7 +96,7 @@ begin
   from public.meter_readings mr
   left join public.cleaning_sessions cs on cs.id = mr.session_id
   where mr.property_id = p_property_id
-    and mr.vision_resolved_at is null
+    and (mr.vision_resolved_at is null or mr.meter_flag = 'under_review')
     and (mr.vision_verdict = 'mismatch'
          or mr.meter_flag = 'under_review'
          or (mr.vision_verdict = 'ok' and (case when jsonb_typeof(mr.vision_raw -> 'photo_date_lines') = 'array' then jsonb_array_length(mr.vision_raw -> 'photo_date_lines') else 0 end) > 0))
@@ -126,6 +126,11 @@ declare
   v_dw      numeric;
   v_ne      record;
   v_nw      record;
+  v_pe      record;
+  v_pw      record;
+  v_fix_e   boolean := false;
+  v_fix_w   boolean := false;
+  v_neg     boolean := false;
 begin
   if v_action not in ('typed_is_right', 'correct_numbers') then
     raise exception 'unknown action' using errcode = '22023';
@@ -142,7 +147,7 @@ begin
   perform public.admin_require('inspect_cleaning', v_prop);
 
   select mr.id, mr.property_id, mr.meter_flag, mr.vision_verdict, mr.vision_resolved_at, mr.recorded_at,
-         mr.electric_prev, mr.water_prev, cs.checkout_date, cs.nights_stayed,
+         mr.electric_prev, mr.water_prev, mr.electric_curr, mr.water_curr, cs.checkout_date, cs.nights_stayed,
          case when jsonb_typeof(mr.vision_raw -> 'photo_date_lines') = 'array' then jsonb_array_length(mr.vision_raw -> 'photo_date_lines') else 0 end as n_date_lines
     into v_r
     from public.meter_readings mr
@@ -152,7 +157,8 @@ begin
   if not found then
     raise exception 'That reading was not found.' using errcode = '22023';
   end if;
-  if v_r.vision_resolved_at is not null then
+  -- s104: an under_review row a cleaner already answered (resolve_meter_followup_v1 stamps vision_resolved_at and leaves the flag) is still the admin's to answer
+  if v_r.vision_resolved_at is not null and v_r.meter_flag is distinct from 'under_review' then
     raise exception 'That reading has already been answered.' using errcode = '22023';
   end if;
   -- s104: a reading whose only finding is the photo date (vision_raw.photo_date_lines) can be answered too
@@ -160,14 +166,104 @@ begin
     raise exception 'That reading is not holding up a report.' using errcode = '22023';
   end if;
 
+  -- The stay this reading belongs to and the readings after it: meter-order.ts stayKey / meterNeighbours (server mode, mid-stays included). A reading
+  -- belongs to its session's check-out date, never later than the Manila day it was recorded; rows flagged misread / re_entry / duplicate (wrong numbers)
+  -- or estimate_pending (no photo) or under_review (out of order, not verified: meter-order.ts METER_UNVERIFIED_FLAGS) are never neighbours. s104: the order is (stay date, recorded_at, id), so a later reading of the SAME stay date (a deep clean after the turnover) is the next one.
+  v_day := (v_r.recorded_at at time zone 'Asia/Manila')::date;
+  v_key := case when v_r.checkout_date is not null and v_r.checkout_date < v_day then v_r.checkout_date else v_day end;
+
+  select x.id, x.electric_curr as val, x.electric_prev as prev, coalesce(x.nights_stayed, 0) as nights
+    into v_ne
+    from (select mr.id, mr.electric_curr, mr.electric_prev, mr.recorded_at, cs.nights_stayed,
+                 case when cs.checkout_date is not null and cs.checkout_date < (mr.recorded_at at time zone 'Asia/Manila')::date
+                      then cs.checkout_date else (mr.recorded_at at time zone 'Asia/Manila')::date end as k
+            from public.meter_readings mr
+            left join public.cleaning_sessions cs on cs.id = mr.session_id
+           where mr.property_id = v_r.property_id and mr.id <> p_reading_id and mr.electric_curr > 0
+             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending', 'under_review'))) x
+   where (x.k, x.recorded_at, x.id) > (v_key, v_r.recorded_at, v_r.id)
+   order by x.k, x.recorded_at, x.id
+   limit 1;
+  select x.id, x.water_curr as val, x.water_prev as prev, coalesce(x.nights_stayed, 0) as nights
+    into v_nw
+    from (select mr.id, mr.water_curr, mr.water_prev, mr.recorded_at, cs.nights_stayed,
+                 case when cs.checkout_date is not null and cs.checkout_date < (mr.recorded_at at time zone 'Asia/Manila')::date
+                      then cs.checkout_date else (mr.recorded_at at time zone 'Asia/Manila')::date end as k
+            from public.meter_readings mr
+            left join public.cleaning_sessions cs on cs.id = mr.session_id
+           where mr.property_id = v_r.property_id and mr.id <> p_reading_id and mr.water_curr > 0
+             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending', 'under_review'))) x
+   where (x.k, x.recorded_at, x.id) > (v_key, v_r.recorded_at, v_r.id)
+   order by x.k, x.recorded_at, x.id
+   limit 1;
+
+  -- s104: the verified reading BEFORE this one (same exclusions), for the repair of an under_review row's own usage
+  select x.id, x.electric_curr as val
+    into v_pe
+    from (select mr.id, mr.electric_curr, mr.recorded_at,
+                 case when cs.checkout_date is not null and cs.checkout_date < (mr.recorded_at at time zone 'Asia/Manila')::date
+                      then cs.checkout_date else (mr.recorded_at at time zone 'Asia/Manila')::date end as k
+            from public.meter_readings mr
+            left join public.cleaning_sessions cs on cs.id = mr.session_id
+           where mr.property_id = v_r.property_id and mr.id <> p_reading_id and mr.electric_curr > 0
+             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending', 'under_review'))) x
+   where (x.k, x.recorded_at, x.id) < (v_key, v_r.recorded_at, v_r.id)
+   order by x.k desc, x.recorded_at desc, x.id desc
+   limit 1;
+  select x.id, x.water_curr as val
+    into v_pw
+    from (select mr.id, mr.water_curr, mr.recorded_at,
+                 case when cs.checkout_date is not null and cs.checkout_date < (mr.recorded_at at time zone 'Asia/Manila')::date
+                      then cs.checkout_date else (mr.recorded_at at time zone 'Asia/Manila')::date end as k
+            from public.meter_readings mr
+            left join public.cleaning_sessions cs on cs.id = mr.session_id
+           where mr.property_id = v_r.property_id and mr.id <> p_reading_id and mr.water_curr > 0
+             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending', 'under_review'))) x
+   where (x.k, x.recorded_at, x.id) < (v_key, v_r.recorded_at, v_r.id)
+   order by x.k desc, x.recorded_at desc, x.id desc
+   limit 1;
+
   if v_action = 'typed_is_right' then
     v_reason := 'Typed numbers confirmed by an admin' || coalesce(': ' || v_note, '');
     perform public.admin_audit_context_v1(v_reason, null, null);
+    -- s104: an out-of-order reading (meter_flag under_review) was saved with no usage. Confirming its numbers repairs the chain like Correct the numbers does, per meter:
+    -- its own previous / delta / per night from the verified reading before it (only when the delta is not negative), and the next verified reading re-pointed to it.
+    -- A number below the verified reading before it keeps empty usage and moves nothing; the answer says to use Correct the numbers.
+    v_nights := coalesce(v_r.nights_stayed, 0);
+    if v_r.meter_flag = 'under_review' then
+      if v_r.electric_curr > 0 then
+        if v_pe.id is not null and v_r.electric_curr < v_pe.val then v_neg := true; else v_fix_e := true; end if;
+      end if;
+      if v_r.water_curr > 0 then
+        if v_pw.id is not null and v_r.water_curr < v_pw.val then v_neg := true; else v_fix_w := true; end if;
+      end if;
+    end if;
     update public.meter_readings
        set vision_resolved_at = now(), vision_resolved_by = auth.uid(), vision_resolved_note = v_reason,
-         meter_flag = case when meter_flag = 'under_review' then null else meter_flag end
+           meter_flag = case when meter_flag = 'under_review' then null else meter_flag end,
+           electric_prev = case when v_fix_e and v_pe.id is not null then v_pe.val else electric_prev end,
+           electric_delta = case when v_fix_e and v_pe.id is not null then round(v_r.electric_curr - v_pe.val, 2) else electric_delta end,
+           kwh_per_night = case when v_fix_e and v_pe.id is not null then (case when v_nights > 0 then round(round(v_r.electric_curr - v_pe.val, 2) / v_nights, 2) end) else kwh_per_night end,
+           water_prev = case when v_fix_w and v_pw.id is not null then v_pw.val else water_prev end,
+           water_delta = case when v_fix_w and v_pw.id is not null then round(v_r.water_curr - v_pw.val, 3) else water_delta end,
+           m3_per_night = case when v_fix_w and v_pw.id is not null then (case when v_nights > 0 then round(round(v_r.water_curr - v_pw.val, 3) / v_nights, 3) end) else m3_per_night end
      where id = p_reading_id;
-    return jsonb_build_object('ok', true, 'action', v_action, 'reading_id', p_reading_id);
+    if v_fix_e and v_ne.id is not null and v_ne.val >= v_r.electric_curr and v_ne.prev is distinct from v_r.electric_curr then
+      update public.meter_readings
+         set electric_prev = v_r.electric_curr,
+             electric_delta = round(v_ne.val - v_r.electric_curr, 2),
+             kwh_per_night = case when v_ne.nights > 0 then round(round(v_ne.val - v_r.electric_curr, 2) / v_ne.nights, 2) end
+       where id = v_ne.id and property_id = v_r.property_id;
+    end if;
+    if v_fix_w and v_nw.id is not null and v_nw.val >= v_r.water_curr and v_nw.prev is distinct from v_r.water_curr then
+      update public.meter_readings
+         set water_prev = v_r.water_curr,
+             water_delta = round(v_nw.val - v_r.water_curr, 3),
+             m3_per_night = case when v_nw.nights > 0 then round(round(v_nw.val - v_r.water_curr, 3) / v_nw.nights, 3) end
+       where id = v_nw.id and property_id = v_r.property_id;
+    end if;
+    return jsonb_build_object('ok', true, 'action', v_action, 'reading_id', p_reading_id)
+           || case when v_neg then jsonb_build_object('note', 'A typed number is lower than the verified reading before it, so its usage was left empty and the next stay was not changed. Use Correct the numbers.') else '{}'::jsonb end;
   end if;
 
   -- correct_numbers ------------------------------------------------------------------------------------------------------------------------------
@@ -191,37 +287,6 @@ begin
     raise exception 'The water number % is lower than the last reading on file (%). A meter does not run backwards.', p_water, v_r.water_prev
       using errcode = '22023';
   end if;
-
-  -- The stay this reading belongs to and the readings after it: meter-order.ts stayKey / meterNeighbours (server mode, mid-stays included). A reading
-  -- belongs to its session's check-out date, never later than the Manila day it was recorded; rows flagged misread / re_entry / duplicate (wrong numbers)
-  -- or estimate_pending (no photo) are never neighbours. s104: the order is (stay date, recorded_at, id), so a later reading of the SAME stay date (a deep clean after the turnover) is the next one.
-  v_day := (v_r.recorded_at at time zone 'Asia/Manila')::date;
-  v_key := case when v_r.checkout_date is not null and v_r.checkout_date < v_day then v_r.checkout_date else v_day end;
-
-  select x.id, x.electric_curr as val, x.electric_prev as prev, coalesce(x.nights_stayed, 0) as nights
-    into v_ne
-    from (select mr.id, mr.electric_curr, mr.electric_prev, mr.recorded_at, cs.nights_stayed,
-                 case when cs.checkout_date is not null and cs.checkout_date < (mr.recorded_at at time zone 'Asia/Manila')::date
-                      then cs.checkout_date else (mr.recorded_at at time zone 'Asia/Manila')::date end as k
-            from public.meter_readings mr
-            left join public.cleaning_sessions cs on cs.id = mr.session_id
-           where mr.property_id = v_r.property_id and mr.id <> p_reading_id and mr.electric_curr > 0
-             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending'))) x
-   where (x.k, x.recorded_at, x.id) > (v_key, v_r.recorded_at, v_r.id)
-   order by x.k, x.recorded_at, x.id
-   limit 1;
-  select x.id, x.water_curr as val, x.water_prev as prev, coalesce(x.nights_stayed, 0) as nights
-    into v_nw
-    from (select mr.id, mr.water_curr, mr.water_prev, mr.recorded_at, cs.nights_stayed,
-                 case when cs.checkout_date is not null and cs.checkout_date < (mr.recorded_at at time zone 'Asia/Manila')::date
-                      then cs.checkout_date else (mr.recorded_at at time zone 'Asia/Manila')::date end as k
-            from public.meter_readings mr
-            left join public.cleaning_sessions cs on cs.id = mr.session_id
-           where mr.property_id = v_r.property_id and mr.id <> p_reading_id and mr.water_curr > 0
-             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending'))) x
-   where (x.k, x.recorded_at, x.id) > (v_key, v_r.recorded_at, v_r.id)
-   order by x.k, x.recorded_at, x.id
-   limit 1;
 
   -- ... and not above the stay after it (meterOrderMessage)
   if v_ne.id is not null and p_electric > v_ne.val then
@@ -643,12 +708,12 @@ begin
   from public.cleaning_sessions cs
   left join public.meter_readings mr on mr.session_id = cs.id
   where cs.property_id = p_property_id
-    and cs.cleaned_at >= (now() - make_interval(days => greatest(p_lookback, 1)))
     and mr.vision_resolved_at is null
-    and cs.fee_paid_at is null -- S94: a settled session (paid in full) needs no photo follow-up
     and (
-      cs.meter_photos_skipped
-      or mr.vision_verdict in ('mismatch', 'not_a_meter', 'unreadable')
+      (cs.cleaned_at >= (now() - make_interval(days => greatest(p_lookback, 1)))
+       and cs.fee_paid_at is null -- S94: a settled session (paid in full) needs no photo follow-up
+       and (cs.meter_photos_skipped or mr.vision_verdict in ('mismatch', 'not_a_meter', 'unreadable')))
+      -- s104: an admin's resend request always reaches the cleaner's card, however old the session or whether it is paid
       or mr.vision_raw ->> 'resend_requested_at' is not null
     )
   order by cs.cleaned_at desc;
@@ -685,7 +750,7 @@ begin
   end if;
   perform public.admin_require('inspect_cleaning', v_prop);
 
-  select mr.id, mr.vision_resolved_at, cs.checkout_date, nullif(btrim(cs.last_guest_name), '') as guest, cs.submitted_by_user_id as sub_uid
+  select mr.id, mr.vision_resolved_at, cs.checkout_date, nullif(btrim(cs.last_guest_name), '') as guest, cs.submitted_by_user_id as sub_uid, mr.meter_flag
     into v_r
     from public.meter_readings mr
     left join public.cleaning_sessions cs on cs.id = mr.session_id
@@ -694,7 +759,7 @@ begin
   if not found then
     raise exception using errcode = '42501', message = 'inspect_cleaning denied';
   end if;
-  if v_r.vision_resolved_at is not null then
+  if v_r.vision_resolved_at is not null and v_r.meter_flag is distinct from 'under_review' then
     raise exception 'That reading has already been answered.' using errcode = '22023';
   end if;
   -- the note goes to staff screens: a phone number, e-mail or amount is refused, never stored
@@ -705,7 +770,11 @@ begin
   perform public.admin_audit_context_v1('Asked the cleaner to resend the meter photo' || coalesce(': ' || v_note, ''), null, null);
   update public.meter_readings
      set vision_raw = coalesce(vision_raw, '{}'::jsonb)
-                      || jsonb_build_object('resend_requested_at', now(), 'resend_requested_by', auth.uid(), 'resend_requested_note', v_note)
+                      || jsonb_build_object('resend_requested_at', now(), 'resend_requested_by', auth.uid(), 'resend_requested_note', v_note),
+         -- an under_review row the cleaner already answered is reopened, so the new request reaches her card again
+         vision_resolved_at = case when meter_flag = 'under_review' then null else vision_resolved_at end,
+         vision_resolved_by = case when meter_flag = 'under_review' then null else vision_resolved_by end,
+         vision_resolved_note = case when meter_flag = 'under_review' then null else vision_resolved_note end
    where id = p_reading_id;
 
   v_guest := case when v_r.guest is null then null else public.staff_redact_v1(v_r.guest) end;
@@ -798,12 +867,12 @@ comment on function public.get_meter_photo_followups(uuid, integer) is
 -- 7. in-migration check (a failed assert rolls the whole migration back) -------------------------------------------------------------------------------------
 do $$
 declare v_blocks text[] := array[
-  'public.admin_report_blocks_v1(uuid,integer)|437b4a6bfb30df1c47a6cff06ee3371b',
-  'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)|b882191dbc2d651d55c46cb74b8dfa12',
+  'public.admin_report_blocks_v1(uuid,integer)|478f48d5cdb88c788c5ec04cc6eb1688',
+  'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)|63bb95dbeb9b5e240664cdaaa25baced',
   'public.meter_settle_estimates_v1(uuid)|a239c861c8656cd76f372b07d4e6e64b',
   'public.system_tasks_sweep_v1()|0fdd80d252523c39cc30003475fb21bb',
-  'public.get_meter_photo_followups(uuid,integer)|8d49875bdd4f94e4040c7de55c8c2c55',
-  'public.admin_request_meter_resend_v1(uuid,text)|f8765be7b8160c623b9f3484e41806cd'];
+  'public.get_meter_photo_followups(uuid,integer)|e803d66d7ed4ceaf85049884b851bfa2',
+  'public.admin_request_meter_resend_v1(uuid,text)|805d0873092e2152b8fad0092ce30ca3'];
   v_e text;
 begin
   foreach v_e in array v_blocks loop
