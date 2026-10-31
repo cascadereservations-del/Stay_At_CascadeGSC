@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s102/task-sweep",
-    "commit": "bc96f87e03081c6215b97e612cca1c06bb6aff19"
+    "commit": "825e1b2a054eac7254f60c5d77638a478e4d143d"
   },
   "migrations": [
     "20261106000000_s102_task_sweep.sql"
   ],
   "migration_sha256": {
-    "20261106000000_s102_task_sweep.sql": "730e5bad50709eab50a7f06d123c1e854401f297a8fe2f6ee53258ec3b8e80f0"
+    "20261106000000_s102_task_sweep.sql": "7928787af690664de3aa7666216662f464023ca17c745a7aacb7f576beda4eda"
   },
   "backup": {
     "required": true,
