@@ -132,7 +132,7 @@ select is((select array(select e ->> 'id' from _t, jsonb_array_elements(v -> 'op
 select ok((select v::text !~ '"price"' and jsonb_array_length(v -> 'options') = 3 from _t where k = 'cl_l'), 'cleaner: three options and no price key anywhere');
 select is((select v ->> 'err' from _t where k = 'cl_tab'), '42501', 'cleaner: cannot read the table directly');
 select is((select v ->> 'err' from _t where k = 'cl_set'), '42501', 'cleaner: cannot set the usual option');
-select ok((select bool_and(e ? 'price') and jsonb_array_length(v -> 'options') = 3 from _t, jsonb_array_elements(v -> 'options') e where k = 'fi_l'), 'finance: reads all three options with price');
+select ok((select bool_and(e ? 'price') from _t, jsonb_array_elements(v -> 'options') e where k = 'fi_l') and (select jsonb_array_length(v -> 'options') = 3 from _t where k = 'fi_l'), 'finance: reads all three options with price');
 select is((select array(select e ->> 'id' from _t, jsonb_array_elements(v -> 'options') with ordinality x(e, n) where k = 'fi_l' order by n)),
   array['d1060000-0000-4000-8000-0000000000f2', 'd1060000-0000-4000-8000-0000000000f3', 'd1060000-0000-4000-8000-0000000000f1'], 'finance: same order as the owner');
 select is((select v ->> 'err' from _t where k = 'fi_set'), '42501', 'finance: cannot set the usual option (no manage_inventory)');
