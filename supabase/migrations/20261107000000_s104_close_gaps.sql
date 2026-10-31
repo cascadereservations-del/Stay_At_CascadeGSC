@@ -21,8 +21,8 @@
 --  (6) a BEFORE INSERT OR UPDATE trigger on meter_readings (s104_meter_vision_guard, security invoker): a direct write by authenticated or anon that changes any vision_* column or meter_flag, or inserts a row with one set, is refused (42501).
 --  (7) settle B ignores a reading with a non-empty photo_date_lines unless it was answered (vision_resolved_at); the list shows photo_date rows only for verdict ok, and the answer matches.
 -- Grants are restated in full (ML-21: the rehearsal restore is --no-acl, production has default privileges). No table, column or cron change.
--- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 478f48d5cdb88c788c5ec04cc6eb1688, admin_resolve_report_block_v1 63bb95dbeb9b5e240664cdaaa25baced, meter_settle_estimates_v1 a239c861c8656cd76f372b07d4e6e64b,
---   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups e803d66d7ed4ceaf85049884b851bfa2, admin_request_meter_resend_v1 805d0873092e2152b8fad0092ce30ca3, s104_meter_vision_guard_v1 34da981813ba3f38838356d5957ea5f0.
+-- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 671e34d1b2d96d5021d460f2c249d34e, admin_resolve_report_block_v1 1a4d31e487e97d82d8f2e7fcac65f64a, meter_settle_estimates_v1 a239c861c8656cd76f372b07d4e6e64b,
+--   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups e803d66d7ed4ceaf85049884b851bfa2, admin_request_meter_resend_v1 2cd2a122616fc1f70adf2474b38a8d96, s104_meter_vision_guard_v1 34da981813ba3f38838356d5957ea5f0.
 
 begin;
 
@@ -31,11 +31,11 @@ do $g$
 declare v_md5 text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.admin_report_blocks_v1(uuid,integer)');
-  if v_md5 is distinct from 'e1093804346d7488d3c2b617ceae2205' and v_md5 is distinct from '478f48d5cdb88c788c5ec04cc6eb1688' then
+  if v_md5 is distinct from 'e1093804346d7488d3c2b617ceae2205' and v_md5 is distinct from '671e34d1b2d96d5021d460f2c249d34e' then
     raise exception 's104: public.admin_report_blocks_v1(uuid,integer) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)');
-  if v_md5 is distinct from 'f23647ef6a039daf1999faf9c33e35fd' and v_md5 is distinct from '63bb95dbeb9b5e240664cdaaa25baced' then
+  if v_md5 is distinct from 'f23647ef6a039daf1999faf9c33e35fd' and v_md5 is distinct from '1a4d31e487e97d82d8f2e7fcac65f64a' then
     raise exception 's104: public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text) is not the body this release was cut from (md5 %)', v_md5 using errcode = '55000';
   end if;
   select md5(replace(p.prosrc, chr(13), '')) into v_md5 from pg_proc p where p.oid = to_regprocedure('public.meter_settle_estimates_v1(uuid)');
@@ -55,7 +55,7 @@ end $g$;
 -- 1. admin_report_blocks_v1 (return table changes: drop + create, then re-grant) ----------------------------------------------------------------------------
 drop function public.admin_report_blocks_v1(uuid, integer);
 CREATE OR REPLACE FUNCTION public.admin_report_blocks_v1(p_property_id uuid DEFAULT '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid, p_lookback integer DEFAULT 14)
- RETURNS TABLE(reading_id uuid, session_id uuid, cleaner_name text, checkout_date date, recorded_at timestamp with time zone, typed_electric numeric, typed_water numeric, prev_electric numeric, prev_water numeric, photo_electric numeric, photo_water numeric, photo_note_electric text, photo_note_water text, photo_path_electric text, photo_path_water text, reason text, photo_date_lines text[], photo_archived boolean, resend_requested_at timestamptz)
+ RETURNS TABLE(reading_id uuid, session_id uuid, cleaner_name text, checkout_date date, recorded_at timestamp with time zone, typed_electric numeric, typed_water numeric, prev_electric numeric, prev_water numeric, photo_electric numeric, photo_water numeric, photo_note_electric text, photo_note_water text, photo_path_electric text, photo_path_water text, reason text, photo_date_lines text[], photo_archived boolean, resend_requested_at timestamptz, previous_answer text)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO ''
@@ -92,7 +92,8 @@ begin
         and not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = (mr.vision_raw -> 'paths' ->> 'electric')))
      or (nullif(mr.vision_raw -> 'paths' ->> 'water', '') is not null
         and not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = (mr.vision_raw -> 'paths' ->> 'water')))),
-    case when mr.vision_raw ->> 'resend_requested_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' then (mr.vision_raw ->> 'resend_requested_at')::timestamptz end
+    case when mr.vision_raw ->> 'resend_requested_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' then (mr.vision_raw ->> 'resend_requested_at')::timestamptz end,
+    mr.vision_raw -> 'previous_answer' ->> 'note'
   from public.meter_readings mr
   left join public.cleaning_sessions cs on cs.id = mr.session_id
   where mr.property_id = p_property_id
@@ -228,14 +229,14 @@ begin
     perform public.admin_audit_context_v1(v_reason, null, null);
     -- s104: an out-of-order reading (meter_flag under_review) was saved with no usage. Confirming its numbers repairs the chain like Correct the numbers does, per meter:
     -- its own previous / delta / per night from the verified reading before it (only when the delta is not negative), and the next verified reading re-pointed to it.
-    -- A number below the verified reading before it keeps empty usage and moves nothing; the answer says to use Correct the numbers.
+    -- A number below the verified reading before it, or above the verified reading after it (it would count the same usage twice), keeps empty usage for that meter and moves nothing; the answer says to use Correct the numbers.
     v_nights := coalesce(v_r.nights_stayed, 0);
     if v_r.meter_flag = 'under_review' then
       if v_r.electric_curr > 0 then
-        if v_pe.id is not null and v_r.electric_curr < v_pe.val then v_neg := true; else v_fix_e := true; end if;
+        if (v_pe.id is not null and v_r.electric_curr < v_pe.val) or (v_ne.id is not null and v_ne.val < v_r.electric_curr) then v_neg := true; else v_fix_e := true; end if;
       end if;
       if v_r.water_curr > 0 then
-        if v_pw.id is not null and v_r.water_curr < v_pw.val then v_neg := true; else v_fix_w := true; end if;
+        if (v_pw.id is not null and v_r.water_curr < v_pw.val) or (v_nw.id is not null and v_nw.val < v_r.water_curr) then v_neg := true; else v_fix_w := true; end if;
       end if;
     end if;
     update public.meter_readings
@@ -263,7 +264,7 @@ begin
        where id = v_nw.id and property_id = v_r.property_id;
     end if;
     return jsonb_build_object('ok', true, 'action', v_action, 'reading_id', p_reading_id)
-           || case when v_neg then jsonb_build_object('note', 'A typed number is lower than the verified reading before it, so its usage was left empty and the next stay was not changed. Use Correct the numbers.') else '{}'::jsonb end;
+           || case when v_neg then jsonb_build_object('note', 'This number is lower than the reading before it or higher than the reading after it - usage was left empty. Use Correct the numbers.') else '{}'::jsonb end;
   end if;
 
   -- correct_numbers ------------------------------------------------------------------------------------------------------------------------------
@@ -770,7 +771,10 @@ begin
   perform public.admin_audit_context_v1('Asked the cleaner to resend the meter photo' || coalesce(': ' || v_note, ''), null, null);
   update public.meter_readings
      set vision_raw = coalesce(vision_raw, '{}'::jsonb)
-                      || jsonb_build_object('resend_requested_at', now(), 'resend_requested_by', auth.uid(), 'resend_requested_note', v_note),
+                      || jsonb_build_object('resend_requested_at', now(), 'resend_requested_by', auth.uid(), 'resend_requested_note', v_note)
+                      -- the cleaner's earlier answer is kept before it is cleared (shown on the admin card)
+                      || case when meter_flag = 'under_review' and vision_resolved_at is not null
+                              then jsonb_build_object('previous_answer', jsonb_build_object('note', vision_resolved_note, 'at', vision_resolved_at)) else '{}'::jsonb end,
          -- an under_review row the cleaner already answered is reopened, so the new request reaches her card again
          vision_resolved_at = case when meter_flag = 'under_review' then null else vision_resolved_at end,
          vision_resolved_by = case when meter_flag = 'under_review' then null else vision_resolved_by end,
@@ -867,12 +871,12 @@ comment on function public.get_meter_photo_followups(uuid, integer) is
 -- 7. in-migration check (a failed assert rolls the whole migration back) -------------------------------------------------------------------------------------
 do $$
 declare v_blocks text[] := array[
-  'public.admin_report_blocks_v1(uuid,integer)|478f48d5cdb88c788c5ec04cc6eb1688',
-  'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)|63bb95dbeb9b5e240664cdaaa25baced',
+  'public.admin_report_blocks_v1(uuid,integer)|671e34d1b2d96d5021d460f2c249d34e',
+  'public.admin_resolve_report_block_v1(uuid,text,numeric,numeric,text)|1a4d31e487e97d82d8f2e7fcac65f64a',
   'public.meter_settle_estimates_v1(uuid)|a239c861c8656cd76f372b07d4e6e64b',
   'public.system_tasks_sweep_v1()|0fdd80d252523c39cc30003475fb21bb',
   'public.get_meter_photo_followups(uuid,integer)|e803d66d7ed4ceaf85049884b851bfa2',
-  'public.admin_request_meter_resend_v1(uuid,text)|805d0873092e2152b8fad0092ce30ca3'];
+  'public.admin_request_meter_resend_v1(uuid,text)|2cd2a122616fc1f70adf2474b38a8d96'];
   v_e text;
 begin
   foreach v_e in array v_blocks loop
