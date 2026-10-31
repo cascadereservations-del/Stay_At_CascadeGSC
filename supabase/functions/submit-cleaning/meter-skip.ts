@@ -36,47 +36,8 @@ export function meterReasons(
   return out;
 }
 
-/* ── The graduated meter-mismatch alert, server half (2026-09-21) ────────────
-   Lloyd, 2026-09-20: mirror the alert to Finance, ask for a re-upload, and
-   block only if it is still unresolved. The asking already existed
-   (get_meter_photo_followups has raised 'mismatch' at sign-in since
-   2026-09-13); the mirror is in verify-meter-photo; this is the block.
-
-   It lives here, next to the other meter policy, and stays pure: the query is
-   in index.ts and only its answer arrives. */
-
-/** Which cleaning types a mismatch may block. A mid-stay happens with the guest
- *  still in the unit and an emergency clean is an incident; neither reads the
- *  meter, and neither is the moment to hold a cleaner up over an older report. */
+/** Which cleaning types have a meter reading that needs a photo (a declared skip on one is flagged estimate_pending). */
 export const METER_BLOCKING_TYPES = new Set(['turnover', 'deep_clean']);
-
-/** How far back an unresolved mismatch still counts: the same 14 days the
- *  sign-in card uses (get_meter_photo_followups' p_lookback), so the app and the
- *  server can never disagree about whether someone is blocked. */
-export const METER_BLOCK_LOOKBACK_DAYS = 14;
-
-export type PriorMismatch = { recorded_at?: string | null };
-
-/** The refusal to show her, or null when nothing blocks.
- *  Written for a person holding a phone in the unit: what is wrong, what to do,
- *  in that order, and no row id anywhere (D-197's standing rule). */
-export function meterBlockMessage(
-  cleaningType: string,
-  rows: PriorMismatch[] | null | undefined,
-): string | null {
-  if (!METER_BLOCKING_TYPES.has(cleaningType)) return null;
-  const first = (rows ?? [])[0];
-  if (!first) return null;
-  const when = first.recorded_at
-    ? new Date(first.recorded_at).toLocaleDateString('en-PH', {
-        timeZone: 'Asia/Manila', month: 'short', day: 'numeric',
-      })
-    : 'an earlier report';
-  return [
-    `Report not sent yet. The meter photo from ${when} does not match the number typed.`,
-    `1) Tap Back and open the checklist again. 2) Answer the meter notice at the top. 3) Come back and tap Retry.`,
-  ].join(' ');
-}
 
 /** Flags that mean a stored reading's NUMBERS are wrong, so it must never be the "previous reading" a new
  *  one is compared with (D-219). first_reading and under_review are real numbers and still count. */

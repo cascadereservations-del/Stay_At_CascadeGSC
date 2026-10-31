@@ -104,10 +104,14 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
-async function tgSend(token: string, chatId: string, text: string): Promise<boolean> {
+// D-354: a mismatch no longer blocks a report, so the notice carries the way to resolve it.
+const RESOLVE_URL = 'https://cascadereservations-del.github.io/cascade-admin-dashboard/#/operations';
+const RESOLVE_KEYBOARD = { inline_keyboard: [[{ text: 'Open and resolve', url: RESOLVE_URL }]] };
+
+async function tgSend(token: string, chatId: string, text: string, replyMarkup?: unknown): Promise<boolean> {
   const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST', headers: JSON_HEADERS,
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown', ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }),
     signal: AbortSignal.timeout(15_000),
   }).catch(() => null);
   if (resp && !resp.ok) console.warn(`tgSend failed ${resp.status}`);
@@ -492,7 +496,9 @@ Deno.serve(async (req: Request) => {
       const head = verdict === 'not_a_meter' ? '🚩 *Meter photo is not a meter*'
                  : verdict === 'mismatch'    ? '🚩 *Meter photo disagrees with the reading*'
                  : '👀 *Meter photo could not be read*';
+      const resolvable = MONEY_VERDICTS.has(verdict); // mismatch and not_a_meter
       const text = [
+        ...(resolvable ? ['Meter photo and typed reading disagree - the report was accepted.'] : []),
         head,
         `🏠 Cascade Hideaway`,
         `${when} · ${t.cleaner_name ?? 'unknown cleaner'}`,
@@ -501,17 +507,20 @@ Deno.serve(async (req: Request) => {
         ``,
         verdict === 'unreadable'
           ? `_Not necessarily a fault — the photo may just be dark or angled. A re-upload will be asked for at the next sign-in._`
+          : resolvable
+          ? `Lloyd: open the card and pick Typed numbers are right or Correct the numbers.`
           : `_A re-upload will be asked for at the next sign-in. Worth checking before the cleaning fee is paid._`,
       ].join('\n');
 
       // SPEC-17 (D-212): a verdict nobody was told about is counted as a failed run, not a quiet one.
-      if (!(await tgSend(TG_TOKEN, TG_CHAT, text))) notifyFailures += 1;
+      const markup = resolvable ? RESOLVE_KEYBOARD : undefined;
+      if (!(await tgSend(TG_TOKEN, TG_CHAT, text, markup))) notifyFailures += 1;
 
       // The same message, not a summary of it: Finance and OPS must never be
       // reading two different accounts of one photo. Sent only when the two
       // chats really are different, so a single-group estate is not told twice.
       if (MONEY_VERDICTS.has(verdict) && TG_FINANCE && TG_FINANCE !== TG_CHAT) {
-        await tgSend(TG_TOKEN, TG_FINANCE, text);
+        await tgSend(TG_TOKEN, TG_FINANCE, text, markup);
       }
     }
   }
