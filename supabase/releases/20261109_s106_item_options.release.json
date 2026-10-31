@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s106/item-options",
-    "commit": ""
+    "commit": "b86cd475523c055fa465773465ad71b4311e2095"
   },
   "migrations": [
     "20261109000000_s106_item_options.sql"
@@ -102,8 +102,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": ""
+    "verified": true,
+    "evidence": "Rehearsal on cascade-supabase-20261031T084613Z (prefix cascade-migration-rehearsal-2a48d91d1027), source commit b86cd475523c055fa465773465ad71b4311e2095: migration applied 1/1, forward 12/12, pgTAP s106_item_options.sql 51/51, public tables 125 -> 126. Log Cascade/docs/s106/rehearsal4.log. Opus review: SQL GO_WITH_CHANGES (fixes applied in this commit), staff GO."
   },
   "approvals": {
     "production_required": true,
