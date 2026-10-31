@@ -40,7 +40,7 @@ select ok((select bool_and(k.quoted_pack_price = o.price and char_length(k.pack_
             where k.is_preferred), 'seed: each preferred link quotes the usual option price and has a pack label of at most 40 characters');
 select is(public.s_inventory_item_options_seed_v1(), '{"suppliers": 0, "options": 0, "links": 0}'::jsonb, 'seed: running it again inserts nothing');
 select ok((select count(*) from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') = 64
-          and (select count(*) from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki') = 18, 'seed: counts are unchanged after the second run');
+          and (select count(*) from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where lower(s.name) = 'shopsuki') = 19, 'seed: counts are unchanged after the second run');
 
 -- =============================================================================================================================================
 -- Fixtures
