@@ -50,8 +50,8 @@ import { recordUsage } from '../_shared/cascade-core/usage.ts';
 import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts';
 import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
 import {
-  agreesAllowingForDecimalPoint, asVisionResult, ELECTRIC_TOLERANCE, isPending, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
-  precheckOutcome, PRECHECK_CAP, PRECHECK_WINDOW_MIN, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
+  agreesAllowingForDecimalPoint, alignToTyped, asVisionResult, ELECTRIC_TOLERANCE, isPending, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
+  precheckOutcome, PRECHECK_CAP, readText, storedVision, PRECHECK_WINDOW_MIN, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
 } from './logic.ts';
 
 // Deliberately NOT importing ../_shared/observability.ts. Every other ops
@@ -250,7 +250,7 @@ function verdictFor(
   // so a report with no meter photos in Storage at all came back "ok". Absent
   // evidence scored as verified evidence, which is the worst possible way for
   // a verification layer to be wrong. It is now stated plainly.
-  const one = (label: string, typed: number | null, r: VisionResult | null, tol: number) => {
+  const one = (label: string, typed: number | null, r: VisionResult | null, tol: number, which: Which) => {
     if (!r) {
       unreadable = true;
       lines.push(`${label}: no meter photo found in storage for this report`);
@@ -268,12 +268,12 @@ function verdictFor(
     }
     if (typed !== null && !agreesAllowingForDecimalPoint(r.reading, typed, tol)) {
       mismatch = true;
-      lines.push(`${label}: the photo reads ${r.reading}, the report says ${typed}`);
+      lines.push(`${label}: the photo reads ${readText(alignToTyped(r.reading, typed, which), r.reading)}, the report says ${typed}`);
     }
   };
 
-  one('Electric', typedE, e, ELECTRIC_TOLERANCE);
-  one('Water', typedW, w, WATER_TOLERANCE);
+  one('Electric', typedE, e, ELECTRIC_TOLERANCE, 'electric');
+  one('Water', typedW, w, WATER_TOLERANCE, 'water');
 
   return {
     verdict: notMeter ? 'not_a_meter' : mismatch ? 'mismatch' : unreadable ? 'unreadable' : 'ok',
@@ -486,8 +486,8 @@ Deno.serve(async (req: Request) => {
     const lines = [...verdictLines, ...dateLines];
 
     await db.from('meter_readings').update({
-      vision_electric: e?.reading ?? null,
-      vision_water: w?.reading ?? null,
+      vision_electric: storedVision(e, t.electric_curr === null ? null : Number(t.electric_curr), 'electric'),
+      vision_water: storedVision(w, t.water_curr === null ? null : Number(t.water_curr), 'water'),
       vision_confidence: Math.min(e?.confidence ?? 1, w?.confidence ?? 1),
       vision_verdict: verdict,
       vision_checked_at: new Date().toISOString(),

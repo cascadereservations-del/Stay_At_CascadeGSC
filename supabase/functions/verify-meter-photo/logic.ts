@@ -46,6 +46,27 @@ export function agreesAllowingForDecimalPoint(read: number, typed: number, tol: 
   return false;
 }
 
+/* s104: the reader often misplaces the decimal point (431.2 for 4312, 806 for 80.6). Returns read x 10^k (k -3..3) closest to
+   the typed number, rounded to the meter's decimals (electric 2, water 3). No typed number: the read, unchanged. */
+export function alignToTyped(read: number, typed: number | null | undefined, which: Which = 'electric'): number {
+  if (typed === null || typed === undefined || !Number.isFinite(typed) || !Number.isFinite(read)) return read;
+  let best = read;
+  for (let k = -3; k <= 3; k++) {
+    const c = read * Math.pow(10, k);
+    if (Math.abs(c - typed) < Math.abs(best - typed)) best = c;
+  }
+  return Number(best.toFixed(which === 'water' ? 3 : 2));
+}
+
+/** What to store in vision_electric / vision_water: the aligned read (the raw one stays in vision_raw). */
+export const storedVision = (r: VisionResult | null, typed: number | null | undefined, which: Which): number | null =>
+  r?.reading === null || r?.reading === undefined ? null : alignToTyped(r.reading, typed, which);
+
+/** "4312 (reader saw 431.2)"; the raw part only when it differs. */
+export function readText(aligned: number, raw: number): string {
+  return aligned === raw ? String(aligned) : `${aligned} (reader saw ${raw})`;
+}
+
 /** The caller may check only a photo it uploaded. Strict match of upload-photo's layout
  *  <property>/<user id>/<submission uuid>/<uuid>-<safe file name>.(jpg|jpeg|png|webp); no dots-only segments, no percent signs. */
 export function ownsPath(path: unknown, propertyId: string, userId: string): path is string {
@@ -72,10 +93,12 @@ export function precheckOutcome(r: VisionResult | null, which: Which, typed: num
     return { status: 'retake', reason: 'unreadable', reading: null, message: 'The numbers are hard to read in this photo. Please take it again, close and straight on, with less glare.' };
   }
   const tol = which === 'electric' ? ELECTRIC_TOLERANCE : WATER_TOLERANCE;
+  const a = alignToTyped(r.reading, typed, which);
+  const shown = a === r.reading ? fmt(a) : `${fmt(a)} (reader saw ${fmt(r.reading)})`;
   if (typed !== null && typed !== undefined && Number.isFinite(typed) && !agreesAllowingForDecimalPoint(r.reading, typed, tol)) {
-    return { status: 'check_number', reading: r.reading, message: `The photo reads ${fmt(r.reading)} but you typed ${fmt(typed)}. Please check the number.` };
+    return { status: 'check_number', reading: a, message: `The photo reads ${shown} but you typed ${fmt(typed)}. Please check the number.` };
   }
-  return { status: 'pass', reading: r.reading, message: `Photo looks clear - reading ${fmt(r.reading)}.` };
+  return { status: 'pass', reading: a, message: `Photo looks clear - reading ${shown}.` };
 }
 
 /** A stored precheck row is a placeholder (counted for the per-user cap, no result yet). */

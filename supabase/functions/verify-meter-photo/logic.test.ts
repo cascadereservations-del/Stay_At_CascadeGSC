@@ -64,3 +64,25 @@ Deno.test('asVisionResult rejects malformed cache rows', () => {
   eq(asVisionResult(null), null, 'null'); eq(asVisionResult({ reading: 1 }), null, 'no is_meter');
   eq(asVisionResult(read())?.reading, 12345, 'good');
 });
+
+import { alignToTyped, readText, storedVision } from './logic.ts';
+Deno.test('alignToTyped picks the power of ten closest to the typed number', () => {
+  eq(alignToTyped(431.2, 4292), 4312, '431.2 vs 4292');
+  eq(alignToTyped(806, 81.852, 'water'), 80.6, '806 vs 81.852');
+  eq(alignToTyped(4326, 4326), 4326, 'same');
+  eq(alignToTyped(82, 82.743, 'water'), 82, '82 vs 82.743');
+  eq(alignToTyped(431.2, null), 431.2, 'no typed');
+  eq(alignToTyped(431.2, undefined), 431.2, 'undefined typed');
+});
+Deno.test('stored value is aligned; raw text only when it differs', () => {
+  eq(storedVision(read({ reading: 431.2 }), 4292, 'electric'), 4312, 'stored');
+  eq(storedVision(null, 4292, 'electric'), null, 'no result');
+  eq(storedVision(read({ reading: null }), 4292, 'electric'), null, 'null reading');
+  eq(readText(4312, 431.2), '4312 (reader saw 431.2)', 'differs');
+  eq(readText(4326, 4326), '4326', 'same');
+});
+Deno.test('precheck reports the aligned read', () => {
+  const r = precheckOutcome(read({ reading: 431.2 }), 'electric', 4292);
+  eq(r.reading, 4312, 'reading'); eq(r.status, 'check_number', 'status');
+  eq(r.message, 'The photo reads 4,312 (reader saw 431.2) but you typed 4,292. Please check the number.', 'message');
+});
