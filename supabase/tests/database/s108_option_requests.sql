@@ -170,7 +170,7 @@ select ok((select v ->> 'replay' = 'true' and v ->> 'applied' = 'true' and v ->>
           and (select count(*)::int from public.inventory_item_options where item_id = pg_temp.id('c1') and title = 'Owner Soap') = 1, 'owner replay: same request, no second option');
 select is((select v ->> 'status' from _t where k = 'ad_approve'), 'approved', 'admin approve: status approved');
 select is((select (title, brand, price, supplier_id = pg_temp.id('e1'), created_by = pg_temp.id('a1'))::text from public.inventory_item_options where id = (select (v ->> 'option_id')::uuid from _t where k = 'ad_approve')),
-  '(Cl New Soap,Zz,65.50,t,t)', 'admin approve: applied with the price override, created by the requester');
+  '("Cl New Soap",Zz,65.50,t,t)', 'admin approve: applied with the price override, created by the requester');
 select is((select (status, decided_by = pg_temp.id('a3'), decision_note, payload ->> 'price')::text from public.inventory_option_requests where id = pg_temp.rid('r1')), '(approved,t,ok,65.5)', 'admin approve: decision fields and the final payload are stored');
 select is((select v ->> 'msg' from _t where k = 'ad_again'), 'not_pending', 'deciding a request twice: not_pending');
 select ok((select v ->> 'status' = 'rejected' from _t where k = 'ad_reject') and (select title from public.inventory_item_options where id = pg_temp.id('f1')) = 'Alpha Gel'
