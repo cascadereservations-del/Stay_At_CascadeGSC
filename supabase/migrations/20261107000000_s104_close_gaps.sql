@@ -18,11 +18,11 @@
 --  (5) get_meter_photo_followups (DROP + CREATE): checkout_date date and guest_name text (cleaning_sessions.last_guest_name, trimmed, null if blank) at the END of the return table.
 --  (8) addendum Q (nothing blocks a report): rows with meter_flag under_review are listed (reason meter_order); the answer accepts them and clears the flag; new admin_request_meter_resend_v1 (asks the cleaner for a new photo,
 --      stamps vision_raw.resend_requested_*, posts a staff notice in ops_notices); resend_requested_at is the last column of both list functions; the follow-ups also raise a reading with a resend request.
---  (6) a BEFORE UPDATE trigger on meter_readings (s104_meter_vision_guard, security invoker): a direct write by authenticated or anon that changes any vision_* column or meter_flag is refused (42501).
+--  (6) a BEFORE INSERT OR UPDATE trigger on meter_readings (s104_meter_vision_guard, security invoker): a direct write by authenticated or anon that changes any vision_* column or meter_flag, or inserts a row with one set, is refused (42501).
 --  (7) settle B ignores a reading with a non-empty photo_date_lines unless it was answered (vision_resolved_at); the list shows photo_date rows only for verdict ok, and the answer matches.
 -- Grants are restated in full (ML-21: the rehearsal restore is --no-acl, production has default privileges). No table, column or cron change.
 -- New body md5s (md5 of replace(prosrc, chr(13), '')): admin_report_blocks_v1 437b4a6bfb30df1c47a6cff06ee3371b, admin_resolve_report_block_v1 b882191dbc2d651d55c46cb74b8dfa12, meter_settle_estimates_v1 a239c861c8656cd76f372b07d4e6e64b,
---   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups 8d49875bdd4f94e4040c7de55c8c2c55, admin_request_meter_resend_v1 44ef5eab6a378d9a33beccc08f21dfad, s104_meter_vision_guard_v1 0ce8d9932da9a0bd7982e25353409d1e.
+--   system_tasks_sweep_v1 0fdd80d252523c39cc30003475fb21bb, get_meter_photo_followups 8d49875bdd4f94e4040c7de55c8c2c55, admin_request_meter_resend_v1 f8765be7b8160c623b9f3484e41806cd, s104_meter_vision_guard_v1 34da981813ba3f38838356d5957ea5f0.
 
 begin;
 
@@ -658,7 +658,7 @@ $function$
 
 -- 5c. admin_request_meter_resend_v1: ask the cleaner for a new photo of the meter (does NOT resolve the row) ------------------------------------------------------
 -- Notice path: the staff Notices board, public.ops_notices (read by notices_v1 / staff_home_v1 for audience staff), the same table ops_notice_add_v1 writes. It has no per-person
--- target, so the notice is for the property's staff: type note, source system, audience staff, expires after 7 days. The push trigger only fires for brownout and water, so no push is sent.
+-- target, so the notice is for the property's staff: type note, source system, audience staff, expires after 7 days. The ops_notices push trigger only fires for brownout and water, so the push to the cleaner is sent here.
 create or replace function public.admin_request_meter_resend_v1(p_reading_id uuid, p_note text default null)
 returns jsonb
 language plpgsql
@@ -672,6 +672,7 @@ declare
   v_r      record;
   v_guest  text;
   v_text   text;
+  v_secret text;
 begin
   if v_note is not null and length(v_note) > 150 then
     raise exception 'a note is at most 150 characters' using errcode = '22023';
@@ -684,7 +685,7 @@ begin
   end if;
   perform public.admin_require('inspect_cleaning', v_prop);
 
-  select mr.id, mr.vision_resolved_at, cs.checkout_date, nullif(btrim(cs.last_guest_name), '') as guest
+  select mr.id, mr.vision_resolved_at, cs.checkout_date, nullif(btrim(cs.last_guest_name), '') as guest, cs.submitted_by_user_id as sub_uid
     into v_r
     from public.meter_readings mr
     left join public.cleaning_sessions cs on cs.id = mr.session_id
@@ -715,12 +716,31 @@ begin
   insert into public.ops_notices (property_id, notice_type, title, description, effective_date, expires_at, source, audience)
   values (v_prop, 'note', 'New meter photo needed', v_text, (now() at time zone 'Asia/Manila')::date, now() + interval '7 days', 'system', 'staff');
 
+  -- Push to the ONE cleaner who submitted the report: notify-staff-inbox kind meter_resend (their phones that hold the notices topic), called with the vault cron secret exactly
+  -- as ops_notices_push_trg calls it. Only the Cascade property (a rehearsal fixture can never reach the live function); where pg_net or the vault secret is absent nothing is
+  -- sent; a failed push never fails the request (the notice above is already stored).
+  if v_r.sub_uid is not null and v_prop = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'
+     and to_regnamespace('net') is not null and to_regclass('vault.decrypted_secrets') is not null then
+    begin
+      execute $q$select decrypted_secret from vault.decrypted_secrets where name = 'cascade_cron_shared_secret' limit 1$q$ into v_secret;
+      if coalesce(v_secret, '') <> '' then
+        perform net.http_post(
+          url := 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/notify-staff-inbox',
+          headers := jsonb_build_object('Content-Type', 'application/json', 'x-cascade-cron-secret', v_secret),
+          body := jsonb_build_object('kind', 'meter_resend', 'user_id', v_r.sub_uid, 'reading_id', p_reading_id, 'stay', v_r.checkout_date),
+          timeout_milliseconds := 20000);
+      end if;
+    exception when others then
+      raise warning 'admin_request_meter_resend_v1: could not queue the push (%)', sqlstate;
+    end;
+  end if;
+
   return jsonb_build_object('ok', true, 'reading_id', p_reading_id);
 end;
 $function$;
 
 -- 5b. a cleaner cannot rewrite the photo check on her own reading (policy meters_staff_update + grant update let a direct PostgREST PATCH do it) --------------------
--- BEFORE UPDATE guard: when the caller is the authenticated or anon role itself (a direct write, not a security definer function, which runs as its owner, and not service_role)
+-- BEFORE INSERT OR UPDATE guard (nothing legitimate inserts as authenticated: the apps never write meter_readings, submit-cleaning uses service_role): when the caller is the authenticated or anon role itself (a direct write, not a security definer function, which runs as its owner, and not service_role)
 -- and any vision_* column or meter_flag changes, refuse with 42501. Every function that writes those columns (resolve_meter_followup_v1, review_meter_reading_v1,
 -- report_no_meter_photo_v1, meter_settle_estimates_v1, admin_resolve_report_block_v1, admin_undo_v1) is security definer, and the edge functions use service_role. Other columns stay as the policy allows.
 create or replace function public.s104_meter_vision_guard_v1()
@@ -730,17 +750,24 @@ security invoker
 set search_path to ''
 as $function$
 begin
-  if current_user in ('authenticated', 'anon')
-     and exists (select 1 from jsonb_each(to_jsonb(new)) n join jsonb_each(to_jsonb(old)) o on o.key = n.key
-                  where (left(n.key, 7) = 'vision_' or n.key = 'meter_flag') and n.value is distinct from o.value) then
-    raise exception 'The photo check result of a meter reading can only be changed by the system or an admin.' using errcode = '42501';
+  if current_user in ('authenticated', 'anon') then
+    if tg_op = 'INSERT' then
+      -- a new row written directly must carry no photo check result: every vision_* column and meter_flag null (the edge functions use service_role)
+      if exists (select 1 from jsonb_each(to_jsonb(new)) n
+                  where (left(n.key, 7) = 'vision_' or n.key = 'meter_flag') and n.value is distinct from 'null'::jsonb) then
+        raise exception 'A meter reading cannot be saved with a photo check result; only the system sets it.' using errcode = '42501';
+      end if;
+    elsif exists (select 1 from jsonb_each(to_jsonb(new)) n join jsonb_each(to_jsonb(old)) o on o.key = n.key
+                   where (left(n.key, 7) = 'vision_' or n.key = 'meter_flag') and n.value is distinct from o.value) then
+      raise exception 'The photo check result of a meter reading can only be changed by the system or an admin.' using errcode = '42501';
+    end if;
   end if;
   return new;
 end;
 $function$;
 revoke all on function public.s104_meter_vision_guard_v1() from public, anon, authenticated, service_role;
 drop trigger if exists s104_meter_vision_guard on public.meter_readings;
-create trigger s104_meter_vision_guard before update on public.meter_readings for each row execute function public.s104_meter_vision_guard_v1();
+create trigger s104_meter_vision_guard before insert or update on public.meter_readings for each row execute function public.s104_meter_vision_guard_v1();
 
 -- 6. grants restated in full (ML-21) and comments ----------------------------------------------------------------------------------------------------------
 revoke all on function public.admin_report_blocks_v1(uuid, integer) from public, anon, authenticated, service_role;
@@ -776,7 +803,7 @@ declare v_blocks text[] := array[
   'public.meter_settle_estimates_v1(uuid)|a239c861c8656cd76f372b07d4e6e64b',
   'public.system_tasks_sweep_v1()|0fdd80d252523c39cc30003475fb21bb',
   'public.get_meter_photo_followups(uuid,integer)|8d49875bdd4f94e4040c7de55c8c2c55',
-  'public.admin_request_meter_resend_v1(uuid,text)|44ef5eab6a378d9a33beccc08f21dfad'];
+  'public.admin_request_meter_resend_v1(uuid,text)|f8765be7b8160c623b9f3484e41806cd'];
   v_e text;
 begin
   foreach v_e in array v_blocks loop

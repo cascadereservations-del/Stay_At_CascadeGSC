@@ -21,7 +21,7 @@
 --   are not dates (2026-13-45, 2026-02-30) stay open without an error.
 -- P5 follow-ups: SF1 (1 day ago, guest 'Ysabel ' with a trailing blank, checkout 2026-10-21, mismatch), SF2 (2 days ago, blank guest, no checkout, unreadable).
 begin;
-select plan(112);
+select plan(119);
 
 -- catalogue, bodies and grants ---------------------------------------------------------------------------------------------------------------------
 select has_function('public', 'admin_report_blocks_v1', array['uuid', 'integer'], 'admin_report_blocks_v1 exists');
@@ -32,8 +32,8 @@ select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'pu
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.meter_settle_estimates_v1(uuid)'::regprocedure), 'a239c861c8656cd76f372b07d4e6e64b', 'meter_settle_estimates_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.system_tasks_sweep_v1()'::regprocedure), '0fdd80d252523c39cc30003475fb21bb', 'system_tasks_sweep_v1 is the s104 body');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure), '8d49875bdd4f94e4040c7de55c8c2c55', 'get_meter_photo_followups is the s104 body');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_request_meter_resend_v1(uuid,text)'::regprocedure), '44ef5eab6a378d9a33beccc08f21dfad', 'admin_request_meter_resend_v1 is the s104 body');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.s104_meter_vision_guard_v1()'::regprocedure), '0ce8d9932da9a0bd7982e25353409d1e', 's104_meter_vision_guard_v1 is the s104 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.admin_request_meter_resend_v1(uuid,text)'::regprocedure), 'f8765be7b8160c623b9f3484e41806cd', 'admin_request_meter_resend_v1 is the s104 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.s104_meter_vision_guard_v1()'::regprocedure), '34da981813ba3f38838356d5957ea5f0', 's104_meter_vision_guard_v1 is the s104 body');
 select ok(has_function_privilege('authenticated', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute')
           and not has_function_privilege('service_role', 'public.admin_request_meter_resend_v1(uuid,text)', 'execute'), 'resend: authenticated only');
 select ok(has_function_privilege('authenticated', 'public.admin_report_blocks_v1(uuid,integer)', 'execute') and not has_function_privilege('anon', 'public.admin_report_blocks_v1(uuid,integer)', 'execute')
@@ -53,7 +53,7 @@ select is((select proargnames[18:21] from pg_proc where oid = 'public.admin_repo
 select is((select proargnames[13:15] from pg_proc where oid = 'public.get_meter_photo_followups(uuid,integer)'::regprocedure), array['checkout_date', 'guest_name', 'resend_requested_at'], 'follow-ups: checkout_date, guest_name and resend_requested_at are at the end');
 
 select ok(exists (select 1 from pg_trigger t join pg_proc p on p.oid = t.tgfoid where t.tgrelid = 'public.meter_readings'::regclass and t.tgname = 's104_meter_vision_guard' and not t.tgisinternal
-                     and t.tgenabled = 'O' and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16 and not p.prosecdef and p.proconfig = array['search_path=""']), 'the vision guard is an enabled BEFORE UPDATE trigger on meter_readings, security invoker, empty search_path');
+                     and t.tgenabled = 'O' and (t.tgtype & 2) = 2 and (t.tgtype & 4) = 4 and (t.tgtype & 16) = 16 and not p.prosecdef and p.proconfig = array['search_path=""']), 'the vision guard is an enabled BEFORE INSERT OR UPDATE trigger on meter_readings, security invoker, empty search_path');
 
 -- people and properties -----------------------------------------------------------------------------------------------------------------------------
 insert into public.properties(id, name, is_active) values
@@ -259,6 +259,14 @@ select throws_ok($$update public.meter_readings set vision_resolved_at = now(), 
 select lives_ok($$update public.meter_readings set electric_curr = 101 where id = 'b4000000-0000-4000-8000-000000000091'$$, 'a cleaner change to electric_curr alone is still allowed by the policy');
 select lives_ok($$update public.meter_readings set vision_verdict = 'ok', electric_curr = 102 where id = 'b4000000-0000-4000-8000-000000000091'$$, 'writing a vision column back to the value it already has is not a change');
 select is(public.resolve_meter_followup_v1('b3000000-0000-4000-8000-000000000092', 'I re-sent the photo') ->> 'outcome', 'resolved', 'resolve_meter_followup_v1 (security definer) still stamps the answer under the guard');
+select throws_ok($$insert into public.meter_readings(id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_verdict) values ('b4000000-0000-4000-8000-000000000093', 'b1000000-0000-4000-8000-000000000009', 'b2000000-0000-4000-8000-000000000002', 120, 12, 'ok')$$,
+  '42501', 'A meter reading cannot be saved with a photo check result; only the system sets it.', 'a cleaner cannot insert a reading that already carries a verdict');
+select throws_ok($$insert into public.meter_readings(id, property_id, submitted_by_user_id, electric_curr, water_curr, meter_flag) values ('b4000000-0000-4000-8000-000000000094', 'b1000000-0000-4000-8000-000000000009', 'b2000000-0000-4000-8000-000000000002', 120, 12, 'first_reading')$$,
+  '42501', 'A meter reading cannot be saved with a photo check result; only the system sets it.', 'nor one that carries a meter flag');
+select throws_ok($$insert into public.meter_readings(id, property_id, submitted_by_user_id, electric_curr, water_curr, vision_resolved_at, vision_resolved_note) values ('b4000000-0000-4000-8000-000000000096', 'b1000000-0000-4000-8000-000000000009', 'b2000000-0000-4000-8000-000000000002', 120, 12, now(), 'self answered')$$,
+  '42501', 'A meter reading cannot be saved with a photo check result; only the system sets it.', 'nor one that is already answered');
+select lives_ok($$insert into public.meter_readings(id, property_id, submitted_by_user_id, electric_curr, water_curr) values ('b4000000-0000-4000-8000-000000000095', 'b1000000-0000-4000-8000-000000000009', 'b2000000-0000-4000-8000-000000000002', 120, 12)$$,
+  'a cleaner insert with every vision column and the flag null is still allowed by the policy');
 select throws_ok($$select public.admin_request_meter_resend_v1('b4000000-0000-4000-8000-000000000122', 'please')$$, '42501', 'inspect_cleaning denied', 'a cleaner cannot ask for a resend (an existing id)');
 select throws_ok($$select public.admin_request_meter_resend_v1('b4000000-0000-4000-8000-0000000000ff', 'please')$$, '42501', 'inspect_cleaning denied', 'a missing id looks exactly the same to the resend request');
 set local request.jwt.claims = '{"sub":"b2000000-0000-4000-8000-000000000001","aal":"aal1"}';
@@ -320,6 +328,10 @@ select is(public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-00000000
 select throws_ok($$select public.admin_resolve_report_block_v1('b4000000-0000-4000-8000-000000000131', 'correct_numbers', 120, 12, null)$$, '22023', 'That reading has already been answered.', 'and it is answered once');
 reset role;
 
+select is((select count(*) from public.meter_readings where id in ('b4000000-0000-4000-8000-000000000093', 'b4000000-0000-4000-8000-000000000094', 'b4000000-0000-4000-8000-000000000096')), 0::bigint, 'the refused inserts left no row');
+select ok((select electric_curr = 120 and vision_verdict is null and meter_flag is null from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000095'), 'the plain insert is stored with no photo check result');
+select ok((select position('notify-staff-inbox' in prosrc) > 0 and position('''meter_resend''' in prosrc) > 0 and position('exception when others' in prosrc) > 0 and position('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' in prosrc) > 0
+             from pg_proc where oid = 'public.admin_request_meter_resend_v1(uuid,text)'::regprocedure), 'the resend pushes through notify-staff-inbox for the Cascade property only, and a push failure is caught');
 select ok((select vision_verdict = 'ok' and meter_flag is null and electric_curr = 102 and vision_resolved_at is null from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000091'),
   'TR: the refused PATCHes left the verdict and the flag alone, the allowed electric change went through');
 select ok((select vision_resolved_by = 'b2000000-0000-4000-8000-000000000002' and vision_resolved_note = 'I re-sent the photo' from public.meter_readings where id = 'b4000000-0000-4000-8000-000000000092'),
