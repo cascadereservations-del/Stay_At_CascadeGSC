@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "release_id": "s107_preferred_picks_20261110",
+  "phase": "backfill",
+  "source": {
+    "branch": "s107/preferred-picks",
+    "commit": ""
+  },
+  "migrations": [
+    "20261110000000_s107_preferred_picks.sql"
+  ],
+  "migration_sha256": {
+    "20261110000000_s107_preferred_picks.sql": "4a55da6293901a0021f01405ddacf285f6341c9a178cb8487a57af5ae5bbff89"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "",
+    "verified_at": "",
+    "production_rule": "s107 (Lloyd: his preferred products are flagged options under their stock items). Adds inventory_item_options.is_preferred (boolean not null default false), widens the image_url check to the Shopee image host, replaces inventory_item_options_v1 (adds 'preferred' per option; order usual, preferred, then price or title) and inventory_item_option_set_usual_v1 (same signature, gates and result; its data part moves into the new internal function s_inventory_option_make_usual_v1, no grants). The migration refuses to run unless the live s106 bodies of both RPCs match the s106 migration (md5 guard). Data step s_inventory_preferred_picks_v1() (internal, no grants, idempotent) runs once on property 6ae230f4-c189-4547-84b1-cb6e0b2cc9bd: inserts supplier Shopee and item 'All-Purpose Cleaner (Mr Muscle)', upserts 19 picks as preferred options (3 already exist: Ambi Pur Downy 180g, Mr Muscle Mold & Mildew Primary 500ml, Nescafe Creamy Latte 20s), makes the order-1 pick of 11 items the usual option and its supplier link the preferred link (clears other usual and preferred links of those items), deletes the 4 Colgate options of Toiletries and its Shopsuki link. Expected first-run result: suppliers 1, items 1, options 19, removed 4, usual 11, links_removed 1.",
+    "notes": "Phase backfill (the data step deletes rows, which the expand phase refuses; the schema part is additive). The data step changes usual choices, preferred supplier links and deletes 4 options (Toiletries); the restore point is the way back for those. Nothing in the apps changes until the front-end lane ships."
+  },
+  "forward_verification": [
+    {
+      "name": "is_preferred_column",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_item_options' and column_name = 'is_preferred' and data_type = 'boolean' and is_nullable = 'NO' and column_default = 'false')",
+      "expect": true
+    },
+    {
+      "name": "options_table_17_columns",
+      "query": "select count(*) = 17 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_item_options'",
+      "expect": true
+    },
+    {
+      "name": "image_check_allows_shopify_and_susercontent",
+      "query": "select pg_get_constraintdef(oid) like '%cdn%shopify%' and pg_get_constraintdef(oid) like '%down-ph%susercontent%' from pg_constraint where conrelid = 'public.inventory_item_options'::regclass and conname = 'inventory_item_options_image_url_check'",
+      "expect": true
+    },
+    {
+      "name": "source_url_check_still_allows_shopee",
+      "query": "select pg_get_constraintdef(oid) like '%shopee%' from pg_constraint where conrelid = 'public.inventory_item_options'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%source_url%'",
+      "expect": true
+    },
+    {
+      "name": "rpc_bodies_are_the_s107_ones",
+      "query": "select (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_item_options_v1(uuid)'::regprocedure) = '8f1ca123739b2d13d23c92dcac3ba76d' and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_item_option_set_usual_v1(uuid)'::regprocedure) = 'a17bb72a8dcc8da60ae745571c7358c0' and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.s_inventory_option_make_usual_v1(uuid)'::regprocedure) = 'c2ffc37dadd34d6fa3c6068f3335112f'",
+      "expect": true
+    },
+    {
+      "name": "rpcs_definer_empty_search_path",
+      "query": "select count(*) = 3 from pg_proc where oid in ('public.inventory_item_options_v1(uuid)'::regprocedure, 'public.inventory_item_option_set_usual_v1(uuid)'::regprocedure, 'public.s_inventory_option_make_usual_v1(uuid)'::regprocedure) and prosecdef and proconfig = array['search_path=\"\"']",
+      "expect": true
+    },
+    {
+      "name": "rpcs_grants_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.inventory_item_options_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_item_option_set_usual_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_item_options_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_item_option_set_usual_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_item_options_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_item_option_set_usual_v1(uuid)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid in ('public.inventory_item_options_v1(uuid)'::regprocedure, 'public.inventory_item_option_set_usual_v1(uuid)'::regprocedure) and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_have_no_grants",
+      "query": "select not has_function_privilege('anon', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.s_inventory_option_make_usual_v1(uuid)'::regprocedure and a.grantee = 0) and not has_function_privilege('anon', 'public.s_inventory_preferred_picks_v1()', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_preferred_picks_v1()', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_preferred_picks_v1()', 'execute') and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.s_inventory_preferred_picks_v1()'::regprocedure and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "options_76",
+      "query": "select count(*) = 76 from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'",
+      "expect": true
+    },
+    {
+      "name": "preferred_options_19",
+      "query": "select count(*) = 19 and count(distinct source_url) = 19 from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_preferred",
+      "expect": true
+    },
+    {
+      "name": "pick_urls_all_preferred_19",
+      "query": "select count(*) = 19 from public.inventory_item_options o join (select i.id as item_id, v.url from (values ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, 'https://shopsuki.ph/products/ambi-pur-gel-room-fresh-downy-180g'), ('513ffc56-3f9d-4e58-a061-3747d7c31189'::uuid, 'https://shopsuki.ph/products/ars-jet-gold-multi-insect-killer-600ml'), ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid, 'https://shopsuki.ph/products/breeze-liquid-detergent-frontload-60ml'), ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid, 'https://shopsuki.ph/products/breeze-power-machine-liquid-detergent-ultraclean-concentrate-60ml'), ('0bdd783a-77f8-4211-bf53-e1cbebcc284b'::uuid, 'https://shopsuki.ph/products/green-cross-antibacterial-hand-soap-450ml'), ('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid, 'https://shopee.ph/product/238345847/8627214070'), ('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid, 'https://shopsuki.ph/products/safeguard-body-wash-pure-white-sup'), ('2137c758-5b95-46d6-8810-2364100b2dda'::uuid, 'https://shopsuki.ph/products/mr-muscle-mold-mildew-killer-primary-500ml'), (null::uuid, 'https://shopsuki.ph/products/mr-muscle-all-purpose-cleaner-lavender-3-7l'), (null::uuid, 'https://shopee.ph/product/238345847/7078169120'), ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, 'https://shopee.ph/product/814013609/28130171038'), ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, 'https://shopee.ph/product/569141117/45906538836'), ('da50acdc-1107-4574-ac9e-f2ecd951ed5a'::uuid, 'https://shopsuki.ph/products/nescafe-classic-sticks-1-9g-by-48s'), ('da50acdc-1107-4574-ac9e-f2ecd951ed5a'::uuid, 'https://shopsuki.ph/products/nescafe-3-in-1-coffee-mix-creamy-latte-20g-x-20s'), ('dfb24285-06a5-4e6d-9e6c-a24b23e73bc8'::uuid, 'https://shopsuki.ph/products/palmolive-natural-shampoo-and-conditioner-intensive-moisture-coconut-cream-refill-pack-600ml'), ('dfb24285-06a5-4e6d-9e6c-a24b23e73bc8'::uuid, 'https://shopee.ph/product/238345847/53319103966'), ('4f139d96-f1fa-4be6-bbf2-a593a5383202'::uuid, 'https://shopee.ph/product/972814538/29003586262'), ('4f139d96-f1fa-4be6-bbf2-a593a5383202'::uuid, 'https://shopee.ph/product/1668619042/55355724148'), ('4f139d96-f1fa-4be6-bbf2-a593a5383202'::uuid, 'https://shopee.ph/product/972814538/44204658417')) v(item_id, url) join public.inventory_items i on i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and (i.id = v.item_id or (v.item_id is null and i.name = 'All-Purpose Cleaner (Mr Muscle)'))) a on a.item_id = o.item_id and a.url = o.source_url where o.is_preferred",
+      "expect": true
+    },
+    {
+      "name": "usual_is_order_1_pick_11",
+      "query": "select count(*) = 11 from public.inventory_item_options o join (select i.id as item_id, v.url from (values ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, 'https://shopsuki.ph/products/ambi-pur-gel-room-fresh-downy-180g'), ('513ffc56-3f9d-4e58-a061-3747d7c31189'::uuid, 'https://shopsuki.ph/products/ars-jet-gold-multi-insect-killer-600ml'), ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid, 'https://shopsuki.ph/products/breeze-liquid-detergent-frontload-60ml'), ('0bdd783a-77f8-4211-bf53-e1cbebcc284b'::uuid, 'https://shopsuki.ph/products/green-cross-antibacterial-hand-soap-450ml'), ('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid, 'https://shopee.ph/product/238345847/8627214070'), ('2137c758-5b95-46d6-8810-2364100b2dda'::uuid, 'https://shopsuki.ph/products/mr-muscle-mold-mildew-killer-primary-500ml'), (null::uuid, 'https://shopsuki.ph/products/mr-muscle-all-purpose-cleaner-lavender-3-7l'), ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, 'https://shopee.ph/product/814013609/28130171038'), ('da50acdc-1107-4574-ac9e-f2ecd951ed5a'::uuid, 'https://shopsuki.ph/products/nescafe-classic-sticks-1-9g-by-48s'), ('dfb24285-06a5-4e6d-9e6c-a24b23e73bc8'::uuid, 'https://shopsuki.ph/products/palmolive-natural-shampoo-and-conditioner-intensive-moisture-coconut-cream-refill-pack-600ml'), ('4f139d96-f1fa-4be6-bbf2-a593a5383202'::uuid, 'https://shopee.ph/product/972814538/29003586262')) v(item_id, url) join public.inventory_items i on i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and (i.id = v.item_id or (v.item_id is null and i.name = 'All-Purpose Cleaner (Mr Muscle)'))) a on a.item_id = o.item_id and a.url = o.source_url where o.is_usual",
+      "expect": true
+    },
+    {
+      "name": "one_usual_per_pick_item_11",
+      "query": "select count(*) = 11 from (select o.item_id from public.inventory_item_options o join (select i.id as item_id, v.url from (values ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, 'https://shopsuki.ph/products/ambi-pur-gel-room-fresh-downy-180g'), ('513ffc56-3f9d-4e58-a061-3747d7c31189'::uuid, 'https://shopsuki.ph/products/ars-jet-gold-multi-insect-killer-600ml'), ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid, 'https://shopsuki.ph/products/breeze-liquid-detergent-frontload-60ml'), ('0bdd783a-77f8-4211-bf53-e1cbebcc284b'::uuid, 'https://shopsuki.ph/products/green-cross-antibacterial-hand-soap-450ml'), ('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid, 'https://shopee.ph/product/238345847/8627214070'), ('2137c758-5b95-46d6-8810-2364100b2dda'::uuid, 'https://shopsuki.ph/products/mr-muscle-mold-mildew-killer-primary-500ml'), (null::uuid, 'https://shopsuki.ph/products/mr-muscle-all-purpose-cleaner-lavender-3-7l'), ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, 'https://shopee.ph/product/814013609/28130171038'), ('da50acdc-1107-4574-ac9e-f2ecd951ed5a'::uuid, 'https://shopsuki.ph/products/nescafe-classic-sticks-1-9g-by-48s'), ('dfb24285-06a5-4e6d-9e6c-a24b23e73bc8'::uuid, 'https://shopsuki.ph/products/palmolive-natural-shampoo-and-conditioner-intensive-moisture-coconut-cream-refill-pack-600ml'), ('4f139d96-f1fa-4be6-bbf2-a593a5383202'::uuid, 'https://shopee.ph/product/972814538/29003586262')) v(item_id, url) join public.inventory_items i on i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and (i.id = v.item_id or (v.item_id is null and i.name = 'All-Purpose Cleaner (Mr Muscle)'))) a on a.item_id = o.item_id group by o.item_id having count(*) filter (where o.is_usual) = 1) q",
+      "expect": true
+    },
+    {
+      "name": "one_preferred_link_per_pick_item_11",
+      "query": "select count(*) = 11 from (select k.item_id from public.inventory_item_suppliers k join (select i.id as item_id, v.url from (values ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, 'https://shopsuki.ph/products/ambi-pur-gel-room-fresh-downy-180g'), ('513ffc56-3f9d-4e58-a061-3747d7c31189'::uuid, 'https://shopsuki.ph/products/ars-jet-gold-multi-insect-killer-600ml'), ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid, 'https://shopsuki.ph/products/breeze-liquid-detergent-frontload-60ml'), ('0bdd783a-77f8-4211-bf53-e1cbebcc284b'::uuid, 'https://shopsuki.ph/products/green-cross-antibacterial-hand-soap-450ml'), ('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid, 'https://shopee.ph/product/238345847/8627214070'), ('2137c758-5b95-46d6-8810-2364100b2dda'::uuid, 'https://shopsuki.ph/products/mr-muscle-mold-mildew-killer-primary-500ml'), (null::uuid, 'https://shopsuki.ph/products/mr-muscle-all-purpose-cleaner-lavender-3-7l'), ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, 'https://shopee.ph/product/814013609/28130171038'), ('da50acdc-1107-4574-ac9e-f2ecd951ed5a'::uuid, 'https://shopsuki.ph/products/nescafe-classic-sticks-1-9g-by-48s'), ('dfb24285-06a5-4e6d-9e6c-a24b23e73bc8'::uuid, 'https://shopsuki.ph/products/palmolive-natural-shampoo-and-conditioner-intensive-moisture-coconut-cream-refill-pack-600ml'), ('4f139d96-f1fa-4be6-bbf2-a593a5383202'::uuid, 'https://shopee.ph/product/972814538/29003586262')) v(item_id, url) join public.inventory_items i on i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and (i.id = v.item_id or (v.item_id is null and i.name = 'All-Purpose Cleaner (Mr Muscle)'))) a on a.item_id = k.item_id group by k.item_id having count(*) filter (where k.is_preferred) = 1) q",
+      "expect": true
+    },
+    {
+      "name": "preferred_link_is_usual_supplier_and_price_11",
+      "query": "select count(*) = 11 from public.inventory_item_options o join (select i.id as item_id, v.url from (values ('66c7ec14-b20c-450d-9576-492c56e6d1c1'::uuid, 'https://shopsuki.ph/products/ambi-pur-gel-room-fresh-downy-180g'), ('513ffc56-3f9d-4e58-a061-3747d7c31189'::uuid, 'https://shopsuki.ph/products/ars-jet-gold-multi-insect-killer-600ml'), ('e79e4de3-7bfa-4d9d-845c-58f5e038ce03'::uuid, 'https://shopsuki.ph/products/breeze-liquid-detergent-frontload-60ml'), ('0bdd783a-77f8-4211-bf53-e1cbebcc284b'::uuid, 'https://shopsuki.ph/products/green-cross-antibacterial-hand-soap-450ml'), ('3179e10e-105f-47eb-8955-c2c2111948f8'::uuid, 'https://shopee.ph/product/238345847/8627214070'), ('2137c758-5b95-46d6-8810-2364100b2dda'::uuid, 'https://shopsuki.ph/products/mr-muscle-mold-mildew-killer-primary-500ml'), (null::uuid, 'https://shopsuki.ph/products/mr-muscle-all-purpose-cleaner-lavender-3-7l'), ('2ec811c2-4ccc-4885-a8a5-3a8002e791b0'::uuid, 'https://shopee.ph/product/814013609/28130171038'), ('da50acdc-1107-4574-ac9e-f2ecd951ed5a'::uuid, 'https://shopsuki.ph/products/nescafe-classic-sticks-1-9g-by-48s'), ('dfb24285-06a5-4e6d-9e6c-a24b23e73bc8'::uuid, 'https://shopsuki.ph/products/palmolive-natural-shampoo-and-conditioner-intensive-moisture-coconut-cream-refill-pack-600ml'), ('4f139d96-f1fa-4be6-bbf2-a593a5383202'::uuid, 'https://shopee.ph/product/972814538/29003586262')) v(item_id, url) join public.inventory_items i on i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and (i.id = v.item_id or (v.item_id is null and i.name = 'All-Purpose Cleaner (Mr Muscle)'))) a on a.item_id = o.item_id and a.url = o.source_url and o.is_usual join public.inventory_item_suppliers k on k.item_id = o.item_id and k.supplier_id = o.supplier_id and k.is_preferred and k.quoted_pack_price = o.price",
+      "expect": true
+    },
+    {
+      "name": "baygon_link_shopsuki_329_65",
+      "query": "select exists (select 1 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where k.item_id = '513ffc56-3f9d-4e58-a061-3747d7c31189' and k.is_preferred and s.name = 'Shopsuki' and k.quoted_pack_price = 329.65)",
+      "expect": true
+    },
+    {
+      "name": "toiletries_two_options_no_shopsuki_link",
+      "query": "select (select count(*) from public.inventory_item_options where item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0') = 2 and not exists (select 1 from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id where k.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and lower(s.name) = 'shopsuki')",
+      "expect": true
+    },
+    {
+      "name": "new_cleaner_item_once_two_options",
+      "query": "select (select count(*) from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and name = 'All-Purpose Cleaner (Mr Muscle)' and category = 'Cleaning Supplies' and unit = 'pc' and is_consumable and is_active and reorder_below = 1) = 1 and (select count(*) from public.inventory_item_options o join public.inventory_items i on i.id = o.item_id where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and i.name = 'All-Purpose Cleaner (Mr Muscle)') = 2",
+      "expect": true
+    },
+    {
+      "name": "shopee_supplier_once",
+      "query": "select count(*) = 1 from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(name)) = 'shopee' and payment_method = 'online'",
+      "expect": true
+    },
+    {
+      "name": "shopsuki_supplier_still_once",
+      "query": "select count(*) = 1 from public.inventory_suppliers where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(name)) = 'shopsuki'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always for the schema (function bodies, image check, is_preferred column). The script does NOT restore the usual choices and preferred supplier links the data step changed, the 4 Colgate options deleted from Toiletries or the Shopsuki link removed from Toiletries; for those, restore from the restore point or re-seed from docs/s106/shopsuki-capture.json. It also leaves the Shopee supplier, the new cleaner item and the 16 inserted option rows in place (harmless under the s106 code), with Shopee option images set to null so the s106 image check can be restored.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261110_s107_preferred_picks.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag",
+      "required_state": "None. The apps only gain a preferred key in the RPC result; the rollback script is the switch."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet. Old readers ignore the extra preferred key and the extra rows; the RPC signatures and the set-usual result are unchanged. To be filled after the rehearsal: migration applied 1/1, forward checks, pgTAP s107_preferred_picks.sql 44/44, s106_item_options.sql Part 1 and the 16-column checks no longer apply after this release (64 options, 16 columns, 19 links become 76, 17, 20)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour",
+    "restore_point is empty or verified_at is empty",
+    "the rehearsal has not run the migration and s107_preferred_picks.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane (data step, md5 guard, set-usual refactor, deletions) has not passed",
+    "the migration stops at the md5 guard: the live s106 RPC bodies differ from the s106 migration, compare them before any retry",
+    "the live data step result is not suppliers 1, items 1, options 19, removed 4, usual 11, links_removed 1 (production moved since the 2026-10-31 read), re-plan the counts first"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "source": "Lloyd 2026-10-31 (chat): preferred products, first listed per item = Usual (default). Shopsuki via /products/<handle>.js, Shopee via /api/v4/pdp/get_pc (chosen model price), read 2026-10-31 in the in-app browser.",
+  "decisions": [
+    "Every pick gets is_preferred = true and shows a Preferred badge, listed right after the Usual one.",
+    "The first pick per item becomes the Usual option (the shopping-list default) and its supplier link becomes preferred.",
+    "Toiletries holds ONLY the two hotel kits: the other options of that item are removed.",
+    "New consumable item 'All-Purpose Cleaner (Mr Muscle)', unit pc, reorder at 1, category Cleaning Supplies.",
+    "New supplier 'Shopee' (online) for the Shopee picks."
+  ],
+  "columns": ["item", "order", "store", "title", "brand", "price", "available", "image", "url", "pack_size_pc"],
+  "picks": [
+    ["Natural Air", 1, "shopsuki", "Ambi Pur Gel Room Fresh Downy 180g", "Ambi Pur", "184.25", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4987176133458_ffd73b18-f762-4742-b8eb-70c208db0cd7.jpg", "https://shopsuki.ph/products/ambi-pur-gel-room-fresh-downy-180g", null],
+    ["Baygon Spray", 1, "shopsuki", "ARS Jet Gold Multi Insect Killer 600ml", "ARS", "329.65", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8850273103814.jpg", "https://shopsuki.ph/products/ars-jet-gold-multi-insect-killer-600ml", null],
+    ["Breeze Fabric Conditioner Liquid", 1, "shopsuki", "Breeze Liquid Detergent Frontload 60ml", "Breeze", "15.55", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/8934868146582.jpg", "https://shopsuki.ph/products/breeze-liquid-detergent-frontload-60ml", null],
+    ["Breeze Fabric Conditioner Liquid", 2, "shopsuki", "Breeze Power Machine Liquid Detergent Ultraclean Concentrate 60ml", "Breeze", "15.70", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/105615709.jpg", "https://shopsuki.ph/products/breeze-power-machine-liquid-detergent-ultraclean-concentrate-60ml", null],
+    ["Liquid Hand Soap (Safeguard)", 1, "shopsuki", "Green Cross Antibacterial Hand Soap 450ml", "Green Cross", "112.90", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800047866029.jpg", "https://shopsuki.ph/products/green-cross-antibacterial-hand-soap-450ml", null],
+    ["Liquid Body Soap (Dove)", 1, "shopee", "Lifebuoy Antibacterial Bodywash Refill Total 10 450ml", "Lifebuoy", "163.00", 1, "https://down-ph.img.susercontent.com/file/ph-11134207-7rask-m4ilg3yr5r0917", "https://shopee.ph/product/238345847/8627214070", null],
+    ["Liquid Body Soap (Dove)", 2, "shopsuki", "Safeguard Body Wash Pure White SUP", "Safeguard", "228.75", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108983683.jpg", "https://shopsuki.ph/products/safeguard-body-wash-pure-white-sup", null],
+    ["Mr Muscle Mold & Mildew (Orange)", 1, "shopsuki", "Mr Muscle Mold & Mildew Killer Primary 500ml", "Mr Muscle", "194.05", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/mr-muscle-mold-and-mildew-killer-primary-500ml.jpg", "https://shopsuki.ph/products/mr-muscle-mold-mildew-killer-primary-500ml", null],
+    ["All-Purpose Cleaner (Mr Muscle)", 1, "shopsuki", "Mr Muscle All Purpose Cleaner Lavender 3.7L", "Mr Muscle", "420.35", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/108179395.jpg", "https://shopsuki.ph/products/mr-muscle-all-purpose-cleaner-lavender-3-7l", null],
+    ["All-Purpose Cleaner (Mr Muscle)", 2, "shopee", "Mr. Muscle All Purpose Cleaner - Lavender 3.7L", "Mr Muscle", "559.00", 1, "https://down-ph.img.susercontent.com/file/ph-11134207-7rase-m8vr4ogrbmhq19", "https://shopee.ph/product/238345847/7078169120", null],
+    ["Toiletries (toothbrush, toothpaste, soap)", 1, "shopee", "Hotel Guest Kit Set 100 sets (toothbrush, toothpaste, shampoo, soap, with box) FFH Hotel - Black-B1", "FFH Hotel", "1329.00", 1, "https://down-ph.img.susercontent.com/file/ph-11134207-7rase-m7jbc8uuu4zd71", "https://shopee.ph/product/814013609/28130171038", 100],
+    ["Toiletries (toothbrush, toothpaste, soap)", 2, "shopee", "Hotel Guest Kit 5-in-1, 100 pcs (toothbrush, toothpaste, shampoo) - Blue type 2", "Hotel Kit", "1220.00", 1, "https://down-ph.img.susercontent.com/file/ph-11134207-820l4-muyqn2t8u9kyd3", "https://shopee.ph/product/569141117/45906538836", 100],
+    ["Coffee (3-in-1)", 1, "shopsuki", "Nescafe Classic Sticks 1.9g x 48's", "Nestle", "157.20", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/104692522.jpg", "https://shopsuki.ph/products/nescafe-classic-sticks-1-9g-by-48s", 48],
+    ["Coffee (3-in-1)", 2, "shopsuki", "Nescafe 3 in 1 Coffee Mix Creamy Latte 20g x 20's", "Nestle", "186.15", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/4800361426589.jpg", "https://shopsuki.ph/products/nescafe-3-in-1-coffee-mix-creamy-latte-20g-x-20s", 20],
+    ["Shampoo (Palmolive)", 1, "shopsuki", "Palmolive Natural Shampoo And Conditioner Intensive Moisture Coconut Cream Refill Pack 600ml", "Palmolive", "305.40", 1, "https://cdn.shopify.com/s/files/1/0358/1335/9748/files/109411851.jpg", "https://shopsuki.ph/products/palmolive-natural-shampoo-and-conditioner-intensive-moisture-coconut-cream-refill-pack-600ml", null],
+    ["Shampoo (Palmolive)", 2, "shopee", "Palmolive Naturals Shampoo with Coconut Cream 600ml Refill, Value Pack of 3 (buy 2, free 1)", "Palmolive", "885.00", 1, "https://down-ph.img.susercontent.com/file/ph-11134201-820lg-mu7ollxsc7ba60", "https://shopee.ph/product/238345847/53319103966", 3],
+    ["Tissues / Paper Towels", 1, "shopee", "Botare Air-cushion Deluxe Comfort Tissue 4-ply 400 sheets, 20 packs", "Botare", "399.00", 1, "https://down-ph.img.susercontent.com/file/cn-11134207-7r98o-lwi7rdyrx9vp1d", "https://shopee.ph/product/972814538/29003586262", 20],
+    ["Tissues / Paper Towels", 2, "shopee", "Botare 4-ply Facial Tissue 8000 sheets, 20 packs (Basic)", "Botare", "298.00", 1, "https://down-ph.img.susercontent.com/file/cn-11134207-820l4-mt3pcazbz7k6dd", "https://shopee.ph/product/1668619042/55355724148", 20],
+    ["Tissues / Paper Towels", 3, "shopee", "Botare Bow Cute Air-cushion Deluxe Tissue 4-ply 1280 sheets, napkin box 6 pcs", "Botare", "499.00", 1, "https://down-ph.img.susercontent.com/file/sg-11134201-7raui-mb26h3xusvv401", "https://shopee.ph/product/972814538/44204658417", 6]
+  ]
+}
