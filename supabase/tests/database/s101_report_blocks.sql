@@ -119,7 +119,7 @@ select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-40
 select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'correct_numbers', 4300, 79, null)$$, '22023', null, 'water below the last reading is refused');
 select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'correct_numbers', 4313, 81, null)$$, '22023', null, 'electric above the next stay is refused');
 select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000001', 'correct_numbers', 4300, 82.6, null)$$, '22023', null, 'water above the next stay is refused');
-select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-0000000000ff', 'typed_is_right', null, null, null)$$, '22023', null, 'an unknown reading is refused');
+select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-0000000000ff', 'typed_is_right', null, null, null)$$, '42501', 'inspect_cleaning denied', 'an unknown reading is refused exactly like a forbidden one (s104: ids cannot be probed)');
 select throws_ok($$select public.admin_resolve_report_block_v1('e4000000-0000-4000-8000-000000000003', 'typed_is_right', null, null, null)$$, '22023', null, 'a reading that holds nothing up cannot be answered');
 select is((select count(*) from public.admin_report_blocks_v1('e1000000-0000-4000-8000-000000000001', 14)), 1::bigint, 'after the refusals the report is still on hold');
 

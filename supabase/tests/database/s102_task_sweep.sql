@@ -54,7 +54,10 @@ insert into public.properties(id, name, is_active) values
  ('e5000000-0000-4000-8000-000000000005', 'S102 settle answered', true),
  ('e5000000-0000-4000-8000-000000000006', 'S102 settle unanswered', true),
  ('e5000000-0000-4000-8000-000000000007', 'S102 settle cleaner tap', true) on conflict (id) do nothing;
-insert into auth.users(id) values ('e6000000-0000-4000-8000-000000000001') on conflict (id) do nothing;
+insert into auth.users(id) values ('e6000000-0000-4000-8000-000000000001'), ('e6000000-0000-4000-8000-000000000002') on conflict (id) do nothing;
+-- s104: an answered mismatch only makes B when the resolver is a staff user who may inspect_cleaning
+insert into public.staff_access_profiles(user_id, role, disabled_at, sessions_revoked_after) values ('e6000000-0000-4000-8000-000000000002', 'admin', null, null)
+on conflict (user_id) do update set role = excluded.role, disabled_at = null, sessions_revoked_after = null;
 
 -- P1
 insert into public.guests(id, property_id, name, phone) values
@@ -116,6 +119,8 @@ insert into public.meter_readings(id, session_id, property_id, submitted_by_user
  ('e9000000-0000-4000-8000-000000000041', 'e8000000-0000-4000-8000-000000000041', 'e5000000-0000-4000-8000-000000000007', 'e6000000-0000-4000-8000-000000000001', 100, 10, 'ok', null, null, null),
  ('e9000000-0000-4000-8000-000000000042', 'e8000000-0000-4000-8000-000000000042', 'e5000000-0000-4000-8000-000000000007', 'e6000000-0000-4000-8000-000000000001', 110, 11, null, null, 'estimate_pending', null),
  ('e9000000-0000-4000-8000-000000000043', 'e8000000-0000-4000-8000-000000000043', 'e5000000-0000-4000-8000-000000000007', 'e6000000-0000-4000-8000-000000000001', 140, 12, 'mismatch', now(), null, 'I photographed the meter today');
+
+update public.meter_readings set vision_resolved_by = 'e6000000-0000-4000-8000-000000000002' where id = 'e9000000-0000-4000-8000-000000000023';
 
 -- the open tasks, exactly as the jobs file them -------------------------------------------------------------------------------------------------------
 do $do$
@@ -182,7 +187,7 @@ select is((select count(*) from public.follow_up_tasks where source_kind = 'mete
 select is((select status from public.follow_up_tasks where idempotency_key = 'system:low_stock:e5-low'), 'open', 'a task of another kind is untouched');
 
 -- idempotence ------------------------------------------------------------------------------------------------------------------------------------------
-select is(public.system_tasks_sweep_v1(), '{"guest_details":0,"missed_cleaning":0,"meter":0}'::jsonb, 'second sweep closes nothing');
+select is(public.system_tasks_sweep_v1(), '{"guest_details":0,"missed_cleaning":0,"meter":0,"info":0}'::jsonb, 'second sweep closes nothing');
 
 select * from finish();
 rollback;
