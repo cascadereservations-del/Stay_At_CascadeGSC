@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "cascade-supabase-20261108T004946Z",
-    "verified_at": "2026-11-08T00:49:46.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261108T011533Z",
+    "verified_at": "2026-11-08T01:21:10.246Z",
     "production_rule": "s110 (D-358): role laundry and capability report_supply, utility rates, staff receipt drafts and the KPI tab read model. Two new tables (RLS on; no client grants, service_role select+insert on the receipt drafts only), nine new RPCs/internals, staff_access_allowed redefined, one column grant (select item_id, title on inventory_item_options to service_role) and two live functions patched in place (manage_staff_access role list, record_inventory_usage gate). Nothing existing is dropped. Run only on a restore point younger than one hour, after the s108 release is applied. restore_point is the backup used for the rehearsal; the orchestrator re-stamps both fields on the fresh backup taken before the apply.",
     "notes": "Phase backfill, as s107/s108: the function bodies contain deletes (undo of a staff receipt, 30-day trim of unconfirmed drafts), which the expand check refuses. Applying the migration changes no row. The staff_access_profiles role check is replaced by a wider one in the same transaction."
   },
