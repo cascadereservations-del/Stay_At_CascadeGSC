@@ -3,12 +3,14 @@
 -- idempotent confirm, undo reverses stock and voids the expense, cancel, retention). Fixtures use uuids d1100000-... on properties of their own; everything rolls back.
 -- Needs the s110 migration applied (and everything before it).
 begin;
-select plan(124);
+select plan(140);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt(), auth.role() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
+-- Supabase's service_role has BYPASSRLS (the edge functions rely on it); the rehearsal shim role may not, so state it here (rolled back with the suite)
+alter role service_role bypassrls;
 
 create function pg_temp.as_user(p_uid uuid) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', p_uid, 'role', 'authenticated', 'aal', 'aal1', 'iat', 1790000000)::text, true),
@@ -54,6 +56,10 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
   (pg_temp.id('c3'), pg_temp.id('b0'), 'Zz110 Tissue', 'Toiletries', 'roll', 6, 1, true, 10, 1, null),
   (pg_temp.id('c4'), pg_temp.id('b0'), 'Zz110 Laundry Sheets', 'Laundry', 'pc', 10, 2, true, null, 1, null),
   (pg_temp.id('c5'), pg_temp.id('b1'), 'Zz110 Elsewhere', 'Other', 'pc', 1, null, true, null, 1, null);
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, units_per_purchase, movement_controlled_at, baseline_reviewed_by) values
+  (pg_temp.id('c6'), pg_temp.id('b0'), 'Zz110 Controlled', 'Toiletries', 'pc', 10, true, 1, now(), pg_temp.id('a5'));
+insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key) values
+  (pg_temp.id('c6'), pg_temp.id('b0'), 'reconcile', 0, 10, 'Baseline count: zz110', pg_temp.id('a5'), 'zz110-s110-baseline-c6');
 
 -- =============================================================================================================================================
 -- Part 1: roles and capabilities (20)
@@ -128,11 +134,17 @@ reset role;
 -- Part 3: kpi_tab_v1 (22). Fixtures: one session of 2 nights with a 20 kWh reading (10 kWh a night), one misread reading that must not count, 2 brownouts (2.5 h + 1.5 h), 1 water cut (3 h),
 -- tissue used 3 in one turnover (6 on the shelf, 3 / 30 a day -> 60 days left), soap used 1.
 -- =============================================================================================================================================
-insert into public.cleaning_sessions(id, property_id, cleaned_at, nights_stayed, checkout_date, cleaning_type) values
-  (pg_temp.id('d1'), pg_temp.id('b0'), now(), 2, public.manila_today(), 'turnover');
+insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaned_at, nights_stayed, checkout_date, cleaning_type) values
+  (pg_temp.id('d1'), 'zz110-sub-d1', 'Zz110 Cleaner', pg_temp.id('b0'), now(), 2, public.manila_today(), 'turnover'),
+  (pg_temp.id('d2'), 'zz110-sub-d2', 'Zz110 Cleaner', pg_temp.id('b0'), timestamptz '2020-01-20 10:00+08', 2, date '2020-01-20', 'turnover');
 insert into public.meter_readings(id, session_id, electric_delta, kwh_per_night, recorded_at, property_id, meter_flag) values
   (pg_temp.id('e1'), pg_temp.id('d1'), 20, 10, now(), pg_temp.id('b0'), null),
-  (pg_temp.id('e2'), pg_temp.id('d1'), 999, 499.5, now() - interval '1 minute', pg_temp.id('b0'), 'misread');
+  (pg_temp.id('e2'), pg_temp.id('d1'), 999, 499.5, now() - interval '1 minute', pg_temp.id('b0'), 'misread'),
+  (pg_temp.id('e3'), pg_temp.id('d1'), 888, 444, now() - interval '2 minutes', pg_temp.id('b0'), 'under_review'),
+  (pg_temp.id('e4'), pg_temp.id('d2'), 10, 5, timestamptz '2020-01-20 10:00+08', pg_temp.id('b0'), 'typed_accepted');
+-- rates: a manual 12.5 dated today (set in part 2) plus an AUTO 13.1 the same day (the manual correction must win), and 2020-01 rates: 8 in Dec 2019, manual 9 on Jan 10, auto 7 on Jan 12 (same month)
+insert into public.utility_rates(php_per_kwh, effective_from, source) values
+  (13.1, current_date, 'auto'), (8, date '2019-12-01', 'auto'), (9, date '2020-01-10', 'manual'), (7, date '2020-01-12', 'auto');
 insert into public.ops_notices(property_id, notice_type, title, effective_date, duration_hours, is_active) values
   (pg_temp.id('b0'), 'brownout', 'Zz110 brownout 1', public.manila_today(), 2.5, true), (pg_temp.id('b0'), 'brownout', 'Zz110 brownout 2', public.manila_today(), 1.5, true),
   (pg_temp.id('b0'), 'brownout', 'Zz110 brownout off', public.manila_today(), 9.0, false), (pg_temp.id('b0'), 'water', 'Zz110 water', public.manila_today(), 3.0, true);
@@ -141,7 +153,9 @@ insert into public.ops_notices(property_id, notice_type, title, description, eff
   (pg_temp.id('b0'), 'note', 'Zz110 router moved', 'Zz110 the wifi router is on the shelf now', public.manila_today(), null, true),
   (pg_temp.id('b0'), 'maintenance', 'Zz110 pest control', 'Zz110 no entry to the pantry', public.manila_today(), 1.0, true);
 insert into public.inventory_usage(item_id, used_qty, session_date, property_id) values (pg_temp.id('c3'), 3, public.manila_today(), pg_temp.id('b0'));
-insert into public.staff_pay_requests(property_id, status, total_amount) values (pg_temp.id('b0'), 'paid', 500), (pg_temp.id('b0'), 'cancelled', 900);
+insert into public.staff_pay_requests(property_id, payee_user_id, payee_name, idempotency_key, status, lines, total_amount, paid_at, paid_by_name, proof_file_unique_id, proof_sha256, proof_verdict) values
+  (pg_temp.id('b0'), pg_temp.id('a1'), 'Zz110 Cleaner', 'zz110-pay-0001', 'paid', '[{"n":1}]'::jsonb, 500, now(), 'Zz110', 'zz110-proof', 'zz110', 'match'),
+  (pg_temp.id('b0'), pg_temp.id('a6'), 'Zz110 Cleaner 2', 'zz110-pay-0002', 'cancelled', '[{"n":1}]'::jsonb, 900, null, null, null, null, null);
 
 select pg_temp.as_user(pg_temp.id('a1'));
 create temp table _k_cleaner as select public.kpi_tab_v1(pg_temp.id('b0')) as j;
@@ -166,7 +180,7 @@ select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_cleaner), 20
 select is((select (j -> 'utility' ->> 'nights_month')::numeric from _k_cleaner), 2::numeric, 'nights_month is the nights of the usable reading');
 select is((select (j -> 'utility' ->> 'kwh_per_night')::numeric from _k_cleaner), 10.00::numeric, 'kwh_per_night is 20 / 2');
 select is((select (j -> 'utility' -> 'last_reading' ->> 'delta_kwh')::numeric from _k_cleaner), 20.00::numeric, 'last_reading is the newest usable reading');
-select is((select jsonb_array_length(j -> 'utility' -> 'per_stay') from _k_cleaner), 1, 'per_stay holds the one usable stay');
+select is((select jsonb_array_length(j -> 'utility' -> 'per_stay') from _k_cleaner), 2, 'per_stay holds the two usable stays (the 2020 one included, oldest first)');
 select is((select (j -> 'utility' -> 'brownouts' ->> 'count')::integer || '/' || (j -> 'utility' -> 'brownouts' ->> 'hours') from _k_cleaner), '2/4.0', 'brownouts: 2 active notices, 4.0 hours (the inactive one is out)');
 select is((select (j -> 'utility' -> 'water_cuts' ->> 'count')::integer || '/' || (j -> 'utility' -> 'water_cuts' ->> 'hours') from _k_cleaner), '1/3.0', 'water cuts: 1, 3.0 hours');
 select is((select (j -> 'inventory' ->> 'turnovers_month')::integer from _k_cleaner), 1, 'turnovers_month is 1');
@@ -178,7 +192,8 @@ select is((select (j -> 'admin' ->> 'last_reading_cost')::numeric from _k_admin)
 select is((select (j -> 'admin' -> 'rate' ->> 'php_per_kwh')::numeric from _k_admin), 12.5::numeric, 'the current rate is the newest effective rate (the manual one dated today)');
 select is((select (j -> 'admin' ->> 'cleaning_pay_month')::numeric from _k_admin), 500.00::numeric, 'cleaning_pay_month counts the paid request and not the cancelled one');
 select is((select (j -> 'admin' ->> 'supply_cost_per_turnover')::numeric from _k_admin), 30.00::numeric, 'supply_cost_per_turnover is 3 tissue x 10 / 1 turnover');
-select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_old), 0::numeric, 'another month reads its own numbers');
+select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_old), 10::numeric, 'another month reads its own numbers (the typed_accepted reading of 2020-01)');
+select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_old), 90.00::numeric, 'month_kwh_cost uses the rate in force on the reading day (manual 9 beats the same-month auto 7 and today''s 12.5)');
 select is((select (j -> 'utility' -> 'internet_cuts' ->> 'count')::integer || '/' || (j -> 'utility' -> 'internet_cuts' ->> 'hours') from _k_cleaner), '1/2.0',
   'internet_cuts: only the note with an internet word AND an outage word counts (the moved router and the pest control do not)');
 select ok((select (j -> 'admin') ?& array['net_month', 'revenue_month', 'costs_month', 'occupancy', 'adr', 'sold_nights', 'sellable_nights', 'direct_share'] from _k_admin)
@@ -195,9 +210,9 @@ reset role;
 -- =============================================================================================================================================
 insert into public.inventory_receipt_drafts(id, property_id, created_by, receipt_path, vendor, purchased_on, total, lines) values
   (pg_temp.id('f1'), pg_temp.id('b0'), pg_temp.id('a1'), 'expense-receipts/zz110/a1/one.jpg', 'Zz110 Shop', public.manila_today(), 250.00,
-   jsonb_build_array(jsonb_build_object('line_no', 1, 'description', 'Soap bar', 'qty', 5, 'unit_cost', 20, 'match_item_id', pg_temp.id('c1'), 'match_score', 0.9),
-                     jsonb_build_object('line_no', 2, 'description', 'Mystery thing', 'qty', 1, 'unit_cost', 150, 'match_item_id', null, 'match_score', 0),
-                     jsonb_build_object('line_no', 3, 'description', 'Bag', 'qty', 1, 'unit_cost', 0, 'match_item_id', null, 'match_score', 0)));
+   jsonb_build_array(jsonb_build_object('line_no', 1, 'description', 'Soap bar 135G P20.00 45.00', 'qty', 5, 'unit_cost', 20, 'match_item_id', pg_temp.id('c1'), 'match_score', 0.9),
+                     jsonb_build_object('line_no', 2, 'description', 'Mystery 12S PHP 150', 'qty', 1, 'unit_cost', 150, 'match_item_id', null, 'match_score', 0),
+                     jsonb_build_object('line_no', 3, 'description', 'Bag ' || chr(8369) || '5', 'qty', 1, 'unit_cost', 0, 'match_item_id', null, 'match_score', 0)));
 
 select pg_temp.as_user(pg_temp.id('a1'));
 create temp table _d_cleaner as select public.inventory_receipt_draft_v1(pg_temp.id('f1')) as j;
@@ -211,6 +226,9 @@ select is((select j -> 'draft' -> 'lines' -> 0 -> 'match' ->> 'name' from _d_cle
 select ok(position('unit_cost' in (select j::text from _d_cleaner)) = 0 and position('"total"' in (select j::text from _d_cleaner)) = 0 and position('250' in (select j::text from _d_cleaner)) = 0,
   'the staff draft read has no unit_cost and no total');
 select ok((select j -> 'draft' ? 'total' from _d_admin) and (select j -> 'draft' -> 'lines' -> 0 ? 'unit_cost' from _d_admin), 'owner/admin see the total and each unit_cost');
+select ok((select array_agg(l ->> 'description' order by (l ->> 'line_no')::int) = array['Soap bar 135G', 'Mystery 12S', 'Bag'] from _d_cleaner, jsonb_array_elements(j -> 'draft' -> 'lines') l),
+  'the staff read strips money from the descriptions and keeps sizes (135G, 12S)');
+select ok((select (j -> 'draft' -> 'lines' -> 0 ->> 'description') = 'Soap bar 135G P20.00 45.00' from _d_admin), 'owner/admin read the description whole');
 select pg_temp.as_user(pg_temp.id('a6'));
 select is((select public.inventory_receipt_draft_v1(pg_temp.id('f1')) ->> 'error'), 'forbidden', 'another cleaner cannot read it');
 select pg_temp.as_user(pg_temp.id('a4'));
@@ -265,7 +283,8 @@ select pg_temp.as_user(pg_temp.id('a1'));
 select is((select public.inventory_receipt_undo_v1(pg_temp.id('f1')) ->> 'ok'), 'true', 'the creator undoes it within 24 hours');
 reset role;
 select ok((select qty_on_hand from public.inventory_items where id = pg_temp.id('c1')) = 5.00 and (select qty_on_hand from public.inventory_items where name = 'Zz110 Mystery Item') = 0.00
-          and (select count(*) from public.inventory_purchases where notes like '%' || pg_temp.id('f1')::text || '%') = 0, 'undo reverses the stock and removes the purchases');
+          and (select count(*) from public.inventory_purchases where notes like '%' || pg_temp.id('f1')::text || '%') = 0
+          and (select unit_cost from public.inventory_items where id = pg_temp.id('c1')) is null, 'undo reverses the stock, removes the purchases and puts the unit cost back (null)');
 select ok((select status from public.transactions where ocr_raw ->> 'draft_id' = pg_temp.id('f1')::text) = 'void'
           and (select status from public.follow_up_tasks where idempotency_key = 'system:receipt_review:' || pg_temp.id('f1')::text) = 'done'
           and (select status from public.inventory_receipt_drafts where id = pg_temp.id('f1')) = 'cancelled', 'undo voids the expense, closes the task and cancels the draft');
@@ -334,6 +353,56 @@ reset role;
 select ok((select qty_on_hand from public.inventory_items where id = pg_temp.id('c4')) = 10.00 and (select qty_on_hand from public.inventory_items where name = 'Zz110 Hand Item') = 0.00,
   'manual: undo reverses the stock');
 select is((select count(*)::integer from public.inventory_receipt_drafts where id = pg_temp.id('f5')), 0, 'a draft older than 30 days is trimmed by the next confirm or cancel');
+
+-- =============================================================================================================================================
+-- Part 5: review fixes (service-role insert, repeated controlled item undo, unit cost restore, grants, manual lock)
+-- =============================================================================================================================================
+select ok(has_table_privilege('service_role', 'public.inventory_receipt_drafts', 'select') and has_table_privilege('service_role', 'public.inventory_receipt_drafts', 'insert')
+          and not has_table_privilege('service_role', 'public.inventory_receipt_drafts', 'update') and not has_table_privilege('service_role', 'public.inventory_receipt_drafts', 'delete')
+          and not has_table_privilege('anon', 'public.inventory_receipt_drafts', 'insert') and not has_table_privilege('authenticated', 'public.inventory_receipt_drafts', 'insert'),
+  'the draft table: service_role select + insert only, anon and authenticated nothing');
+select ok(has_column_privilege('service_role', 'public.inventory_item_options', 'title', 'select') and has_column_privilege('service_role', 'public.inventory_item_options', 'item_id', 'select')
+          and not has_column_privilege('service_role', 'public.inventory_item_options', 'price', 'select') and not has_table_privilege('authenticated', 'public.inventory_item_options', 'select'),
+  'the matcher reads item_id and title of the options, no price, and clients nothing');
+select ok((select prosrc like '%pg_advisory_xact_lock(hashtextextended(''s110-manual:''%' from pg_proc where oid = 'public.inventory_receipt_manual_v1(jsonb,date,text,text)'::regprocedure),
+  'manual: the replay lookup is behind a per-key advisory lock');
+
+-- the exact insert the ocr-receipt edge function makes, as the service role
+select pg_temp.as_service();
+create temp table _svc as with ins as (
+  insert into public.inventory_receipt_drafts(property_id, created_by, receipt_path, vendor, purchased_on, total, lines, status)
+  values (pg_temp.id('b0'), pg_temp.id('a1'), 'expense-receipts/zz110/a1/svc.jpg', 'Zz110 Service Shop', public.manila_today(), 17.00,
+          jsonb_build_array(jsonb_build_object('line_no', 1, 'description', 'Tissue 3 ply P5.50', 'qty', 2, 'unit_cost', 5.5, 'match_item_id', pg_temp.id('c3'), 'match_score', 0.8),
+                            jsonb_build_object('line_no', 2, 'description', 'Tissue 3 ply P6.00', 'qty', 1, 'unit_cost', 6, 'match_item_id', pg_temp.id('c3'), 'match_score', 0.8)),
+          'draft') returning id) select id from ins;
+reset role;
+grant all on _svc to public;
+select is((select count(*)::integer from public.inventory_receipt_drafts where id = (select id from _svc) and status = 'draft'), 1, 'the service role inserts a draft with the edge function columns');
+select pg_temp.as_user(pg_temp.id('a1'));
+select is((select public.inventory_receipt_draft_v1((select id from _svc)) -> 'draft' -> 'lines' -> 0 ->> 'description'), 'Tissue 3 ply', 'the creator reads that draft with the money stripped');
+-- two lines of the SAME non-controlled item: stock +3, unit cost = the last line, undo puts the old cost back
+select is((select public.inventory_receipt_confirm_v1((select id from _svc), '[{"line_no":1,"item_id":"d1100000-0000-4000-8000-0000000000c3","qty_units":2},{"line_no":2,"item_id":"d1100000-0000-4000-8000-0000000000c3","qty_units":1}]'::jsonb, null, 'zz110-confirm-key-svc1') ->> 'ok'), 'true',
+  'the draft with a repeated item is confirmed');
+reset role;
+select ok((select qty_on_hand = 9.00 and unit_cost = 6.0000 from public.inventory_items where id = pg_temp.id('c3')), 'tissue: 6 + 3 on hand, unit cost set by the last line');
+select pg_temp.as_user(pg_temp.id('a1'));
+select is((select public.inventory_receipt_undo_v1((select id from _svc)) ->> 'ok'), 'true', 'undo of the repeated-item receipt works');
+reset role;
+select ok((select qty_on_hand = 6.00 and unit_cost = 10 from public.inventory_items where id = pg_temp.id('c3')), 'tissue: stock back to 6 and the unit cost back to its value before the receipt (10)');
+
+-- a movement-controlled item twice on one receipt: the undo checks the SUM, not each line
+insert into public.inventory_receipt_drafts(id, property_id, created_by, vendor, total, lines) values
+  (pg_temp.id('f7'), pg_temp.id('b0'), pg_temp.id('a1'), 'Zz110 Shop', 30,
+   '[{"line_no":1,"description":"Controlled","qty":2,"unit_cost":10,"match_item_id":null},{"line_no":2,"description":"Controlled","qty":3,"unit_cost":10,"match_item_id":null}]'::jsonb);
+select pg_temp.as_user(pg_temp.id('a1'));
+select is((select public.inventory_receipt_confirm_v1(pg_temp.id('f7'), '[{"line_no":1,"item_id":"d1100000-0000-4000-8000-0000000000c6","qty_units":2},{"line_no":2,"item_id":"d1100000-0000-4000-8000-0000000000c6","qty_units":3}]'::jsonb, null, 'zz110-confirm-key-f700') ->> 'ok'), 'true',
+  'a controlled item on two lines is confirmed');
+reset role;
+select is((select qty_on_hand from public.inventory_items where id = pg_temp.id('c6')), 15.00::numeric, 'controlled item: 10 + 2 + 3');
+select pg_temp.as_user(pg_temp.id('a1'));
+select is((select public.inventory_receipt_undo_v1(pg_temp.id('f7')) ->> 'ok'), 'true', 'undo of a repeated controlled item does not abort');
+reset role;
+select is((select qty_on_hand from public.inventory_items where id = pg_temp.id('c6')), 10.00::numeric, 'controlled item back to 10');
 
 select * from finish();
 rollback;

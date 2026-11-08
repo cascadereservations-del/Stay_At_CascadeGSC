@@ -147,6 +147,9 @@ begin
 end;
 $$;
 
+-- the ocr-receipt matcher reads item option names (revoked from service_role since s106); title is the real column, no price
+grant select (item_id, title) on public.inventory_item_options to service_role;
+
 -- 3. receipt drafts -------------------------------------------------------------------------------------------------------------------------------------
 create table public.inventory_receipt_drafts (
   id uuid primary key default gen_random_uuid(),
@@ -163,12 +166,15 @@ create table public.inventory_receipt_drafts (
   transaction_id uuid references public.transactions(id) on delete set null,
   created_at timestamptz not null default now(),
   confirm_key text check (confirm_key is null or char_length(confirm_key) between 16 and 160),
-  confirm_result jsonb
+  confirm_result jsonb,
+  unit_cost_before jsonb
 );
 create index inventory_receipt_drafts_prop_status_idx on public.inventory_receipt_drafts (property_id, status, created_at);
 create index inventory_receipt_drafts_creator_idx on public.inventory_receipt_drafts (created_by);
 alter table public.inventory_receipt_drafts enable row level security;
 revoke all on table public.inventory_receipt_drafts from public, anon, authenticated, service_role;
+-- the ocr-receipt edge function inserts the draft with the service client (and reads it back); nothing else, and nothing for anon / authenticated
+grant select, insert on table public.inventory_receipt_drafts to service_role;
 comment on table public.inventory_receipt_drafts is 'S110: a staff receipt photo read by ocr-receipt (service role) and waiting for the person to confirm. lines/total hold the prices server-side only: staff reads go through inventory_receipt_draft_v1, which hides them without read_finance.';
 
 -- internal: one purchase row plus the stock, the same two writes record_inventory_receipt_v1 makes (20261026000000_s91_kpi_fixes.sql), without its manage_inventory gate.
@@ -193,6 +199,9 @@ begin
             left('evt-' || encode(extensions.digest('inventory_purchases|' || v_pid::text || '|' || i.id::text || '|receipt', 'sha256'), 'hex'), 80));
     update public.inventory_items set qty_on_hand = v_after where id = i.id;
   else
+    -- the cost before the FIRST line of this receipt for the item, so an undo can put it back
+    update public.inventory_receipt_drafts set unit_cost_before = coalesce(unit_cost_before, '{}'::jsonb) || case when coalesce(unit_cost_before, '{}'::jsonb) ? i.id::text then '{}'::jsonb
+      else jsonb_build_object(i.id::text, i.unit_cost) end where id = p_draft_id;
     update public.inventory_items set qty_on_hand = coalesce(qty_on_hand, 0) + p_units, unit_cost = coalesce(p_cost, unit_cost) where id = i.id;
   end if;
   return v_pid;
@@ -212,7 +221,8 @@ begin
   end if;
   v_fin := public.current_staff_authorized('read_finance', d.property_id);
   select coalesce(jsonb_agg(
-           jsonb_build_object('line_no', (l.value ->> 'line_no')::integer, 'description', l.value ->> 'description', 'qty', l.value -> 'qty',
+           jsonb_build_object('line_no', (l.value ->> 'line_no')::integer, 'description', case when v_fin then l.value ->> 'description'
+                                                else nullif(btrim(regexp_replace(regexp_replace(l.value ->> 'description', '(\u20b1|\m(PHP|P)\.?)\s*[0-9][0-9,]*(\.[0-9]+)?', '', 'gi'), '\s[0-9][0-9,]*\.[0-9]{1,2}\M', '', 'g')), '') end, 'qty', l.value -> 'qty',
                               'match', case when it.id is null then null
                                             else jsonb_build_object('item_id', it.id, 'name', it.name, 'unit', it.unit, 'photo_path', it.photo_path) end)
            || case when v_fin then jsonb_build_object('unit_cost', l.value -> 'unit_cost') else '{}'::jsonb end
@@ -371,6 +381,7 @@ begin
   end if;
   if v_vendor is not null and char_length(v_vendor) > 200 then raise exception using errcode = '22023', message = 'vendor is too long'; end if;
   if p_idempotency_key is not null then
+    perform pg_advisory_xact_lock(hashtextextended('s110-manual:' || v_uid::text || ':' || p_idempotency_key, 0));
     select * into v_old from public.inventory_receipt_drafts d where d.created_by = v_uid and d.confirm_key = p_idempotency_key and d.status = 'confirmed' limit 1;
     if found then return v_old.confirm_result || jsonb_build_object('replayed', true, 'draft_id', v_old.id); end if;
   end if;
@@ -411,18 +422,14 @@ begin
     select t.status into v_status from public.transactions t where t.id = d.transaction_id for update;
     if v_status is not null and v_status not in ('pending_review', 'void') then return jsonb_build_object('ok', false, 'error', 'already_reviewed'); end if;
   end if;
-  -- check every purchase before any is reversed
-  foreach v_pid in array coalesce(d.purchase_ids, '{}'::uuid[]) loop
-    select * into pu from public.inventory_purchases where id = v_pid;
-    if not found then continue; end if;
-    select * into i from public.inventory_items where id = pu.item_id for update;
-    if i.movement_controlled_at is not null then
-      select * into m from public.inventory_stock_movements where item_id = i.id order by sequence_no desc limit 1;
-      if not found or m.quantity_after is distinct from i.qty_on_hand or i.qty_on_hand < pu.qty then
-        return jsonb_build_object('ok', false, 'error', 'stock_moved');
-      end if;
-    end if;
-  end loop;
+  -- lock every item once, then check the SUMMED quantity per controlled item (a repeated item must not abort the undo) before any purchase is reversed
+  perform 1 from public.inventory_items x where x.id in (select p.item_id from public.inventory_purchases p where p.id = any (coalesce(d.purchase_ids, '{}'::uuid[]))) order by x.id for update;
+  if exists (select 1 from (select p.item_id, sum(p.qty) q from public.inventory_purchases p where p.id = any (coalesce(d.purchase_ids, '{}'::uuid[])) group by p.item_id) s
+               join public.inventory_items it on it.id = s.item_id
+              where it.movement_controlled_at is not null
+                and (it.qty_on_hand < s.q or (select mm.quantity_after from public.inventory_stock_movements mm where mm.item_id = it.id order by mm.sequence_no desc limit 1) is distinct from it.qty_on_hand)) then
+    return jsonb_build_object('ok', false, 'error', 'stock_moved');
+  end if;
   foreach v_pid in array coalesce(d.purchase_ids, '{}'::uuid[]) loop
     select * into pu from public.inventory_purchases where id = v_pid;
     if not found then continue; end if;
@@ -437,12 +444,15 @@ begin
     end if;
     delete from public.inventory_purchases where id = pu.id;
   end loop;
+  -- put back the unit cost the items had before this receipt (non-controlled items only: the receipt set it there)
+  update public.inventory_items it set unit_cost = (d.unit_cost_before ->> it.id::text)::numeric
+   where d.unit_cost_before is not null and d.unit_cost_before ? it.id::text and it.movement_controlled_at is null;
   if d.transaction_id is not null then
     update public.transactions set status = 'void' where id = d.transaction_id and status = 'pending_review';
   end if;
   update public.follow_up_tasks set status = 'done', completed_at = now(), completion_note = 'The staff receipt was undone.', updated_at = now(), version = version + 1
    where idempotency_key = 'system:receipt_review:' || d.id::text and status in ('open', 'in_progress');
-  update public.inventory_receipt_drafts set status = 'cancelled', purchase_ids = null, transaction_id = null where id = d.id;
+  update public.inventory_receipt_drafts set status = 'cancelled', purchase_ids = null, transaction_id = null, unit_cost_before = null where id = d.id;
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -478,7 +488,7 @@ declare
   v_today date := public.manila_today(); v_m0 date; v_m1 date; v_fin boolean;
   v_kwh numeric; v_nights numeric; v_last jsonb; v_per jsonb; v_bo jsonb; v_wc jsonb; v_inv jsonb; v_out jsonb;
   v_turn integer; v_turn90 integer; v_rate public.utility_rates%rowtype; v_lastd numeric; v_usage_cost numeric; v_ic jsonb;
-  v_fs jsonb; v_hm jsonb; v_sold numeric; v_dn numeric;
+  v_fs jsonb; v_hm jsonb; v_sold numeric; v_dn numeric; v_mcost numeric;
 begin
   if auth.uid() is null or not public.current_staff_authorized('read_operations', p_property_id) then
     return jsonb_build_object('ok', false, 'error', 'forbidden');
@@ -490,7 +500,7 @@ begin
   select coalesce(sum(mr.electric_delta), 0), coalesce(sum(cs.nights_stayed), 0) into v_kwh, v_nights
     from public.meter_readings mr join public.cleaning_sessions cs on cs.id = mr.session_id
    where mr.property_id = p_property_id and mr.electric_delta >= 0 and coalesce(cs.nights_stayed, 0) > 0
-     and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending'))
+     and (mr.meter_flag is null or mr.meter_flag in ('typed_accepted', 'estimated'))
      and (mr.recorded_at at time zone 'Asia/Manila')::date >= v_m0 and (mr.recorded_at at time zone 'Asia/Manila')::date < v_m1;
 
   select jsonb_build_object('recorded_at', x.recorded_at, 'delta_kwh', x.electric_delta, 'nights', x.nights_stayed, 'kwh_per_night', x.kwh_per_night, 'flag', x.meter_flag)
@@ -498,7 +508,7 @@ begin
     from (select mr.recorded_at, mr.electric_delta, cs.nights_stayed, mr.kwh_per_night, mr.meter_flag
             from public.meter_readings mr left join public.cleaning_sessions cs on cs.id = mr.session_id
            where mr.property_id = p_property_id and mr.electric_delta is not null and mr.electric_delta >= 0
-             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending'))
+             and (mr.meter_flag is null or mr.meter_flag in ('typed_accepted', 'estimated'))
            order by mr.recorded_at desc, mr.id limit 1) x;
   v_lastd := (v_last ->> 'delta_kwh')::numeric;
 
@@ -506,7 +516,7 @@ begin
     from (select cs.checkout_date, mr.kwh_per_night, mr.recorded_at, coalesce(cs.checkout_date, (mr.recorded_at at time zone 'Asia/Manila')::date) sort_d
             from public.meter_readings mr left join public.cleaning_sessions cs on cs.id = mr.session_id
            where mr.property_id = p_property_id and mr.kwh_per_night is not null and mr.kwh_per_night >= 0
-             and (mr.meter_flag is null or mr.meter_flag not in ('misread', 're_entry', 'duplicate', 'estimate_pending'))
+             and (mr.meter_flag is null or mr.meter_flag in ('typed_accepted', 'estimated'))
            order by coalesce(cs.checkout_date, (mr.recorded_at at time zone 'Asia/Manila')::date) desc, mr.recorded_at desc limit 8) y;
 
   select jsonb_build_object('count', count(*), 'hours', coalesce(round(sum(n.duration_hours), 1), 0)) into v_bo
@@ -559,7 +569,16 @@ begin
     'inventory', v_inv);
 
   if v_fin then
-    select * into v_rate from public.utility_rates r where r.effective_from <= v_today order by r.effective_from desc, r.created_at desc limit 1;
+    select * into v_rate from public.utility_rates r where r.effective_from <= v_today
+     order by date_trunc('month', r.effective_from) desc, (r.source = 'manual') desc, r.effective_from desc, r.created_at desc limit 1;
+    -- each usable reading is costed at the rate in force on its own day (latest month first, a manual correction beats an auto read of the same month)
+    select sum(mr.electric_delta * rt.php_per_kwh) into v_mcost
+      from public.meter_readings mr join public.cleaning_sessions cs on cs.id = mr.session_id
+      cross join lateral (select r.php_per_kwh from public.utility_rates r where r.effective_from <= (mr.recorded_at at time zone 'Asia/Manila')::date
+                           order by date_trunc('month', r.effective_from) desc, (r.source = 'manual') desc, r.effective_from desc, r.created_at desc limit 1) rt
+     where mr.property_id = p_property_id and mr.electric_delta >= 0 and coalesce(cs.nights_stayed, 0) > 0
+       and (mr.meter_flag is null or mr.meter_flag in ('typed_accepted', 'estimated'))
+       and (mr.recorded_at at time zone 'Asia/Manila')::date >= v_m0 and (mr.recorded_at at time zone 'Asia/Manila')::date < v_m1;
     select coalesce(sum(u.used_qty * coalesce(i.unit_cost, 0)), 0) into v_usage_cost
       from public.inventory_usage u join public.inventory_items i on i.id = u.item_id
      where i.property_id = p_property_id and u.session_date >= v_m0 and u.session_date < v_m1;
@@ -577,7 +596,7 @@ begin
       'rate', case when v_rate.id is null then null else jsonb_build_object('php_per_kwh', v_rate.php_per_kwh, 'effective_from', v_rate.effective_from,
                                                                             'source', v_rate.source, 'source_url', v_rate.source_url) end,
       'last_reading_cost', case when v_rate.id is not null and v_lastd is not null then round(v_lastd * v_rate.php_per_kwh, 2) end,
-      'month_kwh_cost', case when v_rate.id is not null then round(v_kwh * v_rate.php_per_kwh, 2) end,
+      'month_kwh_cost', round(v_mcost, 2),
       'supplies_month', (select coalesce(sum(p.qty * p.unit_cost), 0) from public.inventory_purchases p join public.inventory_items i on i.id = p.item_id
                           where i.property_id = p_property_id and p.purchased_at >= v_m0 and p.purchased_at < v_m1),
       'supply_cost_per_turnover', case when v_turn > 0 then round(v_usage_cost / v_turn, 2) end,
