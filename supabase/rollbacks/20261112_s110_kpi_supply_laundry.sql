@@ -22,6 +22,7 @@ drop function if exists public.s_inventory_receipt_apply_v1(uuid, numeric, numer
 drop function if exists public.utility_rate_list_v1(uuid, integer);
 drop function if exists public.utility_rate_record_auto_v1(numeric, date, text);
 drop function if exists public.utility_rate_set_v1(numeric, date, text);
+revoke select (item_id, title) on public.inventory_item_options from service_role;
 drop table if exists public.inventory_receipt_drafts;
 drop table if exists public.utility_rates;
 
