@@ -4,71 +4,81 @@
   "phase": "expand",
   "source": {
     "branch": "s111/kpi-stay-avg",
-    "commit": "443eb4aaa2c0d03daa68400a0ad0a3815bd743ba"
+    "commit": "21ea308fdaf282fc1d6d7cc3b012386e8195a41f"
   },
   "migrations": [
     "20261113000000_s111_kpi_stay_avg.sql"
   ],
   "migration_sha256": {
-    "20261113000000_s111_kpi_stay_avg.sql": "ee4f7096ea47af0c1f899bfa092ac5e7aefd4e52a84dcc125e49a2680b9c84c8"
+    "20261113000000_s111_kpi_stay_avg.sql": "a0e5bd5a89ed0fd26e2ab3668c84b0632151d488fff71fee03de5b83bae3b7fe"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "cascade-supabase-20261108T011533Z",
     "verified_at": "2026-11-08T02:04:08.699Z",
-    "production_rule": "s111 (Lloyd 2026-11-08: the KPI tab shows average electricity and water per stay, ported from the admin Insights utilities chart). One function redefined, public.kpi_tab_v1(uuid,date): only the utility block changes (m3_month, m3_per_night, per_stay[].m3_per_night, per_month). No table, column, grant or row changes. Apply after the s110 release. restore_point is the backup used for the rehearsal; the orchestrator re-stamps both fields on the fresh backup taken before the apply.",
-    "notes": "Phase expand: a create or replace of one read function, no data written and no delete in the body. The old app ignores the new keys."
+    "production_rule": "s111 rev 2 (Lloyd 2026-11-08: per-night utility figures were wrong; contract docs/s111/contracts-rev2.md). public.kpi_tab_v1(uuid,date) redefined: the utility block is per day between meter readings (kwh_per_day, m3_per_day, nights_booked = metrics sold_nights, nights_in_month, last_reading, per_stay, per_month; kwh_per_night, m3_per_night, nights_month removed) and admin.target is added. New table public.kpi_targets (RLS on, no client grants) and new function public.kpi_target_set_v1(uuid,numeric) (manage_operations). Apply after the s110 release and together with the s111 staff app 3.4.27. restore_point is the backup used for the rehearsal; the orchestrator re-stamps both fields on the fresh backup taken before the apply.",
+    "notes": "Phase expand: one new table, one new write function, one read function redefined; nothing dropped or deleted. Removing three utility keys is a read-model change: the 3.4.25 app shows blanks for them, so it ships with 3.4.27."
   },
   "forward_verification": [
     {
       "name": "md5_kpi_tab_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'b02b0612bb183f5876567aafd48e10c8' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '156e8186cfd9aea5ac0cc2f4afb1275d' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
       "expect": true
     },
     {
-      "name": "kpi_tab_has_stay_avg",
-      "query": "select prosrc like '%per_month%' and prosrc like '%m3_month%' and prosrc like '%m3_per_night%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "name": "md5_kpi_target_set_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '7710b844d25e1c09c68ca968f67f464b' from pg_proc where oid = 'public.kpi_target_set_v1(uuid,numeric)'::regprocedure",
       "expect": true
     },
     {
-      "name": "kpi_tab_authenticated_only",
-      "query": "select has_function_privilege('authenticated', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('anon', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('service_role', 'public.kpi_tab_v1(uuid,date)', 'execute')",
-      "expect": true
-    },
-    {
-      "name": "kpi_tab_definer_empty_search_path",
-      "query": "select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "name": "kpi_tab_has_rev2_utility",
+      "query": "select prosrc like '%kwh_per_day%' and prosrc like '%nights_booked%' and prosrc like '%kpi_targets%' and prosrc not like '%kwh_per_night%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
       "expect": true
     },
     {
       "name": "kpi_tab_keeps_finance_gate",
-      "query": "select prosrc like '%current_staff_authorized(''read_finance'', p_property_id)%' and prosrc like '%if v_fin then%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "query": "select prosrc like '%read_finance%' and prosrc like '%if v_fin then%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "functions_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.kpi_tab_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.kpi_tab_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.kpi_tab_v1(uuid,date)'::regprocedure, 'execute') and has_function_privilege('authenticated', 'public.kpi_target_set_v1(uuid,numeric)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.kpi_target_set_v1(uuid,numeric)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.kpi_target_set_v1(uuid,numeric)'::regprocedure, 'execute')",
+      "expect": true
+    },
+    {
+      "name": "functions_definer_empty_search_path",
+      "query": "select bool_and(prosecdef and proconfig = array['search_path=\"\"']) and count(*) = 2 from pg_proc where oid in ('public.kpi_tab_v1(uuid,date)'::regprocedure, 'public.kpi_target_set_v1(uuid,numeric)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "kpi_targets_locked",
+      "query": "select c.relrowsecurity and not has_table_privilege('anon', 'public.kpi_targets', 'select') and not has_table_privilege('authenticated', 'public.kpi_targets', 'select') and not has_table_privilege('authenticated', 'public.kpi_targets', 'insert') from pg_class c where c.oid = 'public.kpi_targets'::regclass",
       "expect": true
     }
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Always: the script puts the s110 body of kpi_tab_v1 back exactly. The staff app of 3.4.27 hides the card when per_month is missing.",
+    "safe_until": "Always: the script puts the s110 body of kpi_tab_v1 back exactly and drops kpi_target_set_v1 and kpi_targets (an owner-set target is lost). Roll the staff app back with it.",
     "steps": [
       {
         "name": "run_compensating_script",
-        "action": "apply supabase/rollbacks/20261113_s111_kpi_stay_avg.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of kpi_tab_v1 must be fc58bc9881c5df2000fc459ef654ebed."
+        "action": "apply supabase/rollbacks/20261113_s111_kpi_stay_avg.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of kpi_tab_v1 must be fc58bc9881c5df2000fc459ef654ebed, and to_regclass('public.kpi_targets') and to_regprocedure('public.kpi_target_set_v1(uuid,numeric)') must be null."
       }
     ]
   },
   "feature_flags": [
     {
       "name": "no_flag",
-      "required_state": "None. Old clients ignore the new keys; the rollback script is the switch."
+      "required_state": "None. The rollback script is the switch; the staff app 3.4.27 must ship with this release."
     }
   ],
   "compatibility": {
     "mode": "widening",
-    "old_reader": true,
+    "old_reader": false,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed on a restore of cascade-supabase-20261108T011533Z (disposable Postgres on the host alfred), chain s110 then s111: both migrations applied, forward checks 5/5, pgTAP s111_kpi_stay_avg.sql 30/30. Widening only: one read function redefined, only its utility block changed. Rehearsal restores with --no-acl, so grants are judged by the migration text plus the forward checks."
+    "evidence": "Rehearsed on a restore of cascade-supabase-20261108T011533Z (disposable Postgres on the host alfred), chain s110 then s111 rev 2 at 21ea308: both migrations applied, forward checks 7/7, pgTAP s111_kpi_stay_avg.sql 46/46 (docs/s111/rehearsal3.log). Rehearsal restores with --no-acl, so grants are judged by the migration text plus the forward checks."
   },
   "approvals": {
     "production_required": true,
@@ -78,7 +88,7 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
-    "the rehearsal has not run the migration and s111_kpi_stay_avg.sql green on this commit, compatibility.verified is still false",
+    "the rehearsal has not run the migration and s111_kpi_stay_avg.sql green on this commit (46/46), compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
     "the s110 release is not applied (the live kpi_tab_v1 md5 is not fc58bc9881c5df2000fc459ef654ebed)"
   ]
