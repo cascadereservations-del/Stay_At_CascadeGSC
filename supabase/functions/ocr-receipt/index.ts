@@ -161,11 +161,11 @@ async function supplyMode(body: any, who: StaffIdentity): Promise<Response> {
   }
   const [items, opts] = await Promise.all([
     db.from('inventory_items').select('id,name').eq('property_id', PROPERTY_ID).eq('is_active', true),
-    db.from('inventory_item_options').select('item_id,name'), // an option name is an alias; a read error only costs those aliases
+    db.from('inventory_item_options').select('item_id,title'), // the real column is title (s110 grant: select (item_id, title)); an option title is an alias; a read error only costs those aliases
   ]);
   if (items.error) { console.warn('ocr_supply_items_failed', items.error.message); return json({ ok: false, error: 'load_failed' }, 500); }
   const names = new Map<string, string[]>((items.data ?? []).map((i: { id: string; name: string }) => [i.id, [String(i.name ?? '')]]));
-  for (const o of (opts.error ? [] : opts.data ?? []) as Array<{ item_id: string; name: string }>) names.get(o.item_id)?.push(String(o.name ?? ''));
+  for (const o of (opts.error ? [] : opts.data ?? []) as Array<{ item_id: string; title: string }>) names.get(o.item_id)?.push(String(o.title ?? ''));
   const cands: Candidate[] = [...names].map(([item_id, n]) => ({ item_id, names: n.filter(Boolean) }));
   const lines = x.line_items.map((l, i) => {
     const description = scrubMoney(l.description); // D-330: no price in the text a cleaner can read; unit_cost stays in its own field
