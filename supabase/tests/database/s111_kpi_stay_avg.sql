@@ -2,7 +2,7 @@
 -- per_stay, per_month; admin.target; kpi_target_set_v1. Hand-computed numbers. Counted reading: both prev > 0, both deltas >= 0, flag null / typed_accepted / estimated.
 -- days = Manila days since the property's previous reading of any flag (min 1, null for the first). Fixtures use uuids d1110000-...; everything rolls back.
 begin;
-select plan(46);
+select plan(57);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt(), auth.role() to anon, authenticated, service_role;
@@ -27,7 +27,8 @@ insert into public.staff_property_access(user_id, property_id) values (pg_temp.i
 
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaned_at, nights_stayed, checkout_date, cleaning_type) values
   (pg_temp.id('d1'), 'zz111-sub-d1', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-04 10:00+08', 2, date '2020-06-04', 'turnover'),
-  (pg_temp.id('d2'), 'zz111-sub-d2', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-10 10:00+08', 1, date '2020-06-10', 'turnover');
+  (pg_temp.id('d2'), 'zz111-sub-d2', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-10 10:00+08', 1, date '2020-06-10', 'turnover'),
+  (pg_temp.id('d3'), 'zz111-sub-d3', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-05 10:00+08', 1, date '2020-06-05', 'turnover');
 -- Chronological. Counted: ea (first ever, days null), e9 (1 day), e8 (316), e1 (3), e2 (2), eb (same day: 1), e7 (20), f1 (32), f2 (4).
 -- Not counted but still the previous reading for days: e0 misread, e3 electric_prev 0, e4 water_prev 0, e5 negative water, e6 under_review.
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, water_prev, electric_delta, water_delta, meter_flag) values
@@ -36,7 +37,7 @@ insert into public.meter_readings(id, session_id, property_id, recorded_at, elec
   (pg_temp.id('e8'), null,           pg_temp.id('b0'), timestamptz '2020-05-12 09:00+08', 200, 70, 7, 1.5, null),
   (pg_temp.id('e0'), null,           pg_temp.id('b0'), timestamptz '2020-06-01 09:00+08', 130, 56, 500, 90, 'misread'),
   (pg_temp.id('e1'), pg_temp.id('d1'), pg_temp.id('b0'), timestamptz '2020-06-04 09:00+08', 100, 50, 30, 6, null),
-  (pg_temp.id('e3'), null,           pg_temp.id('b0'), timestamptz '2020-06-05 09:00+08', 0, 5, 300, 30, null),
+  (pg_temp.id('e3'), pg_temp.id('d3'), pg_temp.id('b0'), timestamptz '2020-06-05 09:00+08', 0, 5, 300, 30, null),
   (pg_temp.id('e4'), null,           pg_temp.id('b0'), timestamptz '2020-06-06 09:00+08', 10, 0, 40, 20, null),
   (pg_temp.id('e5'), null,           pg_temp.id('b0'), timestamptz '2020-06-07 09:00+08', 10, 10, 50, -1, null),
   (pg_temp.id('e6'), null,           pg_temp.id('b0'), timestamptz '2020-06-08 09:00+08', 10, 10, 60, 60, 'under_review'),
@@ -46,6 +47,9 @@ insert into public.meter_readings(id, session_id, property_id, recorded_at, elec
   (pg_temp.id('f1'), null,           pg_temp.id('b0'), timestamptz '2020-08-01 09:00+08', 150, 60, 8, 0.8, null),
   (pg_temp.id('f2'), null,           pg_temp.id('b0'), timestamptz '2020-08-05 09:00+08', 158, 61, 12, 0.6, null);
 
+-- Rates for month_kwh_cost (M1): 10/kWh from 2020-05-01, 12/kWh from 2020-06-08. Counted June readings: e1 06-04 30 x 10, e2 06-10 10 x 12, eb 3 x 12, e7 40 x 12
+-- = 936.00. e3 (electric_prev 0, on a 1-night session) must not be costed: the s110 rule would have added 300 x 10 and dropped eb and e7 (no session).
+insert into public.utility_rates(provider, php_per_kwh, effective_from, source) values ('socoteco2', 10, date '2020-05-01', 'manual'), ('socoteco2', 12, date '2020-06-08', 'manual');
 -- Stays of June 2020: R1 confirmed 5..7, R2 completed 7..8 (night 7 counted once), R3 cancelled, I1 direct confirmed 28..30 in June -> 7 sold nights.
 -- Revenue per night: R1 3000/3, R2 1000/2, I1 3000/5 -> June 3000 + 1000 + 1800 over 8 revenue nights = ADR 725.
 insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_name, checkin_date, checkout_date, host_service_fee, host_payout) values
@@ -77,7 +81,12 @@ create temp table _t_ok as select public.kpi_target_set_v1(pg_temp.id('b0'), 150
 create temp table _k_admin as select public.kpi_tab_v1(pg_temp.id('b0'), date '2020-06-15') as j;
 create temp table _k_a2018 as select public.kpi_tab_v1(pg_temp.id('b0'), date '2018-03-15') as j;
 reset role;
-grant all on _k_cleaner, _k_c2020, _k_c2019, _k_empty, _t_cleaner, _k_laundry, _k_fin, _t_fin, _t_bad, _t_max, _t_ok, _k_admin, _k_a2018 to public;
+-- L4: a setter whose profile has no access to this property must not lend the target a role
+update public.kpi_targets set set_by = pg_temp.id('a8') where property_id = pg_temp.id('b0');
+select pg_temp.as_user(pg_temp.id('a3'));
+create temp table _k_l4 as select public.kpi_tab_v1(pg_temp.id('b0'), date '2020-06-15') as j;
+reset role;
+grant all on _k_cleaner, _k_c2020, _k_c2019, _k_empty, _t_cleaner, _k_laundry, _k_fin, _t_fin, _t_bad, _t_max, _t_ok, _k_admin, _k_a2018, _k_l4 to public;
 create temp table _pm as select e ->> 'month' as month, e as row from _k_c2020, jsonb_array_elements(j -> 'utility' -> 'per_month') e;
 create temp table _u as select j -> 'utility' as u from _k_c2020;
 create temp table _tg as select j -> 'admin' -> 'target' as t from _k_admin;
@@ -151,6 +160,14 @@ select ok((select jsonb_typeof(j -> 'admin' -> 'target' -> 'costs_basis') = 'nul
                   and jsonb_typeof(j -> 'admin' -> 'target' -> 'needed_occupancy') = 'null' and jsonb_typeof(j -> 'admin' -> 'target' -> 'needed_adr') = 'null' from _k_a2018),
           'no expenses in the 3 months before: costs basis, revenue needed and both needed figures are null');
 
+select ok((select jsonb_typeof(j -> 'admin' -> 'target' -> 'set_by') = 'null' and (j -> 'admin' -> 'target' ->> 'net_target')::numeric = 1500 from _k_l4),
+          'set_by stays null when the setter has no access to the property (L4)');
+
+-- month_kwh_cost (M1)
+select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_admin), 936.00::numeric,
+          'month_kwh_cost costs the counted readings at the rate of their own day: 300 + 120 + 36 + 480 (the prev 0 reading is left out)');
+select is((select (j -> 'admin' ->> 'month_kwh_cost')::numeric from _k_fin), 936.00::numeric, 'finance sees the same month_kwh_cost');
+
 -- kpi_target_set_v1
 select is((select j ->> 'error' from _t_cleaner) || '/' || (select j ->> 'error' from _t_fin), 'forbidden/forbidden', 'cleaner and finance cannot set the target (manage_operations)');
 select is((select string_agg(j ->> 'error', ',' order by v nulls last) from _t_bad), 'invalid_target,invalid_target,invalid_target,invalid_target', 'below 0, above 10,000,000, more than 2 dp and null are refused');
@@ -165,6 +182,30 @@ select ok(position('php' in (select (j -> 'utility')::text from _k_admin)) = 0 a
 select pg_temp.as_user(pg_temp.id('a8'));
 select is((select public.kpi_tab_v1(pg_temp.id('b0')) ->> 'error') || '/' || (select public.kpi_target_set_v1(pg_temp.id('b0'), 1) ->> 'error'), 'forbidden/forbidden', 'a person of another property is refused by both');
 reset role;
+
+-- weather_here_take_v1 (H1): atomic per-user per-Manila-day count, limit, day roll, 7-day trim, service_role only
+insert into public.weather_here_usage(user_id, day, count) values
+  (pg_temp.id('a2'), public.manila_today() - 1, 99), (pg_temp.id('a3'), public.manila_today() - 8, 5), (pg_temp.id('a3'), public.manila_today() - 7, 5);
+select is((select array_agg(public.weather_here_take_v1(pg_temp.id('a1'), 2) order by g) from generate_series(1, 3) g), array[true, true, false],
+          'limit 2: the first two calls pass, the third is refused');
+select is((select count from public.weather_here_usage where user_id = pg_temp.id('a1') and day = public.manila_today()), 3, 'every call is counted, the refused one too');
+select ok(public.weather_here_take_v1(pg_temp.id('a2')), 'yesterday at 99 does not count against today (default limit 60)');
+-- separate statement: a subquery in the same statement as the call reads the snapshot taken before the insert
+select is((select string_agg(count::text, '/' order by day desc) from public.weather_here_usage where user_id = pg_temp.id('a2')), '1/99',
+          'a new Manila day starts at 1 and the previous day keeps its own count');
+select is((select string_agg((public.manila_today() - day)::text, ',' order by day) from public.weather_here_usage where user_id = pg_temp.id('a3')), '7',
+          'rows older than 7 days are trimmed, the 7-day-old row stays');
+select ok(not public.weather_here_take_v1(null), 'a null user is refused');
+select ok((select relrowsecurity from pg_class where oid = 'public.weather_here_usage'::regclass)
+          and not has_table_privilege('anon', 'public.weather_here_usage', 'select') and not has_table_privilege('authenticated', 'public.weather_here_usage', 'select')
+          and not has_table_privilege('anon', 'public.weather_here_usage', 'insert') and not has_table_privilege('authenticated', 'public.weather_here_usage', 'update')
+          and has_table_privilege('service_role', 'public.weather_here_usage', 'select') and not has_table_privilege('service_role', 'public.weather_here_usage', 'delete'),
+          'weather_here_usage: RLS on, no anon/authenticated grants, service_role select/insert/update only');
+select ok(has_function_privilege('service_role', 'public.weather_here_take_v1(uuid,integer)', 'execute')
+          and not has_function_privilege('anon', 'public.weather_here_take_v1(uuid,integer)', 'execute')
+          and not has_function_privilege('authenticated', 'public.weather_here_take_v1(uuid,integer)', 'execute')
+          and (select prosecdef and proconfig = array['search_path=""'] from pg_proc where oid = 'public.weather_here_take_v1(uuid,integer)'::regprocedure),
+          'weather_here_take_v1: security definer, empty search_path, service_role execute only');
 
 select * from finish();
 rollback;

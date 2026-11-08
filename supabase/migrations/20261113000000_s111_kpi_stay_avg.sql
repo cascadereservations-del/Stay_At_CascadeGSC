@@ -8,6 +8,8 @@
 --   admin.target (read_finance only): owner-set monthly net target, costs basis (3 full months of get_finance_summary expenses), needed occupancy and needed rate.
 -- New: table kpi_targets (one row per property, no client grants) and kpi_target_set_v1 (manage_operations = owner/admin). app_settings is not used for the target:
 -- it is one global key/value table that anon can read, and a money figure must not be anon-readable.
+-- Fix round 3 (docs/s111/fixround-r3.md): admin.month_kwh_cost uses the counted readings (M1); target.set_by only from a profile with this property (L4);
+-- new table weather_here_usage + weather_here_take_v1 (service_role) hold the "Here" weather daily limit outside anon-readable app_settings (H1).
 -- The 3.4.25 app reads kwh_per_night / nights_month: ship with the s111 staff app (3.4.27), which reads the new keys.
 begin;
 
@@ -158,12 +160,13 @@ begin
   if v_fin then
     select * into v_rate from public.utility_rates r where r.effective_from <= v_today
      order by date_trunc('month', r.effective_from) desc, (r.source = 'manual') desc, r.effective_from desc, r.created_at desc limit 1;
-    -- each usable reading is costed at the rate in force on its own day (latest month first, a manual correction beats an auto read of the same month)
+    -- s111 M1: the same counted readings as kwh_month (both prev > 0, both deltas >= 0, flag allowlist; no session needed), each costed at the rate in force on
+    -- its own Manila day (latest month first, a manual correction beats an auto read of the same month)
     select sum(mr.electric_delta * rt.php_per_kwh) into v_mcost
-      from public.meter_readings mr join public.cleaning_sessions cs on cs.id = mr.session_id
+      from public.meter_readings mr
       cross join lateral (select r.php_per_kwh from public.utility_rates r where r.effective_from <= (mr.recorded_at at time zone 'Asia/Manila')::date
                            order by date_trunc('month', r.effective_from) desc, (r.source = 'manual') desc, r.effective_from desc, r.created_at desc limit 1) rt
-     where mr.property_id = p_property_id and mr.electric_delta >= 0 and coalesce(cs.nights_stayed, 0) > 0
+     where mr.property_id = p_property_id and mr.electric_prev > 0 and mr.water_prev > 0 and mr.electric_delta >= 0 and mr.water_delta >= 0
        and (mr.meter_flag is null or mr.meter_flag in ('typed_accepted', 'estimated'))
        and (mr.recorded_at at time zone 'Asia/Manila')::date >= v_m0 and (mr.recorded_at at time zone 'Asia/Manila')::date < v_m1;
     select coalesce(sum(u.used_qty * coalesce(i.unit_cost, 0)), 0) into v_usage_cost
@@ -194,6 +197,7 @@ begin
     -- nights_on_books = the core's sold_nights, which already counts every confirmed or completed night of the month, past and future. set_by = the setter's role.
     select t.monthly_net_target, t.set_at, p.role into v_tnet, v_tat, v_tby
       from public.kpi_targets t left join public.staff_access_profiles p on p.user_id = t.set_by
+        and (p.role = 'owner' or exists (select 1 from public.staff_property_access s where s.user_id = p.user_id and s.property_id = t.property_id))
      where t.property_id = p_property_id;
     select round(avg(x.e), 2) into v_cb
       from (select (public.get_finance_summary((v_m0 - (k * interval '1 month'))::date, p_property_id) ->> 'expenses')::numeric e from generate_series(1, 3) k) x
@@ -215,5 +219,40 @@ revoke all on function public.kpi_tab_v1(uuid, date) from public, anon, authenti
 grant execute on function public.kpi_tab_v1(uuid, date) to authenticated;
 
 comment on function public.kpi_tab_v1(uuid, date) is 's111: the KPI tab. read_operations; utility per day between meter readings, nights_booked = metrics sold_nights, per_stay and per_month; the `admin` key (with admin.target) exists only with read_finance. No booking income.';
+
+-- 4. "Here" weather daily limit (fix round 3 H1) ---------------------------------------------------------------------------------------------------------------
+-- weather-proxy kept Here cells and per-user counts in app_settings, which anon can read. Here answers are no longer cached; the per-staff daily count lives in
+-- this locked table, written only through weather_here_take_v1 (service_role, called by weather-proxy with the verified staff user id).
+create table public.weather_here_usage (
+  user_id uuid not null,
+  day date not null,
+  count integer not null default 0,
+  primary key (user_id, day)
+);
+alter table public.weather_here_usage enable row level security;
+revoke all on table public.weather_here_usage from public, anon, authenticated, service_role;
+grant select, insert, update on table public.weather_here_usage to service_role;
+comment on table public.weather_here_usage is 's111 fix round 3: "Here" weather calls per staff user per Manila day. No anon/authenticated grants; written by weather_here_take_v1 (service_role). Rows older than 7 days are trimmed by the function.';
+
+create or replace function public.weather_here_take_v1(p_user_id uuid, p_limit integer default 60)
+returns boolean language plpgsql security definer set search_path = '' as $$
+declare
+  v_day date := public.manila_today(); v_n integer;
+begin
+  if p_user_id is null then
+    return false;
+  end if;
+  delete from public.weather_here_usage u where u.day < v_day - 7;
+  insert into public.weather_here_usage as u (user_id, day, count) values (p_user_id, v_day, 1)
+  on conflict (user_id, day) do update set count = u.count + 1
+  returning u.count into v_n;
+  return v_n <= coalesce(p_limit, 60);
+end;
+$$;
+
+revoke all on function public.weather_here_take_v1(uuid, integer) from public, anon, authenticated, service_role;
+grant execute on function public.weather_here_take_v1(uuid, integer) to service_role;
+
+comment on function public.weather_here_take_v1(uuid, integer) is 's111 fix round 3: count one "Here" weather call for the user on the Manila day (atomic upsert) and return count <= p_limit (default 60). Trims rows older than 7 days. service_role only.';
 
 commit;

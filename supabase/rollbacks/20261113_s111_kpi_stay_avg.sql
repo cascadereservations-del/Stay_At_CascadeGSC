@@ -134,5 +134,8 @@ comment on function public.kpi_tab_v1(uuid, date) is 's110: the KPI tab. read_op
 
 drop function if exists public.kpi_target_set_v1(uuid, numeric);
 drop table if exists public.kpi_targets;
+-- fix round 3 H1: the "Here" weather daily limit (usage counts are lost; weather-proxy must be rolled back with it)
+drop function if exists public.weather_here_take_v1(uuid, integer);
+drop table if exists public.weather_here_usage;
 
 commit;
