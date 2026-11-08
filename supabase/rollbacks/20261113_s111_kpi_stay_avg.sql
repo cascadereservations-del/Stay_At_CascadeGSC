@@ -1,4 +1,4 @@
--- Rollback for s111_kpi_stay_avg_20261113: puts kpi_tab_v1 back to its s110 body (20261112000000_s110_kpi_supply_laundry.sql, section 4) exactly. Nothing else changed.
+-- Rollback for s111_kpi_stay_avg_20261113: puts kpi_tab_v1 back to its s110 body (20261112000000_s110_kpi_supply_laundry.sql, section 4) exactly, then drops kpi_target_set_v1 and the kpi_targets table (rev 2; the owner's monthly target is lost and must be set again after a re-apply).
 begin;
 
 create or replace function public.kpi_tab_v1(p_property_id uuid, p_month date default null)
@@ -131,5 +131,8 @@ revoke all on function public.kpi_tab_v1(uuid, date) from public, anon, authenti
 grant execute on function public.kpi_tab_v1(uuid, date) to authenticated;
 
 comment on function public.kpi_tab_v1(uuid, date) is 's110: the KPI tab. read_operations; the `admin` key (rate, costs, supplies, cleaning pay) exists only with read_finance. No booking income.';
+
+drop function if exists public.kpi_target_set_v1(uuid, numeric);
+drop table if exists public.kpi_targets;
 
 commit;

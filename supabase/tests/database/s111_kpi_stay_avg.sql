@@ -1,8 +1,8 @@
--- Session 111, lane SQL: release s111_kpi_stay_avg_20261113. kpi_tab_v1 utility block: m3_month / m3_per_night, per_stay[].m3_per_night and utility.per_month
--- (12 Manila months, oldest first, one row per month, consumption rule: both prev > 0, both deltas >= 0, flag null / typed_accepted / estimated). Hand-computed numbers.
--- Fixtures use uuids d1110000-... on properties of their own; everything rolls back. Needs the s110 and s111 migrations applied.
+-- Session 111, lane SQL: release s111_kpi_stay_avg_20261113, contract revision 2. kpi_tab_v1 utility block per day between meter readings, nights_booked,
+-- per_stay, per_month; admin.target; kpi_target_set_v1. Hand-computed numbers. Counted reading: both prev > 0, both deltas >= 0, flag null / typed_accepted / estimated.
+-- days = Manila days since the property's previous reading of any flag (min 1, null for the first). Fixtures use uuids d1110000-...; everything rolls back.
 begin;
-select plan(30);
+select plan(46);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt(), auth.role() to anon, authenticated, service_role;
@@ -25,84 +25,145 @@ insert into public.staff_access_profiles(user_id, role) values
 insert into public.staff_property_access(user_id, property_id) select u, pg_temp.id('b0') from unnest(array[pg_temp.id('a1'), pg_temp.id('a2'), pg_temp.id('a3'), pg_temp.id('a4')]) u;
 insert into public.staff_property_access(user_id, property_id) values (pg_temp.id('a8'), pg_temp.id('b1'));
 
--- Sessions: d1 2 nights (checkout 2020-06-10), d2 1 night (2020-06-20), d3 0 nights (2020-05-12), d4 3 nights (2019-07-15), d5 1 night (2019-06-10)
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaned_at, nights_stayed, checkout_date, cleaning_type) values
-  (pg_temp.id('d1'), 'zz111-sub-d1', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-10 10:00+08', 2, date '2020-06-10', 'turnover'),
-  (pg_temp.id('d2'), 'zz111-sub-d2', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-20 10:00+08', 1, date '2020-06-20', 'turnover'),
-  (pg_temp.id('d3'), 'zz111-sub-d3', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-05-12 10:00+08', 0, date '2020-05-12', 'turnover'),
-  (pg_temp.id('d4'), 'zz111-sub-d4', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2019-07-15 10:00+08', 3, date '2019-07-15', 'turnover'),
-  (pg_temp.id('d5'), 'zz111-sub-d5', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2019-06-10 10:00+08', 1, date '2019-06-10', 'turnover');
--- June 2020: e1 and e2 are consumption (kWh 20 + 10, m3 4 + 2, nights 2 + 1); e3 misread, e4 electric_prev 0, e5 water_prev 0, e6 negative water, e7 under_review are not.
--- e4..e6 still feed kwh_month / m3_month, which keep the s110 rule (a usable flag, a non-negative delta of their own meter, nights > 0).
-insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, water_prev, electric_delta, water_delta, kwh_per_night, m3_per_night, meter_flag) values
-  (pg_temp.id('e1'), pg_temp.id('d1'), pg_temp.id('b0'), timestamptz '2020-06-10 09:00+08', 100, 50, 20, 4, 10, 2, null),
-  (pg_temp.id('e2'), pg_temp.id('d2'), pg_temp.id('b0'), timestamptz '2020-06-30 23:30+08', 120, 54, 10, 2, 10, null, 'typed_accepted'),
-  (pg_temp.id('e3'), pg_temp.id('d1'), pg_temp.id('b0'), timestamptz '2020-06-11 09:00+08', 130, 56, 500, 90, null, null, 'misread'),
-  (pg_temp.id('e4'), pg_temp.id('d2'), pg_temp.id('b0'), timestamptz '2020-06-12 09:00+08', 0, 5, 300, 30, null, null, null),
-  (pg_temp.id('e5'), pg_temp.id('d2'), pg_temp.id('b0'), timestamptz '2020-06-13 09:00+08', 10, 0, 40, 20, null, null, null),
-  (pg_temp.id('e6'), pg_temp.id('d2'), pg_temp.id('b0'), timestamptz '2020-06-14 09:00+08', 10, 10, 50, -1, null, null, null),
-  (pg_temp.id('e7'), pg_temp.id('d1'), pg_temp.id('b0'), timestamptz '2020-06-15 09:00+08', 10, 10, 60, 60, null, null, 'under_review'),
--- May 2020: a stay of 0 nights (counts as a stay, no per-night figure)
-  (pg_temp.id('e8'), pg_temp.id('d3'), pg_temp.id('b0'), timestamptz '2020-05-12 09:00+08', 200, 70, 7, 1.5, null, null, null),
--- July 2019 starts at 00:30 Manila = 16:30 UTC of June 30: the Manila month decides
-  (pg_temp.id('e9'), pg_temp.id('d4'), pg_temp.id('b0'), timestamptz '2019-07-01 00:30+08', 300, 80, 9, 0.9, 3, 0.3, null),
--- 23:30 Manila on 2019-06-30: one month before the window of June 2020
-  (pg_temp.id('ea'), pg_temp.id('d5'), pg_temp.id('b0'), timestamptz '2019-06-30 23:30+08', 400, 90, 999, 99, null, null, null);
+  (pg_temp.id('d1'), 'zz111-sub-d1', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-04 10:00+08', 2, date '2020-06-04', 'turnover'),
+  (pg_temp.id('d2'), 'zz111-sub-d2', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-10 10:00+08', 1, date '2020-06-10', 'turnover');
+-- Chronological. Counted: ea (first ever, days null), e9 (1 day), e8 (316), e1 (3), e2 (2), eb (same day: 1), e7 (20), f1 (32), f2 (4).
+-- Not counted but still the previous reading for days: e0 misread, e3 electric_prev 0, e4 water_prev 0, e5 negative water, e6 under_review.
+insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, water_prev, electric_delta, water_delta, meter_flag) values
+  (pg_temp.id('ea'), null,           pg_temp.id('b0'), timestamptz '2019-06-30 23:30+08', 400, 90, 999, 99, null),
+  (pg_temp.id('e9'), null,           pg_temp.id('b0'), timestamptz '2019-07-01 00:30+08', 300, 80, 9, 0.9, null),
+  (pg_temp.id('e8'), null,           pg_temp.id('b0'), timestamptz '2020-05-12 09:00+08', 200, 70, 7, 1.5, null),
+  (pg_temp.id('e0'), null,           pg_temp.id('b0'), timestamptz '2020-06-01 09:00+08', 130, 56, 500, 90, 'misread'),
+  (pg_temp.id('e1'), pg_temp.id('d1'), pg_temp.id('b0'), timestamptz '2020-06-04 09:00+08', 100, 50, 30, 6, null),
+  (pg_temp.id('e3'), null,           pg_temp.id('b0'), timestamptz '2020-06-05 09:00+08', 0, 5, 300, 30, null),
+  (pg_temp.id('e4'), null,           pg_temp.id('b0'), timestamptz '2020-06-06 09:00+08', 10, 0, 40, 20, null),
+  (pg_temp.id('e5'), null,           pg_temp.id('b0'), timestamptz '2020-06-07 09:00+08', 10, 10, 50, -1, null),
+  (pg_temp.id('e6'), null,           pg_temp.id('b0'), timestamptz '2020-06-08 09:00+08', 10, 10, 60, 60, 'under_review'),
+  (pg_temp.id('e2'), pg_temp.id('d2'), pg_temp.id('b0'), timestamptz '2020-06-10 09:00+08', 120, 54, 10, 2, 'typed_accepted'),
+  (pg_temp.id('eb'), null,           pg_temp.id('b0'), timestamptz '2020-06-10 18:00+08', 130, 56, 3, 0.3, null),
+  (pg_temp.id('e7'), null,           pg_temp.id('b0'), timestamptz '2020-06-30 23:30+08', 133, 56, 40, 2, 'estimated'),
+  (pg_temp.id('f1'), null,           pg_temp.id('b0'), timestamptz '2020-08-01 09:00+08', 150, 60, 8, 0.8, null),
+  (pg_temp.id('f2'), null,           pg_temp.id('b0'), timestamptz '2020-08-05 09:00+08', 158, 61, 12, 0.6, null);
+
+-- Stays of June 2020: R1 confirmed 5..7, R2 completed 7..8 (night 7 counted once), R3 cancelled, I1 direct confirmed 28..30 in June -> 7 sold nights.
+-- Revenue per night: R1 3000/3, R2 1000/2, I1 3000/5 -> June 3000 + 1000 + 1800 over 8 revenue nights = ADR 725.
+insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_name, checkin_date, checkout_date, host_service_fee, host_payout) values
+  (pg_temp.id('c1'), pg_temp.id('b0'), 'ZZ111R1', 'confirmed', 'Zz Ana', date '2020-06-05', date '2020-06-08', 0, 3000),
+  (pg_temp.id('c2'), pg_temp.id('b0'), 'ZZ111R2', 'completed', 'Zz Ben', date '2020-06-07', date '2020-06-09', 0, 1000),
+  (pg_temp.id('c3'), pg_temp.id('b0'), 'ZZ111R3', 'cancelled', 'Zz Cy', date '2020-06-15', date '2020-06-20', 0, 2000);
+insert into public.booking_inquiries(id, property_id, guest_name, guest_phone, checkin_date, checkout_date, source, status, total_amount) values
+  (pg_temp.id('c4'), pg_temp.id('b0'), 'Zz Dee', '000', date '2020-06-28', date '2020-07-03', 'direct', 'confirmed', 3000);
+-- Expenses for the costs basis of June 2020: March 9000, April none, May 6000 -> 7500 (months without expenses are left out)
+insert into public.transactions(id, property_id, txn_type, category, gross_amount, source, status, transaction_date) values
+  (pg_temp.id('fa'), pg_temp.id('b0'), 'expense', 'supplies', 9000, 'manual', 'confirmed', date '2020-03-10'),
+  (pg_temp.id('fb'), pg_temp.id('b0'), 'expense', 'supplies', 6000, 'manual', 'confirmed', date '2020-05-10');
 
 select pg_temp.as_user(pg_temp.id('a1'));
 create temp table _k_cleaner as select public.kpi_tab_v1(pg_temp.id('b0')) as j;
 create temp table _k_c2020 as select public.kpi_tab_v1(pg_temp.id('b0'), date '2020-06-15') as j;
+create temp table _k_c2019 as select public.kpi_tab_v1(pg_temp.id('b0'), date '2019-06-15') as j;
 create temp table _k_empty as select public.kpi_tab_v1(pg_temp.id('b0'), date '2018-03-15') as j;
+create temp table _t_cleaner as select public.kpi_target_set_v1(pg_temp.id('b0'), 1000) as j;
 select pg_temp.as_user(pg_temp.id('a2'));
 create temp table _k_laundry as select public.kpi_tab_v1(pg_temp.id('b0'), date '2020-06-15') as j;
 select pg_temp.as_user(pg_temp.id('a4'));
 create temp table _k_fin as select public.kpi_tab_v1(pg_temp.id('b0'), date '2020-06-15') as j;
+create temp table _t_fin as select public.kpi_target_set_v1(pg_temp.id('b0'), 1000) as j;
 select pg_temp.as_user(pg_temp.id('a3'));
+create temp table _t_bad as select v, public.kpi_target_set_v1(pg_temp.id('b0'), v) as j from (values (-1::numeric), (10000000.01), (1.005), (null)) x(v);
+create temp table _t_max as select public.kpi_target_set_v1(pg_temp.id('b0'), 10000000) as j;
+create temp table _t_ok as select public.kpi_target_set_v1(pg_temp.id('b0'), 1500) as j;
 create temp table _k_admin as select public.kpi_tab_v1(pg_temp.id('b0'), date '2020-06-15') as j;
+create temp table _k_a2018 as select public.kpi_tab_v1(pg_temp.id('b0'), date '2018-03-15') as j;
 reset role;
-grant all on _k_cleaner, _k_c2020, _k_empty, _k_laundry, _k_fin, _k_admin to public;
+grant all on _k_cleaner, _k_c2020, _k_c2019, _k_empty, _t_cleaner, _k_laundry, _k_fin, _t_fin, _t_bad, _t_max, _t_ok, _k_admin, _k_a2018 to public;
 create temp table _pm as select e ->> 'month' as month, e as row from _k_c2020, jsonb_array_elements(j -> 'utility' -> 'per_month') e;
+create temp table _u as select j -> 'utility' as u from _k_c2020;
+create temp table _tg as select j -> 'admin' -> 'target' as t from _k_admin;
 
+-- month block (June 2020: e1 30/6 over 3 days, e2 10/2 over 2, eb 3/0.3 over 1, e7 40/2 over 20)
+select is((select (u ->> 'kwh_month')::numeric from _u), 83.00::numeric, 'kwh_month sums the counted readings of the month: 30 + 10 + 3 + 40');
+select is((select (u ->> 'm3_month')::numeric from _u), 10.30::numeric, 'm3_month: 6 + 2 + 0.3 + 2');
+select is((select (u ->> 'kwh_per_day')::numeric from _u), 3.19::numeric, 'kwh_per_day is 83 kWh over 26 days (3 + 2 + 1 + 20)');
+select is((select (u ->> 'm3_per_day')::numeric from _u), 0.40::numeric, 'm3_per_day is 10.3 m3 over 26 days');
+select ok((select not (u ?| array['kwh_per_night', 'm3_per_night', 'nights_month']) from _u), 'kwh_per_night, m3_per_night and nights_month are gone');
+select is((select (u ->> 'nights_booked')::integer || '/' || (u ->> 'nights_in_month') from _u), '7/30', 'nights_booked: 7 distinct sold nights of 30 (overlap once, cancelled out, July nights out)');
+select is((select (u ->> 'nights_booked')::integer from _u),
+          (public.hospitality_metrics_core_v1(pg_temp.id('b0'), date '2020-06-01', date '2020-07-01', false) -> 'metrics' -> 'sold_nights' ->> 'value')::integer,
+          'nights_booked equals get_hospitality_metrics_v1 sold_nights for the month');
+select is((select (u ->> 'nights_booked')::numeric from _u), (select (j -> 'admin' ->> 'sold_nights')::numeric from _k_admin), 'nights_booked equals the admin occupancy nights');
+select ok((select jsonb_typeof(j -> 'utility' -> 'kwh_month') = 'number' and jsonb_typeof(j -> 'utility' -> 'kwh_per_day') = 'null' and jsonb_typeof(j -> 'utility' -> 'm3_per_day') = 'null'
+                  and (j -> 'utility' ->> 'nights_booked')::integer = 0 and (j -> 'utility' ->> 'nights_in_month')::integer = 31 from _k_empty), 'an empty month: 0 kWh, null per day, 0 of 31 nights');
+
+-- last_reading = the latest counted reading (f2: 12 kWh, 0.6 m3, 4 days after f1)
+select is((select (u -> 'last_reading' ->> 'days')::integer || '/' || (u -> 'last_reading' ->> 'delta_kwh') || '/' || (u -> 'last_reading' ->> 'kwh_per_day') || '/'
+                  || (u -> 'last_reading' ->> 'delta_m3') || '/' || (u -> 'last_reading' ->> 'm3_per_day') from _u), '4/12.00/3.00/0.6000/0.15', 'last_reading: 12 kWh and 0.6 m3 over 4 days');
+select ok((select (u -> 'last_reading') ?& array['recorded_at', 'delta_kwh', 'days', 'kwh_per_day', 'delta_m3', 'm3_per_day', 'flag']
+                  and (select count(*) from jsonb_object_keys(u -> 'last_reading')) = 7 from _u), 'last_reading has exactly the seven contract keys');
+
+-- per_stay = the last 8 counted readings, oldest first (ea drops out)
+select is((select jsonb_array_length(u -> 'per_stay') from _u), 8, 'per_stay holds the last 8 counted readings');
+select is((select (u -> 'per_stay' -> 0 ->> 'days') || '/' || (u -> 'per_stay' -> 0 ->> 'kwh_per_day') || '/' || (u -> 'per_stay' -> 0 ->> 'm3_per_day') from _u), '1/9.00/0.90',
+          'per_stay[0] is e9: 00:30 Manila the day after the previous reading counts 1 day');
+select is((select (u -> 'per_stay' -> 2 ->> 'checkout_date') || '/' || (u -> 'per_stay' -> 2 ->> 'days') || '/' || (u -> 'per_stay' -> 2 ->> 'kwh') || '/' || (u -> 'per_stay' -> 2 ->> 'kwh_per_day')
+                  || '/' || (u -> 'per_stay' -> 2 ->> 'm3_per_day') from _u), '2020-06-04/3/30.00/10.00/2.00', 'e1: readings 3 days apart, 30 kWh -> 10 a day, 6 m3 -> 2 a day (a misread reading still starts the count)');
+select is((select (u -> 'per_stay' -> 3 ->> 'days') || '/' || (u -> 'per_stay' -> 3 ->> 'kwh_per_day') from _u), '2/5.00', 'e2 counts from the under_review reading 2 days before it');
+select is((select (u -> 'per_stay' -> 4 ->> 'days') || '/' || (u -> 'per_stay' -> 4 ->> 'kwh_per_day') from _u), '1/3.00', 'a second reading on the same Manila day counts 1 day (minimum)');
+select is((select (u -> 'per_stay' -> 7 ->> 'recorded_at')::timestamptz from _u), timestamptz '2020-08-05 09:00+08', 'per_stay ends with the latest counted reading');
+select ok((select bool_and(e ?& array['checkout_date', 'recorded_at', 'days', 'kwh', 'kwh_per_day', 'm3', 'm3_per_day'] and (select count(*) from jsonb_object_keys(e)) = 7)
+             from _u, jsonb_array_elements(u -> 'per_stay') e), 'every per_stay item has exactly the seven contract keys');
+
+-- per_month
 select is((select jsonb_array_length(j -> 'utility' -> 'per_month') from _k_c2020), 12, 'per_month has 12 rows');
 select is((select string_agg(e ->> 'month', ',' order by n) from _k_c2020, jsonb_array_elements(j -> 'utility' -> 'per_month') with ordinality t(e, n)),
           '2019-07,2019-08,2019-09,2019-10,2019-11,2019-12,2020-01,2020-02,2020-03,2020-04,2020-05,2020-06', 'the months run oldest first and end with the selected month');
-select is((select (row ->> 'stays')::integer from _pm where month = '2020-06'), 2, 'June 2020 counts 2 consumption readings (flags misread / under_review, prev = 0 and a negative delta are out)');
-select is((select (row ->> 'kwh_per_stay')::numeric from _pm where month = '2020-06'), 15.0::numeric, 'kwh_per_stay is (20 + 10) / 2');
-select is((select (row ->> 'm3_per_stay')::numeric from _pm where month = '2020-06'), 3.00::numeric, 'm3_per_stay is (4 + 2) / 2');
-select is((select (row ->> 'kwh_per_night')::numeric from _pm where month = '2020-06'), 10.00::numeric, 'kwh_per_night is 30 kWh over 3 nights');
-select is((select (row ->> 'm3_per_night')::numeric from _pm where month = '2020-06'), 2.00::numeric, 'm3_per_night is 6 m3 over 3 nights');
-select is((select (row ->> 'stays')::integer || '/' || (row ->> 'kwh_per_stay') || '/' || (row ->> 'm3_per_stay') from _pm where month = '2020-05'), '1/7.0/1.50', 'May 2020: one reading, 7 kWh and 1.5 m3 per stay');
-select ok((select jsonb_typeof(row -> 'kwh_per_night') = 'null' and jsonb_typeof(row -> 'm3_per_night') = 'null' from _pm where month = '2020-05'), 'a stay of 0 nights has no per-night figure');
-select is((select (row ->> 'stays')::integer || '/' || (row ->> 'kwh_per_stay') || '/' || (row ->> 'm3_per_stay') || '/' || (row ->> 'kwh_per_night') || '/' || (row ->> 'm3_per_night') from _pm where month = '2019-07'),
-          '1/9.0/0.90/3.00/0.30', 'July 2019 (00:30 Manila) belongs to July: 9 kWh and 0.9 m3 over 3 nights');
-select is((select sum((row ->> 'stays')::integer) from _pm), 4::bigint, 'the 23:30 Manila reading of 2019-06-30 is outside the 12 months');
-select ok((select jsonb_typeof(row -> 'kwh_per_stay') = 'null' and jsonb_typeof(row -> 'm3_per_stay') = 'null' and jsonb_typeof(row -> 'kwh_per_night') = 'null'
-                  and jsonb_typeof(row -> 'm3_per_night') = 'null' and (row ->> 'stays')::integer = 0 from _pm where month = '2019-08'), 'an empty month has stays 0 and null figures');
-select ok((select bool_and(row ?& array['month', 'stays', 'kwh_per_stay', 'm3_per_stay', 'kwh_per_night', 'm3_per_night'] and (select count(*) from jsonb_object_keys(row)) = 6) from _pm), 'every row has exactly the six contract keys');
-select is((select jsonb_array_length(j -> 'utility' -> 'per_month') || '/' || (select sum((e ->> 'stays')::integer) from jsonb_array_elements(j -> 'utility' -> 'per_month') e) from _k_empty), '12/0', 'a month with no readings still returns 12 empty rows');
-select is((select (j -> 'utility' -> 'per_month' -> 0 ->> 'month') || '..' || (j -> 'utility' -> 'per_month' -> 11 ->> 'month') from _k_empty), '2017-04..2018-03', 'the window crosses the year start correctly');
+select is((select (row ->> 'stays') || '/' || (row ->> 'kwh') || '/' || (row ->> 'm3') || '/' || (row ->> 'kwh_per_stay') || '/' || (row ->> 'm3_per_stay') || '/'
+                  || (row ->> 'kwh_per_day') || '/' || (row ->> 'm3_per_day') from _pm where month = '2020-06'), '4/83.00/10.30/20.8/2.58/3.19/0.40',
+          'June 2020: 4 counted readings, 83 kWh and 10.3 m3, per stay 20.8 / 2.58, per day 3.19 / 0.40');
+select is((select (row ->> 'stays') || '/' || (row ->> 'kwh') || '/' || (row ->> 'kwh_per_day') from _pm where month = '2020-05'), '1/7.00/0.02', 'May 2020: 7 kWh over 316 days');
+select is((select (row ->> 'stays') || '/' || (row ->> 'kwh_per_stay') || '/' || (row ->> 'm3_per_stay') || '/' || (row ->> 'kwh_per_day') || '/' || (row ->> 'm3_per_day') from _pm where month = '2019-07'),
+          '1/9.0/0.90/9.00/0.90', 'July 2019 (00:30 Manila) belongs to July: 9 kWh and 0.9 m3 over 1 day');
+select is((select sum((row ->> 'stays')::integer) from _pm), 6::bigint, 'the window holds 6 counted readings: the 2019-06-30 23:30 and August readings are outside');
+select ok((select jsonb_typeof(row -> 'kwh') = 'null' and jsonb_typeof(row -> 'm3') = 'null' and jsonb_typeof(row -> 'kwh_per_stay') = 'null' and jsonb_typeof(row -> 'm3_per_stay') = 'null'
+                  and jsonb_typeof(row -> 'kwh_per_day') = 'null' and jsonb_typeof(row -> 'm3_per_day') = 'null' and (row ->> 'stays')::integer = 0 from _pm where month = '2019-08'),
+          'an empty month has stays 0 and null figures');
+select ok((select bool_and(row ?& array['month', 'stays', 'kwh', 'm3', 'kwh_per_stay', 'm3_per_stay', 'kwh_per_day', 'm3_per_day'] and (select count(*) from jsonb_object_keys(row)) = 8) from _pm),
+          'every per_month row has exactly the eight contract keys');
+select is((select (e ->> 'stays') || '/' || (e ->> 'kwh') || '/' || coalesce(e ->> 'kwh_per_day', 'null') from _k_c2019, jsonb_array_elements(j -> 'utility' -> 'per_month') e where e ->> 'month' = '2019-06'),
+          '1/999.00/null', 'the first reading ever has no days: its month shows kWh but no per-day figure');
+select is((select (j -> 'utility' -> 'per_month' -> 0 ->> 'month') || '..' || (j -> 'utility' -> 'per_month' -> 11 ->> 'month') || '/' || (select sum((e ->> 'stays')::integer) from jsonb_array_elements(j -> 'utility' -> 'per_month') e) from _k_empty),
+          '2017-04..2018-03/0', 'a month with no readings returns 12 empty rows and crosses the year start');
 select is((select (j -> 'utility' -> 'per_month' -> 11 ->> 'month') from _k_cleaner), to_char(public.manila_today(), 'YYYY-MM'), 'without p_month the last row is the current Manila month');
 
--- water in the month block
-select is((select (j -> 'utility' ->> 'kwh_month')::numeric from _k_c2020), 420.00::numeric, 'kwh_month keeps the s110 rule (20 + 10 + 300 + 40 + 50)');
-select is((select (j -> 'utility' ->> 'm3_month')::numeric from _k_c2020), 56.00::numeric, 'm3_month: usable flag, non-negative water delta, nights > 0 (4 + 2 + 30 + 20)');
-select is((select (j -> 'utility' ->> 'm3_per_night')::numeric from _k_c2020), 11.20::numeric, 'm3_per_night is 56 m3 over the 5 nights of those readings');
-select is((select (j -> 'utility' ->> 'kwh_per_night')::numeric from _k_c2020), 70.00::numeric, 'kwh_per_night is unchanged: 420 over 6 nights');
-select ok((select jsonb_typeof(j -> 'utility' -> 'm3_month') = 'number' and jsonb_typeof(j -> 'utility' -> 'm3_per_night') = 'null' from _k_empty), 'an empty month: m3_month 0 and m3_per_night null');
+-- admin.target
+select is((select (j -> 'admin' -> 'target' ->> 'net_target')::numeric || '/' || (j -> 'admin' -> 'target' ->> 'costs_basis') || '/' || (j -> 'admin' -> 'target' ->> 'revenue_needed') || '/'
+                  || coalesce(j -> 'admin' -> 'target' ->> 'set_by', 'null') from _k_fin), '0/7500.00/7500.00/null', 'no target set: break-even, costs basis = (9000 + 6000) / 2 months with expenses');
+select is((select (t ->> 'net_target')::numeric || '/' || (t ->> 'revenue_needed') || '/' || (t ->> 'adr') || '/' || (t ->> 'nights_in_month') || '/' || (t ->> 'nights_on_books') from _tg),
+          '1500.00/9000.00/725.00/30/7', 'target 1500: revenue needed 7500 + 1500, ADR 725, 7 nights on the books of 30');
+select is((select (t ->> 'needed_occupancy')::numeric from _tg), 0.4138::numeric, 'needed_occupancy = 9000 / (725 x 30)');
+select is((select (t ->> 'needed_adr')::numeric from _tg), 1285.71::numeric, 'needed_adr = 9000 / 7 nights on the books');
+select ok((select t ->> 'set_by' = 'admin' and (t ->> 'set_at') is not null from _tg), 'set_by is the role of the person who set it, with set_at');
+select ok((select t ?& array['net_target', 'costs_basis', 'revenue_needed', 'adr', 'nights_in_month', 'nights_on_books', 'needed_occupancy', 'needed_adr', 'set_by', 'set_at']
+                  and (select count(*) from jsonb_object_keys(t)) = 10 from _tg), 'admin.target has exactly the ten contract keys');
+select is((select (t ->> 'adr')::numeric from _tg), (select (j -> 'admin' ->> 'adr')::numeric from _k_admin), 'target.adr is the admin ADR');
+select ok((select jsonb_typeof(j -> 'admin' -> 'target' -> 'costs_basis') = 'null' and jsonb_typeof(j -> 'admin' -> 'target' -> 'revenue_needed') = 'null'
+                  and jsonb_typeof(j -> 'admin' -> 'target' -> 'needed_occupancy') = 'null' and jsonb_typeof(j -> 'admin' -> 'target' -> 'needed_adr') = 'null' from _k_a2018),
+          'no expenses in the 3 months before: costs basis, revenue needed and both needed figures are null');
 
--- per_stay
-select is((select jsonb_array_length(j -> 'utility' -> 'per_stay') from _k_c2020), 3, 'per_stay holds the 3 stays with a kwh_per_night');
-select is((select (j -> 'utility' -> 'per_stay' -> 0 ->> 'kwh_per_night') || '/' || (j -> 'utility' -> 'per_stay' -> 0 ->> 'm3_per_night') from _k_c2020), '3.0000/0.3000', 'per_stay is oldest first and the first item carries m3_per_night');
-select is((select (j -> 'utility' -> 'per_stay' -> 1 ->> 'm3_per_night')::numeric from _k_c2020), 2::numeric, 'per_stay[1].m3_per_night is 2');
-select is((select jsonb_typeof(j -> 'utility' -> 'per_stay' -> 2 -> 'm3_per_night') from _k_c2020), 'null', 'a stay with no m3_per_night shows null, the key is there');
+-- kpi_target_set_v1
+select is((select j ->> 'error' from _t_cleaner) || '/' || (select j ->> 'error' from _t_fin), 'forbidden/forbidden', 'cleaner and finance cannot set the target (manage_operations)');
+select is((select string_agg(j ->> 'error', ',' order by v nulls last) from _t_bad), 'invalid_target,invalid_target,invalid_target,invalid_target', 'below 0, above 10,000,000, more than 2 dp and null are refused');
+select ok((select (j ->> 'ok')::boolean from _t_max) and (select (j ->> 'ok')::boolean from _t_ok), 'admin sets 10,000,000 (the bound) and then 1500');
+select is((select count(*)::integer || '/' || max(monthly_net_target) from public.kpi_targets where property_id = pg_temp.id('b0')), '1/1500.00', 'one row per property, the latest value wins');
 
 -- roles
-select ok((select jsonb_array_length(j -> 'utility' -> 'per_month') = 12 from _k_cleaner) and (select jsonb_array_length(j -> 'utility' -> 'per_month') = 12 from _k_laundry), 'cleaner and laundry both see per_month');
-select ok(not ((select j from _k_cleaner) ? 'admin') and not ((select j from _k_laundry) ? 'admin'), 'the admin key stays absent for cleaner and laundry');
-select ok((select j from _k_fin) ? 'admin' and (select j from _k_admin) ? 'admin' and (select jsonb_array_length(j -> 'utility' -> 'per_month') = 12 from _k_admin), 'finance and admin still get the admin key, and per_month');
+select ok(not ((select j from _k_cleaner) ? 'admin') and not ((select j from _k_laundry) ? 'admin'), 'the admin key (and target) stays absent for cleaner and laundry');
+select is((select (j -> 'utility' ->> 'nights_booked')::integer from _k_laundry), 7, 'laundry sees nights_booked too (no admin_stays gate in the way)');
+select ok((select j -> 'admin' ? 'target' from _k_fin) and (select j -> 'admin' ? 'target' from _k_admin), 'finance and admin get admin.target');
 select ok(position('php' in (select (j -> 'utility')::text from _k_admin)) = 0 and position('cost' in (select (j -> 'utility')::text from _k_admin)) = 0, 'no money in the utility block');
 select pg_temp.as_user(pg_temp.id('a8'));
-select is((select public.kpi_tab_v1(pg_temp.id('b0')) ->> 'error'), 'forbidden', 'a person of another property is refused');
+select is((select public.kpi_tab_v1(pg_temp.id('b0')) ->> 'error') || '/' || (select public.kpi_target_set_v1(pg_temp.id('b0'), 1) ->> 'error'), 'forbidden/forbidden', 'a person of another property is refused by both');
 reset role;
 
 select * from finish();
