@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "release_id": "s111_kpi_stay_avg_20261113",
+  "phase": "expand",
+  "source": {
+    "branch": "s111/kpi-stay-avg",
+    "commit": "443eb4aaa2c0d03daa68400a0ad0a3815bd743ba"
+  },
+  "migrations": [
+    "20261113000000_s111_kpi_stay_avg.sql"
+  ],
+  "migration_sha256": {
+    "20261113000000_s111_kpi_stay_avg.sql": "ee4f7096ea47af0c1f899bfa092ac5e7aefd4e52a84dcc125e49a2680b9c84c8"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "cascade-supabase-20261108T011533Z",
+    "verified_at": "2026-11-08T02:04:08.699Z",
+    "production_rule": "s111 (Lloyd 2026-11-08: the KPI tab shows average electricity and water per stay, ported from the admin Insights utilities chart). One function redefined, public.kpi_tab_v1(uuid,date): only the utility block changes (m3_month, m3_per_night, per_stay[].m3_per_night, per_month). No table, column, grant or row changes. Apply after the s110 release. restore_point is the backup used for the rehearsal; the orchestrator re-stamps both fields on the fresh backup taken before the apply.",
+    "notes": "Phase expand: a create or replace of one read function, no data written and no delete in the body. The old app ignores the new keys."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_kpi_tab_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b02b0612bb183f5876567aafd48e10c8' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "kpi_tab_has_stay_avg",
+      "query": "select prosrc like '%per_month%' and prosrc like '%m3_month%' and prosrc like '%m3_per_night%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "kpi_tab_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('anon', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('service_role', 'public.kpi_tab_v1(uuid,date)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "kpi_tab_definer_empty_search_path",
+      "query": "select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "kpi_tab_keeps_finance_gate",
+      "query": "select prosrc like '%current_staff_authorized(''read_finance'', p_property_id)%' and prosrc like '%if v_fin then%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always: the script puts the s110 body of kpi_tab_v1 back exactly. The staff app of 3.4.27 hides the card when per_month is missing.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261113_s111_kpi_stay_avg.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of kpi_tab_v1 must be fc58bc9881c5df2000fc459ef654ebed."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag",
+      "required_state": "None. Old clients ignore the new keys; the rollback script is the switch."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed on a restore of cascade-supabase-20261108T011533Z (disposable Postgres on the host alfred), chain s110 then s111: both migrations applied, forward checks 5/5, pgTAP s111_kpi_stay_avg.sql 30/30. Widening only: one read function redefined, only its utility block changed. Rehearsal restores with --no-acl, so grants are judged by the migration text plus the forward checks."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s111_kpi_stay_avg.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the s110 release is not applied (the live kpi_tab_v1 md5 is not fc58bc9881c5df2000fc459ef654ebed)"
+  ]
+}
