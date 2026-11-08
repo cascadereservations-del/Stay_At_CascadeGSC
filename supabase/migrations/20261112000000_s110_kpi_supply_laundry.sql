@@ -199,9 +199,11 @@ begin
             left('evt-' || encode(extensions.digest('inventory_purchases|' || v_pid::text || '|' || i.id::text || '|receipt', 'sha256'), 'hex'), 80));
     update public.inventory_items set qty_on_hand = v_after where id = i.id;
   else
-    -- the cost before the FIRST line of this receipt for the item, so an undo can put it back
-    update public.inventory_receipt_drafts set unit_cost_before = coalesce(unit_cost_before, '{}'::jsonb) || case when coalesce(unit_cost_before, '{}'::jsonb) ? i.id::text then '{}'::jsonb
-      else jsonb_build_object(i.id::text, i.unit_cost) end where id = p_draft_id;
+    -- only when this receipt sets a cost: {b: the cost before its FIRST such line, s: the cost it set}; undo puts b back only while the item still has s
+    if p_cost is not null then
+      update public.inventory_receipt_drafts set unit_cost_before = coalesce(unit_cost_before, '{}'::jsonb)
+        || jsonb_build_object(i.id::text, jsonb_build_object('b', coalesce(unit_cost_before -> i.id::text -> 'b', to_jsonb(i.unit_cost)), 's', p_cost)) where id = p_draft_id;
+    end if;
     update public.inventory_items set qty_on_hand = coalesce(qty_on_hand, 0) + p_units, unit_cost = coalesce(p_cost, unit_cost) where id = i.id;
   end if;
   return v_pid;
@@ -222,7 +224,7 @@ begin
   v_fin := public.current_staff_authorized('read_finance', d.property_id);
   select coalesce(jsonb_agg(
            jsonb_build_object('line_no', (l.value ->> 'line_no')::integer, 'description', case when v_fin then l.value ->> 'description'
-                                                else nullif(btrim(regexp_replace(regexp_replace(l.value ->> 'description', '(\u20b1|\m(PHP|P)\.?)\s*[0-9][0-9,]*(\.[0-9]+)?', '', 'gi'), '\s[0-9][0-9,]*\.[0-9]{1,2}\M', '', 'g')), '') end, 'qty', l.value -> 'qty',
+                                                else nullif(btrim(regexp_replace(regexp_replace(l.value ->> 'description', '(\u20b1|\m(PHP|P)\.?)\s*[0-9][0-9,]*(\.[0-9]+)?', '', 'gi'), '(^|\s|@)[0-9][0-9,]*\.[0-9]{1,2}\M', '\1', 'g')), '') end, 'qty', l.value -> 'qty',
                               'match', case when it.id is null then null
                                             else jsonb_build_object('item_id', it.id, 'name', it.name, 'unit', it.unit, 'photo_path', it.photo_path) end)
            || case when v_fin then jsonb_build_object('unit_cost', l.value -> 'unit_cost') else '{}'::jsonb end
@@ -445,8 +447,9 @@ begin
     delete from public.inventory_purchases where id = pu.id;
   end loop;
   -- put back the unit cost the items had before this receipt (non-controlled items only: the receipt set it there)
-  update public.inventory_items it set unit_cost = (d.unit_cost_before ->> it.id::text)::numeric
-   where d.unit_cost_before is not null and d.unit_cost_before ? it.id::text and it.movement_controlled_at is null;
+  update public.inventory_items it set unit_cost = (d.unit_cost_before -> it.id::text ->> 'b')::numeric
+   where d.unit_cost_before is not null and d.unit_cost_before ? it.id::text and it.movement_controlled_at is null
+     and it.unit_cost is not distinct from (d.unit_cost_before -> it.id::text ->> 's')::numeric; -- a newer receipt's cost is left alone
   if d.transaction_id is not null then
     update public.transactions set status = 'void' where id = d.transaction_id and status = 'pending_review';
   end if;
@@ -596,7 +599,7 @@ begin
       'rate', case when v_rate.id is null then null else jsonb_build_object('php_per_kwh', v_rate.php_per_kwh, 'effective_from', v_rate.effective_from,
                                                                             'source', v_rate.source, 'source_url', v_rate.source_url) end,
       'last_reading_cost', case when v_rate.id is not null and v_lastd is not null then round(v_lastd * v_rate.php_per_kwh, 2) end,
-      'month_kwh_cost', round(v_mcost, 2),
+      'month_kwh_cost', case when v_rate.id is not null then round(coalesce(v_mcost, 0), 2) end,
       'supplies_month', (select coalesce(sum(p.qty * p.unit_cost), 0) from public.inventory_purchases p join public.inventory_items i on i.id = p.item_id
                           where i.property_id = p_property_id and p.purchased_at >= v_m0 and p.purchased_at < v_m1),
       'supply_cost_per_turnover', case when v_turn > 0 then round(v_usage_cost / v_turn, 2) end,

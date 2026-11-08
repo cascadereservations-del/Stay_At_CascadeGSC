@@ -3,7 +3,7 @@
 -- idempotent confirm, undo reverses stock and voids the expense, cancel, retention). Fixtures use uuids d1100000-... on properties of their own; everything rolls back.
 -- Needs the s110 migration applied (and everything before it).
 begin;
-select plan(140);
+select plan(147);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -389,6 +389,30 @@ select pg_temp.as_user(pg_temp.id('a1'));
 select is((select public.inventory_receipt_undo_v1((select id from _svc)) ->> 'ok'), 'true', 'undo of the repeated-item receipt works');
 reset role;
 select ok((select qty_on_hand = 6.00 and unit_cost = 10 from public.inventory_items where id = pg_temp.id('c3')), 'tissue: stock back to 6 and the unit cost back to its value before the receipt (10)');
+-- re-audit: undoing an OLDER receipt never overwrites a NEWER receipt's cost; a manual receipt (no cost) never touches the cost
+select pg_temp.as_service();
+create temp table _rx as with ins as (
+  insert into public.inventory_receipt_drafts(property_id, created_by, receipt_path, vendor, purchased_on, total, lines, status)
+  values (pg_temp.id('b0'), pg_temp.id('a1'), 'expense-receipts/zz110/a1/rx.jpg', 'Zz110 Shop X', public.manila_today(), 7.00,
+          jsonb_build_array(jsonb_build_object('line_no', 1, 'description', 'Tissue', 'qty', 1, 'unit_cost', 7, 'match_item_id', pg_temp.id('c3'), 'match_score', 0.8)), 'draft') returning id) select id from ins;
+create temp table _ry as with ins as (
+  insert into public.inventory_receipt_drafts(property_id, created_by, receipt_path, vendor, purchased_on, total, lines, status)
+  values (pg_temp.id('b0'), pg_temp.id('a1'), 'expense-receipts/zz110/a1/ry.jpg', 'Zz110 Shop Y', public.manila_today(), 8.00,
+          jsonb_build_array(jsonb_build_object('line_no', 1, 'description', 'Tissue', 'qty', 1, 'unit_cost', 8, 'match_item_id', pg_temp.id('c3'), 'match_score', 0.8)), 'draft') returning id) select id from ins;
+reset role;
+grant all on _rx to public; grant all on _ry to public;
+select pg_temp.as_user(pg_temp.id('a1'));
+select is((select public.inventory_receipt_confirm_v1((select id from _rx), '[{"line_no":1,"item_id":"d1100000-0000-4000-8000-0000000000c3","qty_units":1}]'::jsonb, null, 'zz110-confirm-key-rx') ->> 'ok'), 'true', 'receipt X (cost 7) is confirmed');
+select is((select public.inventory_receipt_confirm_v1((select id from _ry), '[{"line_no":1,"item_id":"d1100000-0000-4000-8000-0000000000c3","qty_units":1}]'::jsonb, null, 'zz110-confirm-key-ry') ->> 'ok'), 'true', 'receipt Y (cost 8) is confirmed after X');
+select is((select public.inventory_receipt_undo_v1((select id from _rx)) ->> 'ok'), 'true', 'the older receipt X is undone');
+reset role;
+select is((select unit_cost from public.inventory_items where id = pg_temp.id('c3')), 8.0000::numeric, 'undo of X leaves the newer cost 8 from Y alone');
+select pg_temp.as_user(pg_temp.id('a1'));
+create temp table _rm as select public.inventory_receipt_manual_v1('[{"item_id":"d1100000-0000-4000-8000-0000000000c3","qty_units":1}]'::jsonb, null, null, 'zz110-manual-key-rm') as j;
+select is((select j ->> 'ok' from _rm), 'true', 'a manual receipt (no cost) is recorded');
+select is((select public.inventory_receipt_undo_v1((select (j ->> 'draft_id')::uuid from _rm)) ->> 'ok'), 'true', 'the manual receipt is undone');
+reset role;
+select is((select unit_cost from public.inventory_items where id = pg_temp.id('c3')), 8.0000::numeric, 'a manual receipt and its undo never touch the unit cost');
 
 -- a movement-controlled item twice on one receipt: the undo checks the SUM, not each line
 insert into public.inventory_receipt_drafts(id, property_id, created_by, vendor, total, lines) values
