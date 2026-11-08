@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "release_id": "s110_kpi_supply_laundry_20261112",
+  "phase": "backfill",
+  "source": {
+    "branch": "s110/sql",
+    "commit": "c5c0fcc55b2807e98830aca5842c38f4cba79e4b"
+  },
+  "migrations": [
+    "20261112000000_s110_kpi_supply_laundry.sql"
+  ],
+  "migration_sha256": {
+    "20261112000000_s110_kpi_supply_laundry.sql": "15e41e2722765252ed0903f5d805a6b9679d4006745ee33f45dc159e03c55eb8"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/PENDING-fill-by-orchestrator",
+    "verified_at": "2026-11-08T00:00:00.000Z",
+    "production_rule": "s110 (D-358): role laundry and capability report_supply, utility rates, staff receipt drafts and the KPI tab read model. Two new tables (RLS on, no grants), nine new RPCs/internals, staff_access_allowed redefined, and two live functions patched in place (manage_staff_access role list, record_inventory_usage gate). Nothing existing is dropped. Run only on a restore point younger than one hour, after the s108 release is applied. The orchestrator must fill restore_point and verified_at (the values here are placeholders).",
+    "notes": "Phase backfill, as s107/s108: the function bodies contain deletes (undo of a staff receipt, 30-day trim of unconfirmed drafts), which the expand check refuses. Applying the migration changes no row. The staff_access_profiles role check is replaced by a wider one in the same transaction."
+  },
+  "forward_verification": [
+    {
+      "name": "tables_exist",
+      "query": "select to_regclass('public.utility_rates') is not null and to_regclass('public.inventory_receipt_drafts') is not null",
+      "expect": true
+    },
+    {
+      "name": "tables_rls_on",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.utility_rates'::regclass) and (select relrowsecurity from pg_class where oid = 'public.inventory_receipt_drafts'::regclass)",
+      "expect": true
+    },
+    {
+      "name": "tables_no_grants",
+      "query": "select not exists (select 1 from unnest(array['anon','authenticated','service_role']) r, unnest(array['public.utility_rates','public.inventory_receipt_drafts']) t, unnest(array['select','insert','update','delete']) p where has_table_privilege(r, t, p)) and not exists (select 1 from pg_class c, aclexplode(c.relacl) a where c.oid in ('public.utility_rates'::regclass, 'public.inventory_receipt_drafts'::regclass) and a.grantee = 0)",
+      "expect": true
+    },
+    {
+      "name": "role_check_has_laundry",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.staff_access_profiles'::regclass and contype = 'c' and conname = 'staff_access_profiles_role_check' and pg_get_constraintdef(oid) like '%laundry%' and pg_get_constraintdef(oid) like '%maintenance%')",
+      "expect": true
+    },
+    {
+      "name": "laundry_capabilities",
+      "query": "select public.staff_access_allowed('laundry','report_supply',null,null) and public.staff_access_allowed('laundry','read_operations',null,null) and not public.staff_access_allowed('laundry','submit_cleaning',null,null) and not public.staff_access_allowed('laundry','manage_inventory',null,null) and not public.staff_access_allowed('laundry','read_finance',null,null) and public.staff_access_allowed('cleaner','report_supply',null,null) and not public.staff_access_allowed('finance','report_supply',null,null)",
+      "expect": true
+    },
+    {
+      "name": "manage_staff_access_has_laundry",
+      "query": "select prosrc like '%''maintenance'',''laundry''%' from pg_proc where oid = 'public.manage_staff_access(uuid,text,text,uuid[],text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "record_inventory_usage_gate",
+      "query": "select prosrc like '%current_staff_authorized(''report_supply'', p_property_id)%' and prosrc like '%current_staff_authorized(''submit_cleaning'', p_property_id)%' from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_staff_access_allowed",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'bebb2297c587d0f2b7298f023cff2f5d' from pg_proc where oid = 'public.staff_access_allowed(text,text,timestamptz,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_utility_rate_set_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '948dfe74b5a2834044f81e2ed14774bc' from pg_proc where oid = 'public.utility_rate_set_v1(numeric,date,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_utility_rate_record_auto_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'fa1ac0463f81a64b93a705908718c51f' from pg_proc where oid = 'public.utility_rate_record_auto_v1(numeric,date,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_utility_rate_list_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd9216ec96c51e36e2e1e6ddd8cc48fce' from pg_proc where oid = 'public.utility_rate_list_v1(uuid,integer)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_s_inventory_receipt_apply_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'fd3e26e39bb6e48e3321dd978a4f62bd' from pg_proc where oid = 'public.s_inventory_receipt_apply_v1(uuid,numeric,numeric,text,uuid,date,text,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_receipt_draft_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a7c406b946b6bd5bc43b9b2e2eeac2af' from pg_proc where oid = 'public.inventory_receipt_draft_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_s_inventory_receipt_confirm_core_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '6f1e7dc8c1dc43cd6dfb9cf2f92f9af9' from pg_proc where oid = 'public.s_inventory_receipt_confirm_core_v1(uuid,jsonb,date,text,boolean)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_receipt_confirm_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '9a8475e28fcd79a9b0e2fa65a440498b' from pg_proc where oid = 'public.inventory_receipt_confirm_v1(uuid,jsonb,date,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_receipt_manual_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '27f085744c2ae50f26ccd6ccfab50211' from pg_proc where oid = 'public.inventory_receipt_manual_v1(jsonb,date,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_receipt_undo_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '8ecd5d4d4b8651413cd336ee619c40b1' from pg_proc where oid = 'public.inventory_receipt_undo_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_receipt_cancel_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'f21fa7ebf2648d8f06c7c09da4f4c830' from pg_proc where oid = 'public.inventory_receipt_cancel_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_kpi_tab_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '896d684507c6d45c0902c9ef4aa6849e' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "rpcs_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.utility_rate_set_v1(numeric,date,text)', 'execute') and not has_function_privilege('anon', 'public.utility_rate_set_v1(numeric,date,text)', 'execute') and not has_function_privilege('service_role', 'public.utility_rate_set_v1(numeric,date,text)', 'execute') and has_function_privilege('authenticated', 'public.utility_rate_list_v1(uuid,integer)', 'execute') and not has_function_privilege('anon', 'public.utility_rate_list_v1(uuid,integer)', 'execute') and not has_function_privilege('service_role', 'public.utility_rate_list_v1(uuid,integer)', 'execute') and has_function_privilege('authenticated', 'public.inventory_receipt_draft_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_receipt_draft_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_receipt_draft_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_receipt_confirm_v1(uuid,jsonb,date,text)', 'execute') and not has_function_privilege('anon', 'public.inventory_receipt_confirm_v1(uuid,jsonb,date,text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_receipt_confirm_v1(uuid,jsonb,date,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_receipt_manual_v1(jsonb,date,text,text)', 'execute') and not has_function_privilege('anon', 'public.inventory_receipt_manual_v1(jsonb,date,text,text)', 'execute') and not has_function_privilege('service_role', 'public.inventory_receipt_manual_v1(jsonb,date,text,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_receipt_undo_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_receipt_undo_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_receipt_undo_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_receipt_cancel_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.inventory_receipt_cancel_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.inventory_receipt_cancel_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('anon', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('service_role', 'public.kpi_tab_v1(uuid,date)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "record_auto_service_role_only",
+      "query": "select has_function_privilege('service_role', 'public.utility_rate_record_auto_v1(numeric,date,text)', 'execute') and not has_function_privilege('authenticated', 'public.utility_rate_record_auto_v1(numeric,date,text)', 'execute') and not has_function_privilege('anon', 'public.utility_rate_record_auto_v1(numeric,date,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "internals_have_no_grants",
+      "query": "select not exists (select 1 from unnest(array['anon','authenticated','service_role']) r, unnest(array['public.s_inventory_receipt_apply_v1(uuid,numeric,numeric,text,uuid,date,text,uuid)','public.s_inventory_receipt_confirm_core_v1(uuid,jsonb,date,text,boolean)']) f where has_function_privilege(r, f, 'execute'))",
+      "expect": true
+    },
+    {
+      "name": "definer_empty_search_path",
+      "query": "select count(*) = 12 from pg_proc where oid in ('public.utility_rate_set_v1(numeric,date,text)'::regprocedure, 'public.utility_rate_record_auto_v1(numeric,date,text)'::regprocedure, 'public.utility_rate_list_v1(uuid,integer)'::regprocedure, 'public.s_inventory_receipt_apply_v1(uuid,numeric,numeric,text,uuid,date,text,uuid)'::regprocedure, 'public.inventory_receipt_draft_v1(uuid)'::regprocedure, 'public.s_inventory_receipt_confirm_core_v1(uuid,jsonb,date,text,boolean)'::regprocedure, 'public.inventory_receipt_confirm_v1(uuid,jsonb,date,text)'::regprocedure, 'public.inventory_receipt_manual_v1(jsonb,date,text,text)'::regprocedure, 'public.inventory_receipt_undo_v1(uuid)'::regprocedure, 'public.inventory_receipt_cancel_v1(uuid)'::regprocedure, 'public.kpi_tab_v1(uuid,date)'::regprocedure, 'public.staff_access_allowed(text,text,timestamptz,text)'::regprocedure) and proconfig = array['search_path=\"\"']",
+      "expect": true
+    },
+    {
+      "name": "no_laundry_rows_yet",
+      "query": "select count(*) = 0 from public.staff_access_profiles where role = 'laundry'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always for the schema. Stock, purchases and expenses written later by staff receipts are not undone by the script; the role check goes back to six roles only when no laundry account exists.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261112_s110_kpi_supply_laundry.sql with run-sql-on-host.sh."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag",
+      "required_state": "None. Nothing calls the new RPCs until the apps ship; the rollback script is the switch."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not yet rehearsed on a restore copy. Lane B ran the migration and the pgTAP file (124 checks) on a stub schema in PGlite only; the orchestrator must run the chain rehearsal and set verified."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s110_kpi_supply_laundry.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane (role matrix, price gating, receipt stock and expense path) has not passed",
+    "the s108 release is not applied, or the migration stops at a 55000 anchor error (the live manage_staff_access or record_inventory_usage differs from the repo)"
+  ]
+}
