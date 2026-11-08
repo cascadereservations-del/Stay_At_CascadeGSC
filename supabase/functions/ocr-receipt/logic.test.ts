@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1';
-import { buildPrompt, decodeImage, mapCategory, receiptPath, shapeExtraction, validDate } from './logic.ts';
+import { buildPrompt, decodeImage, gateAction, mapCategory, receiptPath, shapeExtraction, validDate } from './logic.ts';
 
 Deno.test('buildPrompt swaps the hardcoded category list for the live slugs and ignores odd ones', () => {
   const base = 'x ONE of: supplies, utilities, cleaning, maintenance, repairs, platform_fees, other y';
@@ -49,4 +49,16 @@ Deno.test('shapeExtraction maps the hint, clamps confidence, nulls a zero amount
   assertEquals(r.category, 'loan');
   assertEquals(r.confidence, 1);
   assertEquals(r.line_items, [{ description: 'soap', qty: null, unit_cost: null }, { description: 'bleach', qty: 2, unit_cost: 30 }]);
+});
+
+Deno.test('supply mode needs report_supply; every other mode, a bad body and a missing mode keep approve_payment', () => {
+  assertEquals(gateAction({ mode: 'supply' }), 'report_supply');
+  for (const b of [{ mode: 'extract' }, {}, null, { mode: 'Supply' }]) assertEquals(gateAction(b), 'approve_payment');
+});
+
+Deno.test('index.ts gates on gateAction before any work, and still names approve_payment nowhere weaker', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertEquals(src.includes('requireStaffAccess(req, gateAction(body), PROPERTY_ID)'), true);
+  assertEquals(src.indexOf('gateAction(body)') < src.indexOf("body.mode === 'supply'"), true);
+  assertEquals(/requireStaffAccess\(req, 'report_supply'/.test(src), false);
 });

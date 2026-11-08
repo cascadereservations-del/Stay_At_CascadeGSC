@@ -110,3 +110,6 @@ export function shapeExtraction(parsed: any, valid: Set<string>, now = Date.now(
     confidence: clamp01(parsed?.confidence),
   };
 }
+
+/** Which staff capability a request needs: supply mode is open to cleaners and laundry (report_supply); every other mode keeps approve_payment. */
+export const gateAction = (body: { mode?: unknown } | null): 'report_supply' | 'approve_payment' => body?.mode === 'supply' ? 'report_supply' : 'approve_payment';

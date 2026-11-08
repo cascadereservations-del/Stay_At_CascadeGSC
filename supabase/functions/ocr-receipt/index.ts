@@ -1,4 +1,7 @@
 // ocr-receipt — receipt OCR for the Cascade Smart Finance Layer.
+// v11 (s110): body mode:"supply" {image_base64, mime_type} for cleaners and laundry (capability report_supply; every other mode keeps approve_payment). Stores the photo,
+//   reads it with the same line_items prompt, matches each line to the active inventory_items (match.ts) and inserts ONE inventory_receipt_drafts row;
+//   returns {ok, draft_id} only (no prices: staff read the draft through inventory_receipt_draft_v1). A failed read inserts nothing (502 ocr_failed).
 // v10 (s89): STAFF ONLY. verify_jwt is true but the public anon key passes it, so every request now needs a signed-in owner/admin/finance
 //   (requireStaffAccess approve_payment); the anon key gets 401/403. New body mode:"extract" {image_base64, mime_type} stores the photo at
 //   expense-receipts/<property>/<user>/<uuid>.<ext>, reads it and returns {receipt_path, amount, date, vendor, category, line_items,
@@ -42,7 +45,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { requireStaffAccess, staffAuthResponse, type StaffIdentity } from '../_shared/staff-auth.ts';
-import { buildPrompt, decodeImage, formatLineItemsForNotes, clamp01, mapCategory, normalizeLineItems, receiptPath, shapeExtraction, validDate } from './logic.ts';
+import { matchLine, type Candidate } from './match.ts';
+import { buildPrompt, decodeImage, formatLineItemsForNotes, gateAction, clamp01, mapCategory, normalizeLineItems, receiptPath, shapeExtraction, validDate } from './logic.ts';
 // v9 (session 27): the vision call lives in cascade-core/vision.ts, shared with telegram-expense and
 // upload-booking-receipt (booking PRD task 2). Same env contract; this file only parses.
 import { VISION_PROVIDER as PROVIDER, hasVisionKey, bytesToBase64, visionExtractText } from '../_shared/cascade-core/vision.ts';
@@ -130,21 +134,62 @@ async function extractMode(body: any, who: StaffIdentity): Promise<Response> {
   }
 }
 
+// s110 mode "supply": a cleaner or laundry staff photographs a supply receipt; the lines are matched to stock and held as a draft the app reviews.
+// Prices stay server-side in the draft (D-330); the response is the draft id and nothing else.
+// deno-lint-ignore no-explicit-any
+async function supplyMode(body: any, who: StaffIdentity): Promise<Response> {
+  const img = decodeImage(body.image_base64, body.mime_type);
+  if (!img.ok) return json({ ok: false, error: img.error }, img.status);
+  const db = createClient(SUPABASE_URL, SERVICE_ROLE);
+  const path = receiptPath(PROPERTY_ID, who.userId, img.ext, crypto.randomUUID());
+  const up = await db.storage.from(RECEIPTS_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: false });
+  if (up.error) { console.warn('ocr_supply_upload_failed', up.error.message); return json({ ok: false, error: 'upload_failed' }, 500); }
+  let x: ReturnType<typeof shapeExtraction>;
+  try {
+    x = shapeExtraction((await extractReceipt(bytesToBase64(img.bytes), img.mime)).parsed, new Set(['other']));
+    if (!x.line_items.length) throw new Error('no_lines_read'); // an unreadable photo parses to an empty receipt: that is a failed read, not a draft
+  } catch (e) {
+    console.warn('ocr_supply_failed', String(e).slice(0, 300));
+    await db.storage.from(RECEIPTS_BUCKET).remove([path]).catch(() => {}); // nothing refers to the photo
+    return json({ ok: false, error: 'ocr_failed' }, 502);
+  }
+  const [items, opts] = await Promise.all([
+    db.from('inventory_items').select('id,name').eq('property_id', PROPERTY_ID).eq('is_active', true),
+    db.from('inventory_item_options').select('item_id,name'), // an option name is an alias; a read error only costs those aliases
+  ]);
+  if (items.error) { console.warn('ocr_supply_items_failed', items.error.message); return json({ ok: false, error: 'load_failed' }, 500); }
+  const names = new Map<string, string[]>((items.data ?? []).map((i: { id: string; name: string }) => [i.id, [String(i.name ?? '')]]));
+  for (const o of (opts.error ? [] : opts.data ?? []) as Array<{ item_id: string; name: string }>) names.get(o.item_id)?.push(String(o.name ?? ''));
+  const cands: Candidate[] = [...names].map(([item_id, n]) => ({ item_id, names: n.filter(Boolean) }));
+  const lines = x.line_items.map((l, i) => {
+    const m = matchLine(l.description, cands);
+    return { line_no: i + 1, description: l.description, qty: l.qty, unit_cost: l.unit_cost, match_item_id: m.item_id, match_score: m.score };
+  });
+  const { data: row, error } = await db.from('inventory_receipt_drafts').insert({
+    property_id: PROPERTY_ID, created_by: who.userId, receipt_path: path, vendor: x.vendor, purchased_on: x.date, total: x.amount, lines, status: 'draft',
+  }).select('id').single();
+  if (error || !row) { console.warn('ocr_supply_insert_failed', String(error?.message).slice(0, 200)); return json({ ok: false, error: 'insert_failed' }, 500); }
+  return json({ ok: true, draft_id: row.id });
+}
+
 Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
-  // s89: staff only. verify_jwt lets the public anon key through, so check the signed-in user is owner/admin/finance for this property.
+  // The body is read first only to learn the mode, so the gate can differ per mode; a body that is not JSON is judged by the strict gate.
+  // deno-lint-ignore no-explicit-any
+  let body: any = null;
+  try { body = await req.json(); } catch { /* answered below, after the gate */ }
+  // s89: staff only. verify_jwt lets the public anon key through, so check the signed-in user for this property: report_supply for mode supply, approve_payment (owner/admin/finance) for the rest.
   let who: StaffIdentity;
-  try { who = await requireStaffAccess(req, 'approve_payment', PROPERTY_ID); }
+  try { who = await requireStaffAccess(req, gateAction(body), PROPERTY_ID); }
   catch (e) { const r = staffAuthResponse(e, CORS); if (r) return r; throw e; }
   if (!hasVisionKey()) {
     return json({ error: `no API key for VISION_PROVIDER=${PROVIDER}` }, 500);
   }
-
-  let body: any;
-  try { body = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
+  if (body === null || typeof body !== 'object') return json({ error: 'invalid_json' }, 400);
 
   if (body.mode === 'extract') return await extractMode(body, who);
+  if (body.mode === 'supply') return await supplyMode(body, who);
 
   const imagePath: string | null = body.image_path ? String(body.image_path) : null;
   const imageB64In: string | null = body.image_base64 ? String(body.image_base64) : null;
