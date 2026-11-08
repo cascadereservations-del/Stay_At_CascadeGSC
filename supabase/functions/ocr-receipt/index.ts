@@ -46,7 +46,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { requireStaffAccess, staffAuthResponse, type StaffIdentity } from '../_shared/staff-auth.ts';
 import { matchLine, type Candidate } from './match.ts';
-import { buildPrompt, decodeImage, formatLineItemsForNotes, gateAction, clamp01, mapCategory, normalizeLineItems, receiptPath, shapeExtraction, validDate } from './logic.ts';
+import { buildPrompt, decodeImage, formatLineItemsForNotes, gateAction, clamp01, mapCategory, normalizeLineItems, receiptPath, scrubMoney, shapeExtraction, validDate } from './logic.ts';
 // v9 (session 27): the vision call lives in cascade-core/vision.ts, shared with telegram-expense and
 // upload-booking-receipt (booking PRD task 2). Same env contract; this file only parses.
 import { VISION_PROVIDER as PROVIDER, hasVisionKey, bytesToBase64, visionExtractText } from '../_shared/cascade-core/vision.ts';
@@ -134,6 +134,7 @@ async function extractMode(body: any, who: StaffIdentity): Promise<Response> {
   }
 }
 
+const SUPPLY_DAILY_LIMIT = 20;
 // s110 mode "supply": a cleaner or laundry staff photographs a supply receipt; the lines are matched to stock and held as a draft the app reviews.
 // Prices stay server-side in the draft (D-330); the response is the draft id and nothing else.
 // deno-lint-ignore no-explicit-any
@@ -141,6 +142,11 @@ async function supplyMode(body: any, who: StaffIdentity): Promise<Response> {
   const img = decodeImage(body.image_base64, body.mime_type);
   if (!img.ok) return json({ ok: false, error: img.error }, img.status);
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
+  // At most SUPPLY_DAILY_LIMIT drafts per user per Manila day (one vision read each); a failed read inserts nothing, so it is not counted.
+  const dayStart = `${new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+08:00`;
+  const used = await db.from('inventory_receipt_drafts').select('id', { count: 'exact', head: true }).eq('created_by', who.userId).gte('created_at', dayStart);
+  if (used.error) { console.warn('ocr_supply_limit_check_failed', used.error.message); return json({ ok: false, error: 'load_failed' }, 500); }
+  if ((used.count ?? 0) >= SUPPLY_DAILY_LIMIT) return json({ ok: false, error: 'daily_limit' }, 429);
   const path = receiptPath(PROPERTY_ID, who.userId, img.ext, crypto.randomUUID());
   const up = await db.storage.from(RECEIPTS_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: false });
   if (up.error) { console.warn('ocr_supply_upload_failed', up.error.message); return json({ ok: false, error: 'upload_failed' }, 500); }
@@ -162,13 +168,18 @@ async function supplyMode(body: any, who: StaffIdentity): Promise<Response> {
   for (const o of (opts.error ? [] : opts.data ?? []) as Array<{ item_id: string; name: string }>) names.get(o.item_id)?.push(String(o.name ?? ''));
   const cands: Candidate[] = [...names].map(([item_id, n]) => ({ item_id, names: n.filter(Boolean) }));
   const lines = x.line_items.map((l, i) => {
-    const m = matchLine(l.description, cands);
-    return { line_no: i + 1, description: l.description, qty: l.qty, unit_cost: l.unit_cost, match_item_id: m.item_id, match_score: m.score };
+    const description = scrubMoney(l.description); // D-330: no price in the text a cleaner can read; unit_cost stays in its own field
+    const m = matchLine(description, cands);
+    return { line_no: i + 1, description, qty: l.qty, unit_cost: l.unit_cost, match_item_id: m.item_id, match_score: m.score };
   });
   const { data: row, error } = await db.from('inventory_receipt_drafts').insert({
     property_id: PROPERTY_ID, created_by: who.userId, receipt_path: path, vendor: x.vendor, purchased_on: x.date, total: x.amount, lines, status: 'draft',
   }).select('id').single();
-  if (error || !row) { console.warn('ocr_supply_insert_failed', String(error?.message).slice(0, 200)); return json({ ok: false, error: 'insert_failed' }, 500); }
+  if (error || !row) {
+    console.warn('ocr_supply_insert_failed', String(error?.message).slice(0, 200));
+    await db.storage.from(RECEIPTS_BUCKET).remove([path]).catch(() => {}); // no draft refers to the photo
+    return json({ ok: false, error: 'insert_failed' }, 500);
+  }
   return json({ ok: true, draft_id: row.id });
 }
 

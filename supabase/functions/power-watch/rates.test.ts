@@ -5,7 +5,7 @@ const post = (title: string, body: string, extra = {}) => ({ id: 1, link: 'https
 
 Deno.test('common wordings give the total residential rate', () => {
   assertEquals(rateFromText('Residential rate: P 12.3456/kWh'), 12.3456);
-  assertEquals(rateFromText('Residential Customers ₱12.35 per kWh'), 12.35);
+  assertEquals(rateFromText('Residential rate ₱12.35 per kWh'), 12.35);
   assertEquals(rateFromText('Generation charge 6.1234 per kWh. Total Rate (Residential): PHP 11.9876'), 11.9876);
   assertEquals(rateFromText('TOTAL RATE ....... 13.01'), 13.01);
   assertEquals(rateFromText('Overall rate for residential: Php 12.5/kWh'), 12.5);
@@ -16,6 +16,12 @@ Deno.test('a component charge, an implausible figure or no figure is ignored', (
   assertEquals(rateFromText('Total rate 120.5'), null);
   assertEquals(rateFromText('Total rate 2.1'), null);
   assertEquals(rateFromText('Residential rates are posted at our offices'), null);
+  // a single component listed under residential is not the total (s110 review)
+  assertEquals(rateFromText('Residential generation charge P 6.12/kWh'), null);
+  assertEquals(rateFromText('Residential: Generation charge 6.1200 per kWh; Transmission 1.2 per kWh'), null);
+  assertEquals(rateFromText('Residential Customers ₱12.35 per kWh'), null, 'no total wording');
+  assertEquals(rateFromText('Residential rate: system loss charge P 0.9/kWh'), null);
+  assertEquals(rateFromText('Residential generation rate 6.12. Residential rate P 12.4/kWh'), 12.4);
 });
 
 Deno.test('the effective month is the one named, else the month of the post (Manila)', () => {

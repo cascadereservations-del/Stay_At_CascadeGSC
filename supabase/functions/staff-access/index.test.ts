@@ -163,3 +163,11 @@ Deno.test('staff endpoint returns generic errors for authorization and database 
   equal(thrownFailure.status, 503, 'thrown database failure');
   equal(await thrownFailure.text(), '{"error":"staff_access_unavailable"}', 'safe thrown response');
 });
+
+Deno.test('laundry accounts can be created, hold no action here, and are managed by owner and admin', () => {
+  const ok = parseManagementRequest({ target_user_id: '123e4567-e89b-12d3-a456-426614174000', action: 'upsert', role: 'laundry', property_ids: ['123e4567-e89b-12d3-a456-426614174001'], reason: 'new laundry staff' });
+  equal(ok.ok, true, 'laundry role accepted');
+  equal(staffActionAllowed('laundry', 'submit_cleaning', null, 'aal2'), false, 'laundry submit_cleaning');
+  equal(staffActionAllowed('laundry', 'read_finance', null, 'aal2'), false, 'laundry finance');
+  equal(mayManageTarget('admin', 'laundry'), true, 'admin manages laundry');
+});

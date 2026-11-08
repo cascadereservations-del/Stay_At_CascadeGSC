@@ -16,7 +16,7 @@ export type ParseResult =
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTIONS = new Set<StaffManagementAction>(['upsert', 'disable', 'enable', 'revoke_sessions']);
-const ROLES = new Set<StaffRole>(['owner', 'admin', 'finance', 'inspector', 'cleaner', 'maintenance']);
+const ROLES = new Set<StaffRole>(['owner', 'admin', 'finance', 'inspector', 'cleaner', 'maintenance', 'laundry']);
 
 export function parseManagementRequest(input: unknown): ParseResult {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, error: 'invalid_request' };

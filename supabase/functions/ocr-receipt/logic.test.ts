@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@1';
-import { buildPrompt, decodeImage, gateAction, mapCategory, receiptPath, shapeExtraction, validDate } from './logic.ts';
+import { buildPrompt, decodeImage, gateAction, mapCategory, receiptPath, scrubMoney, shapeExtraction, validDate } from './logic.ts';
 
 Deno.test('buildPrompt swaps the hardcoded category list for the live slugs and ignores odd ones', () => {
   const base = 'x ONE of: supplies, utilities, cleaning, maintenance, repairs, platform_fees, other y';
@@ -61,4 +61,15 @@ Deno.test('index.ts gates on gateAction before any work, and still names approve
   assertEquals(src.includes('requireStaffAccess(req, gateAction(body), PROPERTY_ID)'), true);
   assertEquals(src.indexOf('gateAction(body)') < src.indexOf("body.mode === 'supply'"), true);
   assertEquals(/requireStaffAccess\(req, 'report_supply'/.test(src), false);
+});
+
+Deno.test('scrubMoney strips prices from a description and keeps sizes (D-330)', () => {
+  assertEquals(scrubMoney('TISSUE 12S ₱45.00'), 'TISSUE 12S');
+  assertEquals(scrubMoney('NATURES SPRING 500ML 25.00'), 'NATURES SPRING 500ML');
+  assertEquals(scrubMoney('SAFEGUARD WHT 135G P 52.75'), 'SAFEGUARD WHT 135G');
+  assertEquals(scrubMoney('BATH TISSUE 2PLY PHP 1,234.50'), 'BATH TISSUE 2PLY');
+  assertEquals(scrubMoney('1,234.50 BLEACH 1.5L'), 'BLEACH 1.5L');
+  assertEquals(scrubMoney('P99 SOAP'), 'SOAP');
+  assertEquals(scrubMoney('PANTENE SHAMPOO 12S'), 'PANTENE SHAMPOO 12S');
+  assertEquals(scrubMoney('₱45.00'), 'Item');
 });

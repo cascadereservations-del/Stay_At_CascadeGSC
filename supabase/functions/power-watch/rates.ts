@@ -21,6 +21,15 @@ const PATTERNS = [
   new RegExp(String.raw`residential[^0-9₱]{0,25}rate[^0-9₱]{0,40}${NUM}`, 'i'),
 ];
 
+const COMPONENT = /generation|transmission|distribution|system\s*loss|supply|metering|subsid|tax|vat|universal\s+charge|fit[-\s]*all/i;
+const TOTAL_WORD = /total|overall|all[-\s]?in|average|residential\s+rate/i;
+/** The sentence (split at ". ", ";" or "|") that holds position i. */
+function sentenceAt(text: string, i: number): string {
+  const start = Math.max(text.lastIndexOf('. ', i) + 1, text.lastIndexOf(';', i) + 1, text.lastIndexOf('|', i) + 1);
+  const ends = [text.indexOf('. ', i), text.indexOf(';', i), text.indexOf('|', i)].filter((e) => e >= 0);
+  return text.slice(start, ends.length ? Math.min(...ends) : text.length);
+}
+
 export const isRatePost = (p: Post) => !isPowerPost(p) && /\b(rate|per\s*kwh|generation charge)/i.test(`${strip(p.title?.rendered ?? '')} ${strip(p.content?.rendered ?? '').slice(0, 600)}`);
 
 const plausible = (n: number) => Number.isFinite(n) && n >= RATE_MIN && n <= RATE_MAX;
@@ -29,6 +38,8 @@ const plausible = (n: number) => Number.isFinite(n) && n >= RATE_MIN && n <= RAT
 export function rateFromText(text: string): number | null {
   for (const re of PATTERNS) {
     const m = re.exec(text);
+    // The two loose "residential ..." patterns may land on one component listed under residential: the sentence must read as the total and name no component.
+    if (m && re.source.startsWith('residential') && (COMPONENT.test(sentenceAt(text, m.index)) || !TOTAL_WORD.test(sentenceAt(text, m.index)))) continue;
     if (m && plausible(Number(m[1]))) return Math.round(Number(m[1]) * 10000) / 10000;
   }
   return null;

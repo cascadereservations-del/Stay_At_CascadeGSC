@@ -113,3 +113,12 @@ export function shapeExtraction(parsed: any, valid: Set<string>, now = Date.now(
 
 /** Which staff capability a request needs: supply mode is open to cleaners and laundry (report_supply); every other mode keeps approve_payment. */
 export const gateAction = (body: { mode?: unknown } | null): 'report_supply' | 'approve_payment' => body?.mode === 'supply' ? 'report_supply' : 'approve_payment';
+
+/** D-330: cleaners never see prices. A receipt line's description with any money removed (P/PHP/peso sign amounts and bare decimal amounts like 45.00 or 1,234.50); sizes such as 500ML, 12S, 2PLY, 135G stay. */
+export function scrubMoney(description: string): string {
+  const out = String(description ?? '')
+    .replace(/(?<![A-Za-z0-9])(?:₱|php|p)\.?\s*\d[\d,]*(?:\.\d+)?(?![A-Za-z0-9])/gi, ' ')
+    .replace(/(?<![\w.,])\d{1,3}(?:,\d{3})*\.\d{2}(?![\w.])|(?<![\w.,])\d+\.\d{2}(?![\w.])/g, ' ')
+    .replace(/\s+/g, ' ').replace(/[\s@=:\-–]+$/, '').replace(/^[\s@=:\-–]+/, '').trim();
+  return out || 'Item';
+}

@@ -1,4 +1,4 @@
-export type StaffRole = 'owner' | 'admin' | 'finance' | 'inspector' | 'cleaner' | 'maintenance';
+export type StaffRole = 'owner' | 'admin' | 'finance' | 'inspector' | 'cleaner' | 'maintenance' | 'laundry';
 export type StaffAction = 'manage_staff' | 'approve_payment' | 'read_finance' | 'inspect_cleaning' | 'submit_cleaning' | 'manage_maintenance';
 
 export type StaffProfile = {
@@ -19,6 +19,7 @@ const PERMISSIONS: Record<StaffRole, readonly StaffAction[]> = {
   inspector: ['inspect_cleaning'],
   cleaner: ['submit_cleaning'],
   maintenance: ['manage_maintenance'],
+  laundry: [], // s110: supply reports and read_operations are checked in SQL (staff_access_allowed), none of the actions here
 };
 
 const MFA_REQUIRED: readonly StaffAction[] = ['manage_staff', 'approve_payment', 'read_finance'];
