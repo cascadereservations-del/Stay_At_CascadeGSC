@@ -1,3 +1,4 @@
+// weather-proxy v7 (s112 lane W): no params = Cascade (6.1545, 125.1852; was the GenSan city centre). Staff-only lat/lon = "Here" (place.ts). ADDS `place` (+ `note` 'here_limit'); every older key is unchanged.
 // weather-proxy v6 (s82 lane W): forecast now 7 days with a WMO `code` per day, current gains `code` and `is_day`; hourly (see B_weather.ts) is 24 rows with `temp`. Every older key is unchanged.
 // weather-proxy v5 (s81 lane B): ADDS hourly (next 12h), hourly_source, aqi, rain_watch and code to the response; no existing key changes (the guest guide reads this).
 // weather-proxy v4
@@ -6,16 +7,16 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
-import { B_CORS, B_fetchExtras, B_googleTypeToCode, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_textToCode } from '../_shared/B_weather.ts';
+import { B_CORS, B_fetchExtras, B_googleTypeToCode, B_iconIsDay, B_iconToCode, B_isDay, B_safeErr, B_speedKph, B_textToCode } from '../_shared/B_weather.ts';
+import { requireStaffAccess } from '../_shared/staff-auth.ts';
+import { CELL_PREFIX, USAGE_KEY, cacheKey, cellsToDrop, countHere, resolvePlace, CASCADE, type Place } from './place.ts';
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const PIRATE_KEY     = Deno.env.get('PIRATE_WEATHER_API_KEY') ?? '';
 const GOOGLE_KEY     = Deno.env.get('GOOGLE_WEATHER_API_KEY') ?? '';
-const GEN_SAN_LAT    = 6.1164;
-const GEN_SAN_LNG    = 125.1716;
-const LOCATION       = 'General Santos City, PH';
-const CACHE_KEY      = 'weather_proxy_cache';
+const PROPERTY_ID    = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
+const LOCATION       = 'General Santos City, PH'; // kept as is: the guest guide may show it; `place` carries the exact spot
 const CACHE_TTL_MS   = 15 * 60 * 1000; // 15 minutes
 const FORECAST_DAYS  = 7; // s82 lane W: was 5; the guest guide slices its own 5
 
@@ -82,10 +83,10 @@ function descToEmoji(desc: string): string {
 }
 
 // ── PirateWeather ──────────────────────────────────────────────────────────
-async function fetchPirateWeather(today: string): Promise<any | null> {
+async function fetchPirateWeather(today: string, p: Place): Promise<any | null> {
   if (!PIRATE_KEY) { console.warn('weather-proxy: PIRATE_WEATHER_API_KEY not set'); return null; }
   try {
-    const url = `https://api.pirateweather.net/forecast/${PIRATE_KEY}/${GEN_SAN_LAT},${GEN_SAN_LNG}?exclude=minutely,hourly,alerts&units=si`;
+    const url = `https://api.pirateweather.net/forecast/${PIRATE_KEY}/${p.lat},${p.lon}?exclude=minutely,hourly,alerts&units=si`;
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) { console.error('PirateWeather non-ok:', res.status); return null; }
     const d = await res.json();
@@ -146,7 +147,7 @@ async function fetchPirateWeather(today: string): Promise<any | null> {
 
     return { current, forecast, source: 'pirate_weather' };
   } catch (err) {
-    console.error('fetchPirateWeather failed:', String(err));
+    console.error('fetchPirateWeather failed:', B_safeErr(err));
     return null;
   }
 }
@@ -160,11 +161,11 @@ function utcToManilaTime(utcStr: string): string {
   } catch { return ''; }
 }
 
-async function fetchGoogleWeather(today: string): Promise<any | null> {
+async function fetchGoogleWeather(today: string, p: Place): Promise<any | null> {
   if (!GOOGLE_KEY) { console.warn('weather-proxy: GOOGLE_WEATHER_API_KEY not set'); return null; }
   try {
     const base = 'https://weather.googleapis.com/v1';
-    const loc  = `location.latitude=${GEN_SAN_LAT}&location.longitude=${GEN_SAN_LNG}`;
+    const loc  = `location.latitude=${p.lat}&location.longitude=${p.lon}`;
     const k    = `key=${GOOGLE_KEY}`;
 
     const [curRes, dayRes] = await Promise.all([
@@ -232,7 +233,7 @@ async function fetchGoogleWeather(today: string): Promise<any | null> {
 
     return { current, forecast, source: 'google_weather' };
   } catch (err) {
-    console.error('fetchGoogleWeather failed:', String(err));
+    console.error('fetchGoogleWeather failed:', B_safeErr(err));
     return null;
   }
 }
@@ -260,11 +261,11 @@ function omCodeToDesc(code: number): string {
   return m[code] ?? 'Cloudy';
 }
 
-async function fetchOpenMeteo(today: string): Promise<any | null> {
+async function fetchOpenMeteo(today: string, p: Place): Promise<any | null> {
   try {
     const url = [
       'https://api.open-meteo.com/v1/forecast',
-      `?latitude=${GEN_SAN_LAT}&longitude=${GEN_SAN_LNG}`,
+      `?latitude=${p.lat}&longitude=${p.lon}`,
       '&current=temperature_2m,apparent_temperature,weather_code,precipitation_probability,',
       'wind_speed_10m,wind_direction_10m,relative_humidity_2m,surface_pressure,is_day',
       '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,',
@@ -325,7 +326,7 @@ async function fetchOpenMeteo(today: string): Promise<any | null> {
 
     return { current, forecast, source: 'open_meteo' };
   } catch (err) {
-    console.error('fetchOpenMeteo failed:', String(err));
+    console.error('fetchOpenMeteo failed:', B_safeErr(err));
     return null;
   }
 }
@@ -344,39 +345,60 @@ Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, 
   const today = getManilaDateStr();
   const now   = Date.now();
 
+  // s112: which place. Body is read only for POST (supabase-js invoke); a missing or non-JSON body is no body.
+  let body: any = null;
+  if (req.method === 'POST') { try { body = await req.json(); } catch { body = null; } }
+  const resolved = await resolvePlace(req, new URL(req.url), body,
+    async (r) => (await requireStaffAccess(r, 'read_operations', PROPERTY_ID)).userId);
+  if ('error' in resolved) {
+    return new Response(JSON.stringify({ error: resolved.error }), { status: resolved.status, headers: JSON_H });
+  }
+  let place: Place = resolved.place;
+  let note: string | undefined;
+  if (place.kind === 'here' && resolved.userId) {
+    // 60 "Here" calls per staff user per Manila day; over it, the Cascade answer with note 'here_limit'.
+    const { data: usageRow } = await db.from('app_settings').select('value').eq('key', USAGE_KEY).maybeSingle();
+    const c = countHere(usageRow?.value, resolved.userId, today);
+    if (c.allowed) {
+      await db.from('app_settings').upsert({ key: USAGE_KEY, value: c.usage, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    } else { place = CASCADE; note = 'here_limit'; }
+  }
+  const key   = cacheKey(place);
+  const extra = note ? { place, note } : { place };
+
   // Check server-side cache first
   const { data: cacheRow } = await db
     .from('app_settings')
     .select('value, updated_at')
-    .eq('key', CACHE_KEY)
+    .eq('key', key)
     .maybeSingle();
 
   if (cacheRow?.value && cacheRow.updated_at) {
     const age = now - new Date(cacheRow.updated_at).getTime();
     if (age < CACHE_TTL_MS) {
       const cached = cacheRow.value as any;
-      console.log(`weather-proxy: cache hit — source=${cached.source}, age=${Math.round(age / 60000)}min`);
+      console.log(`weather-proxy: cache hit — kind=${place.kind}, source=${cached.source}, age=${Math.round(age / 60000)}min`);
       return new Response(
-        JSON.stringify({ ...cached, cached: true, location: LOCATION }),
+        JSON.stringify({ ...cached, cached: true, location: LOCATION, ...extra }),
         { status: 200, headers: JSON_H }
       );
     }
   }
 
   // s81 lane B: the extras (hourly, aqi, rain_watch) run IN PARALLEL with the base fetch, each call capped at 3.5 s and the lot at 4 s.
-  const extrasP = B_fetchExtras(now, '', { googleKey: GOOGLE_KEY });
+  const extrasP = B_fetchExtras(now, '', { googleKey: GOOGLE_KEY, lat: place.lat, lng: place.lon });
   // Fetch fresh: PirateWeather → Google Weather → Open-Meteo
   console.log('weather-proxy: fetching fresh — PirateWeather first');
-  let fresh = await fetchPirateWeather(today);
+  let fresh = await fetchPirateWeather(today, place);
 
   if (!fresh) {
     console.warn('weather-proxy: PirateWeather failed → trying Google Weather');
-    fresh = await fetchGoogleWeather(today);
+    fresh = await fetchGoogleWeather(today, place);
   }
 
   if (!fresh) {
     console.warn('weather-proxy: Google Weather failed → falling back to Open-Meteo');
-    fresh = await fetchOpenMeteo(today);
+    fresh = await fetchOpenMeteo(today, place);
   }
 
   if (!fresh) {
@@ -384,7 +406,7 @@ Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, 
     if (cacheRow?.value) {
       console.warn('weather-proxy: all sources failed, returning stale cache');
       return new Response(
-        JSON.stringify({ ...(cacheRow.value as any), cached: true, stale: true, location: LOCATION }),
+        JSON.stringify({ ...(cacheRow.value as any), cached: true, stale: true, location: LOCATION, ...extra }),
         { status: 200, headers: JSON_H }
       );
     }
@@ -400,13 +422,19 @@ Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, 
   const payload    = { ...fresh, ...extras, fetched_at };
 
   await db.from('app_settings').upsert(
-    { key: CACHE_KEY, value: payload, updated_at: new Date().toISOString() },
+    { key, value: payload, updated_at: new Date().toISOString() },
     { onConflict: 'key' }
   );
+  if (place.kind === 'here') {
+    // Keep at most MAX_CELLS "Here" cells; the oldest go. A failed prune only leaves extra rows for the next call to drop.
+    const { data: cells } = await db.from('app_settings').select('key, updated_at').like('key', `${CELL_PREFIX}%`);
+    const drop = cellsToDrop((cells ?? []) as { key: string; updated_at: string }[]);
+    if (drop.length) await db.from('app_settings').delete().in('key', drop);
+  }
 
-  console.log(`weather-proxy: cached fresh data, source=${fresh.source}`);
+  console.log(`weather-proxy: cached fresh data, kind=${place.kind}, source=${fresh.source}`);
   return new Response(
-    JSON.stringify({ ...payload, cached: false, location: LOCATION }),
+    JSON.stringify({ ...payload, cached: false, location: LOCATION, ...extra }),
     { status: 200, headers: JSON_H }
   );
 }));

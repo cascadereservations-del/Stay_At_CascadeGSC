@@ -188,7 +188,10 @@ export const B_AQI_URL = (lat = B_LAT, lng = B_LNG) =>
 export const B_GOOGLE_HOURS_URL = (key: string, lat = B_LAT, lng = B_LNG) =>
   `https://weather.googleapis.com/v1/forecast/hours:lookup?key=${key}&location.latitude=${lat}&location.longitude=${lng}&hours=24`;
 
-type FetchFn = (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
+/** An error as a log string with every URL cut out: fetch errors quote the URL, which carries API keys and (s112) a staff user's rounded location. */
+export const B_safeErr = (err: unknown) => String(err).replace(/https?:\/\/[^\s)]+/g, '<url>');
+
+type FetchFn =(url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
 
 /** GET JSON or null. Resolves at capMs even when the upstream hangs (and when fetch ignores the abort signal). Never throws. */
 export async function B_getJson(url: string, label: string, capMs: number, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<any | null> {
@@ -199,10 +202,10 @@ export async function B_getJson(url: string, label: string, capMs: number, fetch
       const res = await fetchFn(url, { signal: AbortSignal.timeout(capMs) });
       if (!res.ok) { console.warn(`weather-proxy: ${label} non-ok`, res.status); return null; }
       return await res.json();
-    })().catch((err) => { console.warn(`weather-proxy: ${label} failed`, String(err)); return null; });
+    })().catch((err) => { console.warn(`weather-proxy: ${label} failed`, B_safeErr(err)); return null; });
     return await Promise.race([call, cap]);
   } catch (err) {
-    console.warn(`weather-proxy: ${label} failed`, String(err));
+    console.warn(`weather-proxy: ${label} failed`, B_safeErr(err));
     return null;
   } finally { clearTimeout(timer); }
 }
@@ -214,14 +217,14 @@ export async function B_getJson(url: string, label: string, capMs: number, fetch
  */
 export async function B_fetchExtras(
   nowMs: number, conditionText: unknown,
-  o: { googleKey?: string; fetchFn?: FetchFn; capMs?: number; totalMs?: number } = {},
+  o: { googleKey?: string; fetchFn?: FetchFn; capMs?: number; totalMs?: number; lat?: number; lng?: number } = {}, // s112: lat/lng = the place asked for; unset = B_LAT/B_LNG as before (rain-alert)
 ): Promise<B_Extras> {
   const capMs = o.capMs ?? 3500, totalMs = o.totalMs ?? 4000;
   const got: { openMeteo?: any; google?: any; aqi?: any } = {};
   const run = async () => {
-    const aqiP = B_getJson(B_AQI_URL(), 'air-quality', capMs, o.fetchFn).then((v) => { got.aqi = v; });
-    got.openMeteo = await B_getJson(B_OM_HOURS_URL(), 'open-meteo hours', capMs, o.fetchFn);
-    if (o.googleKey && !B_openMeteoHours(got.openMeteo, nowMs).length) got.google = await B_getJson(B_GOOGLE_HOURS_URL(o.googleKey), 'google hours', capMs, o.fetchFn);
+    const aqiP = B_getJson(B_AQI_URL(o.lat, o.lng), 'air-quality', capMs, o.fetchFn).then((v) => { got.aqi = v; });
+    got.openMeteo = await B_getJson(B_OM_HOURS_URL(o.lat, o.lng), 'open-meteo hours', capMs, o.fetchFn);
+    if (o.googleKey && !B_openMeteoHours(got.openMeteo, nowMs).length) got.google = await B_getJson(B_GOOGLE_HOURS_URL(o.googleKey, o.lat, o.lng), 'google hours', capMs, o.fetchFn);
     await aqiP;
   };
   let timer: ReturnType<typeof setTimeout> | undefined;

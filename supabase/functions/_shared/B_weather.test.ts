@@ -1,6 +1,6 @@
 // deno test supabase/functions/_shared/B_weather.test.ts - lane B weather helpers. Frozen clock, synthetic bodies only.
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { B_CORS, B_aqi, B_extras, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
+import { B_CORS, B_aqi, B_extras, B_iconIsDay, B_iconToCode, B_isDay, B_speedKph, B_fetchExtras, B_googleHours, B_googleTypeToCode, B_openMeteoHours, B_rainWatch, B_safeErr, B_textToCode, RAIN_THRESHOLD } from './B_weather.ts';
 
 const NOW = Date.parse('2026-10-13T04:20:00Z'); // 12:20 Manila
 const gh = (iso: string, pctv: number, mm: number | null, type = 'RAIN') => ({
@@ -90,6 +90,22 @@ Deno.test('B fetch: happy path makes exactly two free calls (open-meteo hours, o
   assertEquals([aq.pathname, aq.searchParams.get('current'), aq.searchParams.get('latitude'), aq.searchParams.get('longitude')], ['/v1/air-quality', 'us_aqi', '6.1164', '125.1716']);
   assert(!m.urls.some((u) => u.hostname.includes('googleapis')), 'no paid call on the happy path');
   assertEquals([r.hourly_source, r.hourly.length, r.aqi, r.rain_watch?.peak_pct], ['open_meteo', 2, 41, 80]);
+});
+
+Deno.test('B fetch (s112): lat/lng options move every extras call (open-meteo, air quality, Google) to that place', async () => {
+  const m = mockFetch((u) => u.hostname === 'weather.googleapis.com' ? jsonRes({}) : jsonRes(u.hostname === 'api.open-meteo.com' ? { hourly: { time: [] } } : {}));
+  await B_fetchExtras(NOW, '', { googleKey: 'K', fetchFn: m.fn, lat: 6.1545, lng: 125.1852 });
+  assertEquals(m.urls.length, 3);
+  for (const u of m.urls) {
+    const la = u.searchParams.get('latitude') ?? u.searchParams.get('location.latitude');
+    const lo = u.searchParams.get('longitude') ?? u.searchParams.get('location.longitude');
+    assertEquals([la, lo], ['6.1545', '125.1852'], u.hostname);
+  }
+});
+
+Deno.test('B (s112): B_safeErr cuts URLs (keys, a staff location) out of error text', () => {
+  const e = new TypeError('error sending request for url (https://api.pirateweather.net/forecast/SECRET/6.15,125.19?units=si): timed out');
+  assertEquals(B_safeErr(e), 'TypeError: error sending request for url (<url>): timed out');
 });
 
 Deno.test('B fetch: Google hours are called only when open-meteo gave nothing, with the exact URL', async () => {
