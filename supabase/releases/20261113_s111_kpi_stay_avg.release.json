@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "cascade-supabase-20261108T011533Z",
-    "verified_at": "2026-11-08T02:57:38.257Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261108T030625Z",
+    "verified_at": "2026-11-08T03:11:03.225Z",
     "production_rule": "s111 rev 2 (Lloyd 2026-11-08: per-night utility figures were wrong; contract docs/s111/contracts-rev2.md). public.kpi_tab_v1(uuid,date) redefined: the utility block is per day between meter readings (kwh_per_day, m3_per_day, nights_booked = metrics sold_nights, nights_in_month, last_reading, per_stay, per_month; kwh_per_night, m3_per_night, nights_month removed) and admin.target is added. New table public.kpi_targets (RLS on, no client grants) and new function public.kpi_target_set_v1(uuid,numeric) (manage_operations). Fix round 3: admin.month_kwh_cost costs the same counted readings as kwh_month (M1), target.set_by only from a profile with this property (L4), and new table public.weather_here_usage (RLS on, service_role select/insert/update only) with public.weather_here_take_v1(uuid,integer) (service_role execute) hold the weather-proxy \"Here\" daily limit outside anon-readable app_settings (H1); ship with the weather-proxy that calls it. Apply after the s110 release and together with the s111 staff app 3.4.27. restore_point is the backup used for the rehearsal; the orchestrator re-stamps both fields on the fresh backup taken before the apply.",
     "notes": "Phase backfill (house rule for a function body with a delete): weather_here_take_v1 trims its own weather_here_usage rows older than 7 days; no existing row is touched. Two new tables, two new functions, one read function redefined; nothing dropped. Removing three utility keys is a read-model change: the 3.4.25 app shows blanks for them, so it ships with 3.4.27."
   },
