@@ -3,13 +3,13 @@
 // weather-proxy v5 (s81 lane B): ADDS hourly (next 12h), hourly_source, aqi, rain_watch and code to the response; no existing key changes (the guest guide reads this).
 // weather-proxy v4
 // Sources: PirateWeather (primary) → Google Weather (secondary) → Open-Meteo (fallback)
-// Cache: 15 minutes in app_settings
+// Cache: 15 minutes in app_settings, Cascade only (s112 r3 H1: "Here" answers are never cached; its daily limit is the weather_here_take_v1 RPC)
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { B_CORS, B_fetchExtras, B_googleTypeToCode, B_iconIsDay, B_iconToCode, B_isDay, B_safeErr, B_speedKph, B_textToCode } from '../_shared/B_weather.ts';
 import { requireStaffAccess } from '../_shared/staff-auth.ts';
-import { CELL_PREFIX, USAGE_KEY, cacheKey, cellsToDrop, countHere, resolvePlace, CASCADE, type Place } from './place.ts';
+import { gateHere, readCache, resolvePlace, writeCache, type Place } from './place.ts';
 
 const SUPABASE_URL   = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -353,25 +353,12 @@ Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, 
   if ('error' in resolved) {
     return new Response(JSON.stringify({ error: resolved.error }), { status: resolved.status, headers: JSON_H });
   }
-  let place: Place = resolved.place;
-  let note: string | undefined;
-  if (place.kind === 'here' && resolved.userId) {
-    // 60 "Here" calls per staff user per Manila day; over it, the Cascade answer with note 'here_limit'.
-    const { data: usageRow } = await db.from('app_settings').select('value').eq('key', USAGE_KEY).maybeSingle();
-    const c = countHere(usageRow?.value, resolved.userId, today);
-    if (c.allowed) {
-      await db.from('app_settings').upsert({ key: USAGE_KEY, value: c.usage, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-    } else { place = CASCADE; note = 'here_limit'; }
-  }
-  const key   = cacheKey(place);
+  // s112 r3 H1: 60 "Here" calls per staff user per Manila day via weather_here_take_v1; over it or on any RPC error, the Cascade answer.
+  const { place, note } = await gateHere(db, resolved.place, resolved.userId);
   const extra = note ? { place, note } : { place };
 
-  // Check server-side cache first
-  const { data: cacheRow } = await db
-    .from('app_settings')
-    .select('value, updated_at')
-    .eq('key', key)
-    .maybeSingle();
+  // Check server-side cache first (Cascade only; a "Here" answer is never cached)
+  const cacheRow = await readCache(db, place);
 
   if (cacheRow?.value && cacheRow.updated_at) {
     const age = now - new Date(cacheRow.updated_at).getTime();
@@ -421,18 +408,9 @@ Deno.serve(withObservability({ functionName: 'weather-proxy', route: 'guest' }, 
   if (extras.code == null) extras.code = B_textToCode(fresh.current?.description);
   const payload    = { ...fresh, ...extras, fetched_at };
 
-  await db.from('app_settings').upsert(
-    { key, value: payload, updated_at: new Date().toISOString() },
-    { onConflict: 'key' }
-  );
-  if (place.kind === 'here') {
-    // Keep at most MAX_CELLS "Here" cells; the oldest go. A failed prune only leaves extra rows for the next call to drop.
-    const { data: cells } = await db.from('app_settings').select('key, updated_at').like('key', `${CELL_PREFIX}%`);
-    const drop = cellsToDrop((cells ?? []) as { key: string; updated_at: string }[]);
-    if (drop.length) await db.from('app_settings').delete().in('key', drop);
-  }
+  await writeCache(db, place, payload);
 
-  console.log(`weather-proxy: cached fresh data, kind=${place.kind}, source=${fresh.source}`);
+  console.log(`weather-proxy: fresh data, kind=${place.kind}, source=${fresh.source}`);
   return new Response(
     JSON.stringify({ ...payload, cached: false, location: LOCATION, ...extra }),
     { status: 200, headers: JSON_H }
