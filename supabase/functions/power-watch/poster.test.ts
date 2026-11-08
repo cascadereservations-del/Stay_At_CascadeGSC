@@ -42,6 +42,14 @@ Deno.test('an area poster is ours only when it names our feeder, substation or a
   assert(affectsUs({ areas: ['Brgy. San Isidro', 'Lagao'] }, false));
   assert(affectsUs({ feeders: ['14-3'] }, false));
   assert(affectsUs({ areas: ['Portion of Katangawan'] }, false));
+  // D-359: another feeder or substation named -> not ours, whatever areas it lists; ours by feeder, substation or system-wide
+  assert(!affectsUs({ substation: 'Damalerio Substation', feeders: ['4-4'], areas: ['Portion of Brgy. San Isidro'] }, false));
+  assert(!affectsUs({ feeders: ['4-2'], areas: ['Katangawan', 'Conel Road'] }, false));
+  assert(!affectsUs({ substation: 'Damalerio Substation', feeders: null, areas: ['San Isidro'] }, false));
+  assert(affectsUs({ substation: 'Leon Llido Substation', feeders: ['14-1', '14-3'], areas: [] }, false));
+  assert(affectsUs({ feeders: ['4-4', '14-3'] }, false));
+  assert(affectsUs({ substation: 'Damalerio', feeders: ['4-4'], areas: ['All areas of General Santos City'] }, false));
+  assert(!affectsUs({ feeders: ['4-4'], areas: ['Purok 14-3'] }, false), 'a purok number in the areas is not our feeder');
   assertEquals(noticeFrom({ areas: ['Batulaki'] }, false, U + 'SPI-10022026-BATULAKI-GLAN.jpg'), null);
   assertEquals(noticeFrom({ areas: ['All areas'] }, false, U + 'SPI-10022026-X.jpg')?.date, '2026-10-02');
 });

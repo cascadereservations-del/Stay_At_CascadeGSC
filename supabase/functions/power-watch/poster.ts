@@ -7,7 +7,8 @@ export const FEEDER = '14-3';
 // 14-3, 14–3, F14-3, FEEDER 14 - 3, 14.3; not 114-3, not 14-30 (from the Apps Script, same tests).
 export const FEEDER_RE = /(?:^|[^0-9])(?:f(?:eeder)?\s*)?14\s*[-–—.\s]\s*3(?![0-9])/i;
 const OUR_SUBSTATION = /leon[\s_-]*llido/i;
-const AREA_RE = /\b(bria homes|conel|san isidro|katangawan|all areas|all feeders|system-?wide|city-?wide)\b/i; // katangawan: the neighbouring barangay, kept from the Apps Script
+const AREA_RE = /\b(bria homes|conel|san isidro|katangawan)\b/i; // katangawan: the neighbouring barangay, kept from the Apps Script
+const WIDE_RE = /\b(all areas|all feeders|system-?wide|city-?wide)\b/i;
 
 const strip = (html: string) => String(html ?? '').replace(/<[^>]+>/g, ' ').replace(/&#0?38;|&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
@@ -72,11 +73,17 @@ export const OCR_PROMPT = 'This is a SOCOTECO II (Philippines) power interruptio
 export type Ocr = { date?: string | null; start?: string | null; end?: string | null; hours?: number | null; substation?: string | null; feeders?: string[] | null; areas?: string[] | null; purpose?: string | null; kind?: string | null; status?: string | null; original_date?: string | null };
 export type Notice = { date: string; time: string | null; hours: number | null; title: string; purpose: string; poster: string; url: string; status: 'active' | 'cancelled'; originalDate: string | null };
 
-/** Ours when the filename said so, or the poster names feeder 14-3, Leon Llido, our area, or all areas. */
+/** Ours when the filename said so, the poster names feeder 14-3 or Leon Llido, or it is system-wide. D-359 (Lloyd 2026-11-08): a poster that
+ *  names other feeders or another substation is NOT ours whatever areas it lists (San Isidro and Katangawan are split across several feeders:
+ *  Damalerio feeders 4-2 and 4-4 were shown as ours on 7 and 8 Nov). Only a poster that names no feeder and no substation is judged by its areas. */
 export function affectsUs(o: Ocr, fileHit: boolean): boolean {
   if (fileHit) return true;
-  const blob = [o.substation ?? '', ...(o.feeders ?? []), ...(o.areas ?? [])].join(' | ');
-  return FEEDER_RE.test(blob) || OUR_SUBSTATION.test(blob) || AREA_RE.test(blob);
+  const feeders = (o.feeders ?? []).map((f) => String(f ?? '')).filter(Boolean), sub = String(o.substation ?? '');
+  const blob = [sub, ...feeders, ...(o.areas ?? [])].join(' | ');
+  if (WIDE_RE.test(blob)) return true;
+  if (OUR_SUBSTATION.test(sub) || feeders.some((f) => FEEDER_RE.test(f))) return true;
+  if (feeders.length || sub.trim()) return false;
+  return AREA_RE.test(blob);
 }
 
 const hhmm = (s: unknown) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(s ?? '')); return m ? `${m[1].padStart(2, '0')}:${m[2]}` : null; };

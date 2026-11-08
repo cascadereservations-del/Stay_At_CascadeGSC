@@ -31,7 +31,7 @@ Deno.test('a cancelled read against an active read goes to the paid reader', asy
 
 Deno.test('ours against not ours goes to the paid reader', async () => {
   const notOurs = '{"date":"2026-09-19","start":"08:00","hours":6,"substation":null,"feeders":["7-2"],"areas":["Prk. 9"]}';
-  const ours = '{"date":"2026-09-19","start":"08:00","hours":6,"substation":null,"feeders":["7-2"],"areas":["Portion of Brgy. Katangawan, GSC"]}';
+  const ours = '{"date":"2026-09-19","start":"08:00","hours":6,"substation":null,"feeders":null,"areas":["Portion of Brgy. Katangawan, GSC"]}'; // D-359: areas decide only when no feeder is named
   const r = await agreedRead([ok(notOurs), ok(ours)], key(URL_READ, false), paid);
   assertEquals(r.via, 'paid');
 });
