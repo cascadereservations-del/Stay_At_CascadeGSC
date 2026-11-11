@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s115/integrity",
-    "commit": "58bf4b2058e589a494864c6612c9f493e53a17ab"
+    "commit": "55be0416dc7bbffd352b2faff2a71c1c23eba91b"
   },
   "migrations": [
     "20261114000000_s115_integrity.sql"
