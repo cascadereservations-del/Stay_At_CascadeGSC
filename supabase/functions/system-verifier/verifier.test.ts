@@ -436,7 +436,7 @@ const v20 = (kind: string, sev: 'red' | 'yellow', extra: Record<string, unknown>
   f({ key: `V20:${kind}:${REF}`, check_id: 'V20', severity: sev, title: 'Cleaner advance', detail: { ref: REF, date: '2026-11-07', payee: 'Honey', ...extra } });
 const v21 = (kind: string, sev: 'red' | 'yellow') =>
   f({ key: `V21:${kind}:11111111-0000-4000-8000-000000000009`, check_id: 'V21', severity: sev, title: 'Calendar', detail: { event: '11111111-0000-4000-8000-000000000009', guest: 'Ana Reyes', from: '2026-11-20', to: '2026-11-22', code: 'HMABC123' } });
-const V22 = f({ key: 'V22:credit_gone:gemini', check_id: 'V22', severity: 'red', title: 'Credit', detail: { provider: 'gemini', since: '2026-11-08T03:00:00Z', features: ['the ID face box', 'guest details', 'meter and Power Watch readers'] } });
+const V22 = f({ key: 'V22:credit_gone:gemini', check_id: 'V22', severity: 'red', title: 'Credit', detail: { provider: 'gemini', since: '2026-11-08T17:00:00Z', features: ['the ID face box', 'guest details', 'meter readings', 'Power Watch'] } });
 
 Deno.test('V20 keys: Finance except report_no_stay, which goes to OPS', () => {
   for (const k of ['advance_no_stay', 'paid_no_link', 'session_twice']) assertEquals(redCard(v20(k, 'red'), NOW).to, 'finance');
@@ -475,7 +475,31 @@ Deno.test('V21 goes to OPS, names the guest and dates, links the Airbnb reservat
 Deno.test('V22 says the credit is gone, since when, and what stops working', () => {
   const c = redCard(V22, NOW);
   assertEquals(c.to, 'finance');
-  assertStringIncludes(c.text, 'Gemini has refused every paid call since 8 Nov: the credit is used up.');
-  assertStringIncludes(c.text, 'the ID face box, guest details, meter and Power Watch readers');
+  assertStringIncludes(c.text, 'Gemini has refused every paid call since 9 Nov: the credit is used up.');
+  assertStringIncludes(c.text, 'the ID face box, guest details, meter readings and Power Watch.');
   assertStringIncludes(c.text, 'Do: top up the Gemini credit');
+});
+
+Deno.test('V20:paid_no_link uses report_date when present', () => {
+  const t = redCard(v20('paid_no_link', 'red', { report_date: '2026-11-08' }), NOW).text;
+  assertStringIncludes(t, 'the report on file is for 8 Nov');
+  assertStringIncludes(t, 'move the line to 8 Nov or ask for the 7 Nov report');
+});
+
+Deno.test('V20/V21/V22 with empty detail leave no gaps, double spaces or undefined', () => {
+  const fs = [
+    ...['advance_no_stay', 'paid_no_link', 'stuck_paying', 'session_twice'].map((k) => f({ key: `V20:${k}:x`, check_id: 'V20', severity: 'red', title: 'T', detail: {} })),
+    f({ key: 'V20:report_no_stay:x', check_id: 'V20', severity: 'yellow', title: 'T', detail: {} }),
+    f({ key: 'V21:confirmed_cancelled:x', check_id: 'V21', severity: 'red', title: 'T', detail: {} }),
+    f({ key: 'V21:block_named:x', check_id: 'V21', severity: 'yellow', title: 'T', detail: {} }),
+    f({ key: 'V22:credit_gone:x', check_id: 'V22', severity: 'red', title: 'T', detail: {} }),
+  ];
+  for (const x of fs) {
+    const c = x.severity === 'red' ? redCard(x, NOW).text : buildCards({ new: [x], remind: [], resolved: [] }, NOW, TODAY)[0].text;
+    for (const bad of ['  ', ' ,', ' .', 'undefined', 'null', ' to  ', 'since :']) assert(!c.includes(bad), `${x.key} has "${bad}": ${c}`);
+    assert(!/(^|\n)id( |$)/.test(c), `${x.key} has bare id`);
+  }
+  assertStringIncludes(redCard(fs[0], NOW).text, 'A cleaner has an advance line for that day');
+  assertStringIncludes(redCard(fs[2], NOW).text, 'for the cleaner has been stuck');
+  assertStringIncludes(redCard(fs[7], NOW).text, 'refused every paid call since recently');
 });

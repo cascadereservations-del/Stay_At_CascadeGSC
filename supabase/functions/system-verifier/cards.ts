@@ -14,6 +14,7 @@
 
 import { withHeader, groups, doSend, DASH_URL, pesoOrNull } from '../_shared/cascade-core/format.ts';
 import { problemSentence, problemSubject } from '../_shared/cascade-core/health-labels.ts';
+import { manilaClock } from './governor.ts';
 
 export type Severity = 'red' | 'yellow';
 export type Finding = {
@@ -223,29 +224,34 @@ function governorAction(f: Finding): string {
 
 // ── S115 cards: V20 cleaner advances, V21 calendar vs reservation, V22 provider credit ─────────────────────────────────
 // Finance sees V20 (money); OPS sees V21 and V20:report_no_stay, which carry no amounts at all (D-306).
+// A missing date never leaves a gap: dm('') is '', so every date here has a plain-words fallback.
+const day = (v: unknown, fb: string) => dm(v) || fb;
 function v20Headline(f: Finding): string {
   const d = (f.detail ?? {}) as Record<string, any>;
-  const who = str(d.payee, 'A cleaner');
-  const day = dm(d.date);
+  const lead = str(d.payee, 'A cleaner'); // sentence-initial
+  const mid = str(d.payee, 'the cleaner'); // mid-sentence
+  const when = day(d.date, 'that day');
   switch (f.key.split(':')[1]) {
-    case 'advance_no_stay': return `${who} has an advance line for ${day}, but no confirmed stay checks out that day.`;
-    case 'paid_no_link': return `${who} was paid ahead for ${day}, but the report on file is for a different day, so the payment is tied to no cleaning.`;
-    case 'stuck_paying': return `The pay request for ${who} has been stuck on paying for more than a day.`;
-    case 'session_twice': return `One cleaning report is counted in two pay requests, so ${who} may be paid twice for the same clean.`;
-    case 'report_no_stay': return `A cleaning report from ${day} matches no confirmed stay.`;
+    case 'advance_no_stay': return `${lead} has an advance line for ${when}, but no confirmed stay checks out that day.`;
+    case 'paid_no_link': return `${lead} was paid ahead for ${when}, but the report on file is for ${dm(d.report_date) ? dm(d.report_date) : 'a different day'}, so the payment is tied to no cleaning.`;
+    case 'stuck_paying': return `The pay request for ${mid} has been stuck on paying for more than a day.`;
+    case 'session_twice': return `One cleaning report is counted in two pay requests, so ${mid} may be paid twice for the same clean.`;
+    case 'report_no_stay': return `A cleaning report from ${day(d.date, 'an unknown date')} matches no confirmed stay.`;
     default: return f.title;
   }
 }
 function v20Facts(f: Finding): string[] {
   const d = (f.detail ?? {}) as Record<string, any>;
-  const ids = [d.ref ? `request ${str(d.ref).slice(0, 8).toUpperCase()}` : '', d.session ? `report ${str(d.session).slice(0, 8)}` : ''].filter(Boolean).join(' · ');
+  const ids = [d.ref ? `request ${str(d.ref).slice(0, 8).toUpperCase()}` : '', d.session ? `report ${str(d.session).slice(0, 8).toUpperCase()}` : ''].filter(Boolean).join(' · ');
   return [ids];
 }
 function v20Action(f: Finding): string {
   const d = (f.detail ?? {}) as Record<string, any>;
   switch (f.key.split(':')[1]) {
     case 'advance_no_stay': return 'open the pay request and move the line to the checkout it belongs to, or remove it.';
-    case 'paid_no_link': return `move the line to the date of the report on file, or ask for the report for ${dm(d.date)}.`;
+    case 'paid_no_link': return dm(d.report_date)
+      ? `move the line to ${dm(d.report_date)} or ask for the ${day(d.date, 'missing day')} report.`
+      : `move the line to the date of the report on file, or ask for the report for ${day(d.date, 'that day')}.`;
     case 'stuck_paying': return 'open the pay request and check whether the payment went through; finish or reopen it.';
     case 'session_twice': return 'open both pay requests and keep the clean on only one of them; if it was already paid twice, ask for the difference back.';
     case 'report_no_stay': return 'check the date on the report, or the stay it should match, and correct whichever is wrong.';
@@ -255,19 +261,27 @@ function v20Action(f: Finding): string {
 function v21Headline(f: Finding): string {
   const d = (f.detail ?? {}) as Record<string, any>;
   const g = str(d.guest, 'A guest');
+  const g2 = str(d.guest, 'a guest');
+  const span = dm(d.from) && dm(d.to) ? `${dm(d.from)} to ${dm(d.to)}` : 'dates that are not recorded';
   return f.key.startsWith('V21:confirmed_cancelled:')
-    ? `${g} is confirmed on our calendar for ${dm(d.from)} to ${dm(d.to)}, but the reservation is cancelled, so the nights are held for nobody.`
-    : `The calendar still blocks ${dm(d.from)} to ${dm(d.to)} in the name of ${g}, whose reservation is cancelled.`;
+    ? `${g} is confirmed on our calendar for ${span}, but the reservation is cancelled, so the nights are held for nobody.`
+    : `The calendar still blocks ${span} in the name of ${g2}, whose reservation is cancelled.`;
 }
 function v22Headline(f: Finding): string {
   const d = (f.detail ?? {}) as Record<string, any>;
   const p = PROVIDER_NAME[str(d.provider)] ?? str(d.provider, 'A provider');
-  return `${p} has refused every paid call since ${dm(d.since)}: the credit is used up.`;
+  // since is a UTC instant; the Manila day is the one the host lived through.
+  const t = Date.parse(String(d.since ?? ''));
+  const since = Number.isFinite(t) ? dm(manilaClock(new Date(t)).today) : 'recently';
+  return `${p} has refused every paid call since ${since}: the credit is used up.`;
 }
 const V22_LEAD = 'Until it is topped up,';
+function listAnd(xs: string[]): string {
+  return xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+}
 function v22Facts(f: Finding): string[] {
   const feats: string[] = Array.isArray((f.detail as any)?.features) ? (f.detail as any).features.map((x: unknown) => str(x)).filter(Boolean) : [];
-  return [feats.length ? `${V22_LEAD} these run on the free rung or not at all: ${feats.join(', ')}.` : `${V22_LEAD} everything that used it runs on the free rung or not at all.`];
+  return [feats.length ? `${V22_LEAD} these run on the free rung or not at all: ${listAnd(feats)}.` : `${V22_LEAD} everything that used it runs on the free rung or not at all.`];
 }
 
 /** The first line of a card: what happened, in a sentence. */
@@ -359,7 +373,7 @@ function facts(f: Finding): string[] {
       return [how ? `Matched on ${how}${peso(d.amount) ? `, ${peso(d.amount)}` : ''}.` : '', one(d.a), one(d.b)];
     }
     case 'V20': return v20Facts(f);
-    case 'V21': return [`${dm(d.from)} to ${dm(d.to)}`, airbnbUrl(d.code), `id ${str(d.event).slice(0, 8)}`];
+    case 'V21': return [airbnbUrl(d.code), d.event ? `id ${str(d.event).slice(0, 8).toUpperCase()}` : ''].filter(Boolean);
     case 'V22': return v22Facts(f);
     case 'V19':
       return V19_HYGIENE[str(d.metric)] ? [] : [`${monthOf(d.month)} · ${V19_LABEL[str(d.metric)] ?? str(d.metric)}`];
@@ -432,6 +446,9 @@ const LINK: Record<string, string> = {
  * V10 the subject is the check in plain words instead.
  */
 function alertSubject(f: Finding): string {
+  // S115: V20/V21/V22 titles are stored as passing assertions too, so the subject names the problem instead.
+  const S115_SUBJECT: Record<string, string> = { V20: 'cleaner advance does not match its stay', V21: 'calendar and reservation disagree', V22: 'provider credit is used up' };
+  if (S115_SUBJECT[f.check_id]) return S115_SUBJECT[f.check_id];
   if (f.check_id !== 'V10') return f.title.toLowerCase();
   if (f.key === 'V10:stale') return 'system health has not run';
   const check = str((f.detail as any)?.check);
