@@ -124,8 +124,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING: the orchestrator rehearses on a restore of the fresh backup (s115 applied first), runs the forward checks, pgTAP s116_guest_photo_name.sql 17/17, and re-runs s95_guest_tiers, s96_spec47, s115_integrity, s82_staff_31 and staff_home_v1 (card key counts are now ten; the s82_staff_31 cleaner next_guest key list is updated), then the rollback."
+    "verified": true,
+    "evidence": "Rehearsed on a restore of cascade-supabase-20261111T121853Z (taken after s115 was applied; disposable Postgres on the host alfred). Rehearsal 3/4: all three s116 migrations applied, forward checks 14/14, pgTAP s116_guest_photo_name 17/17, s116_item_photo_options 13/13, s82_staff_31 101/101, s95_guest_tiers 77/77, s107_preferred_picks 43/44 and s108_option_requests 59/61 (the remaining asserts are grant checks that fail identically on any --no-acl restore). Rollback rehearsal: the three rollback scripts applied in reverse order after the release; staff_guest_card_v1 back to the s115 md5 4405ec51, s_inventory_option_payload_v1 back to the s108 md5 b855b87e, both new suppliers gone, Microwave (Fujidenzo) restored (4/4)."
   },
   "approvals": {
     "production_required": true,
