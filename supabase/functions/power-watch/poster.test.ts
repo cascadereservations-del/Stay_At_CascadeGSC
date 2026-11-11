@@ -15,6 +15,9 @@ Deno.test('the filename decides: our substation or feeder is a hit, another feed
   assertEquals(classifyFile(U + 'SPI-11152026-BATULAKI-GLAN.jpg'), 'miss');        // s115: another town is never ours
   assertEquals(classifyFile(U + 'SPI-10092026-ALABEL.jpg'), 'miss');
   assertEquals(classifyFile(U + 'SPI-10092026-GLANVILLE.jpg'), 'read');            // a whole token only
+  assertEquals(classifyFile(U + 'SPI-10092026-GLAN-AND-GENSAN.jpg'), 'read');       // a multi-area poster naming GenSan is read
+  assertEquals(classifyFile(U + 'SPI-10092026-NGCP-ALABEL-138KV.jpg'), 'read');     // grid work is read
+  assertEquals(classifyFile(U + 'SPI-10092026-NGCP-TUPI-GENSAN.jpg'), 'read');      // Tupi is not skipped
   assertEquals(classifyFile(U + 'SPI-PMS-10142026-MALAPATAN-SS.jpg'), 'miss');      // the date 1014 is not feeder 14
 });
 

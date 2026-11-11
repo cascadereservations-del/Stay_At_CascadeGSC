@@ -11,7 +11,8 @@ const AREA_RE = /\b(bria homes|conel|san isidro|katangawan)\b/i; // katangawan: 
 const WIDE_RE = /\b(all areas|all feeders|system-?wide|city-?wide)\b/i;
 // s115: a filename naming a town outside General Santos is never ours (Cascade is in GenSan). SPI-11152026-BATULAKI-GLAN.jpg failed 123 reads in a row
 // (free reads disagreed, the paid reader was out of credit) and raised the provider-outage cards; earlier GLAN/ALABEL posters all read 'not ours'.
-const OTHER_TOWN_RE = /(^|-)(GLAN|ALABEL|MALAPATAN|MALUNGON|KIAMBA|MAASIM|MAITUM|POLOMOLOK|TUPI)(?=[-.])/i;
+const OTHER_TOWN_RE = /(^|-)(GLAN|ALABEL|MALAPATAN|MALUNGON|KIAMBA|MAASIM|MAITUM)(?=[-.])/i; // Sarangani only: Tupi/Polomolok host NGCP grid kit that feeds GenSan
+const GRID_OR_OURS_RE = /(^|-)(NGCP|GENSAN|GSC|GENERAL-SANTOS|\d+KV|SYSTEM|ALL|CITY|BRIA|CONEL|SAN-ISIDRO|KATANGAWAN)(?=[-.])/i; // never skip these unread
 
 const strip = (html: string) => String(html ?? '').replace(/<[^>]+>/g, ' ').replace(/&#0?38;|&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
@@ -33,7 +34,7 @@ export function classifyFile(url: string): 'hit' | 'miss' | 'read' {
   if (OUR_SUBSTATION.test(f) || FEEDER_RE.test(f)) return 'hit';
   if (/-SS\.[a-z]+$/i.test(f)) return 'miss';               // another substation (ours is Leon Llido)
   if (/(^|-)F\d{1,2}-\d(?=[-.])/i.test(f)) return 'miss';   // names a different feeder
-  if (OTHER_TOWN_RE.test(f)) return 'miss';                 // another town (s115)
+  if (OTHER_TOWN_RE.test(f) && !GRID_OR_OURS_RE.test(f)) return 'miss'; // another town, nothing of GenSan or the grid named (s115)
   return 'read';
 }
 

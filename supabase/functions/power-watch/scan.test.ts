@@ -73,9 +73,14 @@ Deno.test('audit L5a: a poster that fails 8 runs in a row is reported once per r
   let calls = 0;
   const failCount = () => { calls++; return Promise.reject(new Error('openrouter_402')); };
   for (let i = 0; i < STUCK_RETRY_EVERY + 1; i++) await scanPosts(posts, st3, '2026-10-02', failCount, LIMITS);
-  assertEquals(calls, 2, 'read on the 8th and again 24 runs later, not every run');
+  assertEquals(calls, 2, 'one read when stuck, the next 24 runs later, not every run');
   assertEquals(st3.images.includes(P + f), false);
   assertEquals(st3.done.includes(7), false, 'a backed-off poster leaves its post incomplete');
+  // our own feeder's poster is never backed off
+  const hit = 'SPI-11202026-PORTION-OF-F14-3.jpg', st4: ScanState = { done: [], images: [], ours: {}, fails: { [P + hit]: STUCK_AFTER + 1 } };
+  calls = 0;
+  for (let i = 0; i < 3; i++) await scanPosts([post(8, hit)], st4, '2026-10-02', failCount, LIMITS);
+  assertEquals(calls, 3, 'a hit poster is tried every run');
 });
 
 Deno.test('audit L5a: a state with no `ours` forgets the hit and read posters so they are read again; the schedule is null until all are back', async () => {
