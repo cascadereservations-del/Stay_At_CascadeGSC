@@ -238,8 +238,9 @@ Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, 
     const r = await extractReceipt(b64, mime);
     extracted = r.parsed;
   } catch (e) {
-    if (tgChat && !skipTgNotify) await tgSend(tgChat, `⚠️ Receipt OCR failed: ${String(e).slice(0, 150)}`);
-    return json({ error: 'ocr_failed', detail: String(e) }, 502);
+    const credit = String(e).includes('credit_exhausted'); // s115: calm line, not raw provider JSON
+    if (tgChat && !skipTgNotify) await tgSend(tgChat, credit ? '⚠️ Receipt reading is paused for now. Please enter this one by hand.' : `⚠️ Receipt OCR failed: ${String(e).slice(0, 150)}`);
+    return json({ error: 'ocr_failed', detail: credit ? 'credit_exhausted' : String(e) }, 502);
   }
 
   const { data: cats } = await db.from('expense_categories')

@@ -1,6 +1,6 @@
 // cascade-core vision (session 27, booking PRD task 2 — the OCR merge). One image-to-JSON call
 // shared by ocr-receipt, telegram-expense and upload-booking-receipt. Same env contract as before
-// (D-090, D-222): VISION_PROVIDER first (default openrouter), the other provider when it refuses; VISION_MODEL
+// (D-090, D-222): VISION_PROVIDER first (default openrouter), the other provider when it refuses (Gemini only if VISION_GEMINI_FALLBACK=1; never after a 402, which throws credit_exhausted:); VISION_MODEL
 // overrides the model for either; keys CASCADE_GEMINI_BOT_KEY / CASCADE_OPENROUTER_BOT_KEY only - the two model keys
 // this project uses (01-FACTS). Returns the raw model text; callers parse — their JSON shapes differ.
 import { recordUsage } from './usage.ts';
@@ -41,11 +41,14 @@ export async function visionExtractText(prompt: string, image: Uint8Array | stri
   const orFirst = VISION_PROVIDER === 'openrouter';
   const [first, second] = orFirst ? [viaOpenRouter, viaGemini] : [viaGemini, viaOpenRouter];
   const [firstKey, secondKey] = orFirst ? [OPENROUTER_KEY, GEMINI_KEY] : [GEMINI_KEY, OPENROUTER_KEY];
-  if (!firstKey) return await second(prompt, b64, mime, title);
+  // s115 (API-COST-AUDIT rec 3, 5): Gemini answered 402 on 203/203 calls in 60 days, so it is opt-in (VISION_GEMINI_FALLBACK=1) and a 402 never tries the other provider.
+  const secondOk = !orFirst || env('VISION_GEMINI_FALLBACK') === '1';
+  if (!firstKey) { if (!secondOk) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set'); return await second(prompt, b64, mime, title); }
   try {
     return await first(prompt, b64, mime, title);
   } catch (e) {
-    if (!secondKey) throw e;
+    if (/(?:openrouter|gemini)_402\b/.test(String(e))) throw new Error(`credit_exhausted: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`);
+    if (!secondKey || !secondOk) throw e;
     console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) }));
     return await second(prompt, b64, mime, title);
   }

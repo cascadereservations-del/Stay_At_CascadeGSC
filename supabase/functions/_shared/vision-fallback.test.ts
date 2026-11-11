@@ -1,5 +1,5 @@
 // Session 46 (Lloyd: "for the fallback api key, can we use the openrouter key"), reordered by D-222 ("approve
-// allocation"): an image read tries OpenRouter (CASCADE_OPENROUTER_BOT_KEY) first and falls back to Gemini, the same
+// allocation"): an image read tries OpenRouter (CASCADE_OPENROUTER_BOT_KEY) first and falls back to Gemini only when VISION_GEMINI_FALLBACK=1 (s115), the same
 // order providers.ts uses for text. VISION_PROVIDER names the primary; the default is openrouter.
 import { assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 
@@ -32,16 +32,36 @@ Deno.test('vision: OpenRouter answers, Gemini is never called', async () => {
   assertEquals(hits, ['openrouter']);
 });
 
-Deno.test('vision: OpenRouter refuses, the read falls back to Gemini', async () => {
+Deno.test('vision: OpenRouter fails (500), default makes no Gemini call', async () => {
   const hits: string[] = [];
-  stub(200, 402, hits);
-  try { assertEquals(await visionExtractText('p', 'aGk=', 'image/jpeg'), '{"from":"gemini"}'); } finally { globalThis.fetch = realFetch; }
+  stub(200, 500, hits);
+  try { await assertRejects(() => visionExtractText('p', 'aGk=', 'image/jpeg'), Error, 'openrouter_500'); } finally { globalThis.fetch = realFetch; }
+  assertEquals(hits, ['openrouter']);
+});
+
+Deno.test('vision: VISION_GEMINI_FALLBACK=1 restores the Gemini fallback', async () => {
+  const hits: string[] = [];
+  stub(200, 500, hits);
+  Deno.env.set('VISION_GEMINI_FALLBACK', '1');
+  try { assertEquals(await visionExtractText('p', 'aGk=', 'image/jpeg'), '{"from":"gemini"}'); } finally { globalThis.fetch = realFetch; Deno.env.delete('VISION_GEMINI_FALLBACK'); }
   assertEquals(hits, ['openrouter', 'gemini']);
 });
 
-Deno.test('vision: both refuse, the error is the fallback provider\'s', async () => {
+Deno.test('vision: a 402 throws credit_exhausted after exactly one call, even with the fallback on', async () => {
+  for (const flag of [false, true]) {
+    const hits: string[] = [];
+    stub(200, 402, hits);
+    if (flag) Deno.env.set('VISION_GEMINI_FALLBACK', '1');
+    try { await assertRejects(() => visionExtractText('p', 'aGk=', 'image/jpeg'), Error, 'credit_exhausted:'); } finally { globalThis.fetch = realFetch; Deno.env.delete('VISION_GEMINI_FALLBACK'); }
+    assertEquals(hits, ['openrouter']);
+  }
+});
+
+Deno.test('vision: both refuse with the fallback on, the error is the last provider (gemini)', async () => {
   const hits: string[] = [];
-  stub(402, 401, hits);
-  try { await assertRejects(() => visionExtractText('p', 'aGk=', 'image/jpeg'), Error, 'gemini_402'); } finally { globalThis.fetch = realFetch; }
+  stub(500, 401, hits);
+  Deno.env.set('VISION_GEMINI_FALLBACK', '1');
+  try { await assertRejects(() => visionExtractText('p', 'aGk=', 'image/jpeg'), Error, 'gemini_500'); } finally { globalThis.fetch = realFetch; Deno.env.delete('VISION_GEMINI_FALLBACK'); }
+  assertEquals(hits, ['openrouter', 'gemini']);
   assertEquals(hasVisionKey(), true);
 });
