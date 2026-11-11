@@ -283,8 +283,9 @@ function outage(inp: GovInput, rules: Rules, unknown: Set<string>): Finding[] {
       const l = last.get(key), fail = t(l?.last_fail_at ?? null), ok = t(l?.last_ok_at ?? null), call = t(l?.last_call_at ?? null);
       if (!(fail > (Number.isNaN(ok) ? -Infinity : ok)) || !(call > nowMs - rules.quiet_hours * 3_600_000)) continue;
     }
-    // A free rung that fails and a paid rung that then answers still counts: it is the free provider's outage, and the
-    // paid rung is quietly carrying the bill. Two bands and no call count, so the card holds while the outage lasts.
+    // Across providers, a free rung that fails and a paid rung (another provider) that then answers still counts: it is the
+    // free provider's outage and the paid rung carries the bill. Within one provider a later ok call closes the card (above).
+    // Two bands and no call count, so the card holds while the outage lasts.
     out.push({
       key: `V15:${key}`, check_id: 'V15', severity: 'red', title: `${providerName(a.provider)} is failing for ${a.title}`,
       detail: { provider: a.provider, title: a.title, fail_band: pct >= 75 ? '75-100' : `${rules.outage_fail_pct}-74` },
@@ -411,6 +412,9 @@ function drift(inp: GovInput, rules: Rules): Finding[] {
 
 export function governor(inp: GovInput): GovResult {
   const rules: Rules = { ...DEFAULT_RULES, ...(inp.caps.rules ?? {}) };
+  // quiet_hours of null/0/NaN would close or never close every V15; fall back to the default.
+  const qh = Number(rules.quiet_hours);
+  if (!(Number.isFinite(qh) && qh > 0)) rules.quiet_hours = DEFAULT_RULES.quiet_hours;
   const unknown = new Set<string>();
   const v16 = headroom(inp, rules, unknown);
   // V16 is advising on a cap when it fired now, or could not be computed and is carried forward with its value.

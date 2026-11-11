@@ -497,6 +497,18 @@ Deno.test('V15 s117: quiet_hours can be overridden by api_caps rules', () => {
   const caps = { ...CAPS, rules: { ...CAPS.rules, quiet_hours: 12 } };
   assertEquals(only(governor(input({ usage: failing, lastCalls: [row], nowMs: NOWMS, caps })).found, 'V15').length, 1);
 });
+Deno.test('V15 s117: quiet_hours null or 0 behaves like the default 6', () => {
+  for (const q of [null, 0, NaN]) {
+    const caps = { ...CAPS, rules: { ...CAPS.rules, quiet_hours: q as any } };
+    const run = (h: number) => only(governor(input({ usage: failing, lastCalls: [lc({ last_call_at: ago(h), last_fail_at: ago(h) })], nowMs: NOWMS, caps })).found, 'V15').length;
+    assertEquals(run(5), 1);
+    assertEquals(run(7), 0);
+  }
+});
+Deno.test('V15 s117: index.ts maps the RPC to null on error', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertStringIncludes(src, 'lastCalls: lc.error ? null : lastCallRows(lc.data)');
+});
 Deno.test('V15 s117: missing last-call data keeps the old rule and lists V15 as unknown', () => {
   for (const lastCalls of [undefined, null]) {
     const g = governor(input({ usage: failing, lastCalls, nowMs: NOWMS }));
