@@ -1,10 +1,14 @@
 -- 20261115000100_s116_item_photo_options.sql
--- Session 116, lane S2: release s116_guest_photo_name_20261115 (second migration). 51 stock items get a product option that carries a photo URL, so the Staff app
+-- Session 116, lane S2: release s116_guest_photo_name_20261115 (second migration). 52 stock items get a product option that carries a photo URL, so the Staff app
 -- "Use as item photo" button (it reads option.image_url) has something to upload.
---   1. Check    source_url also accepts mandauefoam.ph and myhanabishi.com (image_url check unchanged: all 51 photos are cdn.shopify.com).
+--   1. Check    source_url also accepts mandauefoam.ph and myhanabishi.com (image_url check unchanged: the 51 photos are cdn.shopify.com, the Midea one is on the Shopee host s107 already allows).
 --   2. Suppliers 'Mandaue Foam' and 'Hanabishi' added (idempotent by property + lower(name)); Shopsuki and Shopee already exist.
---   3. Data     51 options (docs/s116/item-photos.json, photos read 2026-11-11), never usual, never preferred, no price. Joined on the exact item name; the migration
+--   3. Data     51 options (docs/s116/item-photos.json, photos read 2026-11-11) plus the Midea microwave option (D-367), never usual, never preferred, no price. Joined on the exact item name; the migration
 --               raises unless each name matches exactly one active item, so a typo fails loud. on conflict (item_id, source_url) do nothing.
+--   4. Rename   D-367 (Lloyd 2026-11-11): the unit microwave is a Midea. 'Microwave (Fujidenzo)' becomes 'Microwave (Midea)' only when exactly one active row has the
+--               old name and none has the new one (already renamed: skipped); the 52nd option (Shopee, docs/s116/midea.json) then attaches to it.
+--   5. Guard    steps 3 and 4 are skipped with a notice when the Cascade property is missing (CI and disaster-recovery rebuilds apply every migration to a property-less
+--               database), same style as the s106/s107 seeds.
 begin;
 
 -- 1. check ---------------------------------------------------------------------------------------------------------------------------------
@@ -26,6 +30,14 @@ where exists (select 1 from public.properties p where p.id = '6ae230f4-c189-4547
 do $d$
 declare v_prop constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'; v_bad text;
 begin
+  if not exists (select 1 from public.properties where id = v_prop) then raise notice 's116 item photos skipped: property missing'; return; end if;
+
+  -- D-367: the unit microwave is a Midea, not a Fujidenzo (rename only from the exact known state; anything else falls through to the name check below, which fails loud)
+  if (select count(*) from public.inventory_items i where i.property_id = v_prop and i.is_active and i.name = 'Microwave (Fujidenzo)') = 1
+     and not exists (select 1 from public.inventory_items i where i.property_id = v_prop and i.is_active and i.name = 'Microwave (Midea)') then
+    update public.inventory_items set name = 'Microwave (Midea)' where property_id = v_prop and is_active and name = 'Microwave (Fujidenzo)';
+  end if;
+
   create temp table s116_photo_src(item text, supplier text, title text, brand text, image_url text, source_url text) on commit drop;
   insert into s116_photo_src values
     ('Bath rug', 'Mandaue Foam', 'Graz Bath Rug', null, 'https://cdn.shopify.com/s/files/1/0078/2555/5571/products/mandaue-foam-graz-bath-rug-dark-gray-1151827065.png?v=1768300318', 'https://mandauefoam.ph/products/graz-bath-rug-40x60-cm'),
@@ -78,7 +90,8 @@ begin
     ('Sofa Bed with mattress', 'Mandaue Foam', 'Benny Sofa Bed', null, 'https://cdn.shopify.com/s/files/1/0078/2555/5571/files/mandaue-foam-benny-sofa-bed-fabric-parson-light-gray-1153891174.png?v=1772783233', 'https://mandauefoam.ph/products/benny-sofa-bed'),
     ('Sofa Cover', 'Mandaue Foam', 'Stretchable Sofa Protector Gray', null, 'https://cdn.shopify.com/s/files/1/0078/2555/5571/files/ChatGPTImageSep26_2026_01_28_59PM.png?v=1790401478', 'https://mandauefoam.ph/products/stretchable-sofa-protector-gray'),
     ('Throw Pillow', 'Mandaue Foam', 'Decorative Throw Pillow', null, 'https://cdn.shopify.com/s/files/1/0078/2555/5571/files/DECORATIVETHROWPILLOWitem1.jpg?v=1789537556', 'https://mandauefoam.ph/products/decorative-throw-pillow-16x16'),
-    ('Throw Pillowcase', 'Mandaue Foam', 'Mede Chenile Throw Pillowcase', null, 'https://cdn.shopify.com/s/files/1/0078/2555/5571/files/mandaue-foam-mede-chenile-throw-pillowcase-silver-gray-1152432812.png?v=1768301766', 'https://mandauefoam.ph/products/mede-chenile-throw-pillowcase');
+    ('Throw Pillowcase', 'Mandaue Foam', 'Mede Chenile Throw Pillowcase', null, 'https://cdn.shopify.com/s/files/1/0078/2555/5571/files/mandaue-foam-mede-chenile-throw-pillowcase-silver-gray-1152432812.png?v=1768301766', 'https://mandauefoam.ph/products/mede-chenile-throw-pillowcase'),
+    ('Microwave (Midea)', 'Shopee', 'Midea 20L Silver Digital Microwave Oven with Digital Type Control Defrost by Time/Weight', 'Midea', 'https://down-ph.img.susercontent.com/file/ph-11134201-7rask-m3smxs1qe4a710', 'https://shopee.ph/product/129365759/2451462175');
 
   select string_agg(x.item || ' (' || x.n || ')', ', ') into v_bad
   from (select t.item, (select count(*) from public.inventory_items i where i.property_id = v_prop and i.name = t.item and i.is_active) n

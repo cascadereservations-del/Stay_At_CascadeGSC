@@ -1,5 +1,9 @@
--- Rollback for the second s116 migration (20261115000100_s116_item_photo_options): deletes only the 51 options it inserted (exact item name + source_url pairs),
--- then the two suppliers it added if nothing references them, then restores the s107 source_url check.
+-- Rollback for the second s116 migration (20261115000100_s116_item_photo_options): deletes only the 52 options it inserted (51 photo options plus the Midea microwave
+-- option; exact item name + source_url pairs), renames 'Microwave (Midea)' back to 'Microwave (Fujidenzo)' only while it still has that exact name and no active
+-- row has the old one, then the two suppliers it added if nothing references them, then restores the s107 source_url check.
+-- Know before running: it deletes those 52 options even if the owner has since made one usual, preferred or priced (nothing is checked or kept). inventory_items.photo_path
+-- is untouched, so photos already uploaded from these options stay. inventory_option_requests.option_id is on delete set null, so a staff request that pointed at a
+-- deleted option keeps its row and loses only the link.
 -- If another mandauefoam.ph / myhanabishi.com option exists by now, re-adding the old check fails and the whole script rolls back: resolve by hand.
 begin;
 
@@ -55,9 +59,14 @@ using public.inventory_items i, (values
     ('Sofa Bed with mattress', 'https://mandauefoam.ph/products/benny-sofa-bed'),
     ('Sofa Cover', 'https://mandauefoam.ph/products/stretchable-sofa-protector-gray'),
     ('Throw Pillow', 'https://mandauefoam.ph/products/decorative-throw-pillow-16x16'),
-    ('Throw Pillowcase', 'https://mandauefoam.ph/products/mede-chenile-throw-pillowcase')
+    ('Throw Pillowcase', 'https://mandauefoam.ph/products/mede-chenile-throw-pillowcase'),
+    ('Microwave (Midea)', 'https://shopee.ph/product/129365759/2451462175')
 ) p(item, source_url)
 where i.id = o.item_id and i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid and i.name = p.item and o.source_url = p.source_url;
+
+update public.inventory_items set name = 'Microwave (Fujidenzo)'
+where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid and is_active and name = 'Microwave (Midea)'
+  and not exists (select 1 from public.inventory_items x where x.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid and x.is_active and x.name = 'Microwave (Fujidenzo)');
 
 delete from public.inventory_suppliers s
 where s.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid and lower(btrim(s.name)) in ('mandaue foam', 'hanabishi')
