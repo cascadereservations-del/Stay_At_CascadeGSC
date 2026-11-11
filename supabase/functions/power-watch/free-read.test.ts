@@ -120,11 +120,49 @@ Deno.test('tiebreak: empty list is the old behaviour, no extra calls', async () 
 Deno.test('tiebreak: unusable reads never agree', async () => {
   const n = { c: 0 }, p = { c: 0 };
   const r = await agreedRead([counted('sorry', n), counted('{}', n)], key(URL_READ, false), paidN(p), [counted('sorry', n), counted('', n)]);
-  assertEquals([r.via, r.why, p.c], ['paid', 'free_unusable', 1]);
+  assertEquals([r.via, r.why, n.c, p.c], ['paid', 'free_unusable', 4, 1]);
 });
 
 Deno.test('tiebreak: budget exhausted -> no tiebreak, paid as before', async () => {
   const n = { c: 0 }, p = { c: 0 };
   const r = await agreedRead([counted(A, n), counted(B, n)], key(URL_HIT, true), paidN(p), [counted(A, n)], () => false);
   assertEquals([r.via, r.why, n.c, p.c], ['paid', 'free_disagree', 2, 1]);
+});
+
+// Safety floor: free models alone never outvote an OURS read. NO = a read that is not ours (same date and start).
+const NO = '{"date":"2026-10-08","start":"06:00","hours":11,"substation":null,"feeders":["7-2"],"areas":["Prk. 9"]}';
+const KEY_NO = key(URL_HIT, false);
+
+Deno.test('floor: ours + not ours + not ours -> paid, free_ours_conflict', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const dec = (t: string) => t === 'OURS' ? '["ours","k"]' : key(URL_HIT, false)(t);
+  const r = await agreedRead([counted('OURS', n), counted(NO, n)], dec, paidN(p), [counted(NO, n)]);
+  assertEquals([r.via, r.why, n.c, p.c], ['paid', 'free_ours_conflict', 3, 1]);
+  assertEquals(KEY_NO(NO)?.startsWith('["not ours"'), true);
+});
+
+Deno.test('floor: ours + not ours + ours (same key) -> free ours', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const dec = (t: string) => t === 'OURS' ? '["ours","k"]' : key(URL_HIT, false)(t);
+  const r = await agreedRead([counted('OURS', n), counted(NO, n)], dec, paidN(p), [counted('OURS', n)]);
+  assertEquals([r.via, r.why, r.text, n.c, p.c], ['free', 'tiebreak', 'OURS', 3, 0]);
+});
+
+Deno.test('floor: not ours + not ours + unusable tiebreak is still free (no ours read)', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(NO, n), counted('sorry', n)], KEY_NO, paidN(p), [counted(NO, n)]);
+  assertEquals([r.via, r.why, p.c], ['free', 'tiebreak', 0]);
+});
+
+Deno.test('tiebreak: canTiebreak flipping to false after the first tiebreak -> one tiebreak call, then paid', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  let asked = 0;
+  const r = await agreedRead([counted(A, n), counted(B, n)], key(URL_HIT, true), paidN(p), [counted(C, n), counted(C, n)], () => ++asked <= 1);
+  assertEquals([r.via, r.why, n.c, p.c], ['paid', 'free_disagree', 3, 1]);
+});
+
+Deno.test('index.ts guard: tiebreaks are gated on the run elapsed time and the poster failure count', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertEquals(/Date\.now\(\) - t0 < READ_BUDGET_MS - 30_000/.test(src), true);
+  assertEquals(/state\.fails\[url\] \?\? 0\) < STUCK_AFTER/.test(src), true);
 });

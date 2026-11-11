@@ -1,7 +1,11 @@
 // D-366 (2026-11-11): two primaries that disagree no longer go straight to the paid reader. In the 123-run loop of
 // 2026-11-10/11 the same poster kept splitting the pair and every run paid again. Now the extra models in
 // CASCADE_OMNIROUTE_VISION_TIEBREAK read it one at a time, only while the run's read budget allows, and stop as soon as
-// ANY two usable reads share a decision key; otherwise the paid reader decides alone. An empty list is the old behaviour.
+// two usable reads share a decision key; otherwise the paid reader decides alone. An empty list is the old behaviour.
+// SAFETY FLOOR (Opus review): free models alone never outvote an OURS read. An ours pair decides free; a "not ours" pair
+// decides free only when no usable read so far says ours. Ours + not ours + not ours goes to the paid reader (why
+// free_ours_conflict): a wrong "not ours" frees a block that is really cut, a wrong "ours" only adds one. If paid throws, the
+// read fails and scan.ts backs off and retries, as before. Ours-vs-ours splits (date/time/hours) are still settled by majority.
 // Session 69 (Lloyd 2026-10-04 "use all available free option as long as it is precise and that there are no false results"):
 // SOCOTECO posters are public utility notices, so they are read free first. Two different free vision models on Cascade
 // OmniRoute (Cloudflare Workers AI, no training on inputs; side-by-side 2026-10-03: Llama 4 Scout 6/6, Mistral Small 3.1 6/6)
@@ -49,18 +53,24 @@ export async function agreedRead(
     return { t: '', k: null as string | null };
   });
   const got = await Promise.all(reads.map(run));
+  const ours = (k: string | null) => k !== null && k.startsWith('["ours"');
   if (got.length >= 2 && got.every((g) => g.k !== null && g.k === got[0].k)) return { text: got[0].t, via: 'free' };
+  let conflict = false;
   if (got.length >= 2) {
     // Two usable reads in all, from the primaries or the tiebreaks so far, that share a key win; null never matches.
-    const pair = () => got.find((g, i) => g.k !== null && got.some((h, j) => j !== i && h.k === g.k));
-    for (const tb of tiebreaks) {
-      if (!canTiebreak()) break;
-      got.push(await run(tb));
+    // Floor: an "ours" pair decides, but a "not ours" pair decides only while no usable read says ours (free models alone never outvote an ours read).
+    const same = (g: { k: string | null }, i: number) => g.k !== null && got.some((h, j) => j !== i && h.k === g.k);
+    const pair = () => got.find((g, i) => same(g, i) && (ours(g.k) || !got.some((h) => ours(h.k))));
+    for (let i = 0; ; i++) {
+      conflict = got.some((g, j) => same(g, j) && !ours(g.k)) && got.some((g) => ours(g.k));
+      if (i >= tiebreaks.length || !canTiebreak()) break;
+      got.push(await run(tiebreaks[i]));
       const hit = pair();
       if (hit) return { text: hit.t, via: 'free', why: 'tiebreak' };
     }
   }
-  const why = got.length < 2 ? 'free_off' : got.some((g) => g.k === null) ? 'free_unusable' : 'free_disagree';
+  const p = got.slice(0, reads.length);
+  const why = conflict ? 'free_ours_conflict' : got.length < 2 ? 'free_off' : p.some((g) => g.k === null) ? 'free_unusable' : 'free_disagree';
   return { text: await paid(), via: 'paid', why };
 }
 

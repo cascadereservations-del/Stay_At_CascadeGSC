@@ -34,7 +34,7 @@ import { isPowerPost, noticeFrom, OCR_PROMPT, postedAt, posterUrls, type Ocr } f
 import { agreedRead, decisionKey, freeReads, freeTiebreaks, usable } from './free-read.ts';
 import { scheduleFrom, supersededBy, touchedNights } from './plan.ts';
 import { RATE_OCR_PROMPT, rateFromImageJson, rateFromPosts, rateImageCandidate } from './rates.ts';
-import { reportStuck, scanPosts } from './scan.ts';
+import { reportStuck, scanPosts, STUCK_AFTER } from './scan.ts';
 import { pruneStates, reconcile } from './watch.ts';
 
 const env = (k: string) => Deno.env.get(k) ?? '';
@@ -134,7 +134,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
     const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url), o), url);
     const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'),
-      freeTiebreaks(OCR_PROMPT, bytes, mime), () => Date.now() - t0 < READ_BUDGET_MS - 30_000); // a tiebreak is one more 30 s call
+      freeTiebreaks(OCR_PROMPT, bytes, mime), () => Date.now() - t0 < READ_BUDGET_MS - 30_000 && (state.fails[url] ?? 0) < STUCK_AFTER); // a tiebreak is one more 30 s call; a poster that already failed STUCK_AFTER runs retries every run, so it gets none
     const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
     const n = noticeFrom(o, c === 'hit', url);
     return { notice: n, log: `${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}` };
