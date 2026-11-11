@@ -110,7 +110,7 @@ select ok((select not (payload ? 'price') from public.inventory_option_requests 
 select ok((select v ->> 'replay' = 'true' and v ->> 'request_id' = (select v ->> 'request_id' from _t where k = 'r1') from _t where k = 'r1_replay')
           and (select count(*)::int from public.inventory_option_requests where requested_by = pg_temp.id('a1') and idempotency_key = 'zz108-key-cl-add-0001') = 1, 'idempotency: replay returns the same request and creates no second row');
 select is((select v ->> 'err' from _t where k = 'other_prop'), '42501', 'another property item: refused (no access)');
-select is((select array[v ->> 'err', v ->> 'msg'] from _t where k = 'bad_src'), array['22023', 'product link must be https on shopsuki.ph or shopee.ph'], 'url check: an http product link is refused');
+select is((select array[v ->> 'err', v ->> 'msg'] from _t where k = 'bad_src'), array['22023', 'product link must be https on shopsuki.ph, shopee.ph, mandauefoam.ph or myhanabishi.com'], 'url check: an http product link is refused');
 select is((select v ->> 'err' from _t where k = 'bad_img'), '22023', 'url check: an image off the allowed hosts is refused');
 select ok((select bool_and(v ->> 'err' = '22023') from _t where k in ('sup_off', 'sup_far', 'no_sup', 'junk', 'edit_far')), 'inactive or foreign supplier, missing supplier, unknown field and foreign option are all 22023');
 select is((select v ->> 'msg' from _t where k = 'del_usual'), 'usual_option', 'deleting the usual option is refused at request time');

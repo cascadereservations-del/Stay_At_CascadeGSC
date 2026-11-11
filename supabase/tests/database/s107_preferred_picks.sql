@@ -80,7 +80,7 @@ select is((select count(*)::int from _exp), 11, 'the 11 order-1 pick items all r
 select is((select count(*)::int from _all), 19, 'all 19 picks resolve to an item');
 select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_preferred), 19, 'exactly 19 options are preferred');
 select is((select count(distinct o.source_url)::int from public.inventory_item_options o join _all a on a.item_id = o.item_id and a.url = o.source_url where o.is_preferred), 19, 'the 19 preferred options are the 19 pick urls');
-select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 76, 'options on the property: 64 from s106 - 4 Colgate + 16 new picks = 76');
+select is((select count(*)::int from public.inventory_item_options where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 128, 'options on the property: 64 from s106 - 4 Colgate + 16 new picks = 76, + 52 s116 photo options = 128');
 select is((select count(*)::int from (select e.item_id from _exp e join public.inventory_item_options o on o.item_id = e.item_id group by e.item_id having count(*) filter (where o.is_usual) = 1) q), 11, 'each of the 11 pick items has exactly one usual option');
 select is((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.is_usual), 11, 'and it is the order-1 pick');
 select is((select count(*)::int from _exp e join public.inventory_item_options o on o.item_id = e.item_id and o.source_url = e.url and o.price = e.price), 11, 'the order-1 picks carry the read prices');
@@ -102,7 +102,7 @@ select ok((select s.name = 'Shopee' and k.quoted_pack_price = 1329.00 and k.pack
             where k.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and k.is_preferred), 'Toiletries: the preferred link is Shopee, 1329.00 for a pack of 100');
 select is((select count(*)::int from public.inventory_item_suppliers k join public.inventory_suppliers s on s.id = k.supplier_id
             where k.item_id = '2ec811c2-4ccc-4885-a8a5-3a8002e791b0' and lower(s.name) = 'shopsuki'), 0, 'Toiletries: the orphaned Shopsuki link is gone');
-select is((select count(*)::int from public.inventory_item_options where image_url like 'https://down-ph.img.susercontent.com/%' and property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 8, 'the 8 Shopee picks keep their susercontent images');
+select is((select count(*)::int from public.inventory_item_options where image_url like 'https://down-ph.img.susercontent.com/%' and property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'), 9, 'the 8 Shopee picks keep their susercontent images, + the s116 Midea option = 9');
 select ok(not has_function_privilege('anon', 'public.s_inventory_preferred_picks_v1()', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_preferred_picks_v1()', 'execute')
           and not has_function_privilege('service_role', 'public.s_inventory_preferred_picks_v1()', 'execute')
           and not has_function_privilege('anon', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_option_make_usual_v1(uuid)', 'execute')
