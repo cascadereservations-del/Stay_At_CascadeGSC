@@ -397,14 +397,14 @@ Deno.test('two consecutive days of slowly changing data raise byte-identical fin
 });
 
 Deno.test('a failed key read makes its rules unknown (carried forward), never resolved and never recomputed', () => {
-  const g = governor(input({ budget: history('primary', 20, 0.02), latest: { primary: { status: 503, limit: null, remaining: null, usage: null } } }));
+  const g = governor(input({ lastCalls: [], budget: history('primary', 20, 0.02), latest: { primary: { status: 503, limit: null, remaining: null, usage: null } } }));
   assertEquals(g.found.filter((f) => f.key.endsWith('openrouter-primary')), []);
   assertEquals(g.unknown.sort(), ['V14:openrouter-primary', 'V16:openrouter-primary', 'V17']);
   // V17 with one of two keys failing does not compute a runway even when the real credit is known.
   const v17 = governor(input({ budget: history('primary', 5, 0.2), credits: { remaining: 1 }, latest: { primary: { status: 200, limit: 1, remaining: 1, usage: 1 }, backup: { status: 0, limit: null, remaining: null, usage: null } } }));
   assertEquals([only(v17.found, 'V17').length, v17.unknown.includes('V17')], [0, true]);
   // A key that is not configured at all is not unknown: there is nothing to measure.
-  assertEquals(governor(input()).unknown, []);
+  assertEquals(governor(input({ lastCalls: [] })).unknown, []);
 });
 
 Deno.test('a day with no successful snapshot is null: left out of p95, and a missing yesterday is unknown', () => {
@@ -412,7 +412,7 @@ Deno.test('a day with no successful snapshot is null: left out of p95, and a mis
   const known13 = history('primary', 13, 0.02);
   assertEquals(only(evaluate(input({ budget: [...known13, ...nulls] })), 'V16').length, 0, '13 known days and 5 null ones are not 18 days of data');
   const gap = history('primary', 20, 0.02).map((b) => (b.day === day(-1) ? { ...b, spent_usd: null } : b));
-  const g = governor(input({ budget: gap }));
+  const g = governor(input({ lastCalls: [], budget: gap }));
   assertEquals([only(g.found, 'V16').length, g.unknown], [0, ['V16:openrouter-primary']]);
   // V17: a day where one existing key has no known spend is left out of the mean, never read as 0.
   const both = [...history('primary', 5, 0.2), ...history('backup', 5, 0.2).map((b, i) => (i < 2 ? { ...b, spent_usd: null } : b))];
@@ -470,4 +470,37 @@ Deno.test('index.ts runs the governor in both scopes, carries forward per rule f
   assertStringIncludes(src, "const keep = carried(open ?? [], fresh, g ? g.unknown : checks, scope as 'hourly' | 'daily');");
   assertStringIncludes(src, 'const CARRY_MS = 2 * 86_400_000;');
   assertStringIncludes(src, "if (scope === 'daily' && !dry && open && g && !g.unknown.length) await heartbeat(db, 'api-governor')('succeeded');");
+});
+
+// ── s117: V15 is addressed, not just aggregated ─────────────────────────────────────────────────────────────────────
+const NOWMS = Date.parse('2026-10-10T02:00:00Z');
+const ago = (h: number) => new Date(NOWMS - h * 3_600_000).toISOString();
+const failing = [use({ provider: 'gemini', title: 'ID face box', calls: 10, fails: 10 })];
+const lc = (over: Record<string, string | null> = {}) =>
+  ({ provider: 'gemini', title: 'ID face box', last_call_at: ago(1), last_ok_at: null, last_fail_at: ago(1), ...over });
+const v15 = (lastCalls: any) => governor(input({ usage: failing, lastCalls, nowMs: NOWMS }));
+
+Deno.test('V15 s117: failures still continuing (last call 1 h ago, failed) raise it', () => {
+  const g = v15([lc()]);
+  assertEquals(keys(only(g.found, 'V15')), ['V15:gemini:ID face box']);
+  assertEquals(g.unknown.includes('V15'), false);
+});
+Deno.test('V15 s117: failures then a later ok call close it', () => {
+  assertEquals(only(v15([lc({ last_fail_at: ago(3), last_ok_at: ago(1) })]).found, 'V15').length, 0);
+});
+Deno.test('V15 s117: failures but no call for 7 h close it, and no row at all (no call in 48 h) too', () => {
+  assertEquals(only(v15([lc({ last_call_at: ago(7), last_fail_at: ago(7) })]).found, 'V15').length, 0);
+  assertEquals(only(v15([]).found, 'V15').length, 0);
+});
+Deno.test('V15 s117: quiet_hours can be overridden by api_caps rules', () => {
+  const row = lc({ last_call_at: ago(7), last_fail_at: ago(7) });
+  const caps = { ...CAPS, rules: { ...CAPS.rules, quiet_hours: 12 } };
+  assertEquals(only(governor(input({ usage: failing, lastCalls: [row], nowMs: NOWMS, caps })).found, 'V15').length, 1);
+});
+Deno.test('V15 s117: missing last-call data keeps the old rule and lists V15 as unknown', () => {
+  for (const lastCalls of [undefined, null]) {
+    const g = governor(input({ usage: failing, lastCalls, nowMs: NOWMS }));
+    assertEquals(keys(only(g.found, 'V15')), ['V15:gemini:ID face box']);
+    assert(g.unknown.includes('V15'));
+  }
 });

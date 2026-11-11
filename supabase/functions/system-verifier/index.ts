@@ -31,7 +31,7 @@ import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { ackHash, buildCards, type Applied, type Card, type Finding } from './cards.ts';
 import { budgetFinding, readCredits, readKey, type KeyRead } from './budget.ts';
-import { budgetRows, carried, GOV_CHECKS, governor, manilaClock, parseCaps, usageRows, type GovResult } from './governor.ts';
+import { budgetRows, lastCallRows, carried, GOV_CHECKS, governor, manilaClock, parseCaps, usageRows, type GovResult } from './governor.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -81,6 +81,9 @@ async function governorFindings(db: any, now: Date, open: Finding[], kPrimary?: 
       throw new Error(r.error.message);
     }
   }
+  // s117: V15 last-call times. Missing RPC or error = null -> governor keeps the old V15 rule and lists V15 as unknown.
+  const lc = await db.rpc('api_usage_last_calls_v1');
+  if (lc.error) console.warn('api_usage_last_calls_v1:', lc.error.message);
   const caps = parseCaps(c.data?.value);
   if (!caps) { console.log(JSON.stringify({ event: 'governor_skipped', reason: 'api_caps missing or unusable' })); return null; }
   // Real credit from OpenRouter when it will say (management key only), daily only: V17 is a daily rule. Status only is logged.
@@ -93,6 +96,7 @@ async function governorFindings(db: any, now: Date, open: Finding[], kPrimary?: 
   const g = governor({
     usage: usageRows(u.data), budget: budgetRows(b.data),
     latest: { primary: kPrimary, backup: kBackup }, caps, today, nowHourManila: hour, credits, open,
+    lastCalls: lc.error ? null : lastCallRows(lc.data), nowMs: now.getTime(),
   });
   console.log(JSON.stringify({ event: 'governor', today, findings: g.found.map((f) => f.key), unknown: g.unknown }));
   return g;

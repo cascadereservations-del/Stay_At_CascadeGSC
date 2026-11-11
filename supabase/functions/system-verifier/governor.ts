@@ -34,7 +34,11 @@ export type Cap = {
 export type Rules = {
   pressure_pct: number; headroom_x: number; target_x: number; runway_days: number;
   drift_x: number; outage_fail_pct: number; outage_min_calls: number;
+  /** s117: V15 is addressed once nothing has called the provider for this many hours (or a later call succeeded). */
+  quiet_hours: number;
 };
+/** api_usage_last_calls_v1 row (last 48 h, probes excluded): ISO times, null when none of that kind. */
+export type LastCall = { provider: string; title: string; last_call_at: string | null; last_ok_at: string | null; last_fail_at: string | null };
 export type ApiCaps = {
   caps: Cap[]; credit?: { openrouter_usd?: number }; prices_usd_per_m?: Record<string, [number, number]>;
   neuron_usd?: number; rules?: Partial<Rules>;
@@ -52,6 +56,10 @@ export type GovInput = {
   credits?: { remaining: number | null } | null;
   /** The V14-V18 findings still open or acknowledged, so a recommended value holds until it moves 25% (stick). */
   open?: Finding[];
+  /** V15 addressed-check input. undefined/null = unreadable: V15 keeps the daily-aggregate rule and is listed in `unknown`. */
+  lastCalls?: LastCall[] | null;
+  /** Epoch ms of this run (pure code reads no clock of its own except as a default). */
+  nowMs?: number;
 };
 /** `unknown` names a rule this run could not compute: a check id ('V17') or one finding key ('V14:openrouter-primary'). */
 export type GovResult = { found: Finding[]; unknown: string[] };
@@ -61,7 +69,7 @@ export type GovResult = { found: Finding[]; unknown: string[] };
 export const GOV_CHECKS: Record<'hourly' | 'daily', string[]> = { hourly: ['V14', 'V15'], daily: ['V14', 'V15', 'V16', 'V17', 'V18'] };
 
 export const DEFAULT_RULES: Rules = {
-  pressure_pct: 70, headroom_x: 20, target_x: 5, runway_days: 30, drift_x: 2, outage_fail_pct: 50, outage_min_calls: 5,
+  pressure_pct: 70, headroom_x: 20, target_x: 5, runway_days: 30, drift_x: 2, outage_fail_pct: 50, outage_min_calls: 5, quiet_hours: 6,
 };
 const NEURON_USD = 0.000011;
 
@@ -102,6 +110,7 @@ export function parseCaps(v: unknown): ApiCaps | null {
 export const usageRows = (data: unknown): UsageDay[] => ((data ?? []) as any[]).map((r) => ({
   ...r, day: String(r.day).slice(0, 10), calls: Number(r.calls), fails: Number(r.fails), input: Number(r.input), output: Number(r.output), cost_usd: Number(r.cost_usd),
 }));
+export const lastCallRows = (data: unknown): LastCall[] => ((data ?? []) as any[]).map((r) => ({ provider: String(r.provider), title: String(r.title), last_call_at: r.last_call_at ?? null, last_ok_at: r.last_ok_at ?? null, last_fail_at: r.last_fail_at ?? null }));
 const numOrNull = (v: unknown) => (v == null ? null : Number(v));
 export const budgetRows = (data: unknown): BudgetDay[] => ((data ?? []) as any[]).map((r) => ({
   ...r, day: String(r.day).slice(0, 10), limit_usd: numOrNull(r.limit_usd), min_remaining_usd: numOrNull(r.min_remaining_usd), spent_usd: numOrNull(r.spent_usd),
@@ -251,7 +260,10 @@ function pressure(inp: GovInput, rules: Rules, v16Active: Set<string>, unknown: 
 }
 
 // ── V15 provider outage ─────────────────────────────────────────────────────────────────────────────────────────────
-function outage(inp: GovInput, rules: Rules): Finding[] {
+function outage(inp: GovInput, rules: Rules, unknown: Set<string>): Finding[] {
+  const last = new Map((inp.lastCalls ?? []).map((l) => [`${l.provider}:${l.title}`, l]));
+  if (!inp.lastCalls) unknown.add('V15');
+  const nowMs = inp.nowMs ?? Date.now(), t = (v: string | null) => (v ? Date.parse(v) : NaN);
   const yesterday = addDays(inp.today, -1);
   const agg = new Map<string, { provider: string; title: string; calls: number; fails: number }>();
   for (const r of inp.usage) {
@@ -266,6 +278,11 @@ function outage(inp: GovInput, rules: Rules): Finding[] {
   for (const [key, a] of agg) {
     const pct = a.calls ? (a.fails / a.calls) * 100 : 0;
     if (a.calls < rules.outage_min_calls || pct < rules.outage_fail_pct) continue;
+    // s117 ADDRESSED: a later ok call, or no call for quiet_hours, closes it (no row = no call in 48 h). Not decided without data.
+    if (inp.lastCalls) {
+      const l = last.get(key), fail = t(l?.last_fail_at ?? null), ok = t(l?.last_ok_at ?? null), call = t(l?.last_call_at ?? null);
+      if (!(fail > (Number.isNaN(ok) ? -Infinity : ok)) || !(call > nowMs - rules.quiet_hours * 3_600_000)) continue;
+    }
     // A free rung that fails and a paid rung that then answers still counts: it is the free provider's outage, and the
     // paid rung is quietly carrying the bill. Two bands and no call count, so the card holds while the outage lasts.
     out.push({
@@ -399,7 +416,7 @@ export function governor(inp: GovInput): GovResult {
   // V16 is advising on a cap when it fired now, or could not be computed and is carried forward with its value.
   const active = new Set([...v16, ...(inp.open ?? []).filter((f) => f.check_id === 'V16' && unknown.has(f.key))]
     .map((f) => String((f.detail as any)?.cap_id ?? '')));
-  const found = [...pressure(inp, rules, active, unknown), ...outage(inp, rules), ...v16, ...runway(inp, rules, unknown), ...drift(inp, rules)];
+  const found = [...pressure(inp, rules, active, unknown), ...outage(inp, rules, unknown), ...v16, ...runway(inp, rules, unknown), ...drift(inp, rules)];
   return { found, unknown: [...unknown] };
 }
 export const evaluate = (inp: GovInput): Finding[] => governor(inp).found;
