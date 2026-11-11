@@ -251,8 +251,8 @@ select is(public.staff_guest_card_v1('e1150000-0000-4000-8000-000000000001', 'e1
 update public.guests set notes = 'Likes quiet rooms' where id = 'e1150000-0000-4000-8000-0000000000c1';
 select is(public.staff_guest_card_v1('e1150000-0000-4000-8000-000000000001', 'e1150000-0000-4000-8000-0000000000c1', date '2026-11-04') ->> 'notes',
   'Likes quiet rooms || 2026-10-22: Turnover report: Broken glass sa [hidden] gamit', 'the chunk joins the existing notes with the usual separator');
-select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'id_face_box', 'tier', 'tier_line', 'notable'] and (select count(*) from jsonb_object_keys(c)) = 9
-             from (select public.staff_guest_card_v1('e1150000-0000-4000-8000-000000000001', 'e1150000-0000-4000-8000-0000000000c1', date '2026-11-09') c) x), 'the card keeps its nine keys');
+select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'id_photo_name', 'id_face_box', 'tier', 'tier_line', 'notable'] and (select count(*) from jsonb_object_keys(c)) = 10
+             from (select public.staff_guest_card_v1('e1150000-0000-4000-8000-000000000001', 'e1150000-0000-4000-8000-0000000000c1', date '2026-11-09') c) x), 'the card keeps its nine keys plus id_photo_name (s116)');
 
 insert into auth.users(id) values ('e1150000-0000-4000-8000-0000000000a1') on conflict do nothing;
 insert into public.staff_access_profiles(user_id, role) values ('e1150000-0000-4000-8000-0000000000a1', 'owner') on conflict do nothing;

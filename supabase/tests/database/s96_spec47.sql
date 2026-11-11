@@ -82,7 +82,7 @@ select is(public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uui
 select is(public.staff_guest_card_v1('f9600000-0000-4000-8000-0000000000aa', 'f9600000-0000-4000-8000-0000000000c3', current_date) -> 'notable', '[]'::jsonb, 'another property sees no topics of this guest');
 
 -- every old key is unchanged: a guest with no stays, and a returning guest
-select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'id_face_box', 'tier', 'tier_line', 'notable'] and (select count(*) from jsonb_object_keys(c)) = 9
+select ok((select c ?& array['repeat', 'stay_count', 'earlier_stays', 'notes', 'id_photo_path', 'id_photo_name', 'id_face_box', 'tier', 'tier_line', 'notable'] and (select count(*) from jsonb_object_keys(c)) = 10
              from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c2', current_date) c) x), 'the card has its seven old keys, id_face_box (s97) and exactly one new one (notable)');
 select is((select c - 'notable' - 'notes' - 'id_photo_path' - 'id_face_box' from (select public.staff_guest_card_v1('6ae230f4-c189-4547-84b1-cb6e0b2cc9bd', 'f9600000-0000-4000-8000-0000000000c2', current_date) c) x),
   '{"repeat": false, "stay_count": 1, "earlier_stays": [], "tier": null, "tier_line": null}'::jsonb, 'no-stay guest: repeat, stay_count, earlier_stays, tier and tier_line as before (notes, id_photo_path, id_face_box and notable not compared)');
