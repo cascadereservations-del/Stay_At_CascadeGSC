@@ -51,7 +51,7 @@ import { requireStaffAccess, staffAuthResponse } from '../_shared/staff-auth.ts'
 import { ARCHIVED_NOTE, meterPhotosArchived } from './archived.ts';
 import {
   agreesAllowingForDecimalPoint, alignedIfAgrees, asVisionResult, ELECTRIC_TOLERANCE, isPending, isPrecheckBody, MIN_CONFIDENCE, ownsPath,
-  precheckOutcome, PRECHECK_CAP, readText, storedVision, PRECHECK_WINDOW_MIN, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
+  precheckOutcome, PRECHECK_CAP, readText, runVisionChain, storedVision, PRECHECK_WINDOW_MIN, UNAVAILABLE_MESSAGE, type VisionResult, WATER_TOLERANCE, type Which,
 } from './logic.ts';
 
 // Deliberately NOT importing ../_shared/observability.ts. Every other ops
@@ -221,17 +221,14 @@ async function readMeter(b64: string, mime: string, which: Which, signal?: Abort
   const or = async () => ({ ...(await readWithOpenRouter(b64, mime, which, signal)), via: 'openrouter' as const });
   const gm = async () => ({ ...(await readWithGemini(b64, mime, which, signal)), via: 'gemini' as const });
   const orFirst = PROVIDER === 'openrouter';
-  const [first, second] = orFirst ? [or, gm] : [gm, or];
-  const [firstKey, secondKey] = orFirst ? [OPENROUTER_KEY, GEMINI_KEY] : [GEMINI_KEY, OPENROUTER_KEY];
-  if (!firstKey && !secondKey) throw new Error('CASCADE_OPENROUTER_BOT_KEY and CASCADE_GEMINI_BOT_KEY not set');
-  if (!firstKey) return await second();
-  try {
-    return await first();
-  } catch (e) {
-    if (!secondKey) throw e;
-    console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) }));
-    return await second();
-  }
+  if (!OPENROUTER_KEY && !GEMINI_KEY) throw new Error('CASCADE_OPENROUTER_BOT_KEY and CASCADE_GEMINI_BOT_KEY not set');
+  // s115: Gemini answered 402 on every call, so with OpenRouter primary it is a fallback only when VISION_GEMINI_FALLBACK=1.
+  return await runVisionChain<VisionResult>({
+    orFirst, firstKey: !!(orFirst ? OPENROUTER_KEY : GEMINI_KEY), secondKey: !!(orFirst ? GEMINI_KEY : OPENROUTER_KEY),
+    allowSecond: Deno.env.get('VISION_GEMINI_FALLBACK') === '1',
+    first: orFirst ? or : gm, second: orFirst ? gm : or,
+    warn: (e) => console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) })),
+  });
 }
 
 // One verdict for the pair. The order is deliberate: "not a meter" outranks

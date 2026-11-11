@@ -65,3 +65,23 @@ Deno.test('vision: both refuse with the fallback on, the error is the last provi
   assertEquals(hits, ['openrouter', 'gemini']);
   assertEquals(hasVisionKey(), true);
 });
+
+// A Gemini-primary run needs its own module instance: VISION_PROVIDER is read at import. The query string makes a fresh one.
+Deno.env.set('VISION_PROVIDER', 'gemini');
+const g = await import('./cascade-core/vision.ts?gemini');
+Deno.env.delete('VISION_PROVIDER');
+
+Deno.test('vision: Gemini primary + Gemini 402 still falls through to OpenRouter', async () => {
+  const hits: string[] = [];
+  stub(402, 200, hits);
+  try { assertEquals(await g.visionExtractText('p', 'aGk=', 'image/jpeg'), '{"from":"openrouter"}'); } finally { globalThis.fetch = realFetch; }
+  assertEquals(hits, ['gemini', 'openrouter']);
+});
+
+Deno.test('vision: a 402 on the second call is labelled credit_exhausted too', async () => {
+  const hits: string[] = [];
+  stub(402, 500, hits);
+  Deno.env.set('VISION_GEMINI_FALLBACK', '1');
+  try { await assertRejects(() => visionExtractText('p', 'aGk=', 'image/jpeg'), Error, 'credit_exhausted:'); } finally { globalThis.fetch = realFetch; Deno.env.delete('VISION_GEMINI_FALLBACK'); }
+  assertEquals(hits, ['openrouter', 'gemini']);
+});

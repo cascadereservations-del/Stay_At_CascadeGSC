@@ -133,3 +133,19 @@ export const PRECHECK_WINDOW_MIN = 10;
 export function isPrecheckBody(body: unknown): boolean {
   return !!body && typeof body === 'object' && (body as Record<string, unknown>).mode === 'precheck';
 }
+
+const is402 = (e: unknown) => /(?:openrouter|gemini)_402\b/.test(String(e));
+const credit = (e: unknown) => new Error(`credit_exhausted: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`);
+/** s115: the provider order for one read. An OpenRouter-primary 402 stops (the fallback is the Gemini that answers 402);
+ *  Gemini is a fallback only when allowSecond (VISION_GEMINI_FALLBACK=1); a 402 on any call is labelled credit_exhausted:. */
+export async function runVisionChain<T>(o: { orFirst: boolean; firstKey: boolean; secondKey: boolean; allowSecond: boolean; first: () => Promise<T>; second: () => Promise<T>; warn?: (e: unknown) => void }): Promise<T> {
+  const secondOk = !o.orFirst || o.allowSecond;
+  const callSecond = async () => { try { return await o.second(); } catch (e2) { throw is402(e2) ? credit(e2) : e2; } };
+  if (!o.firstKey) { if (!o.secondKey || !secondOk) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set'); return await callSecond(); }
+  try { return await o.first(); } catch (e) {
+    if (o.orFirst && is402(e)) throw credit(e);
+    if (!o.secondKey || !secondOk) throw is402(e) ? credit(e) : e;
+    o.warn?.(e);
+    return await callSecond();
+  }
+}

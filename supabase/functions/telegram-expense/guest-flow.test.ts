@@ -269,3 +269,15 @@ Deno.test('an Airbnb e-mail card: an admin Cancel writes nothing and removes the
   assertEquals(f.calls.filter((c) => c.fn.startsWith('telegram_save')).length, 0);
   assertEquals(f.rows.length, 0);
 });
+
+Deno.test('a credit_exhausted read shows a calm line, never the provider JSON; other errors are unchanged', async () => {
+  for (const [msg, calm] of [['credit_exhausted: openrouter_402: {"error":"x"}', true], ['boom', false]] as const) {
+    const f = fakeDb(); const { d, sent, edits } = deps(f, ID_READ, { read: async () => { throw new Error(msg); } });
+    await startGuestIntake(d, photoMsg, 'F1');
+    await onGuestTap(d, tap(`gst:pick:${pidOf(sent[0].extra.reply_markup)}:0`));
+    const t = edits[edits.length - 1].text;
+    assertEquals(t.includes('Reading the ID photo is paused for now. Please type the details by hand.'), calm);
+    assert(!t.includes('402') && !t.includes('openrouter'), t);
+    if (!calm) assert(t.includes('I could not read that photo (boom)'), t);
+  }
+});

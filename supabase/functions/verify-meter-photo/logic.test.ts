@@ -1,4 +1,4 @@
-import { asVisionResult, isPrecheckBody, ownsPath, precheckOutcome, type VisionResult } from './logic.ts';
+import { runVisionChain, asVisionResult, isPrecheckBody, ownsPath, precheckOutcome, type VisionResult } from './logic.ts';
 
 const P = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
 const U = '50ccca5a-3e59-4299-9680-837fd8d88ac4';
@@ -98,4 +98,31 @@ Deno.test('precheck reports the aligned read', () => {
   eq(agreesAllowingForDecimalPoint(4.312, 4312, 2), true, 'x1000 shift agrees');
   eq(alignedIfAgrees(806, 80.6, 'water'), 80.6, 'agrees');
   eq(alignedIfAgrees(68, 68.827, 'water'), 68, 'whole part');
+});
+
+const chain = (o: { orFirst?: boolean; allow?: boolean; a: string; b: string }) => {
+  const calls: string[] = [];
+  const mk = (n: string, code: string) => async () => { calls.push(n); if (code === 'ok') return n; throw new Error(code); };
+  const p = runVisionChain({ orFirst: o.orFirst ?? true, firstKey: true, secondKey: true, allowSecond: o.allow ?? false, first: mk('first', o.a), second: mk('second', o.b) });
+  return { p, calls };
+};
+const rejects = (p: Promise<unknown>, want: string) => p.then(() => { throw new Error('should reject'); }, (e) => eq(String(e).includes(want), true, `error has ${want}: ${e}`));
+Deno.test('chain: OpenRouter fails, default makes no Gemini call; the flag restores it', async () => {
+  const a = chain({ a: 'openrouter_500', b: 'ok' });
+  await rejects(a.p, 'openrouter_500');
+  eq(a.calls.join(), 'first', 'no second call');
+  const b = chain({ a: 'openrouter_500', b: 'ok', allow: true });
+  eq(await b.p, 'second', 'fallback result'); eq(b.calls.join(), 'first,second', 'both called');
+});
+Deno.test('chain: an OpenRouter 402 makes no second call even with the flag; a second-call 402 is labelled', async () => {
+  const a = chain({ a: 'openrouter_402: {}', b: 'ok', allow: true });
+  await rejects(a.p, 'credit_exhausted:');
+  eq(a.calls.join(), 'first', 'one call');
+  const b = chain({ a: 'openrouter_500', b: 'gemini_402: {}', allow: true });
+  await rejects(b.p, 'credit_exhausted:');
+  eq(b.calls.join(), 'first,second', 'two calls');
+});
+Deno.test('chain: Gemini primary + 402 still falls to OpenRouter', async () => {
+  const a = chain({ orFirst: false, a: 'gemini_402: {}', b: 'ok' });
+  eq(await a.p, 'second', 'result'); eq(a.calls.join(), 'first,second', 'both');
 });

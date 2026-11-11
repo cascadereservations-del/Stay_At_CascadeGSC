@@ -275,6 +275,17 @@ function v22Headline(f: Finding): string {
   const since = Number.isFinite(t) ? dm(manilaClock(new Date(t)).today) : 'recently';
   return `${p} has refused every paid call since ${since}: the credit is used up.`;
 }
+// s115 V23: a meter reading that does not follow the one before it (Finance; the KPI charts leave it out).
+function v23Headline(f: Finding): string {
+  const d = (f.detail ?? {}) as Record<string, any>;
+  return `A meter reading does not follow the one before it${dm(d.checkout) ? `, the checkout of ${dm(d.checkout)}` : ''}.`;
+}
+function v23Facts(f: Finding): string[] {
+  const d = (f.detail ?? {}) as Record<string, any>;
+  const prev = str(d.prev), exp = str(d.expected_prev), rd = str(d.reading);
+  const chain = prev && exp ? `The reading before it is ${prev}, but this one says it started from ${exp}.` : 'The values it should follow on from are not on record.';
+  return [`${rd ? `This reading is ${rd}. ` : ''}${chain}`];
+}
 const V22_LEAD = 'Until it is topped up,';
 function listAnd(xs: string[]): string {
   return xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
@@ -324,6 +335,7 @@ function headline(f: Finding, now: Date): string {
     case 'V20': return v20Headline(f);
     case 'V21': return v21Headline(f);
     case 'V22': return v22Headline(f);
+    case 'V23': return v23Headline(f);
     case 'V10':
       return f.key === 'V10:stale'
         ? `System health last ran ${ago(d.last_run, now)}, so the numbers below are older than they look.`
@@ -375,6 +387,7 @@ function facts(f: Finding): string[] {
     case 'V20': return v20Facts(f);
     case 'V21': return [airbnbUrl(d.code), d.event ? `id ${str(d.event).slice(0, 8).toUpperCase()}` : ''].filter(Boolean);
     case 'V22': return v22Facts(f);
+    case 'V23': return v23Facts(f);
     case 'V19':
       return V19_HYGIENE[str(d.metric)] ? [] : [`${monthOf(d.month)} · ${V19_LABEL[str(d.metric)] ?? str(d.metric)}`];
     case 'V10': {
@@ -417,6 +430,7 @@ function action(f: Finding): string {
       ? 'check the reservation on Airbnb. If it really is cancelled, cancel the booking here and free the nights; if not, restore it there.'
       : 'open the Airbnb calendar and remove the block if the guest is not coming, or restore the reservation if they are.';
     case 'V22': return `top up the ${PROVIDER_NAME[str((f.detail as any)?.provider)] ?? str((f.detail as any)?.provider, 'provider')} credit; the paid calls resume by themselves on the next hourly check.`;
+    case 'V23': return 'open the meter readings card and correct or flag the reading; the KPI charts leave it out until then.';
     case 'V19': return V19_HYGIENE[str((f.detail as any)?.metric)]
       ? 'fix the rows named in the system check detail, or press Known.'
       : "open Insights for the same month. Do not quote this month's KPIs until the verifier is green.";
@@ -447,7 +461,7 @@ const LINK: Record<string, string> = {
  */
 function alertSubject(f: Finding): string {
   // S115: V20/V21/V22 titles are stored as passing assertions too, so the subject names the problem instead.
-  const S115_SUBJECT: Record<string, string> = { V20: 'cleaner advance does not match its stay', V21: 'calendar and reservation disagree', V22: 'provider credit is used up' };
+  const S115_SUBJECT: Record<string, string> = { V20: 'cleaner advance does not match its stay', V21: 'calendar and reservation disagree', V22: 'provider credit is used up', V23: 'a meter reading does not follow the one before it' };
   if (S115_SUBJECT[f.check_id]) return S115_SUBJECT[f.check_id];
   if (f.check_id !== 'V10') return f.title.toLowerCase();
   if (f.key === 'V10:stale') return 'system health has not run';

@@ -1,6 +1,6 @@
 // cascade-core vision (session 27, booking PRD task 2 — the OCR merge). One image-to-JSON call
 // shared by ocr-receipt, telegram-expense and upload-booking-receipt. Same env contract as before
-// (D-090, D-222): VISION_PROVIDER first (default openrouter), the other provider when it refuses (Gemini only if VISION_GEMINI_FALLBACK=1; never after a 402, which throws credit_exhausted:); VISION_MODEL
+// (D-090, D-222): VISION_PROVIDER first (default openrouter), the other provider when it refuses (Gemini only if VISION_GEMINI_FALLBACK=1; after an OpenRouter 402 never, it throws credit_exhausted:); VISION_MODEL
 // overrides the model for either; keys CASCADE_GEMINI_BOT_KEY / CASCADE_OPENROUTER_BOT_KEY only - the two model keys
 // this project uses (01-FACTS). Returns the raw model text; callers parse — their JSON shapes differ.
 import { recordUsage } from './usage.ts';
@@ -43,14 +43,18 @@ export async function visionExtractText(prompt: string, image: Uint8Array | stri
   const [firstKey, secondKey] = orFirst ? [OPENROUTER_KEY, GEMINI_KEY] : [GEMINI_KEY, OPENROUTER_KEY];
   // s115 (API-COST-AUDIT rec 3, 5): Gemini answered 402 on 203/203 calls in 60 days, so it is opt-in (VISION_GEMINI_FALLBACK=1) and a 402 never tries the other provider.
   const secondOk = !orFirst || env('VISION_GEMINI_FALLBACK') === '1';
-  if (!firstKey) { if (!secondOk) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set'); return await second(prompt, b64, mime, title); }
+  const is402 = (e: unknown) => /(?:openrouter|gemini)_402\b/.test(String(e));
+  const credit = (e: unknown) => new Error(`credit_exhausted: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`);
+  const callSecond = async () => { try { return await second(prompt, b64, mime, title); } catch (e2) { throw is402(e2) ? credit(e2) : e2; } };
+  if (!firstKey) { if (!secondOk) throw new Error('CASCADE_OPENROUTER_BOT_KEY not set'); return await callSecond(); }
   try {
     return await first(prompt, b64, mime, title);
   } catch (e) {
-    if (/(?:openrouter|gemini)_402\b/.test(String(e))) throw new Error(`credit_exhausted: ${String(e instanceof Error ? e.message : e).slice(0, 200)}`);
-    if (!secondKey || !secondOk) throw e;
+    // A 402 from OpenRouter stops here (the fallback would be the Gemini that answers 402); a Gemini-primary 402 still tries OpenRouter.
+    if (orFirst && is402(e)) throw credit(e);
+    if (!secondKey || !secondOk) throw is402(e) ? credit(e) : e;
     console.warn('vision_fallback', JSON.stringify({ to: orFirst ? 'gemini' : 'openrouter', error: String(e).slice(0, 200) }));
-    return await second(prompt, b64, mime, title);
+    return await callSecond();
   }
 }
 

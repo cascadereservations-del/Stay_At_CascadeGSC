@@ -503,3 +503,16 @@ Deno.test('V20/V21/V22 with empty detail leave no gaps, double spaces or undefin
   assertStringIncludes(redCard(fs[2], NOW).text, 'for the cleaner has been stuck');
   assertStringIncludes(redCard(fs[7], NOW).text, 'refused every paid call since recently');
 });
+
+Deno.test('V23 meter chain: Finance, yellow, says which checkout and both values, tells what to do', () => {
+  const x = f({ key: 'V23:meter_chain:r1', check_id: 'V23', severity: 'yellow', title: 'Meter chain', detail: { reading: 4210, checkout: '2026-11-07', prev: 4100, expected_prev: 4050 } });
+  const c = buildCards({ new: [x], remind: [], resolved: [] }, NOW, TODAY);
+  assertEquals(c.length, 1);
+  assertEquals(c[0].to, 'finance');
+  assertStringIncludes(c[0].text, 'A meter reading does not follow the one before it, the checkout of 7 Nov.');
+  assertStringIncludes(c[0].text, 'This reading is 4210. The reading before it is 4100, but this one says it started from 4050.');
+  assertStringIncludes(c[0].text, 'open the meter readings card and correct or flag the reading; the KPI charts leave it out until then.');
+  const e = buildCards({ new: [f({ key: 'V23:meter_chain:r2', check_id: 'V23', severity: 'yellow', title: 'T', detail: {} })], remind: [], resolved: [] }, NOW, TODAY)[0].text;
+  for (const bad of ['  ', ' ,', ' .', 'undefined', 'null']) assert(!e.includes(bad), `"${bad}" in ${e}`);
+  assertStringIncludes(e, 'The values it should follow on from are not on record.');
+});

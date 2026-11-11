@@ -134,7 +134,11 @@ export async function onGuestTap(d: Deps, cq: any): Promise<void> {
       const ph = await d.photo(String(got.payload.file_id));
       if (!ph) { await d.edit(chatId, mid, header('guest photo', ['I could not download that photo from Telegram, so nothing was read or saved. Send it again with /guest.'])); return; }
       raw = await d.read(GUEST_PROMPT, ph.bytes, ph.mime);
-    } catch (e) { await d.edit(chatId, mid, header('guest photo', [`I could not read that photo (${d.esc(errText(e))}). Nothing was saved. Send it again with /guest.`])); return; }
+    } catch (e) {
+      // s115: a refused-credit read is a paused feature, not something staff can fix; never show the provider JSON.
+      const why = /credit_exhausted/.test(String((e as any)?.message ?? e)) ? 'Reading the ID photo is paused for now. Please type the details by hand.' : `I could not read that photo (${d.esc(errText(e))}). Nothing was saved. Send it again with /guest.`;
+      await d.edit(chatId, mid, header('guest photo', [why])); return;
+    }
     const plan = planFor(parseGuestRead(raw), g);
     if (!plan) { await d.edit(chatId, mid, header('guest photo', [`I could not find an ID or a guest's names and number in that photo, so nothing was saved for ${d.esc(g.name)}. Send a clearer photo with /guest.`])); return; }
     const spid = await put(d, chatId, 'guest_save', { from_id: got.payload.from_id, from_name: got.payload.from_name, file_id: got.payload.file_id, plan });
