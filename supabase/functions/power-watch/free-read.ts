@@ -1,3 +1,7 @@
+// D-366 (2026-11-11): two primaries that disagree no longer go straight to the paid reader. In the 123-run loop of
+// 2026-11-10/11 the same poster kept splitting the pair and every run paid again. Now the extra models in
+// CASCADE_OMNIROUTE_VISION_TIEBREAK read it one at a time, only while the run's read budget allows, and stop as soon as
+// ANY two usable reads share a decision key; otherwise the paid reader decides alone. An empty list is the old behaviour.
 // Session 69 (Lloyd 2026-10-04 "use all available free option as long as it is precise and that there are no false results"):
 // SOCOTECO posters are public utility notices, so they are read free first. Two different free vision models on Cascade
 // OmniRoute (Cloudflare Workers AI, no training on inputs; side-by-side 2026-10-03: Llama 4 Scout 6/6, Mistral Small 3.1 6/6)
@@ -30,18 +34,32 @@ async function omniVision(model: string, prompt: string, b64: string, mime: stri
 }
 
 /** Both free reads agree on `decide`, or the paid reader answers. `decide` returns null for a read that is not usable
- *  (no JSON, no date): two broken reads must never agree on "not ours". */
+ *  (no JSON, no date): two broken reads must never agree on "not ours". When the two primaries do not agree, the
+ *  `tiebreaks` run one at a time (D-366) until any two usable reads share a decision key; `canTiebreak` lets the caller
+ *  skip them when the run's read budget is nearly used. */
 export async function agreedRead(
   reads: Array<() => Promise<string>>,
   decide: (text: string) => string | null,
   paid: () => Promise<string>,
+  tiebreaks: Array<() => Promise<string>> = [],
+  canTiebreak: () => boolean = () => true,
 ): Promise<{ text: string; via: 'free' | 'paid'; why?: string }> {
-  const got = await Promise.all(reads.map((r) => r().then((t) => ({ t, k: decide(t) }), (e) => {
+  const run = (r: () => Promise<string>) => r().then((t) => ({ t, k: decide(t) }), (e) => {
     console.warn('power_watch_free_read_failed', String(e).slice(0, 200));
     return { t: '', k: null as string | null };
-  })));
-  const ok = got.length >= 2 && got.every((g) => g.k !== null && g.k === got[0].k);
-  if (ok) return { text: got[0].t, via: 'free' };
+  });
+  const got = await Promise.all(reads.map(run));
+  if (got.length >= 2 && got.every((g) => g.k !== null && g.k === got[0].k)) return { text: got[0].t, via: 'free' };
+  if (got.length >= 2) {
+    // Two usable reads in all, from the primaries or the tiebreaks so far, that share a key win; null never matches.
+    const pair = () => got.find((g, i) => g.k !== null && got.some((h, j) => j !== i && h.k === g.k));
+    for (const tb of tiebreaks) {
+      if (!canTiebreak()) break;
+      got.push(await run(tb));
+      const hit = pair();
+      if (hit) return { text: hit.t, via: 'free', why: 'tiebreak' };
+    }
+  }
   const why = got.length < 2 ? 'free_off' : got.some((g) => g.k === null) ? 'free_unusable' : 'free_disagree';
   return { text: await paid(), via: 'paid', why };
 }
@@ -53,6 +71,16 @@ export function freeReads(prompt: string, bytes: Uint8Array, mime: string): Arra
   if (!env('CASCADE_OMNIROUTE_URL') || !env('CASCADE_OMNIROUTE_KEY')) return [];
   const models = (env('CASCADE_OMNIROUTE_VISION_MODELS') || 'cloudflare-ai/@cf/meta/llama-4-scout-17b-16e-instruct,cloudflare-ai/@cf/mistralai/mistral-small-3.1-24b-instruct')
     .split(',').map((s) => s.trim()).filter(Boolean);
+  const b64 = bytesToBase64(bytes);
+  return models.map((m) => () => omniVision(m, prompt, b64, mime));
+}
+
+/** Extra OmniRoute direct models (CASCADE_OMNIROUTE_VISION_TIEBREAK, comma list; empty = none) tried one at a time by agreedRead
+ *  when the two primary reads disagree (D-366). */
+export function freeTiebreaks(prompt: string, bytes: Uint8Array, mime: string): Array<() => Promise<string>> {
+  if (!env('CASCADE_OMNIROUTE_URL') || !env('CASCADE_OMNIROUTE_KEY')) return [];
+  const models = env('CASCADE_OMNIROUTE_VISION_TIEBREAK').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!models.length) return [];
   const b64 = bytesToBase64(bytes);
   return models.map((m) => () => omniVision(m, prompt, b64, mime));
 }

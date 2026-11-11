@@ -75,3 +75,56 @@ Deno.test('a moved poster is usable when its moved-from date is the filename dat
   assertEquals(usable<Ocr>(moved, () => 'k', URL_HIT), 'k');
   assertEquals(usable<Ocr>(moved, () => 'k', 'https://x/no-date-in-name.jpg'), 'k');
 });
+
+// D-366 tiebreaks. A = SCOUT (08:00 start 06:00), B = start 08:00, C = start 09:00; every call is counted.
+const A = SCOUT, B = SCOUT.replace('"start":"06:00"', '"start":"08:00"'), C = SCOUT.replace('"start":"06:00"', '"start":"09:00"');
+const counted = (t: string, n: { c: number }) => () => { n.c++; return Promise.resolve(t); };
+const paidN = (n: { c: number }) => () => { n.c++; return Promise.resolve(PAID); };
+
+Deno.test('tiebreak: primaries agree -> no tiebreak call', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(A, n), counted(A, n)], key(URL_HIT, true), paidN(p), [counted(A, n)]);
+  assertEquals([r.via, r.why, n.c, p.c], ['free', undefined, 2, 0]);
+});
+
+Deno.test('tiebreak: disagree, first tiebreak agrees with A -> free, 3 calls', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(A, n), counted(B, n)], key(URL_HIT, true), paidN(p), [counted(A, n), counted(B, n)]);
+  assertEquals([r.via, r.why, r.text, n.c, p.c], ['free', 'tiebreak', A, 3, 0]);
+});
+
+Deno.test('tiebreak: first tiebreak disagrees with both, second agrees with B -> free, 4 calls', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(A, n), counted(B, n)], key(URL_HIT, true), paidN(p), [counted(C, n), counted(B, n)]);
+  assertEquals([r.via, r.why, r.text, n.c, p.c], ['free', 'tiebreak', B, 4, 0]);
+});
+
+Deno.test('tiebreak: all disagree -> paid once', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(A, n), counted(B, n)], key(URL_HIT, true), paidN(p), [counted(C, n), counted(C.replace('09:00', '10:00'), n)]);
+  assertEquals([r.via, r.why, n.c, p.c], ['paid', 'free_disagree', 4, 1]);
+});
+
+Deno.test('tiebreak: one primary fails, tiebreak agrees with the other -> free', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(A, n), () => Promise.reject(new Error('omniroute_vision_429'))], key(URL_HIT, true), paidN(p), [counted(A, n)]);
+  assertEquals([r.via, r.why, r.text, n.c, p.c], ['free', 'tiebreak', A, 2, 0]);
+});
+
+Deno.test('tiebreak: empty list is the old behaviour, no extra calls', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(A, n), counted(B, n)], key(URL_HIT, true), paidN(p), []);
+  assertEquals([r.via, r.why, n.c, p.c], ['paid', 'free_disagree', 2, 1]);
+});
+
+Deno.test('tiebreak: unusable reads never agree', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted('sorry', n), counted('{}', n)], key(URL_READ, false), paidN(p), [counted('sorry', n), counted('', n)]);
+  assertEquals([r.via, r.why, p.c], ['paid', 'free_unusable', 1]);
+});
+
+Deno.test('tiebreak: budget exhausted -> no tiebreak, paid as before', async () => {
+  const n = { c: 0 }, p = { c: 0 };
+  const r = await agreedRead([counted(A, n), counted(B, n)], key(URL_HIT, true), paidN(p), [counted(A, n)], () => false);
+  assertEquals([r.via, r.why, n.c, p.c], ['paid', 'free_disagree', 2, 1]);
+});

@@ -31,7 +31,7 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { parseModelJson, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { isPowerPost, noticeFrom, OCR_PROMPT, postedAt, posterUrls, type Ocr } from './poster.ts';
-import { agreedRead, decisionKey, freeReads, usable } from './free-read.ts';
+import { agreedRead, decisionKey, freeReads, freeTiebreaks, usable } from './free-read.ts';
 import { scheduleFrom, supersededBy, touchedNights } from './plan.ts';
 import { RATE_OCR_PROMPT, rateFromImageJson, rateFromPosts, rateImageCandidate } from './rates.ts';
 import { reportStuck, scanPosts } from './scan.ts';
@@ -124,7 +124,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
   const { data: st } = await db.from('app_settings').select('value').eq('key', STATE_KEY).maybeSingle();
   // ours (SPEC-41): a poster the OCR found to be ours -> the date it read, so scheduleFrom can tell which dates SOCOTECO still lists.
   const state = { done: [...(st?.value?.done ?? [])] as number[], images: [...(st?.value?.images ?? [])] as string[], ours: { ...(st?.value?.ours ?? {}) } as Record<string, string>, fails: { ...(st?.value?.fails ?? {}) } as Record<string, number> };
-  const now = new Date();
+  const t0 = Date.now(), now = new Date();
   const today = new Date(now.getTime() + 8 * 3_600_000).toISOString().slice(0, 10);
   // Reads every poster not yet in state.images, in done posts too (scan.ts).
   const { found, log, reads, stuck } = await scanPosts(posts, state, today, async (url, c) => {
@@ -133,7 +133,8 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     const bytes = new Uint8Array(await img.arrayBuffer()), mime = img.headers.get('content-type') ?? 'image/jpeg';
     // Session 69: two free reads that agree on the decision, else the paid reader (free-read.ts).
     const decide = (t: string) => usable<Ocr>(t, (o) => decisionKey(noticeFrom(o, c === 'hit', url), o), url);
-    const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'));
+    const read = await agreedRead(freeReads(OCR_PROMPT, bytes, mime), decide, () => visionExtractText(OCR_PROMPT, bytes, mime, 'Cascade Power Watch'),
+      freeTiebreaks(OCR_PROMPT, bytes, mime), () => Date.now() - t0 < READ_BUDGET_MS - 30_000); // a tiebreak is one more 30 s call
     const o = parseModelJson<Ocr>(read.text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), {});
     const n = noticeFrom(o, c === 'hit', url);
     return { notice: n, log: `${url.split('/').pop()} ${c} ${read.via}${read.why ? `(${read.why})` : ''} -> ${n ? `ours ${n.date} ${n.time ?? ''} ${n.status}` : 'not ours'}` };
