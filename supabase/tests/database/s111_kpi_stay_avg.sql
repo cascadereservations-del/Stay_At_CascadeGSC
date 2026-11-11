@@ -1,5 +1,5 @@
 -- Session 111, lane SQL: release s111_kpi_stay_avg_20261113, contract revision 2. kpi_tab_v1 utility block per day between meter readings, nights_booked,
--- per_stay, per_month; admin.target; kpi_target_set_v1. Hand-computed numbers. Counted reading: both prev > 0, both deltas >= 0, flag null / typed_accepted / estimated.
+-- per_stay, per_month; admin.target; kpi_target_set_v1. Hand-computed numbers. Counted reading: both prev > 0, both deltas >= 0, flag null / typed_accepted / estimated. SUPERSEDED IN PART by s115 (amendment 3): days run between CHECKOUT dates of the eligible readings in meter-chain order; the fixture readings are chained (electric_curr).
 -- days = Manila days since the property's previous reading of any flag (min 1, null for the first). Fixtures use uuids d1110000-...; everything rolls back.
 begin;
 select plan(57);
@@ -31,21 +31,21 @@ insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_i
   (pg_temp.id('d3'), 'zz111-sub-d3', 'Zz111 Cleaner', pg_temp.id('b0'), timestamptz '2020-06-05 10:00+08', 1, date '2020-06-05', 'turnover');
 -- Chronological. Counted: ea (first ever, days null), e9 (1 day), e8 (316), e1 (3), e2 (2), eb (same day: 1), e7 (20), f1 (32), f2 (4).
 -- Not counted but still the previous reading for days: e0 misread, e3 electric_prev 0, e4 water_prev 0, e5 negative water, e6 under_review.
-insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, water_prev, electric_delta, water_delta, meter_flag) values
-  (pg_temp.id('ea'), null,           pg_temp.id('b0'), timestamptz '2019-06-30 23:30+08', 400, 90, 999, 99, null),
-  (pg_temp.id('e9'), null,           pg_temp.id('b0'), timestamptz '2019-07-01 00:30+08', 300, 80, 9, 0.9, null),
-  (pg_temp.id('e8'), null,           pg_temp.id('b0'), timestamptz '2020-05-12 09:00+08', 200, 70, 7, 1.5, null),
-  (pg_temp.id('e0'), null,           pg_temp.id('b0'), timestamptz '2020-06-01 09:00+08', 130, 56, 500, 90, 'misread'),
-  (pg_temp.id('e1'), pg_temp.id('d1'), pg_temp.id('b0'), timestamptz '2020-06-04 09:00+08', 100, 50, 30, 6, null),
-  (pg_temp.id('e3'), pg_temp.id('d3'), pg_temp.id('b0'), timestamptz '2020-06-05 09:00+08', 0, 5, 300, 30, null),
-  (pg_temp.id('e4'), null,           pg_temp.id('b0'), timestamptz '2020-06-06 09:00+08', 10, 0, 40, 20, null),
-  (pg_temp.id('e5'), null,           pg_temp.id('b0'), timestamptz '2020-06-07 09:00+08', 10, 10, 50, -1, null),
-  (pg_temp.id('e6'), null,           pg_temp.id('b0'), timestamptz '2020-06-08 09:00+08', 10, 10, 60, 60, 'under_review'),
-  (pg_temp.id('e2'), pg_temp.id('d2'), pg_temp.id('b0'), timestamptz '2020-06-10 09:00+08', 120, 54, 10, 2, 'typed_accepted'),
-  (pg_temp.id('eb'), null,           pg_temp.id('b0'), timestamptz '2020-06-10 18:00+08', 130, 56, 3, 0.3, null),
-  (pg_temp.id('e7'), null,           pg_temp.id('b0'), timestamptz '2020-06-30 23:30+08', 133, 56, 40, 2, 'estimated'),
-  (pg_temp.id('f1'), null,           pg_temp.id('b0'), timestamptz '2020-08-01 09:00+08', 150, 60, 8, 0.8, null),
-  (pg_temp.id('f2'), null,           pg_temp.id('b0'), timestamptz '2020-08-05 09:00+08', 158, 61, 12, 0.6, null);
+insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
+  (pg_temp.id('ea'), null,           pg_temp.id('b0'), timestamptz '2019-06-30 23:30+08', 400, 1399, 90, 999, 99, null),
+  (pg_temp.id('e9'), null,           pg_temp.id('b0'), timestamptz '2019-07-01 00:30+08', 1399, 1408, 80, 9, 0.9, null),
+  (pg_temp.id('e8'), null,           pg_temp.id('b0'), timestamptz '2020-05-12 09:00+08', 1408, 1415, 70, 7, 1.5, null),
+  (pg_temp.id('e0'), null,           pg_temp.id('b0'), timestamptz '2020-06-01 09:00+08', 130, null, 56, 500, 90, 'misread'),
+  (pg_temp.id('e1'), pg_temp.id('d1'), pg_temp.id('b0'), timestamptz '2020-06-04 09:00+08', 1415, 1445, 50, 30, 6, null),
+  (pg_temp.id('e3'), pg_temp.id('d3'), pg_temp.id('b0'), timestamptz '2020-06-05 09:00+08', 0, null, 5, 300, 30, null),
+  (pg_temp.id('e4'), null,           pg_temp.id('b0'), timestamptz '2020-06-06 09:00+08', 10, null, 0, 40, 20, null),
+  (pg_temp.id('e5'), null,           pg_temp.id('b0'), timestamptz '2020-06-07 09:00+08', 10, null, 10, 50, -1, null),
+  (pg_temp.id('e6'), null,           pg_temp.id('b0'), timestamptz '2020-06-08 09:00+08', 10, null, 10, 60, 60, 'under_review'),
+  (pg_temp.id('e2'), pg_temp.id('d2'), pg_temp.id('b0'), timestamptz '2020-06-10 09:00+08', 1445, 1455, 54, 10, 2, 'typed_accepted'),
+  (pg_temp.id('eb'), null,           pg_temp.id('b0'), timestamptz '2020-06-10 18:00+08', 1455, 1458, 56, 3, 0.3, null),
+  (pg_temp.id('e7'), null,           pg_temp.id('b0'), timestamptz '2020-06-30 23:30+08', 1458, 1498, 56, 40, 2, 'estimated'),
+  (pg_temp.id('f1'), null,           pg_temp.id('b0'), timestamptz '2020-08-01 09:00+08', 1498, 1506, 60, 8, 0.8, null),
+  (pg_temp.id('f2'), null,           pg_temp.id('b0'), timestamptz '2020-08-05 09:00+08', 1506, 1518, 61, 12, 0.6, null);
 
 -- Rates for month_kwh_cost (M1): 10/kWh from 2020-05-01, 12/kWh from 2020-06-08. Counted June readings: e1 06-04 30 x 10, e2 06-10 10 x 12, eb 3 x 12, e7 40 x 12
 -- = 936.00. e3 (electric_prev 0, on a 1-night session) must not be costed: the s110 rule would have added 300 x 10 and dropped eb and e7 (no session).
@@ -94,8 +94,8 @@ create temp table _tg as select j -> 'admin' -> 'target' as t from _k_admin;
 -- month block (June 2020: e1 30/6 over 3 days, e2 10/2 over 2, eb 3/0.3 over 1, e7 40/2 over 20)
 select is((select (u ->> 'kwh_month')::numeric from _u), 83.00::numeric, 'kwh_month sums the counted readings of the month: 30 + 10 + 3 + 40');
 select is((select (u ->> 'm3_month')::numeric from _u), 10.30::numeric, 'm3_month: 6 + 2 + 0.3 + 2');
-select is((select (u ->> 'kwh_per_day')::numeric from _u), 3.19::numeric, 'kwh_per_day is 83 kWh over 26 days (3 + 2 + 1 + 20)');
-select is((select (u ->> 'm3_per_day')::numeric from _u), 0.40::numeric, 'm3_per_day is 10.3 m3 over 26 days');
+select is((select (u ->> 'kwh_per_day')::numeric from _u), 1.66::numeric, 'kwh_per_day is 83 kWh over 50 days between checkouts (23 + 6 + 1 + 20; s115: not days between reports)');
+select is((select (u ->> 'm3_per_day')::numeric from _u), 0.21::numeric, 'm3_per_day is 10.3 m3 over 50 days');
 select ok((select not (u ?| array['kwh_per_night', 'm3_per_night', 'nights_month']) from _u), 'kwh_per_night, m3_per_night and nights_month are gone');
 select is((select (u ->> 'nights_booked')::integer || '/' || (u ->> 'nights_in_month') from _u), '7/30', 'nights_booked: 7 distinct sold nights of 30 (overlap once, cancelled out, July nights out)');
 select is((select (u ->> 'nights_booked')::integer from _u),
@@ -116,20 +116,20 @@ select is((select jsonb_array_length(u -> 'per_stay') from _u), 8, 'per_stay hol
 select is((select (u -> 'per_stay' -> 0 ->> 'days') || '/' || (u -> 'per_stay' -> 0 ->> 'kwh_per_day') || '/' || (u -> 'per_stay' -> 0 ->> 'm3_per_day') from _u), '1/9.00/0.90',
           'per_stay[0] is e9: 00:30 Manila the day after the previous reading counts 1 day');
 select is((select (u -> 'per_stay' -> 2 ->> 'checkout_date') || '/' || (u -> 'per_stay' -> 2 ->> 'days') || '/' || (u -> 'per_stay' -> 2 ->> 'kwh') || '/' || (u -> 'per_stay' -> 2 ->> 'kwh_per_day')
-                  || '/' || (u -> 'per_stay' -> 2 ->> 'm3_per_day') from _u), '2020-06-04/3/30.00/10.00/2.00', 'e1: readings 3 days apart, 30 kWh -> 10 a day, 6 m3 -> 2 a day (a misread reading still starts the count)');
-select is((select (u -> 'per_stay' -> 3 ->> 'days') || '/' || (u -> 'per_stay' -> 3 ->> 'kwh_per_day') from _u), '2/5.00', 'e2 counts from the under_review reading 2 days before it');
+                  || '/' || (u -> 'per_stay' -> 2 ->> 'm3_per_day') from _u), '2020-06-04/23/30.00/1.30/0.26', 'e1: checkout 06-04, 23 days after the previous eligible reading (e8, 05-12): 30 kWh -> 1.30 a day, 6 m3 -> 0.26 (s115: the misread e0 no longer starts the count)');
+select is((select (u -> 'per_stay' -> 3 ->> 'days') || '/' || (u -> 'per_stay' -> 3 ->> 'kwh_per_day') from _u), '6/1.67', 'e2 counts from the previous eligible reading e1 (checkout 06-04), 6 days: 10 kWh -> 1.67 a day');
 select is((select (u -> 'per_stay' -> 4 ->> 'days') || '/' || (u -> 'per_stay' -> 4 ->> 'kwh_per_day') from _u), '1/3.00', 'a second reading on the same Manila day counts 1 day (minimum)');
 select is((select (u -> 'per_stay' -> 7 ->> 'recorded_at')::timestamptz from _u), timestamptz '2020-08-05 09:00+08', 'per_stay ends with the latest counted reading');
-select ok((select bool_and(e ?& array['checkout_date', 'recorded_at', 'days', 'kwh', 'kwh_per_day', 'm3', 'm3_per_day'] and (select count(*) from jsonb_object_keys(e)) = 7)
-             from _u, jsonb_array_elements(u -> 'per_stay') e), 'every per_stay item has exactly the seven contract keys');
+select ok((select bool_and(e ?& array['checkout_date', 'recorded_at', 'from', 'to', 'days', 'kwh', 'kwh_per_day', 'm3', 'm3_per_day'] and (select count(*) from jsonb_object_keys(e)) = 9)
+             from _u, jsonb_array_elements(u -> 'per_stay') e), 'every per_stay item has exactly the seven contract keys plus from and to (s115)');
 
 -- per_month
 select is((select jsonb_array_length(j -> 'utility' -> 'per_month') from _k_c2020), 12, 'per_month has 12 rows');
 select is((select string_agg(e ->> 'month', ',' order by n) from _k_c2020, jsonb_array_elements(j -> 'utility' -> 'per_month') with ordinality t(e, n)),
           '2019-07,2019-08,2019-09,2019-10,2019-11,2019-12,2020-01,2020-02,2020-03,2020-04,2020-05,2020-06', 'the months run oldest first and end with the selected month');
 select is((select (row ->> 'stays') || '/' || (row ->> 'kwh') || '/' || (row ->> 'm3') || '/' || (row ->> 'kwh_per_stay') || '/' || (row ->> 'm3_per_stay') || '/'
-                  || (row ->> 'kwh_per_day') || '/' || (row ->> 'm3_per_day') from _pm where month = '2020-06'), '4/83.00/10.30/20.8/2.58/3.19/0.40',
-          'June 2020: 4 counted readings, 83 kWh and 10.3 m3, per stay 20.8 / 2.58, per day 3.19 / 0.40');
+                  || (row ->> 'kwh_per_day') || '/' || (row ->> 'm3_per_day') from _pm where month = '2020-06'), '4/83.00/10.30/20.8/2.58/1.66/0.21',
+          'June 2020: 4 counted readings, 83 kWh and 10.3 m3, per stay 20.8 / 2.58, per day 1.66 / 0.21 (83 kWh and 10.3 m3 over 50 days)');
 select is((select (row ->> 'stays') || '/' || (row ->> 'kwh') || '/' || (row ->> 'kwh_per_day') from _pm where month = '2020-05'), '1/7.00/0.02', 'May 2020: 7 kWh over 316 days');
 select is((select (row ->> 'stays') || '/' || (row ->> 'kwh_per_stay') || '/' || (row ->> 'm3_per_stay') || '/' || (row ->> 'kwh_per_day') || '/' || (row ->> 'm3_per_day') from _pm where month = '2019-07'),
           '1/9.0/0.90/9.00/0.90', 'July 2019 (00:30 Manila) belongs to July: 9 kWh and 0.9 m3 over 1 day');

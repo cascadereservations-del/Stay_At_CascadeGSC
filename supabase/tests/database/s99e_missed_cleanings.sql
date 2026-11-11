@@ -64,8 +64,8 @@ select ok(has_function_privilege('service_role', 'public.get_missed_cleanings(uu
       and has_function_privilege('authenticated', 'public.get_missed_cleanings(uuid,integer)', 'execute'), 'service_role and authenticated can execute');
 select ok(not has_function_privilege('anon', 'public.get_missed_cleanings(uuid,integer)', 'execute')
       and not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure and a.grantee = 0), 'anon and PUBLIC cannot execute');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure), 'def6d3ea1ae7c3c05bc2ae178df2d0aa',
-  'the live body is the s99e body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure), '825eceefccf49f1dcca58fee4eda5664',
+  'the live body is the s115 body (s99e plus confirmed-only, 20261114000000_s115_integrity.sql)');
 select ok((select position('stay_same_guest_v1' in prosrc) > 0 and position('v_today   := public.manila_today();' in prosrc) > 0 and position('cs.cleaned_at::date' in prosrc) = 0
              from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure), 'the D-290 same-guest clause and the Manila today stay; the UTC date is gone');
 select ok(not exists (select 1 from public.get_missed_cleanings('e99e0000-0000-4000-8000-000000000002', 14)), 'another property sees none of these rows');
