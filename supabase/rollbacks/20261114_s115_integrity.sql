@@ -1,4 +1,4 @@
--- Rollback for s115_integrity_20261114: puts the five functions back to the bodies the release was cut from (md5 below, CR stripped) and drops turnover_issue_text_v1.
+-- Rollback for s115_integrity_20261114: puts the five functions back to the bodies the release was cut from (md5 below, CR stripped) and drops turnover_issue_text_v1 and meter_chain_v1.
 -- Guard: refuses (55000) unless the live bodies are the s115 ones, so it never overwrites a later change.
 begin;
 
@@ -9,9 +9,9 @@ begin
     ('public.get_missed_cleanings(uuid,integer)', '825eceefccf49f1dcca58fee4eda5664'),
     ('public.staff_guest_card_v1(uuid,uuid,date)', '4405ec514a941053bd25160936fc0926'),
     ('public.get_guest_timeline_v1(uuid)', 'eb157192e35f9a1118d08cf782d3355f'),
-    ('public.run_system_verifier_v1(uuid,text,timestamp with time zone)', '2ee9ab629195e10c88fbe082a00fa5f1'),
+    ('public.run_system_verifier_v1(uuid,text,timestamp with time zone)', 'fed6e28a17b41ab980a7e8fd52fc9a9d'),
     ('public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)', 'a348d3acf2770e3773fce39bcb8e383b'),
-    ('public.kpi_tab_v1(uuid,date)', '80cfd79187d4bb5fc7c170610e063cae')
+    ('public.kpi_tab_v1(uuid,date)', '229c75a34209e1820c3e0209e8d67adf')
   ) as v(sig, expect)
   loop
     if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure(r.sig)) is distinct from r.expect then
@@ -916,5 +916,6 @@ revoke all on function public.kpi_tab_v1(uuid,date) from public, anon, service_r
 grant execute on function public.kpi_tab_v1(uuid,date) to authenticated;
 
 drop function public.turnover_issue_text_v1(text);
+drop function public.meter_chain_v1(uuid);
 
 commit;

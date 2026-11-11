@@ -8,7 +8,8 @@
 -- What it does, in ONE transaction acting as Lloyd:
 --   1. BCD28F42: telegram_staff_pay_step_v1 'not_sent' (only when someone tapped "Sent" and no proof exists; the Finance button does the same) then 'cancel'. This releases session ad4f5e36.
 --   2. 6FF96A06: the advance line checkout_date/date 2026-11-07 -> 2026-11-08 and guest 'Jasmin' -> 'Aleisha', through admin_audit_context_v1 (audit rows written by the table trigger).
---   3. Transaction f46e7a34 (cleanadv:6ff96a06...:2026-11-07): external_ref, transaction_date and the date in its notes -> 2026-11-08 (audited the same way).
+--   3. Transaction f46e7a34 (cleanadv:6ff96a06...:2026-11-07): external_ref, transaction_date and the date in its notes -> 2026-11-08, and "report owed" in its notes -> "report filed" (the report
+--      is now linked; audited the same way).
 --   4. Link as cleaning_sessions_link_advance_trg does for a paid request: session ad4f5e36 -> pay_request_id 6FF96A06, fee_amount 650, fee_paid_at = the request's paid_at, fee_txn_id = f46e7a34.
 -- Refuses (raises, nothing written):
 --   * release s115 not applied (get_missed_cleanings is not the s115 body, md5 825eceefccf49f1dcca58fee4eda5664)
@@ -18,8 +19,9 @@
 --   * transaction f46e7a34 is not the confirmed PHP 650 cleanadv row for 6FF96A06 / 2026-11-07
 --   * no confirmed calendar checkout on 2026-11-08, or another live advance line / fee transaction already holds 2026-11-08
 -- IDEMPOTENT: when the line is already 2026-11-08, the session linked to 6FF96A06 and BCD28F42 cancelled, a second run raises a notice and changes nothing.
--- LLOYD MUST CONFIRM BEFORE RUNNING: BCD28F42 shows sent_said_at 2026-11-09 13:47:39 UTC (someone tapped "Sent" 90 s after 6FF96A06 was paid) but no proof screenshot. The script treats that as
---   "not sent" because no proof exists. If a second PHP 650 really left the bank for BCD28F42, stop: this repair would then cancel a request that was paid in fact.
+-- CONFIRMED BY LLOYD (D-365, 2026-11-11, "No, paid once", after checking for a second PHP 650 on 2026-11-09): BCD28F42 shows sent_said_at 2026-11-09 13:47:39 UTC (someone tapped "Sent"
+--   90 s after 6FF96A06 was paid) but has no proof screenshot; only ONE PHP 650 was sent, so the script treats it as "not sent". Before changing anything the run prints a notice with the
+--   prior values (session ad4f5e36 pay_request_id / fee_amount / fee_paid_at / fee_txn_id and BCD28F42 sent_said_at), the audit trail of what was there.
 -- Side effect after commit: the cancel step posts nothing by itself; the Finance card of BCD28F42 stays as it is (the orchestrator posts one line in Finance: BCD28F42 cancelled, it duplicated 6FF96A06).
 
 begin;
@@ -84,6 +86,10 @@ begin
     raise exception 'a live advance line already holds 2026-11-08; nothing changed';
   end if;
 
+  -- the prior values, printed before anything is written (the record of what was there)
+  raise notice 'prior: session ad4f5e36 pay_request_id=%, fee_amount=%, fee_paid_at=%, fee_txn_id=%; BCD28F42 status=%, sent_said_at=%; transaction f46e7a34 notes=[%]',
+    v_s.pay_request_id, v_s.fee_amount, v_s.fee_paid_at, v_s.fee_txn_id, v_d.status, v_d.sent_said_at, v_t.notes;
+
   ---------------------------------------------------------------- act as Lloyd
   perform set_config('request.jwt.claims', json_build_object('sub', c_lloyd, 'role', 'authenticated', 'aal', 'aal2', 'iat', extract(epoch from now())::bigint)::text, true);
   perform public.admin_audit_context_v1('s115: advance was Aleisha 11-08 under the wrong date');
@@ -105,7 +111,7 @@ begin
 
   -- 3. its transaction follows the date
   update public.transactions
-     set external_ref = 'cleanadv:' || c_paid || ':' || c_new, transaction_date = c_new, notes = replace(notes, c_old::text, c_new::text)
+     set external_ref = 'cleanadv:' || c_paid || ':' || c_new, transaction_date = c_new, notes = replace(replace(notes, c_old::text, c_new::text), 'report owed', 'report filed')
    where id = c_txn;
 
   -- 4. link the report as the link trigger does for a paid request

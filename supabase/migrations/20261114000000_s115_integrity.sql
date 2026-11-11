@@ -8,6 +8,8 @@
 --    get_guest_timeline_v1 gets a "turnover_report" event.
 -- 3. run_system_verifier_v1: V20 (advance_no_stay, paid_no_link, stuck_paying, session_twice, report_no_stay), V21 (block_named, confirmed_cancelled), V22 (credit_gone).
 --    apply_verifier_run_v1: V20/V22 in both scope arrays, V21 daily; an acknowledged RED finding still seen re-opens after 3 days.
+-- 4. meter_chain_v1 (new, internal): the ONE eligible-reading chain (prev > 0, deltas >= 0, flag null / typed_accepted / estimated; order electric_prev, checkout day, recorded_at, id) that
+--    kpi_tab_v1 counts and run_system_verifier_v1 V23 raises, so V23 reports exactly the readings the KPI leaves out. V23 detail = cards.ts v23Facts (reading, prev, expected_prev, checkout, reading_id).
 -- Guards (55000, nothing changes): each live body must be the one this release was cut from (md5 of prosrc with CR stripped).
 -- Grants restated for every function (ML-21). Rollback: supabase/rollbacks/20261114_s115_integrity.sql. Data step (Lloyd's block, after the release): supabase/sql/2026-11-11-s115-honey-6ff96a06.sql.
 
@@ -38,16 +40,45 @@ create or replace function public.turnover_issue_text_v1(p_notes text)
  IMMUTABLE
  SET search_path TO ''
 AS $body$
-  -- s115: the Pre-Clean Condition segment of a cleaning report, as one plain line: stops at the next [Section] header, drops the [URGENT] tag and a trailing backfill remark.
-  select nullif(left(btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+  -- s115: the Pre-Clean Condition segment of a cleaning report, as one plain line: stops at the next [Section] header, drops the [URGENT] tag and a trailing backfill remark; any other run of pipes (the notes separator) becomes ' / '.
+  select nullif(left(btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
            substring(p_notes from '\[Pre-Clean Condition\]:[[:space:]]*(.*)'),
            '\n[[:space:]]*\[[A-Za-z].*$', ''),
            '[[:space:]]*\|[[:space:]]*Backfill.*$', ''),
            '\[URGENT\][[:space:]]*', '', 'g'),
+           '[[:space:]]*\|+[[:space:]]*', ' / ', 'g'),
            '[[:space:]]+', ' ', 'g')), 300), '');
 $body$
 ;
 revoke all on function public.turnover_issue_text_v1(text) from public, anon, authenticated, service_role;
+
+create or replace function public.meter_chain_v1(p_property_id uuid)
+ RETURNS TABLE(id uuid, recorded_at timestamp with time zone, checkout_date date, cd date, electric_prev numeric, electric_curr numeric, electric_delta numeric, water_delta numeric,
+               meter_flag text, pc numeric, pcd date, chain_ok boolean)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $body$
+  -- s115 (Opus ML-10): the ONE meter chain, shared by kpi_tab_v1 (counts chain_ok rows) and run_system_verifier_v1 V23 (raises the rows that are not chain_ok), so V23 reports exactly the readings the KPI leaves out.
+  -- Eligible readings = the s111 filters: both prev > 0, both deltas >= 0, flag null / typed_accepted / estimated (a flagged misread is neither counted nor raised).
+  -- Order: electric_prev, checkout day, recorded_at, id. cd = the checkout day of the reading's cleaning session, the recorded Manila day only when it has none.
+  -- pc / pcd = the previous eligible reading's end value / cd. chain_ok = first reading, or electric_prev = pc (otherwise an overlap or a gap).
+  with r0 as (
+    select mr.id, mr.recorded_at, mr.electric_prev, coalesce(mr.electric_curr, mr.electric_prev + mr.electric_delta) electric_curr, mr.electric_delta, mr.water_delta, mr.meter_flag, cs.checkout_date,
+           coalesce(cs.checkout_date, (mr.recorded_at at time zone 'Asia/Manila')::date) cd
+      from public.meter_readings mr left join public.cleaning_sessions cs on cs.id = mr.session_id
+     where mr.property_id = p_property_id
+       and mr.electric_prev > 0 and mr.water_prev > 0 and mr.electric_delta >= 0 and mr.water_delta >= 0
+       and (mr.meter_flag is null or mr.meter_flag in ('typed_accepted', 'estimated'))
+  ), e as (
+    select r0.*, lag(r0.electric_curr) over w pc, lag(r0.cd) over w pcd
+      from r0 window w as (order by r0.electric_prev, r0.cd, r0.recorded_at, r0.id)
+  )
+  select e.id, e.recorded_at, e.checkout_date, e.cd, e.electric_prev, e.electric_curr, e.electric_delta, e.water_delta, e.meter_flag, e.pc, e.pcd, (e.pc is null or e.electric_prev = e.pc)
+    from e;
+$body$
+;
+revoke all on function public.meter_chain_v1(uuid) from public, anon, authenticated, service_role;
 
 create or replace function public.get_missed_cleanings(p_property_id uuid DEFAULT NULL::uuid, p_lookback integer DEFAULT 14)
  RETURNS TABLE(guest_name text, checkin_date date, checkout_date date, source text, days_overdue integer)
@@ -759,22 +790,18 @@ begin
   -- s115 V22 end
 
   -- s115 V23 begin
-  -- V23 - the meter chain: each reading should start where the previous one (by meter order, any flag) ended. An overlap or a gap means a reading was missed, doubled or estimated;
-  -- kpi_tab_v1 leaves such a reading out of the per-day figures until it is put right. Last 60 days. Finance group.
+  -- V23 - the meter chain: each reading should start where the previous one ended. An overlap or a gap means a reading was missed, doubled or estimated. It raises exactly the readings
+  -- kpi_tab_v1 leaves out of the per-day figures (both read public.meter_chain_v1, ML-10), until they are put right. Last 60 days. Finance group.
+  -- detail (cards.ts v23Facts): reading = this reading's meter value, prev = the reading before it ended at, expected_prev = this one says it started from, checkout, reading_id.
   v_found := v_found || coalesce((
     select jsonb_agg(jsonb_build_object(
       'key',      'V23:meter_chain:' || x.id::text,
       'check_id', 'V23',
       'severity', 'yellow',
       'title',    'Meter reading does not continue the previous one',
-      'detail',   jsonb_build_object('reading', x.id, 'checkout', x.cd, 'prev', x.electric_prev, 'expected_prev', x.pc)))
-    from (select mr.id, mr.recorded_at, mr.electric_prev, c.cd,
-                 lag(coalesce(mr.electric_curr, mr.electric_prev + mr.electric_delta)) over (order by mr.electric_prev, c.cd, mr.recorded_at, mr.id) as pc
-            from public.meter_readings mr
-            left join public.cleaning_sessions cs on cs.id = mr.session_id
-            cross join lateral (select coalesce(cs.checkout_date, (mr.recorded_at at time zone 'Asia/Manila')::date) as cd) c
-           where mr.property_id = p_property_id and mr.electric_prev > 0) x
-    where x.pc is not null and x.electric_prev <> x.pc and x.recorded_at > p_now - interval '60 days'
+      'detail',   jsonb_build_object('reading', x.electric_curr, 'checkout', x.cd, 'prev', x.pc, 'expected_prev', x.electric_prev, 'reading_id', x.id)))
+    from public.meter_chain_v1(p_property_id) x
+    where not x.chain_ok and x.recorded_at > p_now - interval '60 days'
   ), '[]'::jsonb);
   -- s115 V23 end
 
@@ -1010,22 +1037,12 @@ begin
 
   -- s115 utility block (Lloyd 2026-11-11: one sharp day in the chart). The s111 days ran from the previous REPORT to this one, so late reports filed together gave a 2-night reading
   -- "1 day", and meter ranges that overlap counted one stretch of use twice. Now: the eligible readings (the s111 filters: both prev > 0, both deltas >= 0, flag null / typed_accepted / estimated)
-  -- are ordered by their meter chain (electric_prev, checkout day, recorded_at). cd = the checkout day of the reading's cleaning session, the recorded Manila day only when it has none.
+  -- are ordered by their meter chain (electric_prev, checkout day, recorded_at, id) in public.meter_chain_v1, the one chain V23 also reads. cd = the checkout day of the reading's cleaning session, the recorded Manila day only when it has none.
   -- days = cd minus the previous eligible reading's cd, at least 1, null for the first. A reading whose electric_prev is not the previous eligible reading's electric_curr
   -- (an overlap or a gap) is left out of every figure here; V23 in run_system_verifier_v1 reports it. Months are the checkout month.
-  with r0 as (
-    select mr.id, mr.recorded_at, mr.electric_prev, coalesce(mr.electric_curr, mr.electric_prev + mr.electric_delta) electric_curr, mr.electric_delta, mr.water_delta, mr.meter_flag, cs.checkout_date,
-           coalesce(cs.checkout_date, (mr.recorded_at at time zone 'Asia/Manila')::date) cd
-      from public.meter_readings mr left join public.cleaning_sessions cs on cs.id = mr.session_id
-     where mr.property_id = p_property_id
-       and mr.electric_prev > 0 and mr.water_prev > 0 and mr.electric_delta >= 0 and mr.water_delta >= 0
-       and (mr.meter_flag is null or mr.meter_flag in ('typed_accepted', 'estimated'))
-  ), e as (
-    select r0.*, lag(r0.electric_curr) over w pc, lag(r0.cd) over w pcd
-      from r0 window w as (order by r0.electric_prev, r0.cd, r0.recorded_at, r0.id)
-  ), c as (
-    select e.*, case when e.pcd is not null then greatest(1, e.cd - e.pcd) end days
-      from e where e.pc is null or e.electric_prev = e.pc
+  with c as (
+    select m.*, case when m.pcd is not null then greatest(1, m.cd - m.pcd) end days
+      from public.meter_chain_v1(p_property_id) m where m.chain_ok
   )
   select (select coalesce(sum(c.electric_delta), 0) from c where c.cd >= v_m0 and c.cd < v_m1),
          (select coalesce(sum(c.water_delta), 0) from c where c.cd >= v_m0 and c.cd < v_m1),

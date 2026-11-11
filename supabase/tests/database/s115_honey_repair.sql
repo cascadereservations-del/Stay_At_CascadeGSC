@@ -89,6 +89,10 @@ begin
     raise exception 'a live advance line already holds 2026-11-08; nothing changed';
   end if;
 
+  -- the prior values, printed before anything is written (the record of what was there)
+  raise notice 'prior: session ad4f5e36 pay_request_id=%, fee_amount=%, fee_paid_at=%, fee_txn_id=%; BCD28F42 status=%, sent_said_at=%; transaction f46e7a34 notes=[%]',
+    v_s.pay_request_id, v_s.fee_amount, v_s.fee_paid_at, v_s.fee_txn_id, v_d.status, v_d.sent_said_at, v_t.notes;
+
   ---------------------------------------------------------------- act as Lloyd
   perform set_config('request.jwt.claims', json_build_object('sub', c_lloyd, 'role', 'authenticated', 'aal', 'aal2', 'iat', extract(epoch from now())::bigint)::text, true);
   perform public.admin_audit_context_v1('s115: advance was Aleisha 11-08 under the wrong date');
@@ -110,7 +114,7 @@ begin
 
   -- 3. its transaction follows the date
   update public.transactions
-     set external_ref = 'cleanadv:' || c_paid || ':' || c_new, transaction_date = c_new, notes = replace(notes, c_old::text, c_new::text)
+     set external_ref = 'cleanadv:' || c_paid || ':' || c_new, transaction_date = c_new, notes = replace(replace(notes, c_old::text, c_new::text), 'report owed', 'report filed')
    where id = c_txn;
 
   -- 4. link the report as the link trigger does for a paid request
@@ -148,7 +152,7 @@ select is(public.s_advance_session_v1('6ff96a06-9276-4a18-8c10-61a7c60823cb', da
 select is((select status from public.staff_pay_requests where id = 'bcd28f42-6874-43ac-9ab2-b36ed0505303'), 'cancelled', 'BCD28F42 cancelled');
 select is((select lines -> 0 ->> 'guest' from public.staff_pay_requests where id = '6ff96a06-9276-4a18-8c10-61a7c60823cb'), 'Aleisha', 'line relabelled');
 select is((select external_ref from public.transactions where id = 'f46e7a34-9ffa-4428-85b3-cd1e29fea946'), 'cleanadv:6ff96a06-9276-4a18-8c10-61a7c60823cb:2026-11-08', 'txn external_ref');
-select is((select notes from public.transactions where id = 'f46e7a34-9ffa-4428-85b3-cd1e29fea946'), 'Cleaning fee paid ahead, report owed -- Honey, 2026-11-08, Turnover + transport. Pay request 6FF96A06.', 'txn notes');
+select is((select notes from public.transactions where id = 'f46e7a34-9ffa-4428-85b3-cd1e29fea946'), 'Cleaning fee paid ahead, report filed -- Honey, 2026-11-08, Turnover + transport. Pay request 6FF96A06.', 'txn notes');
 select is((select count(*)::int from public.admin_audit_log where reason = 's115: advance was Aleisha 11-08 under the wrong date'), 4, 'audit rows: the cancelled request (not_sent + cancel), the paid request line and the transaction carry the reason');
 select is((select fee_txn_id from public.cleaning_sessions where id = 'ad4f5e36-3d9f-40b5-9ea7-73ea7e829190'), 'f46e7a34-9ffa-4428-85b3-cd1e29fea946'::uuid, 'session linked');
 -- a second run changes nothing
@@ -214,6 +218,10 @@ begin
     raise exception 'a live advance line already holds 2026-11-08; nothing changed';
   end if;
 
+  -- the prior values, printed before anything is written (the record of what was there)
+  raise notice 'prior: session ad4f5e36 pay_request_id=%, fee_amount=%, fee_paid_at=%, fee_txn_id=%; BCD28F42 status=%, sent_said_at=%; transaction f46e7a34 notes=[%]',
+    v_s.pay_request_id, v_s.fee_amount, v_s.fee_paid_at, v_s.fee_txn_id, v_d.status, v_d.sent_said_at, v_t.notes;
+
   ---------------------------------------------------------------- act as Lloyd
   perform set_config('request.jwt.claims', json_build_object('sub', c_lloyd, 'role', 'authenticated', 'aal', 'aal2', 'iat', extract(epoch from now())::bigint)::text, true);
   perform public.admin_audit_context_v1('s115: advance was Aleisha 11-08 under the wrong date');
@@ -235,7 +243,7 @@ begin
 
   -- 3. its transaction follows the date
   update public.transactions
-     set external_ref = 'cleanadv:' || c_paid || ':' || c_new, transaction_date = c_new, notes = replace(notes, c_old::text, c_new::text)
+     set external_ref = 'cleanadv:' || c_paid || ':' || c_new, transaction_date = c_new, notes = replace(replace(notes, c_old::text, c_new::text), 'report owed', 'report filed')
    where id = c_txn;
 
   -- 4. link the report as the link trigger does for a paid request

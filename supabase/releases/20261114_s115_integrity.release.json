@@ -10,7 +10,7 @@
     "20261114000000_s115_integrity.sql"
   ],
   "migration_sha256": {
-    "20261114000000_s115_integrity.sql": "b6d15bdf95e38c5b26adce2a12f0d5eef05c21212de06bf272d3bb8c7fa4869d"
+    "20261114000000_s115_integrity.sql": "bbdb316dc30bb400bd22e7316fd2decc464c59939e77ce302a3473469834fe97"
   },
   "backup": {
     "required": true,
@@ -18,7 +18,7 @@
     "restore_point": "C:/Cascade-Backups/cascade-supabase-20261108T030625Z",
     "verified_at": "2026-11-08T03:11:03.225Z",
     "production_rule": "s115 (Lloyd 2026-11-11: data integrity). get_missed_cleanings counts only a confirmed calendar row, so a blocked row is no longer a missed cleaning or a payable advance (staff_pay_candidates_v1, staff_pay_request_create_v2, staff_pay_admin_create_v2, get_admin_overview_v1 readiness and the missed-cleaning-alert inherit it with no body change). staff_guest_card_v1 appends \"YYYY-MM-DD: Turnover report: <text>\" to the guest notes for earlier stays whose turnover reported an issue (derived live from cleaning_sessions, nothing stored, staff_redact_v1 still applies); get_guest_timeline_v1 gains a turnover_report event; new internal function turnover_issue_text_v1. run_system_verifier_v1 gains V20 (advance_no_stay, paid_no_link, stuck_paying, session_twice, report_no_stay), V21 (block_named, confirmed_cancelled, daily) and V22 (credit_gone); apply_verifier_run_v1 lists V20/V22 in both scopes and V21 in the daily scope, and an acknowledged RED finding still seen re-opens after 3 days. kpi_tab_v1 (amendment 3, Lloyd 2026-11-11: a sharp one-day spike in the utility chart) redefines only its utility block: readings are ordered by their meter chain, days run between CHECKOUT dates (not report-filing days), a reading that overlaps or leaves a gap in the chain is left out of the per-day figures, months are checkout months, series points gain from/to; V23:meter_chain reports the broken-chain readings. The orchestrator re-stamps restore_point and verified_at on the fresh backup taken before the apply.",
-    "notes": "Phase backfill is the house label for a function body; no table, column, row or trigger changes. Five function bodies are replaced (each guarded by the md5 of the live body) and one internal helper is added; grants are restated. The data repair for Honey (request 6FF96A06 / BCD28F42) is NOT part of this release: supabase/sql/2026-11-11-s115-honey-6ff96a06.sql, Lloyd's block, after it. Expected live effect after apply: the missed list is Bianca 11-10 only; the dry run of the verifier shows V20:advance_no_stay for 6FF96A06, V20:stuck_paying for BCD28F42, V21:block_named for the cancelled Jasmin row and V22:credit_gone for the paid providers."
+    "notes": "Phase backfill is the house label for a function body; no table, column, row or trigger changes. Six function bodies are replaced (each guarded by the md5 of the live body) and two internal helpers are added (turnover_issue_text_v1, meter_chain_v1: kpi_tab_v1 and V23 read the same meter chain); grants are restated. The data repair for Honey (request 6FF96A06 / BCD28F42) is NOT part of this release: supabase/sql/2026-11-11-s115-honey-6ff96a06.sql, Lloyd's block, after it. Expected live effect after apply: the missed list is Bianca 11-10 only; the dry run of the verifier shows V20:advance_no_stay for 6FF96A06, V20:stuck_paying for BCD28F42, V21:block_named for the cancelled Jasmin row and V22:credit_gone for the paid providers."
   },
   "forward_verification": [
     {
@@ -38,7 +38,7 @@
     },
     {
       "name": "md5_run_system_verifier_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '2ee9ab629195e10c88fbe082a00fa5f1' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'fed6e28a17b41ab980a7e8fd52fc9a9d' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)'::regprocedure",
       "expect": true
     },
     {
@@ -48,12 +48,17 @@
     },
     {
       "name": "md5_kpi_tab_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '80cfd79187d4bb5fc7c170610e063cae' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '229c75a34209e1820c3e0209e8d67adf' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_meter_chain_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '9a5ef2adfac8f698dea37eaf23dd370a' from pg_proc where oid = 'public.meter_chain_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
       "name": "md5_turnover_issue_text_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'ce0626274b1779f34375804f7fe90bca' from pg_proc where oid = 'public.turnover_issue_text_v1(text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'fcc1a4bda5bcd0f1cc4285a17e0507c7' from pg_proc where oid = 'public.turnover_issue_text_v1(text)'::regprocedure",
       "expect": true
     },
     {
@@ -73,7 +78,7 @@
     },
     {
       "name": "verifier_has_v20_v21_v22",
-      "query": "select prosrc like '%V20:advance_no_stay:%' and prosrc like '%V20:paid_no_link:%' and prosrc like '%V20:stuck_paying:%' and prosrc like '%V20:session_twice:%' and prosrc like '%V20:report_no_stay:%' and prosrc like '%V21:block_named:%' and prosrc like '%V21:confirmed_cancelled:%' and prosrc like '%V22:credit_gone:%' and prosrc like '%V23:meter_chain:%' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)'::regprocedure",
+      "query": "select prosrc like '%V20:advance_no_stay:%' and prosrc like '%V20:paid_no_link:%' and prosrc like '%V20:stuck_paying:%' and prosrc like '%V20:session_twice:%' and prosrc like '%V20:report_no_stay:%' and prosrc like '%V21:block_named:%' and prosrc like '%V21:confirmed_cancelled:%' and prosrc like '%V22:credit_gone:%' and prosrc like '%V23:meter_chain:%' and prosrc like '%public.meter_chain_v1(p_property_id)%' from pg_proc where oid = 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)'::regprocedure",
       "expect": true
     },
     {
@@ -92,13 +97,18 @@
       "expect": true
     },
     {
+      "name": "meter_chain_helper_internal",
+      "query": "select not has_function_privilege('anon', 'public.meter_chain_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.meter_chain_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.meter_chain_v1(uuid)', 'execute') and (select proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.meter_chain_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
       "name": "definer_functions_empty_search_path",
-      "query": "select bool_and(proconfig = array['search_path=\"\"']) and count(*) = 6 from pg_proc where oid in ('public.kpi_tab_v1(uuid,date)'::regprocedure, 'public.get_missed_cleanings(uuid,integer)'::regprocedure, 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure, 'public.get_guest_timeline_v1(uuid)'::regprocedure, 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)'::regprocedure, 'public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)'::regprocedure)",
+      "query": "select bool_and(proconfig = array['search_path=\"\"']) and count(*) = 7 from pg_proc where oid in ('public.meter_chain_v1(uuid)'::regprocedure, 'public.kpi_tab_v1(uuid,date)'::regprocedure, 'public.get_missed_cleanings(uuid,integer)'::regprocedure, 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure, 'public.get_guest_timeline_v1(uuid)'::regprocedure, 'public.run_system_verifier_v1(uuid,text,timestamp with time zone)'::regprocedure, 'public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)'::regprocedure)",
       "expect": true
     },
     {
       "name": "kpi_tab_v1_chain_days",
-      "query": "select prosrc like '%s115 utility block%' and prosrc like '%electric_prev = e.pc%' and prosrc like '%jsonb_to_recordset%' and prosrc like '%read_finance%' and prosrc not like '%lag(mr.recorded_at)%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "query": "select prosrc like '%s115 utility block%' and prosrc like '%public.meter_chain_v1(p_property_id)%' and prosrc like '%chain_ok%' and prosrc like '%jsonb_to_recordset%' and prosrc like '%read_finance%' and prosrc not like '%lag(mr.recorded_at)%' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
       "expect": true
     },
     {
@@ -109,11 +119,11 @@
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Always: the script puts the five function bodies back exactly (md5 guard on the s115 bodies) and drops turnover_issue_text_v1. No data is touched, so nothing is lost.",
+    "safe_until": "Always: the script puts the six function bodies back exactly (md5 guard on the s115 bodies) and drops turnover_issue_text_v1 and meter_chain_v1. No data is touched, so nothing is lost.",
     "steps": [
       {
         "name": "run_compensating_script",
-        "action": "apply supabase/rollbacks/20261114_s115_integrity.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) must be def6d3ea1ae7c3c05bc2ae178df2d0aa (get_missed_cleanings), 2132ec407c3c1459a777c9c87ef2d8cc (staff_guest_card_v1), 288c9ca25f6c2a08ffe5d6d3fcbc5c5e (get_guest_timeline_v1), 96f5e975a7d25b32b60487f9f1174c1b (run_system_verifier_v1), 8cf41764607206c41eba31d32211221a (apply_verifier_run_v1), kpi_tab_v1 must be 645094c8360051a3d304c7f9134bd8a6, and to_regprocedure('public.turnover_issue_text_v1(text)') must be null."
+        "action": "apply supabase/rollbacks/20261114_s115_integrity.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) must be def6d3ea1ae7c3c05bc2ae178df2d0aa (get_missed_cleanings), 2132ec407c3c1459a777c9c87ef2d8cc (staff_guest_card_v1), 288c9ca25f6c2a08ffe5d6d3fcbc5c5e (get_guest_timeline_v1), 96f5e975a7d25b32b60487f9f1174c1b (run_system_verifier_v1), 8cf41764607206c41eba31d32211221a (apply_verifier_run_v1), kpi_tab_v1 must be 645094c8360051a3d304c7f9134bd8a6, and to_regprocedure('public.turnover_issue_text_v1(text)') and to_regprocedure('public.meter_chain_v1(uuid)') must both be null."
       }
     ]
   },
@@ -128,7 +138,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed on a restore of cascade-supabase-20261108T030625Z (disposable Postgres on the host alfred): s111 then s115 applied, forward checks 17/17 (the contract lists 17), pgTAP s115_integrity.sql 86/86, s115_honey_repair.sql 11/11 (the Honey data step on synthetic copies of the live rows, including a second no-op run), s111_kpi_stay_avg.sql 57/57 (fixtures re-chained), s99e_missed_cleanings.sql 17/17; the rollback script applied after it restores the six md5s and drops the helper. Other suites fail identically with and without the release (grants: the restore is --no-acl). The 11-08 backup predates s110, so s110 was not rehearsed here (its migration refuses that body)."
+    "evidence": "Rehearsed on a restore of cascade-supabase-20261108T030625Z (disposable Postgres on the host alfred), fix round 1: s111 then s115 applied, forward checks 19/19 (the contract lists 19), pgTAP s115_integrity.sql 90/90, s115_honey_repair.sql 11/11 (the Honey data step on synthetic copies of the live rows, including a second no-op run), s111_kpi_stay_avg.sql 57/57 (fixtures re-chained), s99e_missed_cleanings.sql 17/17; the rollback script applied after it restores the six md5s and drops both helpers (7/7 checks). Other suites fail identically with and without the release (grants: the restore is --no-acl). The 11-08 backup predates s110, so s110 was not rehearsed here (its migration refuses that body)."
   },
   "approvals": {
     "production_required": true,
@@ -140,6 +150,6 @@
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
     "the rehearsal has not run the migration and s115_integrity.sql green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
-    "a live body of one of the five functions no longer matches the md5 guard in the migration (production moved since the cut)"
+    "a live body of one of the six functions no longer matches the md5 guard in the migration (production moved since the cut)"
   ]
 }

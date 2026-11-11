@@ -5,7 +5,7 @@
 -- Synthetic fixtures only (uuids c1150000-.../e1150000-...). A real backup holds real rows, so the real property's calendar, sessions, requests and llm_usage are neutralised
 -- inside this transaction; everything rolls back.
 begin;
-select plan(86);
+select plan(90);
 
 grant usage on schema public, auth, storage to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
@@ -219,6 +219,8 @@ select is(public.turnover_issue_text_v1(E'[Pre-Clean Condition]: [URGENT] Blood 
 select is(public.turnover_issue_text_v1(E'[Pre-Clean Condition]: [URGENT] 1.bedside table damage\n2. kitchen faucet\n[Confirm & Leave]: x'), '1.bedside table damage 2. kitchen faucet', 'extractor: a multi-line segment becomes one line');
 select is(public.turnover_issue_text_v1(E'[Pre-Clean Condition]: [URGENT] natanggal sabitanan | Backfill 2026-09-14: duplicate submission of the same clean, no fee'), 'natanggal sabitanan', 'extractor: drops the backfill remark');
 select is(public.turnover_issue_text_v1('[Checklist]: nothing here'), null, 'extractor: no segment is null, not an empty string');
+select is(public.turnover_issue_text_v1(E'[Pre-Clean Condition]: [URGENT] leak | faucet'), 'leak / faucet', 'extractor: a single pipe (the notes separator) becomes " / "');
+select is(public.turnover_issue_text_v1(E'[Pre-Clean Condition]: crack || chip |  broken'), 'crack / chip / broken', 'extractor: a run of pipes ("||") and padded pipes each become one " / "');
 
 insert into public.properties(id, name, is_active) values ('e1150000-0000-4000-8000-000000000001', 'Synthetic s115 card', true);
 insert into public.guests(id, property_id, name) values
@@ -303,12 +305,22 @@ select is((select e ->> 'stays' from jsonb_array_elements((select v -> 'utility'
 select ok(not exists (select 1 from jsonb_array_elements((select v -> 'utility' -> 'per_stay' from _t where k = 'k11')) e where e ->> 'to' = '2026-11-03'), 'the overlapping reading is not in the series');
 select is((select e ->> 'days' from jsonb_array_elements((select v -> 'utility' -> 'per_stay' from _t where k = 'k11')) e where e ->> 'to' = '2026-11-05'), '2', 'the next reading measures from the checkout of the one before it (11-03 to 11-05)');
 insert into _t select 'v23a', public.run_system_verifier_v1('e1150000-0000-4000-8000-000000000003', 'hourly', timestamptz '2026-11-10 00:00+08');
-select is(pg_temp.f('v23a', 'V23:%') -> 0 -> 'detail', jsonb_build_object('reading', 'e1150000-0000-4000-8000-0000000000c5', 'checkout', '2026-11-03', 'prev', 1102.00, 'expected_prev', 1120.00),
-  'V23 fires on the overlapping reading: detail reading, checkout, prev, expected_prev');
+-- detail shape = cards.ts v23Facts: reading = this reading's value (c5 ends 1150), prev = the reading before it ended at (c4: 1120), expected_prev = this one says it started from (1102), checkout = its checkout day
+select is(pg_temp.f('v23a', 'V23:%') -> 0 -> 'detail', jsonb_build_object('reading', 1150.00, 'checkout', '2026-11-03', 'prev', 1120.00, 'expected_prev', 1102.00, 'reading_id', 'e1150000-0000-4000-8000-0000000000c5'),
+  'V23 fires on the reading kpi_tab_v1 leaves out (c5, the overlap): detail reading 1150, prev 1120, expected_prev 1102, checkout, reading_id');
 select is(jsonb_array_length(pg_temp.f('v23a', 'V23:%')), 1, 'and only on that one');
 update public.meter_readings set electric_prev = 1120, electric_delta = 30 where id = 'e1150000-0000-4000-8000-0000000000c5';
 insert into _t select 'v23b', public.run_system_verifier_v1('e1150000-0000-4000-8000-000000000003', 'hourly', timestamptz '2026-11-10 00:00+08');
 select is(jsonb_array_length(pg_temp.f('v23b', 'V23:%')), 0, 'a continuous chain raises no V23');
+-- a flagged (misread) reading is not in the eligible set: neither raised by V23 nor counted by the KPI
+insert into public.meter_readings(id, property_id, recorded_at, electric_prev, electric_curr, water_prev, water_curr, electric_delta, water_delta, meter_flag) values
+  ('e1150000-0000-4000-8000-0000000000c7', 'e1150000-0000-4000-8000-000000000003', timestamptz '2026-11-06 10:00+08', 9000, 9100, 14, 14.5, 100, 0.5, 'misread');
+insert into _t select 'v23c', public.run_system_verifier_v1('e1150000-0000-4000-8000-000000000003', 'hourly', timestamptz '2026-11-10 00:00+08');
+select is(jsonb_array_length(pg_temp.f('v23c', 'V23:%')), 0, 'a flagged (misread) reading raises no V23');
+select pg_temp.as_user('e1150000-0000-4000-8000-0000000000a4');
+insert into _t select 'k12', public.kpi_tab_v1('e1150000-0000-4000-8000-000000000003', date '2026-11-01');
+reset role; select set_config('request.jwt.claims', '{}', true);
+select is((select v -> 'utility' ->> 'kwh_month' from _t where k = 'k12'), '68.00', 'and the KPI does not count it either: November = 18 + 30 + 20 (not + 100)');
 insert into public.verifier_findings(key, check_id, severity, title, detail, status, first_seen, last_seen) values ('V23:meter_chain:zz115', 'V23', 'yellow', 'zz V23', '{}', 'open', now() - interval '2 days', now() - interval '1 hour');
 select public.apply_verifier_run_v1('hourly', '[]'::jsonb, now());
 select is((select status from public.verifier_findings where key = 'V23:meter_chain:zz115'), 'resolved', 'V23 is in the scope arrays: a finding no longer seen resolves');
@@ -329,8 +341,10 @@ select ok(not has_function_privilege('anon', 'public.run_system_verifier_v1(uuid
       and not has_function_privilege('anon', 'public.apply_verifier_run_v1(text,jsonb,timestamptz)', 'execute') and not has_function_privilege('authenticated', 'public.apply_verifier_run_v1(text,jsonb,timestamptz)', 'execute')
       and has_function_privilege('service_role', 'public.apply_verifier_run_v1(text,jsonb,timestamptz)', 'execute'), 'the two verifier functions: service_role only');
 select ok(not has_function_privilege('anon', 'public.turnover_issue_text_v1(text)', 'execute') and not has_function_privilege('authenticated', 'public.turnover_issue_text_v1(text)', 'execute')
-      and not has_function_privilege('service_role', 'public.turnover_issue_text_v1(text)', 'execute'), 'turnover_issue_text_v1 is internal: no client role may execute it');
-select ok((select bool_and(proconfig = array['search_path=""']) from pg_proc where oid in ('public.turnover_issue_text_v1(text)'::regprocedure, 'public.get_missed_cleanings(uuid,integer)'::regprocedure,
+      and not has_function_privilege('service_role', 'public.turnover_issue_text_v1(text)', 'execute')
+      and not has_function_privilege('anon', 'public.meter_chain_v1(uuid)', 'execute') and not has_function_privilege('authenticated', 'public.meter_chain_v1(uuid)', 'execute')
+      and not has_function_privilege('service_role', 'public.meter_chain_v1(uuid)', 'execute'), 'turnover_issue_text_v1 and meter_chain_v1 are internal: no client role may execute them');
+select ok((select bool_and(proconfig = array['search_path=""']) from pg_proc where oid in ('public.turnover_issue_text_v1(text)'::regprocedure, 'public.meter_chain_v1(uuid)'::regprocedure, 'public.get_missed_cleanings(uuid,integer)'::regprocedure,
    'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure, 'public.get_guest_timeline_v1(uuid)'::regprocedure, 'public.run_system_verifier_v1(uuid,text,timestamptz)'::regprocedure,
    'public.apply_verifier_run_v1(text,jsonb,timestamptz)'::regprocedure)), 'every function keeps search_path pinned to empty');
 
