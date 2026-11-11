@@ -10,15 +10,15 @@
     "20261116000000_s117_self_closing_warnings.sql"
   ],
   "migration_sha256": {
-    "20261116000000_s117_self_closing_warnings.sql": "97a34c3698c8a5c482339ae284a1d3bd73cb16f931299e8cbbf4ca2799dc7fe5"
+    "20261116000000_s117_self_closing_warnings.sql": "6d528771f2a4eb063bb19f7c27b4b89ce7433208305984ff0f968bd483ca6033"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PLACEHOLDER-orchestrator-stamps-fresh-backup",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "s117 (Lloyd 2026-11-11): a warning closes itself once it is addressed or expired (docs/s117/CONTRACT.md, QUIET_HOURS = 6). V22 (paid API credit used up) is raised only while the provider still has a non-probe call in the last 6 hours. Open system tasks power_poster_unread (poster decided in app_settings.power_watch_state.images, or older than 48 hours) and low_stock (nothing at or under its reorder level) close with completion_note 'Closed automatically: <why>', from apply_verifier_run_v1 every hour. The stock item Heater (Heatek) is renamed Kettle / Water Heater (owner decision 2026-11-11). The orchestrator re-stamps restore_point and verified_at on the fresh backup taken before the apply.",
-    "notes": "Phase backfill is the house label for function bodies plus one guarded data step; no table, column, trigger or index changes. Two function bodies are replaced, each guarded by the md5 of the live s115 body (run_system_verifier_v1 fed6e28a17b41ab980a7e8fd52fc9a9d, apply_verifier_run_v1 a348d3acf2770e3773fce39bcb8e383b): run_system_verifier_v1 gains one extra condition in V22 (a non-probe call in the last 6 hours), apply_verifier_run_v1 gains one block that calls the new system_tasks_expire_v1 inside its own exception handler (a failure becomes a warning, never a failed verifier run). Two functions are new (api_usage_last_calls_v1 for the system-verifier lane W, system_tasks_expire_v1), both service_role only. All four have their grants restated (ML-21). Data: one inventory_items row is renamed, only when exactly one active row is called Heater (Heatek) and no row is called Kettle / Water Heater; skipped with a notice when the Cascade property is missing. Expected live effect: V22 credit_gone:gemini resolves at the next hourly run (nothing calls Gemini), the stale power_poster_unread and low_stock tasks close, the Staff and admin lists show the Kettle / Water Heater name. Tasks the sweep closes are not reopened by the rollback."
+    "production_rule": "s117 (Lloyd 2026-11-11): a warning closes itself once it is addressed or expired (docs/s117/CONTRACT.md, QUIET_HOURS = 6). V22 (paid API credit used up) is raised only while the provider still has a non-probe call in the last 6 hours. Open system task power_poster_unread closes only when the poster is decided (read into app_settings.power_watch_state.images; there is no age rule, a still-unreadable poster stays reported) and low_stock closes only when nothing is at or under its reorder level, both with completion_note 'Closed automatically: <why>', from apply_verifier_run_v1 every hour. The active stock item Heater (Heatek) is renamed Kettle / Water Heater (owner decision 2026-11-11). Round 2 (owner: fix all): V10 checkouts_cleaned gets one day of grace after checkout and ignores mid_stay cleanings (get_missed_cleanings rule); the cleaner-fee ledger side of the KPI reconcile (V10 kpi_reconciled, V19 cleaner_fee) leaves out pay-ahead advances (external_ref cleanadv:) whose report is not linked yet; app_settings api_caps omniroute-key cap goes 0.5 -> 0.15 to match the V16 advice. The orchestrator re-stamps restore_point and verified_at on the fresh backup taken before the apply.",
+    "notes": "Phase backfill is the house label for function bodies plus guarded data steps; no table, column, trigger or index changes. Four existing function bodies are replaced, each guarded by the md5 of the live body: run_system_verifier_v1 (s115, fed6e28a17b41ab980a7e8fd52fc9a9d) gains one extra condition in V22 (a non-probe call in the last 6 hours); apply_verifier_run_v1 (s115, a348d3acf2770e3773fce39bcb8e383b) gains one block that calls the new system_tasks_expire_v1 inside its own exception handler (a failure becomes a warning, never a failed verifier run); health_checks_core_v1 (s91, bfaa9cfc27f993c8f54a9b3d5ddcc579) has the checkouts_cleaned query changed (checkout < today - 1, mid_stay sessions do not count); kpi_recompute_v1 (s91, 33395271b45dc6289d93d5922603a65d) leaves unlinked cleanadv: ledger rows out of cleaner_fee_ledger. Two functions are new (api_usage_last_calls_v1 for the system-verifier lane W, system_tasks_expire_v1), both service_role only. All six have their grants restated (ML-21). Data: one inventory_items row is renamed, only when exactly one active row is called Heater (Heatek) and no row is called Kettle / Water Heater; the api_caps omniroute-key cap changes 0.5 -> 0.15 only from 0.5 (a missing row or entry is skipped with a notice); both are skipped with a notice on a rebuild without the data. Expected live effect: V22 credit_gone:gemini resolves at the next hourly run (nothing calls Gemini); the stale power_poster_unread task closes only once Power watch decides that poster (it stays open while the poster is unreadable); the low_stock task stays open while anything is at or under its reorder level (14 items are low today, so it does not close now); the Staff and admin lists show the Kettle / Water Heater name; V10 checkouts_cleaned drops the 2026-11-10 stay and still shows HM538AA4C4 (2026-08-24, a real missing report that ages out on 2026-11-22 or closes with a backfilled session); V10 kpi_reconciled and V19 2026-11 cleaner_fee stay balanced when a pay-ahead report is late; V16 omniroute-key stops advising once the real OmniRoute daily limit is also 0.15 (owner action in the OmniRoute dashboard). Tasks the sweep closes are not reopened by the rollback."
   },
   "forward_verification": [
     {
@@ -68,29 +68,54 @@
     },
     {
       "name": "expire_function_shape_and_grants",
-      "query": "select prosecdef and proconfig = array['search_path=\"\"'] and md5(replace(prosrc, chr(13), '')) = '1fb08f0d7a4a17ce83934946b0c48c91' and not has_function_privilege('anon', 'public.system_tasks_expire_v1(timestamp with time zone)', 'execute') and not has_function_privilege('authenticated', 'public.system_tasks_expire_v1(timestamp with time zone)', 'execute') and has_function_privilege('service_role', 'public.system_tasks_expire_v1(timestamp with time zone)', 'execute') from pg_proc where oid = 'public.system_tasks_expire_v1(timestamp with time zone)'::regprocedure",
+      "query": "select prosecdef and proconfig = array['search_path=\"\"'] and md5(replace(prosrc, chr(13), '')) = '5529731e2b570fc502f9a361fedc2337' and not has_function_privilege('anon', 'public.system_tasks_expire_v1(timestamp with time zone)', 'execute') and not has_function_privilege('authenticated', 'public.system_tasks_expire_v1(timestamp with time zone)', 'execute') and has_function_privilege('service_role', 'public.system_tasks_expire_v1(timestamp with time zone)', 'execute') from pg_proc where oid = 'public.system_tasks_expire_v1(timestamp with time zone)'::regprocedure",
       "expect": true
     },
     {
       "name": "unit_heater_is_kettle",
-      "query": "select not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or ((select count(*) from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_active and name = 'Kettle / Water Heater') = 1 and not exists (select 1 from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and name = 'Heater (Heatek)'))",
+      "query": "select not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or ((select count(*) from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_active and name = 'Kettle / Water Heater') = 1 and not exists (select 1 from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_active and name = 'Heater (Heatek)'))",
+      "expect": true
+    },
+    {
+      "name": "md5_health_checks_core_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '8fa278d109b83976fa07dc06c5d19826' and prosecdef and proconfig = array['search_path=\"\"'] and not has_function_privilege('anon', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and not has_function_privilege('authenticated', 'public.health_checks_core_v1(uuid,boolean)', 'execute') and has_function_privilege('service_role', 'public.health_checks_core_v1(uuid,boolean)', 'execute') from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "checkouts_cleaned_has_grace_and_ignores_mid_stay",
+      "query": "select prosrc like '%x.checkout_date < v_today - 1%' and prosrc like '%coalesce(c.cleaning_type, ''checkout'') <> ''mid_stay''%' from pg_proc where oid = 'public.health_checks_core_v1(uuid,boolean)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_kpi_recompute_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '2791c502b9f7c5c79102f6bb17e8da29' and prosecdef and proconfig = array['search_path=\"\"'] and not has_function_privilege('anon', 'public.kpi_recompute_v1(uuid,date,date)', 'execute') and not has_function_privilege('authenticated', 'public.kpi_recompute_v1(uuid,date,date)', 'execute') and not has_function_privilege('service_role', 'public.kpi_recompute_v1(uuid,date,date)', 'execute') from pg_proc where oid = 'public.kpi_recompute_v1(uuid,date,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "kpi_ledger_leaves_unlinked_pay_ahead",
+      "query": "select prosrc like '%t.external_ref not like ''cleanadv:%%''%' and prosrc like '%cs.fee_txn_id = t.id%' from pg_proc where oid = 'public.kpi_recompute_v1(uuid,date,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "omniroute_cap_is_015",
+      "query": "select not exists (select 1 from public.app_settings s where s.key = 'api_caps') or not exists (select 1 from public.app_settings s, jsonb_array_elements(case when jsonb_typeof(s.value -> 'caps') = 'array' then s.value -> 'caps' else '[]'::jsonb end) e where s.key = 'api_caps' and e ->> 'id' = 'omniroute-key') or exists (select 1 from public.app_settings s, jsonb_array_elements(s.value -> 'caps') e where s.key = 'api_caps' and e ->> 'id' = 'omniroute-key' and (e ->> 'cap')::numeric = 0.15)",
       "expect": true
     }
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Always: the script puts the s115 bodies back exactly (md5 guard on the s117 bodies) and renames the heater back only while the new name is unchanged. Tasks the sweep closed stay closed.",
+    "safe_until": "Always: the script puts the s115 and s91 bodies back exactly (md5 guard on the s117 bodies), renames the heater back only while the new name is unchanged, and puts the OmniRoute cap back to 0.5 only while it reads 0.15.",
     "steps": [
       {
         "name": "run_compensating_script",
-        "action": "apply supabase/rollbacks/20261116_s117_self_closing_warnings.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of public.run_system_verifier_v1 must be fed6e28a17b41ab980a7e8fd52fc9a9d and of public.apply_verifier_run_v1 a348d3acf2770e3773fce39bcb8e383b (the s115 bodies), public.api_usage_last_calls_v1() and public.system_tasks_expire_v1(timestamptz) must no longer exist, and Heater (Heatek) is back (unit_heater_is_kettle must return false)."
+        "action": "apply supabase/rollbacks/20261116_s117_self_closing_warnings.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of public.run_system_verifier_v1 must be fed6e28a17b41ab980a7e8fd52fc9a9d, of public.apply_verifier_run_v1 a348d3acf2770e3773fce39bcb8e383b (the s115 bodies), of public.health_checks_core_v1 bfaa9cfc27f993c8f54a9b3d5ddcc579 and of public.kpi_recompute_v1 33395271b45dc6289d93d5922603a65d (the s91 bodies); public.api_usage_last_calls_v1() and public.system_tasks_expire_v1(timestamptz) must no longer exist, Heater (Heatek) is back (unit_heater_is_kettle must return false) and the omniroute-key cap reads 0.5 again."
       }
     ]
   },
   "feature_flags": [
     {
       "name": "no_flag",
-      "required_state": "None. The rollback script is the switch. The system-verifier lane (W) reads api_usage_last_calls_v1 with a fallback to a direct llm_usage query, and the Staff app only reads the item name."
+      "required_state": "None. The rollback script is the switch. The system-verifier lane (W) reads api_usage_last_calls_v1 and, when that read fails, falls back to the old V15 rule with V15 unknown (not to a direct llm_usage query); the Staff app only reads the item name."
     }
   ],
   "compatibility": {
@@ -98,7 +123,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Pending: the orchestrator runs the rehearsal (migration, forward checks, pgTAP s117_self_closing_warnings 36/36, s115_integrity) on a restore taken after s116 was applied, and the rollback rehearsal."
+    "evidence": "Pending: the orchestrator runs the rehearsal (migration, forward checks, pgTAP s117_self_closing_warnings 44/44, s115_integrity) on a restore taken after s116 was applied, and the rollback rehearsal."
   },
   "approvals": {
     "production_required": true,
@@ -108,8 +133,8 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
-    "the rehearsal has not run the migration and s117_self_closing_warnings.sql green on this commit, compatibility.verified is still false",
+    "the rehearsal has not run the migration and s117_self_closing_warnings.sql (44 tests) green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
-    "the live body of run_system_verifier_v1 or apply_verifier_run_v1 no longer matches the s115 md5 guard in the migration (production moved since the cut)"
+    "the live body of run_system_verifier_v1, apply_verifier_run_v1 (s115), health_checks_core_v1 or kpi_recompute_v1 (s91) no longer matches the md5 guard in the migration (production moved since the cut)"
   ]
 }

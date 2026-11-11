@@ -1,5 +1,5 @@
 -- Rollback of 20261116000000_s117_self_closing_warnings.sql (release s117_self_closing_warnings_20261116).
--- Puts the s115 bodies of run_system_verifier_v1 and apply_verifier_run_v1 back (each guarded by the md5 of the s117 body, CR stripped), drops the two s117 functions,
+-- Puts the s115 bodies of run_system_verifier_v1 and apply_verifier_run_v1 and the s91 bodies of health_checks_core_v1 and kpi_recompute_v1 back, the OmniRoute cap back to 0.5 (only while 0.15), (each guarded by the md5 of the s117 body, CR stripped), drops the two s117 functions,
 -- and renames 'Kettle / Water Heater' back to 'Heater (Heatek)' only while that name is unchanged and the old name is free. Tasks the sweep closed stay closed (they were true when closed).
 begin;
 
@@ -16,6 +16,22 @@ begin
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)')) is distinct from 'efc09d51a134419b8825e74a78d53345' then
     raise exception 's117 rollback: public.apply_verifier_run_v1(text,jsonb,timestamp with time zone) is not the s117 body (md5 %): re-cut it from the live body',
       (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.apply_verifier_run_v1(text,jsonb,timestamp with time zone)')) using errcode = '55000';
+  end if;
+end $$;
+
+do $$
+begin
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.health_checks_core_v1(uuid,boolean)')) is distinct from '8fa278d109b83976fa07dc06c5d19826' then
+    raise exception 's117 rollback: public.health_checks_core_v1(uuid,boolean) is not the s117 body (md5 %): re-cut it from the live body',
+      (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.health_checks_core_v1(uuid,boolean)')) using errcode = '55000';
+  end if;
+end $$;
+
+do $$
+begin
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.kpi_recompute_v1(uuid,date,date)')) is distinct from '2791c502b9f7c5c79102f6bb17e8da29' then
+    raise exception 's117 rollback: public.kpi_recompute_v1(uuid,date,date) is not the s117 body (md5 %): re-cut it from the live body',
+      (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.kpi_recompute_v1(uuid,date,date)')) using errcode = '55000';
   end if;
 end $$;
 
@@ -784,6 +800,196 @@ $body$
 ;
 revoke all on function public.run_system_verifier_v1(uuid,text,timestamp with time zone) from public, anon, authenticated;
 grant execute on function public.run_system_verifier_v1(uuid,text,timestamp with time zone) to service_role;
+
+create or replace function public.health_checks_core_v1(p_property_id uuid, p_fin boolean)
+returns jsonb language plpgsql security definer set search_path = '' as $body$
+declare v_today date; v_start date; v_fin boolean; v_hc record; v_out jsonb := '[]'::jsonb; v_checks jsonb := '[]'::jsonb;
+begin
+  v_fin := p_fin;
+  v_today := public.manila_today();
+  -- D-219: money before the accounting start is historical and accepted (Lloyd 2026-09-23). No start on
+  -- record means no cut-off, which is how every check behaved before this.
+  v_start := coalesce((select s.accounting_start from public.acct_settings s where s.property_id = p_property_id), '-infinity'::date);
+
+  -- Ledger ↔ reservations: every confirmed payout e-mail names its stay.
+  v_checks := v_checks || (select jsonb_build_object('k', 'payout_rows_linked', 'l', 'Payout e-mails linked to a stay', 's', case when count(*) = 0 then 'pass' else 'fail' end, 'n', count(*)::int, 'd',
+    coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'ref', t.external_ref, 'date', t.transaction_date, 'amount', t.gross_amount)) filter (where t.id is not null), '[]'::jsonb))
+  from (select * from public.transactions where property_id = p_property_id and source = 'airbnb_payout_email' and status = 'confirmed' and reservation_id is null limit 20) t);
+
+  -- Reservations ↔ payouts: every completed stay has a confirmed payout row.
+  v_checks := v_checks || (select jsonb_build_object('k', 'completed_stays_paid', 'l', 'Completed stays with a payout row', 's', case when count(*) = 0 then 'pass' else 'warn' end, 'n', count(*)::int, 'd',
+    coalesce(jsonb_agg(jsonb_build_object('code', rr.confirmation_code, 'guest', rr.guest_name, 'checkout', rr.checkout_date, 'payout', rr.host_payout)) filter (where rr.id is not null), '[]'::jsonb))
+  from (select * from public.airbnb_reservations x where x.property_id = p_property_id and x.status = 'completed' and x.checkout_date < v_today and x.checkout_date >= v_start
+        and not exists (select 1 from public.transactions t where t.reservation_id = x.id and t.source = 'airbnb_payout_email' and t.status = 'confirmed') limit 20) rr);
+
+  -- Payout totals: Σ reservation payout_amount = Σ payout e-mails + Σ Airbnb adjustments.
+  v_checks := v_checks || (select jsonb_build_object('k', 'payout_totals_agree', 'l', 'Reservation payouts equal payout e-mails plus adjustments', 's', case when abs(d.diff) < 1 then 'pass' else 'warn' end, 'n', 0, 'd',
+    jsonb_build_object('reservationPayouts', d.res, 'payoutEmails', d.em, 'adjustments', d.adj, 'difference', d.diff))
+  from (select res, em, adj, res - em - adj diff from (
+    select (select coalesce(sum(payout_amount), 0) from public.airbnb_reservations where property_id = p_property_id and payout_amount is not null and checkout_date >= v_start) res,
+           (select coalesce(sum(t.gross_amount), 0) from public.transactions t join public.airbnb_reservations r on r.id = t.reservation_id
+             where t.property_id = p_property_id and t.source = 'airbnb_payout_email' and t.status = 'confirmed' and r.checkout_date >= v_start) em,
+           (select coalesce(sum(gross_amount), 0) from public.transactions where property_id = p_property_id and source = 'airbnb' and txn_type = 'expense' and category = 'airbnb_adjustment' and status = 'confirmed' and transaction_date >= v_start) adj) x) d);
+
+  -- Cleaning log ↔ stays: a checkout in the last 90 days has a cleaning within three days.
+  v_checks := v_checks || (select jsonb_build_object('k', 'checkouts_cleaned', 'l', 'Checkouts (90 days) followed by a cleaning', 's', case when count(*) = 0 then 'pass' else 'warn' end, 'n', count(*)::int, 'd',
+    coalesce(jsonb_agg(jsonb_build_object('code', s.confirmation_code, 'guest', s.guest_name, 'checkout', s.checkout_date)) filter (where s.id is not null), '[]'::jsonb))
+  from (select * from public.airbnb_reservations x where x.property_id = p_property_id and x.status = 'completed' and x.checkout_date >= v_today - 90 and x.checkout_date < v_today
+        and not exists (select 1 from public.cleaning_sessions c where c.property_id = p_property_id and (c.checkout_date = x.checkout_date or (c.cleaned_at::date between x.checkout_date and x.checkout_date + 3))) limit 20) s);
+
+  -- Cleaning log ↔ ledger. SPEC-37: the fee stays NULL until the cleaner asks to be paid, so an unpaid clean is
+  -- normal for a while. A fee marked paid with no live transaction is a ledger defect (fail); a clean still unpaid
+  -- 14 days after it was done is a reminder (warn). An explicit 0 is no fee (get_admin_overview_v1's rule).
+  if v_fin then
+    v_checks := v_checks || (select jsonb_build_object('k', 'cleaner_fees_settled', 'l', 'Cleaning fees settled in the ledger', 's', case when bool_or(c.fee_paid_at is not null) then 'fail' when count(*) > 0 then 'warn' else 'pass' end, 'n', count(*)::int, 'd',
+      coalesce(jsonb_agg(jsonb_build_object('session', c.id, 'guest', c.last_guest_name, 'cleaned', c.cleaned_at::date, 'fee', c.fee_amount, 'paid', c.fee_paid_at::date)) filter (where c.id is not null), '[]'::jsonb))
+    from (select * from public.cleaning_sessions x where x.property_id = p_property_id and (x.fee_amount is null or x.fee_amount > 0)
+          and ((x.fee_paid_at is not null and (x.fee_txn_id is null or not exists (select 1 from public.transactions t where t.id = x.fee_txn_id and t.status <> 'void')))
+            or (x.fee_paid_at is null and x.cleaned_at < now() - interval '14 days'))
+          order by x.fee_paid_at is null, x.cleaned_at limit 20) c);
+  end if;
+
+  -- Meter readings: first entries and negative re-entries carry a review flag.
+  v_checks := v_checks || (select jsonb_build_object('k', 'meter_readings_reviewed', 'l', 'Odd meter readings reviewed', 's', case when count(*) = 0 then 'pass' else 'warn' end, 'n', count(*)::int, 'd',
+    coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'session', m.session_id, 'recorded', m.recorded_at::date, 'electricDelta', m.electric_delta, 'waterDelta', m.water_delta)) filter (where m.id is not null), '[]'::jsonb))
+  from (select * from public.meter_readings x where x.property_id = p_property_id and x.meter_flag is null
+        and (coalesce(x.electric_prev, 0) = 0 or coalesce(x.water_prev, 0) = 0 or coalesce(x.electric_delta, 0) < 0 or coalesce(x.water_delta, 0) < 0) limit 20) m);
+
+  -- Inventory: ledger-controlled items agree with their last movement; nothing negative.
+  v_checks := v_checks || (select jsonb_build_object('k', 'inventory_ledger_consistent', 'l', 'Inventory quantities agree with movements', 's', case when count(*) = 0 then 'pass' else 'fail' end, 'n', count(*)::int, 'd',
+    coalesce(jsonb_agg(jsonb_build_object('item', i.name, 'onHand', i.qty_on_hand, 'lastMovement', i.last_after)) filter (where i.id is not null), '[]'::jsonb))
+  from (select x.id, x.name, x.qty_on_hand, x.movement_controlled_at, (select quantity_after from public.inventory_stock_movements m where m.item_id = x.id order by sequence_no desc limit 1) last_after
+        from public.inventory_items x where x.property_id = p_property_id and x.is_active) i
+  where i.qty_on_hand < 0 or (i.movement_controlled_at is not null and i.last_after is not null and i.last_after <> i.qty_on_hand));
+
+  if v_fin then
+    -- Ledger: duplicate live rows (same date, amount, payee, type, source).
+    v_checks := v_checks || (select jsonb_build_object('k', 'ledger_duplicates', 'l', 'Duplicate ledger rows', 's', case when count(*) = 0 then 'pass' else 'warn' end, 'n', count(*)::int, 'd',
+      coalesce(jsonb_agg(jsonb_build_object('date', g.transaction_date, 'amount', g.gross_amount, 'payee', g.payee, 'n', g.n)), '[]'::jsonb))
+    from (select transaction_date, gross_amount, coalesce(payee_name, '') payee, count(*) n from public.transactions
+          where property_id = p_property_id and status <> 'void' and source not in ('airbnb','airbnb_email')
+          group by transaction_date, gross_amount, coalesce(payee_name, ''), txn_type, source having count(*) > 1 limit 20) g);
+
+    -- Ledger position: income − expenses − drawings on confirmed, non-mirror rows.
+    v_checks := v_checks || (select jsonb_build_object('k', 'ledger_position', 'l', 'Cash position: income − expenses − drawings', 's', case when p.opening + p.net < 0 then 'warn' else 'pass' end, 'n', 0, 'd',
+      -- D-219: income - expenses - drawings is money left over, never expected to be zero. The position is
+      -- the opening cash plus what moved since the accounting start; only a position below zero is wrong.
+      -- net carries the position, so the problem sentence reads the amount it is about.
+      jsonb_build_object('opening', p.opening, 'income', p.inc, 'expenses', p.exp, 'drawings', p.drw, 'net', p.opening + p.net, 'since', v_start, 'asOf', v_today))
+    from (select inc, exp, drw, inc - exp - drw net,
+            (select coalesce(sum(l.debit - l.credit), 0) from public.acct_journal_lines l join public.acct_journals j on j.id = l.journal_id join public.acct_accounts a on a.id = l.account_id
+              where j.property_id = p_property_id and j.event_kind = 'opening_balance' and j.status = 'posted' and a.is_cash) opening
+          from (
+      select coalesce(sum(gross_amount) filter (where txn_type = 'income'), 0) inc, coalesce(sum(gross_amount) filter (where txn_type = 'expense'), 0) exp, coalesce(sum(gross_amount) filter (where txn_type = 'drawing'), 0) drw
+      from public.transactions where property_id = p_property_id and status = 'confirmed' and source not in ('airbnb','airbnb_email') and transaction_date <= v_today and transaction_date >= v_start) x) p);
+
+    -- Journals: every posted journal balances.
+    v_checks := v_checks || (select jsonb_build_object('k', 'journals_balanced', 'l', 'Posted journals balance', 's', case when count(*) = 0 then 'pass' else 'fail' end, 'n', count(*)::int, 'd',
+      coalesce(jsonb_agg(jsonb_build_object('journalNo', j.journal_no, 'debits', j.d, 'credits', j.c)), '[]'::jsonb))
+    from (select j.journal_no, sum(l.debit) d, sum(l.credit) c from public.acct_journals j join public.acct_journal_lines l on l.journal_id = j.id
+          where j.property_id = p_property_id and j.status = 'posted' group by j.journal_no having sum(l.debit) <> sum(l.credit) limit 20) j);
+
+    -- s91 kpi_reconciled begin
+    -- V19 as a health row: the month KPIs against a second count from the raw books (current Manila month and the three before). Red findings fail it,
+    -- yellow ones warn. n counts findings; d names month, metric, shown and recomputed (hygiene rows carry n instead).
+    v_checks := v_checks || (select jsonb_build_object('k', 'kpi_reconciled', 'l', 'Month KPIs reconcile with the raw books',
+      's', case when count(*) filter (where e.f ->> 'severity' = 'red') > 0 then 'fail' when count(*) > 0 then 'warn' else 'pass' end, 'n', count(*)::int, 'd',
+      coalesce(jsonb_agg(jsonb_build_object('month', e.f -> 'detail' ->> 'month', 'metric', e.f -> 'detail' ->> 'metric', 'shown', e.f -> 'detail' -> 'shown',
+                                            'recomputed', e.f -> 'detail' -> 'recomputed', 'n', e.f -> 'detail' -> 'n')) filter (where e.f is not null), '[]'::jsonb))
+    from jsonb_array_elements(public.kpi_reconcile_window_v1(p_property_id, v_today)) e(f));
+    -- s91 kpi_reconciled end
+  end if;
+
+  -- Messenger handoffs (Sprint 0, 2026-09-16): open cards a human has not answered. Counted here
+  -- so a status-literal drift (the 'pending' bug fixed in this release) shows up in System health.
+  v_checks := v_checks || (select jsonb_build_object('k', 'concierge_handoffs_open', 'l', 'Messenger handoffs awaiting a human reply', 's', case when count(*) = 0 then 'pass' else 'warn' end, 'n', count(*)::int, 'd',
+    coalesce(jsonb_agg(jsonb_build_object('id', h.id, 'guest', h.guest_name, 'risk', h.risk, 'created', h.created_at)) filter (where h.id is not null), '[]'::jsonb))
+  from (select * from public.concierge_handoffs x where x.status = 'open' order by x.created_at desc limit 20) h);
+
+  for v_hc in select e->>'k' k, e->>'l' l, e->>'s' s, (e->>'n')::int n, e->'d' d from jsonb_array_elements(v_checks) e loop
+    insert into public.admin_health_check_runs(property_id, check_key, label, status, count, detail, ran_at, ran_by)
+    values (p_property_id, v_hc.k, v_hc.l, v_hc.s, v_hc.n, v_hc.d, now(), auth.uid())
+    on conflict (property_id, check_key) do update set label = excluded.label, status = excluded.status, count = excluded.count, detail = excluded.detail, ran_at = excluded.ran_at, ran_by = excluded.ran_by;
+  end loop;
+  select coalesce(jsonb_agg(to_jsonb(h) order by h.check_key), '[]'::jsonb) into v_out from public.admin_health_check_runs h where h.property_id = p_property_id and (v_fin or h.check_key not in ('cleaner_fees_settled','ledger_duplicates','ledger_position','journals_balanced','kpi_reconciled'));
+  return jsonb_build_object('ranAt', now(), 'checks', v_out);
+end;
+$body$;
+revoke all on function public.health_checks_core_v1(uuid, boolean) from public, anon, authenticated;
+grant execute on function public.health_checks_core_v1(uuid, boolean) to service_role;
+
+create or replace function public.kpi_recompute_v1(p_property_id uuid, p_start date, p_end_exclusive date)
+returns jsonb language sql stable security definer set search_path = '' as $body$
+  with st as (
+    select r.id stay_id, r.guest_id, r.status, r.checkin_date ci, r.checkout_date co, r.checkout_date - r.checkin_date n,
+           coalesce((select round(sum(x.gross_earnings) - coalesce(sum(x.cleaning_fee), 0), 2) from public.airbnb_transactions x
+                      where x.property_id = r.property_id and x.confirmation_code = r.confirmation_code and x.row_type = 'reservation'),
+                    round(r.host_payout + coalesce(r.host_service_fee, 0), 2)) rev
+    from public.airbnb_reservations r
+    where r.property_id = p_property_id and r.source is distinct from 'direct' and r.status in ('confirmed', 'completed')
+    union all
+    select i.id, i.guest_id, i.status, i.checkin_date, i.checkout_date, i.checkout_date - i.checkin_date, i.total_amount
+    from public.booking_inquiries i
+    where i.property_id = p_property_id and i.status in ('confirmed', 'completed') and coalesce(i.guest_name, '') !~* '^synthetic'
+  ), nights as (
+    select st.*, st.ci + g.k d, g.k idx
+    from st cross join lateral generate_series(0, st.n - 1) g(k)
+    where st.ci + g.k >= p_start and st.ci + g.k < p_end_exclusive
+  ), alloc as (
+    select nights.*, case when rev is null then null
+                          else (floor(round(rev * 100) / n) + case when idx < (round(rev * 100)::bigint % n) then 1 else 0 end) / 100.0 end amt
+    from nights
+  ), dead as (
+    select t.external_ref ref
+    from public.transactions t
+    join public.airbnb_reservations r on r.property_id = t.property_id and r.confirmation_code = t.external_ref
+    where t.property_id = p_property_id and t.source = 'airbnb_email' and t.income_stage = 'estimated' and t.status = 'confirmed'
+      and (r.status = 'cancelled'
+           or exists (select 1 from public.transactions p where p.reservation_id = r.id and p.source = 'airbnb_payout_email' and p.status = 'confirmed'))
+  ), drift as (
+    select q.id
+    from public.staff_pay_requests q
+    where q.property_id = p_property_id and q.status <> 'cancelled' and jsonb_typeof(q.lines) = 'array'
+      and q.total_amount <> (select sum((l ->> 'amount')::numeric) from jsonb_array_elements(q.lines) l)
+  )
+  select jsonb_build_object(
+    'sold_nights', count(distinct d),
+    'revenue', coalesce(round(sum(amt), 2), 0),
+    'revenue_nights', count(*) filter (where amt is not null),
+    'revenue_missing_nights', count(*) filter (where amt is null),
+    'adr', round(sum(amt) / nullif(count(*) filter (where amt is not null), 0), 2),
+    'cash_received', (select coalesce(sum(t.gross_amount), 0) from public.transactions t
+                       where t.property_id = p_property_id and t.txn_type = 'income' and t.status = 'confirmed'
+                         and t.transaction_date >= p_start and t.transaction_date < p_end_exclusive and t.source not in ('airbnb', 'airbnb_email')),
+    'cleaner_fee_ledger', (select coalesce(sum(t.gross_amount), 0) from public.transactions t
+                            where t.property_id = p_property_id and t.source = 'cleaner_fee' and t.category = 'cleaning' and t.status = 'confirmed'
+                              and t.transaction_date >= p_start and t.transaction_date < p_end_exclusive),
+    'cleaner_fee_sessions', (select coalesce(sum(c.fee_amount), 0) from public.cleaning_sessions c join public.transactions t on t.id = c.fee_txn_id
+                              where c.property_id = p_property_id and t.status = 'confirmed'
+                                and t.transaction_date >= p_start and t.transaction_date < p_end_exclusive),
+    'pay_request_line_drift', (select count(*) from drift),
+    'pay_request_line_drift_ids', (select coalesce(jsonb_agg(x.id), '[]'::jsonb) from (select id from drift order by id limit 10) x),
+    'direct_mirror_dups', (select count(*) from public.airbnb_reservations r join public.booking_inquiries i on r.confirmation_code = 'DIRECT:' || i.id::text
+                            where r.property_id = p_property_id and r.status <> 'cancelled' and i.status in ('confirmed', 'completed')
+                              and i.checkin_date < p_end_exclusive and i.checkout_date > p_start),
+    'confirmed_estimates_dead', (select count(*) from dead),
+    'confirmed_estimates_dead_refs', (select coalesce(jsonb_agg(x.ref), '[]'::jsonb) from (select ref from dead order by ref limit 10) x),
+    'split_payout_stays', (select count(*) from (select confirmation_code from public.airbnb_transactions
+                                                  where property_id = p_property_id and row_type = 'reservation' group by 1 having count(*) > 1) s)
+  ) from alloc;
+$body$;
+revoke all on function public.kpi_recompute_v1(uuid, date, date) from public, anon, authenticated, service_role;
+
+-- OmniRoute key cap back to 0.5, only while it still reads 0.15
+do $d$
+declare v_idx integer;
+begin
+  select (e.ord - 1)::integer into v_idx
+    from public.app_settings s, jsonb_array_elements(case when jsonb_typeof(s.value -> 'caps') = 'array' then s.value -> 'caps' else '[]'::jsonb end) with ordinality e(el, ord)
+   where s.key = 'api_caps' and e.el ->> 'id' = 'omniroute-key' and (e.el ->> 'cap')::numeric = 0.15;
+  if v_idx is null then raise notice 's117 rollback: omniroute cap not at 0.15, left as it is'; return; end if;
+  update public.app_settings set value = jsonb_set(value, array['caps', v_idx::text, 'cap'], to_jsonb(0.5::numeric)) where key = 'api_caps';
+end $d$;
 
 drop function public.system_tasks_expire_v1(timestamp with time zone);
 drop function public.api_usage_last_calls_v1();

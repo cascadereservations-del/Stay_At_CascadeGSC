@@ -1,9 +1,10 @@
 -- Session 117 (lane S): release s117_self_closing_warnings_20261116. docs/s117/CONTRACT.md (addressed or expired, QUIET_HOURS = 6).
 --   run_system_verifier_v1 V22 only while the provider still has a non-probe call in the last 6 hours; api_usage_last_calls_v1; system_tasks_expire_v1 (power_poster_unread, low_stock)
---   called from apply_verifier_run_v1; the Heater (Heatek) -> Kettle / Water Heater rename.
+--   called from apply_verifier_run_v1 (poster tasks close only when the poster is decided); the Heater (Heatek) -> Kettle / Water Heater rename (active rows);
+--   V10 checkouts_cleaned (one day of grace, mid_stay never counts); kpi_recompute_v1 (unlinked pay-ahead rows leave the ledger side); OmniRoute cap 0.15.
 -- Synthetic fixtures only (uuids a1170000-...). llm_usage is emptied inside this transaction (a restore holds real rows); everything rolls back.
 begin;
-select plan(36);
+select plan(44);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 
@@ -89,7 +90,7 @@ select throws_ok($$select * from public.api_usage_last_calls_v1()$$, '42501', nu
 reset role;
 
 -- ===== system_tasks_expire_v1: power_poster_unread =====
-insert into public.app_settings(key, value) values ('power_watch_state', jsonb_build_object('done', '[]'::jsonb, 'images', jsonb_build_array('https://fb.test/posters/zz117%20poster%20decided.jpg', 'https://fb.test/posters/other.jpg')))
+insert into public.app_settings(key, value) values ('power_watch_state', jsonb_build_object('done', '[]'::jsonb, 'images', jsonb_build_array('https://fb.test/posters/zz117%20poster%20decided.jpg', 'https://fb.test/posters/zz117%20poster%20decided2.jpg', 'https://fb.test/posters/other.jpg')))
 on conflict (key) do update set value = excluded.value;
 insert into _sink select public.system_task_open_v1('a1170000-0000-4000-8000-0000000000b0', 'power_poster_unread', 'zz117 poster decided.jpg', 'Poster cannot be read (decided)', 'x', 'normal');
 insert into _sink select public.system_task_open_v1('a1170000-0000-4000-8000-0000000000b0', 'power_poster_unread', 'zz117-poster-young.jpg',  'Poster cannot be read (young)',   'x', 'normal');
@@ -101,15 +102,14 @@ insert into _sink select public.system_tasks_expire_v1(now());
 select is((select status from public.follow_up_tasks where source_ref = 'zz117 poster decided.jpg'), 'done', 'a poster Power watch has read since closes its task');
 select is((select completion_note from public.follow_up_tasks where source_ref = 'zz117 poster decided.jpg'), 'Closed automatically: Power watch has read this poster since.', 'with a plain-sentence note');
 select is((select status from public.follow_up_tasks where source_ref = 'zz117-poster-young.jpg'), 'open', 'an undecided poster 47 hours old stays open');
-select is((select status from public.follow_up_tasks where source_ref = 'zz117-poster-old.jpg'), 'done', 'an undecided poster older than 48 hours closes');
-select is((select completion_note from public.follow_up_tasks where source_ref = 'zz117-poster-old.jpg'), 'Closed automatically: this notice is older than 48 hours.', 'with the age note');
+select is((select status from public.follow_up_tasks where source_ref = 'zz117-poster-old.jpg'), 'open', 'an undecided poster older than 48 hours stays open (a still-unreadable poster must stay reported)');
+select is((select count(*)::int from public.follow_up_tasks where source_ref in ('zz117-poster-old.jpg', 'zz117-poster-young.jpg') and completion_note is not null), 0, 'and neither of them carries a closing note');
 select is((select status from public.follow_up_tasks where source_ref = 'zz117-other-old'), 'open', 'a system task of another kind is never touched');
 
--- wired into the verifier run: apply_verifier_run_v1 (hourly) closes an old poster task
-insert into _sink select public.system_task_open_v1('a1170000-0000-4000-8000-0000000000b0', 'power_poster_unread', 'zz117-poster-old2.jpg', 'Poster cannot be read (old 2)', 'x', 'normal');
-update public.follow_up_tasks set created_at = now() - interval '3 days' where source_ref = 'zz117-poster-old2.jpg';
+-- wired into the verifier run: apply_verifier_run_v1 (hourly) closes a decided poster task
+insert into _sink select public.system_task_open_v1('a1170000-0000-4000-8000-0000000000b0', 'power_poster_unread', 'zz117 poster decided2.jpg', 'Poster cannot be read (decided 2)', 'x', 'normal');
 insert into _sink select public.apply_verifier_run_v1('hourly', '[]'::jsonb, now());
-select is((select status from public.follow_up_tasks where source_ref = 'zz117-poster-old2.jpg'), 'done', 'apply_verifier_run_v1 runs the expiry, so it happens every hour');
+select is((select status from public.follow_up_tasks where source_ref = 'zz117 poster decided2.jpg'), 'done', 'apply_verifier_run_v1 runs the expiry, so it happens every hour');
 
 -- ===== system_tasks_expire_v1: low_stock =====
 -- the s84 trigger would close and reopen these itself; it is switched off so only the sweep is under test
@@ -137,11 +137,51 @@ select ok(has_function_privilege('service_role', 'public.run_system_verifier_v1(
       and not has_function_privilege('authenticated', 'public.apply_verifier_run_v1(text,jsonb,timestamptz)', 'execute'), 'the two replaced verifier functions keep service_role only');
 
 -- ===== the rename (the migration ran before this file) =====
-select ok(not exists (select 1 from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and name = 'Heater (Heatek)'),
-  'no stock item is called Heater (Heatek) any more');
+select ok(not exists (select 1 from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_active and name = 'Heater (Heatek)'),
+  'no active stock item is called Heater (Heatek) any more');
 select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd')
        or (select count(*) from public.inventory_items where property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and is_active and name = 'Kettle / Water Heater') = 1,
   'exactly one active Kettle / Water Heater (a rebuild without the Cascade property skips the data step)');
+
+-- ===== V10 checkouts_cleaned: one day of grace, a mid_stay cleaning never counts =====
+insert into public.airbnb_reservations(id, property_id, confirmation_code, status, guest_name, checkin_date, checkout_date, source) values
+ ('a1170000-0000-4000-8000-0000000000d1', 'a1170000-0000-4000-8000-0000000000b0', 'ZZ117A', 'completed', 'Zz A', public.manila_today() - 8, public.manila_today() - 5, 'airbnb'),
+ ('a1170000-0000-4000-8000-0000000000d2', 'a1170000-0000-4000-8000-0000000000b0', 'ZZ117B', 'completed', 'Zz B', public.manila_today() - 4, public.manila_today() - 1, 'airbnb'),
+ ('a1170000-0000-4000-8000-0000000000d3', 'a1170000-0000-4000-8000-0000000000b0', 'ZZ117C', 'completed', 'Zz C', public.manila_today() - 12, public.manila_today() - 10, 'airbnb'),
+ ('a1170000-0000-4000-8000-0000000000d4', 'a1170000-0000-4000-8000-0000000000b0', 'ZZ117D', 'completed', 'Zz D', public.manila_today() - 20, public.manila_today() - 17, 'airbnb');
+insert into public.cleaning_sessions(id, property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date) values
+ ('a1170000-0000-4000-8000-0000000000e1', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-c-mid',  'Fixture', (public.manila_today() - 10)::timestamptz + interval '4 hours', 'mid_stay',  public.manila_today() - 10),
+ ('a1170000-0000-4000-8000-0000000000e2', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-d-turn', 'Fixture', (public.manila_today() - 17)::timestamptz + interval '4 hours', 'turnover', public.manila_today() - 17);
+select ok((public.health_checks_core_v1('a1170000-0000-4000-8000-0000000000b0', false)) is not null, 'health_checks_core_v1 runs on the synthetic property');
+select is((select count from public.admin_health_check_runs where property_id = 'a1170000-0000-4000-8000-0000000000b0' and check_key = 'checkouts_cleaned'), 2,
+  'checkouts_cleaned lists two stays: the one 5 days back with no report, and the one whose only cleaning is a mid_stay');
+select is((select array_agg(d ->> 'code' order by d ->> 'code') from public.admin_health_check_runs h, jsonb_array_elements(h.detail) d where h.property_id = 'a1170000-0000-4000-8000-0000000000b0' and h.check_key = 'checkouts_cleaned'),
+  array['ZZ117A', 'ZZ117C'], 'the checkout of yesterday (one day of grace) and the one with a turnover report are not listed');
+
+-- ===== kpi_recompute_v1: an unlinked pay-ahead advance leaves the ledger side =====
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, payee_name, external_ref, income_stage) values
+ ('a1170000-0000-4000-8000-0000000000f1', 'a1170000-0000-4000-8000-0000000000b0', 'expense', 'cleaning', 'confirmed', 'cleaner_fee', date '2030-01-05', 650, 'Fixture cleaner', 'cleanadv:zz117req:2030-01-05', 'confirmed'),
+ ('a1170000-0000-4000-8000-0000000000f2', 'a1170000-0000-4000-8000-0000000000b0', 'expense', 'cleaning', 'confirmed', 'cleaner_fee', date '2030-01-06', 650, 'Fixture cleaner', null, 'confirmed'),
+ ('a1170000-0000-4000-8000-0000000000f3', 'a1170000-0000-4000-8000-0000000000b0', 'expense', 'cleaning', 'confirmed', 'cleaner_fee', date '2030-01-07', 650, 'Fixture cleaner', 'cleanadv:zz117req:2030-01-07', 'confirmed');
+insert into public.cleaning_sessions(id, property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, fee_amount, fee_paid_at, fee_txn_id) values
+ ('a1170000-0000-4000-8000-0000000000e3', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-k-1', 'Fixture', timestamptz '2030-01-06 04:00+00', 'turnover', 650, timestamptz '2030-01-06 05:00+00', 'a1170000-0000-4000-8000-0000000000f2'),
+ ('a1170000-0000-4000-8000-0000000000e4', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-k-2', 'Fixture', timestamptz '2030-01-07 04:00+00', 'turnover', 650, timestamptz '2030-01-07 05:00+00', 'a1170000-0000-4000-8000-0000000000f3');
+select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', date '2030-01-01', date '2030-02-01') ->> 'cleaner_fee_ledger')::numeric, 1300.00,
+  'cleaner fees in the ledger: the unlinked pay-ahead advance (cleanadv: with no session) is left out; a plain row and a linked advance count');
+select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', date '2030-01-01', date '2030-02-01') ->> 'cleaner_fee_sessions')::numeric, 1300.00, 'cleaner fees on the sessions: 1,300, so ledger and sessions agree');
+insert into public.cleaning_sessions(id, property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, fee_amount, fee_paid_at, fee_txn_id) values
+ ('a1170000-0000-4000-8000-0000000000e5', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-k-3', 'Fixture', timestamptz '2030-01-08 04:00+00', 'turnover', 650, timestamptz '2030-01-08 05:00+00', 'a1170000-0000-4000-8000-0000000000f1');
+select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', date '2030-01-01', date '2030-02-01') ->> 'cleaner_fee_ledger')::numeric, 1950.00,
+  'once the report is filed and linked, the advance counts again (ledger 1,950 = sessions 1,950)');
+
+-- ===== OmniRoute cap =====
+select ok(not exists (select 1 from public.app_settings s, jsonb_array_elements(case when jsonb_typeof(s.value -> 'caps') = 'array' then s.value -> 'caps' else '[]'::jsonb end) e
+                       where s.key = 'api_caps' and e ->> 'id' = 'omniroute-key' and (e ->> 'cap')::numeric <> 0.15),
+  'api_caps omniroute-key cap is 0.15 (a rebuild without the entry skips the data step)');
+
+-- ===== a failing expiry never fails the verifier run =====
+create or replace function public.system_tasks_expire_v1(p_now timestamptz default now()) returns jsonb language plpgsql as $f$ begin raise exception 's117 test: expiry exploded'; end $f$;
+select lives_ok($$select public.apply_verifier_run_v1('hourly', '[]'::jsonb, now())$$, 'a raising system_tasks_expire_v1 still lets apply_verifier_run_v1 return (its own exception block)');
 
 select * from finish();
 rollback;
