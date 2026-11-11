@@ -122,8 +122,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Pending: the orchestrator runs the rehearsal (migration, forward checks, pgTAP s117_self_closing_warnings 44/44, s115_integrity) on a restore taken after s116 was applied, and the rollback rehearsal."
+    "verified": true,
+    "evidence": "Rehearsed on a restore of cascade-supabase-20261111T153345Z (taken after s116 was applied; disposable Postgres on alfred). Rehearsal 3 (SQL 5b30622): migration applied, forward checks 16/16 (md5 guards on the live s115 verifier bodies and the s91 health_checks_core_v1 / kpi_recompute_v1 bodies all matched), pgTAP s117_self_closing_warnings 46/46, s91_actions 56/56, health_checks_core_v10 27/27, kpi_reconcile_v1 48/49 (the one failure is a grant assert that fails on any --no-acl restore). Rollback rehearsal: the rollback script after the release restores run_system_verifier_v1 (fed6e28a), health_checks_core_v1 (bfaa9cfc), kpi_recompute_v1 (33395271), drops api_usage_last_calls_v1 and system_tasks_expire_v1, and renames Kettle / Water Heater back to Heater (Heatek) (5/5)."
   },
   "approvals": {
     "production_required": true,
