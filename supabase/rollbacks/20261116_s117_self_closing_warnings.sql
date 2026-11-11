@@ -29,7 +29,7 @@ end $$;
 
 do $$
 begin
-  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.kpi_recompute_v1(uuid,date,date)')) is distinct from '2791c502b9f7c5c79102f6bb17e8da29' then
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.kpi_recompute_v1(uuid,date,date)')) is distinct from '9a3b117e1aeed18cbbbc9d5503998b38' then
     raise exception 's117 rollback: public.kpi_recompute_v1(uuid,date,date) is not the s117 body (md5 %): re-cut it from the live body',
       (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.kpi_recompute_v1(uuid,date,date)')) using errcode = '55000';
   end if;

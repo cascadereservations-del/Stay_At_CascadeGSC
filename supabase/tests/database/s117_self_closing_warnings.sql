@@ -4,7 +4,7 @@
 --   V10 checkouts_cleaned (one day of grace, mid_stay never counts); kpi_recompute_v1 (unlinked pay-ahead rows leave the ledger side); OmniRoute cap 0.15.
 -- Synthetic fixtures only (uuids a1170000-...). llm_usage is emptied inside this transaction (a restore holds real rows); everything rolls back.
 begin;
-select plan(44);
+select plan(46);
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 
@@ -167,12 +167,22 @@ insert into public.cleaning_sessions(id, property_id, submission_id, cleaner_nam
  ('a1170000-0000-4000-8000-0000000000e3', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-k-1', 'Fixture', timestamptz '2030-01-06 04:00+00', 'turnover', 650, timestamptz '2030-01-06 05:00+00', 'a1170000-0000-4000-8000-0000000000f2'),
  ('a1170000-0000-4000-8000-0000000000e4', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-k-2', 'Fixture', timestamptz '2030-01-07 04:00+00', 'turnover', 650, timestamptz '2030-01-07 05:00+00', 'a1170000-0000-4000-8000-0000000000f3');
 select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', date '2030-01-01', date '2030-02-01') ->> 'cleaner_fee_ledger')::numeric, 1300.00,
-  'cleaner fees in the ledger: the unlinked pay-ahead advance (cleanadv: with no session) is left out; a plain row and a linked advance count');
+  'cleaner fees in the ledger: the unlinked pay-ahead advance (cleanadv: with no session) is left out (it is recent); a plain row and a linked advance count');
 select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', date '2030-01-01', date '2030-02-01') ->> 'cleaner_fee_sessions')::numeric, 1300.00, 'cleaner fees on the sessions: 1,300, so ledger and sessions agree');
 insert into public.cleaning_sessions(id, property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, fee_amount, fee_paid_at, fee_txn_id) values
  ('a1170000-0000-4000-8000-0000000000e5', 'a1170000-0000-4000-8000-0000000000b0', 'zz117-k-3', 'Fixture', timestamptz '2030-01-08 04:00+00', 'turnover', 650, timestamptz '2030-01-08 05:00+00', 'a1170000-0000-4000-8000-0000000000f1');
 select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', date '2030-01-01', date '2030-02-01') ->> 'cleaner_fee_ledger')::numeric, 1950.00,
   'once the report is filed and linked, the advance counts again (ledger 1,950 = sessions 1,950)');
+
+-- an unlinked advance is held out for 7 days only: a 2-day-old one is left out, a 20-day-old one counts again
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, payee_name, external_ref, income_stage) values
+ ('a1170000-0000-4000-8000-0000000000f4', 'a1170000-0000-4000-8000-0000000000b0', 'expense', 'cleaning', 'confirmed', 'cleaner_fee', public.manila_today() - 2, 500, 'Fixture cleaner', 'cleanadv:zz117req:recent', 'confirmed');
+select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', public.manila_today() - 30, public.manila_today() + 1) ->> 'cleaner_fee_ledger')::numeric, 0.00,
+  'cleaner fees in the ledger: an unlinked advance 2 days old is still held out');
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, payee_name, external_ref, income_stage) values
+ ('a1170000-0000-4000-8000-0000000000f5', 'a1170000-0000-4000-8000-0000000000b0', 'expense', 'cleaning', 'confirmed', 'cleaner_fee', public.manila_today() - 20, 700, 'Fixture cleaner', 'cleanadv:zz117req:old', 'confirmed');
+select is((public.kpi_recompute_v1('a1170000-0000-4000-8000-0000000000b0', public.manila_today() - 30, public.manila_today() + 1) ->> 'cleaner_fee_ledger')::numeric, 700.00,
+  'cleaner fees in the ledger: an unlinked advance 20 days old counts again, so the mismatch with the sessions returns');
 
 -- ===== OmniRoute cap =====
 select ok(not exists (select 1 from public.app_settings s, jsonb_array_elements(case when jsonb_typeof(s.value -> 'caps') = 'array' then s.value -> 'caps' else '[]'::jsonb end) e

@@ -10,7 +10,7 @@
 --   4. Data: inventory item 'Heater (Heatek)' becomes 'Kettle / Water Heater' (owner decision 2026-11-11), only from the exact known state; skipped with a notice when the Cascade
 --      property is missing (CI and disaster-recovery rebuilds), like the s116 Midea rename.
 --   5. health_checks_core_v1 (V10 checkouts_cleaned): one day of grace after checkout, mid_stay cleanings never count. Guard: live body = s91 (md5).
---   6. kpi_recompute_v1 (feeds V10 kpi_reconciled / V19 cleaner_fee): pay-ahead ledger rows (cleanadv:) not yet linked to a session leave the ledger side. Guard: live body = s91 (md5).
+--   6. kpi_recompute_v1 (feeds V10 kpi_reconciled / V19 cleaner_fee): pay-ahead ledger rows (cleanadv:) not yet linked to a session and under 7 days old leave the ledger side (older ones count again). Guard: live body = s91 (md5).
 --   7. Data: app_settings api_caps omniroute-key cap 0.5 -> 0.15, only from 0.5.
 -- Grants restated on every function (ML-21). Rollback: supabase/rollbacks/20261116_s117_self_closing_warnings.sql.
 
@@ -1052,8 +1052,8 @@ returns jsonb language sql stable security definer set search_path = '' as $body
     'cleaner_fee_ledger', (select coalesce(sum(t.gross_amount), 0) from public.transactions t
                             where t.property_id = p_property_id and t.source = 'cleaner_fee' and t.category = 'cleaning' and t.status = 'confirmed'
                               and t.transaction_date >= p_start and t.transaction_date < p_end_exclusive
-                              -- s117: a pay-ahead advance (external_ref cleanadv:) whose report is not filed yet has no session to compare with; it is an owed report (V20 watches those)
-                              and (t.external_ref is null or t.external_ref not like 'cleanadv:%'
+                              -- s117: a pay-ahead advance (external_ref cleanadv:) whose report is not filed yet has no session to compare with; it is held out for 7 days while the report is due, after that it counts again
+                              and (t.external_ref is null or t.external_ref not like 'cleanadv:%' or t.transaction_date < public.manila_today() - 7
                                    or exists (select 1 from public.cleaning_sessions cs where cs.fee_txn_id = t.id))),
     'cleaner_fee_sessions', (select coalesce(sum(c.fee_amount), 0) from public.cleaning_sessions c join public.transactions t on t.id = c.fee_txn_id
                               where c.property_id = p_property_id and t.status = 'confirmed'
