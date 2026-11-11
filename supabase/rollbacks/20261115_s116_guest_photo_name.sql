@@ -4,7 +4,7 @@ begin;
 
 do $$
 begin
-  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.staff_guest_card_v1(uuid,uuid,date)')) is distinct from 'b45a48e1e5997e429098d1061a2d538c' then
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.staff_guest_card_v1(uuid,uuid,date)')) is distinct from '8b40e8c8533f8c8960094365aba034ac' then
     raise exception 's116 rollback: public.staff_guest_card_v1(uuid,uuid,date) is not the s116 body: resolve by hand' using errcode = '55000';
   end if;
 end $$;

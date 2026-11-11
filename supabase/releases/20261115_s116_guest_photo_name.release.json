@@ -10,7 +10,7 @@
     "20261115000000_s116_guest_photo_name.sql"
   ],
   "migration_sha256": {
-    "20261115000000_s116_guest_photo_name.sql": "2683e1053ce9e51a401146ba37bf6f4c69e468b4bd2fd3263ea6fb86b748f1b6"
+    "20261115000000_s116_guest_photo_name.sql": "0686bdca9dfdc035ef570bfb184eb1bc6b46ca365f723d498e03e32a7852f8cb"
   },
   "backup": {
     "required": true,
@@ -23,12 +23,12 @@
   "forward_verification": [
     {
       "name": "md5_staff_guest_card_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'b45a48e1e5997e429098d1061a2d538c' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '8b40e8c8533f8c8960094365aba034ac' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
       "expect": true
     },
     {
       "name": "card_has_id_photo_name_same_gate",
-      "query": "select prosrc like '%''id_photo_name'', case when p_guest_id is not null and public.staff_may_see_guest_id_v1(p_property_id)%' and prosrc like '%nullif(btrim(c.name), '''')%' and prosrc like '%c.id_photo_path = public.staff_primary_id_path_v1(p_guest_id)%' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "query": "select prosrc like '%''id_photo_name'', case when p_guest_id is not null and public.staff_may_see_guest_id_v1(p_property_id)%' and prosrc like '%nullif(btrim(c.name), '''')%' and prosrc like '%public.staff_redact_v1(nullif(btrim(c.name), ''''))%' and prosrc like '%c.id_photo_path = public.staff_primary_id_path_v1(p_guest_id)%' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
       "expect": true
     },
     {
@@ -73,7 +73,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "PENDING: the orchestrator rehearses on a restore of the fresh backup (s115 applied first), runs the forward checks, pgTAP s116_guest_photo_name.sql 14/14, and re-runs s95_guest_tiers, s96_spec47 and s115_integrity (their card key counts are now ten), then the rollback."
+    "evidence": "PENDING: the orchestrator rehearses on a restore of the fresh backup (s115 applied first), runs the forward checks, pgTAP s116_guest_photo_name.sql 17/17, and re-runs s95_guest_tiers, s96_spec47, s115_integrity, s82_staff_31 and staff_home_v1 (card key counts are now ten; the s82_staff_31 cleaner next_guest key list is updated), then the rollback."
   },
   "approvals": {
     "production_required": true,

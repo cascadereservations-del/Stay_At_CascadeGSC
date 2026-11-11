@@ -1,6 +1,6 @@
 -- 20261115000000_s116_guest_photo_name.sql
 -- Session 116, lane S (SQL): release s116_guest_photo_name_20261115. docs/s116/CONTRACT.md section 1.
--- staff_guest_card_v1 gains one key, id_photo_name: btrim(name) of the guest_companions row whose id_photo_path is the guest's primary ID photo (the row id_face_box is read from),
+-- staff_guest_card_v1 gains one key, id_photo_name: staff_redact_v1(nullif(btrim(name), '')) of the guest_companions row whose id_photo_path is the guest's primary ID photo (the row id_face_box is read from),
 -- under the same gate as id_photo_path (guest given and staff_may_see_guest_id_v1), else null. Every other key and line is the s115 body, unchanged.
 -- Guard (55000, nothing changes): the live body must be the s115 one (md5 of prosrc with CR stripped). Grants restated (ML-21).
 -- Rollback: supabase/rollbacks/20261115_s116_guest_photo_name.sql.
@@ -57,7 +57,7 @@ AS $body$
                                  where c.guest_id = p_guest_id and c.id_photo_path = public.staff_primary_id_path_v1(p_guest_id) limit 1) end,
     -- s116: the name on the ID photo (the companion row id_face_box is read from), so staff see who the photo is of when it is not the booker
     'id_photo_name', case when p_guest_id is not null and public.staff_may_see_guest_id_v1(p_property_id)
-                          then (select nullif(btrim(c.name), '') from public.guest_companions c
+                          then (select public.staff_redact_v1(nullif(btrim(c.name), '')) from public.guest_companions c
                                  where c.guest_id = p_guest_id and c.id_photo_path = public.staff_primary_id_path_v1(p_guest_id) limit 1) end,
     'tier',          g.tier,
     'tier_line',     case when g.tier is null then null
