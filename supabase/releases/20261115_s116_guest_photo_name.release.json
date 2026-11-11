@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "release_id": "s116_guest_photo_name_20261115",
+  "phase": "backfill",
+  "source": {
+    "branch": "s116/guest-photo-name",
+    "commit": "291d5206bdfb75505882a917c94592d5431db513"
+  },
+  "migrations": [
+    "20261115000000_s116_guest_photo_name.sql"
+  ],
+  "migration_sha256": {
+    "20261115000000_s116_guest_photo_name.sql": "2683e1053ce9e51a401146ba37bf6f4c69e468b4bd2fd3263ea6fb86b748f1b6"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER-orchestrator-stamps-fresh-backup",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "s116 (Lloyd 2026-11-15): staff_guest_card_v1 gains one key, id_photo_name: btrim(name) of the guest_companions row whose id_photo_path is the guest primary ID photo (the row id_face_box is read from), under the same gate as id_photo_path (guest given and staff_may_see_guest_id_v1), else null. It reaches the Staff app through staff_home_v1 existing merge of staff_guest_card_v1 (no change there). Every other key and line of the s115 body is unchanged. The orchestrator re-stamps restore_point and verified_at on the fresh backup taken before the apply.",
+    "notes": "Phase backfill is the house label for a function body; no table, column, row, trigger or other function changes. One function body is replaced (guarded by the md5 of the live s115 body, 4405ec514a941053bd25160936fc0926) and its grants are restated (service_role only). Expected live effect: the card of a guest whose only ID photo is a companion now carries that companion name; older readers ignore the extra key."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_staff_guest_card_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b45a48e1e5997e429098d1061a2d538c' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "card_has_id_photo_name_same_gate",
+      "query": "select prosrc like '%''id_photo_name'', case when p_guest_id is not null and public.staff_may_see_guest_id_v1(p_property_id)%' and prosrc like '%nullif(btrim(c.name), '''')%' and prosrc like '%c.id_photo_path = public.staff_primary_id_path_v1(p_guest_id)%' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "card_keeps_s115_and_s97_parts",
+      "query": "select prosrc like '%Turnover report: %' and prosrc like '%turnover_issue_text_v1%' and prosrc like '%''id_face_box''%' and prosrc like '%''id_photo_path''%' and prosrc like '%''notable''%' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "card_grants_unchanged",
+      "query": "select not has_function_privilege('anon', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and not has_function_privilege('authenticated', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute') and has_function_privilege('service_role', 'public.staff_guest_card_v1(uuid,uuid,date)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "card_still_definer_stable_empty_search_path",
+      "query": "select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "card_signature_and_return_unchanged",
+      "query": "select pg_get_function_identity_arguments(oid) = 'p_property_id uuid, p_guest_id uuid, p_checkin date' and prorettype = 'jsonb'::regtype and (select count(*) from pg_proc where proname = 'staff_guest_card_v1' and pronamespace = 'public'::regnamespace) = 1 from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always: the script puts the s115 body back exactly (md5 guard on the s116 body). No data is touched, so nothing is lost.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261115_s116_guest_photo_name.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of public.staff_guest_card_v1(uuid,uuid,date) must be 4405ec514a941053bd25160936fc0926."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag",
+      "required_state": "None. The rollback script is the switch. The Staff app (lane A, 3.4.31) reads id_photo_name and shows nothing new while it is null or absent."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "PENDING: the orchestrator rehearses on a restore of the fresh backup (s115 applied first), runs the forward checks, pgTAP s116_guest_photo_name.sql 14/14, and re-runs s95_guest_tiers, s96_spec47 and s115_integrity (their card key counts are now ten), then the rollback."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s116_guest_photo_name.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the live body of staff_guest_card_v1 no longer matches the s115 md5 guard in the migration (production moved since the cut)"
+  ]
+}
