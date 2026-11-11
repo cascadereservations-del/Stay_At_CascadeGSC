@@ -3,7 +3,7 @@ import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.t
 import type { NoticeState } from '../_shared/cascade-core/brownout.ts';
 import { posterUrls, type Notice } from './poster.ts';
 import { scheduleFrom, staleNotices } from './plan.ts';
-import { forgetReads, reportStuck, scanPosts, STUCK_AFTER, type ScanState } from './scan.ts';
+import { forgetReads, reportStuck, scanPosts, STUCK_AFTER, STUCK_RETRY_EVERY, type ScanState } from './scan.ts';
 
 const P = 'https://www.socoteco2.com/wp-content/uploads/2026/10/';
 const post = (id: number, ...files: string[]) => ({ id, content: { rendered: files.map((f) => `<img src="${P}${f}">`).join('') } });
@@ -14,7 +14,7 @@ const sched = (posts: Array<{ id: number; content: { rendered: string } }>, st: 
   scheduleFrom(posts.map((p) => ({ id: p.id, posters: posterUrls(p.content.rendered) })), st.ours, decided(st));
 
 Deno.test('audit L5a: a done post that gains a read-class poster is read for that poster; if the read fails the schedule is null and nothing is released', async () => {
-  const old = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', added = 'SPI-10042026-BATULAKI-GLAN.jpg';
+  const old = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', added = 'SPI-10042026-KATANGAWAN.jpg';
   const posts = [post(7, old, added)];
   const st: ScanState = { done: [7], images: [P + old], ours: { [P + old]: '2026-10-08' } };
   const tried: string[] = [];
@@ -45,7 +45,7 @@ Deno.test('audit L5a: a moved hit poster re-uploaded under a new URL is read, an
 });
 
 Deno.test('audit L5a: a poster that fails 8 runs in a row is reported once per run from the 8th (one task by a stable key); a good read resets the count; absent state = 0', async () => {
-  const f = 'SPI-10042026-BATULAKI-GLAN.jpg', posts = [post(7, f)];
+  const f = 'SPI-10042026-KATANGAWAN.jpg', posts = [post(7, f)];
   const st: ScanState = { done: [], images: [], ours: {} }; // no `fails` key: backward compatible
   const fail = () => Promise.reject(new Error('poster_503'));
   for (let i = 1; i < STUCK_AFTER; i++) assertEquals((await scanPosts(posts, st, '2026-10-02', fail, LIMITS)).stuck, [], `run ${i}`);
@@ -68,10 +68,18 @@ Deno.test('audit L5a: a poster that fails 8 runs in a row is reported once per r
   const st2: ScanState = { done: [], images: [], ours: {}, fails: { [P + f]: 3 } };
   await scanPosts(posts, st2, '2026-10-02', fail, { maxReads: 0, budgetMs: 90_000 });
   assertEquals(st2.fails![P + f], 3);
+  // s115: once stuck, one read per STUCK_RETRY_EVERY runs; skipped runs keep it unread and count on
+  const st3: ScanState = { done: [], images: [], ours: {}, fails: { [P + f]: STUCK_AFTER } };
+  let calls = 0;
+  const failCount = () => { calls++; return Promise.reject(new Error('openrouter_402')); };
+  for (let i = 0; i < STUCK_RETRY_EVERY + 1; i++) await scanPosts(posts, st3, '2026-10-02', failCount, LIMITS);
+  assertEquals(calls, 2, 'read on the 8th and again 24 runs later, not every run');
+  assertEquals(st3.images.includes(P + f), false);
+  assertEquals(st3.done.includes(7), false, 'a backed-off poster leaves its post incomplete');
 });
 
 Deno.test('audit L5a: a state with no `ours` forgets the hit and read posters so they are read again; the schedule is null until all are back', async () => {
-  const hit = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', read = 'SPI-10042026-BATULAKI-GLAN.jpg', miss = 'SPI-PMS-10102026-DAMALERIO-SS.jpg';
+  const hit = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', read = 'SPI-10042026-KATANGAWAN.jpg', miss = 'SPI-PMS-10102026-DAMALERIO-SS.jpg';
   const posts = [post(7, hit, read, miss)];
   const st: ScanState = { done: [7], images: [P + hit, P + read, P + miss], ours: {} }; // index.ts passes an empty ours when the stored state has none
   forgetReads(posts, st);
@@ -88,7 +96,7 @@ Deno.test('audit L5a: a state with no `ours` forgets the hit and read posters so
 });
 
 Deno.test('audit L5a (C): on ANY run a hit or read poster in images with no ours entry is forgotten and re-read; a poster read and found not ours is recorded and not read again', async () => {
-  const hit = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', area = 'SPI-10042026-BATULAKI-GLAN.jpg', other = 'SPI-10152026-BRIA-HOMES.jpg';
+  const hit = 'SPI-PMS-10082026-LEON-LLIDO-SS.jpg', area = 'SPI-10042026-KATANGAWAN.jpg', other = 'SPI-10152026-BRIA-HOMES.jpg';
   const posts = [post(7, hit, area, other)];
   // not a first run: ours exists, but the hit poster was decided by the old code (no entry), the area poster was read and recorded
   const st: ScanState = { done: [7], images: [P + hit, P + area, P + other], ours: { [P + area]: '', [P + other]: '2026-10-16' } };

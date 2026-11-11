@@ -177,13 +177,13 @@ Deno.test('SPEC-41 3.5-7: posterDate reads the filename date, never the upload s
 
 Deno.test('SPEC-41 3.2: a kind-less feeder poster is never superseded (it can repeat on two dates in two posts; Lloyd 2026-10-05 rule covers PMS only); a read-class poster lists its filename date and the date the OCR found', () => {
   const sc = scheduleFrom([
-    { id: 2, posters: [PU + 'SPI-10122026-PORTION-OF-F14-3.jpg', PU + 'SPI-10042026-BATULAKI-GLAN.jpg'] },
+    { id: 2, posters: [PU + 'SPI-10122026-PORTION-OF-F14-3.jpg', PU + 'SPI-10042026-KATANGAWAN.jpg'] },
     { id: 1, posters: [PU + 'SPI-10052026-PORTION-OF-F14-3.jpg'] },
-  ], { [PU + 'SPI-10042026-BATULAKI-GLAN.jpg']: '2026-10-06' }, () => true)!;
+  ], { [PU + 'SPI-10042026-KATANGAWAN.jpg']: '2026-10-06' }, () => true)!;
   assertEquals([...sc.listed].sort(), ['2026-10-04', '2026-10-05', '2026-10-06', '2026-10-12']);
-  const unread = scheduleFrom([{ id: 2, posters: [PU + 'SPI-10042026-BATULAKI-GLAN.jpg'] }], {}, () => true)!;
+  const unread = scheduleFrom([{ id: 2, posters: [PU + 'SPI-10042026-KATANGAWAN.jpg'] }], {}, () => true)!;
   assertEquals([...unread.listed], ['2026-10-04'], 'a read-class poster with no read lists its filename date: more held, never less');
-  const notOurs = scheduleFrom([{ id: 2, posters: [PU + 'SPI-10042026-BATULAKI-GLAN.jpg'] }], { [PU + 'SPI-10042026-BATULAKI-GLAN.jpg']: '' }, () => true)!;
+  const notOurs = scheduleFrom([{ id: 2, posters: [PU + 'SPI-10042026-KATANGAWAN.jpg'] }], { [PU + 'SPI-10042026-KATANGAWAN.jpg']: '' }, () => true)!;
   assertEquals([...notOurs.listed], ['2026-10-04'], "'' = read and not ours: the filename date only");
 });
 

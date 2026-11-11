@@ -9,6 +9,9 @@ export const FEEDER_RE = /(?:^|[^0-9])(?:f(?:eeder)?\s*)?14\s*[-–—.\s]\s*3(?
 const OUR_SUBSTATION = /leon[\s_-]*llido/i;
 const AREA_RE = /\b(bria homes|conel|san isidro|katangawan)\b/i; // katangawan: the neighbouring barangay, kept from the Apps Script
 const WIDE_RE = /\b(all areas|all feeders|system-?wide|city-?wide)\b/i;
+// s115: a filename naming a town outside General Santos is never ours (Cascade is in GenSan). SPI-11152026-BATULAKI-GLAN.jpg failed 123 reads in a row
+// (free reads disagreed, the paid reader was out of credit) and raised the provider-outage cards; earlier GLAN/ALABEL posters all read 'not ours'.
+const OTHER_TOWN_RE = /(^|-)(GLAN|ALABEL|MALAPATAN|MALUNGON|KIAMBA|MAASIM|MAITUM|POLOMOLOK|TUPI)(?=[-.])/i;
 
 const strip = (html: string) => String(html ?? '').replace(/<[^>]+>/g, ' ').replace(/&#0?38;|&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
@@ -30,6 +33,7 @@ export function classifyFile(url: string): 'hit' | 'miss' | 'read' {
   if (OUR_SUBSTATION.test(f) || FEEDER_RE.test(f)) return 'hit';
   if (/-SS\.[a-z]+$/i.test(f)) return 'miss';               // another substation (ours is Leon Llido)
   if (/(^|-)F\d{1,2}-\d(?=[-.])/i.test(f)) return 'miss';   // names a different feeder
+  if (OTHER_TOWN_RE.test(f)) return 'miss';                 // another town (s115)
   return 'read';
 }
 

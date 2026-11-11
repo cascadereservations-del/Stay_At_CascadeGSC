@@ -11,7 +11,10 @@ Deno.test('the filename decides: our substation or feeder is a hit, another feed
   assertEquals(classifyFile(U + 'SPI-09252026-F13-3.jpg'), 'miss');
   assertEquals(classifyFile(U + 'SPI-09252026-PORTION-OF-F12-3.jpg'), 'miss');
   assertEquals(classifyFile(U + 'SPI-09152026-PORTION-OF-F14-1.jpg'), 'miss');     // a portion of 14-1 is not ours
-  assertEquals(classifyFile(U + 'SPI-10022026-BATULAKI-GLAN.jpg'), 'read');
+  assertEquals(classifyFile(U + 'SPI-10022026-KATANGAWAN.jpg'), 'read');
+  assertEquals(classifyFile(U + 'SPI-11152026-BATULAKI-GLAN.jpg'), 'miss');        // s115: another town is never ours
+  assertEquals(classifyFile(U + 'SPI-10092026-ALABEL.jpg'), 'miss');
+  assertEquals(classifyFile(U + 'SPI-10092026-GLANVILLE.jpg'), 'read');            // a whole token only
   assertEquals(classifyFile(U + 'SPI-PMS-10142026-MALAPATAN-SS.jpg'), 'miss');      // the date 1014 is not feeder 14
 });
 

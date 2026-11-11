@@ -8,6 +8,7 @@ import type { Found } from './watch.ts';
 /** `fails` = consecutive runs a poster could not be read, per URL (power_watch_state.fails; absent = 0). */
 export type ScanState = { done: number[]; images: string[]; ours: Record<string, string>; fails?: Record<string, number> };
 export const STUCK_AFTER = 8; // consecutive failed runs before a poster that never reads becomes a Follow-ups task
+export const STUCK_RETRY_EVERY = 24; // s115: a stuck poster is tried once per 24 runs (6 h), not every 15 min (123 failed runs = ~500 wasted model calls)
 /** Reads one poster ('hit' or 'read' class): the notice it carries (null = not ours) and a log line. Throws when it cannot be read. */
 export type ReadOne = (url: string, cls: 'hit' | 'read') => Promise<{ notice: Notice | null; log: string }>;
 
@@ -28,6 +29,8 @@ export async function scanPosts(
       const c = classifyFile(url);
       if (c === 'miss') { state.images.push(url); continue; }
       if (reads >= limits.maxReads || Date.now() - started > limits.budgetMs) { complete = false; break; }
+      const n0 = fails[url] ?? 0;
+      if (n0 >= STUCK_AFTER && (n0 - STUCK_AFTER) % STUCK_RETRY_EVERY !== 0) { fails[url] = n0 + 1; complete = false; continue; } // backing off: still unread
       reads++;
       try {
         const { notice: n, log: line } = await readOne(url, c);
