@@ -429,3 +429,53 @@ Deno.test('s91 V19 hygiene: plural agrees with n', () => {
   const h = f({ key: 'V19:hygiene:split_payout_stays', check_id: 'V19', severity: 'yellow', title: 'KPI does not reconcile', detail: { metric: 'split_payout_stays', n: 3 } });
   assertStringIncludes(yellowCard([h], [], 'finance', NOW, TODAY)!.text, '3 stays are paid by more than one payout e-mail');
 });
+
+// ── S115: V20 cleaner advances, V21 calendar vs reservation, V22 provider credit ──
+const REF = '6ff96a06-0000-4000-8000-000000000001';
+const v20 = (kind: string, sev: 'red' | 'yellow', extra: Record<string, unknown> = {}) =>
+  f({ key: `V20:${kind}:${REF}`, check_id: 'V20', severity: sev, title: 'Cleaner advance', detail: { ref: REF, date: '2026-11-07', payee: 'Honey', ...extra } });
+const v21 = (kind: string, sev: 'red' | 'yellow') =>
+  f({ key: `V21:${kind}:11111111-0000-4000-8000-000000000009`, check_id: 'V21', severity: sev, title: 'Calendar', detail: { event: '11111111-0000-4000-8000-000000000009', guest: 'Ana Reyes', from: '2026-11-20', to: '2026-11-22', code: 'HMABC123' } });
+const V22 = f({ key: 'V22:credit_gone:gemini', check_id: 'V22', severity: 'red', title: 'Credit', detail: { provider: 'gemini', since: '2026-11-08T03:00:00Z', features: ['the ID face box', 'guest details', 'meter and Power Watch readers'] } });
+
+Deno.test('V20 keys: Finance except report_no_stay, which goes to OPS', () => {
+  for (const k of ['advance_no_stay', 'paid_no_link', 'session_twice']) assertEquals(redCard(v20(k, 'red'), NOW).to, 'finance');
+  const ops = buildCards({ new: [f({ key: 'V20:report_no_stay:s1', check_id: 'V20', severity: 'yellow', title: 'Report', detail: { date: '2026-11-07', session: 'abcdef12-0', payee: 'Honey' } })], remind: [], resolved: [] }, NOW, TODAY);
+  assertEquals(ops.length, 1);
+  assertEquals(ops[0].to, 'ops');
+  assertStringIncludes(ops[0].text, 'matches no confirmed stay');
+  assert(!/PHP|₱/.test(ops[0].text), 'OPS card must show no money');
+  const fin = buildCards({ new: [v20('stuck_paying', 'yellow')], remind: [], resolved: [] }, NOW, TODAY);
+  assertEquals(fin[0].to, 'finance');
+  assertStringIncludes(fin[0].text, 'stuck on paying');
+});
+
+Deno.test('V20:paid_no_link names who, which day, and what to do', () => {
+  const t = redCard(v20('paid_no_link', 'red', { session: 'abcdef12-0' }), NOW).text;
+  assertStringIncludes(t, 'Honey was paid ahead for 7 Nov');
+  assertStringIncludes(t, 'ask for the report for 7 Nov');
+  assertStringIncludes(t, 'request 6FF96A06');
+});
+
+Deno.test('V20 advance_no_stay and session_twice read as sentences', () => {
+  assertStringIncludes(redCard(v20('advance_no_stay', 'red'), NOW).text, 'no confirmed stay checks out that day');
+  assertStringIncludes(redCard(v20('session_twice', 'red'), NOW).text, 'may be paid twice');
+});
+
+Deno.test('V21 goes to OPS, names the guest and dates, links the Airbnb reservation', () => {
+  const red = buildCards({ new: [v21('confirmed_cancelled', 'red')], remind: [], resolved: [] }, NOW, TODAY);
+  assertEquals(red[0].to, 'ops');
+  assertStringIncludes(red[0].text, 'Ana Reyes is confirmed on our calendar for 20 Nov to 22 Nov');
+  assertStringIncludes(red[0].text, 'airbnb.com/hosting/reservations/details/HMABC123');
+  const yel = buildCards({ new: [v21('block_named', 'yellow')], remind: [], resolved: [] }, NOW, TODAY);
+  assertEquals(yel[0].to, 'ops');
+  assertStringIncludes(yel[0].text, 'still blocks 20 Nov to 22 Nov in the name of Ana Reyes');
+});
+
+Deno.test('V22 says the credit is gone, since when, and what stops working', () => {
+  const c = redCard(V22, NOW);
+  assertEquals(c.to, 'finance');
+  assertStringIncludes(c.text, 'Gemini has refused every paid call since 8 Nov: the credit is used up.');
+  assertStringIncludes(c.text, 'the ID face box, guest details, meter and Power Watch readers');
+  assertStringIncludes(c.text, 'Do: top up the Gemini credit');
+});
