@@ -5,7 +5,7 @@
 -- none, the migration revokes explicitly); the release forward checks prove the function grants.
 -- Everything rolls back.
 begin;
-select plan(65);
+select plan(78);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -180,7 +180,7 @@ set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
 select throws_ok($$select public.confirm_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-nxt', true, 1, null)$$,
   '40001', null, 'confirm with a stale version is 40001');
 select is((select public.confirm_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-cur', true, 3, null)),
-  '{"ok": false, "error": "no_pending_suggestion"}'::jsonb, 'confirm on a stay with no pending suggestion says so');
+  '{"ok": false, "error": "no_pending_suggestion", "names": "Ana, Ben, Cy and Dan", "version": 3}'::jsonb, 'confirm on a stay with no pending suggestion says so');
 select is((select public.confirm_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-nxt', false, 2, 'not them')),
   '{"ok": true, "accepted": false, "version": 3, "names": null, "source": null}'::jsonb, 'cleaner: reject keeps names empty and moves the version');
 reset role;
@@ -201,7 +201,7 @@ set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
 select is((select public.confirm_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-nxt', true, 4, 'looks right')),
   '{"ok": true, "accepted": true, "version": 5, "names": "Dee and Gus", "source": "staff"}'::jsonb, 'cleaner: accept copies the suggestion to names with source staff');
 select is((select public.confirm_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-nxt', true, 5, null)),
-  '{"ok": false, "error": "no_pending_suggestion"}'::jsonb, 'the suggestion is spent after an accept');
+  '{"ok": false, "error": "no_pending_suggestion", "names": "Dee and Gus", "version": 5}'::jsonb, 'the suggestion is spent after an accept');
 reset role;
 select is((select suggestion is null and suggestion_at is null and suggestion_status is null from public.stay_staying where property_id = 'e9190000-0000-4000-8000-0000000000b0' and stay_uid = 'zz-s119-nxt'), true,
   'accept clears the suggestion fields');
@@ -242,6 +242,57 @@ select is((select count(*)::int from public.stay_staying_history where property_
   'Cassy history rows carry no actor (five suggestions across the suite)');
 select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), '18f5723d01ce20788d6fb2f114129ed8', 'staff_home_v1 is the s119 body');
 select ok((select prosecdef and provolatile = 's' and proconfig = array['search_path=""'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'staff_home_v1 is still stable, security definer, empty search_path');
+
+-- 66-78. D-289 contact refusal, blank save, whitespace, no_pending_suggestion state, redacted reads ---------------------------------------------------
+insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date) values
+  ('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-con', 'airbnb', 'confirmed', 'Zz S119 Con', current_date + 40, current_date + 42),
+  ('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-ws',  'airbnb', 'confirmed', 'Zz S119 Ws',  current_date + 50, current_date + 52),
+  ('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-bl',  'airbnb', 'confirmed', 'Zz S119 Bl',  current_date + 60, current_date + 62);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
+select throws_ok($$select public.set_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-con', 'Ana 0917 123 4567', 'staff', 0, null, 'con-1')$$,
+  '22023', 'names_contact', 'a phone number in the names is refused');
+select throws_ok($$select public.set_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-con', 'Ana ana@example.com', 'staff', 0, null, 'con-2')$$,
+  '22023', 'names_contact', 'an e-mail in the names is refused');
+-- no row at all: confirm hands back the empty state to reconcile against
+select is((select public.confirm_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-con', true, 0, null)),
+  '{"ok": false, "error": "no_pending_suggestion", "names": null, "version": 0}'::jsonb, 'confirm with no row returns no_pending_suggestion with names null and version 0');
+-- whitespace: a newline-only name is a blank save, tabs/CR/LF around a name are trimmed
+select is((select public.set_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-ws', E'\n\t \r', 'staff', 0, null, 'ws-1')),
+  '{"ok": true, "replay": false, "version": 1, "names": null, "source": null}'::jsonb, 'a newline-only name is a blank save, not a name');
+select is((select public.set_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-ws', E'\r\n Ana\t\n', 'staff', 1, null, 'ws-2')),
+  '{"ok": true, "replay": false, "version": 2, "names": "Ana", "source": "staff"}'::jsonb, 'tabs, CR and LF around the names are trimmed');
+reset role;
+select throws_ok($$insert into public.stay_staying(property_id, stay_uid, names, source) values ('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-chk', E'\n', 'staff')$$,
+  '23514', null, 'the table refuses a newline-only name');
+-- Cassy: contact text is refused, nothing is stored
+set local role service_role;
+set local request.jwt.claims = '{}';
+select is((select public.set_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-con', 'Dee dee@example.com')),
+  '{"ok": false, "error": "contact"}'::jsonb, 'Cassy: a suggestion with an e-mail returns ok false, error contact');
+reset role;
+select is((select count(*)::int from public.stay_staying where property_id = 'e9190000-0000-4000-8000-0000000000b0' and stay_uid = 'zz-s119-con'), 0, 'the refused suggestion and names stored nothing');
+-- blank save keeps a pending suggestion
+set local role service_role;
+set local request.jwt.claims = '{}';
+select is((select public.set_stay_staying_suggestion_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-bl', 'Mo and Ned') ->> 'version'), '1', 'Cassy: a suggestion on the stay used for the blank-save case');
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
+select is((select public.set_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-bl', '  ', 'staff', 1, null, 'bl-1') ->> 'version'), '2', 'a blank save on a row with a pending suggestion succeeds');
+reset role;
+select is((select suggestion = 'Mo and Ned' and suggestion_status = 'pending' and suggestion_at is not null and names is null
+  from public.stay_staying where property_id = 'e9190000-0000-4000-8000-0000000000b0' and stay_uid = 'zz-s119-bl'), true, 'the blank save did not drop the pending suggestion');
+-- reads redact: rows written before this fix (direct update) with a phone and an e-mail show the redacted form
+update public.stay_staying set names = 'Dee 0917 123 4567', suggestion = 'Mail dee@example.com', suggestion_status = 'pending', suggestion_at = now()
+  where property_id = 'e9190000-0000-4000-8000-0000000000b0' and stay_uid = 'zz-s119-nxt';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
+select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying' ->> 'names' like '%[hidden]%'
+  and public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying' ->> 'names' not like '%4567%'), true, 'staff_home_v1 redacts a phone number in stored names');
+select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying' ->> 'suggestion' like '%[hidden]%'
+  and public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying' ->> 'suggestion' not like '%example.com%'), true, 'staff_home_v1 redacts an e-mail in a stored suggestion');
+reset role;
 
 select * from finish();
 rollback;

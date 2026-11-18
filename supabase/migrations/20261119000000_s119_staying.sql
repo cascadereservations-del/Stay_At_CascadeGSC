@@ -9,7 +9,7 @@
 --     Why not manage_operations (save_guest_companion_v1's gate): that is owner/admin only and cleaners must be able to type who arrived. No other staff write on the
 --     guest card exists yet, so submit_cleaning is the narrowest existing permission that covers the people at the door. Stay must exist (confirmed) in calendar_events.
 --     Optimistic lock: expected version must equal the stored one (0 = no row yet), else 40001. Idempotency: a key is required; the same key with the same names
---     returns the first result (replay), the same key with other names is 22023. Typing names clears a pending suggestion.
+--     returns the first result (replay), the same key with other names is 22023. Typing names clears a pending suggestion (a blank save does not). Names with a phone, e-mail or money amount are refused (names_contact, 22023).
 -- (3) confirm_stay_staying_suggestion_v1: a person accepts (suggestion becomes names, source by role) or rejects (status dismissed). Never automatic.
 -- (4) set_stay_staying_suggestion_v1: Cassy only (service_role). Writes suggestion fields only, never names; refuses while names are set; one pending per stay
 --     (a newer suggestion replaces the pending one); the same text the person dismissed is not offered again.
@@ -42,9 +42,11 @@ end $$;
 create table public.stay_staying (
   property_id uuid not null references public.properties(id) on delete cascade,
   stay_uid text not null check (btrim(stay_uid) <> ''),
-  names text check (names is null or (names = btrim(names) and char_length(names) between 1 and 300)),
+  names text check (names is null or (names = btrim(names, E' 	
+') and char_length(names) between 1 and 300)),
   source text check (source in ('admin', 'staff')),
-  suggestion text check (suggestion is null or (suggestion = btrim(suggestion) and char_length(suggestion) between 1 and 300)),
+  suggestion text check (suggestion is null or (suggestion = btrim(suggestion, E' 	
+') and char_length(suggestion) between 1 and 300)),
   suggestion_at timestamptz,
   suggestion_status text check (suggestion_status in ('pending', 'dismissed')),
   version integer not null default 1,
@@ -80,7 +82,8 @@ create or replace function public.set_stay_staying_v1(p_property uuid, p_uid tex
 returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare
-  v_names text := nullif(btrim(p_names), '');
+  v_names text := nullif(btrim(p_names, E' 	
+'), '');
   v_key text := btrim(p_idempotency_key);
   v_row public.stay_staying%rowtype;
   v_before jsonb;
@@ -96,6 +99,8 @@ begin
   if p_uid is null or btrim(p_uid) = '' then raise exception 'uid_required' using errcode = '22023'; end if;
   if v_key is null or v_key = '' or char_length(v_key) > 100 then raise exception 'idempotency_key_invalid' using errcode = '22023'; end if;
   if v_names is not null and char_length(v_names) > 300 then raise exception 'names_too_long' using errcode = '22023'; end if;
+  -- D-289: staff never see a phone, e-mail or money; refuse it at write rather than store a redacted version.
+  if v_names is not null and public.staff_redact_v1(v_names) is distinct from v_names then raise exception 'names_contact' using errcode = '22023'; end if;
   if p_reason is not null and char_length(p_reason) > 500 then raise exception 'reason_too_long' using errcode = '22023'; end if;
   if not exists (select 1 from public.calendar_events e where e.property_id = p_property and e.uid = p_uid and e.status = 'confirmed') then
     raise exception 'stay_not_found' using errcode = 'P0002';
@@ -127,10 +132,10 @@ begin
     update public.stay_staying set
       names = v_names,
       source = case when v_names is null then null else p_source end,
-      -- typing names settles a pending suggestion; a dismissed one stays so Cassy does not offer the same text again.
-      suggestion = case when suggestion_status = 'pending' then null else suggestion end,
-      suggestion_at = case when suggestion_status = 'pending' then null else suggestion_at end,
-      suggestion_status = case when suggestion_status = 'pending' then null else suggestion_status end,
+      -- typing names settles a pending suggestion (a blank save does not); a dismissed one stays so Cassy does not offer the same text again.
+      suggestion = case when v_names is not null and suggestion_status = 'pending' then null else suggestion end,
+      suggestion_at = case when v_names is not null and suggestion_status = 'pending' then null else suggestion_at end,
+      suggestion_status = case when v_names is not null and suggestion_status = 'pending' then null else suggestion_status end,
       version = version + 1, updated_by = auth.uid(), updated_at = now()
     where property_id = p_property and stay_uid = p_uid
     returning * into v_row;
@@ -160,7 +165,8 @@ begin
   perform pg_advisory_xact_lock(hashtextextended(p_property::text || '/' || p_uid, 0));
   select * into v_row from public.stay_staying s where s.property_id = p_property and s.stay_uid = p_uid for update;
   if not found or v_row.suggestion_status is distinct from 'pending' then
-    return jsonb_build_object('ok', false, 'error', 'no_pending_suggestion');
+    -- nothing to confirm: hand back the current state so the app can reconcile (v_row is all null when there is no row).
+    return jsonb_build_object('ok', false, 'error', 'no_pending_suggestion', 'names', public.staff_redact_v1(v_row.names), 'version', coalesce(v_row.version, 0));
   end if;
   if p_expected_version is distinct from v_row.version then
     raise exception 'stale version: the suggestion changed since it was loaded' using errcode = '40001';
@@ -189,12 +195,14 @@ create or replace function public.set_stay_staying_suggestion_v1(p_property uuid
 returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare
-  v_sug text := nullif(btrim(p_suggestion), '');
+  v_sug text := nullif(btrim(p_suggestion, E' 	
+'), '');
   v_row public.stay_staying%rowtype;
   v_before jsonb;
 begin
   if p_property is null or p_uid is null or btrim(p_uid) = '' then raise exception 'uid_required' using errcode = '22023'; end if;
   if v_sug is null or char_length(v_sug) > 300 then raise exception 'suggestion_invalid' using errcode = '22023'; end if;
+  if public.staff_redact_v1(v_sug) is distinct from v_sug then return jsonb_build_object('ok', false, 'error', 'contact'); end if;
   if not exists (select 1 from public.calendar_events e where e.property_id = p_property and e.uid = p_uid and e.status = 'confirmed') then
     return jsonb_build_object('ok', false, 'error', 'stay_not_found');
   end if;
@@ -222,14 +230,14 @@ revoke all on function public.set_stay_staying_suggestion_v1(uuid, text, text) f
 grant execute on function public.set_stay_staying_suggestion_v1(uuid, text, text) to service_role;
 
 -- 5. staff_home_v1: `staying` on the current and next guest -------------------------------------------------------------------------------------
--- helper: the object staff_home_v1 embeds. The suggestion key exists only for the roles that can type names and only while it is pending.
+-- helper: the object staff_home_v1 embeds; names and suggestion pass through staff_redact_v1 like every free text staff read (D-289). The suggestion key exists only for the roles that can type names and only while it is pending.
 -- Not granted to any API role: staff_home_v1 (security definer, same owner) is the only caller.
 create or replace function public.stay_staying_json_v1(p_property uuid, p_uid text)
 returns jsonb
 language sql stable security definer set search_path = '' as $$
-  select jsonb_build_object('names', s.names, 'source', s.source, 'version', coalesce(s.version, 0))
+  select jsonb_build_object('names', public.staff_redact_v1(s.names), 'source', s.source, 'version', coalesce(s.version, 0))
          || case when public.current_staff_authorized('submit_cleaning', p_property)
-                 then jsonb_build_object('suggestion', case when s.suggestion_status = 'pending' then s.suggestion end)
+                 then jsonb_build_object('suggestion', case when s.suggestion_status = 'pending' then public.staff_redact_v1(s.suggestion) end)
                  else '{}'::jsonb end
     from (select 1) o
     left join public.stay_staying s on s.property_id = p_property and s.stay_uid = p_uid;
@@ -261,7 +269,7 @@ revoke all on function public.staff_home_v1(uuid) from public, anon;
 grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
 
 comment on function public.set_stay_staying_v1(uuid, text, text, text, integer, text, text) is 'S119: owner/admin/inspector/cleaner (submit_cleaning) type who is staying. Optimistic lock on version (0 = no row yet, else 40001); idempotency key required (same key + same names = replay). source admin needs manage_operations.';
-comment on function public.confirm_stay_staying_suggestion_v1(uuid, text, boolean, integer, text) is 'S119: submit_cleaning roles accept (suggestion becomes names) or reject (dismissed) a pending suggestion. {ok:false,error:no_pending_suggestion} when none.';
-comment on function public.set_stay_staying_suggestion_v1(uuid, text, text) is 'S119: Cassy (service_role) writes the suggestion fields only. {ok:false,error:names_set|dismissed|stay_not_found}; never writes names.';
+comment on function public.confirm_stay_staying_suggestion_v1(uuid, text, boolean, integer, text) is 'S119: submit_cleaning roles accept (suggestion becomes names) or reject (dismissed) a pending suggestion. {ok:false,error:no_pending_suggestion,names,version} when none.';
+comment on function public.set_stay_staying_suggestion_v1(uuid, text, text) is 'S119: Cassy (service_role) writes the suggestion fields only. {ok:false,error:names_set|dismissed|stay_not_found|contact}; never writes names.';
 
 commit;
