@@ -4,7 +4,7 @@
 -- Refusals are tested by calling as the refused role. calendar_events.nights is a generated column and is never sent.
 -- Everything rolls back.
 begin;
-select plan(53);
+select plan(55);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -223,7 +223,26 @@ select is((select public.staff_guest_stay_v1('e1200001-0000-4000-8000-0000000000
   'a stay with no stay_staying row and no booked number: nulls and version 0');
 select throws_ok($$select public.staff_guest_stay_v1('e1200001-0000-4000-8000-0000000000b1', 'e1200001-0000-4000-8000-0000000000c1')$$, '42501', 'forbidden', 'an admin of property A cannot read a guest stay of property B');
 reset role;
--- the guest of a stay is resolved the way staff_home_v1 does: a stay of another property for the same guest id is not returned
+-- the guest of a stay is resolved the way staff_home_v1 does (staff_stay_guest_id_v1). Fixtures: a guest of property B with a linked reservation and stay in B (c5), and a guest of property A (c6)
+-- whose reservation matches the dates of the unlinked stay zz-s120gc-far (the date fallback, unique match)
+insert into public.guests(id, property_id, name) values
+  ('e1200001-0000-4000-8000-0000000000c5', 'e1200001-0000-4000-8000-0000000000b1', 'Zz S120 Guest Five'),
+  ('e1200001-0000-4000-8000-0000000000c6', 'e1200001-0000-4000-8000-0000000000b0', 'Zz S120 Guest Six');
+insert into public.airbnb_reservations(id, property_id, confirmation_code, source, status, guest_id, guest_name, guest_count, checkin_date, checkout_date) values
+  ('e1200001-0000-4000-8000-0000000000d5', 'e1200001-0000-4000-8000-0000000000b1', 'ZZS120GC5', 'airbnb', 'confirmed', 'e1200001-0000-4000-8000-0000000000c5', 'Zz S120 Guest Five',
+     2, (now() at time zone 'Asia/Manila')::date + 3, (now() at time zone 'Asia/Manila')::date + 5),
+  ('e1200001-0000-4000-8000-0000000000d6', 'e1200001-0000-4000-8000-0000000000b0', 'ZZS120GC6', 'airbnb', 'confirmed', 'e1200001-0000-4000-8000-0000000000c6', 'Zz S120 Guest Six',
+     2, (now() at time zone 'Asia/Manila')::date + 9, (now() at time zone 'Asia/Manila')::date + 11);
+update public.calendar_events set linked_reservation_id = 'e1200001-0000-4000-8000-0000000000d5' where property_id = 'e1200001-0000-4000-8000-0000000000b1' and uid = 'zz-s120gc-other';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200001-0000-4000-8000-000000000002"}';
+select is((select public.staff_guest_stay_v1('e1200001-0000-4000-8000-0000000000b0', 'e1200001-0000-4000-8000-0000000000c5')), null::jsonb,
+  'a guest of property B (with a stay there) asked for in property A returns null: no stay of B is ever returned');
+select is((select public.staff_guest_stay_v1('e1200001-0000-4000-8000-0000000000b0', 'e1200001-0000-4000-8000-0000000000c6')),
+  jsonb_build_object('uid', 'zz-s120gc-far', 'checkin_date', (now() at time zone 'Asia/Manila')::date + 9, 'checkout_date', (now() at time zone 'Asia/Manila')::date + 11,
+                     'booked_guests', null, 'guest_count', 1, 'version', 1),
+  'date fallback: an unlinked stay whose dates match exactly one reservation resolves to that reservation''s guest (booked number stays null: it is read through the link)');
+reset role;
 select is((select count(*)::int from public.stay_staying where property_id = 'e1200001-0000-4000-8000-0000000000b1'), 0, 'nothing was written in property B');
 
 -- 50-52. the re-cut body -------------------------------------------------------------------------------------------------------------------------------

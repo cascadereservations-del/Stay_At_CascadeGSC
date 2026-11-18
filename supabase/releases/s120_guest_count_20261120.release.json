@@ -93,7 +93,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not rehearsed yet: the orchestrator must restore a backup that holds s119, apply the migration, run the forward checks and supabase/tests/database/s120_guest_count.sql (53 tests) plus the updated s119_staying.sql, then set verified to true with the log path."
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup that holds s119, apply the migration, run the forward checks and supabase/tests/database/s120_guest_count.sql (55 tests) plus the updated s119_staying.sql, then set verified to true with the log path."
   },
   "approvals": {
     "production_required": true,
@@ -103,7 +103,7 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
-    "the rehearsal has not run the migration and s120_guest_count.sql (53 tests) green on this commit, compatibility.verified is still false",
+    "the rehearsal has not run the migration, s120_guest_count.sql (55 tests) and the updated s119_staying.sql green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
     "the live body of staff_home_v1 no longer matches the md5 guard in the migration (production moved since the cut, or s119 is not applied)"
   ]
