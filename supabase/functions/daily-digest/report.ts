@@ -19,8 +19,6 @@ export type OpsInput = {
   arrivals: CalRow[]; departures: CalRow[]; tmrArrivals: CalRow[]; tmrDepartures: CalRow[];
   notices: Notice[]; stock: StockItem[]; weather: Weather | null; resRows: ResRow[];
   midStay?: MidStay[];
-  /** D-375: item names down to the last unit; shown when the digest is already sending, never a reason to send. */
-  lastUnit?: string[];
   /** SPEC-05 D: confirmed direct arrivals within 3 days without an ID on file (first name, check-in date). */
   idMissing?: Array<{ guest: string; checkin: string }>;
   /** D-290: a same-guest chain joined today or tomorrow - one stay, so not an arrival, a departure or a turnover. */
@@ -127,11 +125,6 @@ export function opsReport(i: OpsInput): OpsReport | null {
   for (const s of stayOn.filter((x) => x.day === 'today')) lines.push(`🔁 ${stayOnText(s)}`);
   for (const m of midStay) lines.push(`🛎 Mid-stay: ${m.guest}, night ${m.night} of ${m.nights} — towels and water topped up? everything okay?`);
   if (outOfStock.length) { brk(); lines.push(`📦 Out of stock: ${outOfStock.map((s) => s.name).join(', ')}`); }
-  if (i.lastUnit?.length) {
-    if (!outOfStock.length) brk();
-    const more = i.lastUnit.length - 10; // a Telegram send over 4096 characters would lose the whole digest
-    lines.push(`📦 Down to the last unit: ${i.lastUnit.slice(0, 10).join(', ')}${more > 0 ? ` and ${more} more` : ''}`);
-  }
   // SPEC-05 D: just under stock; one line, however many guests (the group cap stays five).
   if (idMissing.length) { brk(); lines.push(`🪪 ID still missing: ${idMissing.map((m) => `${m.guest}, arriving ${friendlyDate(m.checkin)}`).join('; ')}`); }
   const w = (a || d) ? weatherLine(i.weather) : '';
@@ -165,6 +158,8 @@ export function opsReport(i: OpsInput): OpsReport | null {
 export type WeeklyOpsInput = {
   today: string;
   lowStock: StockItem[];
+  /** D-375: low-stock items down to the last unit get their own weekly line. */
+  lastUnit?: string[];
   workOrders: Array<{ title: string; priority?: string | null }>;
   /** Open concierge_handoffs rows, oldest first; `key` (the psid) merges one guest's rows. */
   handoffs: Array<{ guest: string | null; key?: string | null; risk: string | null; hours: number }>;
@@ -194,7 +189,11 @@ export function weeklyOpsReport(i: WeeklyOpsInput): Report {
   const brk = () => { if (lines.length && lines[lines.length - 1] !== '') lines.push(''); };
   if (i.arrivals.length) lines.push(`📥 This week: ${i.arrivals.map((x) => `${x.guest} ${friendlyDate(x.date)}${x.nights ? ` (${plural(Number(x.nights), 'night')})` : ''}`).join(', ')}`);
   else lines.push('📥 This week: no arrivals booked yet');
-  if (i.lowStock.length) { brk(); lines.push(`📦 Low stock: ${i.lowStock.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''}`).join(', ')}`); }
+  const lastUnit = i.lastUnit ?? [];
+  const otherLow = i.lowStock.filter((s) => !lastUnit.includes(s.name));
+  if (lastUnit.length || otherLow.length) brk();
+  if (lastUnit.length) lines.push(`📦 Down to the last unit: ${lastUnit.join(', ')}`);
+  if (otherLow.length) lines.push(`📦 Low stock: ${otherLow.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''}`).join(', ')}`);
   if (i.workOrders.length) { brk(); lines.push(`🔧 Open work orders: ${i.workOrders.map((w) => maskTitle(w.title) + (w.priority ? ` (${w.priority})` : '')).join('; ')}`); }
   const waiting = waitingGuests(i.handoffs), week = riskCounts(i.weekRisks ?? []);
   const ho = [week && `Handed to you this week: ${week}`, waiting.length && `Still waiting over a day: ${waiting.map((w) => `${w.guest} (${riskWords(w.risk)}, ${plural(w.days, 'day')})`).join(', ')}`].filter(Boolean).join('. ');

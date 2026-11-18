@@ -198,7 +198,6 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string, chains:
     arrivals: dropJunction(arrivalsData, chains, today, 'next_uid'), departures: dropJunction(departuresData, chains, today, 'first_uid'),
     tmrArrivals: dropJunction(tmrArrivalsData, chains, tomorrow, 'next_uid'), tmrDepartures: dropJunction(tmrDeparturesData, chains, tomorrow, 'first_uid'),
     notices: noticesData ?? [], stock, weather, resRows: resData ?? [], midStay, idMissing,
-    lastUnit: lastUnitNames((inventoryData ?? []) as any[]),
     stayOn: [...stayOnFor(chains, today, 'today'), ...stayOnFor(chains, tomorrow, 'tomorrow')],
   });
   return report ? withHeader(report.kind, friendlyDate(today), renderReport(report)) : null;
@@ -281,7 +280,7 @@ async function buildWeeklyOpsMessage(db: any, today: string): Promise<string> {
   const lowStock = ((inv ?? []) as any[]).filter((i) => Number(i.qty_on_hand) <= Number(i.reorder_below))
     .map((i) => ({ name: String(i.name), qty_on_hand: Number(i.qty_on_hand), unit: i.unit, runway: 0 }));
   const report = weeklyOpsReport({
-    today, lowStock,
+    today, lowStock, lastUnit: lastUnitNames((inv ?? []) as any[]),
     workOrders: ((wo ?? []) as any[]).map((w) => ({ title: String(w.title), priority: w.priority })),
     handoffs: ((ho ?? []) as any[]).map((h) => ({ guest: h.guest_name, key: h.psid, risk: h.risk, hours: (Date.now() - Date.parse(String(h.created_at))) / 3_600_000 })),
     weekRisks: ((wk ?? []) as any[]).map((h) => h.risk ?? null),
