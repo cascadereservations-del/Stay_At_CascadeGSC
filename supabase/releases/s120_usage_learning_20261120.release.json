@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "release_id": "s120_usage_learning_20261120",
-  "phase": "expand",
+  "phase": "backfill",
   "source": {
     "branch": "s120/usage-learning",
     "commit": "68bf8065d0567cf129d78b33fcb87f9f41d624bc"
