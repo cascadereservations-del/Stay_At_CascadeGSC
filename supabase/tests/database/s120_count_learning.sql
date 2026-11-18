@@ -537,6 +537,8 @@ begin
     v_new := replace(v_new, $r$'unrecorded restock') w;$r$,
       replace($f$'unrecorded restock'
              and not exists (select 1 from public.inventory_purchases p where p.item_id = i.id and p.created_at > x.anchor_at)) w;$f$, chr(13), ''));
+    v_new := replace(v_new, $r$'since', coalesce(w.prev_anchor_at, w.anchor_at),$r$, $f$'since', w.anchor_at,$f$);
+    v_new := replace(v_new, $r$select i.id, i.name, x.anchor_at, x.prev_anchor_at, x.qty_prev, x.qty_now$r$, $f$select i.id, i.name, x.anchor_at, x.qty_prev, x.qty_now$f$);
     if md5(v_new) is distinct from 'f0a2052c3ccc56673808d000ba21d189' then
       raise exception 's120 rollback: get_inventory_usage_kpi_v1 is not the release body (md5 %)', md5(v_src) using errcode = '55000';
     end if;
