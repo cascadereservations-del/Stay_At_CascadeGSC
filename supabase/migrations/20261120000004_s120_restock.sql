@@ -219,10 +219,10 @@ begin
     v_written := coalesce((v_res ->> 'rows')::integer, 0);
   end if;
 
-  -- a stale replay (every row already recorded) must not overwrite a newer remembered amount; a save with no rows at all still remembers
+  -- remembered amounts change only when this call wrote at least one new usage row: a full replay (stale) or a save with no rows (nothing used) must not overwrite a newer amount
   insert into public.restock_remembered_amounts as a(property_id, item_id, amount, updated_at, updated_by)
   select p_property_id, j.key::uuid, (j.value #>> '{}')::integer, now(), auth.uid() from jsonb_each(p_remember) j
-   where jsonb_array_length(v_rem) > 0 or jsonb_array_length(p_rows) = 0
+   where jsonb_array_length(v_rem) > 0
   on conflict (property_id, item_id) do update set amount = excluded.amount, updated_at = excluded.updated_at, updated_by = excluded.updated_by
     where a.amount is distinct from excluded.amount;
 

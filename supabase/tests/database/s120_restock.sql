@@ -3,7 +3,7 @@
 -- Refusals are tested by calling as the refused role. Hand-computed values: stock A 10, B 5, Zero 0; Manila dates throughout; calendar_events.nights is generated and never sent.
 -- Everything rolls back.
 begin;
-select plan(78);
+select plan(87);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -309,10 +309,10 @@ select throws_ok($$select public.record_restock_v1('e1200002-0000-4000-8000-0000
 select throws_ok($$select public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'x', null, '[]', '{"e1200002-0000-4000-8000-0000000000a6": 3}', '[]')$$, '22023', null, 'an item of another property is refused');
 select throws_ok($$select public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'x', null, '[{"item_id":"e1200002-0000-4000-8000-0000000000a6","used_qty":1,"usage_key":"zz-s120r-other-prop"}]', '{}', '[]')$$, '22023', null, 'a usage row for an item of another property is refused');
 select throws_ok($$select public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'x', null, '[{"item_id":"e1200002-0000-4000-8000-0000000000a1","used_qty":1}]', '{}', '[]')$$, '22023', null, 'a usage row without a usage_key is refused');
-select lives_ok($$select public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'x', null, '[]', '{"e1200002-0000-4000-8000-0000000000a1": 99, "e1200002-0000-4000-8000-0000000000a2": 0}', '[]')$$, '0 and 99 are accepted');
+select lives_ok($$select public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'x', null, '[]', '{"e1200002-0000-4000-8000-0000000000a1": 99, "e1200002-0000-4000-8000-0000000000a2": 0}', '[]')$$, '0 and 99 are accepted as input (a save with no rows still validates its remembered amounts)');
 insert into _r select 'c8', public.restock_context_v1('e1200002-0000-4000-8000-0000000000b0');
 reset role;
-select is((select v -> 'remembered' from _r where k = 'c8'), jsonb_build_object('e1200002-0000-4000-8000-0000000000a1', 99, 'e1200002-0000-4000-8000-0000000000a2', 0), 'the context returns the new remembered amounts and still hides the inactive item''s');
+select is((select v -> 'remembered' from _r where k = 'c8'), jsonb_build_object('e1200002-0000-4000-8000-0000000000a1', 6, 'e1200002-0000-4000-8000-0000000000a2', 7), 'a save with no rows remembers nothing: the context still returns 6 and 7 from the earlier saves (not 99 and 0) and hides the inactive item''s');
 
 -- 46-54. the admin reminder -------------------------------------------------------------------------------------------------------------------
 set local role authenticated;
@@ -335,6 +335,51 @@ select is((select title || '|' || detail || '|' || priority || '|' || status fro
   'Restock: Zz S120R Zero is out|None left in inventory. A cleaner asked for a reminder.|high|open', 'at zero the title says is out and the detail says none left; high priority and open status');
 select is((select priority || '|' || detail || '|' || coalesce(created_by::text, 'no-actor') from public.follow_up_tasks where source_kind = 'restock_reminder' and source_ref like 'e1200002-0000-4000-8000-0000000000a2:%'),
   'normal|Only 5 left in inventory. A cleaner asked for a reminder.|no-actor', 'a shelf of 5 is normal priority and the task carries no cleaner');
+
+-- 55a. a no-rows save never changes a remembered amount; replays of that save stay harmless (the sequence that overwrote 7 with 3) ------------------------------------
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active) values
+  ('e1200002-0000-4000-8000-0000000000a7', 'e1200002-0000-4000-8000-0000000000b0', 'Zz S120R Seq A', 'Other', 'pc', 10, true, true),
+  ('e1200002-0000-4000-8000-0000000000a8', 'e1200002-0000-4000-8000-0000000000b0', 'Zz S120R Seq B', 'Other', 'pc', 10, true, true);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'q1', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null, '[]', '{"e1200002-0000-4000-8000-0000000000a7": 3}', '[{"kind":"dish_soap","changed":true,"check_key":"zz-s120r-seq-soap"}]');
+reset role;
+select is((select v::text from _r where k = 'q1') || ',' || (select count(*) from public.restock_remembered_amounts where item_id = 'e1200002-0000-4000-8000-0000000000a7')::text, '{"ok": true, "rows": 0, "replayed": 0},0', 'a save with no rows and remember 3 is ok and remembers nothing');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'q2', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null, '[{"item_id":"e1200002-0000-4000-8000-0000000000a7","used_qty":2,"usage_key":"zz-s120r-seq-1"}]', '{"e1200002-0000-4000-8000-0000000000a7": 7}', '[]');
+reset role;
+select is((select v::text from _r where k = 'q2') || ',' || (select amount from public.restock_remembered_amounts where item_id = 'e1200002-0000-4000-8000-0000000000a7')::text || ',' || (select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a7')::text,
+  '{"ok": true, "rows": 1, "replayed": 0},7,8.00', 'a newer save that wrote a row remembers 7 and the shelf goes 10 - 2 = 8');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'q3', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null, '[]', '{"e1200002-0000-4000-8000-0000000000a7": 3}', '[{"kind":"dish_soap","changed":true,"check_key":"zz-s120r-seq-soap"}]');
+reset role;
+select is((select v::text from _r where k = 'q3') || ',' || (select amount from public.restock_remembered_amounts where item_id = 'e1200002-0000-4000-8000-0000000000a7')::text || ',' || (select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a7')::text
+          || ',' || (select count(*) from public.restock_upkeep_checks where check_key = 'zz-s120r-seq-soap')::text, '{"ok": true, "rows": 0, "replayed": 0},7,8.00,1', 'the identical retry of the first call leaves remembered at 7, the shelf at 8 and the one upkeep answer as it was');
+
+-- 55b. a usage_key is per item: one key on two items writes 2 rows, the same item and key twice in one call writes 1 --------------------------------------------------
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'p1', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null,
+  '[{"item_id":"e1200002-0000-4000-8000-0000000000a7","used_qty":1,"usage_key":"zz-s120r-shared"},{"item_id":"e1200002-0000-4000-8000-0000000000a8","used_qty":1,"usage_key":"zz-s120r-shared"}]', '{}', '[]');
+reset role;
+select is((select v::text from _r where k = 'p1'), '{"ok": true, "rows": 2, "replayed": 0}', 'one usage_key on two different items writes two rows and replays none');
+select is((select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a7')::text || ',' || (select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a8')::text, '7.00,9.00', 'both shelves moved: 8 - 1 = 7 and 10 - 1 = 9');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'p2', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null,
+  '[{"item_id":"e1200002-0000-4000-8000-0000000000a7","used_qty":1,"usage_key":"zz-s120r-shared"},{"item_id":"e1200002-0000-4000-8000-0000000000a8","used_qty":1,"usage_key":"zz-s120r-shared"}]', '{}', '[]');
+reset role;
+select is((select v::text from _r where k = 'p2'), '{"ok": true, "rows": 0, "replayed": 2}', 'the same call again replays both items (per item, not per key) and writes none');
+select is((select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a7')::text || ',' || (select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a8')::text, '7.00,9.00', 'the replay left both shelves at 7 and 9');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'p3', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null,
+  '[{"item_id":"e1200002-0000-4000-8000-0000000000a8","used_qty":2,"usage_key":"zz-s120r-dup"},{"item_id":"e1200002-0000-4000-8000-0000000000a8","used_qty":3,"usage_key":"zz-s120r-dup"}]', '{}', '[]');
+reset role;
+select is((select v::text from _r where k = 'p3'), '{"ok": true, "rows": 1, "replayed": 1}', 'the same item and key twice in one call writes the first row and replays the second');
+select is((select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a8')::text, '7.00', 'the shelf went 9 - 2 = 7 (the first row counted, the second did not)');
 
 -- 55. a service_role call has no signed-in user and is refused ----------------------------------------------------------------------------------
 set local role service_role;
