@@ -6,6 +6,7 @@
 import { withHeader } from '../_shared/cascade-core/format.ts';
 import { recordTopics, topicsFromText } from '../_shared/cascade-core/topics.ts'; // SPEC-47: topic KEYS only
 import { maskMoney } from '../_shared/ops-money.ts'; // D-306: nothing in the OPS card is money; the masker is the backstop
+import { stayingSuggestion } from './staying-suggestion.ts'; // S119: a SUGGESTION of who stays; a person confirms it, Cassy never writes names
 import { type Candidate, cleanName, confirmBody, normalizePhone, type Plan, planFor } from '../telegram-expense/guest.ts';
 
 export const MAX_TEXT = 2000;
@@ -82,7 +83,7 @@ export function extract(text: string): { phone: string | null; names: string[] }
 }
 
 // ---- matching ---------------------------------------------------------------------------------------------------------------------------------
-export type Stay = { guest_id: string | null; guest_name: string | null; confirmation_code: string; checkin_date: string | null; checkout_date: string | null };
+export type Stay = { id?: string | null; guest_id: string | null; guest_name: string | null; confirmation_code: string; checkin_date: string | null; checkout_date: string | null };
 
 export const fold = (s: unknown) => String(s ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 const firstWord = (s: unknown) => fold(s).split(/\s+/)[0] ?? '';
@@ -156,14 +157,27 @@ export function cardText(plan: Plan, emailDate: string, esc: (s: string) => stri
   return withHeader('guest', 'details from Airbnb chat', b.map(maskMoney).join('\n'));
 }
 
+/** S119: record who the guest says is staying as a SUGGESTION on the matched stay (RPC set_stay_staying_suggestion_v1). Never writes names, never posts, never throws:
+ *  a refusal ({ok:false}: contact, names_set, dismissed, stay_not_found) or any failure is dropped with a debug line that holds no guest text. */
+async function suggestStaying(d: MessageDeps, stay: Stay, text: string): Promise<void> {
+  try {
+    const sug = stayingSuggestion(text, stay.guest_name);
+    if (!sug || !stay.id) return;
+    const { data: ce } = await d.db.from('calendar_events').select('uid').eq('property_id', d.propertyId).eq('linked_reservation_id', stay.id).eq('status', 'confirmed').limit(2);
+    if ((ce ?? []).length !== 1 || !ce[0]?.uid) return; // no calendar row, or two: do not guess which stay
+    const { data, error } = await d.db.rpc('set_stay_staying_suggestion_v1', { p_property: d.propertyId, p_uid: ce[0].uid, p_suggestion: sug });
+    if (error || data?.ok === false) console.debug(`airbnb-email-sync staying_suggestion skipped ${error ? 'rpc_error' : String(data?.error)}`);
+  } catch (_) { console.debug('airbnb-email-sync staying_suggestion failed'); }
+}
+
 /** Read one message event; post at most one review card. Writes no guest data except topic keys (record_guest_topic_v1); the Save tap writes the rest. Never contacts the guest. */
 export async function handleMessage(d: MessageDeps, ev: MessageEvent): Promise<MessageLog> {
   const read = extract(ev.text ?? '');
   const log: MessageLog = { guest_first_name: ev.guest_first_name ?? null, confirmation_code: ev.confirmation_code ?? null, matched: false, has_phone: !!read.phone, names_count: read.names.length, carded: false };
   const topics = topicsFromText(stripQuoted(ev.text ?? '')); // SPEC-47: keys only, the words are dropped here
-  if (!read.phone && !read.names.length && !topics.length) return log;
+  if (!read.phone && !read.names.length && !topics.length && !stayingSuggestion(stripQuoted(ev.text ?? ''), ev.guest_first_name)) return log;
 
-  let q = d.db.from('airbnb_reservations').select('guest_id,guest_name,confirmation_code,checkin_date,checkout_date')
+  let q = d.db.from('airbnb_reservations').select('id,guest_id,guest_name,confirmation_code,checkin_date,checkout_date')
     .eq('property_id', d.propertyId).eq('status', 'confirmed');
   q = ev.confirmation_code ? q.eq('confirmation_code', String(ev.confirmation_code).trim().toUpperCase()) : q.gte('checkin_date', addDays(d.today, -2)).lte('checkin_date', addDays(d.today, 120));
   const { data: stays } = await q;
@@ -172,6 +186,7 @@ export async function handleMessage(d: MessageDeps, ev: MessageEvent): Promise<M
   log.matched = true;
   // Attribution: only a stay matched by confirmation code, or by first name AND both dates, owns the topics. A first-name-only match could be another guest.
   if (ev.confirmation_code || (ev.checkin_date && ev.checkout_date)) await recordTopics(d.db, stay.guest_id, null, topics, 'airbnb'); // never throws
+  if (ev.confirmation_code || (ev.checkin_date && ev.checkout_date)) await suggestStaying(d, stay, stripQuoted(ev.text ?? '')); // S119, same attribution rule; never throws
   if (!read.phone && !read.names.length) return log;
 
   const [{ data: g }, { data: prof }, { data: comps }] = await Promise.all([
