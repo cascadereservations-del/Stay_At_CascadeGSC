@@ -449,11 +449,11 @@ set local request.jwt.claims = '{"sub":"e1200000-0000-4000-8000-000000000001"}';
 select is(((public.record_inventory_receipt_v1('e1200000-0000-4000-8000-0000000001c7', 2, null, 'Zz S120 vendor', public.manila_today(), null, null, 'zz-s120-receipt-key-0002', null)) ->> 'unitsAdded')::numeric, 2::numeric,
   'hook failure: the admin receipt still succeeds');
 reset role;
-select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '12/none', 'hook failure: the receipt stock is kept and only the refill mark was lost');
+select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '12.00/none', 'hook failure: the receipt stock is kept and only the refill mark was lost');
 insert into _r select 's3ocr', public.apply_inventory_purchase('e1200000-0000-4000-8000-0000000001c7', 3, 60, 'Zz S120 vendor', public.manila_today(), null, null);
-select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '15/none', 'hook failure: the OCR restock still adds its stock');
+select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '15.00/none', 'hook failure: the OCR restock still adds its stock');
 select isnt(public.s_inventory_receipt_apply_v1('e1200000-0000-4000-8000-0000000001c7', 4, null, 'Zz S120 vendor', null, public.manila_today(), null, 'e1200000-0000-4000-8000-0000000000d2'), null::uuid, 'hook failure: the staff receipt still writes its purchase row');
-select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '19/none', 'hook failure: and its stock');
+select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '19.00/none', 'hook failure: and its stock');
 drop trigger zz_s120_boom2 on public.inventory_items;
 
 -- 56-58. a failing hook never blocks a count ---------------------------------------------------------------------------------------------------
