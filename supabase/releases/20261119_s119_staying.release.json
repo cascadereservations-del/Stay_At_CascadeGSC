@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s119/sql-staying",
-    "commit": "97dae86ba1dec2c99c9da6aba9de60b2cd81fdc2"
+    "commit": "b4c00e818686cb7464d5d0df15f0d8931542eca9"
   },
   "migrations": [
     "20261119000000_s119_staying.sql"
   ],
   "migration_sha256": {
-    "20261119000000_s119_staying.sql": "e13127e1af8894c78c9732a410237dbe2751a08687260402ab73e4fe9bd46616"
+    "20261119000000_s119_staying.sql": "6cabb1546aea6b5c92650fab127dd59a8a18c426e10d9b820fd591ce87b72fff"
   },
   "backup": {
     "required": true,
