@@ -41,22 +41,30 @@ Deno.test('last-unit items are named weekly, once, and stay out of the daily dig
     { name: 'Out', qty_on_hand: 0, reorder_below: 5 },
     { name: 'Half', qty_on_hand: '0.5', reorder_below: '10' },
     { name: 'One', qty_on_hand: 1, reorder_below: 1 },
+    { name: 'String one', qty_on_hand: '1.00', reorder_below: '1' },
     { name: 'Above reorder', qty_on_hand: 1, reorder_below: 0.5 },
     { name: 'Two', qty_on_hand: 2, reorder_below: 5 },
-  ]), ['Half', 'One']);
+  ]), ['Half', 'One', 'String one']);
   const week = weeklyOpsReport({ today: '2026-09-21', workOrders: [], handoffs: [], arrivals: [], lastUnit: ['Hand Soap'],
     lowStock: [{ name: 'Hand Soap', qty_on_hand: 1, unit: 'pc', runway: 0 }, { name: 'Tea', qty_on_hand: 3, unit: 'pc', runway: 0 }] });
   assertEquals(week.lines, ['📥 This week: no arrivals booked yet', '', '📦 Down to the last unit: Hand Soap', '📦 Low stock: Tea 3 pc']);
   assert(week.decision.includes('2 low-stock items'));
-  const text = renderReport(opsReport({ ...base, stock: [{ name: 'Tea', qty_on_hand: 0, unit: 'pc', runway: 0 }] })!);
+  const text = renderReport(opsReport({ ...base, stock: [{ name: 'Tea', qty_on_hand: 0, unit: 'pc', runway: 0 }, { name: 'Hand Soap', qty_on_hand: 1, unit: 'pc', runway: 0 }] })!);
   assert(!text.includes('last unit'));
+  assert(!text.includes('Hand Soap'));
+  const twin = weeklyOpsReport({ today: '2026-09-21', workOrders: [], handoffs: [], arrivals: [], lastUnit: ['Towel'],
+    lowStock: [{ name: 'Towel', qty_on_hand: 1, unit: 'pc', runway: 0 }, { name: 'Towel', qty_on_hand: 3, unit: 'pc', runway: 0 }] });
+  assertEquals(twin.lines.slice(2), ['📦 Down to the last unit: Towel', '📦 Low stock: Towel 3 pc']);
+  const first = weeklyOpsReport({ today: '2026-09-21', workOrders: [], handoffs: [], arrivals: [], lastUnit: ['Soap'],
+    lowStock: ['Aa', 'Ab', 'Ac', 'Soap'].map((name) => ({ name, qty_on_hand: name === 'Soap' ? 1 : 3, unit: 'pc', runway: 0 })) });
+  assertEquals(first.action, 'Restock Soap, Aa, Ab this week.');
 });
 
 Deno.test('the weekly report passes last-unit items from its inventory read (D-375)', async () => {
   const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
   assert(src.includes('today, lowStock, lastUnit: lastUnitNames((inv ?? []) as any[])'));
   assertEquals(src.match(/lastUnitNames\(/g)?.length, 1);
-  assert(src.includes("select('name,qty_on_hand,reorder_below,unit')"));
+  assert(/select\('name,qty_on_hand,reorder_below,unit'\)\s+\.eq\('property_id', PROPERTY_ID\)\.eq\('is_active', true\)\.not\('reorder_below', 'is', null\)/.test(src));
 });
 
 Deno.test('ops: an item at zero fires ATTENTION on a quiet day; a second-morning mid-stay fires DAILY; low stock alone stays silent', () => {

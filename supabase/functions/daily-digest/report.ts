@@ -190,7 +190,8 @@ export function weeklyOpsReport(i: WeeklyOpsInput): Report {
   if (i.arrivals.length) lines.push(`📥 This week: ${i.arrivals.map((x) => `${x.guest} ${friendlyDate(x.date)}${x.nights ? ` (${plural(Number(x.nights), 'night')})` : ''}`).join(', ')}`);
   else lines.push('📥 This week: no arrivals booked yet');
   const lastUnit = i.lastUnit ?? [];
-  const otherLow = i.lowStock.filter((s) => !lastUnit.includes(s.name));
+  // names are not unique, so a same-named row with more stock stays on the Low stock line
+  const otherLow = i.lowStock.filter((s) => !(lastUnit.includes(s.name) && Number(s.qty_on_hand) > 0 && Number(s.qty_on_hand) <= 1));
   if (lastUnit.length || otherLow.length) brk();
   if (lastUnit.length) lines.push(`📦 Down to the last unit: ${lastUnit.join(', ')}`);
   if (otherLow.length) lines.push(`📦 Low stock: ${otherLow.map((s) => `${s.name} ${s.qty_on_hand}${s.unit ? ' ' + s.unit : ''}`).join(', ')}`);
@@ -200,7 +201,7 @@ export function weeklyOpsReport(i: WeeklyOpsInput): Report {
   if (ho) { brk(); lines.push(`💬 ${ho}`); }
   const decision = `Week of ${friendlyDate(i.today)}: ${plural(i.arrivals.length, 'arrival')}, ${plural(i.lowStock.length, 'low-stock item')}, ${plural(i.workOrders.length, 'open work order')}, ${plural(waiting.length, 'unanswered guest')}.`;
   const action = waiting.length ? `Reply to ${waiting[0].guest} first.`
-    : i.lowStock.length ? `Restock ${i.lowStock.slice(0, 3).map((s) => s.name).join(', ')} this week.`
+    : i.lowStock.length ? `Restock ${[...lastUnit, ...otherLow.map((s) => s.name)].slice(0, 3).join(', ')} this week.`
     : i.workOrders.length ? `Close out ${maskTitle(i.workOrders[0].title)}.`
     : i.arrivals.length ? `Prepare for ${i.arrivals[0].guest} on ${friendlyDate(i.arrivals[0].date)}.` : '';
   return { decision, lines, action };
