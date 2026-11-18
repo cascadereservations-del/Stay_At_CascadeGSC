@@ -13,6 +13,7 @@ const ME_RE = /^(?:me|myself|ako|I)\b/;
 // words that start with a capital but are never a person's name
 const BLOCK = new Set(['and', 'at', 'si', 'sina', 'kay', 'the', 'my', 'our', 'we', 'me', 'us', 'i', 'it', 'this', 'that', 'there', 'cascade', 'hideaway', 'airbnb', 'general', 'gensan', 'manila', 'davao', 'cebu', 'philippines',
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december',
+  'grab', 'jollibee', 'facebook', 'marketplace', 'double', 'check', 'mr', 'mrs', 'ms', 'miss', 'dr', 'sir', 'maam', "ma'am", 'ma’am', 'engr', 'atty',
   'christmas', 'new', 'year', 'easter', 'holy', 'week', 'weekend', 'valentine', 'valentines', 'birthday', 'anniversary', 'honeymoon', 'staycation', 'wedding', 'family', 'friends', 'guests', 'guest', 'po', 'hi', 'hello', 'thank', 'thanks', 'please', 'good', 'morning', 'afternoon', 'evening', 'night', 'today', 'tomorrow', 'tonight', 'noon', 'am', 'pm', 'php', 'gcash', 'maya']);
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 const ME = '\u0000me';
@@ -20,7 +21,7 @@ const ME = '\u0000me';
 /** A name from the head of `s`: 1-3 capitalised words, none blocked. Null when the head is not a name. */
 function nameHead(s: string): string | null {
   const words: string[] = [];
-  const re = /^\p{Lu}[\p{L}'’-]+/u;
+  const re = /^\p{Lu}\p{Ll}[\p{L}'’-]*/u; // a capital then a lower-case letter: ALL-CAPS words and titles (Mr., Ma'am) are not names
   let rest = s;
   while (words.length < 3) {
     const m = re.exec(rest);
@@ -65,8 +66,10 @@ function parseWho(s: string, allowMe: boolean): Who {
 
 const TAIL = /^\s*(?:$|[,.;!:)]|(?:who|from|on|in|for|po|please|pls|next|this|that|during|to|so|since|because|as|with|kasi|dahil)\b)/i;
 const STAY_CUE = /^\s*(?:(?:will|would|are|is|going\s+to)\s+(?:be\s+|the\s+ones?\s+(?:who\s+)?(?:will\s+be\s+)?)?(?:staying|stay|checking[\s-]*in|the\s+guests?)|(?:ang\s+)?(?:mag-?stay|tutuloy|titira|matutulog))\b/i;
-const STAY_TAIL = /^\s*(?:$|[,.;!]|(?:with\s+(?:me|us)|there|here|too|also|po|at\s+(?:your|the|cascade)|in\s+(?:your|the)|on|from|for|during|starting|until|then|so|but)\b)/i;
+const STAY_TAIL = /^\s*(?:$|[,.;!]|(?:with\s+(?:me|us)|there|here|too|also|po|(?:at|in)\s+(?:your|cascade)|(?:at|in)\s+the\s+(?:place|unit|house|condo|cascade|hideaway)|on|from|for|during|starting|until|then|so|but)\b)/i;
 const NEGATION = /\b(?:not|never|won'?t|wont|don'?t|isn'?t|aren'?t|no\s+one|hindi|wala|cancel(?:led)?)\b/i;
+const HEDGE = /(?:if|maybe|might|perhaps|baka|kung|siguro|sana|not\s+sure|depends?)/i; // hypothetical, not a statement
+const REPORTED = /(?:said|told|sabi|sinabi)/i; // someone else's words, someone else's relatives
 const BOOKING = /\b(?:book(?:ing|ed)?|reserv(?:ation|ed|ing)|pa-?book)\b/i;
 
 function fromSentence(s: string): Who | null {
@@ -79,7 +82,7 @@ function fromSentence(s: string): Who | null {
   // 3. "my parents will be staying", "my friends Ana and Ben are checking in", "ang mga magulang ko ang mag-stay"
   for (const m of s.matchAll(/\b[\p{L}-]+/gu)) {
     const i = m.index ?? 0;
-    if (/['’]s\s+$/.test(s.slice(Math.max(0, i - 4), i))) continue; // "my wife's parents": whose parents is not clear
+    if (/['’]s\s+$/.test(s.slice(Math.max(0, i - 4), i)) || /(?:her|his|their|your|its)\s+$/i.test(s.slice(Math.max(0, i - 7), i))) continue; // "my wife's parents": whose parents is not clear
     const w = parseWho(s.slice(i), false);
     if (!w.rels.length) continue;
     const c = STAY_CUE.exec(w.rest);
@@ -99,9 +102,9 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function stayingSuggestion(text: unknown, booker?: string | null): string | null {
   const found = new Set<string>();
   const own = String(booker ?? '').trim();
-  for (const raw of String(text ?? '').split(/(?<=[.!?])\s+|\n+/)) {
+  for (const raw of String(text ?? '').slice(0, 2000).split(/(?<=[.!?])\s+|\n+/)) {
     const s = raw.trim();
-    if (!s || s.includes('?') || NEGATION.test(s)) continue;
+    if (!s || s.includes('?') || NEGATION.test(s) || HEDGE.test(s) || REPORTED.test(s)) continue;
     const w = fromSentence(s);
     if (!w) continue;
     const people = [...(w.me && own ? [own] : []), ...w.names];

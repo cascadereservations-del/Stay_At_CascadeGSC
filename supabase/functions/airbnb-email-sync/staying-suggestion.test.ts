@@ -61,7 +61,22 @@ Deno.test('suggestion: negatives - nothing to say', () => {
     'booking for ana and ben', // lower case: not sure these are names
     'Companions: Ana Cruz, Ben Cruz', // the companion path owns this
     'Guests are arriving at 3pm',
+    'My parents will be staying at the hotel nearby', 'My parents will be staying in the hotel across the street', 'My boss will be staying at the Marriott', 'My wife will stay in the car',
+    'If my parents will be staying, I will pay extra', 'Maybe my parents will be staying', 'My friend said her parents will be staying at your place',
+    'Her parents will be staying', 'Booking for Mr. Smith', 'Booking for ANA', 'Booking for Grab',
   ]) assertEquals(s(t, B), null, t);
+});
+
+Deno.test('suggestion: still reads real places and names', () => {
+  assertEquals(s('My parents will be staying at your place', B), 'Parents of Jonas');
+  assertEquals(s('My parents will be staying in the unit', B), 'Parents of Jonas');
+  assertEquals(s('Booking for Ana Cruz', B), 'Ana Cruz');
+});
+
+Deno.test('suggestion: a long input is capped, not scanned', () => {
+  const t0 = performance.now();
+  assertEquals(s('Booking for my parents. ' + 'x '.repeat(5000), B), 'Parents of Jonas');
+  assert(performance.now() - t0 < 1000);
 });
 
 Deno.test('suggestion: at most 8 people and 300 characters', () => {
@@ -134,6 +149,13 @@ Deno.test('handler: no calendar row, two rows, an unrelated message, or no attri
   await handleMessage(mk(f).d, ev('Booking for my parents')); assertEquals(f.calls.length, 0);
   f = fake(); await handleMessage(mk(f).d, ev('What time is check-in?')); assertEquals(f.calls.length, 0);
   f = fake(); await handleMessage(mk(f).d, ev('Booking for my parents', { confirmation_code: undefined })); assertEquals(f.calls.length, 0, 'no code and no dates: not attributable');
+});
+
+Deno.test('handler: an unlinked calendar row with the same dates is used; a different date is not', async () => {
+  let f = fake({ ce: [{ property_id: 'P', uid: 'UID-D', linked_reservation_id: null, checkin_date: '2026-10-10', checkout_date: '2026-10-13', status: 'confirmed' }] });
+  await handleMessage(mk(f).d, ev('Booking for my parents')); assertEquals(f.calls.map((c) => c.args.p_uid), ['UID-D']);
+  f = fake({ ce: [{ property_id: 'P', uid: 'UID-X', linked_reservation_id: null, checkin_date: '2026-11-10', checkout_date: '2026-11-13', status: 'confirmed' }] });
+  await handleMessage(mk(f).d, ev('Booking for my parents')); assertEquals(f.calls.length, 0);
 });
 
 Deno.test('handler: a db with no rpc at all does not break message handling', async () => {

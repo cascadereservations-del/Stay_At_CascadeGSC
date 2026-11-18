@@ -157,13 +157,20 @@ export function cardText(plan: Plan, emailDate: string, esc: (s: string) => stri
   return withHeader('guest', 'details from Airbnb chat', b.map(maskMoney).join('\n'));
 }
 
+/** stayingSuggestion that never throws (the card must not depend on it). */
+function safeSuggestion(text: string, booker?: string | null): string | null {
+  try { return stayingSuggestion(text, booker); } catch (_) { return null; }
+}
+
 /** S119: record who the guest says is staying as a SUGGESTION on the matched stay (RPC set_stay_staying_suggestion_v1). Never writes names, never posts, never throws:
  *  a refusal ({ok:false}: contact, names_set, dismissed, stay_not_found) or any failure is dropped with a debug line that holds no guest text. */
 async function suggestStaying(d: MessageDeps, stay: Stay, text: string): Promise<void> {
   try {
-    const sug = stayingSuggestion(text, stay.guest_name);
+    const sug = safeSuggestion(text, stay.guest_name);
     if (!sug || !stay.id) return;
-    const { data: ce } = await d.db.from('calendar_events').select('uid').eq('property_id', d.propertyId).eq('linked_reservation_id', stay.id).eq('status', 'confirmed').limit(2);
+    let { data: ce } = await d.db.from('calendar_events').select('uid').eq('property_id', d.propertyId).eq('linked_reservation_id', stay.id).eq('status', 'confirmed').limit(2);
+    // not linked: the one confirmed row with the same property and dates (how staff_stay_guest_id_v1 matches)
+    if (!(ce ?? []).length && stay.checkin_date && stay.checkout_date) ({ data: ce } = await d.db.from('calendar_events').select('uid').eq('property_id', d.propertyId).eq('checkin_date', stay.checkin_date).eq('checkout_date', stay.checkout_date).eq('status', 'confirmed').limit(2));
     if ((ce ?? []).length !== 1 || !ce[0]?.uid) return; // no calendar row, or two: do not guess which stay
     const { data, error } = await d.db.rpc('set_stay_staying_suggestion_v1', { p_property: d.propertyId, p_uid: ce[0].uid, p_suggestion: sug });
     if (error || data?.ok === false) console.debug(`airbnb-email-sync staying_suggestion skipped ${error ? 'rpc_error' : String(data?.error)}`);
@@ -175,7 +182,7 @@ export async function handleMessage(d: MessageDeps, ev: MessageEvent): Promise<M
   const read = extract(ev.text ?? '');
   const log: MessageLog = { guest_first_name: ev.guest_first_name ?? null, confirmation_code: ev.confirmation_code ?? null, matched: false, has_phone: !!read.phone, names_count: read.names.length, carded: false };
   const topics = topicsFromText(stripQuoted(ev.text ?? '')); // SPEC-47: keys only, the words are dropped here
-  if (!read.phone && !read.names.length && !topics.length && !stayingSuggestion(stripQuoted(ev.text ?? ''), ev.guest_first_name)) return log;
+  if (!read.phone && !read.names.length && !topics.length && !safeSuggestion(stripQuoted(ev.text ?? ''), ev.guest_first_name)) return log;
 
   let q = d.db.from('airbnb_reservations').select('id,guest_id,guest_name,confirmation_code,checkin_date,checkout_date')
     .eq('property_id', d.propertyId).eq('status', 'confirmed');
