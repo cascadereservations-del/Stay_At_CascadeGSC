@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "release_id": "s119_staying_20261119",
+  "phase": "expand",
+  "source": {
+    "branch": "s119/sql-staying",
+    "commit": "4ca67d871642f073fa6f0232441fce949c8ece28"
+  },
+  "migrations": [
+    "20261119000000_s119_staying.sql"
+  ],
+  "migration_sha256": {
+    "20261119000000_s119_staying.sql": "0e6fd965f8f2e9b10ecc75a8e4395e3342a6b7d821c20b83ef7f4702e4d8f75d"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER: run scripts/migrations/fill-restore-point.mjs right before the apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Who is staying (spec docs/s118/SPEC-staying-facts.md). New tables public.stay_staying (property_id, stay_uid = calendar_events.uid; names <= 300 chars; source admin/staff; Cassy suggestion + status pending/dismissed; version) and stay_staying_history (before/after, actor, reason, idempotency key); RLS on, no grant to any API role. set_stay_staying_v1 and confirm_stay_staying_suggestion_v1: authenticated only, gate submit_cleaning (owner, admin, inspector, cleaner), source admin needs manage_operations, optimistic lock on version (40001), idempotency key required. set_stay_staying_suggestion_v1: service_role only, writes the suggestion fields only. staff_home_v1 (s91 body, md5 fdacbd271486a3b71e11818dc691cda4) gains `staying` on current_guest and next_guest via helper stay_staying_json_v1 (suggestion key only for submit_cleaning roles).",
+    "notes": "Additive. No existing table, column or function signature changes. One function body is replaced (staff_home_v1), cut by patching the live body after an md5 guard; the diff is two inserted lines. staff_current_next_stays_v1 and staff_guest_card_v1 are guarded as unchanged. Old Staff app builds ignore the new key. Deploy order: SQL first, then the Staff app (reads staying, calls the two person RPCs), then Cassy (airbnb-email-sync calls set_stay_staying_suggestion_v1)."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_staff_home_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '18f5723d01ce20788d6fb2f114129ed8' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_staff_current_next_stays_v1_unchanged",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '080806f4343f6df3a195b0dd2c5e8681' from pg_proc where oid = 'public.staff_current_next_stays_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_staff_guest_card_v1_unchanged",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '8b40e8c8533f8c8960094365aba034ac' from pg_proc where oid = 'public.staff_guest_card_v1(uuid,uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_home_shape_and_grants",
+      "query": "select (select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure) and not has_function_privilege('anon', 'public.staff_home_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.staff_home_v1(uuid)', 'execute') and has_function_privilege('service_role', 'public.staff_home_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_home_staying_on_cur_and_next",
+      "query": "select (length(prosrc) - length(replace(prosrc, 'stay_staying_json_v1', ''))) / length('stay_staying_json_v1') = 2 from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "tables_closed_rls_on",
+      "query": "select (select bool_and(relrowsecurity) from pg_class where oid in ('public.stay_staying'::regclass, 'public.stay_staying_history'::regclass)) and not has_table_privilege('anon', 'public.stay_staying', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.stay_staying', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.stay_staying', 'select, insert, update, delete') and not has_table_privilege('anon', 'public.stay_staying_history', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.stay_staying_history', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.stay_staying_history', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "table_constraints_and_key_index",
+      "query": "select (select count(*) from pg_constraint where conrelid = 'public.stay_staying'::regclass and conname in ('stay_staying_names_source', 'stay_staying_suggestion_shape', 'stay_staying_pkey')) = 3 and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'stay_staying_history_key_uq')",
+      "expect": true
+    },
+    {
+      "name": "set_rpc_shape_and_grants",
+      "query": "select (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.set_stay_staying_v1(uuid,text,text,text,integer,text,text)'::regprocedure) and not has_function_privilege('anon', 'public.set_stay_staying_v1(uuid,text,text,text,integer,text,text)', 'execute') and has_function_privilege('authenticated', 'public.set_stay_staying_v1(uuid,text,text,text,integer,text,text)', 'execute') and not has_function_privilege('service_role', 'public.set_stay_staying_v1(uuid,text,text,text,integer,text,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "confirm_rpc_shape_and_grants",
+      "query": "select (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.confirm_stay_staying_suggestion_v1(uuid,text,boolean,integer,text)'::regprocedure) and not has_function_privilege('anon', 'public.confirm_stay_staying_suggestion_v1(uuid,text,boolean,integer,text)', 'execute') and has_function_privilege('authenticated', 'public.confirm_stay_staying_suggestion_v1(uuid,text,boolean,integer,text)', 'execute') and not has_function_privilege('service_role', 'public.confirm_stay_staying_suggestion_v1(uuid,text,boolean,integer,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "cassy_rpc_service_role_only",
+      "query": "select (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.set_stay_staying_suggestion_v1(uuid,text,text)'::regprocedure) and not has_function_privilege('anon', 'public.set_stay_staying_suggestion_v1(uuid,text,text)', 'execute') and not has_function_privilege('authenticated', 'public.set_stay_staying_suggestion_v1(uuid,text,text)', 'execute') and has_function_privilege('service_role', 'public.set_stay_staying_suggestion_v1(uuid,text,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "helper_has_no_api_grant",
+      "query": "select (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.stay_staying_json_v1(uuid,text)'::regprocedure) and not has_function_privilege('anon', 'public.stay_staying_json_v1(uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public.stay_staying_json_v1(uuid,text)', 'execute') and not has_function_privilege('service_role', 'public.stay_staying_json_v1(uuid,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "stay_staying_reads_without_error",
+      "query": "select (select count(*) from public.stay_staying) >= 0 and (select count(*) from public.stay_staying_history) >= 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with data loss by design: every typed value, pending suggestion and history row is dropped. The script restores the s91 staff_home_v1 body (md5 guard on the s119 body) before it drops the helper.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261119_s119_staying.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of public.staff_home_v1 must be fdacbd271486a3b71e11818dc691cda4 and public.stay_staying must not exist. Roll the Staff app and Cassy back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff app shows the Staying row once it ships and calls the RPCs; Cassy suggestions start when airbnb-email-sync calls set_stay_staying_suggestion_v1."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "NOT rehearsed: no local Postgres and no network to the rehearsal host in lane Q. Static checks only (release-safety / verify-expand-contract). Run migration-rehearsal-on-host.sh on a fresh restore with supabase/tests/database/s119_staying.sql (65 tests) and set verified true with the log path."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s119_staying.sql (65 tests) green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the live body of staff_home_v1 (s91), staff_current_next_stays_v1 or staff_guest_card_v1 (s116) no longer matches the md5 guard in the migration (production moved since the cut)"
+  ]
+}
