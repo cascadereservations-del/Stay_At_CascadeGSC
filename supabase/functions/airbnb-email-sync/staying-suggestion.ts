@@ -68,8 +68,9 @@ const TAIL = /^\s*(?:$|[,.;!:)]|(?:who|from|on|in|for|po|please|pls|next|this|th
 const STAY_CUE = /^\s*(?:(?:will|would|are|is|going\s+to)\s+(?:be\s+|the\s+ones?\s+(?:who\s+)?(?:will\s+be\s+)?)?(?:staying|stay|checking[\s-]*in|the\s+guests?)|(?:ang\s+)?(?:mag-?stay|tutuloy|titira|matutulog))\b/i;
 const STAY_TAIL = /^\s*(?:$|[,.;!]|(?:with\s+(?:me|us)|there|here|too|also|po|(?:at|in)\s+(?:your|cascade)|(?:at|in)\s+the\s+(?:place|unit|house|condo|cascade|hideaway)|on|from|for|during|starting|until|then|so|but)\b)/i;
 const NEGATION = /\b(?:not|never|won'?t|wont|don'?t|isn'?t|aren'?t|no\s+one|hindi|wala|cancel(?:led)?)\b/i;
-const HEDGE = /\b(?:if|maybe|might|perhaps|baka|kung|siguro|sana|not\s+sure|depends?)\b/i; // hypothetical, not a statement
+const HEDGE = /\b(?:if|maybe|might|perhaps|probably|possibly|hopefully|planning|baka|kung|siguro|sana|not\s+sure|depends?)\b/i; // hypothetical, not a statement
 const REPORTED = /\b(?:said|told|sabi|sinabi)\b/i; // someone else's words, someone else's relatives
+const OFFSITE = /\b(?:hotel|hostel|resort|motel|marriott|elsewhere|nearby|across\s+the\s+street)\b/i; // staying somewhere else, even after "for a week"
 const BOOKING = /\b(?:book(?:ing|ed)?|reserv(?:ation|ed|ing)|pa-?book)\b/i;
 
 function fromSentence(s: string): Who | null {
@@ -104,7 +105,7 @@ export function stayingSuggestion(text: unknown, booker?: string | null): string
   const own = String(booker ?? '').trim();
   for (const raw of String(text ?? '').slice(0, 2000).split(/(?<=[.!?])\s+|\n+/)) {
     const s = raw.trim();
-    if (!s || s.includes('?') || NEGATION.test(s) || HEDGE.test(s) || REPORTED.test(s)) continue;
+    if (!s || s.includes('?') || NEGATION.test(s) || HEDGE.test(s) || REPORTED.test(s) || OFFSITE.test(s)) continue;
     const w = fromSentence(s);
     if (!w) continue;
     const people = [...(w.me && own ? [own] : []), ...w.names];

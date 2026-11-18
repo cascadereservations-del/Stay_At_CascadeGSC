@@ -63,6 +63,7 @@ Deno.test('suggestion: negatives - nothing to say', () => {
     'Guests are arriving at 3pm',
     'My parents will be staying at the hotel nearby', 'My parents will be staying in the hotel across the street', 'My boss will be staying at the Marriott', 'My wife will stay in the car',
     'If my parents will be staying, I will pay extra', 'Maybe my parents will be staying', 'My friend said her parents will be staying at your place',
+    'My parents will be staying for a week at the hotel nearby', 'Possibly my parents will be staying', 'Hopefully my parents will be staying',
     'Her parents will be staying', 'Booking for Mr. Smith', 'Booking for ANA', 'Booking for Grab',
   ]) assertEquals(s(t, B), null, t);
 });
