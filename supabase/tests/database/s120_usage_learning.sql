@@ -173,7 +173,7 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
   ('e1200000-0000-4000-8000-0000000000c2', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 N', 'Other', 'pc', 500, false, true, 2.00, null, 'baseline'),
   ('e1200000-0000-4000-8000-0000000000c3', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 X', 'Other', 'pc', 500, true, false, 2.00, null, 'baseline');
 
-select is((select numeric_scale from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking'), 4,
+select is((select numeric_scale::int from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking'), 4,
   'scale: consumption_per_booking holds four decimals');
 
 -- non-consumable and inactive items never learn
