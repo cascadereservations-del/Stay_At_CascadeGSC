@@ -21,13 +21,19 @@
 -- by them. An admin closes it by hand in Follow-ups.
 --
 -- Upkeep is due when at least 3 reports of a turnover kind were cleaned on a Manila date LATER than the session_date of the latest changed = true row of that kind (so it
--- shows on the 4th report). A "No" never resets it. Turnover kind means the s110 definition, kept as is: cleaning_type turnover, null (counts as turnover) or deep_clean.
+-- shows on the 4th report). A "No" never resets it, and a property with no changed row yet is never due. Turnover kind means the s110 definition, kept as is:
+-- cleaning_type turnover, null (counts as turnover) or deep_clean; fee-only rows (telegram-expense bookManualCleaningFee, submission_id manual-...) are not reports and
+-- are not counted. submit-cleaning is the only other writer of cleaning_sessions (checked s120).
 -- Why dates and not timestamps: Restock is sent before the cleaning report row is written, so comparing cleaned_at with the Yes row's created_at counted that same report
--- toward the next three. A Yes carries the report's date (p_session_date) and only later Manila days count, so a Yes followed by that same day's report leaves the count at 0.
+-- toward the next three. A Yes is stored with the SERVER's Manila date (manila_today(), never the client's p_session_date, so a mistyped future date cannot stop the question
+-- and a back-dated draft cannot bring it back early) and only later Manila days count, so a Yes followed by that same day's report leaves the count at 0.
 -- The seed rows use the release's Manila date, so reports of the release day do not count either.
 --
--- Additive only: two new tables, three new functions, rows seeded into the new upkeep table. No existing function, grant or column changes.
--- Rollback: supabase/rollbacks/20261120_s120_restock.sql (drops the three functions and the two tables; remembered amounts and upkeep answers are lost by design).
+-- Additive: two new tables, three new functions, rows seeded into the new upkeep table. No existing function or column changes. One grant is restated, not changed:
+-- system_task_open_v1 stays service_role only (its own migration says so; stated again here so a restore without ACLs, whose proacl is null, cannot leave it open to
+-- signed-in users). The restock functions are SECURITY DEFINER, so they still call it as their owner.
+-- Rollback: supabase/rollbacks/20261120_s120_restock.sql (drops the three functions and the two tables; remembered amounts and upkeep answers are lost by design;
+-- the system_task_open_v1 grant is left as it is, because reverting it would only reopen a function that is meant to be closed).
 
 begin;
 
@@ -92,10 +98,12 @@ begin
     from public.restock_remembered_amounts r join public.inventory_items i on i.id = r.item_id
    where r.property_id = p_property_id and i.property_id = p_property_id and i.is_active and i.is_consumable;
 
+  -- no changed row: max() is null, the comparison is null, the count is 0 and the answer is false
   select jsonb_object_agg(k.kind, (select count(*) from public.cleaning_sessions cs
                                     where cs.property_id = p_property_id and coalesce(cs.cleaning_type, 'turnover') in ('turnover', 'deep_clean')
-                                      and (cs.cleaned_at at time zone 'Asia/Manila')::date > coalesce((select max(c.session_date) from public.restock_upkeep_checks c
-                                                                     where c.property_id = p_property_id and c.kind = k.kind and c.changed), '-infinity'::date)) >= 3)
+                                      and coalesce(cs.submission_id, '') not like 'manual-%'
+                                      and (cs.cleaned_at at time zone 'Asia/Manila')::date > (select max(c.session_date) from public.restock_upkeep_checks c
+                                                                     where c.property_id = p_property_id and c.kind = k.kind and c.changed)) >= 3)
     into v_due from (values ('dish_soap'), ('dish_sponge')) k(kind);
 
   -- the next arriving guest: earliest confirmed stay checking in today or later (a same-day arrival counts); only the tier leaves this function
@@ -150,8 +158,9 @@ begin
   -- validate everything before the first lock or write (a bad input raises and nothing is kept)
   for v_row in select value from jsonb_array_elements(p_rows) loop
     if jsonb_typeof(v_row) <> 'object' or coalesce(v_row ->> 'item_id', '') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-       or (case when jsonb_typeof(v_row -> 'used_qty') = 'number' then (v_row ->> 'used_qty')::numeric <= 0 else true end) then   -- parentheses: plpgsql ends an IF condition at the first THEN outside brackets
-      raise exception using errcode = '22023', message = 'each row needs item_id and a positive used_qty';
+       or (case when jsonb_typeof(v_row -> 'used_qty') = 'number' then (v_row ->> 'used_qty')::numeric <= 0 else true end)   -- parentheses: plpgsql ends an IF condition at the first THEN outside brackets
+       or char_length(coalesce(v_row ->> 'usage_key', '')) not between 1 and 160 then
+      raise exception using errcode = '22023', message = 'each row needs item_id, a positive used_qty and a usage_key of 1 to 160 characters';
     end if;
   end loop;
   for v_k, v_v in select key, value from jsonb_each(p_remember) loop
@@ -170,6 +179,14 @@ begin
       raise exception using errcode = '22023', message = 'each upkeep entry needs kind, changed and a check_key of 8 to 160 characters';
     end if;
   end loop;
+  -- a check_key is one answer: reusing it with another property, kind or changed value (stored, or twice in this call) is refused with error check_key_conflict and nothing
+  -- is written; the same answer again is a replay
+  if exists (select 1 from jsonb_array_elements(p_upkeep) u
+              where exists (select 1 from public.restock_upkeep_checks c where c.check_key = u.value ->> 'check_key'
+                             and (c.property_id <> p_property_id or c.kind <> u.value ->> 'kind' or c.changed <> (u.value ->> 'changed')::boolean)))
+     or (select count(distinct (u.value ->> 'check_key')) <> count(distinct (u.value ->> 'check_key', u.value ->> 'kind', u.value ->> 'changed')) from jsonb_array_elements(p_upkeep) u) then
+    return jsonb_build_object('ok', false, 'error', 'check_key_conflict');
+  end if;
 
   -- lock the items in id order, then sort the rows into new and replayed
   perform 1 from public.inventory_items i
@@ -179,19 +196,20 @@ begin
     if not exists (select 1 from public.inventory_items i where i.id = v_item and i.property_id = p_property_id) then
       raise exception using errcode = '22023', message = 'unknown item for property';
     end if;
-    if v_key is not null and (v_key = any (v_seen) or exists (select 1 from public.inventory_usage u where u.item_id = v_item and u.notes like '%[key:' || v_key || ']%')) then
+    if v_key is not null and (v_item::text || ':' || v_key = any (v_seen) or exists (select 1 from public.inventory_usage u where u.item_id = v_item and u.notes like '%[key:' || v_key || ']%')) then
       v_replayed := v_replayed + 1; continue;
     end if;
-    if v_key is not null then v_seen := v_seen || v_key; end if;
+    if v_key is not null then v_seen := v_seen || (v_item::text || ':' || v_key); end if;
     v_rem := v_rem || jsonb_build_array(v_row);
   end loop;
 
-  -- short stock: one item's rows (a main row and a treat row) are added up before the shelf is compared
+  -- short stock: one item's rows (a main row and a treat row) are added up before the shelf is compared. An item that is no longer an active consumable has nothing on
+  -- the shelf as far as Restock is concerned (on_hand 0): a client with a stale list gets the same short_stock answer, keeps its entries, and nothing is written.
   select coalesce(jsonb_agg(jsonb_build_object('item_id', s.id, 'name', s.name, 'on_hand', s.on_hand, 'asked', s.asked) order by s.name, s.id), '[]'::jsonb) into v_short
-    from (select i.id, i.name, coalesce(i.qty_on_hand, 0) as on_hand, sum(r.used_qty) as asked
+    from (select i.id, i.name, case when i.is_active and i.is_consumable then coalesce(i.qty_on_hand, 0) else 0 end as on_hand, sum(r.used_qty) as asked
             from jsonb_to_recordset(v_rem) as r(item_id uuid, used_qty numeric) join public.inventory_items i on i.id = r.item_id and i.property_id = p_property_id
-           group by i.id, i.name, i.qty_on_hand
-          having sum(r.used_qty) > coalesce(i.qty_on_hand, 0)) s;
+           group by i.id, i.name, i.qty_on_hand, i.is_active, i.is_consumable
+          having sum(r.used_qty) > case when i.is_active and i.is_consumable then coalesce(i.qty_on_hand, 0) else 0 end) s;
   if jsonb_array_length(v_short) > 0 then
     return jsonb_build_object('ok', false, 'error', 'short_stock', 'short', v_short);
   end if;
@@ -201,13 +219,16 @@ begin
     v_written := coalesce((v_res ->> 'rows')::integer, 0);
   end if;
 
+  -- a stale replay (every row already recorded) must not overwrite a newer remembered amount; a save with no rows at all still remembers
   insert into public.restock_remembered_amounts as a(property_id, item_id, amount, updated_at, updated_by)
   select p_property_id, j.key::uuid, (j.value #>> '{}')::integer, now(), auth.uid() from jsonb_each(p_remember) j
+   where jsonb_array_length(v_rem) > 0 or jsonb_array_length(p_rows) = 0
   on conflict (property_id, item_id) do update set amount = excluded.amount, updated_at = excluded.updated_at, updated_by = excluded.updated_by
     where a.amount is distinct from excluded.amount;
 
   insert into public.restock_upkeep_checks(property_id, kind, changed, session_date, logged_by, check_key)
-  select p_property_id, u.value ->> 'kind', (u.value ->> 'changed')::boolean, p_session_date, v_who, u.value ->> 'check_key' from jsonb_array_elements(p_upkeep) u
+  -- shortcut: a Restock sent just before Manila midnight whose report is sent after it counts that report once toward the next three, upgrade by sending the report id with the Yes
+  select p_property_id, u.value ->> 'kind', (u.value ->> 'changed')::boolean, public.manila_today(), v_who, u.value ->> 'check_key' from jsonb_array_elements(p_upkeep) u
   on conflict (check_key) do nothing;
 
   return jsonb_build_object('ok', true, 'rows', v_written, 'replayed', v_replayed);
@@ -235,14 +256,16 @@ begin
 
   -- one task per item per Manila day: the key is kind + item + day, a repeat returns the same task. No cleaner name, no Telegram.
   perform public.system_task_open_v1(p_property_id, 'restock_reminder', p_item_id::text || ':' || v_today::text,
-    'Restock: ' || left(v_name, 150) || ' is running out',
-    'Only ' || trim_scale(v_qty)::text || ' left in inventory. A cleaner asked for a reminder.',
+    'Restock: ' || left(v_name, 150) || case when v_qty <= 0 then ' is out' else ' is running out' end,
+    case when v_qty <= 0 then 'None left in inventory.' else 'Only ' || trim_scale(v_qty)::text || ' left in inventory.' end || ' A cleaner asked for a reminder.',
     case when v_qty <= 0 then 'high' else 'normal' end);
   return jsonb_build_object('ok', true);
 end;
 $function$;
 
 -- grants, stated in full (rehearsal restores are --no-acl, production has default privileges)
+revoke all on function public.system_task_open_v1(uuid, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.system_task_open_v1(uuid, text, text, text, text, text) to service_role;
 revoke all on function public.restock_context_v1(uuid) from public, anon;
 revoke all on function public.record_restock_v1(uuid, date, text, text, jsonb, jsonb, jsonb) from public, anon;
 revoke all on function public.restock_remind_admin_v1(uuid, uuid) from public, anon;

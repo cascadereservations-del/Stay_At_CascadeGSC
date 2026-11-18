@@ -2,6 +2,8 @@
 -- Drops the three restock functions and the two closed tables. DATA LOSS (by design): every remembered restock amount and every Yes / No upkeep answer.
 -- Usage rows written through record_inventory_usage stay (they are ordinary inventory_usage history), and open Follow-ups tasks of kind restock_reminder stay as
 -- they are: they are true statements about stock and an admin closes them by hand. Roll the Staff app back first (it calls the three functions). Apply with run-sql-on-host.sh.
+-- The migration also restated revoke/grant on system_task_open_v1 (service_role only, as its own migration set it). This script leaves that grant alone: reverting it
+-- would only reopen a function that is meant to be closed.
 
 begin;
 
