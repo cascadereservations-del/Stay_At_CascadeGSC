@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "release_id": "s120_guest_context_grant_20261120",
+  "phase": "expand",
+  "source": {
+    "branch": "s120/usage-learning",
+    "commit": "4343da3bbd217781b22c7a3c25c17a9da5363c4b"
+  },
+  "migrations": [
+    "20261120000003_s120_guest_context_grant.sql"
+  ],
+  "migration_sha256": {
+    "20261120000003_s120_guest_context_grant.sql": "87f3280be72d08690393aa7b3d3586b335bd09b815e134c2bd82d51b5d891300"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Privacy fix. public.guest_context_v1(uuid, uuid, text) is SECURITY DEFINER with no auth check and authenticated could execute it (production read 2026-11-18; anon could not, service_role could), so any signed-in user could read a guest's private fields (stay count, last issue, preferences, tags, VIP reason, note, birthday, open follow-ups) by name. The migration revokes all from PUBLIC, anon, authenticated and service_role and grants execute to service_role only, then reads the ACL back and raises (55000) unless only the owner and service_role appear in it. No body, signature, owner or search_path change; no table or data written. Callers found in the current app repos on 2026-11-18: the edge functions airbnb-email-sync, submit-booking, telegram-cassy and guest-reply-draft, through _shared/cascade-core/tools.ts, all with a service-role client; no front end and no SQL function calls it. Before the apply, read production once more: select p.proname from pg_proc p where p.prosrc ilike '%guest_context_v1%' and p.proname <> 'guest_context_v1' (expect no rows), and stop if a user-token caller turns up.",
+    "notes": "Narrowing grant only, so it is the one SQL step of this release; no deploy needed because every caller already uses the service role. Does not depend on the usage-learning or guest-count releases. Reversal reopens the read to signed-in users: only if an app that calls it with a user token is found, and then fix that caller."
+  },
+  "forward_verification": [
+    {
+      "name": "function_still_security_definer",
+      "query": "select prosecdef from pg_proc where oid = 'public.guest_context_v1(uuid,uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "only_service_role_can_execute",
+      "query": "select has_function_privilege('service_role', 'public.guest_context_v1(uuid,uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public.guest_context_v1(uuid,uuid,text)', 'execute') and not has_function_privilege('anon', 'public.guest_context_v1(uuid,uuid,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "acl_names_only_owner_and_service_role",
+      "query": "select (select p.proacl is not null from pg_proc p where p.oid = 'public.guest_context_v1(uuid,uuid,text)'::regprocedure) and not exists (select 1 from pg_proc p cross join lateral aclexplode(p.proacl) a where p.oid = 'public.guest_context_v1(uuid,uuid,text)'::regprocedure and a.grantee <> p.proowner and a.grantee <> (select r.oid from pg_roles r where r.rolname = 'service_role'))",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with the privacy exposure by design: it puts the grants of migration 20260916160000 back (revoked from PUBLIC and anon, execute for service_role and authenticated), which lets every signed-in user read the private guest fields again. Use it only if an app that calls the function with a user token is found.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261120_s120_guest_context_grant.sql with run-sql-on-host.sh; then has_function_privilege('authenticated', 'public.guest_context_v1(uuid,uuid,text)', 'execute') must be true and the same for anon false."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_no_app_change",
+      "required_state": "None. Every caller of guest_context_v1 uses the service role; no app or edge function is changed or redeployed."
+    }
+  ],
+  "compatibility": {
+    "mode": "restrictive",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_guest_context_grant.sql (7 tests), then set verified to true with the log path. Repo evidence only for the callers (current app repos, 2026-11-18): service-role edge functions; production function bodies were not scanned in this lane."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s120_guest_context_grant.sql (7 tests) green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the production read of function bodies that mention guest_context_v1, or the repo search, shows a caller that uses a user token (the grant would break it): stop and report"
+  ]
+}
