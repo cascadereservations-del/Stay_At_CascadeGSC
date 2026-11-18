@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "release_id": "s120_restock_20261120",
+  "phase": "expand",
+  "source": {
+    "branch": "s120/usage-learning",
+    "commit": "ee3042d07b1734f1c16275bff6fee4a16b4adb06"
+  },
+  "migrations": [
+    "20261120000004_s120_restock.sql"
+  ],
+  "migration_sha256": {
+    "20261120000004_s120_restock.sql": "eec42f6a67b3df0cfaa733aa4dd5b1e6207468acc6214dd3eb2db9f613c7098e"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Restock screen server support (approved mockup docs/s120/mockup-restock-defaults.html, D-376). Two closed tables (RLS on, no grant to any API role): restock_remembered_amounts (property_id, item_id, amount 0..99, primary key property_id + item_id) and restock_upkeep_checks (kind dish_soap or dish_sponge, changed, check_key unique); the migration seeds one changed = true row per kind and active property so the count starts at the release. Three SECURITY DEFINER functions with an empty search_path, execute for authenticated and service_role only, each needing auth.uid() and submit_cleaning or report_supply on the property (42501 otherwise): restock_context_v1(uuid) returns ok, stock (active consumables), remembered, upkeep_due (3 turnover or deep_clean sessions cleaned after the latest changed = true row; a No never resets) and next_tier (returning, regular, vip or null for the earliest confirmed stay with checkin_date >= Manila today; tier only, never a name, id or date); record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb) in one transaction skips replayed usage_key rows, adds up the rows per item and returns ok false, error short_stock, short [...] and writes nothing when one item is over its shelf, else calls record_inventory_usage, upserts remembered amounts (whole numbers 0..99, active consumables of the property, else 22023) and inserts the upkeep answers (on conflict do nothing); a full replay returns ok and changes nothing; restock_remind_admin_v1(uuid,uuid) opens one Follow-ups task per item per Manila day through system_task_open_v1, kind restock_reminder, ref item_id:date, high priority at 0 left, no cleaner name, no Telegram. No existing function, grant or column changes.",
+    "notes": "Additive. Does not depend on the usage-learning or guest-count releases and applies in any order with them. Old Staff app builds ignore everything here. record_inventory_usage v3 (20261007112000) and system_task_open_v1 (20260923020000) are called, not changed. restock_reminder is in no closer or sweep list (s102 and s104 sweeps, s117 closers, system_task_close_missing_v1 per kind), so an admin closes it by hand in Follow-ups. Known limit: when the session row of the answering report is saved after the restock call, that one session counts toward the next three."
+  },
+  "forward_verification": [
+    {
+      "name": "restock_tables_closed_rls_on",
+      "query": "select (select bool_and(relrowsecurity) from pg_class where oid in ('public.restock_remembered_amounts'::regclass, 'public.restock_upkeep_checks'::regclass)) and not has_table_privilege('anon', 'public.restock_remembered_amounts', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.restock_remembered_amounts', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.restock_remembered_amounts', 'select, insert, update, delete') and not has_table_privilege('anon', 'public.restock_upkeep_checks', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.restock_upkeep_checks', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.restock_upkeep_checks', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "restock_table_columns_and_keys",
+      "query": "select (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'restock_remembered_amounts' and column_name in ('property_id', 'item_id', 'amount', 'updated_at', 'updated_by')) = 5 and (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'restock_upkeep_checks' and column_name in ('id', 'property_id', 'kind', 'changed', 'session_date', 'logged_by', 'check_key', 'created_at')) = 8 and exists (select 1 from pg_constraint where conrelid = 'public.restock_remembered_amounts'::regclass and contype = 'p' and array_length(conkey, 1) = 2) and exists (select 1 from pg_constraint where conrelid = 'public.restock_upkeep_checks'::regclass and contype = 'u')",
+      "expect": true
+    },
+    {
+      "name": "restock_table_checks",
+      "query": "select (select count(*) from pg_constraint where conrelid = 'public.restock_remembered_amounts'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%amount >= 0%' and pg_get_constraintdef(oid) like '%amount <= 99%') = 1 and (select count(*) from pg_constraint where conrelid = 'public.restock_upkeep_checks'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%dish_soap%' and pg_get_constraintdef(oid) like '%dish_sponge%') = 1",
+      "expect": true
+    },
+    {
+      "name": "upkeep_seed_one_changed_row_per_kind_and_active_property",
+      "query": "select not exists (select 1 from public.properties p cross join (values ('dish_soap'), ('dish_sponge')) k(kind) where p.is_active and not exists (select 1 from public.restock_upkeep_checks c where c.property_id = p.id and c.kind = k.kind and c.changed))",
+      "expect": true
+    },
+    {
+      "name": "restock_rpc_shape_and_grants",
+      "query": "select (select bool_and(prosecdef and proconfig = array['search_path=\"\"']) from pg_proc where oid in ('public.restock_context_v1(uuid)'::regprocedure, 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)'::regprocedure, 'public.restock_remind_admin_v1(uuid,uuid)'::regprocedure)) and not has_function_privilege('anon', 'public.restock_context_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)', 'execute') and not has_function_privilege('anon', 'public.restock_remind_admin_v1(uuid,uuid)', 'execute') and has_function_privilege('authenticated', 'public.restock_context_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)', 'execute') and has_function_privilege('authenticated', 'public.restock_remind_admin_v1(uuid,uuid)', 'execute') and has_function_privilege('service_role', 'public.restock_context_v1(uuid)', 'execute') and has_function_privilege('service_role', 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)', 'execute') and has_function_privilege('service_role', 'public.restock_remind_admin_v1(uuid,uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "context_is_stable_the_others_volatile",
+      "query": "select (select provolatile = 's' from pg_proc where oid = 'public.restock_context_v1(uuid)'::regprocedure) and (select provolatile = 'v' from pg_proc where oid = 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)'::regprocedure) and (select provolatile = 'v' from pg_proc where oid = 'public.restock_remind_admin_v1(uuid,uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "md5_restock_context_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'c14a4f7deb3ec3b92816e7b0f30e298c' from pg_proc where oid = 'public.restock_context_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_record_restock_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'c92147ff7b8c67f208fa7dde95844d6c' from pg_proc where oid = 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_restock_remind_admin_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'e9462f8116e13273899ba9d0358c346d' from pg_proc where oid = 'public.restock_remind_admin_v1(uuid,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "dependencies_in_place",
+      "query": "select to_regprocedure('public.record_inventory_usage(uuid,date,text,text,jsonb)') is not null and to_regprocedure('public.system_task_open_v1(uuid,text,text,text,text,text)') is not null and to_regprocedure('public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)') is not null and to_regprocedure('public.manila_today()') is not null and not has_function_privilege('authenticated', 'public.system_task_open_v1(uuid,text,text,text,text,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "restock_reminder_named_only_by_the_restock_functions",
+      "query": "select not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname not in ('restock_remind_admin_v1') and position('restock_reminder' in p.prosrc) > 0)",
+      "expect": true
+    },
+    {
+      "name": "tables_read_without_error",
+      "query": "select (select count(*) from public.restock_upkeep_checks) >= 0 and (select count(*) from public.restock_remembered_amounts) >= 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with data loss by design: every remembered restock amount and every upkeep answer is dropped. Usage rows written through record_inventory_usage and Follow-ups tasks of kind restock_reminder stay.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261120_s120_restock.sql with run-sql-on-host.sh; then to_regclass('public.restock_upkeep_checks') and the three restock functions must be null. Roll the Staff app back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff Restock screen calls the three functions once it ships."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_restock.sql (54 tests), then set verified to true with the log path."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s120_restock.sql (54 tests) green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "record_inventory_usage or system_task_open_v1 no longer has the signature the migration calls"
+  ]
+}
