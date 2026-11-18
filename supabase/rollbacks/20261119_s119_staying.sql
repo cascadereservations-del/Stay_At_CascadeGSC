@@ -1,5 +1,5 @@
 -- Compensating rollback for release s119_staying_20261119 (session 119, migration 20261119000000_s119_staying.sql).
--- Puts staff_home_v1 back to the s91 body (md5 fdacbd271486a3b71e11818dc691cda4; guard: the s119 body 18f5723d01ce20788d6fb2f114129ed8), drops the helper stay_staying_json_v1,
+-- Puts staff_home_v1 back to the s91 body (md5 fdacbd271486a3b71e11818dc691cda4; guard: the s119 body 18f5723d01ce20788d6fb2f114129ed8), drops the helper stay_staying_json_v1, the admin read admin_stay_staying_v1,
 -- the three RPCs and both tables. DATA LOSS (by design): every typed "who is staying" value, every pending suggestion and the whole history.
 -- Roll the Staff app back first (it reads current_guest.staying and calls the RPCs). Apply with run-sql-on-host.sh.
 
@@ -156,6 +156,7 @@ end $$;
 revoke all on function public.staff_home_v1(uuid) from public, anon;
 grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
 
+drop function if exists public.admin_stay_staying_v1(uuid, text[]);
 drop function if exists public.stay_staying_json_v1(uuid, text);
 drop function if exists public.set_stay_staying_suggestion_v1(uuid, text, text);
 drop function if exists public.confirm_stay_staying_suggestion_v1(uuid, text, boolean, integer, text);

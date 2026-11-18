@@ -5,7 +5,7 @@
 -- none, the migration revokes explicitly); the release forward checks prove the function grants.
 -- Everything rolls back.
 begin;
-select plan(78);
+select plan(86);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -292,6 +292,25 @@ select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -
   and public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying' ->> 'names' not like '%4567%'), true, 'staff_home_v1 redacts a phone number in stored names');
 select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying' ->> 'suggestion' like '%[hidden]%'
   and public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying' ->> 'suggestion' not like '%example.com%'), true, 'staff_home_v1 redacts an e-mail in a stored suggestion');
+reset role;
+
+-- 79-86. admin_stay_staying_v1: owner/admin read, unredacted, pending only, cap, gate ---------------------------------------------------------------
+-- state here: zz-s119-bl pending 'Mo and Ned' (no names); zz-s119-nxt names with a phone + pending suggestion with an e-mail; zz-s119-ws names 'Ana'.
+update public.stay_staying set suggestion = 'Old guess', suggestion_status = 'dismissed', suggestion_at = now()
+  where property_id = 'e9190000-0000-4000-8000-0000000000b0' and stay_uid = 'zz-s119-ws';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000002"}';
+select is((select jsonb_array_length(public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', array['zz-s119-bl', 'zz-s119-ws', 'zz-s119-nope']))), 2,
+  'admin reads only the stays that have a row (unknown and row-less uids are left out)');
+select is((select public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', array['zz-s119-bl']) -> 0),
+  '{"stay_uid": "zz-s119-bl", "names": null, "source": null, "suggestion": "Mo and Ned", "version": 2}'::jsonb, 'admin gets a pending suggestion and the version');
+select is((select public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', array['zz-s119-ws']) -> 0 -> 'suggestion'), 'null'::jsonb, 'admin does not get a dismissed suggestion');
+select is((select public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', array['zz-s119-ws']) -> 0 ->> 'names'), 'Ana', 'admin gets the names');
+select is((select public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', array['zz-s119-nxt']) -> 0 ->> 'names'), 'Dee 0917 123 4567', 'admin names are not redacted (manage_operations is owner/admin only)');
+select is((select public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', array[]::text[])), '[]'::jsonb, 'an empty uid list returns an empty array');
+select throws_ok($$select public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', (select array_agg('u' || g) from generate_series(1, 201) g))$$, '22023', 'too_many_uids', 'more than 200 uids is refused');
+set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
+select throws_ok($$select public.admin_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', array['zz-s119-bl'])$$, '42501', null, 'a cleaner cannot call the admin read');
 reset role;
 
 select * from finish();

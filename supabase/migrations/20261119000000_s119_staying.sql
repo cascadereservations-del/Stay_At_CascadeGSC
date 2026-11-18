@@ -16,6 +16,8 @@
 -- (5) staff_home_v1: current_guest and next_guest gain `staying` {names, source, version[, suggestion]} (suggestion only for the same roles that can type).
 --     Cut by patching the LIVE body (pg_get_functiondef, each anchor must occur exactly once) after an md5 guard: the s91 body, md5 fdacbd271486a3b71e11818dc691cda4
 --     (read live 2026-11-18). The diff is the two `|| jsonb_build_object('staying', ...)` lines and nothing else.
+-- (6) admin_stay_staying_v1: the admin guest page reads who is staying, by booking (the table has no grant, staff_home_v1 is a staff read). Gate manage_operations (owner/admin), else 42501;
+--     at most 200 uids per call (22023 above). Names and the pending suggestion are returned UNREDACTED on purpose: only owner/admin hold manage_operations, and D-289 redacts for staff roles only.
 -- Guards (md5 of prosrc, CR stripped, else 55000, nothing changes): staff_home_v1, staff_current_next_stays_v1 and staff_guest_card_v1 are the bodies this was cut from.
 -- Everything below the guards is single shot. To undo apply supabase/rollbacks/20261119_s119_staying.sql (DATA LOSS by design: every typed name).
 
@@ -260,6 +262,27 @@ begin
   end if;
 end $$;
 
+-- 5b. admin read: who is staying, by booking ---------------------------------------------------------------------------------------------------
+-- Names and suggestion are NOT redacted: the gate is manage_operations (owner/admin only), and D-289 redacts for staff roles. Returns only stays that have a row; a dismissed suggestion is not shown.
+create or replace function public.admin_stay_staying_v1(p_property uuid, p_uids text[])
+returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if auth.uid() is null or p_property is null or not public.current_staff_authorized('manage_operations', p_property) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+  if cardinality(p_uids) > 200 then raise exception 'too_many_uids' using errcode = '22023'; end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object('stay_uid', s.stay_uid, 'names', s.names, 'source', s.source,
+                                        'suggestion', case when s.suggestion_status = 'pending' then s.suggestion end,
+                                        'version', s.version) order by s.stay_uid)
+      from public.stay_staying s
+     where s.property_id = p_property and s.stay_uid = any (coalesce(p_uids, '{}'::text[]))
+  ), '[]'::jsonb);
+end $$;
+revoke all on function public.admin_stay_staying_v1(uuid, text[]) from public, anon, service_role;
+grant execute on function public.admin_stay_staying_v1(uuid, text[]) to authenticated;
+
 -- 6. grants: state the end state ------------------------------------------------------------------------------------------------------------------
 revoke all on function public.staff_home_v1(uuid) from public, anon;
 grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
@@ -267,5 +290,6 @@ grant execute on function public.staff_home_v1(uuid) to authenticated, service_r
 comment on function public.set_stay_staying_v1(uuid, text, text, text, integer, text, text) is 'S119: owner/admin/inspector/cleaner (submit_cleaning) type who is staying. Optimistic lock on version (0 = no row yet, else 40001); idempotency key required (same key + same names = replay). source admin needs manage_operations.';
 comment on function public.confirm_stay_staying_suggestion_v1(uuid, text, boolean, integer, text) is 'S119: submit_cleaning roles accept (suggestion becomes names) or reject (dismissed) a pending suggestion. {ok:false,error:no_pending_suggestion,names,version} when none.';
 comment on function public.set_stay_staying_suggestion_v1(uuid, text, text) is 'S119: Cassy (service_role) writes the suggestion fields only. {ok:false,error:names_set|dismissed|stay_not_found|contact}; never writes names.';
+comment on function public.admin_stay_staying_v1(uuid, text[]) is 'S119: owner/admin (manage_operations) read who is staying for up to 200 stay uids; names and the pending suggestion unredacted by design; 42501 otherwise, 22023 over the cap.';
 
 commit;
