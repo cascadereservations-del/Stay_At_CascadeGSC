@@ -6,7 +6,7 @@
 -- Hand-computed: baseline 1.0, consumed 40 over 4 stays learns (1.0*10 + 40) / (10 + 4) = 3.5714; the worked example 10 before, 34 counted, 30 refilled: consumed 10 + 0 + 30 - 34 = 6, rate (10 + 6) / 14 = 1.1429.
 -- Everything rolls back.
 begin;
-select plan(93);
+select plan(95);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -198,6 +198,11 @@ reset role;
 select is((select array_to_string(array_agg(e ->> 'name' order by e ->> 'name'), ',') from jsonb_array_elements((select v -> 'waitingForRefill' -> 'items' from _r where k = 'kpi1')) e),
   'Zz S120L H,Zz S120L I,Zz S120L K,Zz S120L L,Zz S120L M', 'KPI: H, I, K, L and M wait for a recorded refill (their newest count was an unrecorded restock)');
 select ok((select v -> 'waitingForRefill' -> 'items' from _r where k = 'kpi1') @> '[{"name": "Zz S120L L"}]', 'KPI: an ordinary purchase entered after the count (L) does not clear the prompt');
+-- since is the PREVIOUS count (H: first anchor 30 days ago, then the count that found the jump), not the newest count
+select ok((select (e ->> 'since')::timestamptz from jsonb_array_elements((select v -> 'waitingForRefill' -> 'items' from _r where k = 'kpi1')) e where e ->> 'name' = 'Zz S120L H')
+      = (select prev_anchor_at from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a8' order by anchor_at desc limit 1), 'KPI: since of a waiting item is the previous count (prev_anchor_at)');
+select ok((select (e ->> 'since')::timestamptz from jsonb_array_elements((select v -> 'waitingForRefill' -> 'items' from _r where k = 'kpi1')) e where e ->> 'name' = 'Zz S120L H')
+      < (select anchor_at from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a8' order by anchor_at desc limit 1), 'KPI: and it is not the newest count (the refill happened before that count)');
 select is((select array_to_string(array_agg(k order by k), ',') from jsonb_object_keys((select v from _r where k = 'kpi1')) k),
   'asOf,forecastSamples,itemsLearning,itemsMeasured,itemsTotal,medianForecastError,ok,underFourteenDays,waitingForRefill', 'KPI: the result keys are unchanged');
 

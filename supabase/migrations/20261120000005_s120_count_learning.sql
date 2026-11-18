@@ -22,6 +22,8 @@
 --      moves last_refill_at / last_refill_qty under the receipt path's guard, recomputes the rate at the interval's anchor and writes one inventory_audit_log row (action missed_refill).
 --      Results: ok false not_learning (controlled, inactive, non-consumable); ok false not_waiting (newest interval is not an unrecorded restock); ok false too_small with minimum (consumed would be below 0);
 --      ok true replayed (the newest interval already holds this qty); ok true accepted, reason, consumed, received.
+--   5b. KPI `since` of a waiting item is now the PREVIOUS count's anchor_at (coalesce(prev_anchor_at, anchor_at)), not the newest count's: the refill happened between the two counts, so the admin screen's
+--      "Was stock added since <since>?" asks about the right window. Keys, shapes and the sort order (newest anchor_at, name) are unchanged.
 --   5. get_inventory_usage_kpi_v1: an ordinary purchase no longer clears the "waiting for a recorded refill" prompt (the count already holds the stock it added). It ends when the refill is recorded here or a newer count arrives.
 --
 -- S11 FIXES FROM THE OPUS REVIEW (edited in place: this migration has never been applied)
@@ -260,6 +262,13 @@ begin
   v_src := v_new;
   v_new := regexp_replace(v_src, $re$\n\s+and not exists \(select 1 from public\.inventory_purchases p where p\.item_id = i\.id and p\.created_at > x\.anchor_at\)\) w;$re$, ') w;');
   if v_new = v_src or position('inventory_purchases' in v_new) > 0 then raise exception 's120: KPI purchase condition not found' using errcode = '55000'; end if;
+  v_src := v_new;
+  -- since = the previous count: the refill happened between it and the count that found the jump
+  v_new := replace(v_src, $f$'since', w.anchor_at,$f$, $r$'since', coalesce(w.prev_anchor_at, w.anchor_at),$r$);
+  if v_new = v_src then raise exception 's120: KPI since patch point not found' using errcode = '55000'; end if;
+  v_src := v_new;
+  v_new := replace(v_src, $f$select i.id, i.name, x.anchor_at, x.qty_prev, x.qty_now$f$, $r$select i.id, i.name, x.anchor_at, x.prev_anchor_at, x.qty_prev, x.qty_now$r$);
+  if v_new = v_src then raise exception 's120: KPI inner select patch point not found' using errcode = '55000'; end if;
   execute format($e$create or replace function public.get_inventory_usage_kpi_v1(p_property_id uuid)
     returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_new);
 end $g$;
