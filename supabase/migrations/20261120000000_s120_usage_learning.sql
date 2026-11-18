@@ -37,8 +37,9 @@
 --     ocr_restock audit row exactly as inventory_qty_at_v1 does (rows before 20261020 held packs) under the same date rule.
 --   * Turnovers of an interval are the cleaning sessions whose EFFECTIVE time falls in (previous anchor, this anchor]. A report entered late is dated by its stay, not by when it was
 --     typed: effective time = the earlier of cleaned_at and the end of the checkout_date (Manila); with no checkout_date it is cleaned_at. (A plain checkout_date comparison would count 12 for
---     27 Oct to 18 Nov, because one stay checked out on 18 Nov and was cleaned at 22:03 after the count; the effective time gives the 11 the baseline research expects.)
---   * qty_now of a count is the counted figure at as_of (or now); qty_prev is the previous anchor's qty_now. The 27 Oct 'count of 16 Oct printout recorded as current stock' therefore anchors at 27 Oct.
+--     27 Oct to 18 Nov, because one stay checked out on 18 Nov and was cleaned at 22:03 after the count; the effective time counts it by its stay.)
+--   * qty_now of a count is the counted figure at as_of (or now); qty_prev is the previous anchor's qty_now. The 27 Oct 'count of 16 Oct printout recorded as current stock' anchors at the
+--     printout, 16 Oct 08:21 Manila (D-351: the inventory is 16 Oct and later consumptions count against that list), so the first interval runs 16 Oct to 18 Nov (17 turnovers).
 --   * A count that is not older than the previous anchor never reuses the same instant: (item_id, anchor_at) is unique, a replay is a no-op (idempotent).
 --   * Rejected intervals still move the anchor (spec): 'too short', 'too few turnovers' and 'unrecorded restock' (consumed < 0, purchase nobody recorded) are kept as rows and never learned.
 --   * With no accepted interval in the 90-day window the item falls back to state 'baseline' and consumption_per_booking = its baseline.
@@ -69,7 +70,7 @@
 --   select count(*) = 4 from pg_proc where prosrc like '%record_inventory_anchor_v1%' and proname in
 --     ('s_apply_inventory_count_core_v1','record_inventory_receipt_v1','apply_inventory_purchase','s_inventory_receipt_apply_v1');
 --   select numeric_scale = 4 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking';
---   the replayed rates of Laundry Detergent, Hand Soap and Insect Spray: 2.0476, 0.1381, 0.0714 (11 turnovers; consumed 23, 2, 1 against baselines 2.0, 0.09, 0.05)
+--   the replayed rates of Laundry Detergent, Hand Soap and Insect Spray: 1.5926, 0.1074, 0.0556 (17 turnovers; consumed 23, 2, 1 against baselines 2.0, 0.09, 0.05)
 
 begin;
 
@@ -204,11 +205,16 @@ begin
   v_consumed := v_prev.qty_now + v_recv - p_qty_now;
   v_days := round(extract(epoch from (p_anchor_at - v_prev.anchor_at)) / 86400.0, 2);
   -- turnovers dated by the stay: a report typed late counts in the interval its stay ended in (effective time = the earlier of cleaned_at and the end of the checkout_date, Manila)
-  select count(*) into v_turn from (
-    select least(cs.cleaned_at, coalesce(((cs.checkout_date + 1)::timestamp at time zone 'Asia/Manila') - interval '1 second', cs.cleaned_at)) as eff
+  -- A report typed after the previous count for a stay that ended before it (cleaned_at in this interval, eff in the interval before) belongs to no earlier interval, so it counts here once
+  -- (only when the previous anchor itself closed an interval: the first anchor stays excluded). One turnover per stay: duplicate rows of one checkout_date count once; undated sessions count each.
+  select count(distinct s.checkout_date) + count(*) filter (where s.checkout_date is null) into v_turn from (
+    select cs.checkout_date, cs.cleaned_at,
+           least(cs.cleaned_at, coalesce(((cs.checkout_date + 1)::timestamp at time zone 'Asia/Manila') - interval '1 second', cs.cleaned_at)) as eff
       from public.cleaning_sessions cs
      where cs.property_id = i.property_id and coalesce(cs.cleaning_type, 'turnover') in ('turnover', 'deep_clean')) s
-   where s.eff > v_prev.anchor_at and s.eff <= p_anchor_at;
+   where (s.eff > v_prev.anchor_at and s.eff <= p_anchor_at)
+      or (v_prev.prev_anchor_at is not null and s.cleaned_at > v_prev.anchor_at and s.cleaned_at <= p_anchor_at
+          and s.eff > v_prev.prev_anchor_at and s.eff <= v_prev.anchor_at);
   if v_consumed < 0 then v_reason := 'unrecorded restock';
   elsif v_days < 7 then v_reason := 'too short';
   elsif v_turn < 3 then v_reason := 'too few turnovers';
@@ -266,7 +272,7 @@ begin
   end if;
   v_new := replace(v_src, $f$  return jsonb_build_object('ok', true, 'purchaseId', v_pid, 'movementId', v_mid, 'unitsAdded', v_units, 'controlled', i.movement_controlled_at is not null);$f$, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, v_units, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, v_units, (coalesce(p_purchased_at, public.manila_today())::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (receipt): % (%)', sqlerrm, sqlstate;
   end;
@@ -290,7 +296,7 @@ begin
   end if;
   v_new := replace(v_src, $f$  return jsonb_build_object('ok', true, 'name', v_name, 'purchase_id', v_pid,$f$, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a restock
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, (coalesce(p_purchased_at, public.manila_today())::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (ocr restock): % (%)', sqlerrm, sqlstate;
   end;
@@ -314,7 +320,7 @@ begin
   end if;
   v_new := replace(v_src, $f$  return v_pid;$f$, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_units, (coalesce(p_date, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_units, (coalesce(p_date, public.manila_today())::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (staff receipt): % (%)', sqlerrm, sqlstate;
   end;
@@ -497,14 +503,18 @@ declare
 begin
   select coalesce(sum(qty_on_hand), 0) into v_before from public.inventory_items;
   for r in
-    select a.id, a.entity_id as item_id, coalesce((a.after ->> 'as_of')::timestamptz, a.created_at) as anchor_at,
-           coalesce(a.after ->> 'counted', a.after ->> 'qty_on_hand') as q
-      from public.inventory_audit_log a
-      join public.inventory_items i on i.id = a.entity_id
-     where a.entity_type = 'inventory_items' and a.action = 'telegram_count' and a.created_at >= timestamptz '2026-10-27 00:00:00+08'
-       and i.is_active and i.is_consumable and i.movement_controlled_at is null
-       and (a.after ->> 'counted' is not null or jsonb_typeof(a.after -> 'qty_on_hand') = 'number')
-     order by coalesce((a.after ->> 'as_of')::timestamptz, a.created_at), a.created_at, a.id
+    select z.id, z.item_id, z.anchor_at, z.q
+      from (select a.id, a.entity_id as item_id, a.created_at,
+                   -- D-351: the 27 Oct rows are the 16 Oct printout, so they anchor at the printout (16 Oct 08:21 Manila), not at the day they were typed in
+                   case when a.after ->> 'note' like 'Count of 16 Oct printout%' then timestamptz '2026-10-16 08:21+08'
+                        else coalesce((a.after ->> 'as_of')::timestamptz, a.created_at) end as anchor_at,
+                   coalesce(a.after ->> 'counted', a.after ->> 'qty_on_hand') as q
+              from public.inventory_audit_log a
+              join public.inventory_items i on i.id = a.entity_id
+             where a.entity_type = 'inventory_items' and a.action = 'telegram_count' and a.created_at >= timestamptz '2026-10-27 00:00:00+08'
+               and i.is_active and i.is_consumable and i.movement_controlled_at is null
+               and (a.after ->> 'counted' is not null or jsonb_typeof(a.after -> 'qty_on_hand') = 'number')) z
+     order by z.anchor_at, z.created_at, z.id
   loop
     v_q := r.q::numeric;
     if v_q < 0 then raise exception 's120 backfill: audit row % holds a negative count (%)', r.id, v_q; end if;

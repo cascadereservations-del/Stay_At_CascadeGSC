@@ -42,7 +42,7 @@ begin
   else
     v_new := replace(v_src, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, v_units, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, v_units, (coalesce(p_purchased_at, public.manila_today())::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (receipt): % (%)', sqlerrm, sqlstate;
   end;
@@ -65,7 +65,7 @@ begin
   else
     v_new := replace(v_src, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a restock
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, (coalesce(p_purchased_at, public.manila_today())::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (ocr restock): % (%)', sqlerrm, sqlstate;
   end;
@@ -88,7 +88,7 @@ begin
   else
     v_new := replace(v_src, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_units, (coalesce(p_date, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_units, (coalesce(p_date, public.manila_today())::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (staff receipt): % (%)', sqlerrm, sqlstate;
   end;

@@ -4,7 +4,7 @@
 -- Sessions (days ago): turnover 85 75 65 55 45 35 25 20 15, mid_stay 12 (never counted), deep_clean 8 (counted). Windows below are counted from that list.
 -- Everything rolls back.
 begin;
-select plan(57);
+select plan(69);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -227,6 +227,60 @@ insert into _r select 't1', pg_temp.anc('e1200000-0000-4000-8000-0000000000c1', 
 insert into _r select 't2', pg_temp.anc('e1200000-0000-4000-8000-0000000000c1', 70, interval '10 days');
 select is((select turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000c1' and accepted), 5,
   'stay date: sessions 35, 25, 20 and 15 days ago plus the late report of a stay that ended 30 days ago make 5 turnovers');
+
+-- F2: a report typed after count A for a stay that ended before A is counted once, in the next interval (anchors 60, 40, 10, 5 days ago; the late report is entered after the 40-day count)
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover) values
+  ('e1200000-0000-4000-8000-0000000000c4', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 K', 'Other', 'pc', 500, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000000c5', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 L', 'Other', 'pc', 500, true, true, 2.00, 1.0);
+insert into _r select 'k0', pg_temp.anc('e1200000-0000-4000-8000-0000000000c4', 100, interval '60 days');
+insert into _r select 'k1', pg_temp.anc('e1200000-0000-4000-8000-0000000000c4', 90, interval '40 days');
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date) values
+  ('e1200000-0000-4000-8000-0000000000b0', 'zz-s120-late-f2', 'Fixture', now() - interval '20 days', 'turnover', (now() - interval '45 days')::date);
+insert into _r select 'k2', pg_temp.anc('e1200000-0000-4000-8000-0000000000c4', 80, interval '10 days');
+insert into _r select 'k3', pg_temp.anc('e1200000-0000-4000-8000-0000000000c4', 75, interval '5 days');
+select is((select turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000c4' and prev_anchor_at is not null and days = 20.00), 2,
+  'late report: the interval it was missing from (sessions 55 and 45 days ago) is not rewritten');
+select is((select turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000c4' and prev_anchor_at is not null and days = 30.00), 6,
+  'late report: the next interval counts sessions 35, 25, 20 and 15 days ago, the stay-dated late report of 30 days ago and the report of the stay that ended 45 days ago');
+select is((select turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000c4' and days = 5.00), 1,
+  'late report: and it is not counted again in the interval after that (only the deep clean 8 days ago)');
+
+-- F7: duplicate rows for one checkout count once, an undated session still counts each
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date) values
+  ('e1200000-0000-4000-8000-0000000000b0', 'zz-s120-dup-1', 'Fixture', now() - interval '17 days', 'turnover', (now() - interval '18 days')::date),
+  ('e1200000-0000-4000-8000-0000000000b0', 'zz-s120-dup-2', 'Fixture', now() - interval '16 days', 'turnover', (now() - interval '18 days')::date);
+insert into _r select 'l1', pg_temp.anc('e1200000-0000-4000-8000-0000000000c5', 100, interval '40 days');
+insert into _r select 'l2', pg_temp.anc('e1200000-0000-4000-8000-0000000000c5', 70, interval '10 days');
+select is((select turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000c5' and accepted), 6,
+  'one turnover per stay: sessions 35, 25, 20 and 15 days ago, the 30-day late report and the two rows of one checkout (counted once) make 6, not 7');
+
+-- F4: the real receive paths and the catalogue (units_per_purchase 6: packs convert to base units, the mark is the purchase date at Manila midnight)
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, units_per_purchase, consumption_per_booking, usage_baseline_per_turnover) values
+  ('e1200000-0000-4000-8000-0000000000c6', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 R', 'Other', 'pc', 10, true, true, 6, 2.00, 1.0);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200000-0000-4000-8000-000000000001"}';
+select is(((public.record_inventory_receipt_v1('e1200000-0000-4000-8000-0000000000c6', 2, null, 'Zz S120 vendor', public.manila_today() - 3, null, null, 'zz-s120-receipt-key-0001', null)) ->> 'unitsAdded')::numeric, 12::numeric,
+  'admin receipt: 2 packs of 6 add 12 units');
+reset role;
+select ok((select last_refill_qty = 12 and last_refill_at = ((public.manila_today() - 3)::timestamp at time zone 'Asia/Manila') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000c6'),
+  'admin receipt: last_refill_at is the purchase date (Manila midnight) and last_refill_qty the 12 units');
+insert into _r select 'ocr', public.apply_inventory_purchase('e1200000-0000-4000-8000-0000000000c6', 1, 60, 'Zz S120 vendor', public.manila_today() - 2, null, null);
+select is((select (v ->> 'added')::numeric from _r where k = 'ocr'), 6::numeric, 'OCR restock: 1 pack adds 6 units');
+select ok((select last_refill_qty = 6 and last_refill_at = ((public.manila_today() - 2)::timestamp at time zone 'Asia/Manila') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000c6'),
+  'OCR restock: the mark moved to the newer purchase date with 6 units');
+select isnt(public.s_inventory_receipt_apply_v1('e1200000-0000-4000-8000-0000000000c6', 5, null, 'Zz S120 vendor', null, public.manila_today() - 1, null, 'e1200000-0000-4000-8000-0000000000d1'), null::uuid,
+  'staff receipt: the purchase row is written');
+select ok((select last_refill_qty = 5 and last_refill_at = ((public.manila_today() - 1)::timestamp at time zone 'Asia/Manila') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000c6'),
+  'staff receipt: the mark moved to its date with 5 units');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200000-0000-4000-8000-000000000001"}';
+select ok((select e ? 'usageState' and e ? 'usagePerTurnover' and e ? 'usageBaseline' and e ? 'lastRefillAt' and e ? 'lastRefillQty' and e ? 'lastCountAt' and e ? 'usageCounts' and e ? 'baselineNote'
+             from jsonb_array_elements(public.get_inventory_catalogue_v1('e1200000-0000-4000-8000-0000000000b0') -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000000c6'),
+  'catalogue: the seven new keys are present beside the old baselineNote');
+select ok((select e ->> 'usageState' = 'baseline' and (e ->> 'lastRefillQty')::numeric = 5 and (e ->> 'usageCounts')::int = 0 and (e ->> 'usageBaseline')::numeric = 1.0 and e -> 'lastCountAt' = 'null'::jsonb
+             from jsonb_array_elements(public.get_inventory_catalogue_v1('e1200000-0000-4000-8000-0000000000b0') -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000000c6'),
+  'catalogue: the live values (baseline state, refill 5, no accepted counts, baseline 1.0, never counted)');
+reset role;
 
 -- 56-58. a failing hook never blocks a count ---------------------------------------------------------------------------------------------------
 create function public.zz_s120_boom() returns trigger language plpgsql as $$ begin raise exception 'boom'; end $$;

@@ -10,14 +10,14 @@
     "20261120000000_s120_usage_learning.sql"
   ],
   "migration_sha256": {
-    "20261120000000_s120_usage_learning.sql": "57310977d27cda572c1fdee01e009d92bf82f21f9999b52208db8896d93c24de"
+    "20261120000000_s120_usage_learning.sql": "2f7936121658ac3194da22823975116e892e58188f1ebe8037903d09947f1ed1"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Usage learning (spec docs/s118/SPEC-usage-learning.md). inventory_items gains usage_baseline_per_turnover, usage_baseline_note, usage_state (baseline|learning|measured), last_refill_at, last_refill_qty, usage_updated_at. New table public.inventory_usage_intervals (RLS on, no grant to any API role). Internal, no grants: record_inventory_anchor_v1, s_inventory_usage_recompute_v1, inventory_usage_quarterly_reset_v1 (pg_cron inventory-usage-quarterly-reset, 1 Jan/Apr/Jul/Oct 20:00 UTC). get_inventory_usage_kpi_v1: authenticated, gate read_operations. Hooks (one block each, any error becomes a WARNING): s_apply_inventory_count_core_v1 (md5 3937a6da154fe1ed60471689833f96e2), record_inventory_receipt_v1 (7cb59453f37eeeeb15b1e9f4c4ffa883), apply_inventory_purchase (48082c76263e15517d733c65f7eb3ccc), s_inventory_receipt_apply_v1 (4f09a8ae895d945703f60a96705413e7). get_inventory_catalogue_v1 (00ca41d933a5c5a9c4498cff682e7844) gains seven keys. consumption_per_booking is widened from numeric(10,2) to numeric(10,4) before the seed. An AFTER DELETE trigger on inventory_purchases recomputes the refill mark when a receipt is undone. The migration seeds 22 baselines and sets consumption_per_booking where it was the 2.00 default or null, then replays the 27 Oct and 18 Nov telegram_count audit rows through the anchor (expected: 3 accepted intervals - Laundry Detergent 2.0476, Hand Soap 0.1381, Insect Spray 0.0714 over 11 turnovers; Coffee rejected as unrecorded restock). Open decision for Lloyd, not in this release: the daily-digest stock alert threshold (review finding 7).",
+    "production_rule": "Usage learning (spec docs/s118/SPEC-usage-learning.md). inventory_items gains usage_baseline_per_turnover, usage_baseline_note, usage_state (baseline|learning|measured), last_refill_at, last_refill_qty, usage_updated_at. New table public.inventory_usage_intervals (RLS on, no grant to any API role). Internal, no grants: record_inventory_anchor_v1, s_inventory_usage_recompute_v1, inventory_usage_quarterly_reset_v1 (pg_cron inventory-usage-quarterly-reset, 1 Jan/Apr/Jul/Oct 20:00 UTC). get_inventory_usage_kpi_v1: authenticated, gate read_operations. Hooks (one block each, any error becomes a WARNING): s_apply_inventory_count_core_v1 (md5 3937a6da154fe1ed60471689833f96e2), record_inventory_receipt_v1 (7cb59453f37eeeeb15b1e9f4c4ffa883), apply_inventory_purchase (48082c76263e15517d733c65f7eb3ccc), s_inventory_receipt_apply_v1 (4f09a8ae895d945703f60a96705413e7). get_inventory_catalogue_v1 (00ca41d933a5c5a9c4498cff682e7844) gains seven keys. consumption_per_booking is widened from numeric(10,2) to numeric(10,4) before the seed. An AFTER DELETE trigger on inventory_purchases recomputes the refill mark when a receipt is undone. The migration seeds 22 baselines and sets consumption_per_booking where it was the 2.00 default or null, then replays the telegram_count audit rows through the anchor: the 27 Oct rows (note: Count of 16 Oct printout) anchor at 16 Oct 08:21 Manila (D-351), the 18 Nov rows at 18 Nov (expected: 3 accepted intervals of 33 days and 17 turnovers - Laundry Detergent consumed 23, Hand Soap 2, Insect Spray 1, learned rates 1.5926, 0.1074, 0.0556 today; Coffee rejected as unrecorded restock). Open decision for Lloyd, not in this release: the daily-digest stock alert threshold (review finding 7).",
     "notes": "Additive. No signature, grant or existing result key changes; five function bodies are cut by patching the live body after an md5 guard (55000 when production moved). Writes: the new columns and table, consumption_per_booking and usage_state on the seeded items. Stock, purchases and the audit log are not written. consumption_per_booking is read by daily-digest (runway) and telegram-expense (short when qty < rate): real rates make both quieter than 2.00 did. Deploy order: SQL only; apps may read the new catalogue keys and the KPI RPC afterwards."
   },
   "forward_verification": [
@@ -77,8 +77,8 @@
       "expect": true
     },
     {
-      "name": "replayed_rates_match_the_research",
-      "query": "select (select round(consumption_per_booking, 4) from public.inventory_items where is_active and name = 'Laundry Detergent') = 2.0476 and (select round(consumption_per_booking, 4) from public.inventory_items where is_active and name = 'Hand Soap') = 0.1381 and (select round(consumption_per_booking, 4) from public.inventory_items where is_active and name = 'Insect Spray') = 0.0714",
+      "name": "replayed_intervals_match_the_research",
+      "query": "select (select count(*) from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.is_active and x.accepted and x.prev_anchor_at = timestamptz '2026-10-16 08:21+08' and x.anchor_at >= timestamptz '2026-11-18 00:00+08' and x.anchor_at < timestamptz '2026-11-19 00:00+08' and x.turnovers = 17 and ((i.name = 'Laundry Detergent' and x.consumed = 23) or (i.name = 'Hand Soap' and x.consumed = 2) or (i.name = 'Insect Spray' and x.consumed = 1))) = 3",
       "expect": true
     },
     {
@@ -123,7 +123,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_usage_learning.sql (57 tests), then set verified to true with the log path."
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_usage_learning.sql (69 tests), then set verified to true with the log path."
   },
   "approvals": {
     "production_required": true,
@@ -133,9 +133,9 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
-    "the rehearsal has not run the migration and s120_usage_learning.sql (57 tests) green on this commit, compatibility.verified is still false",
+    "the rehearsal has not run the migration and s120_usage_learning.sql (69 tests) green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
     "the live body of s_apply_inventory_count_core_v1, record_inventory_receipt_v1, apply_inventory_purchase, s_inventory_receipt_apply_v1 or get_inventory_catalogue_v1 no longer matches the md5 guard in the migration (production moved since the cut)",
-    "baselines_seeded_22 or backfill_three_accepted_and_coffee_rejected fails: a live item name or an audit row differs from what the migration was cut against, read production before changing anything"
+    "baselines_seeded_22, backfill_three_accepted_and_coffee_rejected or replayed_intervals_match_the_research fails: a live item name or an audit row differs from what the migration was cut against, read production before changing anything"
   ]
 }
