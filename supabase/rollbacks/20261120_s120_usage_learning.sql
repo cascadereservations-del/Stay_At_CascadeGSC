@@ -6,8 +6,8 @@
 -- Then: unschedules the quarterly job, puts consumption_per_booking of every item the release touched (a seeded baseline or a recompute) back to the value it held before the release, read from the
 -- snapshot public.s120_usage_item_snapshot the migration took before any seed (the script stops with 55000 when the snapshot is gone: a rate must never be restored from a guess),
 -- drops the refill-mark delete trigger, the new functions (the received-date helper included), the intervals table, the snapshot and the six columns, and narrows consumption_per_booking back to numeric(10,2).
--- Every item the release seeded (a baseline) or recomputed is restored to its snapshot value, INCLUDING an item whose rate was edited by hand after the release: that edit is overwritten.
--- Only an item the release never touched keeps whatever it holds now.
+-- An item with a snapshot row that the release seeded or recomputed returns to its snapshot value, hand edits included.
+-- Every other item (never touched, or created after the release so it has no snapshot row) keeps its current value rounded to 2 decimals, and a positive value that would round to 0.00 becomes 0.01.
 -- DATA LOSS (by design): every interval, every learned rate, the seeded baselines and the refill marks. Stock counts, purchases and the audit log are untouched.
 -- Roll back any app that reads usageState / usagePerTurnover / get_inventory_usage_kpi_v1 first. Apply with run-sql-on-host.sh.
 
@@ -147,6 +147,8 @@ update public.inventory_items i
    set consumption_per_booking = s.consumption_per_booking
   from public.s120_usage_item_snapshot s
  where s.id = i.id and (i.usage_baseline_per_turnover is not null or i.usage_updated_at is not null);
+-- the narrowing must not turn a small positive rate into 0, which would remove the item's coverage
+update public.inventory_items set consumption_per_booking = 0.01 where consumption_per_booking > 0 and consumption_per_booking < 0.005;
 alter table public.inventory_items alter column consumption_per_booking type numeric(10,2);
 
 -- 4. objects -------------------------------------------------------------------------------------------------------------------------------------------------------

@@ -64,11 +64,13 @@
 --     inactive at 0, new "Bathroom tissue" and "Kitchen towel" first counted) invents no usage: new items start with a first anchor only.
 --   * consumption_per_booking READERS (all of them move when the rate changes from the 2.00 default to a learned 0.01 to 4 rate):
 --       daily-digest (runway = qty / cpb * days) and telegram-expense (short = qty < cpb), both in the waves repo;
---       the staff checklist Cascade-Staff/checklist/index.html: "Fill typical amounts" (susTypical) fills each quick item with consumption_per_booking, and a learned rate can be
---         fractional (0.1074 of a unit). The Restock port on branch s120/checklist-restock removes that button, so the port must ship in the SAME release as this SQL;
+--       the staff checklist Cascade-Staff/checklist/index.html: "Fill typical amounts" (susTypical) fills only the quick items (QUICK_ITEM_NAMES: coffee, bottled water, toiletries, tissue)
+--         with consumption_per_booking. From the apply the button would use the seeded whole baselines: Coffee 4 (was 2), Bottled Water 1 (was 2), Toiletries 2, Bathroom tissue 1; a fraction
+--         reaches it only after a quick item has an accepted interval. The Restock port must be committed on s120/checklist-restock and pushed in this release, and susTypical must be
+--         confirmed gone from the checklist being pushed before the SQL apply;
 --       the catalogue estDailyUsage / estCoverageDays (20261020000000_s86_inventory_db.sql lines 231-232, cpb x the 60-day turnover rate);
 --       Cassy coverage: direct-booking-waves-0-1-sol supabase/functions/_shared/cascade-core/tools.ts lines 221-239 (coverage_days = qty / (cpb x turnover rate)).
---     Real rates (0.01 to 4) make the digest, telegram-expense, the catalogue and Cassy quieter or longer than the 2.00 default did ("1 to 2 days" coverage becomes real days).
+--     Real rates (0.01 to 4) make the digest, telegram-expense, the catalogue and Cassy different from the 2.00 default: rates below 2.00 make coverage longer and quieter, rates above 2.00 make it shorter and louder. Example: Coffee at 4.0 halves estCoverageDays and Cassy coverage_days, and telegram-expense shows "may run short" at qty 2 or 3.
 --     D-375: the deployed digest (waves repo) names stock only when an item is out, so these rates silence nothing there. In telegram-expense only the "may run short" note moves.
 --     s_inventory_low_task_v1 and the Telegram low list use reorder_below and are unaffected.
 --   * A count made through reconcile_inventory_baseline_v1 (admin counts page, staff stock screen) sets movement_controlled_at and takes the item out of learning; only the Telegram
