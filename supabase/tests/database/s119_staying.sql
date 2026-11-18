@@ -13,6 +13,9 @@ grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid), public.current_staff_active(text[]) to authenticated, service_role;
 grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
+-- production grants, for a backup that already holds s119 (no migration restates them there)
+revoke all on function public.set_stay_staying_suggestion_v1(uuid, text, text) from public, anon, authenticated;
+grant execute on function public.set_stay_staying_suggestion_v1(uuid, text, text) to service_role;
 
 -- fixtures -------------------------------------------------------------------------------------------------------------------------------
 insert into public.properties(id, name, is_active) values
