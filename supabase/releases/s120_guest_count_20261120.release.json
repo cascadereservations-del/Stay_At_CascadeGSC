@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "release_id": "s120_guest_count_20261120",
+  "phase": "expand",
+  "source": {
+    "branch": "s120/usage-learning",
+    "commit": "44e66472b98873160e513288d25ef513b846efaa"
+  },
+  "migrations": [
+    "20261120000001_s120_guest_count.sql"
+  ],
+  "migration_sha256": {
+    "20261120000001_s120_guest_count.sql": "3803aca65e1d5ca318c3af3ba2538102ab49aa561ef3408d43aa94f40a858747"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Guest count (contract docs/s120/CONTRACT-guest-count.md). stay_staying gains guest_count (integer, 1..3, null = nobody counted; constraint stay_staying_guest_count_range). stay_staying_history accepts action count (the action check is replaced with a five-value one). set_stay_guest_count_v1(uuid,text,integer,integer,text,text): authenticated only, gate manage_operations (owner, admin), optimistic lock on version (40001), idempotency key required, replay only for the same count (else 22023 idempotency_key_reused). staff_guest_stay_v1(uuid,uuid): authenticated only, gate manage_operations, returns the current or next stay of a guest with booked_guests, guest_count and version. staff_home_v1 (s119 body, md5 18f5723d01ce20788d6fb2f114129ed8) gains guest_count and booked_guests inside the staying object of current_guest and next_guest via helper stay_guest_count_json_v1 (no API grant). Both tables stay closed: RLS on, no grant to any API role.",
+    "notes": "Additive. No existing signature or grant changes. One function body is replaced (staff_home_v1), cut by patching the live body after an md5 guard (55000 when production moved) and re-checked against the post-patch md5 d9303dae42b567632024bba98c0df34e. Does not depend on the usage-learning release. Old Staff app builds ignore the two new keys. Apply order with s119: s119 first (this release patches the s119 body). Deploy order: SQL first, then the Staff app. After this release applies, the s119 forward check md5_staff_home_v1 (18f5723d...) no longer holds by design."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_staff_home_v1_is_s120_body",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'd9303dae42b567632024bba98c0df34e' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_home_shape_and_grants",
+      "query": "select (select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure) and not has_function_privilege('anon', 'public.staff_home_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.staff_home_v1(uuid)', 'execute') and has_function_privilege('service_role', 'public.staff_home_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_home_count_helper_on_cur_and_next",
+      "query": "select (length(prosrc) - length(replace(prosrc, 'stay_guest_count_json_v1', ''))) / length('stay_guest_count_json_v1') = 2 from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "guest_count_column_and_range_check",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'stay_staying' and column_name = 'guest_count' and data_type = 'integer') and exists (select 1 from pg_constraint where conrelid = 'public.stay_staying'::regclass and conname = 'stay_staying_guest_count_range')",
+      "expect": true
+    },
+    {
+      "name": "history_action_check_allows_count",
+      "query": "select pg_get_constraintdef(oid) like '%count%' from pg_constraint where conrelid = 'public.stay_staying_history'::regclass and conname = 'stay_staying_history_action_check'",
+      "expect": true
+    },
+    {
+      "name": "tables_closed_rls_on",
+      "query": "select (select bool_and(relrowsecurity) from pg_class where oid in ('public.stay_staying'::regclass, 'public.stay_staying_history'::regclass)) and not has_table_privilege('anon', 'public.stay_staying', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.stay_staying', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.stay_staying', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "set_count_rpc_shape_and_grants",
+      "query": "select (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.set_stay_guest_count_v1(uuid,text,integer,integer,text,text)'::regprocedure) and not has_function_privilege('anon', 'public.set_stay_guest_count_v1(uuid,text,integer,integer,text,text)', 'execute') and has_function_privilege('authenticated', 'public.set_stay_guest_count_v1(uuid,text,integer,integer,text,text)', 'execute') and not has_function_privilege('service_role', 'public.set_stay_guest_count_v1(uuid,text,integer,integer,text,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "guest_stay_rpc_shape_and_grants",
+      "query": "select (select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.staff_guest_stay_v1(uuid,uuid)'::regprocedure) and not has_function_privilege('anon', 'public.staff_guest_stay_v1(uuid,uuid)', 'execute') and has_function_privilege('authenticated', 'public.staff_guest_stay_v1(uuid,uuid)', 'execute') and not has_function_privilege('service_role', 'public.staff_guest_stay_v1(uuid,uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "count_helper_has_no_api_grant",
+      "query": "select (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.stay_guest_count_json_v1(uuid,text)'::regprocedure) and not has_function_privilege('anon', 'public.stay_guest_count_json_v1(uuid,text)', 'execute') and not has_function_privilege('authenticated', 'public.stay_guest_count_json_v1(uuid,text)', 'execute') and not has_function_privilege('service_role', 'public.stay_guest_count_json_v1(uuid,text)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "stay_staying_reads_without_error",
+      "query": "select (select count(*) from public.stay_staying where guest_count is null or guest_count between 1 and 3) >= 0 and (select count(*) from public.stay_staying_history) >= 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with data loss by design: every typed guest count and its history rows are dropped. The script restores the s119 staff_home_v1 body (md5 guard on the s120 body, md5 check on the result) before it drops the helper.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261120_s120_guest_count.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) of public.staff_home_v1 must be 18f5723d01ce20788d6fb2f114129ed8 and stay_staying.guest_count must not exist. Roll the Staff app back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive; the Staff app shows the count once it ships and calls the two RPCs."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup that holds s119, apply the migration, run the forward checks and supabase/tests/database/s120_guest_count.sql (53 tests) plus the updated s119_staying.sql, then set verified to true with the log path."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s120_guest_count.sql (53 tests) green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the live body of staff_home_v1 no longer matches the md5 guard in the migration (production moved since the cut, or s119 is not applied)"
+  ]
+}

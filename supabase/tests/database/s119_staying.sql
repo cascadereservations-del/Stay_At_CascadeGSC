@@ -94,7 +94,7 @@ select is((select count(*)::int from public.stay_staying where property_id = 'e9
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
 select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'current_guest' -> 'staying'),
-  '{"names": null, "source": null, "version": 0, "suggestion": null}'::jsonb, 'cleaner: a stay nobody typed yet reads version 0 with no names');
+  '{"names": null, "source": null, "version": 0, "suggestion": null, "guest_count": null, "booked_guests": null}'::jsonb, 'cleaner: a stay nobody typed yet reads version 0 with no names');
 select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' ->> 'uid'), 'zz-s119-nxt', 'the next guest is the fixture arrival');
 
 -- 19-27. cleaner types names: lock, idempotency ---------------------------------------------------------------------------------------------------
@@ -111,7 +111,7 @@ select throws_ok($$select public.set_stay_staying_v1('e9190000-0000-4000-8000-00
 select is((select public.set_stay_staying_v1('e9190000-0000-4000-8000-0000000000b0', 'zz-s119-cur', 'Ana, Ben and Cy', 'staff', 1, null, 'k3')),
   '{"ok": true, "replay": false, "version": 2, "names": "Ana, Ben and Cy", "source": "staff"}'::jsonb, 'cleaner: the right expected version moves it to 2');
 select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'current_guest' -> 'staying'),
-  '{"names": "Ana, Ben and Cy", "source": "staff", "version": 2, "suggestion": null}'::jsonb, 'cleaner: staff_home_v1 current_guest.staying carries the typed names');
+  '{"names": "Ana, Ben and Cy", "source": "staff", "version": 2, "suggestion": null, "guest_count": null, "booked_guests": null}'::jsonb, 'cleaner: staff_home_v1 current_guest.staying carries the typed names');
 reset role;
 select is((select count(*)::int from public.stay_staying_history where property_id = 'e9190000-0000-4000-8000-0000000000b0' and stay_uid = 'zz-s119-cur'), 2,
   'two writes, two history rows (the replay and the refusals added none)');
@@ -165,12 +165,12 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000001"}';
 select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying'),
-  '{"names": null, "source": null, "version": 2, "suggestion": "Dee, Eli and Flo"}'::jsonb, 'cleaner: next_guest.staying shows the pending suggestion');
+  '{"names": null, "source": null, "version": 2, "suggestion": "Dee, Eli and Flo", "guest_count": null, "booked_guests": null}'::jsonb, 'cleaner: next_guest.staying shows the pending suggestion');
 reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e9190000-0000-4000-8000-000000000003"}';
 select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying'),
-  '{"names": null, "source": null, "version": 2}'::jsonb, 'finance: next_guest.staying has no suggestion key at all');
+  '{"names": null, "source": null, "version": 2, "guest_count": null, "booked_guests": null}'::jsonb, 'finance: next_guest.staying has no suggestion key at all');
 select is((select public.staff_home_v1('e9190000-0000-4000-8000-0000000000b0') -> 'current_guest' -> 'staying' ->> 'names'), 'Ana, Ben, Cy and Dan', 'finance still reads the typed names');
 reset role;
 
@@ -240,7 +240,7 @@ select is((select count(*)::int from public.stay_staying_history where property_
   'next stay history: suggest, suggest, reject, suggest, accept');
 select is((select count(*)::int from public.stay_staying_history where property_id = 'e9190000-0000-4000-8000-0000000000b0' and action = 'suggest' and changed_by is null), 5,
   'Cassy history rows carry no actor (five suggestions across the suite)');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), '18f5723d01ce20788d6fb2f114129ed8', 'staff_home_v1 is the s119 body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'd9303dae42b567632024bba98c0df34e', 'staff_home_v1 is the s120 guest-count body (s119 body was 18f5723d01ce20788d6fb2f114129ed8)');
 select ok((select prosecdef and provolatile = 's' and proconfig = array['search_path=""'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'staff_home_v1 is still stable, security definer, empty search_path');
 
 -- 66-78. D-289 contact refusal, blank save, whitespace, no_pending_suggestion state, redacted reads ---------------------------------------------------
