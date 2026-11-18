@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "release_id": "s120_linen_stains_20261120",
+  "phase": "expand",
+  "source": {
+    "branch": "s120/linen-stains",
+    "commit": "ca5f3c7abaaea19c9173393c77c8a27cc9a24277"
+  },
+  "migrations": [
+    "20261120000002_s120_linen_stains.sql"
+  ],
+  "migration_sha256": {
+    "20261120000002_s120_linen_stains.sql": "c990cd69fa25e737ce55c709a0621167123827aae13b3c073c7c482dcd698334"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Linen stains (D-374). New table linen_stain_reports (RLS on, no grant to any API role) and record_linen_stains_v1(uuid,date,text,text,jsonb): authenticated only, gate submit_cleaning, rows {item_id, qty 1..99, outcome cleaned|needs_replacing|replaced}, replay on the idempotency key (16 to 160 characters), the same key from another person, or with different rows (fingerprint over item, outcome and quantity, order ignored), is 22023 idempotency_key_reused. needs_replacing and replaced lower qty_on_hand (clamped at 0, a cleaner is never refused for a low shelf); a movement-controlled item also gets an adjustment movement. needs_replacing adds to ONE open follow-up task per item (kind linen_replace). Nothing is written to inventory_usage, inventory_purchases or any finance table.",
+    "notes": "Additive: one table, one function, no existing signature or grant changes, no function body replaced. Independent of the other s120 releases. Apply order does not matter. The checklist release that calls it ships after this applies. 0 of 78 inventory items are movement-controlled in production (read 2026-11-18)."
+  },
+  "forward_verification": [
+    {
+      "name": "linen_rpc_shape_and_grants",
+      "query": "select (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)'::regprocedure) and has_function_privilege('authenticated', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)', 'execute') and not has_function_privilege('anon', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)', 'execute') and not has_function_privilege('service_role', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "linen_table_closed_rls_on",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.linen_stain_reports'::regclass) and not has_table_privilege('anon', 'public.linen_stain_reports', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.linen_stain_reports', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.linen_stain_reports', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "linen_table_reads_without_error",
+      "query": "select count(*) >= 0 from public.linen_stain_reports",
+      "expect": true
+    },
+    {
+      "name": "linen_key_row_unique_and_outcome_check",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.linen_stain_reports'::regclass and conname = 'linen_stain_reports_key_row' and contype = 'u') and exists (select 1 from pg_constraint where conrelid = 'public.linen_stain_reports'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%needs_replacing%')",
+      "expect": true
+    },
+    {
+      "name": "linen_rows_hash_column_not_null",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'linen_stain_reports' and column_name = 'rows_hash' and is_nullable = 'NO')",
+      "expect": true
+    },
+    {
+      "name": "record_inventory_usage_untouched",
+      "query": "select to_regprocedure('public.record_inventory_usage(uuid,date,text,text,jsonb)') is not null",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with data loss by design: every linen audit row is dropped with the table. The stock the reports took off, the linen_replace tasks they opened and the inventory_audit_log rows (action linen_stain) they wrote stay as ordinary rows.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261120_s120_linen_stains.sql with run-sql-on-host.sh; then to_regclass('public.linen_stain_reports') and to_regprocedure('public.record_linen_stains_v1(uuid,date,text,text,jsonb)') must both be null. Roll the checklist back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_checklist_follows_the_sql",
+      "required_state": "None. The SQL is additive; the checklist calls the function once its own release ships."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_linen_stains.sql (50 tests), then set verified to true with the log path. The test file was written without a database and has not run."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s120_linen_stains.sql (50 tests) green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
