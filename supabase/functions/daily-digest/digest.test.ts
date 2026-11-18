@@ -47,6 +47,18 @@ Deno.test('ops: last-unit items join a digest already going out and never start 
   assertEquals(opsReport({ ...base, lastUnit: ['Hand Soap'] }), null);
   const out = opsReport({ ...base, lastUnit: ['Hand Soap'], stock: [{ name: 'Tea', qty_on_hand: 0, unit: 'pc', runway: 0 }] })!;
   assertEquals(out.lines, ['📦 Out of stock: Tea', '📦 Down to the last unit: Hand Soap']);
+  // With nothing out of stock the line starts its own group, so a full first group cannot drop it.
+  const midStay = ['A', 'B', 'C', 'D', 'E'].map((guest) => ({ guest, night: 2, nights: 5 }));
+  assert(renderReport(opsReport({ ...base, midStay, lastUnit: ['Hand Soap'] })!).includes('Down to the last unit: Hand Soap'));
+  const many = Array.from({ length: 12 }, (_, n) => `Item ${n + 1}`);
+  const capped = opsReport({ ...base, midStay: midStay.slice(0, 1), lastUnit: many })!;
+  assertEquals(capped.lines.at(-1), `📦 Down to the last unit: ${many.slice(0, 10).join(', ')} and 2 more`);
+});
+
+Deno.test('ops: the digest passes last-unit items from the inventory read (D-375)', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assert(src.includes('lastUnit: lastUnitNames((inventoryData ?? []) as any[])'));
+  assert(/from\('inventory_items'\)\s*\.select\('name,qty_on_hand,reorder_below,/.test(src));
 });
 
 Deno.test('ops: an item at zero fires ATTENTION on a quiet day; a second-morning mid-stay fires DAILY; low stock alone stays silent', () => {

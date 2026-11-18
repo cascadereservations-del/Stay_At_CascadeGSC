@@ -127,7 +127,11 @@ export function opsReport(i: OpsInput): OpsReport | null {
   for (const s of stayOn.filter((x) => x.day === 'today')) lines.push(`🔁 ${stayOnText(s)}`);
   for (const m of midStay) lines.push(`🛎 Mid-stay: ${m.guest}, night ${m.night} of ${m.nights} — towels and water topped up? everything okay?`);
   if (outOfStock.length) { brk(); lines.push(`📦 Out of stock: ${outOfStock.map((s) => s.name).join(', ')}`); }
-  if (i.lastUnit?.length) { if (!outOfStock.length) brk(); lines.push(`📦 Down to the last unit: ${i.lastUnit.join(', ')}`); }
+  if (i.lastUnit?.length) {
+    if (!outOfStock.length) brk();
+    const more = i.lastUnit.length - 10; // a Telegram send over 4096 characters would lose the whole digest
+    lines.push(`📦 Down to the last unit: ${i.lastUnit.slice(0, 10).join(', ')}${more > 0 ? ` and ${more} more` : ''}`);
+  }
   // SPEC-05 D: just under stock; one line, however many guests (the group cap stays five).
   if (idMissing.length) { brk(); lines.push(`🪪 ID still missing: ${idMissing.map((m) => `${m.guest}, arriving ${friendlyDate(m.checkin)}`).join('; ')}`); }
   const w = (a || d) ? weatherLine(i.weather) : '';
