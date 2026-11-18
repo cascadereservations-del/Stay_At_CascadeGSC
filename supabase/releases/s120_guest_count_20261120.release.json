@@ -10,7 +10,7 @@
     "20261120000001_s120_guest_count.sql"
   ],
   "migration_sha256": {
-    "20261120000001_s120_guest_count.sql": "3803aca65e1d5ca318c3af3ba2538102ab49aa561ef3408d43aa94f40a858747"
+    "20261120000001_s120_guest_count.sql": "68b9c9b2aa4b84b6df268ab49c71919b87c3edec89d89530deb3c0ced48276d0"
   },
   "backup": {
     "required": true,
@@ -18,17 +18,22 @@
     "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
     "production_rule": "Guest count (contract docs/s120/CONTRACT-guest-count.md). stay_staying gains guest_count (integer, 1..3, null = nobody counted; constraint stay_staying_guest_count_range). stay_staying_history accepts action count (the action check is replaced with a five-value one). set_stay_guest_count_v1(uuid,text,integer,integer,text,text): authenticated only, gate manage_operations (owner, admin), optimistic lock on version (40001), idempotency key required, replay only for the same count (else 22023 idempotency_key_reused). staff_guest_stay_v1(uuid,uuid): authenticated only, gate manage_operations, returns the current or next stay of a guest with booked_guests, guest_count and version. staff_home_v1 (s119 body, md5 18f5723d01ce20788d6fb2f114129ed8) gains guest_count and booked_guests inside the staying object of current_guest and next_guest via helper stay_guest_count_json_v1 (no API grant). Both tables stay closed: RLS on, no grant to any API role.",
-    "notes": "Additive. No existing signature or grant changes. One function body is replaced (staff_home_v1), cut by patching the live body after an md5 guard (55000 when production moved) and re-checked against the post-patch md5 d9303dae42b567632024bba98c0df34e. Does not depend on the usage-learning release. Old Staff app builds ignore the two new keys. Apply order with s119: s119 first (this release patches the s119 body). Deploy order: SQL first, then the Staff app. After this release applies, the s119 forward check md5_staff_home_v1 (18f5723d...) no longer holds by design."
+    "notes": "Additive. No existing signature or grant changes. One function body is replaced (staff_home_v1), cut by patching the live body after an md5 guard (55000 when production moved) and re-checked against the post-patch md5 b85530233f55696b136e4a49d1ed255c. Does not depend on the usage-learning release. Old Staff app builds ignore the new keys (guest_count and booked_guests in staying; guest_id on current_guest and next_guest for owner and admin only). Apply order with s119: s119 first (this release patches the s119 body). Deploy order: SQL first, then the Staff app. After this release applies, the s119 forward check md5_staff_home_v1 (18f5723d...) no longer holds by design."
   },
   "forward_verification": [
     {
       "name": "md5_staff_home_v1_is_s120_body",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'd9303dae42b567632024bba98c0df34e' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b85530233f55696b136e4a49d1ed255c' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
       "name": "staff_home_shape_and_grants",
       "query": "select (select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure) and not has_function_privilege('anon', 'public.staff_home_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.staff_home_v1(uuid)', 'execute') and has_function_privilege('service_role', 'public.staff_home_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "staff_home_guest_id_on_cur_and_next_privileged_only",
+      "query": "select (length(prosrc) - length(replace(prosrc, '''guest_id'', s.guest_id', ''))) / length('''guest_id'', s.guest_id') = 2 and prosrc like '%case when v_priv then jsonb_build_object(''arrival_ready'', public.s_arrival_ready_v1(s.guest_id, s.source), ''guest_id'', s.guest_id)%' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -93,7 +98,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not rehearsed yet: the orchestrator must restore a backup that holds s119, apply the migration, run the forward checks and supabase/tests/database/s120_guest_count.sql (55 tests) plus the updated s119_staying.sql, then set verified to true with the log path."
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup that holds s119, apply the migration, run the forward checks and supabase/tests/database/s120_guest_count.sql (59 tests) plus the updated s119_staying.sql, then set verified to true with the log path."
   },
   "approvals": {
     "production_required": true,
@@ -103,7 +108,7 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
-    "the rehearsal has not run the migration, s120_guest_count.sql (55 tests) and the updated s119_staying.sql green on this commit, compatibility.verified is still false",
+    "the rehearsal has not run the migration, s120_guest_count.sql (59 tests) and the updated s119_staying.sql green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
     "the live body of staff_home_v1 no longer matches the md5 guard in the migration (production moved since the cut, or s119 is not applied)"
   ]

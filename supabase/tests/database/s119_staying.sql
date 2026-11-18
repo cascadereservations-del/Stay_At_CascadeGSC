@@ -240,7 +240,7 @@ select is((select count(*)::int from public.stay_staying_history where property_
   'next stay history: suggest, suggest, reject, suggest, accept');
 select is((select count(*)::int from public.stay_staying_history where property_id = 'e9190000-0000-4000-8000-0000000000b0' and action = 'suggest' and changed_by is null), 5,
   'Cassy history rows carry no actor (five suggestions across the suite)');
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'd9303dae42b567632024bba98c0df34e', 'staff_home_v1 is the s120 guest-count body (s119 body was 18f5723d01ce20788d6fb2f114129ed8)');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'b85530233f55696b136e4a49d1ed255c', 'staff_home_v1 is the s120 guest-count body (s119 body was 18f5723d01ce20788d6fb2f114129ed8)');
 select ok((select prosecdef and provolatile = 's' and proconfig = array['search_path=""'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'staff_home_v1 is still stable, security definer, empty search_path');
 
 -- 66-78. D-289 contact refusal, blank save, whitespace, no_pending_suggestion state, redacted reads ---------------------------------------------------

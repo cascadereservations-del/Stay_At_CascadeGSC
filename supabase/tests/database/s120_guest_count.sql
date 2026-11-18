@@ -4,7 +4,7 @@
 -- Refusals are tested by calling as the refused role. calendar_events.nights is a generated column and is never sent.
 -- Everything rolls back.
 begin;
-select plan(55);
+select plan(59);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -19,16 +19,21 @@ insert into public.properties(id, name, is_active) values
   ('e1200001-0000-4000-8000-0000000000b1', 'Synthetic S120 GC B', true);
 insert into auth.users(id) values
   ('e1200001-0000-4000-8000-000000000001'), ('e1200001-0000-4000-8000-000000000002'),
-  ('e1200001-0000-4000-8000-000000000003'), ('e1200001-0000-4000-8000-000000000004');
+  ('e1200001-0000-4000-8000-000000000003'), ('e1200001-0000-4000-8000-000000000004'),
+  ('e1200001-0000-4000-8000-000000000005'), ('e1200001-0000-4000-8000-000000000006');
 insert into public.staff_access_profiles(user_id, role) values
   ('e1200001-0000-4000-8000-000000000001', 'cleaner'),
   ('e1200001-0000-4000-8000-000000000002', 'admin'),
-  ('e1200001-0000-4000-8000-000000000003', 'finance');
+  ('e1200001-0000-4000-8000-000000000003', 'finance'),
+  ('e1200001-0000-4000-8000-000000000005', 'owner'),
+  ('e1200001-0000-4000-8000-000000000006', 'laundry');
 -- 04 has no staff profile at all. The admin has no access to property B.
 insert into public.staff_property_access(user_id, property_id) values
   ('e1200001-0000-4000-8000-000000000001', 'e1200001-0000-4000-8000-0000000000b0'),
   ('e1200001-0000-4000-8000-000000000002', 'e1200001-0000-4000-8000-0000000000b0'),
-  ('e1200001-0000-4000-8000-000000000003', 'e1200001-0000-4000-8000-0000000000b0');
+  ('e1200001-0000-4000-8000-000000000003', 'e1200001-0000-4000-8000-0000000000b0'),
+  ('e1200001-0000-4000-8000-000000000005', 'e1200001-0000-4000-8000-0000000000b0'),
+  ('e1200001-0000-4000-8000-000000000006', 'e1200001-0000-4000-8000-0000000000b0');
 insert into public.guests(id, property_id, name) values
   ('e1200001-0000-4000-8000-0000000000c1', 'e1200001-0000-4000-8000-0000000000b0', 'Zz S120 Guest One'),
   ('e1200001-0000-4000-8000-0000000000c2', 'e1200001-0000-4000-8000-0000000000b0', 'Zz S120 Guest Two'),
@@ -181,6 +186,29 @@ set local request.jwt.claims = '{"sub":"e1200001-0000-4000-8000-000000000003"}';
 select is((select public.staff_home_v1('e1200001-0000-4000-8000-0000000000b0') -> 'next_guest' -> 'staying'),
   '{"names": "Ana", "source": "admin", "version": 2, "guest_count": 2, "booked_guests": 3}'::jsonb, 'finance: next_guest.staying has the new keys and still no suggestion key');
 reset role;
+-- guest_id on both slots: owner and admin only (v_priv); cleaner and laundry have no such key
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200001-0000-4000-8000-000000000005"}';
+select is((select jsonb_build_array(h -> 'current_guest' -> 'guest_id', h -> 'next_guest' -> 'guest_id') from (select public.staff_home_v1('e1200001-0000-4000-8000-0000000000b0') h) q),
+  '["e1200001-0000-4000-8000-0000000000c1", "e1200001-0000-4000-8000-0000000000c1"]'::jsonb, 'owner: current_guest and next_guest carry guest_id (guest one on both slots)');
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200001-0000-4000-8000-000000000002"}';
+select is((select jsonb_build_array(h -> 'current_guest' -> 'guest_id', h -> 'next_guest' -> 'guest_id') from (select public.staff_home_v1('e1200001-0000-4000-8000-0000000000b0') h) q),
+  '["e1200001-0000-4000-8000-0000000000c1", "e1200001-0000-4000-8000-0000000000c1"]'::jsonb, 'admin: current_guest and next_guest carry guest_id (guest one on both slots)');
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200001-0000-4000-8000-000000000001"}';
+select ok((select h -> 'current_guest' ->> 'uid' = 'zz-s120gc-cur' and h -> 'next_guest' ->> 'uid' = 'zz-s120gc-nxt'
+                  and not (h -> 'current_guest') ? 'guest_id' and not (h -> 'next_guest') ? 'guest_id'
+           from (select public.staff_home_v1('e1200001-0000-4000-8000-0000000000b0') h) q), 'cleaner: both guests are there and neither has a guest_id key at all');
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200001-0000-4000-8000-000000000006"}';
+select ok((select h -> 'current_guest' ->> 'uid' = 'zz-s120gc-cur' and h -> 'next_guest' ->> 'uid' = 'zz-s120gc-nxt'
+                  and not (h -> 'current_guest') ? 'guest_id' and not (h -> 'next_guest') ? 'guest_id'
+           from (select public.staff_home_v1('e1200001-0000-4000-8000-0000000000b0') h) q), 'laundry: both guests are there and neither has a guest_id key at all');
+reset role;
 -- a stay with no row and a reservation of unknown size: both keys present, both null
 update public.calendar_events set checkin_date = (now() at time zone 'Asia/Manila')::date - 1, checkout_date = (now() at time zone 'Asia/Manila')::date + 2
   where property_id = 'e1200001-0000-4000-8000-0000000000b0' and uid = 'zz-s120gc-bare';
@@ -246,7 +274,7 @@ reset role;
 select is((select count(*)::int from public.stay_staying where property_id = 'e1200001-0000-4000-8000-0000000000b1'), 0, 'nothing was written in property B');
 
 -- 50-52. the re-cut body -------------------------------------------------------------------------------------------------------------------------------
-select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'd9303dae42b567632024bba98c0df34e', 'staff_home_v1 is the s120 guest-count body');
+select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'b85530233f55696b136e4a49d1ed255c', 'staff_home_v1 is the s120 guest-count body');
 select ok((select prosecdef and provolatile = 's' and proconfig = array['search_path=""'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 'staff_home_v1 is still stable, security definer, empty search_path');
 select is((select (length(prosrc) - length(replace(prosrc, 'stay_guest_count_json_v1', ''))) / length('stay_guest_count_json_v1') from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure), 2,
   'the helper is called exactly twice in staff_home_v1 (current and next)');

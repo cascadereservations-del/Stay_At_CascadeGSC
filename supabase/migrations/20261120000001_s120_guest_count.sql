@@ -17,8 +17,11 @@
 --   stay_guest_count_json_v1(property, uid)   internal helper, no grants: { guest_count, booked_guests } (integers or null), the two keys staff_home_v1 adds to `staying`.
 --   staff_home_v1: current_guest.staying and next_guest.staying gain guest_count and booked_guests (version is already there). Cut by patching the LIVE body (each anchor must
 --       occur exactly 2 times, one per slot) after an md5 guard: the s119 body, md5 18f5723d01ce20788d6fb2f114129ed8 (read live 2026-11-18). The diff is the two
---       `|| public.stay_guest_count_json_v1(p_property_id, s.uid)` additions and nothing else; the body after the patch must be md5 d9303dae42b567632024bba98c0df34e.
+--       `|| public.stay_guest_count_json_v1(p_property_id, s.uid)` additions and the two `, 'guest_id', s.guest_id` additions inside the v_priv arrival_ready object, and nothing else;
+--       the body after the patch must be md5 b85530233f55696b136e4a49d1ed255c (s119 body rebuilt from the s91 body plus the s119 patch, which reproduced 18f5723d..., then this patch).
 --       Both counts are integers: a cleaner reads no more personal data than before.
+--       current_guest and next_guest also gain `guest_id` for owner and admin only (v_priv, the same flag as arrival_ready: staff_access_profiles role owner/admin, not disabled):
+--       the Staff app's Guests tile links to #guests/<guest_id>/stay and production sent no such key. Cleaner, laundry and every other role get no guest_id key at all.
 --
 -- GRANTS (ML-21: the end state is restated for every function this file creates or replaces): the two RPCs go to `authenticated` only (the s119 pattern of set_stay_staying_v1:
 -- revoke from public, anon, service_role; grant to authenticated), the helper to nobody, staff_home_v1 back to authenticated and service_role. RLS stays on, stay_staying and
@@ -27,7 +30,7 @@
 -- GUARD (55000, nothing changes): staff_home_v1 must be the live s119 body. Rollback: supabase/rollbacks/20261120_s120_guest_count.sql (DATA LOSS by design: every typed guest count).
 --
 -- FORWARD CHECKS (also in supabase/releases/s120_guest_count_20261120.release.json):
---   select md5(replace(prosrc, chr(13), '')) = 'd9303dae42b567632024bba98c0df34e' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure;
+--   select md5(replace(prosrc, chr(13), '')) = 'b85530233f55696b136e4a49d1ed255c' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure;
 --   select count(*) = 1 from information_schema.columns where table_schema = 'public' and table_name = 'stay_staying' and column_name = 'guest_count';
 --   select pg_get_constraintdef(oid) like '%count%' from pg_constraint where conrelid = 'public.stay_staying_history'::regclass and contype = 'c' and conname = 'stay_staying_history_action_check';
 
@@ -157,7 +160,7 @@ $$;
 revoke all on function public.stay_guest_count_json_v1(uuid, text) from public, anon, authenticated, service_role;
 
 do $$
-declare v_def text; v_a text; v_to text; v_got text;
+declare v_def text; v_a text; v_to text; v_got text; v_g text; v_g2 text;
 begin
   v_def := replace(pg_get_functiondef(to_regprocedure('public.staff_home_v1(uuid)')), chr(13), '');
   v_a := 'jsonb_build_object(''staying'', public.stay_staying_json_v1(p_property_id, s.uid))';
@@ -165,10 +168,17 @@ begin
     raise exception 's120 guest count: the staying anchor in staff_home_v1 was not found exactly twice; re-cut from the live body' using errcode = '55000';
   end if;
   v_to := 'jsonb_build_object(''staying'', public.stay_staying_json_v1(p_property_id, s.uid) || public.stay_guest_count_json_v1(p_property_id, s.uid))';
-  execute replace(v_def, v_a, v_to);
+  v_def := replace(v_def, v_a, v_to);
+  -- guest_id: owner and admin only, inside the existing v_priv object next to arrival_ready (one per slot)
+  v_g := 'jsonb_build_object(''arrival_ready'', public.s_arrival_ready_v1(s.guest_id, s.source))';
+  if (length(v_def) - length(replace(v_def, v_g, ''))) / length(v_g) <> 2 then
+    raise exception 's120 guest count: the arrival_ready anchor in staff_home_v1 was not found exactly twice; re-cut from the live body' using errcode = '55000';
+  end if;
+  v_g2 := 'jsonb_build_object(''arrival_ready'', public.s_arrival_ready_v1(s.guest_id, s.source), ''guest_id'', s.guest_id)';
+  execute replace(v_def, v_g, v_g2);
   select md5(replace(p.prosrc, chr(13), '')) into v_got from pg_proc p where p.oid = to_regprocedure('public.staff_home_v1(uuid)');
-  if v_got is distinct from 'd9303dae42b567632024bba98c0df34e' then
-    raise exception 's120 guest count: staff_home_v1 after the patch has md5 %, expected d9303dae42b567632024bba98c0df34e', v_got using errcode = '55000';
+  if v_got is distinct from 'b85530233f55696b136e4a49d1ed255c' then
+    raise exception 's120 guest count: staff_home_v1 after the patch has md5 %, expected b85530233f55696b136e4a49d1ed255c', v_got using errcode = '55000';
   end if;
 end $$;
 
