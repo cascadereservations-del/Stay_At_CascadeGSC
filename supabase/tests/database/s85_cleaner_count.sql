@@ -33,8 +33,10 @@ insert into public.staff_access_profiles(user_id, role) values
 insert into public.properties(id, name, is_active) values ('d8500000-0000-4000-8000-0000000000b0', 'Zz S85 fixture property', true);
 insert into public.staff_property_access(user_id, property_id) select u, 'd8500000-0000-4000-8000-0000000000b0'
   from unnest(array['d8500000-0000-4000-8000-0000000000a1', 'd8500000-0000-4000-8000-0000000000a5', 'd8500000-0000-4000-8000-0000000000a4']::uuid[]) u;
+-- Item 1 is NOT a consumable on purpose (s120 count learning): a counted active consumable now stays out of movement control so its usage keeps learning, and this suite protects
+-- what a count of a controlled item does (the flag, the note, the usage movement and its undo). The consumable route is tested in s120_count_learning.sql.
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, reorder_below, is_consumable) values
-  ('d8500000-0000-4000-8000-0000000000c1', 'd8500000-0000-4000-8000-0000000000b0', 'Zz85 Hand soap', 'Toiletries', 'pc', 5, 2, true),
+  ('d8500000-0000-4000-8000-0000000000c1', 'd8500000-0000-4000-8000-0000000000b0', 'Zz85 Hand soap', 'Toiletries', 'pc', 5, 2, false),
   ('d8500000-0000-4000-8000-0000000000c2', 'd8500000-0000-4000-8000-0000000000b0', 'Zz85 Towel', 'Bedroom', 'pc', 8, null, false);
 
 -- 1. the cleaner counts item 1 (5 -> 7), twice with the same key, then with bad input, as finance and as an outsider

@@ -6,7 +6,7 @@
 -- Hand-computed: baseline 1.0, consumed 40 over 4 stays learns (1.0*10 + 40) / (10 + 4) = 3.5714; the worked example 10 before, 34 counted, 30 refilled: consumed 10 + 0 + 30 - 34 = 6, rate (10 + 6) / 14 = 1.1429.
 -- Everything rolls back.
 begin;
-select plan(61);
+select plan(93);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -25,8 +25,10 @@ grant all on _r to authenticated, service_role;
 insert into public.properties(id, name, is_active) values ('e1200010-0000-4000-8000-0000000000b0', 'Synthetic S120L', true);
 insert into auth.users(id) values ('e1200010-0000-4000-8000-000000000001'), ('e1200010-0000-4000-8000-000000000002'), ('e1200010-0000-4000-8000-000000000003');
 insert into public.staff_access_profiles(user_id, role) values ('e1200010-0000-4000-8000-000000000001', 'admin'), ('e1200010-0000-4000-8000-000000000002', 'cleaner');
+insert into public.properties(id, name, is_active) values ('e1200010-0000-4000-8000-0000000000b1', 'Synthetic S120L short stays', true);
 insert into public.staff_property_access(user_id, property_id) values
   ('e1200010-0000-4000-8000-000000000001', 'e1200010-0000-4000-8000-0000000000b0'),
+  ('e1200010-0000-4000-8000-000000000001', 'e1200010-0000-4000-8000-0000000000b1'),
   ('e1200010-0000-4000-8000-000000000002', 'e1200010-0000-4000-8000-0000000000b0');
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover) values
   ('e1200010-0000-4000-8000-0000000000a1', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L A', 'Other', 'pc', 50,  true,  true,  2.00, 1.0),
@@ -41,7 +43,18 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
   ('e1200010-0000-4000-8000-0000000000ab', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L K', 'Other', 'pc', 10,  true,  true,  2.00, 1.0),
   ('e1200010-0000-4000-8000-0000000000ac', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L L', 'Other', 'pc', 10,  true,  true,  2.00, 1.0),
   ('e1200010-0000-4000-8000-0000000000ad', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L M', 'Other', 'pc', 10,  true,  true,  2.00, 1.0),
-  ('e1200010-0000-4000-8000-0000000000ae', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L N inactive', 'Other', 'pc', 5, true, false, 2.00, 1.0);
+  ('e1200010-0000-4000-8000-0000000000ae', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L N inactive', 'Other', 'pc', 5, true, false, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c1', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L P', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c2', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L Q', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c3', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L R', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c4', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L S', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c5', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L T', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c6', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L U', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c7', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L W', 'Other', 'pc', 20, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c8', 'e1200010-0000-4000-8000-0000000000b1', 'Zz S120L X', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000c9', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L Y', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000ca', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L Z', 'Other', 'pc', 10, true, true, 2.00, 1.0),
+  ('e1200010-0000-4000-8000-0000000000cb', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L V', 'Other', 'pc', 10, true, true, 2.00, 1.0);
 -- C is already movement controlled
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, units_per_purchase, movement_controlled_at, baseline_reviewed_by, usage_baseline_per_turnover) values
   ('e1200010-0000-4000-8000-0000000000a3', 'e1200010-0000-4000-8000-0000000000b0', 'Zz S120L C controlled', 'Other', 'pc', 10, true, 1, timestamptz '2026-11-01 08:00+08', 'e1200010-0000-4000-8000-000000000001', 1.0);
@@ -49,6 +62,9 @@ insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, c
 select 'e1200010-0000-4000-8000-0000000000b0', 'zz-s120l-' || d, 'Fixture', now() - make_interval(days => d), t
   from (values (85, 'turnover'), (75, 'turnover'), (65, 'turnover'), (55, 'turnover'), (45, 'turnover'), (35, 'turnover'),
                (25, 'turnover'), (20, 'turnover'), (15, 'turnover'), (12, 'mid_stay'), (8, 'deep_clean')) v(d, t);
+-- the second property has three stays inside one week (for the too-short reason); X's first anchor is 6 days ago
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type)
+select 'e1200010-0000-4000-8000-0000000000b1', 'zz-s120l-b1-' || d, 'Fixture', now() - make_interval(days => d), 'turnover' from (values (5), (4), (3)) v(d);
 
 -- first anchors (physical counts before the ones made below)
 select pg_temp.anc(a, q, g) from (values
@@ -56,7 +72,14 @@ select pg_temp.anc(a, q, g) from (values
   ('e1200010-0000-4000-8000-0000000000a7', 100, interval '30 days'), ('e1200010-0000-4000-8000-0000000000a8', 10, interval '30 days'),
   ('e1200010-0000-4000-8000-0000000000a9', 10, interval '30 days'), ('e1200010-0000-4000-8000-0000000000aa', 100, interval '30 days'),
   ('e1200010-0000-4000-8000-0000000000ab', 10, interval '10 days'), ('e1200010-0000-4000-8000-0000000000ac', 10, interval '30 days'),
-  ('e1200010-0000-4000-8000-0000000000ad', 10, interval '30 days')) v(a, q, g);
+  ('e1200010-0000-4000-8000-0000000000ad', 10, interval '30 days'),
+  ('e1200010-0000-4000-8000-0000000000c3', 10, interval '30 days'), ('e1200010-0000-4000-8000-0000000000c4', 10, interval '30 days'),
+  ('e1200010-0000-4000-8000-0000000000c5', 10, interval '30 days'), ('e1200010-0000-4000-8000-0000000000c6', 10, interval '30 days'),
+  ('e1200010-0000-4000-8000-0000000000c8', 10, interval '6 days')) v(a, q, g);
+-- S and T: a purchase received 21 days ago, entered 20 days ago (between their two counts); the received date is not the UTC date of the entry, so it is kept
+insert into public.inventory_purchases(item_id, qty, purchased_at, created_at) values
+  ('e1200010-0000-4000-8000-0000000000c4', 5, (now() at time zone 'UTC')::date - 21, now() - interval '20 days'),
+  ('e1200010-0000-4000-8000-0000000000c5', 3, (now() at time zone 'UTC')::date - 21, now() - interval '20 days');
 -- M: a purchase entered 20 days ago but received on the day of its previous count (it may already be in that count)
 insert into public.inventory_purchases(item_id, qty, purchased_at, created_at)
 values ('e1200010-0000-4000-8000-0000000000ad', 5, ((now() - interval '30 days') at time zone 'Asia/Manila')::date, now() - interval '20 days');
@@ -118,6 +141,8 @@ set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
 select public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000a1', 40, 'zz count A', 'zzs120l-count-a-00000001');
 reset role;
 select is((select count(*)::int from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a1'), 0, 'A: a replay of an older count writes no anchor (only the call that wrote the movement does)');
+select is((select count(*)::int from public.inventory_audit_log where entity_id = 'e1200010-0000-4000-8000-0000000000a1' and action = 'app_count'), 1,
+  'A: the count wrote one app_count audit row and neither replay (same key, or an older movement) wrote another');
 
 -- B: the cleaner count
 select ok((select movement_controlled_at is null and qty_on_hand = 25 from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000a2')
@@ -249,6 +274,164 @@ select is((select (v ->> 'accepted') || '/' || (v ->> 'reason') || '/' || (v ->>
 select is((select array_to_string(array_agg(e ->> 'name' order by e ->> 'name'), ',') from jsonb_array_elements((select v -> 'waitingForRefill' -> 'items' from _r where k = 'kpi2')) e),
   'Zz S120L L', 'KPI: once the refills are recorded the prompt is gone (H, I, K, M); L still waits because nothing was recorded for it');
 
+-- S11 (fixes from the Opus review) ==========================================================================================================================
+-- Item 1: an app count is an audited stock change, so a Telegram count "as of" an earlier time rebuilds the past stock right (inventory_qty_at_v1 reads before/after qty_on_hand of audit rows).
+-- P: stock 10, app count 34, then a Telegram count of 12 as of yesterday = 12 + (34 - 10) = 36 (the same as when the first count came through Telegram).
+-- Q: the same, but the app count is undone first: stock 10 again, the as-of count is 12 + 0 = 12.
+-- X: first anchor 6 days ago, three stays since: a refill makes consumed 6 but the interval is shorter than 7 days (too short).
+create function public.zz_s120l_boom() returns trigger language plpgsql as $$ begin raise exception 'zz boom %', new.action; end $$;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+insert into _r select 'cP',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c1', 34, 'zz count P', 'zzs120l-count-p-00000001');
+insert into _r select 'cQ',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c2', 34, 'zz count Q', 'zzs120l-count-q-00000001');
+insert into _r select 'uQ',  public.inventory_undo_v1((select (v ->> 'movementId')::uuid from _r where k = 'cQ'), null);
+insert into _r select 'cV',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000cb', 34, 'zz count V', 'zzs120l-count-v-00000001');
+insert into _r select 'cZ',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000ca', 34, 'zz count Z', 'zzs120l-count-z-00000001');
+insert into _r select 'cW',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c7', 40, 'zz count W', 'zzs120l-count-w-00000001');
+insert into _r select 'cR',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c3', 34, 'zz count R', 'zzs120l-count-r-00000001');
+insert into _r select 'cS',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c4', 34, 'zz count S', 'zzs120l-count-s-00000001');
+insert into _r select 'cT',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c5', 34, 'zz count T', 'zzs120l-count-t-00000001');
+insert into _r select 'cU',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c6', 34, 'zz count U', 'zzs120l-count-u-00000001');
+insert into _r select 'cX',  public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c8', 34, 'zz count X', 'zzs120l-count-x-00000001');
+insert into _r select 'mvW', to_jsonb(public.record_inventory_movement('e1200010-0000-4000-8000-0000000000c7', 'receipt', 5, 'zz receipt W', 'zzs120l-receipt-w-00000001'));
+insert into _r select 'uW',  public.inventory_undo_v1((select (v #>> '{}')::uuid from _r where k = 'mvW'), null);
+reset role;
+-- Z: counted while active (so it is learning), then deactivated; a replay of that count (the key is answered before the active check) now meets an inactive consumable
+select ok((select movement_controlled_at is null from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000ca'), 'Z: counted while active it is not controlled');
+update public.inventory_items set is_active = false where id = 'e1200010-0000-4000-8000-0000000000ca';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+select public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000ca', 34, 'zz count Z', 'zzs120l-count-z-00000001');
+reset role;
+
+select ok((select count(*) = 1 and bool_and(jsonb_typeof(a.before -> 'qty_on_hand') = 'number' and jsonb_typeof(a.after -> 'qty_on_hand') = 'number')
+                  and bool_and((a.before ->> 'qty_on_hand')::numeric = 10 and (a.after ->> 'qty_on_hand')::numeric = 34 and a.after ->> 'movement_id' = (select v ->> 'movementId' from _r where k = 'cP'))
+             from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = 'e1200010-0000-4000-8000-0000000000c1' and a.action = 'app_count'),
+  'P: the app count wrote one app_count audit row, before 10 and after 34 as numbers, with the movement id');
+insert into _r select 'tP', public.s_apply_inventory_count_core_v1('zz:s120l', jsonb_build_array(jsonb_build_object('item_id', 'e1200010-0000-4000-8000-0000000000c1', 'counted', 12, 'expected_before', 34)), 'zz as of', now() - interval '1 day', null);
+select is((select (v ->> 'ok') || '/' || (v #>> '{rows,0,after}') from _r where k = 'tP'), 'true/36.00', 'P: stock 10, app count 34, Telegram count 12 as of yesterday gives 36 (12 + 24 since)');
+select is((select qty_on_hand from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c1'), 36.00::numeric, 'P: and the stock is 36');
+
+select ok((select count(*) = 1 and bool_and((a.before ->> 'qty_on_hand')::numeric = 34 and (a.after ->> 'qty_on_hand')::numeric = 10 and jsonb_typeof(a.before -> 'qty_on_hand') = 'number' and jsonb_typeof(a.after -> 'qty_on_hand') = 'number')
+             from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = 'e1200010-0000-4000-8000-0000000000c2' and a.action = 'app_count_undo'),
+  'Q: undoing the count wrote one app_count_undo row, before 34 (counted) and after 10 (restored)');
+insert into _r select 'tQ', public.s_apply_inventory_count_core_v1('zz:s120l', jsonb_build_array(jsonb_build_object('item_id', 'e1200010-0000-4000-8000-0000000000c2', 'counted', 12, 'expected_before', 10)), 'zz as of', now() - interval '1 day', null);
+select is((select (v ->> 'ok') || '/' || (v #>> '{rows,0,after}') from _r where k = 'tQ'), 'true/12.00', 'Q: after undoing the app count the as-of count of 12 gives 12 (nothing happened since)');
+
+select is((select count(*)::int from public.inventory_audit_log where action in ('app_count', 'app_count_undo')
+              and entity_id in ('e1200010-0000-4000-8000-0000000000a3', 'e1200010-0000-4000-8000-0000000000a4')), 0,
+  'a controlled item (C) and a non-consumable (D) write no app_count row');
+select ok((select movement_controlled_at is not null from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000ca')
+      and (select count(*) from public.inventory_audit_log where entity_id = 'e1200010-0000-4000-8000-0000000000ca' and action = 'app_count') = 1,
+  'Z: the replay on the now inactive consumable takes the old route (the flag is set; is_active in the count branch) and wrote no second audit row');
+select ok((select count(*) = 1 from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000c7' and source = 'count')
+      and (select qty_on_hand = 40 from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c7')
+      and (select count(*) from public.inventory_audit_log where entity_id = 'e1200010-0000-4000-8000-0000000000c7' and action = 'app_count') = 1
+      and not exists (select 1 from public.inventory_audit_log where entity_id = 'e1200010-0000-4000-8000-0000000000c7' and action = 'app_count_undo'),
+  'W: undoing a receipt movement (not a count) takes no interval out and writes no app_count_undo row (m.kind = reconcile)');
+select is((select v ->> 'ok' from _r where k = 'uW'), 'true', 'W: that undo succeeded');
+
+-- the audit row is part of the stock change: if it cannot be written the count / the undo fails as a whole
+create trigger zz_s120l_boom_count before insert on public.inventory_audit_log for each row when (new.action = 'app_count') execute function public.zz_s120l_boom();
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+select throws_ok($$select public.reconcile_inventory_baseline_v1('e1200010-0000-4000-8000-0000000000c9', 34, 'zz count Y', 'zzs120l-count-y-00000001')$$, 'P0001', 'zz boom app_count',
+  'Y: when the app_count audit row cannot be written the count fails');
+reset role;
+drop trigger zz_s120l_boom_count on public.inventory_audit_log;
+select ok((select qty_on_hand = 10 and movement_controlled_at is null and baseline_note is null from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c9')
+      and not exists (select 1 from public.inventory_stock_movements where item_id = 'e1200010-0000-4000-8000-0000000000c9')
+      and not exists (select 1 from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000c9'),
+  'Y: and nothing was kept: stock 10, no movement, no interval, no note');
+create trigger zz_s120l_boom_undo before insert on public.inventory_audit_log for each row when (new.action = 'app_count_undo') execute function public.zz_s120l_boom();
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+select throws_ok($$select public.inventory_undo_v1((select (v ->> 'movementId')::uuid from _r where k = 'cV'), null)$$, 'P0001', 'zz boom app_count_undo',
+  'V: when the app_count_undo audit row cannot be written the undo fails');
+reset role;
+drop trigger zz_s120l_boom_undo on public.inventory_audit_log;
+select ok((select qty_on_hand = 34 from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000cb')
+      and (select count(*) from public.inventory_stock_movements where item_id = 'e1200010-0000-4000-8000-0000000000cb') = 1
+      and (select count(*) from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000cb') = 1
+      and (select count(*) from public.inventory_audit_log where entity_id = 'e1200010-0000-4000-8000-0000000000cb' and action = 'app_count') = 1,
+  'V: and the failed undo kept everything: stock 34, one movement, the interval and the app_count row still there');
+
+-- Item 2: the refill mark. R: a receipt undone after a recorded refill; S: the count with its recorded refill undone; T: a newer purchase beats the recorded refill; U: a newer mark is not moved back.
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+insert into _r select 'rR',  public.record_missed_refill_v1('e1200010-0000-4000-8000-0000000000c3', 30);
+insert into _r select 'sS1', public.record_missed_refill_v1('e1200010-0000-4000-8000-0000000000c4', 10);
+reset role;
+select is((select (v ->> 'ok') || '/' || (v ->> 'reason') || '/' || (v ->> 'minimum') from _r where k = 'sS1'), 'false/too_small/19.00', 'S: 5 were received between the counts, so the smallest refill is 34 - 10 - 5 = 19 (received_between in the minimum)');
+select ok((select received_between = 5 and refill_recorded_qty is null and consumed = -19 and reject_reason = 'unrecorded restock'
+             from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000c4' order by anchor_at desc limit 1),
+  'S: the refused 10 wrote nothing');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+insert into _r select 'sS2', public.record_missed_refill_v1('e1200010-0000-4000-8000-0000000000c4', 30);
+insert into _r select 'sT',  public.record_missed_refill_v1('e1200010-0000-4000-8000-0000000000c5', 30);
+reset role;
+select is((select (v ->> 'accepted') || '/' || (v ->> 'consumed') || '/' || (v ->> 'received') from _r where k = 'sS2'), 'true/11.00/35.00', 'S: 10 + 5 received + 30 refilled - 34 counted = 11 used');
+
+-- R: the mark is the recorded refill; an ordinary purchase entered after it is undone (deleted) and the recorded refill stays the mark
+select ok((select last_refill_qty = 30 and last_refill_at = (select anchor_at from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000c3' order by anchor_at desc limit 1)
+             from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c3'), 'R: the recorded refill is the mark (the count time, 30)');
+insert into public.inventory_purchases(item_id, qty, purchased_at, created_at) values ('e1200010-0000-4000-8000-0000000000c3', 5, (now() at time zone 'UTC')::date + 3, now() + interval '1 minute');
+delete from public.inventory_purchases where item_id = 'e1200010-0000-4000-8000-0000000000c3';
+select ok((select last_refill_qty = 30 and last_refill_at = (select anchor_at from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000c3' order by anchor_at desc limit 1)
+             from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c3'),
+  'R: a receipt undone later does not wipe the recorded refill (the mark stays the count time and 30)');
+
+-- T: a purchase dated after the recorded refill is the newest; deleting an older purchase leaves it the mark
+select ok((select last_refill_qty = 30 from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c5'), 'T: the recorded refill is the mark before the purchases change');
+insert into public.inventory_purchases(item_id, qty, purchased_at, created_at) values ('e1200010-0000-4000-8000-0000000000c5', 8, (now() at time zone 'UTC')::date + 3, now() + interval '1 minute');
+delete from public.inventory_purchases where item_id = 'e1200010-0000-4000-8000-0000000000c5' and qty = 3;
+select ok((select last_refill_qty = 8 and last_refill_at = ((now() at time zone 'UTC')::date + 3)::timestamp at time zone 'Asia/Manila' from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c5'),
+  'T: the newest of the remaining purchase (8, dated 3 days ahead) and the recorded refill is the mark');
+
+-- Z: an item that never had a refill mark does not get one from a purchase delete (the helper's last_refill_at guard); Z has no mark and no recorded refill
+insert into public.inventory_purchases(item_id, qty, purchased_at, created_at) values
+  ('e1200010-0000-4000-8000-0000000000ca', 4, (now() at time zone 'UTC')::date - 9, now() - interval '9 days'),
+  ('e1200010-0000-4000-8000-0000000000ca', 6, (now() at time zone 'UTC')::date - 8, now() - interval '8 days');
+delete from public.inventory_purchases where item_id = 'e1200010-0000-4000-8000-0000000000ca' and qty = 6;
+select ok((select last_refill_at is null and last_refill_qty is null from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000ca'),
+  'Z: deleting a purchase of an item with no refill mark leaves it without one');
+
+-- S: the count is undone, its recorded refill leaves the mark and the remaining purchase (5, received 21 days ago) takes over
+select ok((select last_refill_qty = 30 from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c4'), 'S: before the undo the recorded refill is the mark');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+insert into _r select 'uS', public.inventory_undo_v1((select (v ->> 'movementId')::uuid from _r where k = 'cS'), null);
+reset role;
+select is((select v ->> 'ok' from _r where k = 'uS'), 'true', 'S: the undo of the count succeeds');
+select ok((select last_refill_qty = 5 and last_refill_at = ((now() at time zone 'UTC')::date - 21)::timestamp at time zone 'Asia/Manila' from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c4')
+      and (select count(*) from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000c4') = 1,
+  'S: an undone count removes its recorded refill from the mark: the purchase of 5 received 21 days ago is the mark again');
+
+-- U: a mark newer than the count (a purchase dated ahead) is not moved back by the recorded refill
+update public.inventory_items set last_refill_at = now() + interval '2 days', last_refill_qty = 99 where id = 'e1200010-0000-4000-8000-0000000000c6';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+insert into _r select 'sU', public.record_missed_refill_v1('e1200010-0000-4000-8000-0000000000c6', 30);
+reset role;
+select ok((select (v ->> 'accepted') = 'true' from _r where k = 'sU')
+      and (select last_refill_qty = 99 and last_refill_at > now() + interval '1 day' from public.inventory_items where id = 'e1200010-0000-4000-8000-0000000000c6'),
+  'U: a refill mark newer than the count is not moved back (the last_refill guard)');
+
+-- reasons and the prediction: H was accepted at 4 stays with the baseline rate 1.0 in force, so it predicted 1.0 * 4
+select is((select predicted from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a8' order by anchor_at desc limit 1), 4::numeric, 'H: an accepted interval stores what the rate in force (the baseline 1.0) predicted for its 4 stays');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200010-0000-4000-8000-000000000001"}';
+insert into _r select 'sX', public.record_missed_refill_v1('e1200010-0000-4000-8000-0000000000c8', 30);
+reset role;
+select is((select (v ->> 'accepted') || '/' || (v ->> 'reason') || '/' || (v ->> 'consumed') from _r where k = 'sX'), 'false/too short/6', 'X: 3 stays but 6 days is under 7: stays rejected, with the reason too short');
+select ok((select predicted is null and not accepted and turnovers = 3 and days = 6.00 from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000c8' order by anchor_at desc limit 1),
+  'X: a rejected interval has no prediction');
+
+-- the readers of inventory_audit_log read only their own actions: app_count / app_count_undo are in the qty_at sum and nowhere else
+select ok(not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosrc like '%app_count%' and p.proname not in ('reconcile_inventory_baseline_v1', 'inventory_undo_v1')),
+  'no other function mentions the new audit actions (the count history, the counted-at date and the usage backfill read telegram_count and movements only)');
+
 -- ROLLBACK: the script's own statements (without its begin and commit), then the bodies are what they were
 do $g$
 declare v_src text; v_new text;
@@ -261,15 +444,25 @@ begin
       replace($r$-- S120: a count of an active consumable that is not movement controlled keeps it in the usage learning: movement_controlled_at stays null and the count is an anchor
   if coalesce(i.is_consumable, false) and coalesce(i.is_active, false) and i.movement_controlled_at is null then
     update public.inventory_items set baseline_reviewed_by = auth.uid(), baseline_note = btrim(p_note) where id = p_item_id;
-    -- only the call that wrote the movement anchors it (a replay returns the older movement); a problem here must never block a count
+    -- only the call that wrote the movement audits and anchors it (a replay returns the older movement)
     declare v_at timestamptz;
     begin
       select m.created_at into v_at from public.inventory_stock_movements m where m.id = v_mid;
       if v_at = now() then
-        perform public.record_inventory_anchor_v1(p_item_id, p_counted_qty, v_at, 'count');
+        -- the count is a stock change that leaves no trace but its movement, and inventory_qty_at_v1 rebuilds past stock from audit rows: write the row it reads. NOT inside the guard below:
+        -- when the row cannot be written the count fails as a whole
+        if not exists (select 1 from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = p_item_id and a.action = 'app_count' and a.after ->> 'movement_id' = v_mid::text) then
+          insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+          values ('inventory_items', p_item_id, 'app_count', jsonb_build_object('qty_on_hand', v_before),
+                  jsonb_build_object('qty_on_hand', p_counted_qty, 'movement_id', v_mid), coalesce(auth.uid()::text, 'app'));
+        end if;
+        -- a problem in the learning must never block a count
+        begin
+          perform public.record_inventory_anchor_v1(p_item_id, p_counted_qty, v_at, 'count');
+        exception when others then
+          raise warning 's120 usage anchor (reconcile): % (%)', sqlerrm, sqlstate;
+        end;
       end if;
-    exception when others then
-      raise warning 's120 usage anchor (reconcile): % (%)', sqlerrm, sqlstate;
     end;
   else
     update public.inventory_items set movement_controlled_at = coalesce(movement_controlled_at, now()), baseline_reviewed_by = auth.uid(), baseline_note = btrim(p_note) where id = p_item_id;
@@ -293,7 +486,14 @@ begin
   if md5(v_src) = 'b3923b0bae57e812bb8375eea81f93e9' then raise notice 'inventory_undo_v1 already original';
   else
     v_new := replace(v_src,
-      replace($r$-- S120: undoing a count that anchored the usage learning takes its interval out again (only the newest one, else the history stays); a problem here must never fail an undo
+      replace($r$-- S120: undoing an app count (one that wrote an app_count audit row) writes the matching app_count_undo row, so inventory_qty_at_v1 sees the stock come back. NOT inside the guard below:
+  -- when the row cannot be written the undo fails as a whole
+  if v_have_m and exists (select 1 from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = i.id and a.action = 'app_count' and a.after ->> 'movement_id' = m.id::text) then
+    insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+    values ('inventory_items', i.id, 'app_count_undo', jsonb_build_object('qty_on_hand', m.quantity_after, 'movement_id', m.id),
+            jsonb_build_object('qty_on_hand', m.quantity_before), coalesce(auth.uid()::text, 'app'));
+  end if;
+  -- S120: undoing a count that anchored the usage learning takes its interval out again (only the newest one, else the history stays); a problem here must never fail an undo
   if v_have_m and m.kind = 'reconcile' and i.movement_controlled_at is null then
     begin
       delete from public.inventory_usage_intervals x
@@ -301,6 +501,7 @@ begin
          and not exists (select 1 from public.inventory_usage_intervals y where y.item_id = i.id and y.anchor_at > x.anchor_at);
       if found then
         perform public.s_inventory_usage_recompute_v1(i.id, now());
+        perform public.s_inventory_refill_mark_sync_v1(i.id);
       end if;
     exception when others then
       raise warning 's120 usage anchor (undo): % (%)', sqlerrm, sqlstate;
@@ -343,6 +544,19 @@ comment on function public.get_inventory_usage_kpi_v1(uuid) is
 revoke all on function public.get_inventory_usage_kpi_v1(uuid) from public, anon, service_role;
 grant execute on function public.get_inventory_usage_kpi_v1(uuid) to authenticated;
 
+create or replace function public.s_inventory_refill_mark_after_delete_v1()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  update public.inventory_items i
+     set last_refill_at = (select (public.s_inventory_received_date_v1(p.purchased_at, p.created_at)::timestamp at time zone 'Asia/Manila') from public.inventory_purchases p
+                            where p.item_id = old.item_id order by public.s_inventory_received_date_v1(p.purchased_at, p.created_at) desc, p.created_at desc limit 1),
+         last_refill_qty = (select p.qty from public.inventory_purchases p
+                             where p.item_id = old.item_id order by public.s_inventory_received_date_v1(p.purchased_at, p.created_at) desc, p.created_at desc limit 1)
+   where i.id = old.item_id and i.last_refill_at is not null;
+  return null;
+end $$;
+revoke all on function public.s_inventory_refill_mark_after_delete_v1() from public, anon, authenticated, service_role;
+drop function if exists public.s_inventory_refill_mark_sync_v1(uuid);
 drop function if exists public.record_missed_refill_v1(uuid, numeric);
 alter table public.inventory_usage_intervals drop column if exists refill_recorded_qty;
 
@@ -350,7 +564,9 @@ do $v$
 begin
   if (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure) is distinct from '7cbb2ea861268b3fbe848c974e32b2f2'
      or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure) is distinct from 'b3923b0bae57e812bb8375eea81f93e9'
-     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_inventory_usage_kpi_v1(uuid)'::regprocedure) is distinct from 'f0a2052c3ccc56673808d000ba21d189' then
+     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_inventory_usage_kpi_v1(uuid)'::regprocedure) is distinct from 'f0a2052c3ccc56673808d000ba21d189'
+     or position('s_inventory_refill_mark_sync_v1' in (select prosrc from pg_proc where oid = 'public.s_inventory_refill_mark_after_delete_v1()'::regprocedure)) > 0
+     or to_regprocedure('public.s_inventory_refill_mark_sync_v1(uuid)') is not null then
     raise exception 's120 rollback: a function is not back to its pre-release body' using errcode = '55000';
   end if;
 end $v$;
@@ -363,6 +579,11 @@ select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'pu
 select ok(to_regprocedure('public.record_missed_refill_v1(uuid,numeric)') is null
       and not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_usage_intervals' and column_name = 'refill_recorded_qty'),
   'rollback: record_missed_refill_v1 and the column are gone');
+select ok(position('s_inventory_refill_mark_sync_v1' in (select prosrc from pg_proc where oid = 'public.s_inventory_refill_mark_after_delete_v1()'::regprocedure)) = 0
+      and to_regprocedure('public.s_inventory_refill_mark_sync_v1(uuid)') is null
+      and position('app_count' in (select prosrc from pg_proc where oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure)) = 0
+      and position('app_count' in (select prosrc from pg_proc where oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure)) = 0,
+  'rollback: the purchase delete trigger function has its own body back, the helper is gone and the count route and undo no longer mention app_count');
 select ok(exists (select 1 from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a8' and accepted and consumed = 6)
       and (select count(*) from public.inventory_usage_intervals where item_id = 'e1200010-0000-4000-8000-0000000000a5') = 2,
   'rollback: the intervals are not otherwise touched');

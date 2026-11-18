@@ -24,6 +24,20 @@
 --      ok true replayed (the newest interval already holds this qty); ok true accepted, reason, consumed, received.
 --   5. get_inventory_usage_kpi_v1: an ordinary purchase no longer clears the "waiting for a recorded refill" prompt (the count already holds the stock it added). It ends when the refill is recorded here or a newer count arrives.
 --
+-- S11 FIXES FROM THE OPUS REVIEW (edited in place: this migration has never been applied)
+--   a. AN APP COUNT IS AUDITED. inventory_qty_at_v1 rebuilds past stock of an item that is not movement controlled from usage, purchases and inventory_audit_log rows with numeric before / after qty_on_hand;
+--      a count made in the app wrote only a movement, so a later Telegram count "as of yesterday" overwrote it. reconcile_inventory_baseline_v1 now inserts one audit row (action app_count, before / after
+--      qty_on_hand, after.movement_id) when this call wrote the movement of an active, not controlled consumable; inventory_undo_v1 inserts the matching app_count_undo row (before = counted, after = restored)
+--      when the undone movement has an app_count row. Both inserts are outside the warning guards: a row that cannot be written fails the count or the undo as a whole.
+--      Readers of inventory_audit_log (checked): inventory_qty_at_v1 (reads every action but ocr_restock with numeric before / after: the intended reader), the counted-at date and the count history in the
+--      inventory catalogue and item detail (read telegram_count and movements only), the usage backfill (telegram_count only), s120_linen_stains (writer). No other function mentions the new actions.
+--   b. THE REFILL MARK STAYS TRUE. s_inventory_refill_mark_sync_v1 sets last_refill_at / last_refill_qty from the newest of the remaining purchases (received-date rule) and the intervals with a recorded
+--      refill (anchor_at). s_inventory_refill_mark_after_delete_v1 (the purchase delete trigger of the usage-learning migration) now calls it, and so does the undo of a count that removes an interval.
+--   c. THIS FILE SUPERSEDES the sentence in 20261120000000_s120_usage_learning.sql that says these counts end the usage learning (the count route of an active consumable that is not controlled no longer
+--      sets movement_controlled_at). That migration is not edited.
+--   d. Accepted, not built: two reconciles of one item in one transaction (not reachable through the API); concurrent counts where the later commit is skipped as older.
+--   e. Usage undo on a counted consumable is absent by design (no consumable on production is movement controlled: 0 of 22).
+--
 -- DESIGN CHOICES THE REVIEW SHOULD KNOW
 --   * Every replaced body is the live body with the inserted block (patched in place inside a DO, so the migration starts from whatever the live body is): md5 of prosrc with CR stripped, 55000 on a body
 --     that is neither the release body nor the original, a re-run is a notice. Pattern and replacement texts are stripped of CR too, so a CRLF checkout patches the same bytes.
@@ -55,6 +69,34 @@ alter table public.inventory_usage_intervals add column if not exists refill_rec
 comment on column public.inventory_usage_intervals.refill_recorded_qty is
   'S120: the refill an admin recorded for this interval through record_missed_refill_v1 (stock and purchases are not written). Null when none.';
 
+-- 1b. the refill mark: one helper for every path that removes the thing the mark was taken from ---------------------------------------------------------------------
+-- The mark is the newest of the purchases that remain (the received-date rule of the receipt path) and the intervals with a recorded refill (their anchor_at). Only an item that has a mark gets one back
+-- (the rule the delete trigger always had). A receipt undone no longer wipes a recorded refill, and an undone count takes its recorded refill out of the mark.
+create or replace function public.s_inventory_refill_mark_sync_v1(p_item_id uuid)
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  update public.inventory_items i
+     set (last_refill_at, last_refill_qty) = (select c.at, c.q from (
+           select (public.s_inventory_received_date_v1(p.purchased_at, p.created_at)::timestamp at time zone 'Asia/Manila') as at, p.qty as q, p.created_at as tie
+             from public.inventory_purchases p where p.item_id = p_item_id
+           union all
+           select x.anchor_at, x.refill_recorded_qty, x.anchor_at
+             from public.inventory_usage_intervals x where x.item_id = p_item_id and x.refill_recorded_qty is not null) c
+           order by c.at desc, c.tie desc limit 1)
+   where i.id = p_item_id and i.last_refill_at is not null;
+end $$;
+comment on function public.s_inventory_refill_mark_sync_v1(uuid) is
+  'S120: sets last_refill_at / last_refill_qty from the newest of the remaining purchases (received date) and the intervals with a recorded refill (anchor_at). Internal, no grants. Called by the purchase delete trigger and by the undo of a count.';
+revoke all on function public.s_inventory_refill_mark_sync_v1(uuid) from public, anon, authenticated, service_role;
+
+create or replace function public.s_inventory_refill_mark_after_delete_v1()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  perform public.s_inventory_refill_mark_sync_v1(old.item_id);
+  return null;
+end $$;
+revoke all on function public.s_inventory_refill_mark_after_delete_v1() from public, anon, authenticated, service_role;
+
 -- 2. a count keeps a consumable in the learning ------------------------------------------------------------------------------------------------------------------
 do $g$
 declare v_src text; v_new text;
@@ -69,15 +111,25 @@ begin
     replace($r$-- S120: a count of an active consumable that is not movement controlled keeps it in the usage learning: movement_controlled_at stays null and the count is an anchor
   if coalesce(i.is_consumable, false) and coalesce(i.is_active, false) and i.movement_controlled_at is null then
     update public.inventory_items set baseline_reviewed_by = auth.uid(), baseline_note = btrim(p_note) where id = p_item_id;
-    -- only the call that wrote the movement anchors it (a replay returns the older movement); a problem here must never block a count
+    -- only the call that wrote the movement audits and anchors it (a replay returns the older movement)
     declare v_at timestamptz;
     begin
       select m.created_at into v_at from public.inventory_stock_movements m where m.id = v_mid;
       if v_at = now() then
-        perform public.record_inventory_anchor_v1(p_item_id, p_counted_qty, v_at, 'count');
+        -- the count is a stock change that leaves no trace but its movement, and inventory_qty_at_v1 rebuilds past stock from audit rows: write the row it reads. NOT inside the guard below:
+        -- when the row cannot be written the count fails as a whole
+        if not exists (select 1 from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = p_item_id and a.action = 'app_count' and a.after ->> 'movement_id' = v_mid::text) then
+          insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+          values ('inventory_items', p_item_id, 'app_count', jsonb_build_object('qty_on_hand', v_before),
+                  jsonb_build_object('qty_on_hand', p_counted_qty, 'movement_id', v_mid), coalesce(auth.uid()::text, 'app'));
+        end if;
+        -- a problem in the learning must never block a count
+        begin
+          perform public.record_inventory_anchor_v1(p_item_id, p_counted_qty, v_at, 'count');
+        exception when others then
+          raise warning 's120 usage anchor (reconcile): % (%)', sqlerrm, sqlstate;
+        end;
       end if;
-    exception when others then
-      raise warning 's120 usage anchor (reconcile): % (%)', sqlerrm, sqlstate;
     end;
   else
     update public.inventory_items set movement_controlled_at = coalesce(movement_controlled_at, now()), baseline_reviewed_by = auth.uid(), baseline_note = btrim(p_note) where id = p_item_id;
@@ -100,7 +152,14 @@ begin
     raise exception 's120: public.inventory_undo_v1 is not the body this release was cut from (md5 %): re-cut it from the live body', md5(v_src) using errcode = '55000';
   end if;
   v_new := replace(v_src, replace($f$select it.qty_on_hand into v_after from public.inventory_items it where it.id = i.id;$f$, chr(13), ''),
-    replace($r$-- S120: undoing a count that anchored the usage learning takes its interval out again (only the newest one, else the history stays); a problem here must never fail an undo
+    replace($r$-- S120: undoing an app count (one that wrote an app_count audit row) writes the matching app_count_undo row, so inventory_qty_at_v1 sees the stock come back. NOT inside the guard below:
+  -- when the row cannot be written the undo fails as a whole
+  if v_have_m and exists (select 1 from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = i.id and a.action = 'app_count' and a.after ->> 'movement_id' = m.id::text) then
+    insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
+    values ('inventory_items', i.id, 'app_count_undo', jsonb_build_object('qty_on_hand', m.quantity_after, 'movement_id', m.id),
+            jsonb_build_object('qty_on_hand', m.quantity_before), coalesce(auth.uid()::text, 'app'));
+  end if;
+  -- S120: undoing a count that anchored the usage learning takes its interval out again (only the newest one, else the history stays); a problem here must never fail an undo
   if v_have_m and m.kind = 'reconcile' and i.movement_controlled_at is null then
     begin
       delete from public.inventory_usage_intervals x
@@ -108,6 +167,7 @@ begin
          and not exists (select 1 from public.inventory_usage_intervals y where y.item_id = i.id and y.anchor_at > x.anchor_at);
       if found then
         perform public.s_inventory_usage_recompute_v1(i.id, now());
+        perform public.s_inventory_refill_mark_sync_v1(i.id);
       end if;
     exception when others then
       raise warning 's120 usage anchor (undo): % (%)', sqlerrm, sqlstate;
@@ -213,6 +273,11 @@ do $v$
 begin
   if position('record_inventory_anchor_v1' in (select p.prosrc from pg_proc p where p.oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure)) = 0 then
     raise exception 's120: the count route lacks the anchor hook';
+  end if;
+  if position('app_count' in (select p.prosrc from pg_proc p where p.oid = 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure)) = 0
+     or position('app_count_undo' in (select p.prosrc from pg_proc p where p.oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure)) = 0
+     or position('s_inventory_refill_mark_sync_v1' in (select p.prosrc from pg_proc p where p.oid = 'public.s_inventory_refill_mark_after_delete_v1()'::regprocedure)) = 0 then
+    raise exception 's120: the app count audit rows or the refill mark helper are missing';
   end if;
   if position('s_inventory_usage_recompute_v1' in (select p.prosrc from pg_proc p where p.oid = 'public.inventory_undo_v1(uuid,uuid)'::regprocedure)) = 0 then
     raise exception 's120: the undo lacks the interval clean-up';

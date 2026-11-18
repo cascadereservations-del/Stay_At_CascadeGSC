@@ -9,7 +9,8 @@ insert into public.properties(id,name,is_active) values('e1000000-0000-4000-8000
 insert into auth.users(id) values('e2000000-0000-4000-8000-0000000000c1');
 insert into public.staff_access_profiles(user_id,role) values('e2000000-0000-4000-8000-0000000000c1','admin');
 insert into public.staff_property_access(user_id,property_id) values('e2000000-0000-4000-8000-0000000000c1','e1000000-0000-4000-8000-0000000000c1');
-insert into public.inventory_items(id,property_id,name,category,unit,qty_on_hand,is_consumable,is_active,units_per_purchase) values('e4000000-0000-4000-8000-0000000000c1','e1000000-0000-4000-8000-0000000000c1','Toilet paper','bath','roll',7,true,true,1);
+-- not a consumable on purpose (s120 count learning): a counted active consumable now stays out of movement control; this suite protects the controlled-item ledger (flag, receipt, usage, replay)
+insert into public.inventory_items(id,property_id,name,category,unit,qty_on_hand,is_consumable,is_active,units_per_purchase) values('e4000000-0000-4000-8000-0000000000c1','e1000000-0000-4000-8000-0000000000c1','Toilet paper','bath','roll',7,false,true,1);
 select set_config('request.jwt.claims', json_build_object('sub','e2000000-0000-4000-8000-0000000000c1','role','authenticated','aal','aal2','iat',extract(epoch from now())::bigint)::text, true);
 select set_config('role','authenticated',true);
 
