@@ -117,7 +117,7 @@ begin
   end if;
 
   select * into v_row from public.stay_staying s where s.property_id = p_property and s.stay_uid = p_uid for update;
-  if coalesce(p_expected_version, -1) <> case when found then v_row.version else 0 end then
+  if coalesce(p_expected_version, -1) <> coalesce(v_row.version, 0) then
     raise exception 'stale version: the names changed since they were loaded' using errcode = '40001';
   end if;
 
