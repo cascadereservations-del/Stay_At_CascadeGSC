@@ -3,7 +3,7 @@
 -- Refusals are tested by calling as the refused role. Hand-computed values: stock A 10, B 5, Zero 0; Manila dates throughout; calendar_events.nights is generated and never sent.
 -- Everything rolls back.
 begin;
-select plan(54);
+select plan(56);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -54,8 +54,8 @@ insert into public.calendar_events(property_id, uid, source, status, guest_name,
 
 -- upkeep: the last "changed" answer of both kinds was 20 days ago; sessions: one turnover before it, two turnovers and a mid-stay after it
 insert into public.restock_upkeep_checks(property_id, kind, changed, session_date, check_key, created_at) values
-  ('e1200002-0000-4000-8000-0000000000b0', 'dish_soap',   true, current_date - 20, 'zz-s120r-base-soap',   now() - interval '20 days'),
-  ('e1200002-0000-4000-8000-0000000000b0', 'dish_sponge', true, current_date - 20, 'zz-s120r-base-sponge', now() - interval '20 days');
+  ('e1200002-0000-4000-8000-0000000000b0', 'dish_soap',   true, (now() at time zone 'Asia/Manila')::date - 20, 'zz-s120r-base-soap',   now() - interval '20 days'),
+  ('e1200002-0000-4000-8000-0000000000b0', 'dish_sponge', true, (now() at time zone 'Asia/Manila')::date - 20, 'zz-s120r-base-sponge', now() - interval '20 days');
 insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type) values
   ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-s30', 'Fixture', now() - interval '30 days', 'turnover'),
   ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-s10', 'Fixture', now() - interval '10 days', 'turnover'),
@@ -128,22 +128,36 @@ set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
 insert into _r select 'c4', public.restock_context_v1('e1200002-0000-4000-8000-0000000000b0');
 insert into _r select 'no1', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null, '[]', '{}', '[{"kind":"dish_soap","changed":false,"check_key":"zz-s120r-no-soap-1"}]');
 insert into _r select 'c5', public.restock_context_v1('e1200002-0000-4000-8000-0000000000b0');
-insert into _r select 'yes1', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', current_date, 'Zz Cleaner', null, null, null, '[{"kind":"dish_soap","changed":true,"check_key":"zz-s120r-yes-soap-1"}]');
+insert into _r select 'yes1', public.record_restock_v1('e1200002-0000-4000-8000-0000000000b0', public.manila_today(), 'Zz Cleaner', null, null, null, '[{"kind":"dish_soap","changed":true,"check_key":"zz-s120r-yes-soap-1"}]');
 insert into _r select 'c6', public.restock_context_v1('e1200002-0000-4000-8000-0000000000b0');
 reset role;
 select is((select v #>> '{upkeep_due,dish_soap}' from _r where k = 'c4'), 'true', 'dish soap is due after the third turnover (the 4th report)');
 select is((select v #>> '{upkeep_due,dish_sponge}' from _r where k = 'c4'), 'true', 'the dish sponge is due too');
 select is((select v #>> '{upkeep_due,dish_soap}' from _r where k = 'c5'), 'true', 'a No does not reset the question');
 select is((select v #>> '{upkeep_due,dish_soap}' from _r where k = 'c6') || ',' || (select v #>> '{upkeep_due,dish_sponge}' from _r where k = 'c6'), 'false,true', 'a Yes resets dish soap only; the sponge is still due');
+-- the report that answered Yes is saved after the restock call: it is on the Yes row's own Manila date, so it must not count toward the next three (the s120 fix round)
 insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type) values
-  ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-n1', 'Fixture', now() + interval '1 hour', 'turnover'),
-  ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-n2', 'Fixture', now() + interval '2 hours', 'deep_clean'),
-  ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-n3', 'Fixture', now() + interval '3 hours', 'turnover');
+  ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-same', 'Fixture', now(), 'turnover');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'c6b', public.restock_context_v1('e1200002-0000-4000-8000-0000000000b0');
+reset role;
+select is((select v #>> '{upkeep_due,dish_soap}' from _r where k = 'c6b'), 'false', 'a Yes followed by that same day''s report leaves the count at 0: the question is not due');
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type) values
+  ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-n1', 'Fixture', now() + interval '1 day', 'turnover'),
+  ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-n2', 'Fixture', now() + interval '2 days', 'deep_clean');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
+insert into _r select 'c7a', public.restock_context_v1('e1200002-0000-4000-8000-0000000000b0');
+reset role;
+select is((select v #>> '{upkeep_due,dish_soap}' from _r where k = 'c7a'), 'false', 'two later reports (a turnover and a deep clean) are not enough; the third, with no type (counts as a turnover), makes it due');
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type) values
+  ('e1200002-0000-4000-8000-0000000000b0', 'zz-s120r-n3', 'Fixture', now() + interval '3 days', null);
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e1200002-0000-4000-8000-000000000001"}';
 insert into _r select 'c7', public.restock_context_v1('e1200002-0000-4000-8000-0000000000b0');
 reset role;
-select is((select v #>> '{upkeep_due,dish_soap}' from _r where k = 'c7'), 'true', 'three turnovers after the Yes make dish soap due again');
+select is((select v #>> '{upkeep_due,dish_soap}' from _r where k = 'c7'), 'true', 'three later reports (turnover, deep clean, untyped) make dish soap due again');
 
 -- 24-30. short stock writes nothing: a main row plus a treat row are added up --------------------------------------------------------------------
 set local role authenticated;
@@ -158,7 +172,7 @@ select is((select v ->> 'error' from _r where k = 's1'), 'short_stock', 'a main 
 select is((select v -> 'short' from _r where k = 's1'), jsonb_build_array(jsonb_build_object('item_id', 'e1200002-0000-4000-8000-0000000000a1', 'name', 'Zz S120R A', 'on_hand', 10, 'asked', 11)), 'the refusal names the item, the shelf (10) and the sum asked (11)');
 select is((select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a1'), 10::numeric, 'the shelf is unchanged after the refusal');
 select is((select (select count(*) from public.inventory_usage where item_id = 'e1200002-0000-4000-8000-0000000000a1') + (select count(*) from public.restock_remembered_amounts where item_id = 'e1200002-0000-4000-8000-0000000000a1')
-          + (select count(*) from public.restock_upkeep_checks where check_key = 'zz-s120r-short-sponge'), 0::bigint, 'the refusal wrote no usage row, no remembered amount and no upkeep answer');
+          + (select count(*) from public.restock_upkeep_checks where check_key = 'zz-s120r-short-sponge')), 0::bigint, 'the refusal wrote no usage row, no remembered amount and no upkeep answer');
 select is((select jsonb_agg(x ->> 'name' order by x ->> 'name') from jsonb_array_elements((select v -> 'short' from _r where k = 's2')) x), '["Zz S120R B", "Zz S120R Zero"]'::jsonb, 'only the items that are short are listed: B (9 of 5) and the empty one (1 of 0)');
 select is((select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a1'), 10::numeric, 'an item that was not short is untouched when another is');
 
@@ -186,7 +200,7 @@ reset role;
 select is((select v::text from _r where k = 'g2'), '{"ok": true, "rows": 0, "replayed": 2}', 'a full replay is ok, writes no row and reports two replayed');
 select is((select qty_on_hand from public.inventory_items where id = 'e1200002-0000-4000-8000-0000000000a1')::text || ',' || (select count(*) from public.inventory_usage where item_id = 'e1200002-0000-4000-8000-0000000000a1')::text
           || ',' || (select count(*) from public.restock_upkeep_checks where check_key = 'zz-s120r-good-sponge')::text
-          || ',' || ((select max(updated_at) from public.restock_remembered_amounts where item_id = 'e1200002-0000-4000-8000-0000000000a1') = (select t from _snap))::text, '5,2,1,true', 'the replay left the shelf, the usage rows, the upkeep answer and the remembered stamp as they were');
+          || ',' || ((select max(updated_at) from public.restock_remembered_amounts where item_id = 'e1200002-0000-4000-8000-0000000000a1') = (select t from _snap))::text, '5.00,2,1,true', 'the replay left the shelf, the usage rows, the upkeep answer and the remembered stamp as they were');
 
 -- 38-45. remembered amounts: bounds and ownership ------------------------------------------------------------------------------------------
 set local role authenticated;

@@ -511,13 +511,19 @@ select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') f
 drop trigger zz_s120_boom2 on public.inventory_items;
 
 -- baseline 0 (Tea, Sugar and Bathroom tissue are optional "used this stay" items): no division by zero anywhere, no forecast claim, no false alert
+-- own property, so the stays are exactly these four (turnovers 25, 20 and 15 days ago and a deep clean 8 days ago; the mid-stay is not one): the shared fixtures of the other cases would add stays
+insert into public.properties(id, name, is_active) values ('e1200000-0000-4000-8000-0000000000b5', 'Synthetic S120 baseline zero', true);
+insert into public.staff_property_access(user_id, property_id) values ('e1200000-0000-4000-8000-000000000001', 'e1200000-0000-4000-8000-0000000000b5');
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type)
+select 'e1200000-0000-4000-8000-0000000000b5', 'zz-s120-z-' || d, 'Fixture', now() - make_interval(days => d), t
+  from (values (25, 'turnover'), (20, 'turnover'), (15, 'turnover'), (12, 'mid_stay'), (8, 'deep_clean')) v(d, t);
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover) values
-  ('e1200000-0000-4000-8000-0000000001d1', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 zero-used', 'Other', 'pc', 40, true, true, 0, 0),
-  ('e1200000-0000-4000-8000-0000000001d2', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 zero-unused', 'Other', 'pc', 40, true, true, 0, 0);
-insert into _r select 'z1', pg_temp.anc('e1200000-0000-4000-8000-0000000001d1', 100, interval '30 days');
-insert into _r select 'z2', pg_temp.anc('e1200000-0000-4000-8000-0000000001d1', 60, interval '5 days');
-insert into _r select 'z3', pg_temp.anc('e1200000-0000-4000-8000-0000000001d2', 50, interval '30 days');
-insert into _r select 'z4', pg_temp.anc('e1200000-0000-4000-8000-0000000001d2', 50, interval '5 days');
+  ('e1200000-0000-4000-8000-0000000001d1', 'e1200000-0000-4000-8000-0000000000b5', 'Zz S120 zero-used', 'Other', 'pc', 40, true, true, 0, 0),
+  ('e1200000-0000-4000-8000-0000000001d2', 'e1200000-0000-4000-8000-0000000000b5', 'Zz S120 zero-unused', 'Other', 'pc', 40, true, true, 0, 0);
+insert into _r select 'bz1', pg_temp.anc('e1200000-0000-4000-8000-0000000001d1', 100, interval '30 days');
+insert into _r select 'bz2', pg_temp.anc('e1200000-0000-4000-8000-0000000001d1', 60, interval '5 days');
+insert into _r select 'bz3', pg_temp.anc('e1200000-0000-4000-8000-0000000001d2', 50, interval '30 days');
+insert into _r select 'bz4', pg_temp.anc('e1200000-0000-4000-8000-0000000001d2', 50, interval '5 days');
 select is((select consumption_per_booking from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001d1'), 2.8571::numeric,
   'baseline 0: the prior adds nothing, (0 * 10 + 40) / (10 + 4) = 2.8571 once it is used');
 select is((select predicted from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000001d1' and accepted), null::numeric,
@@ -527,9 +533,9 @@ select is((select consumption_per_booking || '/' || usage_state from public.inve
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e1200000-0000-4000-8000-000000000001"}';
 select ok((select e -> 'estCoverageDays' = 'null'::jsonb and coalesce((e ->> 'estDailyUsage')::numeric, 0) = 0
-             from jsonb_array_elements(public.get_inventory_catalogue_v1('e1200000-0000-4000-8000-0000000000b0') -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000001d2'),
+             from jsonb_array_elements(public.get_inventory_catalogue_v1('e1200000-0000-4000-8000-0000000000b5') -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000001d2'),
   'baseline 0: the catalogue makes no coverage claim for a rate of 0');
-select ok(not exists (select 1 from jsonb_array_elements(public.get_inventory_usage_kpi_v1('e1200000-0000-4000-8000-0000000000b0') -> 'underFourteenDays' -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000001d2'),
+select ok(not exists (select 1 from jsonb_array_elements(public.get_inventory_usage_kpi_v1('e1200000-0000-4000-8000-0000000000b5') -> 'underFourteenDays' -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000001d2'),
   'baseline 0: the KPI does not list a rate-0 item as running out');
 reset role;
 

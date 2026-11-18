@@ -4,21 +4,21 @@
   "phase": "expand",
   "source": {
     "branch": "s120/usage-learning",
-    "commit": "ee3042d07b1734f1c16275bff6fee4a16b4adb06"
+    "commit": "0563d0643ed9cae5c7de7a063f80920da7f54189"
   },
   "migrations": [
     "20261120000004_s120_restock.sql"
   ],
   "migration_sha256": {
-    "20261120000004_s120_restock.sql": "eec42f6a67b3df0cfaa733aa4dd5b1e6207468acc6214dd3eb2db9f613c7098e"
+    "20261120000004_s120_restock.sql": "3ead0f6f737c002805e50f4fe12b934601d97b33a3ed735116efdb540271bb9f"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Restock screen server support (approved mockup docs/s120/mockup-restock-defaults.html, D-376). Two closed tables (RLS on, no grant to any API role): restock_remembered_amounts (property_id, item_id, amount 0..99, primary key property_id + item_id) and restock_upkeep_checks (kind dish_soap or dish_sponge, changed, check_key unique); the migration seeds one changed = true row per kind and active property so the count starts at the release. Three SECURITY DEFINER functions with an empty search_path, execute for authenticated and service_role only, each needing auth.uid() and submit_cleaning or report_supply on the property (42501 otherwise): restock_context_v1(uuid) returns ok, stock (active consumables), remembered, upkeep_due (3 turnover or deep_clean sessions cleaned after the latest changed = true row; a No never resets) and next_tier (returning, regular, vip or null for the earliest confirmed stay with checkin_date >= Manila today; tier only, never a name, id or date); record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb) in one transaction skips replayed usage_key rows, adds up the rows per item and returns ok false, error short_stock, short [...] and writes nothing when one item is over its shelf, else calls record_inventory_usage, upserts remembered amounts (whole numbers 0..99, active consumables of the property, else 22023) and inserts the upkeep answers (on conflict do nothing); a full replay returns ok and changes nothing; restock_remind_admin_v1(uuid,uuid) opens one Follow-ups task per item per Manila day through system_task_open_v1, kind restock_reminder, ref item_id:date, high priority at 0 left, no cleaner name, no Telegram. No existing function, grant or column changes.",
-    "notes": "Additive. Does not depend on the usage-learning or guest-count releases and applies in any order with them. Old Staff app builds ignore everything here. record_inventory_usage v3 (20261007112000) and system_task_open_v1 (20260923020000) are called, not changed. restock_reminder is in no closer or sweep list (s102 and s104 sweeps, s117 closers, system_task_close_missing_v1 per kind), so an admin closes it by hand in Follow-ups. Known limit: when the session row of the answering report is saved after the restock call, that one session counts toward the next three."
+    "production_rule": "Restock screen server support (approved mockup docs/s120/mockup-restock-defaults.html, D-376). Two closed tables (RLS on, no grant to any API role): restock_remembered_amounts (property_id, item_id, amount 0..99, primary key property_id + item_id) and restock_upkeep_checks (kind dish_soap or dish_sponge, changed, check_key unique); the migration seeds one changed = true row per kind and active property so the count starts at the release. Three SECURITY DEFINER functions with an empty search_path, execute for authenticated and service_role only, each needing auth.uid() and submit_cleaning or report_supply on the property (42501 otherwise): restock_context_v1(uuid) returns ok, stock (active consumables), remembered, upkeep_due (3 reports of a turnover kind (turnover, no type, deep_clean as in s110) on a Manila date later than the session_date of the latest changed = true row; a No never resets) and next_tier (returning, regular, vip or null for the earliest confirmed stay with checkin_date >= Manila today; tier only, never a name, id or date); record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb) in one transaction skips replayed usage_key rows, adds up the rows per item and returns ok false, error short_stock, short [...] and writes nothing when one item is over its shelf, else calls record_inventory_usage, upserts remembered amounts (whole numbers 0..99, active consumables of the property, else 22023) and inserts the upkeep answers (on conflict do nothing); a full replay returns ok and changes nothing; restock_remind_admin_v1(uuid,uuid) opens one Follow-ups task per item per Manila day through system_task_open_v1, kind restock_reminder, ref item_id:date, high priority at 0 left, no cleaner name, no Telegram. No existing function, grant or column changes.",
+    "notes": "Additive. Does not depend on the usage-learning or guest-count releases and applies in any order with them. Old Staff app builds ignore everything here. record_inventory_usage v3 (20261007112000) and system_task_open_v1 (20260923020000) are called, not changed. restock_reminder is in no closer or sweep list (s102 and s104 sweeps, s117 closers, system_task_close_missing_v1 per kind), so an admin closes it by hand in Follow-ups. The count uses Manila dates, not timestamps, so the report that carries a Yes (saved after the restock call) never counts toward the next three."
   },
   "forward_verification": [
     {
@@ -53,12 +53,12 @@
     },
     {
       "name": "md5_restock_context_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'c14a4f7deb3ec3b92816e7b0f30e298c' from pg_proc where oid = 'public.restock_context_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'fa436aa6c5e4802aab7f775f872758df' from pg_proc where oid = 'public.restock_context_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
       "name": "md5_record_restock_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'c92147ff7b8c67f208fa7dde95844d6c' from pg_proc where oid = 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '344ebff9aed6cbcea4d6ec7b6e11f7ae' from pg_proc where oid = 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)'::regprocedure",
       "expect": true
     },
     {
@@ -68,7 +68,7 @@
     },
     {
       "name": "dependencies_in_place",
-      "query": "select to_regprocedure('public.record_inventory_usage(uuid,date,text,text,jsonb)') is not null and to_regprocedure('public.system_task_open_v1(uuid,text,text,text,text,text)') is not null and to_regprocedure('public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)') is not null and to_regprocedure('public.manila_today()') is not null and not has_function_privilege('authenticated', 'public.system_task_open_v1(uuid,text,text,text,text,text)', 'execute')",
+      "query": "select to_regprocedure('public.record_inventory_usage(uuid,date,text,text,jsonb)') is not null and to_regprocedure('public.system_task_open_v1(uuid,text,text,text,text,text)') is not null and to_regprocedure('public.staff_stay_guest_id_v1(uuid,text,uuid,date,date)') is not null and to_regprocedure('public.manila_today()') is not null and (select p.proacl is null or not has_function_privilege('authenticated', p.oid, 'execute') from pg_proc p where p.oid = 'public.system_task_open_v1(uuid,text,text,text,text,text)'::regprocedure)",
       "expect": true
     },
     {

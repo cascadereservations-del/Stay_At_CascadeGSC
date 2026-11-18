@@ -20,9 +20,11 @@
 -- and low_stock; system_task_close_missing_v1 is called per kind by its jobs. restock_reminder is in none of those lists, so it is shown and never closed or dropped
 -- by them. An admin closes it by hand in Follow-ups.
 --
--- Upkeep is due when at least 3 turnover sessions were cleaned after the latest changed = true row of that kind (so it shows on the 4th report). A "No" never resets it.
--- Turnover means the s110 definition: cleaning_type turnover (null counts as turnover) or deep_clean. Within one report the answer row is written after the session row
--- is saved, so that session is not counted after a "Yes"; if a client saves the session after the restock call, that one session counts toward the next three.
+-- Upkeep is due when at least 3 reports of a turnover kind were cleaned on a Manila date LATER than the session_date of the latest changed = true row of that kind (so it
+-- shows on the 4th report). A "No" never resets it. Turnover kind means the s110 definition, kept as is: cleaning_type turnover, null (counts as turnover) or deep_clean.
+-- Why dates and not timestamps: Restock is sent before the cleaning report row is written, so comparing cleaned_at with the Yes row's created_at counted that same report
+-- toward the next three. A Yes carries the report's date (p_session_date) and only later Manila days count, so a Yes followed by that same day's report leaves the count at 0.
+-- The seed rows use the release's Manila date, so reports of the release day do not count either.
 --
 -- Additive only: two new tables, three new functions, rows seeded into the new upkeep table. No existing function, grant or column changes.
 -- Rollback: supabase/rollbacks/20261120_s120_restock.sql (drops the three functions and the two tables; remembered amounts and upkeep answers are lost by design).
@@ -92,8 +94,8 @@ begin
 
   select jsonb_object_agg(k.kind, (select count(*) from public.cleaning_sessions cs
                                     where cs.property_id = p_property_id and coalesce(cs.cleaning_type, 'turnover') in ('turnover', 'deep_clean')
-                                      and cs.cleaned_at > coalesce((select max(c.created_at) from public.restock_upkeep_checks c
-                                                                     where c.property_id = p_property_id and c.kind = k.kind and c.changed), '-infinity'::timestamptz)) >= 3)
+                                      and (cs.cleaned_at at time zone 'Asia/Manila')::date > coalesce((select max(c.session_date) from public.restock_upkeep_checks c
+                                                                     where c.property_id = p_property_id and c.kind = k.kind and c.changed), '-infinity'::date)) >= 3)
     into v_due from (values ('dish_soap'), ('dish_sponge')) k(kind);
 
   -- the next arriving guest: earliest confirmed stay checking in today or later (a same-day arrival counts); only the tier leaves this function
@@ -148,7 +150,7 @@ begin
   -- validate everything before the first lock or write (a bad input raises and nothing is kept)
   for v_row in select value from jsonb_array_elements(p_rows) loop
     if jsonb_typeof(v_row) <> 'object' or coalesce(v_row ->> 'item_id', '') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-       or case when jsonb_typeof(v_row -> 'used_qty') = 'number' then (v_row ->> 'used_qty')::numeric <= 0 else true end then
+       or (case when jsonb_typeof(v_row -> 'used_qty') = 'number' then (v_row ->> 'used_qty')::numeric <= 0 else true end) then   -- parentheses: plpgsql ends an IF condition at the first THEN outside brackets
       raise exception using errcode = '22023', message = 'each row needs item_id and a positive used_qty';
     end if;
   end loop;
