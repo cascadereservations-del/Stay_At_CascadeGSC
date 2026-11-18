@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PLACEHOLDER: run scripts/migrations/fill-restore-point.mjs right before the apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261118T130535Z",
+    "verified_at": "2026-11-18T13:09:35.589Z",
     "production_rule": "Who is staying (spec docs/s118/SPEC-staying-facts.md). New tables public.stay_staying (property_id, stay_uid = calendar_events.uid; names <= 300 chars; source admin/staff; Cassy suggestion + status pending/dismissed; version) and stay_staying_history (before/after, actor, reason, idempotency key); RLS on, no grant to any API role. set_stay_staying_v1 and confirm_stay_staying_suggestion_v1: authenticated only, gate submit_cleaning (owner, admin, inspector, cleaner), source admin needs manage_operations, optimistic lock on version (40001), idempotency key required. set_stay_staying_suggestion_v1: service_role only, writes the suggestion fields only. staff_home_v1 (s91 body, md5 fdacbd271486a3b71e11818dc691cda4) gains `staying` on current_guest and next_guest via helper stay_staying_json_v1 (suggestion key only for submit_cleaning roles); names and suggestion pass through staff_redact_v1 on read and contact text is refused on write (D-289).",
     "notes": "Additive. No existing table, column or function signature changes. One function body is replaced (staff_home_v1), cut by patching the live body after an md5 guard; the diff is two inserted lines. staff_current_next_stays_v1 and staff_guest_card_v1 are guarded as unchanged. Old Staff app builds ignore the new key. Deploy order: SQL first, then the Staff app (reads staying, calls the two person RPCs), then Cassy (airbnb-email-sync calls set_stay_staying_suggestion_v1)."
   },
