@@ -1,30 +1,43 @@
 -- 20261120000000_s120_usage_learning.sql
 -- Session 120 (lane S): release s120_usage_learning_20261120. Spec docs/s118/SPEC-usage-learning.md (APPROVED), baselines docs/s118/BASELINE-usage-per-turnover.md.
 -- Consumable usage per turnover now learns from counts and refills. Every consumable carried consumption_per_booking = 2.00 (an unset default), so coverage read "1 to 2 days".
+-- Revised after the Opus review of 44e6647 (docs/s120/review-lane-S-1.md, NO_GO): findings 1-6 and 8-14 are fixed here. Finding 7 (the daily-digest stock alert threshold) is Lloyd's decision and is NOT touched.
+-- NOT built: units_per_pack (brief item 9). The item-level units_per_purchase already converts packs to base units on every receive path, and the interval maths reads base units only.
 --
 -- WHAT THIS ADDS (all additive; no existing signature, grant or result key changes)
+--   inventory_items.consumption_per_booking   numeric(10,2) -> numeric(10,4) FIRST (learned rates run from 0.01 to 4; two decimals cut 0.0048 to 0.00 and 0.116 to 0.12)
 --   inventory_items       + usage_baseline_per_turnover, usage_baseline_note, usage_state (baseline | learning | measured), last_refill_at, last_refill_qty, usage_updated_at
 --   inventory_usage_intervals   one row per anchor (RLS on, no grant to any API role; read only through get_inventory_usage_kpi_v1)
 --   record_inventory_anchor_v1(item, qty_now, anchor_at, source)   internal, no grants. source 'count': closes an interval against the previous anchor, accepts it when
 --                         days >= 7 and turnovers >= 3 and consumed >= 0, then recomputes the learned rate. source 'receipt': marks the refill only (see below).
 --   s_inventory_usage_recompute_v1(item, at)   internal, no grants. rate = (baseline*10 + sum consumed) / (10 + sum turnovers) over accepted intervals in the 90 days to `at`;
---                         once the accepted intervals cover >= 60 days the state is 'measured' and the prior drops out (pure 90-day average). Writes consumption_per_booking.
---   inventory_usage_quarterly_reset_v1()   internal, no grants; pg_cron job inventory-usage-quarterly-reset (1 Jan/Apr/Jul/Oct 20:00 UTC) when pg_cron exists.
+--                         once the accepted intervals cover >= 60 days (each interval clamped to the 90-day window) the state is 'measured' and the prior drops out (pure 90-day
+--                         average) when the sum consumed is above 0; a measured item with zero usage keeps the prior formula (a rate of 0 would read "not enough history"). Writes consumption_per_booking.
+--                         record_inventory_anchor_v1 skips movement-controlled, non-consumable and inactive items; a count at the same instant as a stored anchor is a duplicate;
+--                         a count older than the newest anchor returns {ok:true, skipped:'older_than_latest'} (it would rewrite history).
+--   inventory_usage_quarterly_reset_v1()   internal, no grants; pg_cron job inventory-usage-quarterly-reset (1 Jan/Apr/Jul/Oct 20:00 UTC) when pg_cron exists. Recomputes every
+--                         learning or measured item at now(), so an item nobody counted for 90 days falls back to its baseline.
+--   inventory_purchases AFTER DELETE trigger: an undone receipt recomputes last_refill_at / last_refill_qty from the purchases that remain.
 --   get_inventory_usage_kpi_v1(property)   admin read (read_operations): measured / total, median forecast error, items under 14 days, items waiting for a recorded refill.
 --   Hooks (one block each, after the work of the function is done, any error becomes a WARNING and never blocks a count or a receipt):
 --       s_apply_inventory_count_core_v1       per counted row               -> record_inventory_anchor_v1(.., counted, as_of or now(), 'count')
 --       record_inventory_receipt_v1           admin receipt                 -> record_inventory_anchor_v1(.., units received, now(), 'receipt')
 --       apply_inventory_purchase              Telegram OCR restock          -> same
 --       s_inventory_receipt_apply_v1          staff receipt draft confirm   -> same
---   get_inventory_catalogue_v1  + usageState, usagePerTurnover, usageBaseline, lastRefillAt, lastRefillQty, lastCountAt (existing keys untouched)
+--   get_inventory_catalogue_v1  + usageState, usagePerTurnover, usageBaseline, lastRefillAt, lastRefillQty, lastCountAt, usageCounts (existing keys untouched;
+--                         usageCounts = accepted intervals of the last 90 days, the "3 counts" of the approved mockup)
 --   Seed: baselines for the 22 consumables (BASELINE-usage-per-turnover.md); consumption_per_booking = baseline where it was the 2.00 default or null.
 --   Backfill: the telegram_count audit rows from 2026-10-27 are replayed through record_inventory_anchor_v1 (27 Oct and 18 Nov counts).
 --
 -- DESIGN CHOICES THE REVIEW SHOULD KNOW
 --   * Anchors are PHYSICAL counts only. qty_on_hand between counts is not physical truth (usage logging stopped, receipts and edits move it), so a receipt does not start or
---     close an interval: it sets last_refill_at / last_refill_qty, and the next count sums every purchase recorded since the previous count (received_between).
---     received_between = inventory_purchases.qty (base units, already pack-converted by every receive path; units_per_purchase already exists) with created_at in the window,
---     except Telegram OCR rows, which are read from the ocr_restock audit row exactly as inventory_qty_at_v1 does (rows before 20261020 held packs).
+--     close an interval: it sets last_refill_at (the PURCHASE date, not the entry time) / last_refill_qty, and the next count sums every purchase recorded since the previous count
+--     (received_between). received_between = inventory_purchases.qty (base units, already pack-converted by every receive path) with created_at in the window and purchased_at
+--     not before the previous anchor's Manila date (a back-dated purchase was already on the shelf at that count), except Telegram OCR rows, which are read from the
+--     ocr_restock audit row exactly as inventory_qty_at_v1 does (rows before 20261020 held packs) under the same date rule.
+--   * Turnovers of an interval are the cleaning sessions whose EFFECTIVE time falls in (previous anchor, this anchor]. A report entered late is dated by its stay, not by when it was
+--     typed: effective time = the earlier of cleaned_at and the end of the checkout_date (Manila); with no checkout_date it is cleaned_at. (A plain checkout_date comparison would count 12 for
+--     27 Oct to 18 Nov, because one stay checked out on 18 Nov and was cleaned at 22:03 after the count; the effective time gives the 11 the baseline research expects.)
 --   * qty_now of a count is the counted figure at as_of (or now); qty_prev is the previous anchor's qty_now. The 27 Oct 'count of 16 Oct printout recorded as current stock' therefore anchors at 27 Oct.
 --   * A count that is not older than the previous anchor never reuses the same instant: (item_id, anchor_at) is unique, a replay is a no-op (idempotent).
 --   * Rejected intervals still move the anchor (spec): 'too short', 'too few turnovers' and 'unrecorded restock' (consumed < 0, purchase nobody recorded) are kept as rows and never learned.
@@ -33,6 +46,11 @@
 --   * Movement-controlled items are skipped (their ledger is the measurement). Inactive items are skipped by the backfill, so the 18 Nov split (old "Tissues / Paper Towels"
 --     inactive at 0, new "Bathroom tissue" and "Kitchen towel" first counted) invents no usage: new items start with a first anchor only.
 --   * consumption_per_booking is read by daily-digest (runway = qty / cpb * days) and telegram-expense (short = qty < cpb). Real rates (0.01 to 4) make both quieter than the 2.00 default did.
+--     OPEN DECISION (Lloyd, review finding 7, not changed here): the daily-digest stock alert fires at 2.5 turnovers left or fewer (daily-digest/index.ts:327,330, AVG_STAY_DAYS = 2).
+--     On today's stock 16 items qualify at the 2.00 default and 1 after the seed (Toiletries), so the digest alert goes almost silent. s_inventory_low_task_v1 and the Telegram low list
+--     use reorder_below and are unaffected.
+--   * A count made through reconcile_inventory_baseline_v1 (admin counts page, staff stock screen) sets movement_controlled_at and takes the item out of learning; only the Telegram
+--     count path feeds it. The self-check therefore looks only at intervals created after an item became controlled.
 --
 -- GUARDS (55000, nothing changes): every replaced body must be the live body (md5 of prosrc, CR stripped), read on production 2026-11-18, or already carry this release's hook (re-run).
 --   s_apply_inventory_count_core_v1        3937a6da154fe1ed60471689833f96e2   (20261103000000_s99f_count_as_of.sql)
@@ -50,11 +68,15 @@
 --   select relrowsecurity from pg_class where oid = 'public.inventory_usage_intervals'::regclass;
 --   select count(*) = 4 from pg_proc where prosrc like '%record_inventory_anchor_v1%' and proname in
 --     ('s_apply_inventory_count_core_v1','record_inventory_receipt_v1','apply_inventory_purchase','s_inventory_receipt_apply_v1');
---   select count(*) from public.inventory_usage_intervals where accepted;   -- expect 3 on production (Laundry, Hand Soap, Insect Spray)
+--   select numeric_scale = 4 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking';
+--   the replayed rates of Laundry Detergent, Hand Soap and Insect Spray: 2.0476, 0.1381, 0.0714 (11 turnovers; consumed 23, 2, 1 against baselines 2.0, 0.09, 0.05)
 
 begin;
 
 -- 1. columns ---------------------------------------------------------------------------------------------------------------------------------------------------
+-- numeric(10,2) cut every learned rate to two decimals: widen it before anything is seeded. No view depends on the column (checked on production 2026-11-18).
+alter table public.inventory_items alter column consumption_per_booking type numeric(10,4);
+
 alter table public.inventory_items
   add column if not exists usage_baseline_per_turnover numeric check (usage_baseline_per_turnover is null or usage_baseline_per_turnover >= 0),
   add column if not exists usage_baseline_note text,
@@ -101,7 +123,9 @@ declare
 begin
   select * into i from public.inventory_items where id = p_item_id;
   if not found then return; end if;
-  select count(*), coalesce(sum(x.consumed), 0), coalesce(sum(x.turnovers), 0), coalesce(sum(x.days), 0)
+  -- days of each interval are clamped to the 90-day window (an interval that started before it only counts for the part inside)
+  select count(*), coalesce(sum(x.consumed), 0), coalesce(sum(x.turnovers), 0),
+         coalesce(sum(least(x.days, extract(epoch from (x.anchor_at - (p_at - interval '90 days'))) / 86400.0)), 0)
     into v_n, v_sum, v_turn, v_days
     from public.inventory_usage_intervals x
    where x.item_id = p_item_id and x.accepted and x.anchor_at <= p_at and x.anchor_at > p_at - interval '90 days';
@@ -110,8 +134,10 @@ begin
     v_rate := i.usage_baseline_per_turnover;
   else
     v_state := case when v_days >= 60 then 'measured' else 'learning' end;
-    -- an accepted interval has turnovers >= 3 (table check), so v_turn > 0
-    v_rate := case when v_state = 'measured' or i.usage_baseline_per_turnover is null then v_sum / v_turn
+    -- an accepted interval has turnovers >= 3 (table check), so v_turn > 0.
+    -- The pure average only when something was used: a rate of 0 reads "not enough history" downstream and orders stock daily, so a zero-usage item keeps the prior formula.
+    v_rate := case when v_state = 'measured' and v_sum > 0 then v_sum / v_turn
+                   when i.usage_baseline_per_turnover is null then nullif(v_sum, 0) / v_turn
                    else (i.usage_baseline_per_turnover * 10 + v_sum) / (10 + v_turn) end;
   end if;
   update public.inventory_items
@@ -120,7 +146,7 @@ begin
 end $$;
 
 comment on function public.s_inventory_usage_recompute_v1(uuid, timestamptz) is
-  'S120: learned rate from accepted intervals in the 90 days to p_at. learning = (baseline*10 + sum consumed) / (10 + sum turnovers); measured (accepted intervals cover >= 60 days) = pure sum consumed / sum turnovers; none = the baseline.';
+  'S120: learned rate from accepted intervals in the 90 days to p_at. learning = (baseline*10 + sum consumed) / (10 + sum turnovers); measured (accepted intervals cover >= 60 days inside the window) = pure sum consumed / sum turnovers when the sum is above 0; none = the baseline.';
 revoke all on function public.s_inventory_usage_recompute_v1(uuid, timestamptz) from public, anon, authenticated, service_role;
 
 -- 4. internal: the anchor --------------------------------------------------------------------------------------------------------------------------------------
@@ -138,12 +164,22 @@ begin
   select * into i from public.inventory_items where id = p_item_id for update;
   if not found then return jsonb_build_object('ok', false, 'reason', 'item_not_found'); end if;
   if i.movement_controlled_at is not null then return jsonb_build_object('ok', true, 'skipped', 'movement_controlled'); end if;
+  if not i.is_consumable or not i.is_active then return jsonb_build_object('ok', true, 'skipped', 'not_active_consumable'); end if;
   if p_qty_now is null or p_qty_now < 0 then return jsonb_build_object('ok', false, 'reason', 'bad_qty'); end if;
 
   if p_source = 'receipt' then
+    -- p_anchor_at is the PURCHASE date (Manila midnight), not the entry time
     update public.inventory_items set last_refill_at = p_anchor_at, last_refill_qty = p_qty_now
      where id = i.id and (last_refill_at is null or last_refill_at <= p_anchor_at);
     return jsonb_build_object('ok', true, 'refill', true);
+  end if;
+
+  -- an exact replay is a duplicate; a count older than the newest anchor would rewrite history (usage and turnovers counted twice) and is skipped
+  if exists (select 1 from public.inventory_usage_intervals x where x.item_id = i.id and x.anchor_at = p_anchor_at) then
+    return jsonb_build_object('ok', true, 'duplicate', true);
+  end if;
+  if exists (select 1 from public.inventory_usage_intervals x where x.item_id = i.id and x.anchor_at > p_anchor_at) then
+    return jsonb_build_object('ok', true, 'skipped', 'older_than_latest');
   end if;
 
   select * into v_prev from public.inventory_usage_intervals x where x.item_id = i.id and x.anchor_at < p_anchor_at order by x.anchor_at desc limit 1;
@@ -155,18 +191,24 @@ begin
   end if;
 
   -- received between the two anchors, in base units; Telegram OCR rows come from the audit row (their purchase row held packs before 20261020), a purchase undone since is ignored
+  -- A purchase dated before the previous count was already on the shelf at that count (a refill recorded late), so it is not "received between".
   v_recv := coalesce((select sum(p.qty) from public.inventory_purchases p
                        where p.item_id = i.id and p.created_at > v_prev.anchor_at and p.created_at <= p_anchor_at
+                         and coalesce(p.purchased_at, (p.created_at at time zone 'Asia/Manila')::date) >= (v_prev.anchor_at at time zone 'Asia/Manila')::date
                          and coalesce(p.notes, '') not like 'Auto-restock from receipt OCR%'), 0)
           + coalesce((select sum((a.after ->> 'qty_added')::numeric) from public.inventory_audit_log a
                        where a.entity_type = 'inventory_items' and a.entity_id = i.id and a.action = 'ocr_restock'
                          and a.created_at > v_prev.anchor_at and a.created_at <= p_anchor_at
-                         and exists (select 1 from public.inventory_purchases p where p.id::text = a.after ->> 'purchase_id')), 0);
+                         and exists (select 1 from public.inventory_purchases p where p.id::text = a.after ->> 'purchase_id'
+                                        and coalesce(p.purchased_at, (p.created_at at time zone 'Asia/Manila')::date) >= (v_prev.anchor_at at time zone 'Asia/Manila')::date)), 0);
   v_consumed := v_prev.qty_now + v_recv - p_qty_now;
   v_days := round(extract(epoch from (p_anchor_at - v_prev.anchor_at)) / 86400.0, 2);
-  select count(*) into v_turn from public.cleaning_sessions cs
-   where cs.property_id = i.property_id and coalesce(cs.cleaning_type, 'turnover') in ('turnover', 'deep_clean')
-     and cs.cleaned_at > v_prev.anchor_at and cs.cleaned_at <= p_anchor_at;
+  -- turnovers dated by the stay: a report typed late counts in the interval its stay ended in (effective time = the earlier of cleaned_at and the end of the checkout_date, Manila)
+  select count(*) into v_turn from (
+    select least(cs.cleaned_at, coalesce(((cs.checkout_date + 1)::timestamp at time zone 'Asia/Manila') - interval '1 second', cs.cleaned_at)) as eff
+      from public.cleaning_sessions cs
+     where cs.property_id = i.property_id and coalesce(cs.cleaning_type, 'turnover') in ('turnover', 'deep_clean')) s
+   where s.eff > v_prev.anchor_at and s.eff <= p_anchor_at;
   if v_consumed < 0 then v_reason := 'unrecorded restock';
   elsif v_days < 7 then v_reason := 'too short';
   elsif v_turn < 3 then v_reason := 'too few turnovers';
@@ -224,7 +266,7 @@ begin
   end if;
   v_new := replace(v_src, $f$  return jsonb_build_object('ok', true, 'purchaseId', v_pid, 'movementId', v_mid, 'unitsAdded', v_units, 'controlled', i.movement_controlled_at is not null);$f$, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, v_units, now(), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, v_units, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (receipt): % (%)', sqlerrm, sqlstate;
   end;
@@ -248,7 +290,7 @@ begin
   end if;
   v_new := replace(v_src, $f$  return jsonb_build_object('ok', true, 'name', v_name, 'purchase_id', v_pid,$f$, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a restock
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, now(), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (ocr restock): % (%)', sqlerrm, sqlstate;
   end;
@@ -272,7 +314,7 @@ begin
   end if;
   v_new := replace(v_src, $f$  return v_pid;$f$, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_units, now(), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_units, (coalesce(p_date, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (staff receipt): % (%)', sqlerrm, sqlstate;
   end;
@@ -283,7 +325,22 @@ begin
 end $g$;
 revoke all on function public.s_inventory_receipt_apply_v1(uuid, numeric, numeric, text, uuid, date, text, uuid) from public, anon, authenticated, service_role;
 
--- 6. the catalogue, additive: six new keys after baselineNote --------------------------------------------------------------------------------------------------
+-- 5e. an undone receipt recomputes the refill mark from the purchases that remain ---------------------------------------------------------------------------------
+create or replace function public.s_inventory_refill_mark_after_delete_v1()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  update public.inventory_items i
+     set last_refill_at = (select (p.purchased_at::timestamp at time zone 'Asia/Manila') from public.inventory_purchases p where p.item_id = old.item_id order by p.purchased_at desc, p.created_at desc limit 1),
+         last_refill_qty = (select p.qty from public.inventory_purchases p where p.item_id = old.item_id order by p.purchased_at desc, p.created_at desc limit 1)
+   where i.id = old.item_id and i.last_refill_at is not null;
+  return null;
+end $$;
+revoke all on function public.s_inventory_refill_mark_after_delete_v1() from public, anon, authenticated, service_role;
+drop trigger if exists s120_refill_mark_after_delete on public.inventory_purchases;
+create trigger s120_refill_mark_after_delete after delete on public.inventory_purchases
+  for each row execute function public.s_inventory_refill_mark_after_delete_v1();
+
+-- 6. the catalogue, additive: seven new keys after baselineNote --------------------------------------------------------------------------------------------------
 do $g$
 declare v_src text; v_new text;
 begin
@@ -296,7 +353,8 @@ begin
   v_new := replace(v_src, $f$'baselineNote', i.baseline_note,$f$, $r$'baselineNote', i.baseline_note,
     'usageState', i.usage_state, 'usagePerTurnover', i.consumption_per_booking, 'usageBaseline', i.usage_baseline_per_turnover,
     'lastRefillAt', i.last_refill_at, 'lastRefillQty', i.last_refill_qty,
-    'lastCountAt', (select max(x.anchor_at) from public.inventory_usage_intervals x where x.item_id = i.id and x.source = 'count'),$r$);
+    'lastCountAt', (select max(x.anchor_at) from public.inventory_usage_intervals x where x.item_id = i.id and x.source = 'count'),
+    'usageCounts', (select count(*) from public.inventory_usage_intervals x where x.item_id = i.id and x.accepted and x.anchor_at > now() - interval '90 days'),$r$);
   if v_new = v_src then raise exception 's120: catalogue patch point not found' using errcode = '55000'; end if;
   execute format($e$create or replace function public.get_inventory_catalogue_v1(p_property_id uuid)
     returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_new);
@@ -356,24 +414,20 @@ grant execute on function public.get_inventory_usage_kpi_v1(uuid) to authenticat
 -- 8. quarterly reset: the stored rate of a measured item becomes the pure 90-day average --------------------------------------------------------------------------
 create or replace function public.inventory_usage_quarterly_reset_v1()
 returns integer language plpgsql security definer set search_path = '' as $$
-declare v_n integer;
+declare v_n integer := 0; r record; v_old numeric; v_new numeric;
 begin
-  with m as (
-    select x.item_id, sum(x.consumed) / sum(x.turnovers) as rate
-      from public.inventory_usage_intervals x
-     where x.accepted and x.anchor_at > now() - interval '90 days'
-     group by x.item_id having sum(x.turnovers) > 0)
-  update public.inventory_items i
-     set consumption_per_booking = round(m.rate, 4), usage_updated_at = now()
-    from m
-   where i.id = m.item_id and i.usage_state = 'measured' and i.movement_controlled_at is null
-     and i.consumption_per_booking is distinct from round(m.rate, 4);
-  get diagnostics v_n = row_count;
+  -- the same maths as a count (window of 90 days to now), so an item nobody counted for 90 days falls back to its baseline and a stale 'measured' is demoted
+  for r in select i.id from public.inventory_items i where i.usage_state in ('learning', 'measured') and i.movement_controlled_at is null loop
+    select i.consumption_per_booking into v_old from public.inventory_items i where i.id = r.id;
+    perform public.s_inventory_usage_recompute_v1(r.id, now());
+    select i.consumption_per_booking into v_new from public.inventory_items i where i.id = r.id;
+    if v_new is distinct from v_old then v_n := v_n + 1; end if;
+  end loop;
   return v_n;
 end $$;
 
 comment on function public.inventory_usage_quarterly_reset_v1() is
-  'S120: every 90 days the stored rate of each measured item is replaced by the pure measured average of the last 90 days. Returns the number of items changed. Cron only.';
+  'S120: every 90 days each learning or measured item is recomputed at now() over its last 90 days (a stale item falls back to its baseline). Returns the number of items whose stored rate changed. Cron only.';
 revoke all on function public.inventory_usage_quarterly_reset_v1() from public, anon, authenticated, service_role;
 
 do $c$
@@ -474,8 +528,13 @@ begin
   if position('usageState' in (select p.prosrc from pg_proc p where p.oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure)) = 0 then
     raise exception 's120: the catalogue lacks the usage keys';
   end if;
-  if exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.movement_controlled_at is not null) then
-    raise exception 's120: an interval exists for a movement-controlled item';
+  -- only intervals written AFTER an item became controlled are wrong (a later admin count legitimately ends learning for that item)
+  if exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id
+              where i.movement_controlled_at is not null and x.created_at > i.movement_controlled_at) then
+    raise exception 's120: an interval was written for a movement-controlled item';
+  end if;
+  if (select numeric_scale from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking') is distinct from 4 then
+    raise exception 's120: consumption_per_booking is not numeric(10,4)';
   end if;
 end $v$;
 

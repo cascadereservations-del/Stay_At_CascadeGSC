@@ -4,7 +4,7 @@
 -- Sessions (days ago): turnover 85 75 65 55 45 35 25 20 15, mid_stay 12 (never counted), deep_clean 8 (counted). Windows below are counted from that list.
 -- Everything rolls back.
 begin;
-select plan(47);
+select plan(57);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -24,7 +24,7 @@ insert into public.staff_property_access(user_id, property_id) values ('e1200000
 
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover) values
   ('e1200000-0000-4000-8000-0000000000a1', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 A', 'Other', 'pc', 500, true, true, 2.00, 1.0),
-  ('e1200000-0000-4000-8000-0000000000a2', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 B', 'Other', 'pc', 500, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000000a2', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 B', 'Other', 'pc', 500, true, true, 1.00, 1.0),
   ('e1200000-0000-4000-8000-0000000000a3', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 C', 'Other', 'pc', 500, true, true, 2.00, 1.0),
   ('e1200000-0000-4000-8000-0000000000a4', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 D', 'Other', 'pc', 500, true, true, 2.00, 1.0),
   ('e1200000-0000-4000-8000-0000000000a5', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 E', 'Other', 'pc', 500, true, true, 2.00, null),
@@ -58,7 +58,8 @@ select is((select count(*)::int from pg_proc p where p.pronamespace = 'public'::
             and p.proname in ('s_apply_inventory_count_core_v1', 'record_inventory_receipt_v1', 'apply_inventory_purchase', 's_inventory_receipt_apply_v1')), 4,
   'the count core and the three receive paths carry the anchor hook');
 select ok(position('usageState' in (select prosrc from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure)) > 0
-      and position('baselineNote' in (select prosrc from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure)) > 0, 'the catalogue gained the usage keys and kept the old ones');
+      and position('usageCounts' in (select prosrc from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure)) > 0
+      and position('baselineNote' in (select prosrc from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure)) > 0, 'the catalogue gained the usage keys (usageCounts included) and kept the old ones');
 select ok(not has_function_privilege('anon', 'public.get_inventory_usage_kpi_v1(uuid)', 'execute')
       and has_function_privilege('authenticated', 'public.get_inventory_usage_kpi_v1(uuid)', 'execute'), 'the KPI read is for signed-in users only (the function gate does the rest)');
 
@@ -78,7 +79,7 @@ select is((select predicted from public.inventory_usage_intervals where item_id 
 insert into _r select 'b1', pg_temp.anc('e1200000-0000-4000-8000-0000000000a2', 100, interval '9 days');
 insert into _r select 'b2', pg_temp.anc('e1200000-0000-4000-8000-0000000000a2', 90, interval '3 days');
 select is((select v ->> 'reason' from _r where k = 'b2'), 'too short', 'B: 6 days is too short');
-select is((select consumption_per_booking || '/' || usage_state from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a2'), '2.00/baseline', 'B: a rejected interval moves nothing');
+select is((select consumption_per_booking || '/' || usage_state from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a2'), '1.0000/baseline', 'B: a rejected interval moves nothing (the rate stays at the baseline it already held: the recompute after a rejected interval writes the baseline)');
 
 -- 17-18. C: negative consumed -----------------------------------------------------------------------------------------------------------------
 insert into _r select 'c1', pg_temp.anc('e1200000-0000-4000-8000-0000000000a3', 10, interval '30 days');
@@ -93,7 +94,7 @@ insert into public.inventory_audit_log(entity_type, entity_id, action, after, ac
   values ('inventory_items', 'e1200000-0000-4000-8000-0000000000a4', 'ocr_restock', '{"qty_added": 7, "purchase_id": "e1200000-0000-4000-8000-0000000000e1"}', 'zz120', now() - interval '20 days');
 insert into _r select 'd1', pg_temp.anc('e1200000-0000-4000-8000-0000000000a4', 100, interval '30 days');
 insert into _r select 'd2', pg_temp.anc('e1200000-0000-4000-8000-0000000000a4', 120, interval '5 days');
-select is((select received_between || '/' || consumed from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000a4' and accepted), '57/37',
+select ok((select received_between = 57 and consumed = 37 from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000a4' and accepted),
   'D: received 57 (the 50 purchase plus the 7 of the OCR audit row, not the OCR purchase row itself): 100 + 57 - 120 = 37');
 select is((select consumption_per_booking from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a4'), 3.3571::numeric, 'D: (10 + 37) / 14');
 
@@ -123,6 +124,11 @@ insert into _r select 'a2again', pg_temp.anc('e1200000-0000-4000-8000-0000000000
 select is((select v ->> 'duplicate' from _r where k = 'a2again'), 'true', 'replay: the same anchor is reported as a duplicate');
 select is((select count(*)::int from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000a1'), 2, 'replay: no second row');
 select is((select consumption_per_booking from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a1'), 3.5714::numeric, 'replay: the learned rate is unchanged');
+
+-- back-dated count (review finding 5): anchors exist at 30 and 5 days ago, so a count dated 15 days ago would be counted twice and is skipped
+insert into _r select 'a2old', pg_temp.anc('e1200000-0000-4000-8000-0000000000a1', 80, interval '15 days');
+select ok((select v ->> 'skipped' from _r where k = 'a2old') = 'older_than_latest' and (select (v ->> 'ok')::boolean from _r where k = 'a2old')
+          and (select count(*) from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000a1') = 2, 'back-dated: a count older than the newest anchor is skipped and writes no row');
 
 -- 30-32. a receipt marks the refill and starts no interval ------------------------------------------------------------------------------------------
 insert into _r select 'a3', pg_temp.anc('e1200000-0000-4000-8000-0000000000a1', 12, interval '1 day', 'receipt');
@@ -157,7 +163,72 @@ set local request.jwt.claims = '{"sub":"e1200000-0000-4000-8000-000000000002"}';
 select throws_ok($$select public.get_inventory_usage_kpi_v1('e1200000-0000-4000-8000-0000000000b0')$$, '42501', null, 'KPI: a user with no staff profile is refused');
 reset role;
 
--- 45-47. a failing hook never blocks a count ---------------------------------------------------------------------------------------------------
+-- review fixes 1, 3, 4, 6, 9, 10, 13: scale, turnovers dated by the stay, back-dated purchases, zero usage, the 90-day clamp, the quarterly demotion, the refill mark on undo
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover, usage_state) values
+  ('e1200000-0000-4000-8000-0000000000ac', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 W', 'Other', 'pc', 500, true, true, 2.00, 1.0, 'baseline'),
+  ('e1200000-0000-4000-8000-0000000000ad', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 Q', 'Other', 'pc', 500, true, true, 9.90, 1.0, 'measured'),
+  ('e1200000-0000-4000-8000-0000000000ae', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 Z', 'Other', 'pc', 500, true, true, 2.00, 1.0, 'baseline'),
+  ('e1200000-0000-4000-8000-0000000000af', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 P', 'Other', 'pc', 500, true, true, 2.00, 1.0, 'baseline'),
+  ('e1200000-0000-4000-8000-0000000000c1', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 T', 'Other', 'pc', 500, true, true, 2.00, 1.0, 'baseline'),
+  ('e1200000-0000-4000-8000-0000000000c2', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 N', 'Other', 'pc', 500, false, true, 2.00, null, 'baseline'),
+  ('e1200000-0000-4000-8000-0000000000c3', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 X', 'Other', 'pc', 500, true, false, 2.00, null, 'baseline');
+
+select is((select numeric_scale from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking'), 4,
+  'scale: consumption_per_booking holds four decimals');
+
+-- non-consumable and inactive items never learn
+insert into _r select 'n1', pg_temp.anc('e1200000-0000-4000-8000-0000000000c2', 10, interval '30 days');
+insert into _r select 'x1', pg_temp.anc('e1200000-0000-4000-8000-0000000000c3', 10, interval '30 days');
+select ok((select v ->> 'skipped' from _r where k = 'n1') = 'not_active_consumable' and (select v ->> 'skipped' from _r where k = 'x1') = 'not_active_consumable'
+          and not exists (select 1 from public.inventory_usage_intervals where item_id in ('e1200000-0000-4000-8000-0000000000c2', 'e1200000-0000-4000-8000-0000000000c3')),
+  'skip: a non-consumable and an inactive item are skipped and leave no row');
+
+-- zero usage: a measured item that used nothing keeps the prior formula, never a rate of 0
+insert into _r select 'z1', pg_temp.anc('e1200000-0000-4000-8000-0000000000ae', 100, interval '80 days');
+insert into _r select 'z2', pg_temp.anc('e1200000-0000-4000-8000-0000000000ae', 100, interval '10 days');
+select is((select consumption_per_booking || '/' || usage_state from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000ae'), '0.5556/measured',
+  'zero usage: 70 accepted days with nothing used is measured at (10 + 0) / (10 + 8), not 0');
+
+-- the 90-day clamp: two 30-day intervals ending 85 and 55 days ago hold 5 + 30 = 35 days inside the window, not 60
+insert into public.inventory_usage_intervals(property_id, item_id, prev_anchor_at, anchor_at, qty_prev, qty_now, consumed, days, turnovers, accepted, source) values
+  ('e1200000-0000-4000-8000-0000000000b0', 'e1200000-0000-4000-8000-0000000000ac', now() - interval '115 days', now() - interval '85 days', 100, 97, 3, 30, 3, true, 'count'),
+  ('e1200000-0000-4000-8000-0000000000b0', 'e1200000-0000-4000-8000-0000000000ac', now() - interval '85 days', now() - interval '55 days', 97, 94, 3, 30, 3, true, 'count');
+select public.s_inventory_usage_recompute_v1('e1200000-0000-4000-8000-0000000000ac', now());
+select is((select usage_state from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000ac'), 'learning', 'clamp: 35 days inside the window is learning, not measured');
+
+-- the quarterly job demotes an item nobody counted for 90 days
+insert into public.inventory_usage_intervals(property_id, item_id, prev_anchor_at, anchor_at, qty_prev, qty_now, consumed, days, turnovers, accepted, source) values
+  ('e1200000-0000-4000-8000-0000000000b0', 'e1200000-0000-4000-8000-0000000000ad', now() - interval '230 days', now() - interval '200 days', 100, 97, 3, 30, 3, true, 'count');
+select public.inventory_usage_quarterly_reset_v1();
+select is((select consumption_per_booking || '/' || usage_state from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000ad'), '1.0000/baseline',
+  'quarterly: a stale measured item falls back to its baseline');
+
+-- a purchase dated before the previous count was already on the shelf: it is not received between (the 34 refill dated 40 days ago, entered 2 days ago)
+insert into public.inventory_purchases(id, item_id, qty, purchased_at, created_at) values
+  ('e1200000-0000-4000-8000-0000000000e3', 'e1200000-0000-4000-8000-0000000000af', 34, current_date - 40, now() - interval '2 days'),
+  ('e1200000-0000-4000-8000-0000000000e4', 'e1200000-0000-4000-8000-0000000000af', 10, current_date - 10, now() - interval '10 days'),
+  ('e1200000-0000-4000-8000-0000000000e5', 'e1200000-0000-4000-8000-0000000000af', 7,  current_date - 3,  now() - interval '3 days');
+insert into _r select 'p1', pg_temp.anc('e1200000-0000-4000-8000-0000000000af', 100, interval '30 days');
+insert into _r select 'p2', pg_temp.anc('e1200000-0000-4000-8000-0000000000af', 60, interval '1 day');
+select ok((select received_between = 17 and consumed = 57 from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000af' and accepted),
+  'purchases: only the two purchases dated after the previous count are received between (10 + 7); the back-dated 34 is ignored: 100 + 17 - 60 = 57');
+
+-- an undone receipt recomputes the refill mark from the purchases that remain
+insert into _r select 'r1', pg_temp.anc('e1200000-0000-4000-8000-0000000000af', 7, interval '3 days', 'receipt');
+delete from public.inventory_purchases where id = 'e1200000-0000-4000-8000-0000000000e5';
+select is((select last_refill_qty from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000af'), 10::numeric, 'undo: the mark is recomputed from the newest remaining purchase by purchase date');
+delete from public.inventory_purchases where item_id = 'e1200000-0000-4000-8000-0000000000af';
+select is((select last_refill_at from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000af'), null::timestamptz, 'undo: with no purchase left the mark is cleared');
+
+-- turnovers are dated by the stay: a report typed 2 days ago for a stay that ended 30 days ago belongs to the interval it ended in
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date) values
+  ('e1200000-0000-4000-8000-0000000000b0', 'zz-s120-late', 'Fixture', now() - interval '2 days', 'turnover', (now() - interval '30 days')::date);
+insert into _r select 't1', pg_temp.anc('e1200000-0000-4000-8000-0000000000c1', 100, interval '40 days');
+insert into _r select 't2', pg_temp.anc('e1200000-0000-4000-8000-0000000000c1', 70, interval '10 days');
+select is((select turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000000c1' and accepted), 5,
+  'stay date: sessions 35, 25, 20 and 15 days ago plus the late report of a stay that ended 30 days ago make 5 turnovers');
+
+-- 56-58. a failing hook never blocks a count ---------------------------------------------------------------------------------------------------
 create function public.zz_s120_boom() returns trigger language plpgsql as $$ begin raise exception 'boom'; end $$;
 create trigger zz_s120_boom before insert on public.inventory_usage_intervals for each row execute function public.zz_s120_boom();
 insert into _r select 'j1', public.s_apply_inventory_count_core_v1('zz-s120',

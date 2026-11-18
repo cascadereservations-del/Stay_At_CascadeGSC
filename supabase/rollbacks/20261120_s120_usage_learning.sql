@@ -1,10 +1,11 @@
 -- Compensating rollback for release s120_usage_learning_20261120 (session 120, migration 20261120000000_s120_usage_learning.sql).
--- Takes the inserted hook block back out of the four functions and the six keys out of the catalogue, then checks each body is the md5 it was before the release:
+-- Takes the inserted hook block back out of the four functions and the seven keys out of the catalogue, then checks each body is the md5 it was before the release:
 --   s_apply_inventory_count_core_v1 3937a6da154fe1ed60471689833f96e2, record_inventory_receipt_v1 7cb59453f37eeeeb15b1e9f4c4ffa883, apply_inventory_purchase 48082c76263e15517d733c65f7eb3ccc,
 --   s_inventory_receipt_apply_v1 4f09a8ae895d945703f60a96705413e7, get_inventory_catalogue_v1 00ca41d933a5c5a9c4498cff682e7844.
 -- A body that is neither the release body nor the original (someone changed it since) stops the rollback (55000) before anything is dropped.
 -- Then: unschedules the quarterly job, puts consumption_per_booking back to what it was before the seed (2.00; null for All-Purpose Cleaner, Bathroom tissue, Kitchen towel and Mr Muscle Tough Grease & Grime),
--- drops the four new functions, the intervals table and the six columns.
+-- drops the refill-mark delete trigger and the new functions, the intervals table and the six columns, and narrows consumption_per_booking back to numeric(10,2)
+-- (a rate that was learned to four decimals is rounded to two; the items that carried a baseline are reset to 2.00 / null first).
 -- DATA LOSS (by design): every interval, every learned rate, the seeded baselines and the refill marks. Stock counts, purchases and the audit log are untouched.
 -- Roll back any app that reads usageState / usagePerTurnover / get_inventory_usage_kpi_v1 first. Apply with run-sql-on-host.sh.
 
@@ -41,7 +42,7 @@ begin
   else
     v_new := replace(v_src, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, v_units, now(), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, v_units, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (receipt): % (%)', sqlerrm, sqlstate;
   end;
@@ -64,7 +65,7 @@ begin
   else
     v_new := replace(v_src, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a restock
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, now(), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_qty * v_upp, (coalesce(p_purchased_at, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (ocr restock): % (%)', sqlerrm, sqlstate;
   end;
@@ -87,7 +88,7 @@ begin
   else
     v_new := replace(v_src, $r$  -- S120: remember the refill for the usage learning; a problem here must never block a receipt
   begin
-    perform public.record_inventory_anchor_v1(p_item_id, p_units, now(), 'receipt');
+    perform public.record_inventory_anchor_v1(p_item_id, p_units, (coalesce(p_date, current_date)::timestamp at time zone 'Asia/Manila'), 'receipt');
   exception when others then
     raise warning 's120 usage anchor (staff receipt): % (%)', sqlerrm, sqlstate;
   end;
@@ -110,7 +111,8 @@ begin
     v_new := replace(v_src, $r$'baselineNote', i.baseline_note,
     'usageState', i.usage_state, 'usagePerTurnover', i.consumption_per_booking, 'usageBaseline', i.usage_baseline_per_turnover,
     'lastRefillAt', i.last_refill_at, 'lastRefillQty', i.last_refill_qty,
-    'lastCountAt', (select max(x.anchor_at) from public.inventory_usage_intervals x where x.item_id = i.id and x.source = 'count'),$r$, $f$'baselineNote', i.baseline_note,$f$);
+    'lastCountAt', (select max(x.anchor_at) from public.inventory_usage_intervals x where x.item_id = i.id and x.source = 'count'),
+    'usageCounts', (select count(*) from public.inventory_usage_intervals x where x.item_id = i.id and x.accepted and x.anchor_at > now() - interval '90 days'),$r$, $f$'baselineNote', i.baseline_note,$f$);
     if md5(v_new) is distinct from '00ca41d933a5c5a9c4498cff682e7844' then
       raise exception 's120 rollback: get_inventory_catalogue_v1 is not the release body (md5 %)', md5(v_src) using errcode = '55000';
     end if;
@@ -133,8 +135,12 @@ end $c$;
 update public.inventory_items
    set consumption_per_booking = case when name in ('All-Purpose Cleaner (Mr Muscle)', 'Bathroom tissue', 'Kitchen towel', 'Mr Muscle Tough Grease & Grime') then null else 2.00 end
  where usage_baseline_per_turnover is not null;
+-- any other item that learned a rate with no baseline keeps it, rounded to the old two decimals by the type change below
+alter table public.inventory_items alter column consumption_per_booking type numeric(10,2);
 
 -- 4. objects -------------------------------------------------------------------------------------------------------------------------------------------------------
+drop trigger if exists s120_refill_mark_after_delete on public.inventory_purchases;
+drop function if exists public.s_inventory_refill_mark_after_delete_v1();
 drop function if exists public.get_inventory_usage_kpi_v1(uuid);
 drop function if exists public.inventory_usage_quarterly_reset_v1();
 drop function if exists public.record_inventory_anchor_v1(uuid, numeric, timestamptz, text);
@@ -157,6 +163,9 @@ begin
      or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.s_inventory_receipt_apply_v1(uuid,numeric,numeric,text,uuid,date,text,uuid)'::regprocedure) is distinct from '4f09a8ae895d945703f60a96705413e7'
      or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure) is distinct from '00ca41d933a5c5a9c4498cff682e7844' then
     raise exception 's120 rollback: a function is not back to its pre-release body' using errcode = '55000';
+  end if;
+  if (select numeric_scale from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking') is distinct from 2 then
+    raise exception 's120 rollback: consumption_per_booking is not numeric(10,2) again' using errcode = '55000';
   end if;
 end $v$;
 

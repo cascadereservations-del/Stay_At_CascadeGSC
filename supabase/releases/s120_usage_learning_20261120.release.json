@@ -10,14 +10,14 @@
     "20261120000000_s120_usage_learning.sql"
   ],
   "migration_sha256": {
-    "20261120000000_s120_usage_learning.sql": "e5abd78c4d46724d99f70fbe9f23a7891305727965028b0e5d73a61cc8fc668c"
+    "20261120000000_s120_usage_learning.sql": "57310977d27cda572c1fdee01e009d92bf82f21f9999b52208db8896d93c24de"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Usage learning (spec docs/s118/SPEC-usage-learning.md). inventory_items gains usage_baseline_per_turnover, usage_baseline_note, usage_state (baseline|learning|measured), last_refill_at, last_refill_qty, usage_updated_at. New table public.inventory_usage_intervals (RLS on, no grant to any API role). Internal, no grants: record_inventory_anchor_v1, s_inventory_usage_recompute_v1, inventory_usage_quarterly_reset_v1 (pg_cron inventory-usage-quarterly-reset, 1 Jan/Apr/Jul/Oct 20:00 UTC). get_inventory_usage_kpi_v1: authenticated, gate read_operations. Hooks (one block each, any error becomes a WARNING): s_apply_inventory_count_core_v1 (md5 3937a6da154fe1ed60471689833f96e2), record_inventory_receipt_v1 (7cb59453f37eeeeb15b1e9f4c4ffa883), apply_inventory_purchase (48082c76263e15517d733c65f7eb3ccc), s_inventory_receipt_apply_v1 (4f09a8ae895d945703f60a96705413e7). get_inventory_catalogue_v1 (00ca41d933a5c5a9c4498cff682e7844) gains six keys. The migration seeds 22 baselines and sets consumption_per_booking where it was the 2.00 default or null, then replays the 27 Oct and 18 Nov telegram_count audit rows through the anchor (expected: 3 accepted intervals - Laundry, Hand Soap, Insect Spray; Coffee rejected as unrecorded restock).",
+    "production_rule": "Usage learning (spec docs/s118/SPEC-usage-learning.md). inventory_items gains usage_baseline_per_turnover, usage_baseline_note, usage_state (baseline|learning|measured), last_refill_at, last_refill_qty, usage_updated_at. New table public.inventory_usage_intervals (RLS on, no grant to any API role). Internal, no grants: record_inventory_anchor_v1, s_inventory_usage_recompute_v1, inventory_usage_quarterly_reset_v1 (pg_cron inventory-usage-quarterly-reset, 1 Jan/Apr/Jul/Oct 20:00 UTC). get_inventory_usage_kpi_v1: authenticated, gate read_operations. Hooks (one block each, any error becomes a WARNING): s_apply_inventory_count_core_v1 (md5 3937a6da154fe1ed60471689833f96e2), record_inventory_receipt_v1 (7cb59453f37eeeeb15b1e9f4c4ffa883), apply_inventory_purchase (48082c76263e15517d733c65f7eb3ccc), s_inventory_receipt_apply_v1 (4f09a8ae895d945703f60a96705413e7). get_inventory_catalogue_v1 (00ca41d933a5c5a9c4498cff682e7844) gains seven keys. consumption_per_booking is widened from numeric(10,2) to numeric(10,4) before the seed. An AFTER DELETE trigger on inventory_purchases recomputes the refill mark when a receipt is undone. The migration seeds 22 baselines and sets consumption_per_booking where it was the 2.00 default or null, then replays the 27 Oct and 18 Nov telegram_count audit rows through the anchor (expected: 3 accepted intervals - Laundry Detergent 2.0476, Hand Soap 0.1381, Insect Spray 0.0714 over 11 turnovers; Coffee rejected as unrecorded restock). Open decision for Lloyd, not in this release: the daily-digest stock alert threshold (review finding 7).",
     "notes": "Additive. No signature, grant or existing result key changes; five function bodies are cut by patching the live body after an md5 guard (55000 when production moved). Writes: the new columns and table, consumption_per_booking and usage_state on the seeded items. Stock, purchases and the audit log are not written. consumption_per_booking is read by daily-digest (runway) and telegram-expense (short when qty < rate): real rates make both quieter than 2.00 did. Deploy order: SQL only; apps may read the new catalogue keys and the KPI RPC afterwards."
   },
   "forward_verification": [
@@ -63,7 +63,7 @@
     },
     {
       "name": "quarterly_job_scheduled",
-      "query": "select exists (select 1 from cron.job where jobname = 'inventory-usage-quarterly-reset' and active and schedule = '0 20 1 1,4,7,10 *' and command like '%inventory_usage_quarterly_reset_v1%')",
+      "query": "select case when to_regclass('cron.job') is null then true else (xpath('/row/s/text()', query_to_xml('select (count(*) = 1)::text s from cron.job where jobname = ''inventory-usage-quarterly-reset'' and active and schedule = ''0 20 1 1,4,7,10 *'' and command like ''%inventory_usage_quarterly_reset_v1%''', false, true, '')))[1]::text = 'true' end",
       "expect": true
     },
     {
@@ -73,12 +73,27 @@
     },
     {
       "name": "backfill_three_accepted_and_coffee_rejected",
-      "query": "select (select count(*) from public.inventory_usage_intervals where accepted) = 3 and exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.name = 'Coffee (3-in-1)' and x.reject_reason = 'unrecorded restock' and not x.accepted)",
+      "query": "select (select count(distinct i.name) from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where x.accepted and i.name in ('Laundry Detergent', 'Hand Soap', 'Insect Spray')) = 3 and exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.name = 'Coffee (3-in-1)' and x.reject_reason = 'unrecorded restock' and not x.accepted)",
       "expect": true
     },
     {
-      "name": "no_interval_for_controlled_or_inactive_backfill",
-      "query": "select not exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.movement_controlled_at is not null)",
+      "name": "replayed_rates_match_the_research",
+      "query": "select (select round(consumption_per_booking, 4) from public.inventory_items where is_active and name = 'Laundry Detergent') = 2.0476 and (select round(consumption_per_booking, 4) from public.inventory_items where is_active and name = 'Hand Soap') = 0.1381 and (select round(consumption_per_booking, 4) from public.inventory_items where is_active and name = 'Insect Spray') = 0.0714",
+      "expect": true
+    },
+    {
+      "name": "consumption_per_booking_is_numeric_10_4",
+      "query": "select numeric_precision = 10 and numeric_scale = 4 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking'",
+      "expect": true
+    },
+    {
+      "name": "refill_mark_delete_trigger",
+      "query": "select exists (select 1 from pg_trigger where tgrelid = 'public.inventory_purchases'::regclass and tgname = 's120_refill_mark_after_delete' and not tgisinternal) and not has_function_privilege('authenticated', 'public.s_inventory_refill_mark_after_delete_v1()', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "no_interval_written_for_a_controlled_item",
+      "query": "select not exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.movement_controlled_at is not null and x.created_at > i.movement_controlled_at)",
       "expect": true
     },
     {
@@ -89,7 +104,7 @@
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Always, with data loss by design: every interval, learned rate, seeded baseline and refill mark is dropped, and consumption_per_booking returns to 2.00 (null for All-Purpose Cleaner, Bathroom tissue, Kitchen towel and Tough Grease). The script takes the hook block back out of the four functions and the six keys out of the catalogue, with an md5 guard on each body, before it drops anything.",
+    "safe_until": "Always, with data loss by design: every interval, learned rate, seeded baseline and refill mark is dropped, and consumption_per_booking returns to 2.00 (null for All-Purpose Cleaner, Bathroom tissue, Kitchen towel and Tough Grease). The script takes the hook block back out of the four functions and the seven keys out of the catalogue, with an md5 guard on each body, before it drops anything, then drops the trigger and narrows consumption_per_booking back to numeric(10,2).",
     "steps": [
       {
         "name": "run_compensating_script",
@@ -108,7 +123,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_usage_learning.sql (47 tests), then set verified to true with the log path."
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_usage_learning.sql (57 tests), then set verified to true with the log path."
   },
   "approvals": {
     "production_required": true,
@@ -118,7 +133,7 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
-    "the rehearsal has not run the migration and s120_usage_learning.sql (47 tests) green on this commit, compatibility.verified is still false",
+    "the rehearsal has not run the migration and s120_usage_learning.sql (57 tests) green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
     "the live body of s_apply_inventory_count_core_v1, record_inventory_receipt_v1, apply_inventory_purchase, s_inventory_receipt_apply_v1 or get_inventory_catalogue_v1 no longer matches the md5 guard in the migration (production moved since the cut)",
     "baselines_seeded_22 or backfill_three_accepted_and_coffee_rejected fails: a live item name or an audit row differs from what the migration was cut against, read production before changing anything"
