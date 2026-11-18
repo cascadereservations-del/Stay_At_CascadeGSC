@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "release_id": "s120_usage_learning_20261120",
+  "phase": "expand",
+  "source": {
+    "branch": "s120/usage-learning",
+    "commit": "68bf8065d0567cf129d78b33fcb87f9f41d624bc"
+  },
+  "migrations": [
+    "20261120000000_s120_usage_learning.sql"
+  ],
+  "migration_sha256": {
+    "20261120000000_s120_usage_learning.sql": "e5abd78c4d46724d99f70fbe9f23a7891305727965028b0e5d73a61cc8fc668c"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Usage learning (spec docs/s118/SPEC-usage-learning.md). inventory_items gains usage_baseline_per_turnover, usage_baseline_note, usage_state (baseline|learning|measured), last_refill_at, last_refill_qty, usage_updated_at. New table public.inventory_usage_intervals (RLS on, no grant to any API role). Internal, no grants: record_inventory_anchor_v1, s_inventory_usage_recompute_v1, inventory_usage_quarterly_reset_v1 (pg_cron inventory-usage-quarterly-reset, 1 Jan/Apr/Jul/Oct 20:00 UTC). get_inventory_usage_kpi_v1: authenticated, gate read_operations. Hooks (one block each, any error becomes a WARNING): s_apply_inventory_count_core_v1 (md5 3937a6da154fe1ed60471689833f96e2), record_inventory_receipt_v1 (7cb59453f37eeeeb15b1e9f4c4ffa883), apply_inventory_purchase (48082c76263e15517d733c65f7eb3ccc), s_inventory_receipt_apply_v1 (4f09a8ae895d945703f60a96705413e7). get_inventory_catalogue_v1 (00ca41d933a5c5a9c4498cff682e7844) gains six keys. The migration seeds 22 baselines and sets consumption_per_booking where it was the 2.00 default or null, then replays the 27 Oct and 18 Nov telegram_count audit rows through the anchor (expected: 3 accepted intervals - Laundry, Hand Soap, Insect Spray; Coffee rejected as unrecorded restock).",
+    "notes": "Additive. No signature, grant or existing result key changes; five function bodies are cut by patching the live body after an md5 guard (55000 when production moved). Writes: the new columns and table, consumption_per_booking and usage_state on the seeded items. Stock, purchases and the audit log are not written. consumption_per_booking is read by daily-digest (runway) and telegram-expense (short when qty < rate): real rates make both quieter than 2.00 did. Deploy order: SQL only; apps may read the new catalogue keys and the KPI RPC afterwards."
+  },
+  "forward_verification": [
+    {
+      "name": "usage_columns_exist",
+      "query": "select count(*) = 6 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name in ('usage_baseline_per_turnover', 'usage_baseline_note', 'usage_state', 'last_refill_at', 'last_refill_qty', 'usage_updated_at')",
+      "expect": true
+    },
+    {
+      "name": "intervals_table_closed_rls_on",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.inventory_usage_intervals'::regclass) and not has_table_privilege('anon', 'public.inventory_usage_intervals', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.inventory_usage_intervals', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.inventory_usage_intervals', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "intervals_constraints_and_indexes",
+      "query": "select (select count(*) from pg_constraint where conrelid = 'public.inventory_usage_intervals'::regclass and conname in ('inventory_usage_intervals_item_anchor_uq', 'inventory_usage_intervals_reason', 'inventory_usage_intervals_accepted_shape')) = 3 and exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'inventory_usage_intervals_item_idx')",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_have_no_api_grant",
+      "query": "select (select bool_and(prosecdef and proconfig = array['search_path=\"\"']) from pg_proc where oid in ('public.record_inventory_anchor_v1(uuid,numeric,timestamptz,text)'::regprocedure, 'public.s_inventory_usage_recompute_v1(uuid,timestamptz)'::regprocedure, 'public.inventory_usage_quarterly_reset_v1()'::regprocedure)) and not has_function_privilege('anon', 'public.record_inventory_anchor_v1(uuid,numeric,timestamptz,text)', 'execute') and not has_function_privilege('authenticated', 'public.record_inventory_anchor_v1(uuid,numeric,timestamptz,text)', 'execute') and not has_function_privilege('service_role', 'public.record_inventory_anchor_v1(uuid,numeric,timestamptz,text)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_usage_recompute_v1(uuid,timestamptz)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_usage_recompute_v1(uuid,timestamptz)', 'execute') and not has_function_privilege('authenticated', 'public.inventory_usage_quarterly_reset_v1()', 'execute') and not has_function_privilege('service_role', 'public.inventory_usage_quarterly_reset_v1()', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "hooks_in_count_core_and_three_receive_paths",
+      "query": "select count(*) = 4 from pg_proc where pronamespace = 'public'::regnamespace and position('record_inventory_anchor_v1' in prosrc) > 0 and proname in ('s_apply_inventory_count_core_v1', 'record_inventory_receipt_v1', 'apply_inventory_purchase', 's_inventory_receipt_apply_v1')",
+      "expect": true
+    },
+    {
+      "name": "count_core_and_receive_grants_unchanged",
+      "query": "select not has_function_privilege('anon', 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)', 'execute') and not has_function_privilege('service_role', 'public.s_apply_inventory_count_core_v1(text,jsonb,text,timestamptz,uuid)', 'execute') and has_function_privilege('authenticated', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') and not has_function_privilege('anon', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute') and has_function_privilege('service_role', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and not has_function_privilege('authenticated', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_receipt_apply_v1(uuid,numeric,numeric,text,uuid,date,text,uuid)', 'execute') and not has_function_privilege('service_role', 'public.s_inventory_receipt_apply_v1(uuid,numeric,numeric,text,uuid,date,text,uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "catalogue_additive_shape_and_grants",
+      "query": "select (select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] and position('usageState' in prosrc) > 0 and position('lastCountAt' in prosrc) > 0 and position('baselineNote' in prosrc) > 0 from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure) and has_function_privilege('authenticated', 'public.get_inventory_catalogue_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.get_inventory_catalogue_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.get_inventory_catalogue_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "kpi_shape_gate_and_grants",
+      "query": "select (select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] and position('read_operations' in prosrc) > 0 from pg_proc where oid = 'public.get_inventory_usage_kpi_v1(uuid)'::regprocedure) and has_function_privilege('authenticated', 'public.get_inventory_usage_kpi_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.get_inventory_usage_kpi_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.get_inventory_usage_kpi_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "quarterly_job_scheduled",
+      "query": "select exists (select 1 from cron.job where jobname = 'inventory-usage-quarterly-reset' and active and schedule = '0 20 1 1,4,7,10 *' and command like '%inventory_usage_quarterly_reset_v1%')",
+      "expect": true
+    },
+    {
+      "name": "baselines_seeded_22",
+      "query": "select count(*) = 22 from public.inventory_items where is_active and usage_baseline_per_turnover is not null",
+      "expect": true
+    },
+    {
+      "name": "backfill_three_accepted_and_coffee_rejected",
+      "query": "select (select count(*) from public.inventory_usage_intervals where accepted) = 3 and exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.name = 'Coffee (3-in-1)' and x.reject_reason = 'unrecorded restock' and not x.accepted)",
+      "expect": true
+    },
+    {
+      "name": "no_interval_for_controlled_or_inactive_backfill",
+      "query": "select not exists (select 1 from public.inventory_usage_intervals x join public.inventory_items i on i.id = x.item_id where i.movement_controlled_at is not null)",
+      "expect": true
+    },
+    {
+      "name": "usage_state_matches_intervals",
+      "query": "select not exists (select 1 from public.inventory_items i where i.usage_state <> 'baseline' and not exists (select 1 from public.inventory_usage_intervals x where x.item_id = i.id and x.accepted))",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with data loss by design: every interval, learned rate, seeded baseline and refill mark is dropped, and consumption_per_booking returns to 2.00 (null for All-Purpose Cleaner, Bathroom tissue, Kitchen towel and Tough Grease). The script takes the hook block back out of the four functions and the six keys out of the catalogue, with an md5 guard on each body, before it drops anything.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261120_s120_usage_learning.sql with run-sql-on-host.sh; then md5(replace(prosrc, chr(13), '')) must be 3937a6da154fe1ed60471689833f96e2 (s_apply_inventory_count_core_v1), 7cb59453f37eeeeb15b1e9f4c4ffa883 (record_inventory_receipt_v1), 48082c76263e15517d733c65f7eb3ccc (apply_inventory_purchase), 4f09a8ae895d945703f60a96705413e7 (s_inventory_receipt_apply_v1) and 00ca41d933a5c5a9c4498cff682e7844 (get_inventory_catalogue_v1), and public.inventory_usage_intervals must not exist. Roll back any app that reads usageState or get_inventory_usage_kpi_v1 first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The SQL is additive: counts and receipts behave as before and start feeding the learning; the catalogue gains keys old apps ignore; the KPI read is called only by an app that ships it."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_usage_learning.sql (47 tests), then set verified to true with the log path."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the rehearsal has not run the migration and s120_usage_learning.sql (47 tests) green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the live body of s_apply_inventory_count_core_v1, record_inventory_receipt_v1, apply_inventory_purchase, s_inventory_receipt_apply_v1 or get_inventory_catalogue_v1 no longer matches the md5 guard in the migration (production moved since the cut)",
+    "baselines_seeded_22 or backfill_three_accepted_and_coffee_rejected fails: a live item name or an audit row differs from what the migration was cut against, read production before changing anything"
+  ]
+}
