@@ -10,7 +10,7 @@
     "20261120000000_s120_usage_learning.sql"
   ],
   "migration_sha256": {
-    "20261120000000_s120_usage_learning.sql": "2f7936121658ac3194da22823975116e892e58188f1ebe8037903d09947f1ed1"
+    "20261120000000_s120_usage_learning.sql": "3c02d1639e6f04200437c45ee638b223a8e90317341f5079c3436c8cae38d608"
   },
   "backup": {
     "required": true,

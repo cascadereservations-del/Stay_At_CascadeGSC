@@ -47,9 +47,8 @@
 --   * Movement-controlled items are skipped (their ledger is the measurement). Inactive items are skipped by the backfill, so the 18 Nov split (old "Tissues / Paper Towels"
 --     inactive at 0, new "Bathroom tissue" and "Kitchen towel" first counted) invents no usage: new items start with a first anchor only.
 --   * consumption_per_booking is read by daily-digest (runway = qty / cpb * days) and telegram-expense (short = qty < cpb). Real rates (0.01 to 4) make both quieter than the 2.00 default did.
---     OPEN DECISION (Lloyd, review finding 7, not changed here): the daily-digest stock alert fires at 2.5 turnovers left or fewer (daily-digest/index.ts:327,330, AVG_STAY_DAYS = 2).
---     On today's stock 16 items qualify at the 2.00 default and 1 after the seed (Toiletries), so the digest alert goes almost silent. s_inventory_low_task_v1 and the Telegram low list
---     use reorder_below and are unaffected.
+--     D-375: the deployed digest (waves repo) names stock only when an item is out, so these rates silence nothing there. In telegram-expense only the "may run short" note moves.
+--     s_inventory_low_task_v1 and the Telegram low list use reorder_below and are unaffected.
 --   * A count made through reconcile_inventory_baseline_v1 (admin counts page, staff stock screen) sets movement_controlled_at and takes the item out of learning; only the Telegram
 --     count path feeds it. The self-check therefore looks only at intervals created after an item became controlled.
 --
