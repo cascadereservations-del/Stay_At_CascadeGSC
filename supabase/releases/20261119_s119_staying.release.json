@@ -4,20 +4,20 @@
   "phase": "expand",
   "source": {
     "branch": "s119/sql-staying",
-    "commit": "4ca67d871642f073fa6f0232441fce949c8ece28"
+    "commit": "97dae86ba1dec2c99c9da6aba9de60b2cd81fdc2"
   },
   "migrations": [
     "20261119000000_s119_staying.sql"
   ],
   "migration_sha256": {
-    "20261119000000_s119_staying.sql": "0e6fd965f8f2e9b10ecc75a8e4395e3342a6b7d821c20b83ef7f4702e4d8f75d"
+    "20261119000000_s119_staying.sql": "e13127e1af8894c78c9732a410237dbe2751a08687260402ab73e4fe9bd46616"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "PLACEHOLDER: run scripts/migrations/fill-restore-point.mjs right before the apply",
     "verified_at": "1970-01-01T00:00:00.000Z",
-    "production_rule": "Who is staying (spec docs/s118/SPEC-staying-facts.md). New tables public.stay_staying (property_id, stay_uid = calendar_events.uid; names <= 300 chars; source admin/staff; Cassy suggestion + status pending/dismissed; version) and stay_staying_history (before/after, actor, reason, idempotency key); RLS on, no grant to any API role. set_stay_staying_v1 and confirm_stay_staying_suggestion_v1: authenticated only, gate submit_cleaning (owner, admin, inspector, cleaner), source admin needs manage_operations, optimistic lock on version (40001), idempotency key required. set_stay_staying_suggestion_v1: service_role only, writes the suggestion fields only. staff_home_v1 (s91 body, md5 fdacbd271486a3b71e11818dc691cda4) gains `staying` on current_guest and next_guest via helper stay_staying_json_v1 (suggestion key only for submit_cleaning roles).",
+    "production_rule": "Who is staying (spec docs/s118/SPEC-staying-facts.md). New tables public.stay_staying (property_id, stay_uid = calendar_events.uid; names <= 300 chars; source admin/staff; Cassy suggestion + status pending/dismissed; version) and stay_staying_history (before/after, actor, reason, idempotency key); RLS on, no grant to any API role. set_stay_staying_v1 and confirm_stay_staying_suggestion_v1: authenticated only, gate submit_cleaning (owner, admin, inspector, cleaner), source admin needs manage_operations, optimistic lock on version (40001), idempotency key required. set_stay_staying_suggestion_v1: service_role only, writes the suggestion fields only. staff_home_v1 (s91 body, md5 fdacbd271486a3b71e11818dc691cda4) gains `staying` on current_guest and next_guest via helper stay_staying_json_v1 (suggestion key only for submit_cleaning roles); names and suggestion pass through staff_redact_v1 on read and contact text is refused on write (D-289).",
     "notes": "Additive. No existing table, column or function signature changes. One function body is replaced (staff_home_v1), cut by patching the live body after an md5 guard; the diff is two inserted lines. staff_current_next_stays_v1 and staff_guest_card_v1 are guarded as unchanged. Old Staff app builds ignore the new key. Deploy order: SQL first, then the Staff app (reads staying, calls the two person RPCs), then Cassy (airbnb-email-sync calls set_stay_staying_suggestion_v1)."
   },
   "forward_verification": [
@@ -103,7 +103,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "NOT rehearsed: no local Postgres and no network to the rehearsal host in lane Q. Static checks only (release-safety / verify-expand-contract). Run migration-rehearsal-on-host.sh on a fresh restore with supabase/tests/database/s119_staying.sql (65 tests) and set verified true with the log path."
+    "evidence": "NOT rehearsed: no local Postgres and no network to the rehearsal host in lane Q. Static checks only (release-safety / verify-expand-contract). Run migration-rehearsal-on-host.sh on a fresh restore with supabase/tests/database/s119_staying.sql (78 tests) and set verified true with the log path."
   },
   "approvals": {
     "production_required": true,
@@ -113,7 +113,7 @@
   "stop_conditions": [
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
-    "the rehearsal has not run the migration and s119_staying.sql (65 tests) green on this commit, compatibility.verified is still false",
+    "the rehearsal has not run the migration and s119_staying.sql (78 tests) green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed",
     "the live body of staff_home_v1 (s91), staff_current_next_stays_v1 or staff_guest_card_v1 (s116) no longer matches the md5 guard in the migration (production moved since the cut)"
   ]
