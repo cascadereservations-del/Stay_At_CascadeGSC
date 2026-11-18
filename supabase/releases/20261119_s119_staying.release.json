@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s119/sql-staying",
-    "commit": "ea028665b663a013e298a6412e446ec31cbaa191"
+    "commit": "1ceaea09f9525292c00a2a4830aa713f732949b6"
   },
   "migrations": [
     "20261119000000_s119_staying.sql"
   ],
   "migration_sha256": {
-    "20261119000000_s119_staying.sql": "acc8f0cc69fdaef61104c32ff9ba5fca464782ee42d6f946bf4e708c800d9571"
+    "20261119000000_s119_staying.sql": "31003fa1069457734b628fce17582723484c1c64b38cb35ed1882cbced96787b"
   },
   "backup": {
     "required": true,
@@ -112,8 +112,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "NOT rehearsed: no local Postgres and no network to the rehearsal host in lane Q. Static checks only (release-safety / verify-expand-contract). Run migration-rehearsal-on-host.sh on a fresh restore with supabase/tests/database/s119_staying.sql (86 tests) and set verified true with the log path."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-18 on backup cascade-supabase-20261118T113922Z (restored production, 131 tables): migration applied, forward verification 14/14, pgTAP s119_staying.sql 86/86, cleanup leftovers 0. Log docs/s118/rehearsal-s119b.log. First run failed on a plpgsql IF/CASE-THEN syntax error, fixed in 1ceaea0."
   },
   "approvals": {
     "production_required": true,
