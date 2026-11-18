@@ -19,6 +19,8 @@ export type OpsInput = {
   arrivals: CalRow[]; departures: CalRow[]; tmrArrivals: CalRow[]; tmrDepartures: CalRow[];
   notices: Notice[]; stock: StockItem[]; weather: Weather | null; resRows: ResRow[];
   midStay?: MidStay[];
+  /** D-375: item names down to the last unit; shown when the digest is already sending, never a reason to send. */
+  lastUnit?: string[];
   /** SPEC-05 D: confirmed direct arrivals within 3 days without an ID on file (first name, check-in date). */
   idMissing?: Array<{ guest: string; checkin: string }>;
   /** D-290: a same-guest chain joined today or tomorrow - one stay, so not an arrival, a departure or a turnover. */
@@ -90,6 +92,14 @@ export function weatherLine(w: Weather | null): string {
 
 const stayOnText = (s: { guest: string; junction: string }) => `${s.guest} stays on (same guest, two bookings joined ${friendlyDate(s.junction)}) - no turnover`;
 
+/** D-375: above zero (zero is "Out of stock"), at most one left, and at or under the item's reorder level. */
+export function lastUnitNames(items: Array<{ name: unknown; qty_on_hand: unknown; reorder_below: unknown }>): string[] {
+  return items.filter((it) => {
+    const qty = Number(it.qty_on_hand);
+    return qty > 0 && qty <= 1 && qty <= Number(it.reorder_below);
+  }).map((it) => String(it.name));
+}
+
 export function opsReport(i: OpsInput): OpsReport | null {
   const todayNotices = i.notices.filter((n) => n.effective_date === i.today);
   const tmrNotices = i.notices.filter((n) => n.effective_date === i.tomorrow);
@@ -117,6 +127,7 @@ export function opsReport(i: OpsInput): OpsReport | null {
   for (const s of stayOn.filter((x) => x.day === 'today')) lines.push(`🔁 ${stayOnText(s)}`);
   for (const m of midStay) lines.push(`🛎 Mid-stay: ${m.guest}, night ${m.night} of ${m.nights} — towels and water topped up? everything okay?`);
   if (outOfStock.length) { brk(); lines.push(`📦 Out of stock: ${outOfStock.map((s) => s.name).join(', ')}`); }
+  if (i.lastUnit?.length) { if (!outOfStock.length) brk(); lines.push(`📦 Down to the last unit: ${i.lastUnit.join(', ')}`); }
   // SPEC-05 D: just under stock; one line, however many guests (the group cap stays five).
   if (idMissing.length) { brk(); lines.push(`🪪 ID still missing: ${idMissing.map((m) => `${m.guest}, arriving ${friendlyDate(m.checkin)}`).join('; ')}`); }
   const w = (a || d) ? weatherLine(i.weather) : '';

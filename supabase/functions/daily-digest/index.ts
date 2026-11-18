@@ -14,7 +14,7 @@ import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { renderReport, withHeader, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
-import { friendlyDate, opsReport, weeklyFinanceReport, weeklyOpsReport, type CassyWeek, type MidStay, type Weather } from './report.ts';
+import { friendlyDate, lastUnitNames, opsReport, weeklyFinanceReport, weeklyOpsReport, type CassyWeek, type MidStay, type Weather } from './report.ts';
 import { overdue } from '../finance-watch/watch.ts';
 import { fetchChains, type Chain } from '../_shared/cascade-core/chains.ts';
 import { chainCard, detailsCard, midStayFor, stayOnFor, type Card, type DetailsStay } from './cards.ts';
@@ -198,6 +198,7 @@ async function buildOpsMessage(db: any, today: string, tomorrow: string, chains:
     arrivals: dropJunction(arrivalsData, chains, today, 'next_uid'), departures: dropJunction(departuresData, chains, today, 'first_uid'),
     tmrArrivals: dropJunction(tmrArrivalsData, chains, tomorrow, 'next_uid'), tmrDepartures: dropJunction(tmrDeparturesData, chains, tomorrow, 'first_uid'),
     notices: noticesData ?? [], stock, weather, resRows: resData ?? [], midStay, idMissing,
+    lastUnit: lastUnitNames((inventoryData ?? []) as any[]),
     stayOn: [...stayOnFor(chains, today, 'today'), ...stayOnFor(chains, tomorrow, 'tomorrow')],
   });
   return report ? withHeader(report.kind, friendlyDate(today), renderReport(report)) : null;

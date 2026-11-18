@@ -1,7 +1,7 @@
 // deno test daily-digest/digest.test.ts  (run from supabase/functions)
 import { assertEquals, assert } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { renderReport } from '../_shared/cascade-core/format.ts';
-import { decisionsLine, financeReport, opsReport, weatherLine, weeklyFinanceReport, weeklyOpsReport } from './report.ts';
+import { decisionsLine, financeReport, lastUnitNames, opsReport, weatherLine, weeklyFinanceReport, weeklyOpsReport } from './report.ts';
 import { withHeader } from '../_shared/cascade-core/format.ts';
 
 const base = { today: '2026-09-14', tomorrow: '2026-09-15', arrivals: [], departures: [], tmrArrivals: [], tmrDepartures: [], notices: [], stock: [], weather: null, resRows: [] };
@@ -34,6 +34,19 @@ Deno.test('ops: brownout owns the action; low-but-not-out stock and weather stay
   assertEquals(text.split('\n').filter((l) => l.startsWith('• ')).length, 2);
   assert(text.endsWith('Do: Prepare for the Scheduled brownout at 8:00 AM for 4h (Feeder 3).'));
   assertEquals(weatherLine(null), '');
+});
+
+Deno.test('ops: last-unit items join a digest already going out and never start one (D-375)', () => {
+  assertEquals(lastUnitNames([
+    { name: 'Out', qty_on_hand: 0, reorder_below: 5 },
+    { name: 'Half', qty_on_hand: '0.5', reorder_below: '10' },
+    { name: 'One', qty_on_hand: 1, reorder_below: 1 },
+    { name: 'Above reorder', qty_on_hand: 1, reorder_below: 0.5 },
+    { name: 'Two', qty_on_hand: 2, reorder_below: 5 },
+  ]), ['Half', 'One']);
+  assertEquals(opsReport({ ...base, lastUnit: ['Hand Soap'] }), null);
+  const out = opsReport({ ...base, lastUnit: ['Hand Soap'], stock: [{ name: 'Tea', qty_on_hand: 0, unit: 'pc', runway: 0 }] })!;
+  assertEquals(out.lines, ['📦 Out of stock: Tea', '📦 Down to the last unit: Hand Soap']);
 });
 
 Deno.test('ops: an item at zero fires ATTENTION on a quiet day; a second-morning mid-stay fires DAILY; low stock alone stays silent', () => {
