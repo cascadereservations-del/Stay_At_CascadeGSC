@@ -3,13 +3,22 @@
 --   s_apply_inventory_count_core_v1 3937a6da154fe1ed60471689833f96e2, record_inventory_receipt_v1 7cb59453f37eeeeb15b1e9f4c4ffa883, apply_inventory_purchase 48082c76263e15517d733c65f7eb3ccc,
 --   s_inventory_receipt_apply_v1 4f09a8ae895d945703f60a96705413e7, get_inventory_catalogue_v1 00ca41d933a5c5a9c4498cff682e7844.
 -- A body that is neither the release body nor the original (someone changed it since) stops the rollback (55000) before anything is dropped.
--- Then: unschedules the quarterly job, puts consumption_per_booking back to what it was before the seed (2.00; null for All-Purpose Cleaner, Bathroom tissue, Kitchen towel and Mr Muscle Tough Grease & Grime),
--- drops the refill-mark delete trigger and the new functions, the intervals table and the six columns, and narrows consumption_per_booking back to numeric(10,2)
--- (a rate that was learned to four decimals is rounded to two; the items that carried a baseline are reset to 2.00 / null first).
+-- Then: unschedules the quarterly job, puts consumption_per_booking of every item the release touched (a seeded baseline or a recompute) back to the value it held before the release, read from the
+-- snapshot public.s120_usage_item_snapshot the migration took before any seed (the script stops with 55000 when the snapshot is gone: a rate must never be restored from a guess),
+-- drops the refill-mark delete trigger, the new functions (the received-date helper included), the intervals table, the snapshot and the six columns, and narrows consumption_per_booking back to numeric(10,2).
+-- An item the release did not touch keeps whatever it holds now (a rate edited by hand after the release is not overwritten).
 -- DATA LOSS (by design): every interval, every learned rate, the seeded baselines and the refill marks. Stock counts, purchases and the audit log are untouched.
 -- Roll back any app that reads usageState / usagePerTurnover / get_inventory_usage_kpi_v1 first. Apply with run-sql-on-host.sh.
 
 begin;
+
+-- 0. the snapshot must exist before anything is taken apart ---------------------------------------------------------------------------------------------------------
+do $s$
+begin
+  if to_regclass('public.s120_usage_item_snapshot') is null then
+    raise exception 's120 rollback: public.s120_usage_item_snapshot is missing, so consumption_per_booking cannot be restored from the values before the release' using errcode = '55000';
+  end if;
+end $s$;
 
 -- 1. the four hooks and the catalogue keys -------------------------------------------------------------------------------------------------------------------------
 do $g$
@@ -131,21 +140,24 @@ begin
   end if;
 end $c$;
 
--- 3. the stored rate goes back to what it was before the seed ------------------------------------------------------------------------------------------------------
-update public.inventory_items
-   set consumption_per_booking = case when name in ('All-Purpose Cleaner (Mr Muscle)', 'Bathroom tissue', 'Kitchen towel', 'Mr Muscle Tough Grease & Grime') then null else 2.00 end
- where usage_baseline_per_turnover is not null;
--- any other item that learned a rate with no baseline keeps it, rounded to the old two decimals by the type change below
+-- 3. the stored rate goes back to what it was before the release (from the snapshot, which holds every item as it was) ---------------------------------------------------
+-- Only an item the release touched: seeded (a baseline) or recomputed (usage_updated_at). Any other value is left; the type change below rounds a leftover four-decimal rate to two.
+update public.inventory_items i
+   set consumption_per_booking = s.consumption_per_booking
+  from public.s120_usage_item_snapshot s
+ where s.id = i.id and (i.usage_baseline_per_turnover is not null or i.usage_updated_at is not null);
 alter table public.inventory_items alter column consumption_per_booking type numeric(10,2);
 
 -- 4. objects -------------------------------------------------------------------------------------------------------------------------------------------------------
 drop trigger if exists s120_refill_mark_after_delete on public.inventory_purchases;
 drop function if exists public.s_inventory_refill_mark_after_delete_v1();
+drop function if exists public.s_inventory_received_date_v1(date, timestamptz);
 drop function if exists public.get_inventory_usage_kpi_v1(uuid);
 drop function if exists public.inventory_usage_quarterly_reset_v1();
 drop function if exists public.record_inventory_anchor_v1(uuid, numeric, timestamptz, text);
 drop function if exists public.s_inventory_usage_recompute_v1(uuid, timestamptz);
 drop table if exists public.inventory_usage_intervals;
+drop table if exists public.s120_usage_item_snapshot;
 alter table public.inventory_items
   drop column if exists usage_baseline_per_turnover,
   drop column if exists usage_baseline_note,

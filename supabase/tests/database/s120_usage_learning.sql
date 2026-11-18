@@ -4,7 +4,7 @@
 -- Sessions (days ago): turnover 85 75 65 55 45 35 25 20 15, mid_stay 12 (never counted), deep_clean 8 (counted). Windows below are counted from that list.
 -- Everything rolls back.
 begin;
-select plan(69);
+select plan(97);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -281,6 +281,180 @@ select ok((select e ->> 'usageState' = 'baseline' and (e ->> 'lastRefillQty')::n
              from jsonb_array_elements(public.get_inventory_catalogue_v1('e1200000-0000-4000-8000-0000000000b0') -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000000c6'),
   'catalogue: the live values (baseline state, refill 5, no accepted counts, baseline 1.0, never counted)');
 reset role;
+
+-- S3 re-plan (second failed review): each stay is claimed once per item by construction, the purchase date, same-day purchases, the as-of hook, a quiet recompute, the receive hooks, the rollback snapshot ---------
+-- Absolute Manila dates in properties b2, b3, b4 so every figure is hand-computed; b1 is relative to now() because the count core only takes an as-of time within 60 days.
+create function pg_temp.anca(p_item uuid, p_q numeric, p_at timestamptz) returns jsonb language sql as
+$$ select public.record_inventory_anchor_v1($1, $2, $3, 'count') $$;
+insert into public.properties(id, name, is_active) values
+  ('e1200000-0000-4000-8000-0000000000b1', 'Synthetic S120 relative', true), ('e1200000-0000-4000-8000-0000000000b2', 'Synthetic S120 timeline', true),
+  ('e1200000-0000-4000-8000-0000000000b3', 'Synthetic S120 late report', true), ('e1200000-0000-4000-8000-0000000000b4', 'Synthetic S120 duplicate row', true);
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover) values
+  ('e1200000-0000-4000-8000-0000000001a1', 'e1200000-0000-4000-8000-0000000000b1', 'Zz S120 s3 as-of', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001a2', 'e1200000-0000-4000-8000-0000000000b3', 'Zz S120 s3 late', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001a3', 'e1200000-0000-4000-8000-0000000000b4', 'Zz S120 s3 dup', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b1', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 utc', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b2', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 same-day', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b3', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 priority', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b4', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 after-anchor', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b5', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 ocr', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b6', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 back-dated', 'Other', 'pc', 100, true, true, 2.00, 1.0);
+
+-- 1. the count core honours p_as_of: first count 30 days ago, a count AS OF 10 days ago (stays 28, 24 and 20 days ago are inside; the stay 3 days ago is not)
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type)
+select 'e1200000-0000-4000-8000-0000000000b1', 'zz-s120-r-' || d, 'Fixture', now() - make_interval(days => d), 'turnover' from unnest(array[28, 24, 20, 3]) d;
+insert into _r select 's3o1', pg_temp.anc('e1200000-0000-4000-8000-0000000001a1', 100, interval '30 days');
+insert into _r select 's3o2', public.s_apply_inventory_count_core_v1('zz-s120',
+  jsonb_build_array(jsonb_build_object('item_id', 'e1200000-0000-4000-8000-0000000001a1', 'counted', 60, 'expected_before', 100)), 'fixture as-of count', now() - interval '10 days', null);
+select is((select anchor_at from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000001a1' and accepted), now() - interval '10 days',
+  'as-of: the interval is anchored at the as-of time the count was made for, not at now');
+select is((select consumed || '/' || days || '/' || turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000001a1' and accepted), '40/20.00/3',
+  'as-of: 100 to 60 is 40 used over 20.00 days (not 30) and the 3 stays inside (the one 3 days ago is after the count)');
+
+-- 2. property b3: a stay that ended on 12 Oct is typed on 2 Nov, after the counts of 18 Oct and 30 Oct. Its eff is the end of 12 Oct, before both. Counts: 1 Oct 100, 18 Oct 70, 30 Oct 40, 12 Nov 20.
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date)
+select 'e1200000-0000-4000-8000-0000000000b3', 'zz-s120-l-' || d, 'Fixture', (d::date + time '11:00') at time zone 'Asia/Manila', 'turnover', d::date
+  from unnest(array['2026-10-05', '2026-10-10', '2026-10-15', '2026-10-24', '2026-10-27', '2026-10-28']) d;
+insert into _r select 's3l0', pg_temp.anca('e1200000-0000-4000-8000-0000000001a2', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3l1', pg_temp.anca('e1200000-0000-4000-8000-0000000001a2', 70, timestamptz '2026-10-18 12:00+08');
+insert into _r select 's3l2', pg_temp.anca('e1200000-0000-4000-8000-0000000001a2', 40, timestamptz '2026-10-30 12:00+08');
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date) values
+  ('e1200000-0000-4000-8000-0000000000b3', 'zz-s120-l-late', 'Fixture', timestamptz '2026-11-02 09:00+08', 'turnover', date '2026-10-12');
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date)
+select 'e1200000-0000-4000-8000-0000000000b3', 'zz-s120-l-' || d, 'Fixture', (d::date + time '11:00') at time zone 'Asia/Manila', 'turnover', d::date
+  from unnest(array['2026-11-03', '2026-11-06', '2026-11-09']) d;
+insert into _r select 's3l3', pg_temp.anca('e1200000-0000-4000-8000-0000000001a2', 20, timestamptz '2026-11-12 12:00+08');
+select ok((select x.accepted and x.turnovers = 4 and x.days = 13.00 and x.consumed = 20 and x.turnover_keys @> array['2026-10-12'] from public.inventory_usage_intervals x
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001a2' and x.anchor_at = timestamptz '2026-11-12 12:00+08'),
+  'late report: the stay of 12 Oct typed on 2 Nov is counted by the 12 Nov count (4 stays: it plus 3, 6 and 9 Nov), although it ended before both earlier counts');
+select is((select consumption_per_booking from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001a2'), 4.5::numeric,
+  'late report: the rate is (1.0 * 10 + 30 + 30 + 20) / (10 + 3 + 3 + 4) = 4.5, the late stay included (without it 90 / 19 = 4.7368)');
+select is((select count(*)::int || '/' || count(distinct k.stay_key)::int from public.inventory_usage_intervals x cross join lateral unnest(x.turnover_keys) k(stay_key)
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001a2'), '10/10', 'late report: ten stays claimed by three intervals (3 + 3 + 4), no stay twice');
+
+-- 3. property b4: one stay (checkout 9 Oct) has two rows, the second typed on 12 Oct after the count of 10 Oct. It is counted by the first interval only.
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date)
+select 'e1200000-0000-4000-8000-0000000000b4', 'zz-s120-m-' || d, 'Fixture', (d::date + time '11:00') at time zone 'Asia/Manila', 'turnover', d::date
+  from unnest(array['2026-10-03', '2026-10-06', '2026-10-09', '2026-10-14', '2026-10-16', '2026-10-18']) d;
+insert into _r select 's3m0', pg_temp.anca('e1200000-0000-4000-8000-0000000001a3', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3m1', pg_temp.anca('e1200000-0000-4000-8000-0000000001a3', 85, timestamptz '2026-10-10 12:00+08');
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date) values
+  ('e1200000-0000-4000-8000-0000000000b4', 'zz-s120-m-dup', 'Fixture', timestamptz '2026-10-12 09:00+08', 'turnover', date '2026-10-09');
+insert into _r select 's3m2', pg_temp.anca('e1200000-0000-4000-8000-0000000001a3', 70, timestamptz '2026-10-20 12:00+08');
+select is((select turnovers from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000001a3' and anchor_at = timestamptz '2026-10-20 12:00+08'), 3,
+  'duplicate row: the 20 Oct count claims the stays of 14, 16 and 18 Oct only (the stay of 9 Oct, reported again after the 10 Oct count, is already claimed)');
+select ok((select x.turnover_keys @> array['2026-10-09'] from public.inventory_usage_intervals x where x.item_id = 'e1200000-0000-4000-8000-0000000001a3' and x.anchor_at = timestamptz '2026-10-10 12:00+08')
+      and not (select x.turnover_keys @> array['2026-10-09'] from public.inventory_usage_intervals x where x.item_id = 'e1200000-0000-4000-8000-0000000001a3' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'duplicate row: the stay of 9 Oct belongs to the 10 Oct interval and not to the 20 Oct one');
+select is((select count(*)::int || '/' || count(distinct k.stay_key)::int from public.inventory_usage_intervals x cross join lateral unnest(x.turnover_keys) k(stay_key)
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001a3'), '6/6', 'duplicate row: six stays claimed (3 + 3), none twice (the old rule counted the stay of 9 Oct in both: 7)');
+
+-- 4. property b2: one timeline for the purchase and back-dating tests. Stays 3, 5, 8 | 14, 16, 18 | 24, 26, 28 Oct (cleaned 11:00 on the checkout day). Counts 1 Oct, 10 Oct, 20 Oct, 30 Oct (12:00 Manila).
+insert into public.cleaning_sessions(property_id, submission_id, cleaner_name, cleaned_at, cleaning_type, checkout_date)
+select 'e1200000-0000-4000-8000-0000000000b2', 'zz-s120-t-' || d, 'Fixture', (d::date + time '11:00') at time zone 'Asia/Manila', 'turnover', d::date
+  from unnest(array['2026-10-03', '2026-10-05', '2026-10-08', '2026-10-14', '2026-10-16', '2026-10-18', '2026-10-24', '2026-10-26', '2026-10-28']) d;
+
+-- UTC default: a purchase typed at 05:00 Manila on 11 Oct carries the UTC date 10 Oct (the column default). Its Manila date is 11 Oct, after the 10 Oct count: received between, and not a same-day purchase.
+insert into _r select 's3q0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b1', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3q1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b1', 70, timestamptz '2026-10-10 12:00+08');
+insert into public.inventory_purchases(id, item_id, qty, purchased_at, created_at) values ('e1200000-0000-4000-8000-0000000001e1', 'e1200000-0000-4000-8000-0000000001b1', 50, date '2026-10-10', timestamptz '2026-10-11 05:00+08');
+insert into _r select 's3q2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b1', 90, timestamptz '2026-10-20 12:00+08');
+select ok((select x.accepted and x.received_between = 50 and x.consumed = 30 and x.turnovers = 3 from public.inventory_usage_intervals x
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001b1' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'UTC default: a purchase typed before 08:00 Manila (10 Oct by default, 11 Oct in Manila) is received and not a same-day purchase: 70 + 50 - 90 = 30, accepted');
+
+-- same-day purchase: typed on 12 Oct and dated 10 Oct (the day of the 10 Oct count) it may already be in that count: the 20 Oct interval is rejected, the anchor moves, its 3 stays are claimed.
+insert into _r select 's3r0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b2', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3r1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b2', 70, timestamptz '2026-10-10 12:00+08');
+insert into public.inventory_purchases(id, item_id, qty, purchased_at, created_at) values ('e1200000-0000-4000-8000-0000000001e2', 'e1200000-0000-4000-8000-0000000001b2', 20, date '2026-10-10', timestamptz '2026-10-12 09:00+08');
+insert into _r select 's3r2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b2', 75, timestamptz '2026-10-20 12:00+08');
+select ok((select not x.accepted and x.reject_reason = 'same-day purchase' and x.turnovers = 3 and x.consumed = 15 and x.received_between = 20 from public.inventory_usage_intervals x
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001b2' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'same-day purchase: rejected with that reason, the anchor moved to 20 Oct and its 3 stays are claimed (70 + 20 - 75 = 15)');
+insert into _r select 's3r3', pg_temp.anca('e1200000-0000-4000-8000-0000000001b2', 60, timestamptz '2026-10-30 12:00+08');
+select ok((select x.accepted and x.turnovers = 3 and x.consumed = 15 and x.received_between = 0 and x.prev_anchor_at = timestamptz '2026-10-20 12:00+08' from public.inventory_usage_intervals x
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001b2' and x.anchor_at = timestamptz '2026-10-30 12:00+08'),
+  'same-day purchase: the next count measures from the moved anchor and claims only the stays of 24, 26 and 28 Oct (75 - 60 = 15, accepted)');
+
+-- reason order: with the same purchase and a count far above what was recorded, unrecorded restock is still the reason (70 + 5 - 100 = -25 stays negative with the purchase ignored)
+insert into _r select 's3s0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b3', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3s1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b3', 70, timestamptz '2026-10-10 12:00+08');
+insert into public.inventory_purchases(id, item_id, qty, purchased_at, created_at) values ('e1200000-0000-4000-8000-0000000001e3', 'e1200000-0000-4000-8000-0000000001b3', 5, date '2026-10-10', timestamptz '2026-10-12 09:00+08');
+insert into _r select 's3s2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b3', 100, timestamptz '2026-10-20 12:00+08');
+select is((select x.reject_reason from public.inventory_usage_intervals x where x.item_id = 'e1200000-0000-4000-8000-0000000001b3' and x.anchor_at = timestamptz '2026-10-20 12:00+08'), 'unrecorded restock',
+  'reason order: unrecorded restock comes before same-day purchase');
+
+-- created after the anchor: a purchase entered on 22 Oct is not in the count of 20 Oct (70 - 60 = 10 used, nothing received)
+insert into _r select 's3t0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b4', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3t1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b4', 70, timestamptz '2026-10-10 12:00+08');
+insert into public.inventory_purchases(id, item_id, qty, purchased_at, created_at) values ('e1200000-0000-4000-8000-0000000001e4', 'e1200000-0000-4000-8000-0000000001b4', 30, date '2026-10-22', timestamptz '2026-10-22 09:00+08');
+insert into _r select 's3t2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b4', 60, timestamptz '2026-10-20 12:00+08');
+select ok((select x.accepted and x.received_between = 0 and x.consumed = 10 from public.inventory_usage_intervals x where x.item_id = 'e1200000-0000-4000-8000-0000000001b4' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'created after the anchor: a purchase entered on 22 Oct is not received by the count of 20 Oct (received 0, consumed 10, not -20)');
+
+-- OCR branch: a restock dated 5 Oct (before the 10 Oct count) and entered on 15 Oct was already on the shelf at the count: the audit row is not received between
+insert into _r select 's3p0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b5', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3p1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b5', 70, timestamptz '2026-10-10 12:00+08');
+insert into public.inventory_purchases(id, item_id, qty, notes, purchased_at, created_at) values
+  ('e1200000-0000-4000-8000-0000000001e5', 'e1200000-0000-4000-8000-0000000001b5', 7, 'Auto-restock from receipt OCR zz120', date '2026-10-05', timestamptz '2026-10-15 09:00+08');
+insert into public.inventory_audit_log(entity_type, entity_id, action, after, actor, created_at)
+  values ('inventory_items', 'e1200000-0000-4000-8000-0000000001b5', 'ocr_restock', '{"qty_added": 7, "purchase_id": "e1200000-0000-4000-8000-0000000001e5"}', 'zz120', timestamptz '2026-10-15 09:00+08');
+insert into _r select 's3p2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b5', 63, timestamptz '2026-10-20 12:00+08');
+select ok((select x.accepted and x.received_between = 0 and x.consumed = 7 from public.inventory_usage_intervals x where x.item_id = 'e1200000-0000-4000-8000-0000000001b5' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'OCR branch: a restock dated before the previous count is not received between (received 0, consumed 7, not 0)');
+
+-- back-dated count: a count dated 15 Oct arrives after the counts of 10 and 20 Oct: skipped, no row, and every stay stays in exactly one interval
+insert into _r select 's3n0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b6', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3n1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b6', 70, timestamptz '2026-10-10 12:00+08');
+insert into _r select 's3n2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b6', 50, timestamptz '2026-10-20 12:00+08');
+insert into _r select 's3n3', pg_temp.anca('e1200000-0000-4000-8000-0000000001b6', 60, timestamptz '2026-10-15 12:00+08');
+select ok((select v ->> 'skipped' from _r where k = 's3n3') = 'older_than_latest'
+          and (select count(*) from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000001b6') = 3
+          and (select count(*)::int || '/' || count(distinct k.stay_key)::int from public.inventory_usage_intervals x cross join lateral unnest(x.turnover_keys) k(stay_key) where x.item_id = 'e1200000-0000-4000-8000-0000000001b6') = '6/6',
+  'back-dated: the 15 Oct count is skipped and writes no row; the other counts hold six stays, each once');
+
+-- the received date helper
+select is(public.s_inventory_received_date_v1(date '2026-10-10', timestamptz '2026-10-10 21:00+00'), date '2026-10-11', 'received date: the UTC default typed at 05:00 Manila is the Manila date');
+select is(public.s_inventory_received_date_v1(date '2026-10-05', timestamptz '2026-10-10 21:00+00'), date '2026-10-05', 'received date: a purchase date that is not the default is kept');
+select is(public.s_inventory_received_date_v1(null, timestamptz '2026-10-10 21:00+00'), date '2026-10-11', 'received date: a null purchase date is the Manila date of entry');
+select ok(not has_function_privilege('anon', 'public.s_inventory_received_date_v1(date,timestamptz)', 'execute')
+      and not has_function_privilege('authenticated', 'public.s_inventory_received_date_v1(date,timestamptz)', 'execute')
+      and not has_function_privilege('service_role', 'public.s_inventory_received_date_v1(date,timestamptz)', 'execute'), 'received date: the helper is internal, no API role can call it');
+
+-- the rollback snapshot: closed, and it holds every item that existed when the release ran (items made in this suite are newer than it)
+select ok((select relrowsecurity from pg_class where oid = 'public.s120_usage_item_snapshot'::regclass)
+      and not has_table_privilege('anon', 'public.s120_usage_item_snapshot', 'select, insert, update, delete')
+      and not has_table_privilege('authenticated', 'public.s120_usage_item_snapshot', 'select, insert, update, delete')
+      and not has_table_privilege('service_role', 'public.s120_usage_item_snapshot', 'select, insert, update, delete'), 'snapshot: RLS on and no grant to any API role');
+select is((select count(*)::int from public.inventory_items i where coalesce(i.created_at, '-infinity') < (select max(s.taken_at) from public.s120_usage_item_snapshot s)
+            and not exists (select 1 from public.s120_usage_item_snapshot s where s.id = i.id)), 0, 'snapshot: every item that existed when the release ran is in it');
+
+-- a recompute that changes nothing writes nothing (usage_updated_at is moved back to 2000 so a write would show)
+update public.inventory_items set usage_updated_at = timestamptz '2000-01-01 00:00+00' where id = 'e1200000-0000-4000-8000-0000000000a1';
+select public.s_inventory_usage_recompute_v1('e1200000-0000-4000-8000-0000000000a1', now());
+select is((select usage_updated_at from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a1'), timestamptz '2000-01-01 00:00+00', 'quiet recompute: nothing changed, so the row was not written');
+update public.inventory_items set consumption_per_booking = 9.9 where id = 'e1200000-0000-4000-8000-0000000000a1';
+select public.s_inventory_usage_recompute_v1('e1200000-0000-4000-8000-0000000000a1', now());
+select is((select consumption_per_booking || '/' || (usage_updated_at = now())::text from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a1'), '3.5714/true',
+  'quiet recompute: a changed rate is put back and the row is written');
+
+-- each receive hook keeps its receipt when the hook fails (a trigger refuses any change of the refill mark on this item)
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, units_per_purchase, consumption_per_booking, usage_baseline_per_turnover) values
+  ('e1200000-0000-4000-8000-0000000001c7', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 s3 hookfail', 'Other', 'pc', 10, true, true, 1, 2.00, 1.0);
+create function public.zz_s120_boom2() returns trigger language plpgsql as
+$$ begin if new.id = 'e1200000-0000-4000-8000-0000000001c7' and new.last_refill_at is distinct from old.last_refill_at then raise exception 'boom2'; end if; return new; end $$;
+create trigger zz_s120_boom2 before update on public.inventory_items for each row execute function public.zz_s120_boom2();
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200000-0000-4000-8000-000000000001"}';
+select is(((public.record_inventory_receipt_v1('e1200000-0000-4000-8000-0000000001c7', 2, null, 'Zz S120 vendor', public.manila_today(), null, null, 'zz-s120-receipt-key-0002', null)) ->> 'unitsAdded')::numeric, 2::numeric,
+  'hook failure: the admin receipt still succeeds');
+reset role;
+select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '12/none', 'hook failure: the receipt stock is kept and only the refill mark was lost');
+insert into _r select 's3ocr', public.apply_inventory_purchase('e1200000-0000-4000-8000-0000000001c7', 3, 60, 'Zz S120 vendor', public.manila_today(), null, null);
+select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '15/none', 'hook failure: the OCR restock still adds its stock');
+select isnt(public.s_inventory_receipt_apply_v1('e1200000-0000-4000-8000-0000000001c7', 4, null, 'Zz S120 vendor', null, public.manila_today(), null, 'e1200000-0000-4000-8000-0000000000d2'), null::uuid, 'hook failure: the staff receipt still writes its purchase row');
+select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '19/none', 'hook failure: and its stock');
+drop trigger zz_s120_boom2 on public.inventory_items;
 
 -- 56-58. a failing hook never blocks a count ---------------------------------------------------------------------------------------------------
 create function public.zz_s120_boom() returns trigger language plpgsql as $$ begin raise exception 'boom'; end $$;

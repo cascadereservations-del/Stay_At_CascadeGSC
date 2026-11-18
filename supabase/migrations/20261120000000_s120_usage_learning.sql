@@ -1,20 +1,25 @@
 -- 20261120000000_s120_usage_learning.sql
 -- Session 120 (lane S): release s120_usage_learning_20261120. Spec docs/s118/SPEC-usage-learning.md (APPROVED), baselines docs/s118/BASELINE-usage-per-turnover.md.
 -- Consumable usage per turnover now learns from counts and refills. Every consumable carried consumption_per_booking = 2.00 (an unset default), so coverage read "1 to 2 days".
--- Revised after the Opus review of 44e6647 (docs/s120/review-lane-S-1.md, NO_GO): findings 1-6 and 8-14 are fixed here. Finding 7 (the daily-digest stock alert threshold) is Lloyd's decision and is NOT touched.
+-- Revised after the Opus review of 44e6647 (docs/s120/review-lane-S-1.md, NO_GO): findings 1-6 and 8-14 are fixed here. Finding 7 (the daily-digest stock alert threshold) is settled by D-375 on the waves side and is NOT touched here.
+-- Re-planned after a second failed review (lane S3, 2026-11-18): the turnover count is now by construction (each stay is claimed by exactly one interval of an item, see TURNOVERS BY CONSTRUCTION),
+-- the purchase date has one helper, a same-day purchase rejects the interval, the rollback restores real values from a snapshot, and a recompute that changes nothing writes nothing.
 -- NOT built: units_per_pack (brief item 9). The item-level units_per_purchase already converts packs to base units on every receive path, and the interval maths reads base units only.
 --
 -- WHAT THIS ADDS (all additive; no existing signature, grant or result key changes)
 --   inventory_items.consumption_per_booking   numeric(10,2) -> numeric(10,4) FIRST (learned rates run from 0.01 to 4; two decimals cut 0.0048 to 0.00 and 0.116 to 0.12)
 --   inventory_items       + usage_baseline_per_turnover, usage_baseline_note, usage_state (baseline | learning | measured), last_refill_at, last_refill_qty, usage_updated_at
---   inventory_usage_intervals   one row per anchor (RLS on, no grant to any API role; read only through get_inventory_usage_kpi_v1)
+--   inventory_usage_intervals   one row per anchor (RLS on, no grant to any API role; read only through get_inventory_usage_kpi_v1); turnover_keys = the stays this interval claimed
+--   s120_usage_item_snapshot    id + consumption_per_booking of every inventory item as it was BEFORE this release (RLS on, no API grant); the rollback restores from it and drops it
+--   s_inventory_received_date_v1(purchased_at, created_at)   internal, no grants: the date a purchase really arrived (see PURCHASE DATE)
 --   record_inventory_anchor_v1(item, qty_now, anchor_at, source)   internal, no grants. source 'count': closes an interval against the previous anchor, accepts it when
---                         days >= 7 and turnovers >= 3 and consumed >= 0, then recomputes the learned rate. source 'receipt': marks the refill only (see below).
+--                         days >= 7 and turnovers >= 3 and consumed >= 0 and no same-day purchase, then recomputes the learned rate. source 'receipt': marks the refill only (see below).
 --   s_inventory_usage_recompute_v1(item, at)   internal, no grants. rate = (baseline*10 + sum consumed) / (10 + sum turnovers) over accepted intervals in the 90 days to `at`;
 --                         once the accepted intervals cover >= 60 days (each interval clamped to the 90-day window) the state is 'measured' and the prior drops out (pure 90-day
 --                         average) when the sum consumed is above 0; a measured item with zero usage keeps the prior formula (a rate of 0 would read "not enough history"). Writes consumption_per_booking.
 --                         record_inventory_anchor_v1 skips movement-controlled, non-consumable and inactive items; a count at the same instant as a stored anchor is a duplicate;
---                         a count older than the newest anchor returns {ok:true, skipped:'older_than_latest'} (it would rewrite history).
+--                         a count older than the newest anchor returns {ok:true, skipped:'older_than_latest'} (it would rewrite history: the later interval was measured from the newer anchor).
+--                         The recompute writes the item only when usage_state or the rate would change, so a recompute that changes nothing cannot trip the receipt undo window.
 --   inventory_usage_quarterly_reset_v1()   internal, no grants; pg_cron job inventory-usage-quarterly-reset (1 Jan/Apr/Jul/Oct 20:00 UTC) when pg_cron exists. Recomputes every
 --                         learning or measured item at now(), so an item nobody counted for 90 days falls back to its baseline.
 --   inventory_purchases AFTER DELETE trigger: an undone receipt recomputes last_refill_at / last_refill_qty from the purchases that remain.
@@ -35,13 +40,24 @@
 --     (received_between). received_between = inventory_purchases.qty (base units, already pack-converted by every receive path) with created_at in the window and purchased_at
 --     not before the previous anchor's Manila date (a back-dated purchase was already on the shelf at that count), except Telegram OCR rows, which are read from the
 --     ocr_restock audit row exactly as inventory_qty_at_v1 does (rows before 20261020 held packs) under the same date rule.
---   * Turnovers of an interval are the cleaning sessions whose EFFECTIVE time falls in (previous anchor, this anchor]. A report entered late is dated by its stay, not by when it was
---     typed: effective time = the earlier of cleaned_at and the end of the checkout_date (Manila); with no checkout_date it is cleaned_at. (A plain checkout_date comparison would count 12 for
---     27 Oct to 18 Nov, because one stay checked out on 18 Nov and was cleaned at 22:03 after the count; the effective time counts it by its stay.)
+--   * TURNOVERS BY CONSTRUCTION. A stay has a key: checkout_date::text, or the session id for a session with no checkout date. Its effective time eff is the MINIMUM over all its rows of
+--     least(cleaned_at, end of the checkout_date in Manila) (turnover and deep_clean sessions of the property). A new interval claims every key with eff <= this anchor and eff > the item's FIRST
+--     anchor that no other interval of the item has claimed, whatever that interval's date; interval.turnovers is the number claimed and turnover_keys lists them. So a stay is counted once per item
+--     whether it is reported late, reported on either side of a count (two rows of one checkout), or reached by a back-dated count; the old per-interval date windows and the late-report branch are gone.
+--     (The 27 Oct to 18 Nov interval still reads 17: one stay checked out on 18 Nov and was cleaned at 22:03 after the count, and eff dates it by its stay.)
+--     Serialisation: record_inventory_anchor_v1 takes the item row FOR UPDATE first, so two counts of one item queue and the second reads the first one's claimed keys (READ COMMITTED sees them).
+--   * PURCHASE DATE. inventory_purchases.purchased_at defaults to CURRENT_DATE, and production runs on UTC, so a purchase typed between 00:00 and 08:00 in Manila carries the previous day.
+--     s_inventory_received_date_v1 returns the Manila date of created_at when purchased_at is null or equals the UTC date of created_at (the default), else purchased_at. Used in both receipt branches of
+--     received_between (purchases and the OCR audit rows), in the same-day test and in the refill mark after an undo.
+--     shortcut: a date typed by hand that happens to equal the UTC date of entry reads as the default, so it moves to the Manila date (one day later, only for entries between 00:00 and 08:00 Manila);
+--     upgrade when the column default becomes manila_today().
+--   * SAME-DAY PURCHASE. A purchase created after the previous count whose received date equals that count's Manila date may already be in the count (a refill bought that morning, entered after the count).
+--     The interval is rejected with reason 'same-day purchase'; the anchor still moves and its stay keys are still claimed. Reason order: unrecorded restock, same-day purchase, too short, too few turnovers.
+--     'unrecorded restock' (consumed < 0) stays first because it is still true with that purchase ignored: dropping a purchase from received only lowers consumed, so it cannot turn a negative into a positive.
 --   * qty_now of a count is the counted figure at as_of (or now); qty_prev is the previous anchor's qty_now. The 27 Oct 'count of 16 Oct printout recorded as current stock' anchors at the
 --     printout, 16 Oct 08:21 Manila (D-351: the inventory is 16 Oct and later consumptions count against that list), so the first interval runs 16 Oct to 18 Nov (17 turnovers).
 --   * A count that is not older than the previous anchor never reuses the same instant: (item_id, anchor_at) is unique, a replay is a no-op (idempotent).
---   * Rejected intervals still move the anchor (spec): 'too short', 'too few turnovers' and 'unrecorded restock' (consumed < 0, purchase nobody recorded) are kept as rows and never learned.
+--   * Rejected intervals still move the anchor (spec): 'too short', 'too few turnovers', 'same-day purchase' and 'unrecorded restock' (consumed < 0, purchase nobody recorded) are kept as rows and never learned.
 --   * With no accepted interval in the 90-day window the item falls back to state 'baseline' and consumption_per_booking = its baseline.
 --   * A baseline of null (no research figure) learns the pure average (no prior); with no accepted interval consumption_per_booking is left as it is.
 --   * Movement-controlled items are skipped (their ledger is the measurement). Inactive items are skipped by the backfill, so the 18 Nov split (old "Tissues / Paper Towels"
@@ -60,18 +76,35 @@
 --   get_inventory_catalogue_v1             00ca41d933a5c5a9c4498cff682e7844   (20261020000000_s86_inventory_db.sql)
 -- Each replacement is the live body with ONE inserted block (patched in place inside a DO, so the migration starts from whatever the live body is, never from a stale copy).
 -- Grants restated (ML-21) for every function this file creates or replaces.
--- Rollback: supabase/rollbacks/20261120_s120_usage_learning.sql (DATA LOSS by design: the intervals and the learned values).
+-- Rollback: supabase/rollbacks/20261120_s120_usage_learning.sql (DATA LOSS by design: the intervals and the learned values; consumption_per_booking returns to the snapshot values).
 --
--- FORWARD CHECKS (also in supabase/releases/20261120_s120_usage_learning.release.json):
+-- FORWARD CHECKS (also in supabase/releases/s120_usage_learning_20261120.release.json):
 --   select count(*) = 6 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name in
 --     ('usage_baseline_per_turnover','usage_baseline_note','usage_state','last_refill_at','last_refill_qty','usage_updated_at');
 --   select relrowsecurity from pg_class where oid = 'public.inventory_usage_intervals'::regclass;
 --   select count(*) = 4 from pg_proc where prosrc like '%record_inventory_anchor_v1%' and proname in
 --     ('s_apply_inventory_count_core_v1','record_inventory_receipt_v1','apply_inventory_purchase','s_inventory_receipt_apply_v1');
 --   select numeric_scale = 4 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking';
+--   select count(*) = 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_usage_intervals' and column_name = 'turnover_keys';
+--   select not exists (select 1 from public.inventory_items i where not exists (select 1 from public.s120_usage_item_snapshot s where s.id = i.id)) and exists (select 1 from public.s120_usage_item_snapshot);
 --   the replayed rates of Laundry Detergent, Hand Soap and Insect Spray: 1.5926, 0.1074, 0.0556 (17 turnovers; consumed 23, 2, 1 against baselines 2.0, 0.09, 0.05)
 
 begin;
+
+-- 0. rollback snapshot: consumption_per_booking of every item as it is BEFORE the type change and every seed (the rollback restores from it and drops it) -------------------------------
+-- on conflict do nothing: a re-run keeps the first, real values.
+create table if not exists public.s120_usage_item_snapshot (
+  id uuid primary key,
+  consumption_per_booking numeric,
+  taken_at timestamptz not null default now()
+);
+alter table public.s120_usage_item_snapshot enable row level security;
+revoke all on table public.s120_usage_item_snapshot from public, anon, authenticated, service_role;
+comment on table public.s120_usage_item_snapshot is
+  'S120: inventory_items.consumption_per_booking before the usage-learning release. Read by the rollback only; no API grant.';
+insert into public.s120_usage_item_snapshot(id, consumption_per_booking)
+select i.id, i.consumption_per_booking from public.inventory_items i
+on conflict (id) do nothing;
 
 -- 1. columns ---------------------------------------------------------------------------------------------------------------------------------------------------
 -- numeric(10,2) cut every learned rate to two decimals: widen it before anything is seeded. No view depends on the column (checked on production 2026-11-18).
@@ -98,6 +131,7 @@ create table if not exists public.inventory_usage_intervals (
   consumed numeric,
   days numeric,
   turnovers integer,
+  turnover_keys text[] not null default '{}',
   predicted numeric,
   accepted boolean not null default false,
   reject_reason text,
@@ -112,14 +146,27 @@ create index if not exists inventory_usage_intervals_property_idx on public.inve
 alter table public.inventory_usage_intervals enable row level security;
 revoke all on table public.inventory_usage_intervals from public, anon, authenticated, service_role;
 comment on table public.inventory_usage_intervals is
-  'S120: one row per physical count of a consumable. The first count of an item is reject_reason first anchor. Later rows hold consumed = qty_prev + received_between - qty_now over days and turnovers; accepted only when days >= 7, turnovers >= 3, consumed >= 0. No API grant: read through get_inventory_usage_kpi_v1.';
+  'S120: one row per physical count of a consumable. The first count of an item is reject_reason first anchor. Later rows hold consumed = qty_prev + received_between - qty_now over days and turnovers (turnover_keys = the stays this interval claimed; a stay is in at most one interval of an item); accepted only when days >= 7, turnovers >= 3, consumed >= 0 and no same-day purchase. No API grant: read through get_inventory_usage_kpi_v1.';
+
+-- 2b. internal: the date a purchase really arrived --------------------------------------------------------------------------------------------------------------------------
+-- shortcut: purchased_at equal to the UTC date of created_at is read as the CURRENT_DATE default and replaced by the Manila date of created_at; a hand-typed date equal to that UTC date moves one day
+-- later when entered between 00:00 and 08:00 Manila. Upgrade when inventory_purchases.purchased_at defaults to manila_today().
+create or replace function public.s_inventory_received_date_v1(p_purchased_at date, p_created_at timestamptz)
+returns date language sql immutable set search_path = '' as $$
+  select case when p_purchased_at is null or p_purchased_at = (p_created_at at time zone 'UTC')::date
+              then (p_created_at at time zone 'Asia/Manila')::date
+              else p_purchased_at end
+$$;
+comment on function public.s_inventory_received_date_v1(date, timestamptz) is
+  'S120: the date a purchase arrived. purchased_at defaults to the UTC date, so a value equal to the UTC date of created_at (or null) means the Manila date of created_at; any other purchased_at is kept.';
+revoke all on function public.s_inventory_received_date_v1(date, timestamptz) from public, anon, authenticated, service_role;
 
 -- 3. internal: recompute the learned rate ----------------------------------------------------------------------------------------------------------------------
 create or replace function public.s_inventory_usage_recompute_v1(p_item_id uuid, p_at timestamptz)
 returns void language plpgsql security definer set search_path = '' as $$
 declare
   i public.inventory_items%rowtype;
-  v_n integer; v_sum numeric; v_turn numeric; v_days numeric; v_state text; v_rate numeric;
+  v_n integer; v_sum numeric; v_turn numeric; v_days numeric; v_state text; v_rate numeric; v_new numeric;
 begin
   select * into i from public.inventory_items where id = p_item_id;
   if not found then return; end if;
@@ -140,9 +187,11 @@ begin
                    when i.usage_baseline_per_turnover is null then nullif(v_sum, 0) / v_turn
                    else (i.usage_baseline_per_turnover * 10 + v_sum) / (10 + v_turn) end;
   end if;
+  v_new := coalesce(round(v_rate, 4), i.consumption_per_booking);
+  -- write only a change: an unchanged row must not move updated_at (the receipt undo window reads it)
   update public.inventory_items
-     set usage_state = v_state, consumption_per_booking = coalesce(round(v_rate, 4), consumption_per_booking), usage_updated_at = now()
-   where id = p_item_id;
+     set usage_state = v_state, consumption_per_booking = v_new, usage_updated_at = now()
+   where id = p_item_id and (usage_state is distinct from v_state or consumption_per_booking is distinct from v_new);
 end $$;
 
 comment on function public.s_inventory_usage_recompute_v1(uuid, timestamptz) is
@@ -157,6 +206,7 @@ declare
   i public.inventory_items%rowtype;
   v_prev public.inventory_usage_intervals%rowtype;
   v_recv numeric; v_consumed numeric; v_days numeric; v_turn integer; v_ok boolean; v_reason text; v_pred numeric; v_id uuid;
+  v_first timestamptz; v_day date; v_same boolean; v_keys text[];
 begin
   if p_item_id is null or p_anchor_at is null or p_source is null or p_source not in ('count', 'receipt') then
     return jsonb_build_object('ok', false, 'reason', 'bad_args');
@@ -190,31 +240,42 @@ begin
     return jsonb_build_object('ok', true, 'first_anchor', v_id is not null, 'duplicate', v_id is null);
   end if;
 
+  v_first := (select min(x.anchor_at) from public.inventory_usage_intervals x where x.item_id = i.id);
+  v_day := (v_prev.anchor_at at time zone 'Asia/Manila')::date;
+
   -- received between the two anchors, in base units; Telegram OCR rows come from the audit row (their purchase row held packs before 20261020), a purchase undone since is ignored
-  -- A purchase dated before the previous count was already on the shelf at that count (a refill recorded late), so it is not "received between".
+  -- A purchase received before the previous count's day was already on the shelf at that count (a refill recorded late), so it is not "received between".
+  -- A purchase created after this count (p_anchor_at may be an as-of time in the past) cannot be in it either.
   v_recv := coalesce((select sum(p.qty) from public.inventory_purchases p
                        where p.item_id = i.id and p.created_at > v_prev.anchor_at and p.created_at <= p_anchor_at
-                         and coalesce(p.purchased_at, (p.created_at at time zone 'Asia/Manila')::date) >= (v_prev.anchor_at at time zone 'Asia/Manila')::date
+                         and public.s_inventory_received_date_v1(p.purchased_at, p.created_at) >= v_day
                          and coalesce(p.notes, '') not like 'Auto-restock from receipt OCR%'), 0)
           + coalesce((select sum((a.after ->> 'qty_added')::numeric) from public.inventory_audit_log a
                        where a.entity_type = 'inventory_items' and a.entity_id = i.id and a.action = 'ocr_restock'
                          and a.created_at > v_prev.anchor_at and a.created_at <= p_anchor_at
                          and exists (select 1 from public.inventory_purchases p where p.id::text = a.after ->> 'purchase_id'
-                                        and coalesce(p.purchased_at, (p.created_at at time zone 'Asia/Manila')::date) >= (v_prev.anchor_at at time zone 'Asia/Manila')::date)), 0);
+                                        and public.s_inventory_received_date_v1(p.purchased_at, p.created_at) >= v_day)), 0);
   v_consumed := v_prev.qty_now + v_recv - p_qty_now;
   v_days := round(extract(epoch from (p_anchor_at - v_prev.anchor_at)) / 86400.0, 2);
-  -- turnovers dated by the stay: a report typed late counts in the interval its stay ended in (effective time = the earlier of cleaned_at and the end of the checkout_date, Manila)
-  -- A report typed after the previous count for a stay that ended before it (cleaned_at in this interval, eff in the interval before) belongs to no earlier interval, so it counts here once
-  -- (only when the previous anchor itself closed an interval: the first anchor stays excluded). One turnover per stay: duplicate rows of one checkout_date count once; undated sessions count each.
-  select count(distinct s.checkout_date) + count(*) filter (where s.checkout_date is null) into v_turn from (
-    select cs.checkout_date, cs.cleaned_at,
-           least(cs.cleaned_at, coalesce(((cs.checkout_date + 1)::timestamp at time zone 'Asia/Manila') - interval '1 second', cs.cleaned_at)) as eff
-      from public.cleaning_sessions cs
-     where cs.property_id = i.property_id and coalesce(cs.cleaning_type, 'turnover') in ('turnover', 'deep_clean')) s
-   where (s.eff > v_prev.anchor_at and s.eff <= p_anchor_at)
-      or (v_prev.prev_anchor_at is not null and s.cleaned_at > v_prev.anchor_at and s.cleaned_at <= p_anchor_at
-          and s.eff > v_prev.prev_anchor_at and s.eff <= v_prev.anchor_at);
+  -- a purchase entered after the previous count but received on that count's day may already be in it: the interval cannot be trusted
+  v_same := exists (select 1 from public.inventory_purchases p
+                     where p.item_id = i.id and p.created_at > v_prev.anchor_at and p.created_at <= p_anchor_at
+                       and public.s_inventory_received_date_v1(p.purchased_at, p.created_at) = v_day);
+
+  -- turnovers by construction: claim every stay of the property not yet claimed by another interval of this item. A stay is one key (checkout_date text, or the session id when there is no
+  -- checkout date); its eff is the earliest over its rows of least(cleaned_at, end of the checkout_date in Manila). Claimed: eff after the item's first anchor and up to this anchor,
+  -- whatever date the claiming interval has, so a late report, a duplicate row typed after a count and a count read out of order each count the stay once.
+  select coalesce(array_agg(k.stay_key order by k.eff, k.stay_key), '{}'::text[]) into v_keys
+    from (select coalesce(cs.checkout_date::text, cs.id::text) as stay_key,
+                 min(least(cs.cleaned_at, coalesce(((cs.checkout_date + 1)::timestamp at time zone 'Asia/Manila') - interval '1 second', cs.cleaned_at))) as eff
+            from public.cleaning_sessions cs
+           where cs.property_id = i.property_id and coalesce(cs.cleaning_type, 'turnover') in ('turnover', 'deep_clean')
+           group by coalesce(cs.checkout_date::text, cs.id::text)) k
+   where k.eff <= p_anchor_at and k.eff > v_first
+     and not exists (select 1 from public.inventory_usage_intervals x where x.item_id = i.id and k.stay_key = any (x.turnover_keys));
+  v_turn := cardinality(v_keys);
   if v_consumed < 0 then v_reason := 'unrecorded restock';
+  elsif v_same then v_reason := 'same-day purchase';
   elsif v_days < 7 then v_reason := 'too short';
   elsif v_turn < 3 then v_reason := 'too few turnovers';
   end if;
@@ -222,8 +283,8 @@ begin
   -- what the rate in force before this count predicted for these turnovers (the forecast error the KPI reports)
   if v_ok and i.consumption_per_booking is not null then v_pred := i.consumption_per_booking * v_turn; end if;
 
-  insert into public.inventory_usage_intervals(property_id, item_id, prev_anchor_at, anchor_at, qty_prev, received_between, qty_now, consumed, days, turnovers, predicted, accepted, reject_reason, source)
-  values (i.property_id, i.id, v_prev.anchor_at, p_anchor_at, v_prev.qty_now, v_recv, p_qty_now, v_consumed, v_days, v_turn, v_pred, v_ok, v_reason, 'count')
+  insert into public.inventory_usage_intervals(property_id, item_id, prev_anchor_at, anchor_at, qty_prev, received_between, qty_now, consumed, days, turnovers, turnover_keys, predicted, accepted, reject_reason, source)
+  values (i.property_id, i.id, v_prev.anchor_at, p_anchor_at, v_prev.qty_now, v_recv, p_qty_now, v_consumed, v_days, v_turn, v_keys, v_pred, v_ok, v_reason, 'count')
   on conflict (item_id, anchor_at) do nothing returning id into v_id;
   if v_id is null then return jsonb_build_object('ok', true, 'duplicate', true); end if;
 
@@ -335,8 +396,10 @@ create or replace function public.s_inventory_refill_mark_after_delete_v1()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   update public.inventory_items i
-     set last_refill_at = (select (p.purchased_at::timestamp at time zone 'Asia/Manila') from public.inventory_purchases p where p.item_id = old.item_id order by p.purchased_at desc, p.created_at desc limit 1),
-         last_refill_qty = (select p.qty from public.inventory_purchases p where p.item_id = old.item_id order by p.purchased_at desc, p.created_at desc limit 1)
+     set last_refill_at = (select (public.s_inventory_received_date_v1(p.purchased_at, p.created_at)::timestamp at time zone 'Asia/Manila') from public.inventory_purchases p
+                            where p.item_id = old.item_id order by public.s_inventory_received_date_v1(p.purchased_at, p.created_at) desc, p.created_at desc limit 1),
+         last_refill_qty = (select p.qty from public.inventory_purchases p
+                             where p.item_id = old.item_id order by public.s_inventory_received_date_v1(p.purchased_at, p.created_at) desc, p.created_at desc limit 1)
    where i.id = old.item_id and i.last_refill_at is not null;
   return null;
 end $$;
@@ -544,6 +607,10 @@ begin
   end if;
   if (select numeric_scale from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking') is distinct from 4 then
     raise exception 's120: consumption_per_booking is not numeric(10,4)';
+  end if;
+  -- the rollback restores from the snapshot, so every item must be in it
+  if exists (select 1 from public.inventory_items i where not exists (select 1 from public.s120_usage_item_snapshot s where s.id = i.id)) then
+    raise exception 's120: the rollback snapshot is missing an inventory item';
   end if;
 end $v$;
 
