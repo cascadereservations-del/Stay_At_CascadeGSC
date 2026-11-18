@@ -68,8 +68,8 @@ const TAIL = /^\s*(?:$|[,.;!:)]|(?:who|from|on|in|for|po|please|pls|next|this|th
 const STAY_CUE = /^\s*(?:(?:will|would|are|is|going\s+to)\s+(?:be\s+|the\s+ones?\s+(?:who\s+)?(?:will\s+be\s+)?)?(?:staying|stay|checking[\s-]*in|the\s+guests?)|(?:ang\s+)?(?:mag-?stay|tutuloy|titira|matutulog))\b/i;
 const STAY_TAIL = /^\s*(?:$|[,.;!]|(?:with\s+(?:me|us)|there|here|too|also|po|(?:at|in)\s+(?:your|cascade)|(?:at|in)\s+the\s+(?:place|unit|house|condo|cascade|hideaway)|on|from|for|during|starting|until|then|so|but)\b)/i;
 const NEGATION = /\b(?:not|never|won'?t|wont|don'?t|isn'?t|aren'?t|no\s+one|hindi|wala|cancel(?:led)?)\b/i;
-const HEDGE = /(?:if|maybe|might|perhaps|baka|kung|siguro|sana|not\s+sure|depends?)/i; // hypothetical, not a statement
-const REPORTED = /(?:said|told|sabi|sinabi)/i; // someone else's words, someone else's relatives
+const HEDGE = /\b(?:if|maybe|might|perhaps|baka|kung|siguro|sana|not\s+sure|depends?)\b/i; // hypothetical, not a statement
+const REPORTED = /\b(?:said|told|sabi|sinabi)\b/i; // someone else's words, someone else's relatives
 const BOOKING = /\b(?:book(?:ing|ed)?|reserv(?:ation|ed|ing)|pa-?book)\b/i;
 
 function fromSentence(s: string): Who | null {
@@ -82,7 +82,7 @@ function fromSentence(s: string): Who | null {
   // 3. "my parents will be staying", "my friends Ana and Ben are checking in", "ang mga magulang ko ang mag-stay"
   for (const m of s.matchAll(/\b[\p{L}-]+/gu)) {
     const i = m.index ?? 0;
-    if (/['’]s\s+$/.test(s.slice(Math.max(0, i - 4), i)) || /(?:her|his|their|your|its)\s+$/i.test(s.slice(Math.max(0, i - 7), i))) continue; // "my wife's parents": whose parents is not clear
+    if (/['’]s\s+$/.test(s.slice(Math.max(0, i - 4), i)) || /\b(?:her|his|their|your|its)\s+$/i.test(s.slice(Math.max(0, i - 7), i))) continue; // "my wife's parents": whose parents is not clear
     const w = parseWho(s.slice(i), false);
     if (!w.rels.length) continue;
     const c = STAY_CUE.exec(w.rest);
