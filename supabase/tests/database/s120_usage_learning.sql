@@ -4,7 +4,7 @@
 -- Sessions (days ago): turnover 85 75 65 55 45 35 25 20 15, mid_stay 12 (never counted), deep_clean 8 (counted). Windows below are counted from that list.
 -- Everything rolls back.
 begin;
-select plan(97);
+select plan(102);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -403,6 +403,48 @@ insert into _r select 's3p2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b5
 select ok((select x.accepted and x.received_between = 0 and x.consumed = 7 from public.inventory_usage_intervals x where x.item_id = 'e1200000-0000-4000-8000-0000000001b5' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
   'OCR branch: a restock dated before the previous count is not received between (received 0, consumed 7, not 0)');
 
+-- OCR branch, Manila date: the previous count is 11 Oct 00:10 Manila (v_day = 11 Oct); the restock is entered at 00:30 Manila the same night = 10 Oct 16:30 UTC, so the column default purchased_at is the UTC
+-- date 10 Oct, one day before v_day. Without s_inventory_received_date_v1 in the OCR branch the audit row is dropped (received 0); with it the Manila date 11 Oct counts (received 7).
+-- It is also a same-day purchase (received on the day of the count), so the interval is rejected for that reason, and received_between and consumed still hold the figures.
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover) values
+  ('e1200000-0000-4000-8000-0000000001b7', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 ocr-manila', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b8', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 ocr-sameday', 'Other', 'pc', 100, true, true, 2.00, 1.0),
+  ('e1200000-0000-4000-8000-0000000001b9', 'e1200000-0000-4000-8000-0000000000b2', 'Zz S120 s3 ocr-bound', 'Other', 'pc', 100, true, true, 2.00, 1.0);
+insert into _r select 's3w0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b7', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3w1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b7', 70, timestamptz '2026-10-11 00:10+08');
+insert into public.inventory_purchases(id, item_id, qty, notes, purchased_at, created_at) values
+  ('e1200000-0000-4000-8000-0000000001e6', 'e1200000-0000-4000-8000-0000000001b7', 7, 'Auto-restock from receipt OCR zz120', date '2026-10-10', timestamptz '2026-10-11 00:30+08');
+insert into public.inventory_audit_log(entity_type, entity_id, action, after, actor, created_at)
+  values ('inventory_items', 'e1200000-0000-4000-8000-0000000001b7', 'ocr_restock', '{"qty_added": 7, "purchase_id": "e1200000-0000-4000-8000-0000000001e6"}', 'zz120', timestamptz '2026-10-11 00:30+08');
+insert into _r select 's3w2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b7', 60, timestamptz '2026-10-20 12:00+08');
+select ok((select x.received_between = 7 and x.consumed = 17 and x.reject_reason = 'same-day purchase' from public.inventory_usage_intervals x
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001b7' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'OCR Manila date: a 00:30 Manila restock (UTC date one day earlier) is received between: 70 + 7 - 60 = 17, not 10, and it is a same-day purchase');
+
+-- OCR branch, same-day purchase: a restock dated 10 Oct (the day of the 10 Oct count) and entered on 12 Oct is received (7) and rejects the interval; the anchor still moves
+insert into _r select 's3x0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b8', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3x1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b8', 70, timestamptz '2026-10-10 12:00+08');
+insert into public.inventory_purchases(id, item_id, qty, notes, purchased_at, created_at) values
+  ('e1200000-0000-4000-8000-0000000001e7', 'e1200000-0000-4000-8000-0000000001b8', 7, 'Auto-restock from receipt OCR zz120', date '2026-10-10', timestamptz '2026-10-12 09:00+08');
+insert into public.inventory_audit_log(entity_type, entity_id, action, after, actor, created_at)
+  values ('inventory_items', 'e1200000-0000-4000-8000-0000000001b8', 'ocr_restock', '{"qty_added": 7, "purchase_id": "e1200000-0000-4000-8000-0000000001e7"}', 'zz120', timestamptz '2026-10-12 09:00+08');
+insert into _r select 's3x2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b8', 55, timestamptz '2026-10-20 12:00+08');
+select ok((select not x.accepted and x.reject_reason = 'same-day purchase' and x.received_between = 7 and x.consumed = 22 and x.turnovers = 3 from public.inventory_usage_intervals x
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001b8' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'OCR same-day: a restock dated on the day of the previous count is received (70 + 7 - 55 = 22) and the interval is rejected as a same-day purchase');
+
+-- OCR branch, created_at <= anchor bound: the restock is entered on 22 Oct, after the 20 Oct count, and dated 22 Oct (after the previous count's day), so only the bound keeps it out of that count
+insert into _r select 's3y0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b9', 100, timestamptz '2026-10-01 12:00+08');
+insert into _r select 's3y1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b9', 70, timestamptz '2026-10-10 12:00+08');
+insert into public.inventory_purchases(id, item_id, qty, notes, purchased_at, created_at) values
+  ('e1200000-0000-4000-8000-0000000001e8', 'e1200000-0000-4000-8000-0000000001b9', 7, 'Auto-restock from receipt OCR zz120', date '2026-10-22', timestamptz '2026-10-22 09:00+08');
+insert into public.inventory_audit_log(entity_type, entity_id, action, after, actor, created_at)
+  values ('inventory_items', 'e1200000-0000-4000-8000-0000000001b9', 'ocr_restock', '{"qty_added": 7, "purchase_id": "e1200000-0000-4000-8000-0000000001e8"}', 'zz120', timestamptz '2026-10-22 09:00+08');
+insert into _r select 's3y2', pg_temp.anca('e1200000-0000-4000-8000-0000000001b9', 60, timestamptz '2026-10-20 12:00+08');
+select ok((select x.accepted and x.received_between = 0 and x.consumed = 10 from public.inventory_usage_intervals x
+            where x.item_id = 'e1200000-0000-4000-8000-0000000001b9' and x.anchor_at = timestamptz '2026-10-20 12:00+08'),
+  'OCR bound: a restock entered after the count (22 Oct) is not received by the 20 Oct count (received 0, consumed 10, not 3)');
+
 -- back-dated count: a count dated 15 Oct arrives after the counts of 10 and 20 Oct: skipped, no row, and every stay stays in exactly one interval
 insert into _r select 's3n0', pg_temp.anca('e1200000-0000-4000-8000-0000000001b6', 100, timestamptz '2026-10-01 12:00+08');
 insert into _r select 's3n1', pg_temp.anca('e1200000-0000-4000-8000-0000000001b6', 70, timestamptz '2026-10-10 12:00+08');
@@ -428,11 +470,23 @@ select ok((select relrowsecurity from pg_class where oid = 'public.s120_usage_it
       and not has_table_privilege('service_role', 'public.s120_usage_item_snapshot', 'select, insert, update, delete'), 'snapshot: RLS on and no grant to any API role');
 select is((select count(*)::int from public.inventory_items i where coalesce(i.created_at, '-infinity') < (select max(s.taken_at) from public.s120_usage_item_snapshot s)
             and not exists (select 1 from public.s120_usage_item_snapshot s where s.id = i.id)), 0, 'snapshot: every item that existed when the release ran is in it');
+-- the snapshot was taken BEFORE the seed and the widening: a seeded item whose baseline is not the 2.00 default would hold its baseline if the snapshot were taken after the seed, and a
+-- learned rate (1.5926, 0.1074, 0.0556) has four decimals, which a value from before numeric(10,4) cannot have. Aggregates only (a real backup holds real rows).
+select is((select count(*)::int from public.s120_usage_item_snapshot s join public.inventory_items i on i.id = s.id
+            where i.usage_baseline_per_turnover is not null and i.usage_baseline_per_turnover <> 2.00 and s.consumption_per_booking = i.usage_baseline_per_turnover
+              and i.created_at < s.taken_at), 0, 'snapshot: no seeded item holds its post-seed baseline in the snapshot (it holds the value from before the seed)');
+select is((select count(*)::int from public.s120_usage_item_snapshot s where s.consumption_per_booking is not null and s.consumption_per_booking <> round(s.consumption_per_booking, 2)), 0,
+  'snapshot: no value has more than two decimals (nothing learned or widened was captured)');
 
 -- a recompute that changes nothing writes nothing (usage_updated_at is moved back to 2000 so a write would show)
-update public.inventory_items set usage_updated_at = timestamptz '2000-01-01 00:00+00' where id = 'e1200000-0000-4000-8000-0000000000a1';
+-- inventory_items has a BEFORE UPDATE row trigger inventory_items_updated_at (set_updated_at: updated_at = now() on every update, changed or not), so the sentinel is set with it disabled
+-- and any write by the recompute would show in updated_at too (the receipt undo window reads updated_at).
+alter table public.inventory_items disable trigger inventory_items_updated_at;
+update public.inventory_items set usage_updated_at = timestamptz '2000-01-01 00:00+00', updated_at = timestamptz '2000-01-01 00:00+00' where id = 'e1200000-0000-4000-8000-0000000000a1';
+alter table public.inventory_items enable trigger inventory_items_updated_at;
 select public.s_inventory_usage_recompute_v1('e1200000-0000-4000-8000-0000000000a1', now());
-select is((select usage_updated_at from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a1'), timestamptz '2000-01-01 00:00+00', 'quiet recompute: nothing changed, so the row was not written');
+select is((select usage_updated_at::text || '/' || updated_at::text from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a1'),
+  timestamptz '2000-01-01 00:00+00'::text || '/' || timestamptz '2000-01-01 00:00+00'::text, 'quiet recompute: nothing changed, so the row was not written (usage_updated_at and updated_at both untouched)');
 update public.inventory_items set consumption_per_booking = 9.9 where id = 'e1200000-0000-4000-8000-0000000000a1';
 select public.s_inventory_usage_recompute_v1('e1200000-0000-4000-8000-0000000000a1', now());
 select is((select consumption_per_booking || '/' || (usage_updated_at = now())::text from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000000a1'), '3.5714/true',

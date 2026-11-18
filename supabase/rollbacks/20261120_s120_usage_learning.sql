@@ -6,7 +6,8 @@
 -- Then: unschedules the quarterly job, puts consumption_per_booking of every item the release touched (a seeded baseline or a recompute) back to the value it held before the release, read from the
 -- snapshot public.s120_usage_item_snapshot the migration took before any seed (the script stops with 55000 when the snapshot is gone: a rate must never be restored from a guess),
 -- drops the refill-mark delete trigger, the new functions (the received-date helper included), the intervals table, the snapshot and the six columns, and narrows consumption_per_booking back to numeric(10,2).
--- An item the release did not touch keeps whatever it holds now (a rate edited by hand after the release is not overwritten).
+-- Every item the release seeded (a baseline) or recomputed is restored to its snapshot value, INCLUDING an item whose rate was edited by hand after the release: that edit is overwritten.
+-- Only an item the release never touched keeps whatever it holds now.
 -- DATA LOSS (by design): every interval, every learned rate, the seeded baselines and the refill marks. Stock counts, purchases and the audit log are untouched.
 -- Roll back any app that reads usageState / usagePerTurnover / get_inventory_usage_kpi_v1 first. Apply with run-sql-on-host.sh.
 
@@ -141,7 +142,7 @@ begin
 end $c$;
 
 -- 3. the stored rate goes back to what it was before the release (from the snapshot, which holds every item as it was) ---------------------------------------------------
--- Only an item the release touched: seeded (a baseline) or recomputed (usage_updated_at). Any other value is left; the type change below rounds a leftover four-decimal rate to two.
+-- Every item the release touched: seeded (a baseline) or recomputed (usage_updated_at), restored to its snapshot value even when it was edited by hand since. Other items are left; the type change below rounds a leftover four-decimal rate to two.
 update public.inventory_items i
    set consumption_per_booking = s.consumption_per_booking
   from public.s120_usage_item_snapshot s

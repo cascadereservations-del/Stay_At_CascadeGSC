@@ -62,7 +62,13 @@
 --   * A baseline of null (no research figure) learns the pure average (no prior); with no accepted interval consumption_per_booking is left as it is.
 --   * Movement-controlled items are skipped (their ledger is the measurement). Inactive items are skipped by the backfill, so the 18 Nov split (old "Tissues / Paper Towels"
 --     inactive at 0, new "Bathroom tissue" and "Kitchen towel" first counted) invents no usage: new items start with a first anchor only.
---   * consumption_per_booking is read by daily-digest (runway = qty / cpb * days) and telegram-expense (short = qty < cpb). Real rates (0.01 to 4) make both quieter than the 2.00 default did.
+--   * consumption_per_booking READERS (all of them move when the rate changes from the 2.00 default to a learned 0.01 to 4 rate):
+--       daily-digest (runway = qty / cpb * days) and telegram-expense (short = qty < cpb), both in the waves repo;
+--       the staff checklist Cascade-Staff/checklist/index.html: "Fill typical amounts" (susTypical) fills each quick item with consumption_per_booking, and a learned rate can be
+--         fractional (0.1074 of a unit). The Restock port on branch s120/checklist-restock removes that button, so the port must ship in the SAME release as this SQL;
+--       the catalogue estDailyUsage / estCoverageDays (20261020000000_s86_inventory_db.sql lines 231-232, cpb x the 60-day turnover rate);
+--       Cassy coverage: direct-booking-waves-0-1-sol supabase/functions/_shared/cascade-core/tools.ts lines 221-239 (coverage_days = qty / (cpb x turnover rate)).
+--     Real rates (0.01 to 4) make the digest, telegram-expense, the catalogue and Cassy quieter or longer than the 2.00 default did ("1 to 2 days" coverage becomes real days).
 --     D-375: the deployed digest (waves repo) names stock only when an item is out, so these rates silence nothing there. In telegram-expense only the "may run short" note moves.
 --     s_inventory_low_task_v1 and the Telegram low list use reorder_below and are unaffected.
 --   * A count made through reconcile_inventory_baseline_v1 (admin counts page, staff stock screen) sets movement_controlled_at and takes the item out of learning; only the Telegram
@@ -76,7 +82,7 @@
 --   get_inventory_catalogue_v1             00ca41d933a5c5a9c4498cff682e7844   (20261020000000_s86_inventory_db.sql)
 -- Each replacement is the live body with ONE inserted block (patched in place inside a DO, so the migration starts from whatever the live body is, never from a stale copy).
 -- Grants restated (ML-21) for every function this file creates or replaces.
--- Rollback: supabase/rollbacks/20261120_s120_usage_learning.sql (DATA LOSS by design: the intervals and the learned values; consumption_per_booking returns to the snapshot values).
+-- Rollback: supabase/rollbacks/20261120_s120_usage_learning.sql (DATA LOSS by design: the intervals and the learned values; consumption_per_booking of every seeded item returns to its snapshot value, a hand edit since the release included).
 --
 -- FORWARD CHECKS (also in supabase/releases/s120_usage_learning_20261120.release.json):
 --   select count(*) = 6 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name in
@@ -87,7 +93,9 @@
 --   select numeric_scale = 4 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'consumption_per_booking';
 --   select count(*) = 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_usage_intervals' and column_name = 'turnover_keys';
 --   select not exists (select 1 from public.inventory_items i where not exists (select 1 from public.s120_usage_item_snapshot s where s.id = i.id)) and exists (select 1 from public.s120_usage_item_snapshot);
---   the replayed rates of Laundry Detergent, Hand Soap and Insect Spray: 1.5926, 0.1074, 0.0556 (17 turnovers; consumed 23, 2, 1 against baselines 2.0, 0.09, 0.05)
+--   the replayed rates of Laundry Detergent, Hand Soap and Insect Spray: 1.5926, 0.1074, 0.0556 (17 turnovers; consumed 23, 2, 1 against baselines 2.0, 0.09, 0.05):
+--     (2.0*10+23)/(10+17), (0.09*10+2)/(10+17), (0.05*10+1)/(10+17); release check replayed_learned_rates_match_hand_computed
+--   Rollback: every seeded item returns to its snapshot value, including a rate edited by hand since the release (see the rollback header).
 
 begin;
 
