@@ -3,8 +3,8 @@
   "release_id": "s120_guest_context_grant_20261120",
   "phase": "expand",
   "source": {
-    "branch": "s120/usage-learning",
-    "commit": "4343da3bbd217781b22c7a3c25c17a9da5363c4b"
+    "branch": "s120/sql-all",
+    "commit": "7eedb9530b6a98e99433f25bae884fe43b89f78b"
   },
   "migrations": [
     "20261120000003_s120_guest_context_grant.sql"
@@ -57,8 +57,8 @@
     "mode": "restrictive",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_guest_context_grant.sql (7 tests), then set verified to true with the log path. Repo evidence only for the callers (current app repos, 2026-11-18): service-role edge functions; production function bodies were not scanned in this lane."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-19 on a restored production backup (133 public tables, 217 ledger rows): all six s120 migrations applied in order, forward verification 67/67, pgTAP 10 suites green including s120_guest_context_grant.sql (7/7) and zz_s120_all_rollbacks.sql (20/20); cleanup leftovers 0. Log docs/s120/rehearsal-all-3.log, run at f05351e. This release's migration, rollback and suite are unchanged since the commit named in source.commit (later commits only touch s120_count_learning)."
   },
   "approvals": {
     "production_required": true,

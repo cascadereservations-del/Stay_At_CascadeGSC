@@ -3,8 +3,8 @@
   "release_id": "s120_usage_learning_20261120",
   "phase": "backfill",
   "source": {
-    "branch": "s120/usage-learning",
-    "commit": "68bf8065d0567cf129d78b33fcb87f9f41d624bc"
+    "branch": "s120/sql-all",
+    "commit": "5c5c061ebae29233780febdff2ab76c6e6539f6f"
   },
   "migrations": [
     "20261120000000_s120_usage_learning.sql"
@@ -147,8 +147,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_usage_learning.sql (107 tests), then set verified to true with the log path."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-19 on a restored production backup (133 public tables, 217 ledger rows): all six s120 migrations applied in order, forward verification 67/67, pgTAP 10 suites green including s120_usage_learning.sql (107/107) and zz_s120_all_rollbacks.sql (20/20); cleanup leftovers 0. Log docs/s120/rehearsal-all-3.log, run at f05351e. This release's migration, rollback and suite are unchanged since the commit named in source.commit (later commits only touch s120_count_learning)."
   },
   "approvals": {
     "production_required": true,

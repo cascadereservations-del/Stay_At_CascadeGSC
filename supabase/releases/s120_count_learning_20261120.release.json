@@ -4,7 +4,7 @@
   "phase": "backfill",
   "source": {
     "branch": "s120/sql-all",
-    "commit": "5aad0640972501631631ba68d6acc4aa32723a30"
+    "commit": "2c60187d7e3ed32cd27b72cf914471809d566b5e"
   },
   "migrations": [
     "20261120000005_s120_count_learning.sql"
@@ -113,7 +113,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not rehearsed with the usage-learning release yet: the orchestrator must restore a backup, apply the usage-learning migrations, then this migration, run the forward checks and supabase/tests/database/s120_count_learning.sql, then set verified to true with the log path."
+    "evidence": "Not verified on this commit. The six-migration rehearsal (docs/s120/rehearsal-all-3.log, 2026-11-19) ran at f05351e: this suite 93/93 and forward verification 67/67. Session 120 lane S12 then changed the migration, its rollback and its suite (9bcaeaf, 2c60187: the KPI waitingForRefill since patch), so that run does not cover this commit. Re-run the six-migration rehearsal on s120/sql-all at or after 2c60187, then set verified to true with the new log path."
   },
   "approvals": {
     "production_required": true,

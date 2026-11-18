@@ -3,8 +3,8 @@
   "release_id": "s120_linen_stains_20261120",
   "phase": "expand",
   "source": {
-    "branch": "s120/linen-stains",
-    "commit": "ca5f3c7abaaea19c9173393c77c8a27cc9a24277"
+    "branch": "s120/sql-all",
+    "commit": "9341f0dde9ccf7b2c38c3a1031ab6e607b923723"
   },
   "migrations": [
     "20261120000002_s120_linen_stains.sql"
@@ -72,8 +72,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed yet: the orchestrator must restore a backup, apply the migration, run the forward checks and supabase/tests/database/s120_linen_stains.sql (50 tests), then set verified to true with the log path. The test file was written without a database and has not run."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-19 on a restored production backup (133 public tables, 217 ledger rows): all six s120 migrations applied in order, forward verification 67/67, pgTAP 10 suites green including s120_linen_stains.sql (50/50) and zz_s120_all_rollbacks.sql (20/20); cleanup leftovers 0. Log docs/s120/rehearsal-all-3.log, run at f05351e. This release's migration, rollback and suite are unchanged since the commit named in source.commit (later commits only touch s120_count_learning)."
   },
   "approvals": {
     "production_required": true,
