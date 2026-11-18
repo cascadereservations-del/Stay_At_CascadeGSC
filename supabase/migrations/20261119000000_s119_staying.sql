@@ -42,11 +42,9 @@ end $$;
 create table public.stay_staying (
   property_id uuid not null references public.properties(id) on delete cascade,
   stay_uid text not null check (btrim(stay_uid) <> ''),
-  names text check (names is null or (names = btrim(names, E' 	
-') and char_length(names) between 1 and 300)),
+  names text check (names is null or (names = btrim(names, E' \t\r\n') and char_length(names) between 1 and 300)),
   source text check (source in ('admin', 'staff')),
-  suggestion text check (suggestion is null or (suggestion = btrim(suggestion, E' 	
-') and char_length(suggestion) between 1 and 300)),
+  suggestion text check (suggestion is null or (suggestion = btrim(suggestion, E' \t\r\n') and char_length(suggestion) between 1 and 300)),
   suggestion_at timestamptz,
   suggestion_status text check (suggestion_status in ('pending', 'dismissed')),
   version integer not null default 1,
@@ -82,8 +80,7 @@ create or replace function public.set_stay_staying_v1(p_property uuid, p_uid tex
 returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare
-  v_names text := nullif(btrim(p_names, E' 	
-'), '');
+  v_names text := nullif(btrim(p_names, E' \t\r\n'), '');
   v_key text := btrim(p_idempotency_key);
   v_row public.stay_staying%rowtype;
   v_before jsonb;
@@ -195,8 +192,7 @@ create or replace function public.set_stay_staying_suggestion_v1(p_property uuid
 returns jsonb
 language plpgsql volatile security definer set search_path = '' as $$
 declare
-  v_sug text := nullif(btrim(p_suggestion, E' 	
-'), '');
+  v_sug text := nullif(btrim(p_suggestion, E' \t\r\n'), '');
   v_row public.stay_staying%rowtype;
   v_before jsonb;
 begin
