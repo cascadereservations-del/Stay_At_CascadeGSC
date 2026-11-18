@@ -60,17 +60,21 @@
 --   * Rejected intervals still move the anchor (spec): 'too short', 'too few turnovers', 'same-day purchase' and 'unrecorded restock' (consumed < 0, purchase nobody recorded) are kept as rows and never learned.
 --   * With no accepted interval in the 90-day window the item falls back to state 'baseline' and consumption_per_booking = its baseline.
 --   * A baseline of null (no research figure) learns the pure average (no prior); with no accepted interval consumption_per_booking is left as it is.
+--   * A baseline of 0 (Tea, Sugar & Creamer Sticks, Bathroom tissue: optional "used this stay" items, no standard amount per stay) is a real figure, not "unknown": the prior adds nothing, so a
+--     used item learns (0*10 + sum consumed) / (10 + turnovers) and an unused one stays at 0. No division by zero: an accepted interval has turnovers >= 3. Readers of a stored 0: the catalogue,
+--     telegram-expense, Cassy coverage and the KPI all test cpb > 0 (no coverage, no "may run short", not listed as running out); the digest treats 0 like a missing rate (alert only when
+--     qty <= reorder_below, as before); the catalogue reports estDailyUsage 0 and no estCoverageDays. The forecast of an interval is left null when the rate in force is 0, so the KPI error ignores it.
 --   * Movement-controlled items are skipped (their ledger is the measurement). Inactive items are skipped by the backfill, so the 18 Nov split (old "Tissues / Paper Towels"
 --     inactive at 0, new "Bathroom tissue" and "Kitchen towel" first counted) invents no usage: new items start with a first anchor only.
 --   * consumption_per_booking READERS (all of them move when the rate changes from the 2.00 default to a learned 0.01 to 4 rate):
 --       daily-digest (runway = qty / cpb * days) and telegram-expense (short = qty < cpb), both in the waves repo;
 --       the staff checklist Cascade-Staff/checklist/index.html: "Fill typical amounts" (susTypical) fills only the quick items (QUICK_ITEM_NAMES: coffee, bottled water, toiletries, tissue)
---         with consumption_per_booking. From the apply the button would use the seeded whole baselines: Coffee 4 (was 2), Bottled Water 1 (was 2), Toiletries 2, Bathroom tissue 1; a fraction
+--         with consumption_per_booking. From the apply the button would use the seeded whole baselines: Coffee 4 (was 2), Bottled Water 1 (was 2), Toiletries 2, Bathroom tissue 0; a fraction
 --         reaches it only after a quick item has an accepted interval. The Restock port must be committed on s120/checklist-restock and pushed in this release, and susTypical must be
 --         confirmed gone from the checklist being pushed before the SQL apply;
 --       the catalogue estDailyUsage / estCoverageDays (20261020000000_s86_inventory_db.sql lines 231-232, cpb x the 60-day turnover rate);
 --       Cassy coverage: direct-booking-waves-0-1-sol supabase/functions/_shared/cascade-core/tools.ts lines 221-239 (coverage_days = qty / (cpb x turnover rate)).
---     Real rates (0.01 to 4) make the digest, telegram-expense, the catalogue and Cassy different from the 2.00 default: rates below 2.00 make coverage longer and quieter, rates above 2.00 make it shorter and louder. Example: Coffee at 4.0 halves estCoverageDays and Cassy coverage_days, and telegram-expense shows "may run short" at qty 2 or 3.
+--     Real rates (0.01 to 4) make telegram-expense, the catalogue and Cassy different from the 2.00 default: rates below 2.00 make coverage longer and quieter, rates above 2.00 make it shorter and louder. Example: Coffee at 4.0 halves estCoverageDays and Cassy coverage_days, and telegram-expense shows "may run short" at qty 2 or 3.
 --     D-375: the deployed digest (waves repo) names stock only when an item is out, so these rates silence nothing there. In telegram-expense only the "may run short" note moves.
 --     s_inventory_low_task_v1 and the Telegram low list use reorder_below and are unaffected.
 --   * A count made through reconcile_inventory_baseline_v1 (admin counts page, staff stock screen) sets movement_controlled_at and takes the item out of learning; only the Telegram
@@ -291,7 +295,7 @@ begin
   end if;
   v_ok := v_reason is null;
   -- what the rate in force before this count predicted for these turnovers (the forecast error the KPI reports)
-  if v_ok and i.consumption_per_booking is not null then v_pred := i.consumption_per_booking * v_turn; end if;
+  if v_ok and i.consumption_per_booking > 0 then v_pred := i.consumption_per_booking * v_turn; end if;
 
   insert into public.inventory_usage_intervals(property_id, item_id, prev_anchor_at, anchor_at, qty_prev, received_between, qty_now, consumed, days, turnovers, turnover_keys, predicted, accepted, reject_reason, source)
   values (i.property_id, i.id, v_prev.anchor_at, p_anchor_at, v_prev.qty_now, v_recv, p_qty_now, v_consumed, v_days, v_turn, v_keys, v_pred, v_ok, v_reason, 'count')
@@ -545,9 +549,9 @@ begin
       ('Garbage Bags (Small)',                      0.05, '1.5 bags per turnover over a 15-20 bag roll'),
       ('Bottled Water',                             1.0,  '500 ml; 1 per turnover until counts settle (4 would be one per guest-night)'),
       ('Coffee (3-in-1)',                           4.0,  '1 stick per guest-night'),
-      ('Tea',                                       2.0,  'half of the guest-nights'),
-      ('Sugar & Creamer Sticks',                    2.0,  'half of the guest-nights'),
-      ('Bathroom tissue',                           1.0,  '1 fresh roll per check-in (unit assumed to be a roll)'),
+      ('Tea',                                       0,    'optional: the cleaner adds tea only when it was put out (standard 0)'),
+      ('Sugar & Creamer Sticks',                    0,    'optional: kept in a jar, the cleaner adds the sticks used to refill it (standard 0)'),
+      ('Bathroom tissue',                           0,    'optional: the cleaner adds the rolls guests used (standard 0)'),
       ('Kitchen towel',                             0.06, '10 pulls of a 175-pull pack'),
       ('Toiletries (toothbrush, toothpaste, soap)', 2.0,  'Hotel Guest Kit: 2 sets per booking, packs of 100')) v(n, b, note)
   loop

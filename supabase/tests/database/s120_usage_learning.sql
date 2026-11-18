@@ -4,7 +4,7 @@
 -- Sessions (days ago): turnover 85 75 65 55 45 35 25 20 15, mid_stay 12 (never counted), deep_clean 8 (counted). Windows below are counted from that list.
 -- Everything rolls back.
 begin;
-select plan(102);
+select plan(107);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -509,6 +509,29 @@ select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') f
 select isnt(public.s_inventory_receipt_apply_v1('e1200000-0000-4000-8000-0000000001c7', 4, null, 'Zz S120 vendor', null, public.manila_today(), null, 'e1200000-0000-4000-8000-0000000000d2'), null::uuid, 'hook failure: the staff receipt still writes its purchase row');
 select is((select qty_on_hand || '/' || coalesce(last_refill_at::text, 'none') from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001c7'), '19.00/none', 'hook failure: and its stock');
 drop trigger zz_s120_boom2 on public.inventory_items;
+
+-- baseline 0 (Tea, Sugar and Bathroom tissue are optional "used this stay" items): no division by zero anywhere, no forecast claim, no false alert
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, consumption_per_booking, usage_baseline_per_turnover) values
+  ('e1200000-0000-4000-8000-0000000001d1', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 zero-used', 'Other', 'pc', 40, true, true, 0, 0),
+  ('e1200000-0000-4000-8000-0000000001d2', 'e1200000-0000-4000-8000-0000000000b0', 'Zz S120 zero-unused', 'Other', 'pc', 40, true, true, 0, 0);
+insert into _r select 'z1', pg_temp.anc('e1200000-0000-4000-8000-0000000001d1', 100, interval '30 days');
+insert into _r select 'z2', pg_temp.anc('e1200000-0000-4000-8000-0000000001d1', 60, interval '5 days');
+insert into _r select 'z3', pg_temp.anc('e1200000-0000-4000-8000-0000000001d2', 50, interval '30 days');
+insert into _r select 'z4', pg_temp.anc('e1200000-0000-4000-8000-0000000001d2', 50, interval '5 days');
+select is((select consumption_per_booking from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001d1'), 2.8571::numeric,
+  'baseline 0: the prior adds nothing, (0 * 10 + 40) / (10 + 4) = 2.8571 once it is used');
+select is((select predicted from public.inventory_usage_intervals where item_id = 'e1200000-0000-4000-8000-0000000001d1' and accepted), null::numeric,
+  'baseline 0: a rate of 0 forecast nothing, so the interval carries no forecast (the KPI error is not skewed to 100 percent)');
+select is((select consumption_per_booking || '/' || usage_state from public.inventory_items where id = 'e1200000-0000-4000-8000-0000000001d2'), '0.0000/learning',
+  'baseline 0: nothing used stays at rate 0 (no division by zero, no error)');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1200000-0000-4000-8000-000000000001"}';
+select ok((select e -> 'estCoverageDays' = 'null'::jsonb and coalesce((e ->> 'estDailyUsage')::numeric, 0) = 0
+             from jsonb_array_elements(public.get_inventory_catalogue_v1('e1200000-0000-4000-8000-0000000000b0') -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000001d2'),
+  'baseline 0: the catalogue makes no coverage claim for a rate of 0');
+select ok(not exists (select 1 from jsonb_array_elements(public.get_inventory_usage_kpi_v1('e1200000-0000-4000-8000-0000000000b0') -> 'underFourteenDays' -> 'items') e where e ->> 'id' = 'e1200000-0000-4000-8000-0000000001d2'),
+  'baseline 0: the KPI does not list a rate-0 item as running out');
+reset role;
 
 -- 56-58. a failing hook never blocks a count ---------------------------------------------------------------------------------------------------
 create function public.zz_s120_boom() returns trigger language plpgsql as $$ begin raise exception 'boom'; end $$;

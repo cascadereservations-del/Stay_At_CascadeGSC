@@ -142,7 +142,8 @@ begin
 end $c$;
 
 -- 3. the stored rate goes back to what it was before the release (from the snapshot, which holds every item as it was) ---------------------------------------------------
--- Every item the release touched: seeded (a baseline) or recomputed (usage_updated_at), restored to its snapshot value even when it was edited by hand since. Other items are left; the type change below rounds a leftover four-decimal rate to two.
+-- Every item the release touched: seeded (a baseline) or recomputed (usage_updated_at), restored to its snapshot value even when it was edited by hand since. Other items are left; the type change below rounds a leftover four-decimal rate to two,
+-- and the 0.01 floor right after it keeps a positive rate from rounding to 0.00 (a rate of exactly 0, such as the seeded Tea, Sugar and Bathroom tissue baselines, is left at 0).
 update public.inventory_items i
    set consumption_per_booking = s.consumption_per_booking
   from public.s120_usage_item_snapshot s
