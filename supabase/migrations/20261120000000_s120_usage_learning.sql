@@ -327,10 +327,10 @@ begin
   select coalesce(count(*)::numeric / 60, 0) into v_rate from public.cleaning_sessions cs
    where cs.property_id = p_property_id and cs.cleaning_type in ('turnover', 'deep_clean') and cs.cleaned_at >= now() - interval '60 days';
   select coalesce(jsonb_agg(jsonb_build_object('id', t.id, 'name', t.name, 'daysLeft', t.days) order by t.days, t.name), '[]'::jsonb) into v_low
-    from (select i.id, i.name, round(i.qty_on_hand / (i.consumption_per_booking * v_rate), 1) as days
+    from (select i.id, i.name, case when i.consumption_per_booking > 0 and v_rate > 0 then round(i.qty_on_hand / (i.consumption_per_booking * v_rate), 1) end as days
             from public.inventory_items i
-           where i.property_id = p_property_id and i.is_active and i.is_consumable and i.movement_controlled_at is null
-             and i.consumption_per_booking > 0 and v_rate > 0 and i.qty_on_hand / (i.consumption_per_booking * v_rate) < 14) t;
+           where i.property_id = p_property_id and i.is_active and i.is_consumable and i.movement_controlled_at is null) t
+   where t.days < 14;
 
   -- the newest interval of the item was rejected as an unrecorded restock and nothing has been recorded since that count
   select coalesce(jsonb_agg(jsonb_build_object('id', w.id, 'name', w.name, 'since', w.anchor_at, 'qtyBefore', w.qty_prev, 'qtyNow', w.qty_now) order by w.anchor_at, w.name), '[]'::jsonb) into v_wait
