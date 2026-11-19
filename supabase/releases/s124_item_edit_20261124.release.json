@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "release_id": "s124_item_edit_20261124",
+  "phase": "expand",
+  "source": {
+    "branch": "s124/item-edit",
+    "commit": "c3ac1722ce93c82c289dcbe56836d7e41dafd213"
+  },
+  "migrations": [
+    "20261124000000_s124_item_edit.sql"
+  ],
+  "migration_sha256": {
+    "20261124000000_s124_item_edit.sql": "9c5dee3a436a31691502c338b6ec63e4a254cd6db8111ca35f398ba6f5927982"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261119T113532Z",
+    "verified_at": "2026-11-19T11:40:25.152Z",
+    "production_rule": "Staff item edit and \"last updated by\" (Lloyd 2026-11-19, contract docs/s124/CONTRACT-item-edit.md). Adds inventory_items.updated_by (uuid null, no FK) and the closed table inventory_item_changes (RLS on, revoke all, no API grant; before/after hold only the changed keys, a price row holds amounts). New function inventory_item_change_undo_v1 (authenticated only) and internal helper s_inventory_actor_name_v1 (no grants). Replaces five live bodies in place, each behind an md5 guard (CR stripped, 55000 when the live body is neither the original nor this release): inventory_item_update_v1 (original 6b3e2d70b638282ed422166cb09ca0ad, new 209ac7a02e8f34fdbbd2ba6bf432316a; a cleaner with submit_cleaning may edit name, category (one already in use), unit, reorder_below, par_qty, location, every other key 42501; return adds change_id), inventory_item_price_set_v1 (original aaf21c54f78fdd6abc7375632b95ee9b, new 0d89710776ad21c6f0e79c793184977a; a caller without finance sets the price blind and gets only {ok,item_id,change_id}, a price edit always writes a row so a blind caller cannot tell an equal price), inventory_item_photo_set_v1 (original fd631b2e5a376f17eff4e5ab5620f06f, new 833a1b7ade464cfad312924aa6a7d3f4; writes a photo change row), get_inventory_catalogue_v1 (original 60476644226a96e42ef723b513071cf9, new 2b07eed9209ccb4fe09836e30bf52999; adds updatedAt and updatedBy), inventory_item_history_v1 (original 2b70dd8912c80c42f20cc0441e865478, new a8669ba0b6ff6654edf352e9b8d98543; adds details, price and photo rows, price amounts only for finance). inventory_item_change_undo_v1 new md5 3e0124ba5efe67f529ae90e0ed10f04c. Grants restated for every function (revoke from public, anon, authenticated, service_role; grant execute to authenticated).",
+    "notes": "The restore point is the backup taken for the rehearsal; restamp it with a new backup at apply time (the checker refuses one older than an hour). Apply AFTER the s122 release (it does not touch the s122 functions, but the order keeps the ledger monotonic). Roll the staff app back before the SQL."
+  },
+  "forward_verification": [
+    {
+      "name": "changes_table_closed",
+      "query": "select to_regclass('public.inventory_item_changes') is not null and (select relrowsecurity from pg_class where oid = 'public.inventory_item_changes'::regclass) and not has_table_privilege('anon', 'public.inventory_item_changes', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.inventory_item_changes', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.inventory_item_changes', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "updated_by_column_exists",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_items' and column_name = 'updated_by' and data_type = 'uuid' and is_nullable = 'YES')",
+      "expect": true
+    },
+    {
+      "name": "six_functions_authenticated_only",
+      "query": "select has_function_privilege('authenticated','public.inventory_item_update_v1(uuid,jsonb)','execute') and not has_function_privilege('anon','public.inventory_item_update_v1(uuid,jsonb)','execute') and not has_function_privilege('service_role','public.inventory_item_update_v1(uuid,jsonb)','execute') and has_function_privilege('authenticated','public.inventory_item_price_set_v1(uuid,numeric)','execute') and not has_function_privilege('anon','public.inventory_item_price_set_v1(uuid,numeric)','execute') and not has_function_privilege('service_role','public.inventory_item_price_set_v1(uuid,numeric)','execute') and has_function_privilege('authenticated','public.inventory_item_photo_set_v1(uuid,text)','execute') and not has_function_privilege('anon','public.inventory_item_photo_set_v1(uuid,text)','execute') and not has_function_privilege('service_role','public.inventory_item_photo_set_v1(uuid,text)','execute') and has_function_privilege('authenticated','public.inventory_item_change_undo_v1(uuid)','execute') and not has_function_privilege('anon','public.inventory_item_change_undo_v1(uuid)','execute') and not has_function_privilege('service_role','public.inventory_item_change_undo_v1(uuid)','execute') and has_function_privilege('authenticated','public.get_inventory_catalogue_v1(uuid)','execute') and not has_function_privilege('anon','public.get_inventory_catalogue_v1(uuid)','execute') and not has_function_privilege('service_role','public.get_inventory_catalogue_v1(uuid)','execute') and has_function_privilege('authenticated','public.inventory_item_history_v1(uuid)','execute') and not has_function_privilege('anon','public.inventory_item_history_v1(uuid)','execute') and not has_function_privilege('service_role','public.inventory_item_history_v1(uuid)','execute')",
+      "expect": true
+    },
+    {
+      "name": "six_functions_definer_empty_search_path",
+      "query": "select count(*) = 6 and bool_and(prosecdef and proconfig = array['search_path=\"\"']) from pg_proc where oid in ('public.inventory_item_update_v1(uuid,jsonb)'::regprocedure, 'public.inventory_item_price_set_v1(uuid,numeric)'::regprocedure, 'public.inventory_item_photo_set_v1(uuid,text)'::regprocedure, 'public.inventory_item_change_undo_v1(uuid)'::regprocedure, 'public.get_inventory_catalogue_v1(uuid)'::regprocedure, 'public.inventory_item_history_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "actor_name_helper_no_client_grants",
+      "query": "select not has_function_privilege('anon','public.s_inventory_actor_name_v1(uuid)','execute') and not has_function_privilege('authenticated','public.s_inventory_actor_name_v1(uuid)','execute') and not has_function_privilege('service_role','public.s_inventory_actor_name_v1(uuid)','execute')",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_update_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '209ac7a02e8f34fdbbd2ba6bf432316a' from pg_proc where oid = 'public.inventory_item_update_v1(uuid,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_price_set_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '0d89710776ad21c6f0e79c793184977a' from pg_proc where oid = 'public.inventory_item_price_set_v1(uuid,numeric)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_photo_set_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '833a1b7ade464cfad312924aa6a7d3f4' from pg_proc where oid = 'public.inventory_item_photo_set_v1(uuid,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_change_undo_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '3e0124ba5efe67f529ae90e0ed10f04c' from pg_proc where oid = 'public.inventory_item_change_undo_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_get_inventory_catalogue_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '2b07eed9209ccb4fe09836e30bf52999' from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_history_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a8669ba0b6ff6654edf352e9b8d98543' from pg_proc where oid = 'public.inventory_item_history_v1(uuid)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with data loss by design: every recorded change row is dropped and updated_by is dropped; items keep the values the edits wrote.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261124_s124_item_edit.sql with run-sql-on-host.sh; the five bodies must be back to md5 6b3e2d70b638282ed422166cb09ca0ad, aaf21c54f78fdd6abc7375632b95ee9b, fd631b2e5a376f17eff4e5ab5620f06f, 60476644226a96e42ef723b513071cf9, 2b70dd8912c80c42f20cc0441e865478 and inventory_item_change_undo_v1 must be null. Roll the staff app back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Old staff builds keep working: every existing key of every return stays; change_id, updatedAt, updatedBy and the new history rows are additions an old build ignores (an old history renderer reads kind and before/after only for movement kinds, so it may show a change row as an adjustment: ship the staff app with the SQL)."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-19 at c3ac1722ce93c82c289dcbe56836d7e41dafd213 on restored production backup cascade-supabase-20261119T113532Z (139 public tables before, 140 after): migration applied, forward verification 11 of 11, pgTAP s124_item_edit.sql 69/69, leftovers 0."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the live md5 of inventory_item_update_v1, inventory_item_price_set_v1, inventory_item_photo_set_v1, get_inventory_catalogue_v1 or inventory_item_history_v1 is neither the expected original nor this release (the migration stops with 55000)",
+    "the rehearsal has not run the migration and s124_item_edit.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
