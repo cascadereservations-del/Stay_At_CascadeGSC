@@ -407,13 +407,7 @@ begin
   end if;
   v_new := v_src;
   v_new := replace(v_new, replace($o0$v_consumed := x.qty_prev + x.received_between + p_qty - x.qty_now;$o0$, chr(13), ''), replace($n0$v_consumed := x.qty_prev + x.received_between + x.moved_between + p_qty - x.qty_now;$n0$, chr(13), ''));
-  v_new := replace(v_new, replace($o1
-
-commit;
-minimum', x.qty_now - x.qty_prev - x.received_between)$o1$, chr(13), ''), replace($n1
-
-commit;
-minimum', x.qty_now - x.qty_prev - x.received_between - x.moved_between)$n1$, chr(13), ''));
+  v_new := replace(v_new, replace($o1$'minimum', x.qty_now - x.qty_prev - x.received_between)$o1$, chr(13), ''), replace($n1$'minimum', x.qty_now - x.qty_prev - x.received_between - x.moved_between)$n1$, chr(13), ''));
   if md5(v_new) is distinct from 'eb75c59afba9ac1984fb4b774554b503' then
     raise exception 's122: patching public.record_missed_refill_v1 did not give the expected body (md5 %)', md5(v_new) using errcode = '55000';
   end if;

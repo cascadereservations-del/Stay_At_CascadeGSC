@@ -49,67 +49,7 @@ begin
   end if;
   v_new := v_src;
   v_new := replace(v_new, replace($o0$v_consumed := x.qty_prev + x.received_between + x.moved_between + p_qty - x.qty_now;$o0$, chr(13), ''), replace($n0$v_consumed := x.qty_prev + x.received_between + p_qty - x.qty_now;$n0$, chr(13), ''));
-  v_new := replace(v_new, replace($o1
-
--- the patched bodies are back: nothing may still depend on the columns and the table
-drop function if exists public.get_inventory_item_moves_v1(uuid);
-drop function if exists public.undo_inventory_move_v1(uuid, text);
-drop function if exists public.move_inventory_usage_v1(uuid, uuid, text);
-drop function if exists public.move_inventory_stock_v1(uuid, uuid, numeric, text, text);
-drop function if exists public.s_inventory_move_json_v1(uuid, boolean);
-drop function if exists public.s_inventory_move_check_v1(public.inventory_items, public.inventory_items);
-drop table if exists public.inventory_item_moves;
-alter table public.inventory_usage_intervals drop column if exists moved_between;
-alter table public.inventory_usage drop column if exists moved_at;
-alter table public.inventory_usage drop column if exists moved_from_item_id;
-
-do $$
-begin
-  if to_regclass('public.inventory_item_moves') is not null
-     or exists (select 1 from information_schema.columns where table_schema = 'public' and column_name in ('moved_between', 'moved_from_item_id', 'moved_at')
-                  and table_name in ('inventory_usage_intervals', 'inventory_usage')) then
-    raise exception 's122 rollback: the table or a column is still there' using errcode = '55000';
-  end if;
-  if to_regprocedure('public.move_inventory_stock_v1(uuid,uuid,numeric,text,text)') is not null
-     or to_regprocedure('public.move_inventory_usage_v1(uuid,uuid,text)') is not null
-     or to_regprocedure('public.undo_inventory_move_v1(uuid,text)') is not null
-     or to_regprocedure('public.get_inventory_item_moves_v1(uuid)') is not null then
-    raise exception 's122 rollback: a move function is still there' using errcode = '55000';
-  end if;
-end $$;
-
-commit;
-minimum', x.qty_now - x.qty_prev - x.received_between - x.moved_between)$o1$, chr(13), ''), replace($n1
-
--- the patched bodies are back: nothing may still depend on the columns and the table
-drop function if exists public.get_inventory_item_moves_v1(uuid);
-drop function if exists public.undo_inventory_move_v1(uuid, text);
-drop function if exists public.move_inventory_usage_v1(uuid, uuid, text);
-drop function if exists public.move_inventory_stock_v1(uuid, uuid, numeric, text, text);
-drop function if exists public.s_inventory_move_json_v1(uuid, boolean);
-drop function if exists public.s_inventory_move_check_v1(public.inventory_items, public.inventory_items);
-drop table if exists public.inventory_item_moves;
-alter table public.inventory_usage_intervals drop column if exists moved_between;
-alter table public.inventory_usage drop column if exists moved_at;
-alter table public.inventory_usage drop column if exists moved_from_item_id;
-
-do $$
-begin
-  if to_regclass('public.inventory_item_moves') is not null
-     or exists (select 1 from information_schema.columns where table_schema = 'public' and column_name in ('moved_between', 'moved_from_item_id', 'moved_at')
-                  and table_name in ('inventory_usage_intervals', 'inventory_usage')) then
-    raise exception 's122 rollback: the table or a column is still there' using errcode = '55000';
-  end if;
-  if to_regprocedure('public.move_inventory_stock_v1(uuid,uuid,numeric,text,text)') is not null
-     or to_regprocedure('public.move_inventory_usage_v1(uuid,uuid,text)') is not null
-     or to_regprocedure('public.undo_inventory_move_v1(uuid,text)') is not null
-     or to_regprocedure('public.get_inventory_item_moves_v1(uuid)') is not null then
-    raise exception 's122 rollback: a move function is still there' using errcode = '55000';
-  end if;
-end $$;
-
-commit;
-minimum', x.qty_now - x.qty_prev - x.received_between)$n1$, chr(13), ''));
+  v_new := replace(v_new, replace($o1$'minimum', x.qty_now - x.qty_prev - x.received_between - x.moved_between)$o1$, chr(13), ''), replace($n1$'minimum', x.qty_now - x.qty_prev - x.received_between)$n1$, chr(13), ''));
   if md5(v_new) is distinct from 'd0d9cf73fea6e67150d0766bdede7d02' then
     raise exception 's122: patching public.record_missed_refill_v1 did not give the expected body (md5 %)', md5(v_new) using errcode = '55000';
   end if;

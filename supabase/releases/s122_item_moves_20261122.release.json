@@ -10,7 +10,7 @@
     "20261122000000_s122_item_moves.sql"
   ],
   "migration_sha256": {
-    "20261122000000_s122_item_moves.sql": "a6d94154e669ec4cb6f5d5b1f993fea1fc109599b9cc93acc38786566f8bb0fc"
+    "20261122000000_s122_item_moves.sql": "20cfa8b9e4fb5971e339c3fa7fb776a34b8b4c5b1cd0befe4a9ed10da553bce3"
   },
   "backup": {
     "required": true,
