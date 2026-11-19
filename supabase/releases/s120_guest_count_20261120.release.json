@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261119T033444Z",
+    "verified_at": "2026-11-19T03:38:56.887Z",
     "production_rule": "Guest count (contract docs/s120/CONTRACT-guest-count.md). stay_staying gains guest_count (integer, 1..3, null = nobody counted; constraint stay_staying_guest_count_range). stay_staying_history accepts action count (the action check is replaced with a five-value one). set_stay_guest_count_v1(uuid,text,integer,integer,text,text): authenticated only, gate manage_operations (owner, admin), optimistic lock on version (40001), idempotency key required, replay only for the same count (else 22023 idempotency_key_reused). staff_guest_stay_v1(uuid,uuid): authenticated only, gate manage_operations, returns the current or next stay of a guest with booked_guests, guest_count and version. staff_home_v1 (s119 body, md5 18f5723d01ce20788d6fb2f114129ed8) gains guest_count and booked_guests inside the staying object of current_guest and next_guest via helper stay_guest_count_json_v1 (no API grant). Both tables stay closed: RLS on, no grant to any API role.",
     "notes": "Additive. No existing signature or grant changes. One function body is replaced (staff_home_v1), cut by patching the live body after an md5 guard (55000 when production moved) and re-checked against the post-patch md5 b85530233f55696b136e4a49d1ed255c. Does not depend on the usage-learning release. Old Staff app builds ignore the new keys (guest_count and booked_guests in staying; guest_id on current_guest and next_guest for owner and admin only). Apply order with s119: s119 first (this release patches the s119 body). Deploy order: SQL first, then the Staff app. After this release applies, the s119 forward check md5_staff_home_v1 (18f5723d...) no longer holds by design."
   },

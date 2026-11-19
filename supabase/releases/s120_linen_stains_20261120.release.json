@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261119T033444Z",
+    "verified_at": "2026-11-19T03:38:56.887Z",
     "production_rule": "Linen stains (D-374). New table linen_stain_reports (RLS on, no grant to any API role) and record_linen_stains_v1(uuid,date,text,text,jsonb): authenticated only, gate submit_cleaning, rows {item_id, qty 1..99, outcome cleaned|needs_replacing|replaced}, replay on the idempotency key (16 to 160 characters), the same key from another person, or with different rows (fingerprint over item, outcome and quantity, order ignored), is 22023 idempotency_key_reused. needs_replacing and replaced lower qty_on_hand (clamped at 0, a cleaner is never refused for a low shelf); a movement-controlled item also gets an adjustment movement. needs_replacing adds to ONE open follow-up task per item (kind linen_replace). Nothing is written to inventory_usage, inventory_purchases or any finance table.",
     "notes": "Additive: one table, one function, no existing signature or grant changes, no function body replaced. Independent of the other s120 releases. Apply order does not matter. The checklist release that calls it ships after this applies. 0 of 78 inventory items are movement-controlled in production (read 2026-11-18)."
   },

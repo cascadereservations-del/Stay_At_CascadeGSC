@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PLACEHOLDER-orchestrator-sets-before-apply",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261119T033444Z",
+    "verified_at": "2026-11-19T03:38:56.887Z",
     "production_rule": "Privacy fix. public.guest_context_v1(uuid, uuid, text) is SECURITY DEFINER with no auth check and authenticated could execute it (production read 2026-11-18; anon could not, service_role could), so any signed-in user could read a guest's private fields (stay count, last issue, preferences, tags, VIP reason, note, birthday, open follow-ups) by name. The migration revokes all from PUBLIC, anon, authenticated and service_role and grants execute to service_role only, then reads the ACL back and raises (55000) unless only the owner and service_role appear in it. No body, signature, owner or search_path change; no table or data written. Callers found in the current app repos on 2026-11-18: the edge functions airbnb-email-sync, submit-booking, telegram-cassy and guest-reply-draft, through _shared/cascade-core/tools.ts, all with a service-role client; no front end and no SQL function calls it. Before the apply, read production once more: select p.proname from pg_proc p where p.prosrc ilike '%guest_context_v1%' and p.proname <> 'guest_context_v1' (expect no rows), and stop if a user-token caller turns up.",
     "notes": "Narrowing grant only, so it is the one SQL step of this release; no deploy needed because every caller already uses the service role. Does not depend on the usage-learning or guest-count releases. Reversal reopens the read to signed-in users: only if an app that calls it with a user token is found, and then fix that caller."
   },
