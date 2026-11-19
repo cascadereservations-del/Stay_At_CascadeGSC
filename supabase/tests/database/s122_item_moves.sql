@@ -361,13 +361,13 @@ select ok((select qty_on_hand = 10 from public.inventory_items where id = 'e1220
 
 -- 63-70. undo of usage moves: moved_since, newest first, the first owner comes back ------------------------------------------------------------------
 insert into public.inventory_usage(id, item_id, used_qty, session_date, logged_by, notes, property_id, created_at) values
-  ('e1220010-0000-4000-8000-0000000002f0', 'e1220010-0000-4000-8000-000000000125', 1, current_date, 'zz', 'chain', 'e1220010-0000-4000-8000-000000000001', now() - interval '2 hours');
+  ('e1220010-0000-4000-8000-000000000204', 'e1220010-0000-4000-8000-000000000125', 1, current_date, 'zz', 'chain', 'e1220010-0000-4000-8000-000000000001', now() - interval '2 hours');
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e1220010-0000-4000-8000-000000000011"}';
-insert into _r select 'j1', public.move_inventory_usage_v1('e1220010-0000-4000-8000-0000000002f0', 'e1220010-0000-4000-8000-000000000126', 'zz-s122-key-0041');
-insert into _r select 'j2', public.move_inventory_usage_v1('e1220010-0000-4000-8000-0000000002f0', 'e1220010-0000-4000-8000-000000000127', 'zz-s122-key-0042');
+insert into _r select 'j1', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000204', 'e1220010-0000-4000-8000-000000000126', 'zz-s122-key-0041');
+insert into _r select 'j2', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000204', 'e1220010-0000-4000-8000-000000000127', 'zz-s122-key-0042');
 reset role;
-select ok((select item_id = 'e1220010-0000-4000-8000-000000000127' and moved_from_item_id = 'e1220010-0000-4000-8000-000000000125' from public.inventory_usage where id = 'e1220010-0000-4000-8000-0000000002f0')
+select ok((select item_id = 'e1220010-0000-4000-8000-000000000127' and moved_from_item_id = 'e1220010-0000-4000-8000-000000000125' from public.inventory_usage where id = 'e1220010-0000-4000-8000-000000000204')
       and (select qty_on_hand = 11 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000126') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000127') = 9 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000125'),
   'a second move keeps the first owner: the row is under J3, moved_from J1; shelves J1 11 (gave the unit back), J2 10, J3 9');
 set local role authenticated;
@@ -382,7 +382,7 @@ select ok((select (v ->> 'ok')::boolean and v ->> 'undoOf' = (select v ->> 'move
       and (select (v ->> 'ok')::boolean and (v ->> 'replayed')::boolean and v ->> 'reason' = 'already_undone' from _r where k = 'j5'),
   'undo of the newest usage move works; a second undo answers already_undone');
 select ok((select (v ->> 'ok')::boolean from _r where k = 'j6')
-      and (select item_id = 'e1220010-0000-4000-8000-000000000125' and moved_from_item_id is null and moved_at is null from public.inventory_usage where id = 'e1220010-0000-4000-8000-0000000002f0')
+      and (select item_id = 'e1220010-0000-4000-8000-000000000125' and moved_from_item_id is null and moved_at is null from public.inventory_usage where id = 'e1220010-0000-4000-8000-000000000204')
       and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000125') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000126') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000127') = 10,
   'then the older move undoes too: the row is back under J1 with no moved_from, shelves all 10 again');
 
