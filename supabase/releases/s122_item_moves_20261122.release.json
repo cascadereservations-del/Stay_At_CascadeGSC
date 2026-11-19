@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s122/item-moves",
-    "commit": "daac54ca74340420167516c4e837708834dc74a9"
+    "commit": "f475218178ea6e29b265f5126aa1c6f3a96f4e79"
   },
   "migrations": [
     "20261122000000_s122_item_moves.sql"
   ],
   "migration_sha256": {
-    "20261122000000_s122_item_moves.sql": "20cfa8b9e4fb5971e339c3fa7fb776a34b8b4c5b1cd0befe4a9ed10da553bce3"
+    "20261122000000_s122_item_moves.sql": "183853b827b3269d053a50b72b16ad2fb0eacea0bd93d0666265b0f7d7c6deab"
   },
   "backup": {
     "required": true,
@@ -72,8 +72,8 @@
       "expect": true
     },
     {
-      "name": "existing_intervals_read_without_error",
-      "query": "select (select count(*) from public.inventory_usage_intervals where moved_between <> 0) = 0",
+      "name": "idempotency_key_unique_constraint_exists",
+      "query": "select count(*) = 1 from pg_constraint where conrelid = 'public.inventory_item_moves'::regclass and contype = 'u' and conkey = array[(select attnum from pg_attribute where attrelid = 'public.inventory_item_moves'::regclass and attname = 'idempotency_key')]::smallint[]",
       "expect": true
     }
   ],
@@ -98,7 +98,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed 2026-11-19 at daac54ca74340420167516c4e837708834dc74a9 on restored production backup cascade-supabase-20261119T060751Z (138 public tables before, 139 after): migration applied, forward verification 11 of 11, pgTAP s122_item_moves.sql 55/55, leftovers 0."
+    "evidence": "Rehearsed 2026-11-19 at f475218178ea6e29b265f5126aa1c6f3a96f4e79 on restored production backup cascade-supabase-20261119T060751Z (138 public tables before, 139 after): migration applied, forward verification 11 of 11, pgTAP s122_item_moves.sql 58/58, leftovers 0."
   },
   "approvals": {
     "production_required": true,
