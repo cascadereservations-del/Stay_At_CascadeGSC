@@ -112,8 +112,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not verified on this commit. The six-migration rehearsal (docs/s120/rehearsal-all-3.log, 2026-11-19) ran at f05351e: this suite 93/93 and forward verification 67/67. Session 120 lane S12 then changed the migration, its rollback and its suite (9bcaeaf, 2c60187: the KPI waitingForRefill since patch), so that run does not cover this commit. Re-run the six-migration rehearsal on s120/sql-all at or after 2c60187, then set verified to true with the new log path."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-19 at 95674c5 on restored production backup cascade-supabase-20261119T031243Z (133 public tables before): all six s120 migrations applied in order, forward verification 67 checks, pgTAP 10 suites green including s120_count_learning.sql (95/95) and zz_s120_all_rollbacks.sql (20/20), leftovers 0. Log: docs/s120/rehearsal-all-4.log."
   },
   "approvals": {
     "production_required": true,
