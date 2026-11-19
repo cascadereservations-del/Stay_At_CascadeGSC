@@ -5,7 +5,7 @@
 -- created_at of a change row is moved by hand where the order or the age matters: every row written inside this one transaction would otherwise carry the same now().
 -- Everything rolls back.
 begin;
-select plan(69);
+select plan(76);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -19,13 +19,14 @@ create temp table _r(k text primary key, v jsonb);
 grant all on _r to authenticated, service_role;
 
 -- fixtures -------------------------------------------------------------------------------------------------------------------------------
-insert into public.properties(id, name, is_active) values ('e1240010-0000-4000-8000-000000000001', 'Synthetic S124', true);
-insert into auth.users(id) values ('e1240010-0000-4000-8000-000000000011'), ('e1240010-0000-4000-8000-000000000012'), ('e1240010-0000-4000-8000-000000000013'), ('e1240010-0000-4000-8000-000000000014'), ('e1240010-0000-4000-8000-000000000015');
+insert into public.properties(id, name, is_active) values ('e1240010-0000-4000-8000-000000000001', 'Synthetic S124', true), ('e1240010-0000-4000-8000-000000000002', 'Synthetic S124 Other', true);
+insert into auth.users(id) values ('e1240010-0000-4000-8000-000000000011'), ('e1240010-0000-4000-8000-000000000012'), ('e1240010-0000-4000-8000-000000000013'), ('e1240010-0000-4000-8000-000000000014'), ('e1240010-0000-4000-8000-000000000015'), ('e1240010-0000-4000-8000-000000000016'), ('e1240010-0000-4000-8000-000000000017');
 update auth.users set raw_app_meta_data = jsonb_build_object('display_name', 'Adam Zz') where id = 'e1240010-0000-4000-8000-000000000011';
 update auth.users set raw_app_meta_data = jsonb_build_object('display_name', 'Clea Zz') where id = 'e1240010-0000-4000-8000-000000000012';
-insert into public.staff_access_profiles(user_id, role) values ('e1240010-0000-4000-8000-000000000011', 'admin'), ('e1240010-0000-4000-8000-000000000012', 'cleaner'), ('e1240010-0000-4000-8000-000000000013', 'cleaner'), ('e1240010-0000-4000-8000-000000000015', 'maintenance');
+insert into public.staff_access_profiles(user_id, role) values ('e1240010-0000-4000-8000-000000000011', 'admin'), ('e1240010-0000-4000-8000-000000000012', 'cleaner'), ('e1240010-0000-4000-8000-000000000013', 'cleaner'), ('e1240010-0000-4000-8000-000000000015', 'maintenance'), ('e1240010-0000-4000-8000-000000000016', 'finance'), ('e1240010-0000-4000-8000-000000000017', 'cleaner');
 insert into public.staff_property_access(user_id, property_id) values ('e1240010-0000-4000-8000-000000000011', 'e1240010-0000-4000-8000-000000000001'), ('e1240010-0000-4000-8000-000000000012', 'e1240010-0000-4000-8000-000000000001'),
-  ('e1240010-0000-4000-8000-000000000013', 'e1240010-0000-4000-8000-000000000001'), ('e1240010-0000-4000-8000-000000000015', 'e1240010-0000-4000-8000-000000000001');
+  ('e1240010-0000-4000-8000-000000000013', 'e1240010-0000-4000-8000-000000000001'), ('e1240010-0000-4000-8000-000000000015', 'e1240010-0000-4000-8000-000000000001'),
+  ('e1240010-0000-4000-8000-000000000016', 'e1240010-0000-4000-8000-000000000001'), ('e1240010-0000-4000-8000-000000000017', 'e1240010-0000-4000-8000-000000000002');
 -- 101 details (every cleaner key), 102 name clash and category B, 103 inactive with category C, 104 price, 105 undo, 106 too late, 107 changed since, 108 name back, 109 photo, 110 limit 10, 111 admin edit, 112 price undo, 113 untouched
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, reorder_below, par_qty, location, unit_cost, purchase_unit, units_per_purchase) values
   ('e1240010-0000-4000-8000-000000000101', 'e1240010-0000-4000-8000-000000000001', 'Zz S124 Towel',  'Zz S124 Cat A', 'pc', 5, true,  true,  2, 10, 'Shelf', 7.50,  'box', 4),
@@ -44,7 +45,8 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
 insert into storage.buckets(id, name) values ('inventory-photos', 'inventory-photos') on conflict (id) do nothing;
 insert into storage.objects(bucket_id, name) values
   ('inventory-photos', 'items/e1240010-0000-4000-8000-000000000109/e1240010-0000-4000-8000-000000000a01.webp'),
-  ('inventory-photos', 'items/e1240010-0000-4000-8000-000000000109/e1240010-0000-4000-8000-000000000a02.webp');
+  ('inventory-photos', 'items/e1240010-0000-4000-8000-000000000109/e1240010-0000-4000-8000-000000000a02.webp'),
+  ('inventory-photos', 'items/e1240010-0000-4000-8000-000000000113/e1240010-0000-4000-8000-000000000a03.webp');
 
 -- 1-4. shape and grants ----------------------------------------------------------------------------------------------------------------
 select ok(to_regclass('public.inventory_item_changes') is not null and (select relrowsecurity from pg_class where oid = 'public.inventory_item_changes'::regclass)
@@ -357,6 +359,45 @@ select ok((select (v ->> 'ok')::boolean and (select array_agg(key order by key) 
   'a cleaner undoes a blind price: the item goes back to the earlier price (here none: finance had cleared it), and the answer holds no amount');
 select ok((select (v ->> 'ok')::boolean and v ->> 'kind' = 'photo' from _r where k = 'ph_undo') and (select photo_path is null from public.inventory_items where id = 'e1240010-0000-4000-8000-000000000109'),
   'a cleaner undoes a photo change and the photo goes back');
+
+-- F1. read_operations roles undo their own photo and price change (maintenance, finance), not only submit_cleaning ones
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1240010-0000-4000-8000-000000000015"}';
+insert into _r select 'm_ph', public.inventory_item_photo_set_v1('e1240010-0000-4000-8000-000000000113', 'items/e1240010-0000-4000-8000-000000000113/e1240010-0000-4000-8000-000000000a03.webp');
+insert into _r select 'm_ph_u', public.inventory_item_change_undo_v1((select (v ->> 'change_id')::uuid from _r where k = 'm_ph'));
+set local request.jwt.claims = '{"sub":"e1240010-0000-4000-8000-000000000016","aal":"aal2"}';
+insert into _r select 'f_pr', public.inventory_item_price_set_v1('e1240010-0000-4000-8000-000000000113', 9.99);
+insert into _r select 'f_pr_u', public.inventory_item_change_undo_v1((select (v ->> 'change_id')::uuid from _r where k = 'f_pr'));
+reset role;
+select ok((select (v ->> 'ok')::boolean and v ->> 'kind' = 'photo' from _r where k = 'm_ph_u') and (select photo_path is null from public.inventory_items where id = 'e1240010-0000-4000-8000-000000000113'),
+  'a maintenance user sets a photo and undoes it');
+select ok((select (v ->> 'ok')::boolean and (select array_agg(key order by key) from jsonb_object_keys(v) key) = array['item_id', 'kind', 'ok'] and position('9.99' in v::text) = 0 from _r where k = 'f_pr_u')
+      and (select unit_cost is null from public.inventory_items where id = 'e1240010-0000-4000-8000-000000000113'),
+  'a finance-role user sets a price and undoes it: ok with item_id, kind, ok and no amount');
+-- F5. a cleaner of another property is refused on update, price and undo; an unknown key from a manager is 22023
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1240010-0000-4000-8000-000000000017"}';
+select throws_ok($$select public.inventory_item_update_v1('e1240010-0000-4000-8000-000000000113', '{"location":"Elsewhere"}')$$, '42501', null, 'a cleaner of another property cannot edit the item');
+select throws_ok($$select public.inventory_item_price_set_v1('e1240010-0000-4000-8000-000000000113', 5)$$, '42501', null, 'a cleaner of another property cannot set a price');
+select throws_ok(format($f$select public.inventory_item_change_undo_v1(%L)$f$, (select v ->> 'change_id' from _r where k = 'c_name')), '42501', null, 'a cleaner of another property cannot undo a change');
+set local request.jwt.claims = '{"sub":"e1240010-0000-4000-8000-000000000011"}';
+select throws_ok($$select public.inventory_item_update_v1('e1240010-0000-4000-8000-000000000113', '{"bogus":1}')$$, '22023', null, 'a manager sending an unknown key is refused 22023');
+reset role;
+-- F4. a manager undo that leaves the row active runs the name check against the item current name
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, units_per_purchase) values
+  ('e1240010-0000-4000-8000-000000000114', 'e1240010-0000-4000-8000-000000000001', 'Zz S124 React', 'Zz S124 Cat A', 'pc', 5, true, true, 1),
+  ('e1240010-0000-4000-8000-000000000115', 'e1240010-0000-4000-8000-000000000001', 'Zz S124 Twin',  'Zz S124 Cat A', 'pc', 5, true, true, 1);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1240010-0000-4000-8000-000000000011"}';
+insert into _r select 'x_off', public.inventory_item_update_v1('e1240010-0000-4000-8000-000000000114', '{"active":false}');
+reset role;
+update public.inventory_items set name = 'Zz S124 React' where id = 'e1240010-0000-4000-8000-000000000115';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1240010-0000-4000-8000-000000000011"}';
+insert into _r select 'x_u', public.inventory_item_change_undo_v1((select (v ->> 'change_id')::uuid from _r where k = 'x_off'));
+reset role;
+select ok((select not (v ->> 'ok')::boolean and v ->> 'reason' = 'name_exists' from _r where k = 'x_u') and (select not is_active from public.inventory_items where id = 'e1240010-0000-4000-8000-000000000114'),
+  'a manager undoing a deactivation after another active item took the name answers name_exists and leaves the item inactive');
 
 -- 72-77. anon is refused on every function -------------------------------------------------------------------------------------------------------
 set local role anon;

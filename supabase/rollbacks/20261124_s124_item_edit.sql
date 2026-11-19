@@ -227,6 +227,23 @@ $function$;
 revoke all on function public.inventory_item_history_v1(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.inventory_item_history_v1(uuid) to authenticated;
 
+do $g$
+declare r record; v text;
+begin
+  for r in select * from (values
+    ('public.inventory_item_update_v1(uuid,jsonb)'::text, '6b3e2d70b638282ed422166cb09ca0ad'::text),
+    ('public.inventory_item_price_set_v1(uuid,numeric)', 'aaf21c54f78fdd6abc7375632b95ee9b'),
+    ('public.inventory_item_photo_set_v1(uuid,text)', 'fd631b2e5a376f17eff4e5ab5620f06f'),
+    ('public.get_inventory_catalogue_v1(uuid)', '60476644226a96e42ef723b513071cf9'),
+    ('public.inventory_item_history_v1(uuid)', '2b70dd8912c80c42f20cc0441e865478')
+  ) as t(fn, orig) loop
+    select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = r.fn::regprocedure;
+    if v is distinct from r.orig then
+      raise exception using errcode = '55000', message = 's124 rollback: ' || r.fn || ' is not the original body (md5 ' || coalesce(v, 'null') || ')';
+    end if;
+  end loop;
+end $g$;
+
 drop function if exists public.inventory_item_change_undo_v1(uuid);
 drop function if exists public.s_inventory_actor_name_v1(uuid);
 drop table if exists public.inventory_item_changes;

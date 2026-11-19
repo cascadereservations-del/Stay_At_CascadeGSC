@@ -26,9 +26,9 @@ do $g$
 declare r record; v text;
 begin
   for r in select * from (values
-    ('public.inventory_item_update_v1(uuid,jsonb)'::text,        '6b3e2d70b638282ed422166cb09ca0ad'::text, '209ac7a02e8f34fdbbd2ba6bf432316a'::text),
-    ('public.inventory_item_price_set_v1(uuid,numeric)',          'aaf21c54f78fdd6abc7375632b95ee9b',       '0d89710776ad21c6f0e79c793184977a'),
-    ('public.inventory_item_photo_set_v1(uuid,text)',             'fd631b2e5a376f17eff4e5ab5620f06f',       '833a1b7ade464cfad312924aa6a7d3f4'),
+    ('public.inventory_item_update_v1(uuid,jsonb)'::text,        '6b3e2d70b638282ed422166cb09ca0ad'::text, 'c6ec09668ba7416ababeebe6a225b9d0'::text),
+    ('public.inventory_item_price_set_v1(uuid,numeric)',          'aaf21c54f78fdd6abc7375632b95ee9b',       '3d2c8732dfde137a39444b7f88d632a1'),
+    ('public.inventory_item_photo_set_v1(uuid,text)',             'fd631b2e5a376f17eff4e5ab5620f06f',       'a1049606d8996907dee18f5297a110f3'),
     ('public.get_inventory_catalogue_v1(uuid)',                   '60476644226a96e42ef723b513071cf9',       '2b07eed9209ccb4fe09836e30bf52999'),
     ('public.inventory_item_history_v1(uuid)',                    '2b70dd8912c80c42f20cc0441e865478',       'a8669ba0b6ff6654edf352e9b8d98543')
   ) as t(fn, orig, patched) loop
@@ -162,7 +162,7 @@ begin
     reorder_below = i.reorder_below, par_qty = i.par_qty, purchase_unit = i.purchase_unit, units_per_purchase = i.units_per_purchase, location = i.location,
     updated_at = now(), updated_by = auth.uid()
   where id = i.id;
-  insert into public.inventory_item_changes(item_id, property_id, actor, kind, before, after) values (i.id, i.property_id, auth.uid(), 'details', v_b, v_a) returning id into v_cid;
+  insert into public.inventory_item_changes(item_id, property_id, actor, kind, before, after, created_at) values (i.id, i.property_id, auth.uid(), 'details', v_b, v_a, clock_timestamp()) returning id into v_cid;
   return jsonb_build_object('ok', true, 'item_id', i.id, 'change_id', v_cid);
 end;
 $body$;
@@ -185,8 +185,8 @@ begin
   end if;
   update public.inventory_items set unit_cost = p_unit_cost, updated_at = now(), updated_by = auth.uid() where id = p_item_id;
   -- always a row: a missing change_id would tell a blind caller that the guess equals the current price
-  insert into public.inventory_item_changes(item_id, property_id, actor, kind, before, after)
-  values (p_item_id, v_prop, auth.uid(), 'price', jsonb_build_object('unit_cost', v_before), jsonb_build_object('unit_cost', p_unit_cost)) returning id into v_cid;
+  insert into public.inventory_item_changes(item_id, property_id, actor, kind, before, after, created_at)
+  values (p_item_id, v_prop, auth.uid(), 'price', jsonb_build_object('unit_cost', v_before), jsonb_build_object('unit_cost', p_unit_cost), clock_timestamp()) returning id into v_cid;
   if v_fin then return jsonb_build_object('ok', true, 'item_id', p_item_id, 'before', v_before, 'after', p_unit_cost, 'change_id', v_cid); end if;
   return jsonb_build_object('ok', true, 'item_id', p_item_id, 'change_id', v_cid);
 end;
@@ -208,10 +208,10 @@ begin
       return jsonb_build_object('ok', false, 'reason', 'bad_path');
     end if;
   end if;
-  update public.inventory_items set photo_path = p_path, updated_at = now(), updated_by = auth.uid() where id = p_item_id;
   if v_before is distinct from p_path then
-    insert into public.inventory_item_changes(item_id, property_id, actor, kind, before, after)
-    values (p_item_id, v_prop, auth.uid(), 'photo', jsonb_build_object('photo_path', v_before), jsonb_build_object('photo_path', p_path)) returning id into v_cid;
+    update public.inventory_items set photo_path = p_path, updated_at = now(), updated_by = auth.uid() where id = p_item_id;
+    insert into public.inventory_item_changes(item_id, property_id, actor, kind, before, after, created_at)
+    values (p_item_id, v_prop, auth.uid(), 'photo', jsonb_build_object('photo_path', v_before), jsonb_build_object('photo_path', p_path), clock_timestamp()) returning id into v_cid;
   end if;
   return jsonb_build_object('ok', true, 'before', v_before, 'change_id', v_cid);
 end;
@@ -234,7 +234,7 @@ begin
   v_mgr := public.current_staff_authorized('manage_inventory', c.property_id);
   if not v_mgr then
     if c.actor <> auth.uid() then raise exception using errcode = '42501', message = 'only the person who made the change can undo it'; end if;
-    perform public.admin_require('submit_cleaning', c.property_id);
+    perform public.admin_require('read_operations', c.property_id);
   end if;
   if c.undone_at is not null then return jsonb_build_object('ok', false, 'reason', 'already_undone'); end if;
   if not v_mgr and c.created_at < now() - interval '30 minutes' then return jsonb_build_object('ok', false, 'reason', 'too_late'); end if;
@@ -249,8 +249,9 @@ begin
     if v_cur -> v_k is distinct from c.after -> v_k then return jsonb_build_object('ok', false, 'reason', 'changed_since'); end if;
   end loop;
   if c.kind = 'details' then
-    if c.before ? 'name' and exists (select 1 from public.inventory_items x where x.property_id = i.property_id and x.is_active and x.id <> i.id
-                                     and lower(btrim(x.name)) = lower(btrim(c.before ->> 'name'))) then
+    if (case when c.before ? 'active' then (c.before ->> 'active')::boolean else i.is_active end)
+       and exists (select 1 from public.inventory_items x where x.property_id = i.property_id and x.is_active and x.id <> i.id
+                   and lower(btrim(x.name)) = lower(btrim(coalesce(c.before ->> 'name', i.name)))) then
       return jsonb_build_object('ok', false, 'reason', 'name_exists');
     end if;
     update public.inventory_items set
