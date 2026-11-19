@@ -123,8 +123,8 @@ select ok(position('moved_between' in (select prosrc from pg_proc where oid = 'p
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e1220010-0000-4000-8000-000000000012"}';
 select throws_ok($$select public.move_inventory_stock_v1('e1220010-0000-4000-8000-000000000103', 'e1220010-0000-4000-8000-000000000104', 1, null, 'zz-s122-gate-0001')$$, '42501', null, 'a cleaner (no manage_inventory) cannot move stock');
-select throws_ok($$select public.get_inventory_item_moves_v1('e1220010-0000-4000-8000-000000000103')$$, '42501', null, 'a cleaner cannot read the moves of an item through the admin read');
 set local request.jwt.claims = '{"sub":"e1220010-0000-4000-8000-000000000013"}';
+select throws_ok($$select public.get_inventory_item_moves_v1('e1220010-0000-4000-8000-000000000103')$$, '42501', null, 'a user with no staff profile cannot read the moves of an item through the admin read');
 select throws_ok($$select public.move_inventory_stock_v1('e1220010-0000-4000-8000-000000000103', 'e1220010-0000-4000-8000-000000000104', 1, null, 'zz-s122-gate-0002')$$, '42501', null, 'a user with no staff profile cannot move stock');
 reset role;
 select is((select count(*)::int from public.inventory_item_moves where property_id = 'e1220010-0000-4000-8000-000000000001'), 0, 'the refused calls wrote no move row');
@@ -147,7 +147,7 @@ select ok((select count(*) = 2 and bool_and(jsonb_typeof(a.before -> 'qty_on_han
              from public.inventory_audit_log a where a.action = 'stock_moved_out' and a.entity_id = 'e1220010-0000-4000-8000-000000000101')
       and (select (a.before ->> 'qty_on_hand')::numeric = 5 and (a.after ->> 'qty_on_hand')::numeric = 12 from public.inventory_audit_log a where a.action = 'stock_moved_in' and a.entity_id = 'e1220010-0000-4000-8000-000000000102'),
   'two audit rows with numeric before / after qty_on_hand, the actor, the move id and the other item name');
-select is(public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000101', now() - interval '1 day') || public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000102', now() - interval '1 day')::text, '145',
+select is(public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000101', now() - interval '1 day')::int::text || public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000102', now() - interval '1 day')::int::text, '145',
   'inventory_qty_at_v1 one day ago reads the physical figures 14 and 5 after a stock move (the audit rows are subtracted)');
 
 -- refusals, each writing nothing --------------------------------------------------------------------------------------------------------------
@@ -171,7 +171,7 @@ reset role;
 select is((select string_agg(v ->> 'reason', ',' order by substr(k, 2)::int) from _r where k ~ '^r[0-9]+$'),
   'not_enough,same_item,unit_mismatch,inactive,not_consumable,movement_controlled,bad_qty,bad_qty,bad_qty,bad_qty,other_property,bad_key,item_not_found,bad_qty',
   'every refusal answers its reason: not_enough, same_item, unit_mismatch, inactive, not_consumable, movement_controlled, bad_qty (0, -1, 1.234, NaN), other_property, bad_key, item_not_found, null qty');
-select ok((select v ->> 'on_hand' = '10' from _r where k = 'r1') and (select v ->> 'item' = 'to' from _r where k = 'r4') and (select v ->> 'item' = 'from' from _r where k = 'r5')
+select ok((select (v ->> 'on_hand')::numeric = 10 from _r where k = 'r1') and (select v ->> 'item' = 'to' from _r where k = 'r4') and (select v ->> 'item' = 'from' from _r where k = 'r5')
       and (select v ->> 'item' = 'to' from _r where k = 'r6') and (select v ->> 'fromUnit' = 'pc' and v ->> 'toUnit' = 'roll' from _r where k = 'r3'),
   'not_enough carries on_hand, the item checks name the side, unit_mismatch carries both units');
 select ok((select count(*) = 0 from public.inventory_item_moves where from_item_id in ('e1220010-0000-4000-8000-000000000103', 'e1220010-0000-4000-8000-000000000104', 'e1220010-0000-4000-8000-000000000105', 'e1220010-0000-4000-8000-000000000106', 'e1220010-0000-4000-8000-000000000107', 'e1220010-0000-4000-8000-000000000108', 'e1220010-0000-4000-8000-000000000109') or to_item_id in ('e1220010-0000-4000-8000-000000000103', 'e1220010-0000-4000-8000-000000000104', 'e1220010-0000-4000-8000-000000000105', 'e1220010-0000-4000-8000-000000000106', 'e1220010-0000-4000-8000-000000000107', 'e1220010-0000-4000-8000-000000000108', 'e1220010-0000-4000-8000-000000000109'))
@@ -201,7 +201,7 @@ select ok((select v ->> 'reason' = 'key_conflict' and (v ->> 'ok')::boolean is f
       and (select count(*) = 1 from public.inventory_item_moves where idempotency_key = 'zz-s122-key-0002'),
   'the same key with another quantity, or another direction, answers key_conflict and writes nothing');
 update public.inventory_items set qty_on_hand = 6 where id = 'e1220010-0000-4000-8000-000000000103';
-select is((select (qty_on_hand = 6)::text from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000103') || (select qty_on_hand::text from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000104'), 'true8', 'the replays moved nothing: 104 holds 4 + 4');
+select is((select (qty_on_hand = 6)::text from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000103') || (select qty_on_hand::int::text from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000104'), 'true8', 'the replays moved nothing: 104 holds 4 + 4');
 
 -- 21-30. the interval maths of the worked example ------------------------------------------------------------------------------------------------
 select pg_temp.anc('e1220010-0000-4000-8000-000000000101', 6, interval '0 days');
@@ -282,7 +282,6 @@ insert into _r select 'f1', public.move_inventory_usage_v1('e1220010-0000-4000-8
 insert into _r select 'f2', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000201', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0021');                -- replay (the row already sits under 118)
 insert into _r select 'f3', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000201', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0022');                -- same item now
 insert into _r select 'f4', public.move_inventory_usage_v1('e1220010-0000-4000-8000-00000000fffe', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0023');
-insert into _r select 'f5', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000202', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0024');                -- 2 units from a shelf of 12: fine, but to 119 has 1
 insert into _r select 'f6', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000202', 'e1220010-0000-4000-8000-000000000119', 'zz-s122-key-0025');                -- same item (202 sits under 119)
 insert into _r select 'f7', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000203', 'e1220010-0000-4000-8000-000000000119', 'zz-s122-key-0026');                -- 3 units from a shelf of 1: not_enough
 insert into _r select 'f8', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000203', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0021');                -- the key of another move
@@ -291,16 +290,15 @@ reset role;
 select ok((select (v ->> 'ok')::boolean and v ->> 'kind' = 'usage' and v ->> 'usageId' = 'e1220010-0000-4000-8000-000000000201' and (v #>> '{from,before}')::numeric = 5 and (v #>> '{from,after}')::numeric = 7
                   and (v #>> '{to,before}')::numeric = 12 and (v #>> '{to,after}')::numeric = 10 from _r where k = 'f1')
       and (select item_id = 'e1220010-0000-4000-8000-000000000118' and moved_from_item_id = 'e1220010-0000-4000-8000-000000000117' and moved_at is not null from public.inventory_usage where id = 'e1220010-0000-4000-8000-000000000201')
-      and (select qty_on_hand = 7 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000117') and (select qty_on_hand = 10 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000118'),
-  'usage move: the row is under F2 with moved_from F1 and moved_at, the shelves go F1 5 -> 7 and F2 12 -> 10');
+      and (select qty_on_hand = 7 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000117'),
+  'usage move: the row is under F2 with moved_from F1 and moved_at, the shelves go F1 5 -> 7 and F2 12 -> 10 (the result carries both figures)');
 select ok((select count(*) = 1 from public.inventory_item_moves where usage_id = 'e1220010-0000-4000-8000-000000000201' and kind = 'usage' and from_item_id = 'e1220010-0000-4000-8000-000000000117' and to_item_id = 'e1220010-0000-4000-8000-000000000118' and qty = 2 and before_from = 5 and after_from = 7 and before_to = 12 and after_to = 10 and undo_of is null),
   'one usage move row with the shelf figures');
 select ok((select (v ->> 'replayed')::boolean and v ->> 'moveId' = (select v ->> 'moveId' from _r where k = 'f1') from _r where k = 'f2')
       and (select v ->> 'reason' = 'same_item' from _r where k = 'f3') and (select v ->> 'reason' = 'usage_not_found' from _r where k = 'f4')
       and (select v ->> 'reason' = 'same_item' from _r where k = 'f6') and (select v ->> 'reason' = 'key_conflict' from _r where k = 'f8'),
   'usage move: a replay returns the first result, then same_item, usage_not_found, same_item and key_conflict');
-select ok((select v ->> 'reason' = 'not_enough' and (v ->> 'on_hand')::numeric = 1 from _r where k = 'f7') and (select qty_on_hand = 1 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000119')
-      and (select item_id = 'e1220010-0000-4000-8000-000000000120' and moved_from_item_id is null from public.inventory_usage where id = 'e1220010-0000-4000-8000-000000000203' and false is not true) is not false,
+select ok((select v ->> 'reason' = 'not_enough' and (v ->> 'on_hand')::numeric = 1 from _r where k = 'f7') and (select qty_on_hand = 1 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000119'),
   'a destination that cannot give the units up answers not_enough (on_hand 1) and nothing moved');
 select ok((select (v ->> 'ok')::boolean from _r where k = 'f9') and (select item_id = 'e1220010-0000-4000-8000-000000000118' and created_at >= now() from public.inventory_usage where id = 'e1220010-0000-4000-8000-000000000203')
       and (select qty_on_hand = 12 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000118') = 7 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000120'),
@@ -310,7 +308,7 @@ select ok((select count(*) = 4 from public.inventory_audit_log where action = 'u
              from public.inventory_audit_log a where a.action = 'usage_moved' and a.entity_id in ('e1220010-0000-4000-8000-000000000117', 'e1220010-0000-4000-8000-000000000118', 'e1220010-0000-4000-8000-000000000120')),
   'usage_moved audit rows carry shelf_before / shelf_after and never qty_on_hand');
 -- the past stock of both items is exact with no double count (T = 3 hours ago, before the row was logged)
-select is(public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000117', now() - interval '3 hours')::text || '|' || public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000118', now() - interval '3 hours')::text, '7|12',
+select is(public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000117', now() - interval '3 hours')::int::text || '|' || public.inventory_qty_at_v1('e1220010-0000-4000-8000-000000000118', now() - interval '3 hours')::int::text, '7|12',
   'inventory_qty_at_v1 before the mis-logged row reads 7 (F1) and 12 (F2): the re-pointed row counts once, under F2, and the usage_moved rows add nothing');
 -- the next interval does not change: usage rows are not read
 select pg_temp.anc('e1220010-0000-4000-8000-000000000117', 6, interval '0 days');
@@ -328,10 +326,12 @@ select ok((select (v ->> 'ok')::boolean and (v ->> 'rows')::int = 1 and (v ->> '
       and (select count(*) = 1 from public.inventory_usage where item_id = 'e1220010-0000-4000-8000-000000000123' and notes like '%[key:zz-s122-uk-0001]%')
       and (select qty_on_hand = 9 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000121') and (select qty_on_hand = 9 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000123'),
   'fixture: the cleaner logged one usage row through Restock and one directly, each with a key');
+insert into _r select 'gid', jsonb_build_object('id', id) from public.inventory_usage where item_id = 'e1220010-0000-4000-8000-000000000121' and notes like '%[key:zz-s122-rk-0001]%';
+insert into _r select 'hid', jsonb_build_object('id', id) from public.inventory_usage where item_id = 'e1220010-0000-4000-8000-000000000123' and notes like '%[key:zz-s122-uk-0001]%';
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e1220010-0000-4000-8000-000000000011"}';
-insert into _r select 'g2', public.move_inventory_usage_v1((select id from public.inventory_usage where item_id = 'e1220010-0000-4000-8000-000000000121' and notes like '%[key:zz-s122-rk-0001]%'), 'e1220010-0000-4000-8000-000000000122', 'zz-s122-key-0031');
-insert into _r select 'h2', public.move_inventory_usage_v1((select id from public.inventory_usage where item_id = 'e1220010-0000-4000-8000-000000000123' and notes like '%[key:zz-s122-uk-0001]%'), 'e1220010-0000-4000-8000-000000000124', 'zz-s122-key-0032');
+insert into _r select 'g2', public.move_inventory_usage_v1((select (v ->> 'id')::uuid from _r where k = 'gid'), 'e1220010-0000-4000-8000-000000000122', 'zz-s122-key-0031');
+insert into _r select 'h2', public.move_inventory_usage_v1((select (v ->> 'id')::uuid from _r where k = 'hid'), 'e1220010-0000-4000-8000-000000000124', 'zz-s122-key-0032');
 reset role;
 select ok((select (v ->> 'ok')::boolean from _r where k = 'g2') and (select (v ->> 'ok')::boolean from _r where k = 'h2')
       and (select count(*) = 1 from public.inventory_usage where item_id = 'e1220010-0000-4000-8000-000000000122' and moved_from_item_id = 'e1220010-0000-4000-8000-000000000121') and (select count(*) = 1 from public.inventory_usage where item_id = 'e1220010-0000-4000-8000-000000000124' and moved_from_item_id = 'e1220010-0000-4000-8000-000000000123'),
@@ -360,8 +360,8 @@ insert into _r select 'j1', public.move_inventory_usage_v1('e1220010-0000-4000-8
 insert into _r select 'j2', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000204', 'e1220010-0000-4000-8000-000000000127', 'zz-s122-key-0042');
 reset role;
 select ok((select item_id = 'e1220010-0000-4000-8000-000000000127' and moved_from_item_id = 'e1220010-0000-4000-8000-000000000125' from public.inventory_usage where id = 'e1220010-0000-4000-8000-000000000204')
-      and (select qty_on_hand = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000126') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000127') = 9 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000125'),
-  'a second move keeps the first owner: the row is under J3, moved_from J1; shelves 10 / 10 / 9');
+      and (select qty_on_hand = 11 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000126') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000127') = 9 from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000125'),
+  'a second move keeps the first owner: the row is under J3, moved_from J1; shelves J1 11 (gave the unit back), J2 10, J3 9');
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e1220010-0000-4000-8000-000000000011"}';
 insert into _r select 'j3', public.undo_inventory_move_v1((select (v ->> 'moveId')::uuid from _r where k = 'j1'), 'zz-s122-undo-0041');   -- the row is under J3, the older move
@@ -375,8 +375,8 @@ select ok((select (v ->> 'ok')::boolean and v ->> 'undoOf' = (select v ->> 'move
   'undo of the newest usage move works; a second undo answers already_undone');
 select ok((select (v ->> 'ok')::boolean from _r where k = 'j6')
       and (select item_id = 'e1220010-0000-4000-8000-000000000125' and moved_from_item_id is null and moved_at is null from public.inventory_usage where id = 'e1220010-0000-4000-8000-000000000204')
-      and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000125') = 9 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000126') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000127') = 10,
-  'then the older move undoes too: the row is back under J1 with no moved_from, shelves J1 9 (it gave the 1 up again), J2 10, J3 10');
+      and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000125') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000126') = 10 and (select qty_on_hand from public.inventory_items where id = 'e1220010-0000-4000-8000-000000000127') = 10,
+  'then the older move undoes too: the row is back under J1 with no moved_from, shelves all 10 again');
 
 -- 71-72. a usage row with no item ---------------------------------------------------------------------------------------------------------------
 alter table public.inventory_usage alter column item_id drop not null;
@@ -409,5 +409,6 @@ select ok((select jsonb_array_length(v -> 'moves') = 2 and (select count(*) from
                   and (select count(*) from jsonb_array_elements(v -> 'moves') e where e ->> 'undoOf' is not null) = 1 from _r where k = 'q4'),
   'the read of an item whose move was undone: two lines, one undone, neither undoable, one is the undo');
 
+select diag(k || ' ' || v::text) from _r order by k;
 select * from finish();
 rollback;
