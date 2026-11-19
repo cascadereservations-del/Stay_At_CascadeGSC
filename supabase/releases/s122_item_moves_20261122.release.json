@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "release_id": "s122_item_moves_20261122",
+  "phase": "expand",
+  "source": {
+    "branch": "s122/item-moves",
+    "commit": "PENDING"
+  },
+  "migrations": [
+    "20261122000000_s122_item_moves.sql"
+  ],
+  "migration_sha256": {
+    "20261122000000_s122_item_moves.sql": "a6d94154e669ec4cb6f5d5b1f993fea1fc109599b9cc93acc38786566f8bb0fc"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261119T060751Z",
+    "verified_at": "2026-11-19T06:13:53Z",
+    "production_rule": "Move stock to another item (D-383, spec docs/s122/SPEC-stock-transfer.md incl. Revision 1). Adds the closed table inventory_item_moves (RLS on, revoke all, no API grant), inventory_usage_intervals.moved_between (numeric not null default 0), inventory_usage.moved_from_item_id (uuid null, references inventory_items) and inventory_usage.moved_at. Four security definer functions (empty search_path, execute for authenticated only): move_inventory_stock_v1, move_inventory_usage_v1, undo_inventory_move_v1, get_inventory_item_moves_v1; two internal helpers with no grants. Patches four live bodies in place with md5 guards (CR stripped, 55000 on a body that is neither the expected original nor already patched): record_inventory_anchor_v1 (original a8c9099d20a49fa57f266e0c2a73c3eb, patched f38dcf164dad76b9cda818509400a633); record_missed_refill_v1 (original d0d9cf73fea6e67150d0766bdede7d02, patched eb75c59afba9ac1984fb4b774554b503); record_inventory_usage (original c1c7bff8e55b4aab5528b9fc60a49740, patched 365f7c6d50258a611612465e4ad3624b); record_restock_v1 (original 490f7db83c6cf1f1dfef72452a4f49e7, patched 94a9e42b7b2a439852be3c9ae591010d). record_inventory_anchor_v1 and record_missed_refill_v1 count moved_between as a flow (consumed = prev + received + moved - now); record_inventory_usage and record_restock_v1 find a [key:] replay row under the item it was moved from. A move is never a count or an anchor. Stock moves write numeric audit rows so inventory_qty_at_v1 stays exact; usage moves write usage_moved rows with shelf_before and shelf_after only.",
+    "notes": "The restore point was taken 2026-11-19T06:13Z for the rehearsal; restamp it with a new backup at apply time (the checker refuses one older than an hour). Apply AFTER every s120 release (stops with 55000 when a patched body is not as expected). Roll the admin app back before the SQL."
+  },
+  "forward_verification": [
+    {
+      "name": "moves_table_closed",
+      "query": "select to_regclass('public.inventory_item_moves') is not null and (select relrowsecurity from pg_class where oid = 'public.inventory_item_moves'::regclass) and not has_table_privilege('anon', 'public.inventory_item_moves', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.inventory_item_moves', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.inventory_item_moves', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "four_functions_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.move_inventory_stock_v1(uuid,uuid,numeric,text,text)', 'execute') and not has_function_privilege('anon', 'public.move_inventory_stock_v1(uuid,uuid,numeric,text,text)', 'execute') and not has_function_privilege('service_role', 'public.move_inventory_stock_v1(uuid,uuid,numeric,text,text)', 'execute') and has_function_privilege('authenticated', 'public.move_inventory_usage_v1(uuid,uuid,text)', 'execute') and not has_function_privilege('anon', 'public.move_inventory_usage_v1(uuid,uuid,text)', 'execute') and not has_function_privilege('service_role', 'public.move_inventory_usage_v1(uuid,uuid,text)', 'execute') and has_function_privilege('authenticated', 'public.undo_inventory_move_v1(uuid,text)', 'execute') and not has_function_privilege('anon', 'public.undo_inventory_move_v1(uuid,text)', 'execute') and not has_function_privilege('service_role', 'public.undo_inventory_move_v1(uuid,text)', 'execute') and has_function_privilege('authenticated', 'public.get_inventory_item_moves_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.get_inventory_item_moves_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.get_inventory_item_moves_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "four_functions_definer_empty_search_path",
+      "query": "select count(*) = 4 and bool_and(prosecdef and proconfig = array['search_path=\"\"']) from pg_proc where oid in ('public.move_inventory_stock_v1(uuid,uuid,numeric,text,text)'::regprocedure, 'public.move_inventory_usage_v1(uuid,uuid,text)'::regprocedure, 'public.undo_inventory_move_v1(uuid,text)'::regprocedure, 'public.get_inventory_item_moves_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "internal_helpers_no_client_grants",
+      "query": "select not has_function_privilege('anon','public.s_inventory_move_json_v1(uuid,boolean)','execute') and not has_function_privilege('authenticated','public.s_inventory_move_json_v1(uuid,boolean)','execute') and not has_function_privilege('service_role','public.s_inventory_move_json_v1(uuid,boolean)','execute') and not has_function_privilege('anon','public.s_inventory_move_check_v1(public.inventory_items,public.inventory_items)','execute') and not has_function_privilege('authenticated','public.s_inventory_move_check_v1(public.inventory_items,public.inventory_items)','execute') and not has_function_privilege('service_role','public.s_inventory_move_check_v1(public.inventory_items,public.inventory_items)','execute')",
+      "expect": true
+    },
+    {
+      "name": "new_columns_exist",
+      "query": "select exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_usage_intervals' and column_name = 'moved_between' and data_type = 'numeric' and is_nullable = 'NO' and column_default = '0') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_usage' and column_name = 'moved_from_item_id' and data_type = 'uuid' and is_nullable = 'YES') and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_usage' and column_name = 'moved_at' and data_type = 'timestamp with time zone' and is_nullable = 'YES')",
+      "expect": true
+    },
+    {
+      "name": "md5_record_inventory_anchor_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'f38dcf164dad76b9cda818509400a633' from pg_proc where oid = 'public.record_inventory_anchor_v1(uuid,numeric,timestamptz,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_record_missed_refill_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'eb75c59afba9ac1984fb4b774554b503' from pg_proc where oid = 'public.record_missed_refill_v1(uuid,numeric)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_record_inventory_usage",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '365f7c6d50258a611612465e4ad3624b' from pg_proc where oid = 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_record_restock_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '94a9e42b7b2a439852be3c9ae591010d' from pg_proc where oid = 'public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "patched_functions_grants_unchanged",
+      "query": "select not has_function_privilege('authenticated','public.record_inventory_anchor_v1(uuid,numeric,timestamptz,text)','execute') and not has_function_privilege('service_role','public.record_inventory_anchor_v1(uuid,numeric,timestamptz,text)','execute') and has_function_privilege('authenticated','public.record_missed_refill_v1(uuid,numeric)','execute') and not has_function_privilege('anon','public.record_missed_refill_v1(uuid,numeric)','execute') and not has_function_privilege('service_role','public.record_missed_refill_v1(uuid,numeric)','execute') and has_function_privilege('authenticated','public.record_inventory_usage(uuid,date,text,text,jsonb)','execute') and not has_function_privilege('anon','public.record_inventory_usage(uuid,date,text,text,jsonb)','execute') and has_function_privilege('authenticated','public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)','execute') and not has_function_privilege('anon','public.record_restock_v1(uuid,date,text,text,jsonb,jsonb,jsonb)','execute')",
+      "expect": true
+    },
+    {
+      "name": "existing_intervals_read_without_error",
+      "query": "select (select count(*) from public.inventory_usage_intervals where moved_between <> 0) = 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always, with data loss by design: every recorded move and undo and the moved_between of every interval are dropped. Shelves stay where the moves put them, usage rows stay under the item they were re-pointed to, and consumed / accepted of closed intervals are not touched.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261122_s122_item_moves.sql with run-sql-on-host.sh; the four bodies must be back to md5 a8c9099d20a49fa57f266e0c2a73c3eb, d0d9cf73fea6e67150d0766bdede7d02, c1c7bff8e55b4aab5528b9fc60a49740, 490f7db83c6cf1f1dfef72452a4f49e7 and the four move functions must be null. Roll the admin app back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Old app builds keep working: nothing existing changes shape; the four move functions are new and unused until the admin app ships."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "PENDING rehearsal"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "an s120 release is not applied first (the migration stops with 55000 when a patched body is not as expected)",
+    "the live md5 of record_inventory_anchor_v1, record_missed_refill_v1, record_inventory_usage or record_restock_v1 is neither the expected original nor the patched one",
+    "the rehearsal has not run the migration and s122_item_moves.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
