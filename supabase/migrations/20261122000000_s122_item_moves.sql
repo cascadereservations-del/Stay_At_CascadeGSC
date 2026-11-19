@@ -188,6 +188,7 @@ begin
   if not found then return jsonb_build_object('ok', false, 'reason', 'item_not_found', 'item', 'to'); end if;
   perform public.admin_require('manage_inventory', f.property_id);
   v_qty := u.used_qty;
+  if v_qty is null or v_qty <= 0 then return jsonb_build_object('ok', false, 'reason', 'bad_qty'); end if;
   -- replay: the row already sits under p_to through this key
   select * into m from public.inventory_item_moves where idempotency_key = p_idempotency_key;
   if found then

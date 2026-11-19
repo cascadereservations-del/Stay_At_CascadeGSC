@@ -7,7 +7,7 @@
 -- Without the flow KT would read 14 - 6 = 8 (rate 0.6143) and BT 5 - 9 = -4 (rejected "unrecorded restock"). Test 11 of the spec (lock order with dblink) is not run here.
 -- Everything rolls back.
 begin;
-select plan(55);
+select plan(58);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -275,7 +275,8 @@ select ok((select (v ->> 'ok')::boolean and (v ->> 'accepted')::boolean and (v -
 insert into public.inventory_usage(id, item_id, used_qty, session_date, logged_by, notes, property_id, created_at) values
   ('e1220010-0000-4000-8000-000000000201', 'e1220010-0000-4000-8000-000000000117', 2, current_date, 'zz', 'Restock zz-s122', 'e1220010-0000-4000-8000-000000000001', now() - interval '2 hours'),
   ('e1220010-0000-4000-8000-000000000202', 'e1220010-0000-4000-8000-000000000119', 2, current_date, 'zz', 'Restock zz-s122', 'e1220010-0000-4000-8000-000000000001', now() - interval '2 hours'),
-  ('e1220010-0000-4000-8000-000000000203', 'e1220010-0000-4000-8000-000000000120', 3, current_date, 'zz', 'Restock zz-s122', 'e1220010-0000-4000-8000-000000000001', now());
+  ('e1220010-0000-4000-8000-000000000203', 'e1220010-0000-4000-8000-000000000120', 3, current_date, 'zz', 'Restock zz-s122', 'e1220010-0000-4000-8000-000000000001', now()),
+  ('e1220010-0000-4000-8000-000000000204', 'e1220010-0000-4000-8000-000000000123', 0, current_date, 'zz', 'Restock zz-s122', 'e1220010-0000-4000-8000-000000000001', now());
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"e1220010-0000-4000-8000-000000000011"}';
 insert into _r select 'f1', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000201', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0021');
@@ -286,6 +287,13 @@ insert into _r select 'f6', public.move_inventory_usage_v1('e1220010-0000-4000-8
 insert into _r select 'f7', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000203', 'e1220010-0000-4000-8000-000000000119', 'zz-s122-key-0026');                -- 3 units from a shelf of 1: not_enough
 insert into _r select 'f8', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000203', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0021');                -- the key of another move
 insert into _r select 'f9', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000203', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-key-0027');                -- a row made just now is movable (no too_recent)
+insert into _r select 'f10', public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000204', 'e1220010-0000-4000-8000-000000000124', 'zz-s122-key-0028');                -- used_qty 0: bad_qty, not a 23514
+reset role;
+select is((select v ->> 'reason' from _r where k = 'f10'), 'bad_qty', 'usage move of a row with used_qty 0 is refused as bad_qty');
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"e1220010-0000-4000-8000-000000000012"}';
+select throws_ok($$select public.move_inventory_usage_v1('e1220010-0000-4000-8000-000000000202', 'e1220010-0000-4000-8000-000000000118', 'zz-s122-gate-0003')$$, '42501', null, 'a cleaner cannot move a usage row');
+select throws_ok($$select public.undo_inventory_move_v1((select (v ->> 'moveId')::uuid from pg_temp._r where k = 'mv'), 'zz-s122-gate-0004')$$, '42501', null, 'a cleaner cannot undo a move');
 reset role;
 select ok((select (v ->> 'ok')::boolean and v ->> 'kind' = 'usage' and v ->> 'usageId' = 'e1220010-0000-4000-8000-000000000201' and (v #>> '{from,before}')::numeric = 5 and (v #>> '{from,after}')::numeric = 7
                   and (v #>> '{to,before}')::numeric = 12 and (v #>> '{to,after}')::numeric = 10 from _r where k = 'f1')
