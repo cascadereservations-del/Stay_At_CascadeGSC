@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s122/item-moves",
-    "commit": "PENDING"
+    "commit": "daac54ca74340420167516c4e837708834dc74a9"
   },
   "migrations": [
     "20261122000000_s122_item_moves.sql"
@@ -97,8 +97,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING rehearsal"
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-19 at daac54ca74340420167516c4e837708834dc74a9 on restored production backup cascade-supabase-20261119T060751Z (138 public tables before, 139 after): migration applied, forward verification 11 of 11, pgTAP s122_item_moves.sql 55/55, leftovers 0."
   },
   "approvals": {
     "production_required": true,
