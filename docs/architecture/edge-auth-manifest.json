@@ -9,7 +9,7 @@
     { "slug": "submit-booking", "mode": "public", "controls": ["strict field validation", "server-side price and availability validation", "rate limiting required at edge"], "owner": "booking" },
     { "slug": "ocr-receipt", "mode": "jwt", "controls": ["platform JWT verification enabled"], "owner": "finance" },
     { "slug": "telegram-expense", "mode": "signed", "controls": ["Telegram secret-token header", "allowed chat and user IDs"], "owner": "finance" },
-    { "slug": "daily-digest", "mode": "migration_blocked", "controls": ["must require cron signature before next deployment"], "owner": "finance" },
+    { "slug": "daily-digest", "mode": "signed", "controls": ["constant-time x-cascade-cron-secret (cronAuthFailure) on every POST path, send and dry", "fails closed when CASCADE_CRON_SHARED_SECRET is unset", "pg_cron jobs 3 and 13 must send the secret read from Vault cascade_cron_shared_secret at run time"], "owner": "finance" },
     { "slug": "rain-alert", "mode": "signed", "controls": ["constant-time x-cascade-cron-secret or the service-role bearer (cronOrServiceAuthorized), 401 otherwise", "fails closed when CASCADE_CRON_SHARED_SECRET is unset", "the pg_cron job rain-alert-2h sends the secret from the vault at call time", "reads the Google forecast and calendar only; sends the OPS warning and the staff push through notify-staff-inbox"], "owner": "operations" },
     { "slug": "airbnb-email-sync", "mode": "migration_blocked", "controls": ["must require signed Gmail workflow request before next deployment"], "owner": "booking" },
     { "slug": "weather-proxy", "mode": "public", "controls": ["fixed property location", "read-only response", "15 minute cache"], "owner": "operations" },

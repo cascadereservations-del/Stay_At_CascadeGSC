@@ -12,7 +12,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { heartbeat } from '../_shared/heartbeat.ts';
-import { cronSecretMatches } from '../_shared/cron-auth.ts';
+import { cronAuthFailure } from '../_shared/cron-auth.ts';
 import { renderReport, withHeader, autoKeyboard, BTN } from '../_shared/cascade-core/format.ts';
 import { friendlyDate, lastUnitNames, opsReport, weeklyFinanceReport, weeklyOpsReport, type CassyWeek, type MidStay, type Weather } from './report.ts';
 import { overdue } from '../finance-watch/watch.ts';
@@ -348,10 +348,11 @@ async function buildFinanceMessage(db: any, today: string): Promise<string | nul
 // ── Main handler ────────────────────────────────────────────────────────────
 Deno.serve(withObservability({ functionName: 'daily-digest', route: 'ops' }, async (req: Request) => {
   if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'method_not_allowed' }), { status: 405, headers: JSON_H });
-  // D-285: ?dry=1 builds both Monday texts whatever the weekday and returns them; nothing is sent, no heartbeat. Cron-secret gated.
+  // s124 L4: every POST path (send, heartbeat, dry) needs the cron secret; fails closed when CASCADE_CRON_SHARED_SECRET is unset. Checked before any client, heartbeat or Telegram call.
+  const denied = cronAuthFailure(req, Deno.env.get('CASCADE_CRON_SHARED_SECRET'));
+  if (denied) return denied;
+  // D-285: ?dry=1 builds both Monday texts whatever the weekday and returns them; nothing is sent, no heartbeat.
   if (new URL(req.url).searchParams.get('dry') === '1') {
-    const secret = Deno.env.get('CASCADE_CRON_SHARED_SECRET') ?? '';
-    if (!secret || !cronSecretMatches(secret, req.headers.get('x-cascade-cron-secret'))) return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), { status: 401, headers: JSON_H });
     const db = createClient(SUPABASE_URL, SERVICE_ROLE), today = getManilaDateStr();
     const [ops, finance] = await Promise.all([buildWeeklyOpsMessage(db, today), buildFinanceMessage(db, today)]);
     return new Response(JSON.stringify({ ok: true, dry: true, date: today, ops, finance }), { status: 200, headers: JSON_H });
