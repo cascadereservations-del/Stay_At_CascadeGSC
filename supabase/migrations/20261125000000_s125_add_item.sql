@@ -7,8 +7,8 @@
 --                                                 42501; the category must already be on an active item of the property, same rule as inventory_item_update_v1). Stamps updated_by / updated_at and writes ONE
 --                                                 'created' change row (before {}, after {name, category, unit, active:true}; never a price). Return adds change_id. name_exists / code_taken / bad_code return write no row.
 --   inventory_item_change_undo_v1(uuid)           handles kind 'created': same actor / 30 minutes / manage_inventory rules; sets is_active = false (never deletes: the first count references the item). Refuses changed_since when
---                                                 any other not-undone change row is newer (EXCEPT a photo the same person set), when the item has any stock movement other than its own first count, or any inventory_item_moves row.
---   inventory_option_request_v1(...)              a non-manager 'add' on an item whose 'created' row is theirs, not undone and under 30 minutes old applies at once (applied true); everything else is unchanged.
+--                                                 any other not-undone change row is newer (EXCEPT a photo the same person set), any stock movement other than its own first count (same transaction as the create), any inventory_item_moves row, or a usage, purchase, Telegram count or foreign barcode after the add.
+--   inventory_option_request_v1(...)              a non-manager 'add' on an item whose 'created' row is theirs, not undone and under 30 minutes old applies at once (applied true), up to 3 products on the item; the 4th and everything else is unchanged (the owner queue).
 --   get_inventory_catalogue_v1                    each item adds updatedKind beside updatedAt / updatedBy.
 --   inventory_item_history_v1                     NOT replaced: its s124 body already returns a created row as {at, kind:'created', who, fields:{}} (fields are only filled for details and, for finance, price rows).
 --
@@ -24,9 +24,9 @@ declare r record; v text;
 begin
   for r in select * from (values
     ('public.inventory_item_create_v1(uuid,jsonb,text,text,text)'::text, '30170851aad1418e0ec7b104ba6842d3'::text, '697d8c65fc38aebdf2d3e199e8437013'::text),
-    ('public.inventory_item_change_undo_v1(uuid)', 'ad1665a60b979918ecb0260e1227137a', 'f8e6d4ed93d93c340054572285a26c15'),
+    ('public.inventory_item_change_undo_v1(uuid)', 'ad1665a60b979918ecb0260e1227137a', '86d7879703760fdc90e6b455e33bdacd'),
     ('public.get_inventory_catalogue_v1(uuid)', '2b07eed9209ccb4fe09836e30bf52999', '6832ffc21ce22a01f591cbcf03f42497'),
-    ('public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)', '5c0fdd0dd45e331ae643300805226a86', '56b89a0ea39e5612376c00b7be5fd9af')
+    ('public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)', '5c0fdd0dd45e331ae643300805226a86', 'e7f4509fc1515d0e2325034a6375669e')
   ) as t(fn, orig, patched) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = r.fn::regprocedure;
     if v is distinct from r.orig and v is distinct from r.patched then
@@ -155,8 +155,14 @@ begin
   if c.kind = 'created' and (
        exists (select 1 from public.inventory_stock_movements m where m.item_id = i.id
                and not (m.kind = 'reconcile' and m.actor_user_id is not distinct from c.actor and m.reason like '%First count when added in the staff app'
+                        and m.created_at <= c.created_at
                         and m.sequence_no = (select min(x.sequence_no) from public.inventory_stock_movements x where x.item_id = i.id)))
-    or exists (select 1 from public.inventory_item_moves v where v.from_item_id = i.id or v.to_item_id = i.id)) then
+    or exists (select 1 from public.inventory_item_moves v where v.from_item_id = i.id or v.to_item_id = i.id)
+    -- used since: a usage row, a purchase, a Telegram count, or a barcode linked by someone else after the add
+    or exists (select 1 from public.inventory_usage u where u.item_id = i.id and u.created_at > c.created_at)
+    or exists (select 1 from public.inventory_purchases pu where pu.item_id = i.id and pu.created_at > c.created_at)
+    or exists (select 1 from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.entity_id = i.id and a.action = 'telegram_count' and a.created_at > c.created_at)
+    or exists (select 1 from public.inventory_item_codes k where k.item_id = i.id and k.created_at > c.created_at and k.created_by is distinct from c.actor)) then
     return jsonb_build_object('ok', false, 'reason', 'changed_since');
   end if;
   v_cur := jsonb_build_object('name', i.name, 'category', i.category, 'unit', i.unit, 'consumable', i.is_consumable, 'active', i.is_active, 'reorder_below', i.reorder_below,
@@ -287,7 +293,9 @@ begin
   v_fin := v_mgr or public.finance_human_authorized(v_prop);
   -- s125: a non-manager adding a product to an item they created themselves in the last 30 minutes (not undone) applies at once, like a manager; a price still needs finance (v_fin is unchanged)
   v_own := not v_mgr and p_action = 'add' and exists (select 1 from public.inventory_item_changes c where c.item_id = p_item_id and c.kind = 'created' and c.actor = v_uid
-                                                      and c.undone_at is null and c.created_at > now() - interval '30 minutes');
+                                                      and c.undone_at is null and c.created_at > now() - interval '30 minutes')
+           -- at most 3 products on the fast path: a 4th goes to the owner's queue like any other request
+           and (select count(*) from public.inventory_item_options x where x.item_id = p_item_id) < 3;
   v_payload := case when p_action = 'delete' then '{}'::jsonb else public.s_inventory_option_payload_v1(v_prop, p_payload, v_fin) end;
 
   if p_action = 'add' then

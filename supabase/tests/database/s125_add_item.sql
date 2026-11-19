@@ -4,7 +4,7 @@
 -- ...17 cleaner of another property); every lookup is scoped to them because a real backup holds real rows. Refusals are tested by calling as the refused role.
 -- created_at of a change row is moved by hand where the age matters. Everything rolls back.
 begin;
-select plan(67);
+select plan(72);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -265,6 +265,43 @@ select ok((select (v ->> 'ok')::boolean and not (v ->> 'applied')::boolean from 
   'after 30 minutes even the creator waits for the owner');
 select ok((select (v ->> 'ok')::boolean and (v ->> 'applied')::boolean from _t where k = 'o_admin') and (select price = 55 from public.inventory_item_options where title = 'Zz S125 Admin Gel'),
   'an admin adding a product applies at once with a price, as before');
+
+-- 71-75. fix round 1: the first-count exemption cannot be forged, used-since coverage, the fast-path cap ---------------------------------------------
+-- (one pgTAP run is one transaction, so "a later transaction" is simulated by moving the created row back a minute)
+select pg_temp.as_user('12');
+insert into _t select 'fa', pg_temp.try($$select public.inventory_item_create_v1('e1250010-0000-4000-8000-000000000001', '{"name":"Zz S125 Fix A","category":"Zz S125 Cat A"}')$$);
+insert into _t select 'fb', pg_temp.try($$select public.inventory_item_create_v1('e1250010-0000-4000-8000-000000000001', '{"name":"Zz S125 Fix B","category":"Zz S125 Cat A"}')$$);
+insert into _t select 'fd', pg_temp.try($$select public.inventory_item_create_v1('e1250010-0000-4000-8000-000000000001', '{"name":"Zz S125 Fix D","category":"Zz S125 Cat A"}')$$);
+insert into _t select 'fa_cnt', pg_temp.try(format($$select public.reconcile_inventory_baseline_v1(%L, 2, 'Counted by the cleaner', 'zz125-fix-count-a-01')$$, pg_temp.iid('fa')));
+insert into _t select 'fb_cnt', pg_temp.try(format($$select public.reconcile_inventory_baseline_v1(%L, 2, 'First count when added in the staff app', 'zz125-fix-count-b-01')$$, pg_temp.iid('fb')));
+select pg_temp.as_user('11');
+insert into _t select 'fc', pg_temp.try($$select public.inventory_item_create_v1('e1250010-0000-4000-8000-000000000001', '{"name":"Zz S125 Fix C","category":"Zz S125 Cat A","qty":6}')$$);
+insert into _t select 'u_fc', pg_temp.try(format($$select public.inventory_item_change_undo_v1(%L)$$, (select v ->> 'change_id' from _t where k = 'fc')));
+reset role;
+update public.inventory_item_changes set created_at = now() - interval '1 minute' where id in (pg_temp.cid('fa'), pg_temp.cid('fb'), pg_temp.cid('fd'));
+insert into public.inventory_usage(item_id, used_qty, session_date, logged_by, notes, property_id, submitted_by_user_id, created_at)
+values (pg_temp.iid('fd'), 1, public.manila_today(), 'Clea', 'Zz S125 used', 'e1250010-0000-4000-8000-000000000001', 'e1250010-0000-4000-8000-000000000012', now());
+select pg_temp.as_user('12');
+insert into _t select 'u_fa', pg_temp.try(format($$select public.inventory_item_change_undo_v1(%L)$$, pg_temp.cid('fa')));
+insert into _t select 'u_fb', pg_temp.try(format($$select public.inventory_item_change_undo_v1(%L)$$, pg_temp.cid('fb')));
+insert into _t select 'u_fd', pg_temp.try(format($$select public.inventory_item_change_undo_v1(%L)$$, pg_temp.cid('fd')));
+insert into _t select 'cap', pg_temp.try($$select public.inventory_item_create_v1('e1250010-0000-4000-8000-000000000001', '{"name":"Zz S125 Cap","category":"Zz S125 Cat A"}')$$);
+insert into _t select 'cap1', pg_temp.try(format($$select public.inventory_option_request_v1(%L, 'add', null, '{"title":"Zz S125 Cap 1","supplier_id":"e1250010-0000-4000-8000-0000000000a1"}', null, 'zz125-cap-key-000001')$$, pg_temp.iid('cap')));
+insert into _t select 'cap2', pg_temp.try(format($$select public.inventory_option_request_v1(%L, 'add', null, '{"title":"Zz S125 Cap 2","supplier_id":"e1250010-0000-4000-8000-0000000000a1"}', null, 'zz125-cap-key-000002')$$, pg_temp.iid('cap')));
+insert into _t select 'cap3', pg_temp.try(format($$select public.inventory_option_request_v1(%L, 'add', null, '{"title":"Zz S125 Cap 3","supplier_id":"e1250010-0000-4000-8000-0000000000a1"}', null, 'zz125-cap-key-000003')$$, pg_temp.iid('cap')));
+insert into _t select 'cap4', pg_temp.try(format($$select public.inventory_option_request_v1(%L, 'add', null, '{"title":"Zz S125 Cap 4","supplier_id":"e1250010-0000-4000-8000-0000000000a1"}', null, 'zz125-cap-key-000004')$$, pg_temp.iid('cap')));
+reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'fa_cnt') and (select not (v ->> 'ok')::boolean and v ->> 'reason' = 'changed_since' from _t where k = 'u_fa') and (select is_active from public.inventory_items where id = pg_temp.iid('fa')),
+  'a cleaner adds with no count, then counts normally: undo answers changed_since');
+select ok((select (v ->> 'ok')::boolean from _t where k = 'fb_cnt') and (select not (v ->> 'ok')::boolean and v ->> 'reason' = 'changed_since' from _t where k = 'u_fb') and (select is_active from public.inventory_items where id = pg_temp.iid('fb')),
+  'a later count that copies the first-count note is not the first count: undo answers changed_since');
+select ok((select (v ->> 'ok')::boolean and v ->> 'change_id' is not null from _t where k = 'fc') and (select (v ->> 'ok')::boolean and v ->> 'kind' = 'created' from _t where k = 'u_fc') and (select not is_active from public.inventory_items where id = pg_temp.iid('fc')),
+  'an admin adds with a count and undoes it: ok (the first count of the create does not block)');
+select ok((select not (v ->> 'ok')::boolean and v ->> 'reason' = 'changed_since' from _t where k = 'u_fd') and (select is_active from public.inventory_items where id = pg_temp.iid('fd')),
+  'a usage row after the add: undo answers changed_since');
+select ok((select (v ->> 'applied')::boolean from _t where k = 'cap1') and (select (v ->> 'applied')::boolean from _t where k = 'cap2') and (select (v ->> 'applied')::boolean from _t where k = 'cap3')
+      and (select (v ->> 'ok')::boolean and not (v ->> 'applied')::boolean from _t where k = 'cap4') and (select count(*) = 3 from public.inventory_item_options where item_id = pg_temp.iid('cap')),
+  'a cleaner''s 4th product on their own new item waits for the owner (applied false, 3 options exist)');
 
 -- 63-70. the catalogue and the history ----------------------------------------------------------------------------------------------------------
 select pg_temp.as_user('12');

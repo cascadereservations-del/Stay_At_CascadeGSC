@@ -10,14 +10,14 @@
     "20261125000000_s125_add_item.sql"
   ],
   "migration_sha256": {
-    "20261125000000_s125_add_item.sql": "1cebedc9cf62a1cd4403ed02fc522f2273ac94f2312d5b6231098d19f1698069"
+    "20261125000000_s125_add_item.sql": "d27fcdb9e56a74db6430e8a6b727bd18bf42397e90987ffac58188c70d22c9ad"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "C:/Cascade-Backups/cascade-supabase-20261119T131432Z",
     "verified_at": "2026-11-19T14:25:46.000Z",
-    "production_rule": "Everyone adds a new inventory item with Undo (Lloyd 2026-11-19, D-386, contract docs/s125/CONTRACT-add-item.md L1 SQL). inventory_item_changes.kind check gains created. Replaces four live bodies in place, each behind an md5 guard (CR stripped, 55000 when the live body is neither the original nor this release): inventory_item_create_v1 (original 30170851aad1418e0ec7b104ba6842d3, new 697d8c65fc38aebdf2d3e199e8437013; a cleaner with submit_cleaning adds name, category (one already in use), unit, consumable, reorder_below, qty, location, any other key or p_code 42501; owner/admin gain location; writes updated_by / updated_at and one created change row with no price; return adds change_id), inventory_item_change_undo_v1 (original ad1665a60b979918ecb0260e1227137a, new f8e6d4ed93d93c340054572285a26c15; kind created sets is_active false, refused changed_since after a newer change row other than the same person's photo, any stock movement besides the first count, or any item move), get_inventory_catalogue_v1 (original 2b07eed9209ccb4fe09836e30bf52999, new 6832ffc21ce22a01f591cbcf03f42497; adds updatedKind), inventory_option_request_v1 (original 5c0fdd0dd45e331ae643300805226a86, new 56b89a0ea39e5612376c00b7be5fd9af; a non-manager add on an item they created under 30 minutes ago and did not undo applies at once). inventory_item_history_v1 is NOT replaced (its s124 body already returns a created row as kind created with empty fields). Grants restated for every function (revoke from public, anon, authenticated, service_role; grant execute to authenticated). Requires the s124 release applied first (its md5 guard on the catalogue and undo bodies).",
+    "production_rule": "Everyone adds a new inventory item with Undo (Lloyd 2026-11-19, D-386, contract docs/s125/CONTRACT-add-item.md L1 SQL). inventory_item_changes.kind check gains created. Replaces four live bodies in place, each behind an md5 guard (CR stripped, 55000 when the live body is neither the original nor this release): inventory_item_create_v1 (original 30170851aad1418e0ec7b104ba6842d3, new 697d8c65fc38aebdf2d3e199e8437013; a cleaner with submit_cleaning adds name, category (one already in use), unit, consumable, reorder_below, qty, location, any other key or p_code 42501; owner/admin gain location; writes updated_by / updated_at and one created change row with no price; return adds change_id), inventory_item_change_undo_v1 (original ad1665a60b979918ecb0260e1227137a, new 86d7879703760fdc90e6b455e33bdacd; kind created sets is_active false, refused changed_since after a newer change row other than the same person's photo, any stock movement besides the first count written in the create's own transaction, any item move, or a usage row, purchase, Telegram count or foreign barcode after the add), get_inventory_catalogue_v1 (original 2b07eed9209ccb4fe09836e30bf52999, new 6832ffc21ce22a01f591cbcf03f42497; adds updatedKind), inventory_option_request_v1 (original 5c0fdd0dd45e331ae643300805226a86, new e7f4509fc1515d0e2325034a6375669e; a non-manager add on an item they created under 30 minutes ago and did not undo applies at once, up to 3 products on the item). inventory_item_history_v1 is NOT replaced (its s124 body already returns a created row as kind created with empty fields). Grants restated for every function (revoke from public, anon, authenticated, service_role; grant execute to authenticated). Requires the s124 release applied first (its md5 guard on the catalogue and undo bodies).",
     "notes": "The restore point is the backup taken for the rehearsal; restamp it with a new backup at apply time (the checker refuses one older than an hour). Apply AFTER the s124 release. Roll the staff app back before the SQL."
   },
   "forward_verification": [
@@ -48,7 +48,7 @@
     },
     {
       "name": "md5_inventory_item_change_undo_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'f8e6d4ed93d93c340054572285a26c15' from pg_proc where oid = 'public.inventory_item_change_undo_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '86d7879703760fdc90e6b455e33bdacd' from pg_proc where oid = 'public.inventory_item_change_undo_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -58,7 +58,7 @@
     },
     {
       "name": "md5_inventory_option_request_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '56b89a0ea39e5612376c00b7be5fd9af' from pg_proc where oid = 'public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'e7f4509fc1515d0e2325034a6375669e' from pg_proc where oid = 'public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)'::regprocedure",
       "expect": true
     },
     {
@@ -88,7 +88,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed 2026-11-19 at 659b8de217096a8fc0c72fa4be50f65bcca376f5 on restored production backup cascade-supabase-20261119T131432Z (139 public tables before, 140 after; the backup predates the s124 apply, so the s124 migration ran first): both migrations applied, forward verification 9 of 9, pgTAP s125_add_item.sql 67/67, leftovers 0. Rollback rehearsed on the same backup: original md5s of all four bodies restored, kind check back, 7 of 7."
+    "evidence": "Rehearsed 2026-11-19 (fix round 1) on restored production backup cascade-supabase-20261119T131432Z (139 public tables before, 140 after; the backup predates the s124 apply, so the s124 migration ran first): both migrations applied, forward verification 9 of 9, pgTAP s125_add_item.sql 72/72, leftovers 0. Rollback rehearsed on the same backup (s124, s125, then the rollback script): original md5s of all four bodies restored, kind check back, 7 of 7."
   },
   "approvals": {
     "production_required": true,
