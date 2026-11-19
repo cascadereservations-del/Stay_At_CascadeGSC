@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "release_id": "s125_add_item_20261125",
+  "phase": "expand",
+  "source": {
+    "branch": "s125/add-item",
+    "commit": "COMMIT_PLACEHOLDER"
+  },
+  "migrations": [
+    "20261125000000_s125_add_item.sql"
+  ],
+  "migration_sha256": {
+    "20261125000000_s125_add_item.sql": "1cebedc9cf62a1cd4403ed02fc522f2273ac94f2312d5b6231098d19f1698069"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "RESTORE_POINT_PLACEHOLDER",
+    "verified_at": "VERIFIED_AT_PLACEHOLDER",
+    "production_rule": "Everyone adds a new inventory item with Undo (Lloyd 2026-11-19, D-386, contract docs/s125/CONTRACT-add-item.md L1 SQL). inventory_item_changes.kind check gains created. Replaces four live bodies in place, each behind an md5 guard (CR stripped, 55000 when the live body is neither the original nor this release): inventory_item_create_v1 (original 30170851aad1418e0ec7b104ba6842d3, new 697d8c65fc38aebdf2d3e199e8437013; a cleaner with submit_cleaning adds name, category (one already in use), unit, consumable, reorder_below, qty, location, any other key or p_code 42501; owner/admin gain location; writes updated_by / updated_at and one created change row with no price; return adds change_id), inventory_item_change_undo_v1 (original ad1665a60b979918ecb0260e1227137a, new f8e6d4ed93d93c340054572285a26c15; kind created sets is_active false, refused changed_since after a newer change row other than the same person's photo, any stock movement besides the first count, or any item move), get_inventory_catalogue_v1 (original 2b07eed9209ccb4fe09836e30bf52999, new 6832ffc21ce22a01f591cbcf03f42497; adds updatedKind), inventory_option_request_v1 (original 5c0fdd0dd45e331ae643300805226a86, new 56b89a0ea39e5612376c00b7be5fd9af; a non-manager add on an item they created under 30 minutes ago and did not undo applies at once). inventory_item_history_v1 is NOT replaced (its s124 body already returns a created row as kind created with empty fields). Grants restated for every function (revoke from public, anon, authenticated, service_role; grant execute to authenticated). Requires the s124 release applied first (its md5 guard on the catalogue and undo bodies).",
+    "notes": "The restore point is the backup taken for the rehearsal; restamp it with a new backup at apply time (the checker refuses one older than an hour). Apply AFTER the s124 release. Roll the staff app back before the SQL."
+  },
+  "forward_verification": [
+    {
+      "name": "kind_check_allows_created",
+      "query": "select exists (select 1 from pg_constraint where conrelid = 'public.inventory_item_changes'::regclass and conname = 'inventory_item_changes_kind_check' and pg_get_constraintdef(oid) like '%''created''%' and pg_get_constraintdef(oid) like '%''details''%' and pg_get_constraintdef(oid) like '%''price''%' and pg_get_constraintdef(oid) like '%''photo''%')",
+      "expect": true
+    },
+    {
+      "name": "changes_table_still_closed",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.inventory_item_changes'::regclass) and not has_table_privilege('anon', 'public.inventory_item_changes', 'select, insert, update, delete') and not has_table_privilege('authenticated', 'public.inventory_item_changes', 'select, insert, update, delete') and not has_table_privilege('service_role', 'public.inventory_item_changes', 'select, insert, update, delete')",
+      "expect": true
+    },
+    {
+      "name": "four_functions_authenticated_only",
+      "query": "select has_function_privilege('authenticated','public.inventory_item_create_v1(uuid,jsonb,text,text,text)','execute') and not has_function_privilege('anon','public.inventory_item_create_v1(uuid,jsonb,text,text,text)','execute') and not has_function_privilege('service_role','public.inventory_item_create_v1(uuid,jsonb,text,text,text)','execute') and has_function_privilege('authenticated','public.inventory_item_change_undo_v1(uuid)','execute') and not has_function_privilege('anon','public.inventory_item_change_undo_v1(uuid)','execute') and not has_function_privilege('service_role','public.inventory_item_change_undo_v1(uuid)','execute') and has_function_privilege('authenticated','public.get_inventory_catalogue_v1(uuid)','execute') and not has_function_privilege('anon','public.get_inventory_catalogue_v1(uuid)','execute') and not has_function_privilege('service_role','public.get_inventory_catalogue_v1(uuid)','execute') and has_function_privilege('authenticated','public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)','execute') and not has_function_privilege('anon','public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)','execute') and not has_function_privilege('service_role','public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)','execute')",
+      "expect": true
+    },
+    {
+      "name": "four_functions_definer_empty_search_path",
+      "query": "select count(*) = 4 and bool_and(prosecdef and proconfig = array['search_path=\"\"']) from pg_proc where oid in ('public.inventory_item_create_v1(uuid,jsonb,text,text,text)'::regprocedure, 'public.inventory_item_change_undo_v1(uuid)'::regprocedure, 'public.get_inventory_catalogue_v1(uuid)'::regprocedure, 'public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_create_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '697d8c65fc38aebdf2d3e199e8437013' from pg_proc where oid = 'public.inventory_item_create_v1(uuid,jsonb,text,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_change_undo_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'f8e6d4ed93d93c340054572285a26c15' from pg_proc where oid = 'public.inventory_item_change_undo_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_get_inventory_catalogue_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '6832ffc21ce22a01f591cbcf03f42497' from pg_proc where oid = 'public.get_inventory_catalogue_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_option_request_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '56b89a0ea39e5612376c00b7be5fd9af' from pg_proc where oid = 'public.inventory_option_request_v1(uuid,text,uuid,jsonb,text,text)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_inventory_item_history_v1_unchanged",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'a8669ba0b6ff6654edf352e9b8d98543' from pg_proc where oid = 'public.inventory_item_history_v1(uuid)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always: created change rows are deleted by design (the items stay, they lose their Undo); the four bodies and the kind check go back.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261125_s125_add_item.sql with run-sql-on-host.sh; the four bodies must be back to md5 30170851aad1418e0ec7b104ba6842d3, ad1665a60b979918ecb0260e1227137a, 2b07eed9209ccb4fe09836e30bf52999, 5c0fdd0dd45e331ae643300805226a86. Roll the staff app back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Old staff builds keep working: every existing key of every return stays; change_id on create and updatedKind on the catalogue are additions an old build ignores. A cleaner can add an item only through the new staff build."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "EVIDENCE_PLACEHOLDER"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the live md5 of inventory_item_create_v1, inventory_item_change_undo_v1, get_inventory_catalogue_v1 or inventory_option_request_v1 is neither the expected original nor this release (the migration stops with 55000)",
+    "the rehearsal has not run the migration and s125_add_item.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
