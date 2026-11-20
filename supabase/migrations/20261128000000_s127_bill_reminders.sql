@@ -6,18 +6,24 @@
 --   app_settings policies                       The key holds account numbers and a payee number, but its name does not look secret, so the existing anon / staff read policies would show it to anyone with the public key.
 --                                                Two RESTRICTIVE select policies hide that one key from anon and from every signed-in account except manage_staff (owner, admin). Every other key is untouched.
 --   transactions_source_check                   gains 'bill' (the check listed eleven values live, refund among them, and 'bill' was not one). Rebuilt only after every literal the live check holds is shown to be in the known list, else 55000.
+--                                                The new check is added NOT VALID and then validated in the same guarded block (the file is one transaction, so the table lock is still held to commit).
 --   utility_bills                               one row per property, kind and month. service_role only. PAID is impossible without a stored screenshot or the typed override (utility_bills_paid_needs_proof).
 --   bill_due_open_v1(uuid, date)                service_role. From pay_day opens the missing rows of that month and returns {new, nudge}; the estimate of a meter bill is the forecast of the cycle that CLOSED in that
 --                                                month (p_on moved to that month's cycle day), not of the cycle that starts after it. nudge = rows still due or paying, once, on or after nudge_day (stamps nudged_at).
+--                                                Catch-up: before pay_day it opens the PREVIOUS month's missing rows (the step missed the 27th to month end); it never nudges there.
 --   bill_step_v1(uuid, text, bigint, text, jsonb) service_role. pay | cancel | skip | paid. paid writes the one transactions row (external_ref bill:<kind>:<period>, found again by that ref).
 --                                                Actor gate: see the comment on the function (the telegram_staff_pay_step_v1 gate is the Finance group; SQL refuses a null id and a mapped, non-approving or disabled profile).
---   today_bills_v1(uuid)                        the lane A body plus "due" (this month's rows: kind, label, period, status, estimate_php, paid_php). Existing keys and gate unchanged. No account number is returned.
+--                                                While a bill is paying, only the person who tapped pay may settle or skip it (bad_step for anyone else). A screenshot that settled a staff payment cannot settle a bill (duplicate_proof).
+--                                                An existing ledger row for the ref is linked only when property, source 'bill' and amount all match; otherwise (and for a VOID row) 55000 with a plain message.
+--   today_bills_v1(uuid)                        the lane A body plus "due": this month's rows of any status plus every unpaid (due or paying) row of any period, oldest period first (kind, label, period, status, estimate_php, paid_php).
+--                                                Existing keys and gate unchanged. No account number is returned.
 --   internal helpers                            bill_cfg_text_v1, bill_schedule_cfg_v1, bill_json_v1 (nobody can run them but the owner and the definer functions).
 -- notices_v1 is NOT changed: the s91 body returns every active ops_notices row (audience staff or all, not expired, dated today to 30 days ahead) to every role with read_operations, and maps notice_type 'reminder' to type 'note'
 --   with source 'manual' when the row has no source. Tested in supabase/tests/database/s127_bill_reminders.sql for cleaner, laundry and admin.
+-- Refusal reasons of bill_step_v1: not_finance, not_found, already_paid (carries bill), bad_step, duplicate_proof, bad_amount, confirm_amount.
 -- Money rule: a read amount is accepted without a question only inside a band (fixed bills: amount .. amount + 50; meter bills: half .. double the estimate); outside it bill_step_v1 answers confirm_amount unless the proof carries confirmed true.
 -- Guard (55000, nothing changes): today_bills_v1 must be the lane A body or this release (md5 of prosrc, CR stripped).
--- Rollback: supabase/rollbacks/20261128_s127_bill_reminders.sql (refuses once a bill is paid; puts the lane A today_bills_v1 back, drops the new objects).
+-- Rollback: supabase/rollbacks/20261128_s127_bill_reminders.sql (refuses once a bill is paid or a bill ledger row exists; puts the lane A today_bills_v1 back, drops the new objects).
 
 begin;
 
@@ -26,7 +32,7 @@ do $g$
 declare v text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.today_bills_v1(uuid)');
-  if v is distinct from 'f7cfd2f8ddd001229df63601b636c5b7' and v is distinct from '1f581c3b6ce841395c5e7d2cf6207936' then
+  if v is distinct from 'f7cfd2f8ddd001229df63601b636c5b7' and v is distinct from 'fda3eee593ec93968cddfd039c5d81f9' then
     raise exception using errcode = '55000', message = 's127 bills: public.today_bills_v1(uuid) is neither the lane A body nor this release (md5 ' || coalesce(v, 'null') || '): re-cut it from the live body';
   end if;
 end $g$;
@@ -56,7 +62,8 @@ begin
     raise exception using errcode = '55000', message = 's127 bills: transactions_source_check holds values this release does not know (' || v_bad || '): re-cut the list from the live constraint';
   end if;
   execute 'alter table public.transactions drop constraint transactions_source_check';
-  execute 'alter table public.transactions add constraint transactions_source_check check (source = any (array[''telegram'', ''ocr'', ''booking'', ''manual'', ''import'', ''airbnb'', ''airbnb_email'', ''airbnb_payout_email'', ''direct_booking'', ''cleaner_fee'', ''refund'', ''bill'']))';
+  execute 'alter table public.transactions add constraint transactions_source_check check (source = any (array[''telegram'', ''ocr'', ''booking'', ''manual'', ''import'', ''airbnb'', ''airbnb_email'', ''airbnb_payout_email'', ''direct_booking'', ''cleaner_fee'', ''refund'', ''bill''])) not valid';
+  execute 'alter table public.transactions validate constraint transactions_source_check';
 end $c$;
 
 -- 4. the table -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -148,17 +155,23 @@ declare
   v_ucfg jsonb := public.utility_billing_cfg_v1();
   v_pay integer := (v_cfg ->> 'pay_day')::integer;
   v_nudge integer := (v_cfg ->> 'nudge_day')::integer;
-  v_period text; v_ec date; v_wc date;
+  v_period text; v_m date; v_catch boolean; v_ec date; v_wc date;
   v_ids uuid[]; v_nids uuid[]; v_new jsonb; v_nud jsonb;
 begin
-  if p_property_id is null or p_on is null or extract(day from p_on)::integer < v_pay then
+  if p_property_id is null or p_on is null then
     return jsonb_build_object('new', '[]'::jsonb, 'nudge', '[]'::jsonb);
   end if;
-  v_period := to_char(p_on, 'YYYY-MM');
+  -- on or after pay_day the month billed is this month; before it, the PREVIOUS month, and only its missing rows open (catch-up for a step that missed the 27th to month end; no nudge)
+  v_catch := extract(day from p_on)::integer < v_pay;
+  v_m := case when v_catch then (date_trunc('month', p_on) - interval '1 month')::date else date_trunc('month', p_on)::date end;
+  v_period := to_char(v_m, 'YYYY-MM');
+  if v_catch and (select count(*) from public.utility_bills b where b.property_id = p_property_id and b.period = v_period) >= 4 then
+    return jsonb_build_object('new', '[]'::jsonb, 'nudge', '[]'::jsonb);
+  end if;
   perform pg_advisory_xact_lock(hashtextextended('bill_due_open:' || p_property_id::text || ':' || v_period, 0));
-  -- the bill paid on pay day covers the cycle that closed in this month: ask the estimate about that month's cycle day (the cycle (from, to] ending on it), not about p_on, which is already in the next cycle
-  v_ec := public.utility_cycle_day_v1(date_trunc('month', p_on)::date, (v_ucfg -> 'electric' ->> 'cycle_day')::integer);
-  v_wc := public.utility_cycle_day_v1(date_trunc('month', p_on)::date, (v_ucfg -> 'water' ->> 'cycle_day')::integer);
+  -- the bill paid on pay day covers the cycle that closed in the month billed: ask the estimate about that month's cycle day (the cycle (from, to] ending on it), not about p_on, which is already in the next cycle
+  v_ec := public.utility_cycle_day_v1(v_m, (v_ucfg -> 'electric' ->> 'cycle_day')::integer);
+  v_wc := public.utility_cycle_day_v1(v_m, (v_ucfg -> 'water' ->> 'cycle_day')::integer);
 
   with ins as (
     insert into public.utility_bills(property_id, kind, period, estimate_php)
@@ -174,7 +187,7 @@ begin
   v_ids := coalesce(v_ids, '{}');
 
   -- the one second nudge: this month's rows still unpaid that this call did not just open
-  if extract(day from p_on)::integer >= v_nudge then
+  if not v_catch and extract(day from p_on)::integer >= v_nudge then
     with n as (
       update public.utility_bills b set nudged_at = now()
        where b.property_id = p_property_id and b.period = v_period and b.status in ('due', 'paying') and b.nudged_at is null and b.id <> all (v_ids)
@@ -200,6 +213,7 @@ declare
   v_actor text := coalesce(nullif(btrim(p_actor_name), ''), 'Finance');
   v_role text; v_dis timestamptz;
   v_typed boolean; v_amt numeric; v_other text; v_ref text; v_label text; v_txn uuid; v_verdict text;
+  v_t record; v_why text; v_con text;
 begin
   if p_actor_tg is null then return jsonb_build_object('ok', false, 'reason', 'not_finance'); end if;
   select p.role, p.disabled_at into v_role, v_dis from public.staff_access_profiles p where p.telegram_user_id = p_actor_tg;
@@ -211,6 +225,10 @@ begin
   select * into v_b from public.utility_bills where id = p_id for update;
   if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
   if v_b.status = 'paid' then return jsonb_build_object('ok', false, 'reason', 'already_paid', 'bill', public.bill_json_v1(v_b)); end if;
+  -- while the bill is paying, only the person who tapped pay may settle or skip it (the Telegram lane checks the same; this closes it for any other caller)
+  if v_b.status = 'paying' and p_step in ('skip', 'paid') and v_b.paying_by_tg is distinct from p_actor_tg then
+    return jsonb_build_object('ok', false, 'reason', 'bad_step', 'bill', public.bill_json_v1(v_b));
+  end if;
 
   case p_step
     when 'pay' then
@@ -248,6 +266,10 @@ begin
       if not v_typed then
         select o.ref into v_other from public.utility_bills o
          where o.id <> v_b.id and (o.proof_file_unique_id = p_proof ->> 'file_unique_id' or o.proof_sha256 = p_proof ->> 'sha256') limit 1;
+        if not found then -- a screenshot that settled a staff payment cannot settle a bill either
+          select o.ref into v_other from public.staff_pay_requests o
+           where o.proof_file_unique_id = p_proof ->> 'file_unique_id' or o.proof_sha256 = p_proof ->> 'sha256' limit 1;
+        end if;
         if found then return jsonb_build_object('ok', false, 'reason', 'duplicate_proof', 'other_ref', v_other); end if;
       end if;
       -- amount band (Addendum 1): fixed bills amount .. amount + 50, meter bills half .. double the estimate; an unknown estimate has no band, so it always asks
@@ -261,7 +283,21 @@ begin
       v_ref := 'bill:' || v_b.kind || ':' || v_b.period;
       v_label := public.bill_schedule_cfg_v1() -> 'bills' -> v_b.kind ->> 'label';
       perform set_config('cascade.audit_reason', 'bill ' || v_b.ref || ' paid by ' || v_actor, true);
-      select t.id into v_txn from public.transactions t where t.external_ref = v_ref and t.status <> 'void' limit 1; -- found again by its ref: a second pass never writes twice
+      -- found again by its ref (the unique index counts void rows too): a second pass never writes twice, and a row that is not this bill's is never linked
+      select t.id, t.status, t.property_id, t.source, t.gross_amount into v_t from public.transactions t where t.external_ref = v_ref;
+      if found then
+        if v_t.status = 'void' then
+          raise exception using errcode = '55000', message = 'The ledger already holds a voided row for ' || v_ref || ' (id ' || v_t.id || '). Delete that row or give it another reference, then log the bill again.';
+        end if;
+        v_why := concat_ws(', ', case when v_t.property_id is distinct from v_b.property_id then 'another property' end,
+                                 case when v_t.source is distinct from 'bill' then 'source ' || coalesce(v_t.source, 'none') end,
+                                 case when v_t.gross_amount is distinct from v_amt then 'amount ' || coalesce(v_t.gross_amount::text, 'none') end);
+        if v_why <> '' then
+          raise exception using errcode = '55000', message = 'The ledger already holds a row for ' || v_ref || ' (id ' || v_t.id || ') that does not match this bill: ' || v_why || '. Fix or delete that row, then log the bill again.';
+        end if;
+        v_txn := v_t.id;
+      end if;
+      begin
       if v_txn is null then
         insert into public.transactions(property_id, txn_type, category, status, source, gross_amount, payee_name, transaction_date, external_ref, notes, logged_by)
         values (v_b.property_id, 'expense', 'utilities', 'confirmed', 'bill', v_amt, v_label, public.manila_today(), v_ref,
@@ -279,6 +315,14 @@ begin
         proof_read = jsonb_build_object('read', p_proof -> 'read', 'verdict', v_verdict),
         proof_verdict = v_verdict
        where id = v_b.id returning * into v_b;
+      exception when unique_violation then -- the sub-transaction undoes the ledger insert too
+        get stacked diagnostics v_con = constraint_name;
+        if v_con in ('utility_bills_proof_file_uq', 'utility_bills_proof_sha_uq') then
+          select o.ref into v_other from public.utility_bills o where o.id <> v_b.id and (o.proof_file_unique_id = p_proof ->> 'file_unique_id' or o.proof_sha256 = p_proof ->> 'sha256') limit 1;
+          return jsonb_build_object('ok', false, 'reason', 'duplicate_proof', 'other_ref', v_other);
+        end if;
+        raise exception using errcode = '55000', message = 'The ledger already holds a row for ' || v_ref || ' that was written a moment ago. Check it, then log the bill again.';
+      end;
       return jsonb_build_object('ok', true, 'bill', public.bill_json_v1(v_b), 'paid_php', v_amt);
   end case;
 end;
@@ -300,8 +344,9 @@ begin
     'water', jsonb_build_object('php', v -> 'water' -> 'so_far_php', 'm3', v -> 'water' -> 'm3'),
     'due', coalesce((select jsonb_agg(jsonb_build_object('kind', b.kind, 'label', public.bill_schedule_cfg_v1() -> 'bills' -> b.kind ->> 'label', 'period', b.period,
                                                          'status', b.status, 'estimate_php', b.estimate_php, 'paid_php', b.paid_php)
-                                      order by array_position(array['electric', 'water', 'internet', 'netflix'], b.kind))
-                       from public.utility_bills b where b.property_id = p_property_id and b.period = to_char(public.manila_today(), 'YYYY-MM')), '[]'::jsonb));
+                                      order by b.period, array_position(array['electric', 'water', 'internet', 'netflix'], b.kind))
+                       from public.utility_bills b where b.property_id = p_property_id
+                        and (b.status in ('due', 'paying') or b.period = to_char(public.manila_today(), 'YYYY-MM'))), '[]'::jsonb));
 end;
 $$;
 
@@ -318,7 +363,7 @@ grant execute on function public.today_bills_v1(uuid) to authenticated;
 
 comment on function public.bill_due_open_v1(uuid, date) is 's127 bills: service_role. From pay_day opens the month''s missing bill rows and returns {new, nudge}; a second call the same day returns nothing new; nudge once on or after nudge_day.';
 comment on function public.bill_step_v1(uuid, text, bigint, text, jsonb) is 's127 bills: service_role. pay | cancel | skip | paid. paid needs a read screenshot (sha256 + file_unique_id) or typed true, writes one transactions row bill:<kind>:<period>. Refusals: not_finance, not_found, already_paid, bad_step, duplicate_proof, bad_amount, confirm_amount.';
-comment on function public.today_bills_v1(uuid) is 's127: the electricity and water bill so far for the Today tab plus this month''s bill rows (due). Every active staff role of the property (read_operations); anyone else 42501. Money by design (Lloyd 2026-11-20); no account number.';
+comment on function public.today_bills_v1(uuid) is 's127: the electricity and water bill so far for the Today tab plus this month''s bill rows and every unpaid one of an earlier month (due). Every active staff role of the property (read_operations); anyone else 42501. Money by design (Lloyd 2026-11-20); no account number.';
 
 -- forward check: everything this release adds is present and closed to the API roles ----------------------------------------------------------------------------------------------------
 do $$

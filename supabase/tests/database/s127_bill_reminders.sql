@@ -1,12 +1,13 @@
--- Session 127 (lane B1, SQL): release s127_bill_reminders_20261128. Contract: docs/s127/CONTRACT-B.md "Rules both lanes rely on", "Lane B1" and Addendum 1.
+-- Session 127 (lane B1, SQL): release s127_bill_reminders_20261128. Contract: docs/s127/CONTRACT-B.md "Rules both lanes rely on", "Lane B1", Addendum 1 and Addendum 3 (fix round 1).
 -- bill_schedule_cfg_v1 (key-by-key fallback), bill_due_open_v1 (rows open only from pay_day, one call per day inserts nothing twice, the single nudge, the estimate of the cycle that closed in the month),
--- bill_step_v1 (the Finance gate, pay / cancel / skip / paid, ONE transactions row, repeat = already_paid, duplicate screenshot, typed override, amount band, every refusal reason),
--- today_bills_v1 "due", the restrictive app_settings policies, and notices_v1 returning a 'reminder' notice with no source to every role. Every expected value is hand-computed in the comment above its block.
+-- bill_step_v1 (the Finance gate, pay / cancel / skip / paid, ONE transactions row, repeat = already_paid, duplicate screenshot incl. a staff-pay one, typed override, amount band, only the payer settles or skips,
+-- a ledger row is linked only when it matches, a void row is refused), catch-up opening of the previous month, today_bills_v1 "due" (this month plus every unpaid bill of any period),
+-- the restrictive app_settings policies, and notices_v1 returning a 'reminder' notice with no source to every role. Every expected value is hand-computed in the comment above its block.
 -- Synthetic fixtures only (uuids e1280000-..., properties ...b1 to ...b3, names "Zz ..."). All dates are fixed (March to September 2020) except the Today card, whose rows use the Manila month of today
 -- itself so the expected period is always the current one. calendar_events and every generated column are never inserted. The rate table is cleared INSIDE this transaction (a real backup holds real rows).
 -- Nothing in this file can run without a Postgres that holds the Cascade schema: it is run by the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>).
 begin;
-select plan(64);
+select plan(72);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -35,6 +36,14 @@ end $f$;
 create function pg_temp.cfg_default() returns jsonb language sql as $$
   select '{"reading_day":21,"pay_day":27,"nudge_day":28,"bills":{"electric":{"label":"Electricity (SOCOTECO II)","account":"","account_name":""},"water":{"label":"Water (Gensan Water District)","account":"","account_name":""},"internet":{"label":"Internet","amount":1500,"pay_to_name":"","pay_to_number":"","note":""},"netflix":{"label":"Netflix","amount":449}}}'::jsonb
 $$;
+-- the hand-written value bill_schedule_cfg_v1() must return for the contract default (and for no row at all)
+create function pg_temp.cfg_expected() returns jsonb language sql as $$
+  select '{"reading_day":21,"pay_day":27,"nudge_day":28,"bills":{
+    "electric":{"label":"Electricity (SOCOTECO II)","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":null},
+    "water":{"label":"Water (Gensan Water District)","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":null},
+    "internet":{"label":"Internet","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":1500},
+    "netflix":{"label":"Netflix","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":449}}}'::jsonb
+$$;
 create function pg_temp.cfg_set(p jsonb) returns jsonb language plpgsql as $f$
 begin
   update public.app_settings set value = p where key = 'bill_schedule';
@@ -56,12 +65,16 @@ end $f$;
 create function pg_temp.adm(p_id uuid, p_step text, p_proof jsonb default null) returns jsonb language sql as $$
   select public.bill_step_v1(p_id, p_step, 128000002, 'Zz Admin', p_proof)
 $$;
+-- bill_step_v1 as the Finance group member with no staff profile whose Telegram id is 128000099 ("Zz Guest")
+create function pg_temp.gst(p_id uuid, p_step text, p_proof jsonb default null) returns jsonb language sql as $$
+  select public.bill_step_v1(p_id, p_step, 128000099, 'Zz Guest', p_proof)
+$$;
 create temp table _t(k text primary key, v jsonb);
 grant all on _t to public;
 
 -- fixtures -------------------------------------------------------------------------------------------------------------------------------------------
 insert into public.properties(id, name, is_active) values
-  (pg_temp.id('b1'), 'Zz S128 bills', true), (pg_temp.id('b2'), 'Zz S128 plain', true), (pg_temp.id('b3'), 'Zz S128 today', true);
+  (pg_temp.id('b1'), 'Zz S128 bills', true), (pg_temp.id('b2'), 'Zz S128 plain', true), (pg_temp.id('b3'), 'Zz S128 today', true), (pg_temp.id('b4'), 'Zz S128 catch-up', true);
 insert into auth.users(id, email) values
   (pg_temp.id('a1'), 'zz128-cleaner@example.com'), (pg_temp.id('a2'), 'zz128-admin@example.com'), (pg_temp.id('a3'), 'zz128-laundry@example.com'),
   (pg_temp.id('a4'), 'zz128-finance@example.com'), (pg_temp.id('a5'), 'zz128-disabled@example.com'), (pg_temp.id('a6'), 'zz128-nostaff@example.com');
@@ -106,8 +119,8 @@ select ok((select count(*) = 6 and bool_and(p.proconfig = array['search_path=""'
 select ok((select relrowsecurity from pg_class where oid = 'public.utility_bills'::regclass)
           and not has_table_privilege('anon', 'public.utility_bills', 'select,insert,update,delete') and not has_table_privilege('authenticated', 'public.utility_bills', 'select,insert,update,delete')
           and has_table_privilege('service_role', 'public.utility_bills', 'select,insert,update'), 'utility_bills: RLS on, no table privilege for anon or authenticated, service_role has it');
-select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.today_bills_v1(uuid)'::regprocedure), chr(13), '')) = '1f581c3b6ce841395c5e7d2cf6207936',
-          'today_bills_v1 is exactly the body this release pins (the lane A body f7cfd2f8... plus the due key)');
+select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.today_bills_v1(uuid)'::regprocedure), chr(13), '')) = 'fda3eee593ec93968cddfd039c5d81f9',
+          'today_bills_v1 is exactly the body this release pins (the lane A body f7cfd2f8... plus the due key: this month plus every unpaid bill)');
 select ok((select pg_get_constraintdef(oid) like '%''bill''%' and pg_get_constraintdef(oid) like '%''cleaner_fee''%' and pg_get_constraintdef(oid) like '%''refund''%' and pg_get_constraintdef(oid) like '%''telegram''%'
             from pg_constraint where conrelid = 'public.transactions'::regclass and conname = 'transactions_source_check'),
           'transactions_source_check now lists bill and still lists the older values');
@@ -116,11 +129,7 @@ insert into _t select 'badsrc', pg_temp.try($$insert into public.transactions(pr
 select is((select v ->> 'err' from _t where k = 'badsrc'), '23514', 'the source check still refuses an unknown source (check_violation)');
 
 -- 3. bill_schedule_cfg_v1: key by key, never raises. Hand-written expected values ------------------------------------------------------------------------------
-select ok(public.bill_schedule_cfg_v1() = '{"reading_day":21,"pay_day":27,"nudge_day":28,"bills":{
-    "electric":{"label":"Electricity (SOCOTECO II)","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":null},
-    "water":{"label":"Water (Gensan Water District)","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":null},
-    "internet":{"label":"Internet","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":1500},
-    "netflix":{"label":"Netflix","account":"","account_name":"","pay_to_name":"","pay_to_number":"","note":"","amount":449}}}'::jsonb,
+select ok(public.bill_schedule_cfg_v1() = pg_temp.cfg_expected(),
           'the default setting reads as 21 / 27 / 28 and the four bills with empty account, pay-to and note strings (amount only for internet 1500 and netflix 449)');
 -- reading_day -3 -> held up to 1; pay_day 40 -> held down to 28 (not the default 27); nudge_day "x" (a string) -> default 28; amount -5 -> default 1500; label 7 and note ["a"] -> default; netflix "no" (not an object) -> defaults
 select ok(pg_temp.cfg_set('{"reading_day":-3,"pay_day":40,"nudge_day":"x","bills":{"internet":{"amount":-5,"label":7,"note":["a"]},"netflix":"no"}}'::jsonb)
@@ -133,7 +142,7 @@ select ok((select c ->> 'pay_day' = '10' and c ->> 'reading_day' = '5' and c ->>
           'valid custom values win (pay_day 10.9 is cut to 10); every key not set falls back to its default');
 select ok(pg_temp.cfg_set('"just a string"'::jsonb) = pg_temp.cfg_set(pg_temp.cfg_default()), 'a setting row that is not an object falls back to the defaults');
 delete from public.app_settings where key = 'bill_schedule';
-select ok(public.bill_schedule_cfg_v1() = (select c from (select pg_temp.cfg_set(pg_temp.cfg_default()) c) x where false union all select public.bill_schedule_cfg_v1() limit 1)
+select ok(public.bill_schedule_cfg_v1() = pg_temp.cfg_expected()
           and (public.bill_schedule_cfg_v1() ->> 'pay_day') = '27' and (public.bill_schedule_cfg_v1() #>> '{bills,internet,amount}') = '1500',
           'no setting row at all: the defaults (pay day 27, internet 1500)');
 insert into public.app_settings(key, value) values ('bill_schedule', pg_temp.cfg_default());
@@ -148,10 +157,14 @@ insert into _t select 'pol_cleaner_bill', pg_temp.try($$select to_jsonb(count(*)
 insert into _t select 'pol_cleaner_pub', pg_temp.try($$select to_jsonb(count(*)) from public.app_settings where key = 'zz128_public'$$);
 select pg_temp.as_user(pg_temp.id('a2'));
 insert into _t select 'pol_admin_bill', pg_temp.try($$select to_jsonb(count(*)) from public.app_settings where key = 'bill_schedule'$$);
+select pg_temp.as_user(pg_temp.id('a4'));
+insert into _t select 'pol_fin_bill', pg_temp.try($$select to_jsonb(count(*)) from public.app_settings where key = 'bill_schedule'$$);
+insert into _t select 'pol_fin_pub', pg_temp.try($$select to_jsonb(count(*)) from public.app_settings where key = 'zz128_public'$$);
 reset role;
 select ok((select v = '0'::jsonb from _t where k = 'pol_anon_bill') and (select v = '1'::jsonb from _t where k = 'pol_anon_pub'), 'anon reads zero rows of bill_schedule but still reads another key');
 select ok((select v = '0'::jsonb from _t where k = 'pol_cleaner_bill') and (select v = '1'::jsonb from _t where k = 'pol_cleaner_pub'), 'a cleaner reads zero rows of bill_schedule but still reads another key');
 select ok((select v = '1'::jsonb from _t where k = 'pol_admin_bill'), 'an admin (manage_staff) reads the bill_schedule row');
+select ok((select v = '0'::jsonb from _t where k = 'pol_fin_bill') and (select v = '1'::jsonb from _t where k = 'pol_fin_pub'), 'a finance-role account (no manage_staff) reads zero rows of bill_schedule but still reads another key');
 
 -- 5. bill_due_open_v1. Property b1, March 2020. Rate 10 PHP/kWh (manual, March) and two counted readings.
 -- r1 21 Feb 2020 (first reading, 10 kWh, 1.0 m3) lands on its own day 21 Feb = the cycle start, so it is outside the cycle (21 Feb, 21 Mar].
@@ -163,9 +176,20 @@ insert into public.meter_readings(id, session_id, property_id, recorded_at, elec
   (pg_temp.id('c1'), null, pg_temp.id('b1'), timestamptz '2020-02-21 09:00+08', 1000, 1010, 50, 10, 1.0, null),
   (pg_temp.id('c2'), null, pg_temp.id('b1'), timestamptz '2020-03-01 09:00+08', 1010, 1070, 51, 60, 6.0, null);
 select pg_temp.cfg_set(pg_temp.cfg_default()) is not null as reset;
-insert into _t select 'o0', public.bill_due_open_v1(pg_temp.id('b1'), date '2020-03-26');
-select ok((select v = '{"new":[],"nudge":[]}'::jsonb from _t where k = 'o0') and (select count(*) = 0 from public.utility_bills where property_id = pg_temp.id('b1')),
-          'the 26th, before pay_day 27: both lists empty and no row opened');
+-- catch-up (Addendum 3.5). b4 has no readings and no rows. 26 April is before pay_day 27, so the PREVIOUS month (2020-03) opens its four missing rows: estimates null, null (no counted reading), 1500, 449; no nudge.
+-- A second call the same day inserts nothing (4 rows). 27 April then opens April as usual (4 more rows, 8 in all) and nudges nothing (the nudge day is the 28th).
+insert into _t select 'c0', public.bill_due_open_v1(pg_temp.id('b4'), date '2020-04-26');
+insert into _t select 'c0b', public.bill_due_open_v1(pg_temp.id('b4'), date '2020-04-26');
+insert into _t select 'c1', public.bill_due_open_v1(pg_temp.id('b4'), date '2020-04-27');
+select ok((select (select jsonb_agg(e ->> 'kind') from jsonb_array_elements(v -> 'new') e) = '["electric","water","internet","netflix"]'::jsonb
+                  and (select bool_and(e ->> 'period' = '2020-03') from jsonb_array_elements(v -> 'new') e)
+                  and (select jsonb_agg(e -> 'estimate_php') from jsonb_array_elements(v -> 'new') e) = '[null, null, 1500, 449]'::jsonb and v -> 'nudge' = '[]'::jsonb from _t where k = 'c0')
+          and (select count(*) = 4 and bool_and(status = 'due' and period = '2020-03') from public.utility_bills where property_id = pg_temp.id('b4')),
+          'catch-up: on the 26th (before pay_day 27) the previous month 2020-03 opens its four missing rows with their estimates and no nudge');
+select ok((select v = '{"new":[],"nudge":[]}'::jsonb from _t where k = 'c0b')
+          and (select jsonb_array_length(v -> 'new') = 4 and (select bool_and(e ->> 'period' = '2020-04') from jsonb_array_elements(v -> 'new') e) and v -> 'nudge' = '[]'::jsonb from _t where k = 'c1')
+          and (select count(*) = 8 from public.utility_bills where property_id = pg_temp.id('b4')),
+          'catch-up is idempotent (a second call the same day returns nothing), and the 27th still opens its own month');
 insert into _t select 'o1', public.bill_due_open_v1(pg_temp.id('b1'), date '2020-03-27');
 select ok((select (select jsonb_agg(e ->> 'kind') from jsonb_array_elements(v -> 'new') e) = '["electric","water","internet","netflix"]'::jsonb and v -> 'nudge' = '[]'::jsonb from _t where k = 'o1')
           and (select count(*) = 4 and bool_and(status = 'due') from public.utility_bills where property_id = pg_temp.id('b1') and period = '2020-03'),
@@ -214,8 +238,9 @@ select ok((select (select jsonb_agg(e -> 'estimate_php') from jsonb_array_elemen
 select pg_temp.cfg_set('{"pay_day":10,"nudge_day":12,"bills":{"internet":{"amount":1600},"netflix":{"label":"Zz Stream","amount":500}}}'::jsonb) is not null as custom;
 insert into _t select 'q0', public.bill_due_open_v1(pg_temp.id('b2'), date '2020-06-09');
 insert into _t select 'q1', public.bill_due_open_v1(pg_temp.id('b2'), date '2020-06-10');
-select ok((select v = '{"new":[],"nudge":[]}'::jsonb from _t where k = 'q0') and (select jsonb_array_length(v -> 'new') = 4 from _t where k = 'q1'),
-          'pay_day is read from the setting: the 9th opens nothing, the 10th opens four rows');
+select ok((select v -> 'nudge' = '[]'::jsonb and jsonb_array_length(v -> 'new') = 4 and (select bool_and(e ->> 'period' = '2020-05') from jsonb_array_elements(v -> 'new') e) from _t where k = 'q0')
+          and (select v -> 'nudge' = '[]'::jsonb and jsonb_array_length(v -> 'new') = 4 and (select bool_and(e ->> 'period' = '2020-06') from jsonb_array_elements(v -> 'new') e) from _t where k = 'q1'),
+          'pay_day is read from the setting: the 9th (before pay_day 10) opens only the previous month May, the 10th opens June');
 select ok((select (select jsonb_agg(e -> 'estimate_php') from jsonb_array_elements(v -> 'new') e) = '[null, null, 1600, 500]'::jsonb and v -> 'new' -> 3 ->> 'label' = 'Zz Stream' from _t where k = 'q1'),
           'fixed amounts and labels come from the setting (internet 1600, netflix 500 "Zz Stream")');
 select pg_temp.cfg_set(pg_temp.cfg_default()) is not null as reset2;
@@ -273,29 +298,30 @@ select ok((select b.txn_id = (select id from public.transactions where external_
 insert into _t select 'e2', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'paid', pg_temp.rp(1999));
 insert into _t select 'e3', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'paid',
   '{"file_unique_id":"zz128-u1","file_id":"zz128-f1","sha256":"zz128-s1","amount":1960.5,"verdict":"read"}'::jsonb);
-select ok((select v ->> 'reason' = 'already_paid' and v ->> 'ok' = 'false' from _t where k = 'e2') and (select v ->> 'reason' = 'already_paid' from _t where k = 'e3')
+select ok((select v ->> 'reason' = 'already_paid' and v ->> 'ok' = 'false' and v -> 'bill' ->> 'status' = 'paid' and (v -> 'bill' ->> 'paid_php')::numeric = 1960.5 from _t where k = 'e2')
+          and (select v ->> 'reason' = 'already_paid' and v -> 'bill' ->> 'status' = 'paid' from _t where k = 'e3')
           and (select count(*) = 1 from public.transactions where external_ref = 'bill:electric:2020-03')
           and (select paid_php = 1960.50 from public.utility_bills where id = pg_temp.bid('electric', 'b1', '2020-03')),
-          'a repeat paid (new screenshot or the same one) is already_paid: still one transaction and the amount is unchanged');
+          'a repeat paid (new screenshot or the same one) is already_paid and still carries the bill: still one transaction and the amount is unchanged');
 insert into _t select 'x1', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'pay');
 insert into _t select 'x2', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'cancel');
 insert into _t select 'x3', pg_temp.adm(pg_temp.bid('electric', 'b1', '2020-03'), 'skip');
 select ok((select bool_and(v ->> 'reason' = 'already_paid') from _t where k in ('x1', 'x2', 'x3')), 'pay, cancel and skip on a paid bill are all already_paid');
 -- duplicate screenshot across bills: the same sha256 with a new file id, and the same file id with a new sha256
-insert into _t select 'd1', pg_temp.adm(pg_temp.bid('water', 'b1', '2020-03'), 'paid',
+insert into _t select 'd1', pg_temp.gst(pg_temp.bid('water', 'b1', '2020-03'), 'paid',
   '{"file_unique_id":"zz128-u2","sha256":"zz128-s1","amount":430,"verdict":"read"}'::jsonb);
-insert into _t select 'd2', pg_temp.adm(pg_temp.bid('water', 'b1', '2020-03'), 'paid',
+insert into _t select 'd2', pg_temp.gst(pg_temp.bid('water', 'b1', '2020-03'), 'paid',
   '{"file_unique_id":"zz128-u1","sha256":"zz128-s2","amount":430,"verdict":"read"}'::jsonb);
 select ok((select v ->> 'reason' = 'duplicate_proof' and v ->> 'other_ref' = (select ref from public.utility_bills where id = pg_temp.bid('electric', 'b1', '2020-03')) from _t where k = 'd1')
           and (select v ->> 'reason' = 'duplicate_proof' from _t where k = 'd2')
           and (select status = 'paying' and proof_sha256 is null from public.utility_bills where id = pg_temp.bid('water', 'b1', '2020-03'))
           and (select count(*) = 0 from public.transactions where external_ref = 'bill:water:2020-03'),
           'the electric screenshot used on the water bill is duplicate_proof by sha256 or by file id, naming the other bill; the water bill is unchanged and nothing is written');
-insert into _t select 'w1', pg_temp.adm(pg_temp.bid('water', 'b1', '2020-03'), 'paid', '{"file_unique_id":"zz128-u3","file_id":"zz128-f3","sha256":"zz128-s3","amount":430,"verdict":"read"}'::jsonb);
+insert into _t select 'w1', pg_temp.gst(pg_temp.bid('water', 'b1', '2020-03'), 'paid', '{"file_unique_id":"zz128-u3","file_id":"zz128-f3","sha256":"zz128-s3","amount":430,"verdict":"read"}'::jsonb);
 select ok((select v ->> 'ok' = 'true' and (v ->> 'paid_php')::numeric = 430 from _t where k = 'w1')
-          and (select paying_by_name = 'Zz Guest' and paid_by_name = 'Zz Admin' from public.utility_bills where id = pg_temp.bid('water', 'b1', '2020-03'))
+          and (select paying_by_name = 'Zz Guest' and paid_by_name = 'Zz Guest' and paid_by_tg = 128000099 from public.utility_bills where id = pg_temp.bid('water', 'b1', '2020-03'))
           and (select count(*) = 1 from public.transactions where external_ref = 'bill:water:2020-03' and gross_amount = 430 and payee_name = 'Water (Gensan Water District)'),
-          'water paid 430 (inside 213.565 .. 854.26 around the estimate 427.13): the payer who tapped (Zz Guest) is kept and the settler (Zz Admin) is recorded');
+          'water paid 430 (inside 213.565 .. 854.26 around the estimate 427.13): the person who tapped pay (Zz Guest, tg 128000099) settles it and is recorded as payer and settler');
 -- bad amounts on internet (due): 0, -5, 100000.01 (over the 100,000 cap), "abc", missing, "12.345" (three decimals), 0.004 (rounds to 0.00), and 100000.01 with confirmed true
 insert into _t select 'ba', jsonb_build_array(
   pg_temp.adm(pg_temp.bid('internet', 'b1', '2020-03'), 'paid', '{"file_unique_id":"zz-b1","sha256":"zz-b1","amount":0}'),
@@ -376,10 +402,61 @@ select ok((select v ->> 'ok' = 'true' from _t where k = 'or') and (select count(
 select ok((select count(*) = 4 from public.utility_bills where property_id = pg_temp.id('b1') and period = '2020-03' and status = 'paid')
           and (select count(*) = 4 and count(distinct external_ref) = 4 and sum(gross_amount) = 1960.50 + 430 + 1510 + 600 from public.transactions where property_id = pg_temp.id('b1') and source = 'bill' and external_ref like 'bill:%:2020-03'),
           'b1 March: four paid bills and exactly four bill transactions, one per ref, totalling 1960.50 + 430 + 1510 + 600 = 4500.50');
--- table checks and the API roles
-insert into _t select 'ck1', pg_temp.try($$update public.utility_bills set status = 'paid' where id = (select id from public.utility_bills where property_id = 'e1280000-0000-4000-8000-0000000000b2' and kind = 'internet' and period = '2020-07') and false is not true returning to_jsonb(1)$$);
+-- Addendum 3.1 ledger link. b2 netflix 2021-01 .. 2021-06 (estimate 449, band 449 .. 499, so a screenshot reading 449 passes the band and reaches the ledger check).
+-- The ledger already holds a row for the ref of 2021-01 (amount 400, not 449), 2021-02 (another property, b1), 2021-03 (source manual) and 2021-04 (status void; the unique index counts void rows).
+-- None may be linked or doubled: each paid is a plain 55000 sentence naming the ref (and what differs), and the bill stays due. 2021-05 serves the payer test, 2021-06 the staff-pay screenshot test.
+insert into public.utility_bills(property_id, kind, period, estimate_php) values
+  (pg_temp.id('b2'), 'netflix', '2021-01', 449), (pg_temp.id('b2'), 'netflix', '2021-02', 449), (pg_temp.id('b2'), 'netflix', '2021-03', 449),
+  (pg_temp.id('b2'), 'netflix', '2021-04', 449), (pg_temp.id('b2'), 'netflix', '2021-05', 449), (pg_temp.id('b2'), 'netflix', '2021-06', 449);
+insert into public.transactions(property_id, txn_type, category, status, source, gross_amount, payee_name, transaction_date, external_ref, notes, logged_by) values
+  (pg_temp.id('b2'), 'expense', 'utilities', 'confirmed', 'bill', 400, 'Zz Netflix', date '2021-01-27', 'bill:netflix:2021-01', 'Zz amount mismatch', 'Zz'),
+  (pg_temp.id('b1'), 'expense', 'utilities', 'confirmed', 'bill', 449, 'Zz Netflix', date '2021-02-27', 'bill:netflix:2021-02', 'Zz property mismatch', 'Zz'),
+  (pg_temp.id('b2'), 'expense', 'utilities', 'confirmed', 'manual', 449, 'Zz Netflix', date '2021-03-27', 'bill:netflix:2021-03', 'Zz source mismatch', 'Zz'),
+  (pg_temp.id('b2'), 'expense', 'utilities', 'void', 'bill', 449, 'Zz Netflix', date '2021-04-27', 'bill:netflix:2021-04', 'Zz voided row', 'Zz');
+insert into _t select 'lk', jsonb_build_array(
+  pg_temp.try($$select pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-01'), 'paid', pg_temp.rp(449))$$),
+  pg_temp.try($$select pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-02'), 'paid', pg_temp.rp(449))$$),
+  pg_temp.try($$select pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-03'), 'paid', pg_temp.rp(449))$$));
+select ok((select count(*) = 3 and bool_and(e ->> 'err' = '55000' and e ->> 'msg' like '%bill:netflix:2021-0' || i || '%'
+                  and e ->> 'msg' like case i when 1 then '%amount 400%' when 2 then '%another property%' else '%source manual%' end)
+             from _t, jsonb_array_elements(v) with ordinality t(e, i) where k = 'lk')
+          and (select count(*) = 0 from public.utility_bills where property_id = pg_temp.id('b2') and kind = 'netflix' and period in ('2021-01', '2021-02', '2021-03')
+                      and (status <> 'due' or txn_id is not null or proof_sha256 is not null))
+          and (select count(*) = 3 and bool_and(notes like 'Zz %') from public.transactions where external_ref in ('bill:netflix:2021-01', 'bill:netflix:2021-02', 'bill:netflix:2021-03')),
+          'an existing ledger row with another amount, another property or another source is never linked: paid raises 55000 naming the ref and what differs; the bill stays due and the row is untouched');
+insert into _t select 'lv', pg_temp.try($$select pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-04'), 'paid', pg_temp.rp(449))$$);
+select ok((select v ->> 'err' = '55000' and v ->> 'msg' like '%voided row%' and v ->> 'msg' like '%bill:netflix:2021-04%'
+                  and v ->> 'msg' like '%' || (select id::text from public.transactions where external_ref = 'bill:netflix:2021-04') || '%' from _t where k = 'lv')
+          and (select status = 'due' and txn_id is null from public.utility_bills where id = pg_temp.bid('netflix', 'b2', '2021-04'))
+          and (select count(*) = 1 from public.transactions where external_ref = 'bill:netflix:2021-04'),
+          'a VOID ledger row with the ref is refused with a plain 55000 message naming the ref and the row id (never a raw 23505); nothing is written');
+-- Addendum 3.2 only the person who tapped pay settles or skips. Admin (tg 128000002) taps pay on 2021-05; the finance member (128000004) and a member with no profile (128000099) cannot paid or skip it.
+insert into _t select 'pp0', pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-05'), 'pay');
+insert into _t select 'pp1', public.bill_step_v1(pg_temp.bid('netflix', 'b2', '2021-05'), 'paid', 128000004, 'Zz Finance', pg_temp.rp(449));
+insert into _t select 'pp2', public.bill_step_v1(pg_temp.bid('netflix', 'b2', '2021-05'), 'skip', 128000004, 'Zz Finance');
+insert into _t select 'pp3', public.bill_step_v1(pg_temp.bid('netflix', 'b2', '2021-05'), 'paid', 128000099, 'Zz Guest', pg_temp.rp(449));
+select ok((select v ->> 'ok' = 'true' from _t where k = 'pp0')
+          and (select count(*) = 3 and bool_and(v ->> 'ok' = 'false' and v ->> 'reason' = 'bad_step' and v -> 'bill' ->> 'status' = 'paying') from _t where k in ('pp1', 'pp2', 'pp3'))
+          and (select status = 'paying' and paying_by_tg = 128000002 and paid_php is null and txn_id is null from public.utility_bills where id = pg_temp.bid('netflix', 'b2', '2021-05'))
+          and (select count(*) = 0 from public.transactions where external_ref = 'bill:netflix:2021-05'),
+          'paid and skip by someone other than the payer are bad_step: the bill stays paying under the first payer and nothing is written');
+insert into _t select 'pp4', pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-05'), 'skip');
+select ok((select v ->> 'ok' = 'true' and v -> 'bill' ->> 'status' = 'skipped' from _t where k = 'pp4') and (select count(*) = 0 from public.transactions where external_ref = 'bill:netflix:2021-05'),
+          'the person who tapped pay may skip her own bill: skipped, no transaction');
+-- Addendum 3.3 a screenshot that settled a STAFF payment cannot settle a bill: same sha256 with a new file id, and same file id with a new sha256.
+insert into public.staff_pay_requests(property_id, payee_user_id, payee_name, idempotency_key, status, lines, total_amount, paid_at, paid_by_name, proof_file_unique_id, proof_sha256, proof_verdict) values
+  (pg_temp.id('b2'), pg_temp.id('a1'), 'Zz Cleaner', 'zz128-pay-0001', 'paid', '[{"n":1}]'::jsonb, 500, now(), 'Zz128', 'zz128-sp-u', 'zz128-sp-s', 'match');
+insert into _t select 'sp1', pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-06'), 'paid', '{"file_unique_id":"zz128-sp-u2","sha256":"zz128-sp-s","amount":449,"verdict":"read"}'::jsonb);
+insert into _t select 'sp2', pg_temp.adm(pg_temp.bid('netflix', 'b2', '2021-06'), 'paid', '{"file_unique_id":"zz128-sp-u","sha256":"zz128-sp-s2","amount":449,"verdict":"read"}'::jsonb);
+select ok((select count(*) = 2 and bool_and(v ->> 'reason' = 'duplicate_proof' and v ->> 'other_ref' = (select ref from public.staff_pay_requests where idempotency_key = 'zz128-pay-0001')) from _t where k in ('sp1', 'sp2'))
+          and (select status = 'due' and proof_sha256 is null and txn_id is null from public.utility_bills where id = pg_temp.bid('netflix', 'b2', '2021-06'))
+          and (select count(*) = 0 from public.transactions where external_ref = 'bill:netflix:2021-06'),
+          'a screenshot already used on a staff payment is duplicate_proof for a bill (by sha256 or by file id), naming the staff request; nothing is written');
+-- table checks and the API roles. b2 netflix 2020-06 is skipped (never paid): status paid alone has no amount, time, name or proof
+insert into _t select 'ck1', pg_temp.try($$update public.utility_bills set status = 'paid' where id = (select id from public.utility_bills where property_id = 'e1280000-0000-4000-8000-0000000000b2' and kind = 'netflix' and period = '2020-06') returning to_jsonb(1)$$);
 insert into _t select 'ck2', pg_temp.try($$update public.utility_bills set status = 'paid', paid_php = 5, paid_at = now(), paid_by_name = 'Zz', proof_verdict = 'read' where id = (select id from public.utility_bills where property_id = 'e1280000-0000-4000-8000-0000000000b2' and kind = 'netflix' and period = '2020-06') returning to_jsonb(1)$$);
 insert into _t select 'ck3', pg_temp.try($$update public.utility_bills set proof_sha256 = 'zz128-s1' where id = (select id from public.utility_bills where property_id = 'e1280000-0000-4000-8000-0000000000b2' and kind = 'netflix' and period = '2020-06') returning to_jsonb(1)$$);
+select ok((select v ->> 'err' = '23514' from _t where k = 'ck1'), 'the table itself refuses status paid with no amount, time, name or proof (check_violation)');
 select ok((select v ->> 'err' = '23514' from _t where k = 'ck2'), 'the table itself refuses PAID with a read verdict and no sha256 (check_violation)');
 select ok((select v ->> 'err' = '23505' from _t where k = 'ck3'), 'the table itself refuses a second row with an already used screenshot sha256 (unique violation)');
 select pg_temp.as_anon();
@@ -394,7 +471,9 @@ reset role;
 select ok((select bool_and(v ->> 'err' = '42501') from _t where k in ('r1', 'r2', 'r3', 'r4', 'r5', 'r6')) and (select count(*) = 6 from _t where k in ('r1', 'r2', 'r3', 'r4', 'r5', 'r6')),
           'anon and a signed-in admin cannot call bill_step_v1 or bill_due_open_v1 and cannot read utility_bills (permission denied, called as those roles)');
 
--- 7. today_bills_v1 "due". Property b3, the Manila month of today. Rows: electric due 1000.55; water paid 321.40 (estimate 300); internet due 1500; netflix skipped 449; and an older electric row (2020-01) that must not show.
+-- 7. today_bills_v1 "due" (Addendum 3.6): this month's rows of any status plus every unpaid (due or paying) row of any period, oldest period first, then electric, water, internet, netflix.
+-- Property b3, the Manila month of today (cur) and the month before it (prev). Rows: electric due 1000.55; water paid 321.40 (estimate 300); internet due 1500; netflix skipped 449 (all cur);
+-- electric 2020-01 due 999 and netflix prev due 449 (unpaid, older: they show, oldest first); water 2020-02 paid (older and paid: it does not show). Expected order: 2020-01, prev, cur x 4 = six entries.
 -- Settings carry an account number and a payee number that must never appear in the payload.
 select pg_temp.cfg_set('{"bills":{"electric":{"account":"ZZACCT123"},"internet":{"pay_to_number":"09990000000"}}}'::jsonb) is not null as acct;
 insert into public.utility_bills(property_id, kind, period, estimate_php, status, paid_php, paid_at, paid_by_name, proof_verdict) values
@@ -402,7 +481,9 @@ insert into public.utility_bills(property_id, kind, period, estimate_php, status
   (pg_temp.id('b3'), 'water', to_char(public.manila_today(), 'YYYY-MM'), 300, 'paid', 321.40, now(), 'Zz Admin', 'typed'),
   (pg_temp.id('b3'), 'internet', to_char(public.manila_today(), 'YYYY-MM'), 1500, 'due', null, null, null, null),
   (pg_temp.id('b3'), 'netflix', to_char(public.manila_today(), 'YYYY-MM'), 449, 'skipped', null, null, null, null),
-  (pg_temp.id('b3'), 'electric', '2020-01', 999, 'due', null, null, null, null);
+  (pg_temp.id('b3'), 'electric', '2020-01', 999, 'due', null, null, null, null),
+  (pg_temp.id('b3'), 'netflix', to_char(public.manila_today() - interval '1 month', 'YYYY-MM'), 449, 'due', null, null, null, null),
+  (pg_temp.id('b3'), 'water', '2020-02', 300, 'paid', 310, now(), 'Zz Admin', 'typed');
 select pg_temp.as_user(pg_temp.id('a1'));
 insert into _t select 'tb_cleaner', pg_temp.try($$select public.today_bills_v1('e1280000-0000-4000-8000-0000000000b3')$$);
 insert into _t select 'tb_b1', pg_temp.try($$select public.today_bills_v1('e1280000-0000-4000-8000-0000000000b1')$$);
@@ -414,16 +495,21 @@ select pg_temp.as_anon();
 insert into _t select 'tb_anon', pg_temp.try($$select public.today_bills_v1('e1280000-0000-4000-8000-0000000000b3')$$);
 reset role;
 select ok((select v -> 'due' = jsonb_build_array(
+             jsonb_build_object('kind', 'electric', 'label', 'Electricity (SOCOTECO II)', 'period', '2020-01', 'status', 'due', 'estimate_php', 999, 'paid_php', null),
+             jsonb_build_object('kind', 'netflix', 'label', 'Netflix', 'period', to_char(public.manila_today() - interval '1 month', 'YYYY-MM'), 'status', 'due', 'estimate_php', 449, 'paid_php', null),
              jsonb_build_object('kind', 'electric', 'label', 'Electricity (SOCOTECO II)', 'period', to_char(public.manila_today(), 'YYYY-MM'), 'status', 'due', 'estimate_php', 1000.55, 'paid_php', null),
              jsonb_build_object('kind', 'water', 'label', 'Water (Gensan Water District)', 'period', to_char(public.manila_today(), 'YYYY-MM'), 'status', 'paid', 'estimate_php', 300, 'paid_php', 321.4),
              jsonb_build_object('kind', 'internet', 'label', 'Internet', 'period', to_char(public.manila_today(), 'YYYY-MM'), 'status', 'due', 'estimate_php', 1500, 'paid_php', null),
              jsonb_build_object('kind', 'netflix', 'label', 'Netflix', 'period', to_char(public.manila_today(), 'YYYY-MM'), 'status', 'skipped', 'estimate_php', 449, 'paid_php', null))
            from _t where k = 'tb_cleaner'),
-          'a cleaner sees this month''s four rows in electric, water, internet, netflix order with exactly kind, label, period, status, estimate_php and paid_php (the January row does not show)');
+          'a cleaner sees this month''s four rows plus every unpaid older bill (2020-01 electric, last month''s netflix) first, oldest period first, with exactly kind, label, period, status, estimate_php and paid_php; an older PAID row does not show');
 select ok((select v::text !~ 'ZZACCT123|09990000000|account|pay_to' from _t where k = 'tb_cleaner'), 'no account number, payee number or settings key is in the Today payload');
-select ok((select jsonb_array_length(v -> 'due') = 4 from _t where k = 'tb_laundry'), 'laundry sees the same four rows');
-select ok((select v -> 'due' = '[]'::jsonb and (select array_agg(k order by k) from jsonb_object_keys(v) k) = array['due', 'electric', 'last_reading_at', 'since', 'water'] from _t where k = 'tb_b1'),
-          'a property with no bill row this month has due = [] and the four lane A keys are all still there');
+select ok((select jsonb_array_length(v -> 'due') = 6 from _t where k = 'tb_laundry'), 'laundry sees the same six rows');
+-- b1 has no row in the current month; its March rows are all paid; April electric is due and April internet is paying; May has four rows, all due (set up in section 5)
+select ok((select (select jsonb_agg(jsonb_build_object('k', e ->> 'kind', 'p', e ->> 'period', 's', e ->> 'status') order by o) from jsonb_array_elements(v -> 'due') with ordinality t(e, o))
+                  = '[{"k":"electric","p":"2020-04","s":"due"},{"k":"internet","p":"2020-04","s":"paying"},{"k":"electric","p":"2020-05","s":"due"},{"k":"water","p":"2020-05","s":"due"},{"k":"internet","p":"2020-05","s":"due"},{"k":"netflix","p":"2020-05","s":"due"}]'::jsonb
+                  and (select array_agg(k order by k) from jsonb_object_keys(v) k) = array['due', 'electric', 'last_reading_at', 'since', 'water'] from _t where k = 'tb_b1'),
+          'a property with no bill row this month still lists its unpaid bills of earlier months (paid and skipped ones do not show), oldest first, and the four lane A keys are all still there');
 select ok((select v ->> 'err' = '42501' from _t where k = 'tb_nostaff') and (select v ->> 'err' = '42501' from _t where k = 'tb_anon'), 'a user with no staff profile and anon are still refused (42501)');
 select pg_temp.cfg_set(pg_temp.cfg_default()) is not null as reset3;
 

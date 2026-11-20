@@ -1,6 +1,6 @@
 -- Rollback of s127_bill_reminders_20261128: puts the lane A today_bills_v1 body back (md5 f7cfd2f8ddd001229df63601b636c5b7, CR stripped), drops the bill functions, the table and the setting, removes the two restrictive
 -- app_settings policies and takes 'bill' out of transactions_source_check again.
--- Refuses (55000, nothing changes) once a bill has been PAID or a transactions row with source 'bill' exists: the screenshots and the ledger rows would be orphaned. Void those rows by hand first.
+-- Refuses (55000, nothing changes) once a bill has been PAID or a transactions row with source 'bill' exists: the screenshots and the ledger rows would be orphaned. Delete those rows, or give them another source, by hand first (a void row would still hold the bill reference).
 -- Roll the Telegram lane (waves) back first: it calls these functions. Grants restated as before this release.
 begin;
 
@@ -8,14 +8,14 @@ do $g$
 declare v text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.today_bills_v1(uuid)');
-  if v is distinct from '1f581c3b6ce841395c5e7d2cf6207936' and v is distinct from 'f7cfd2f8ddd001229df63601b636c5b7' then
+  if v is distinct from 'fda3eee593ec93968cddfd039c5d81f9' and v is distinct from 'f7cfd2f8ddd001229df63601b636c5b7' then
     raise exception using errcode = '55000', message = 'rollback s127 bills: public.today_bills_v1(uuid) is neither this release nor the lane A body (md5 ' || coalesce(v, 'null') || ')';
   end if;
   if to_regclass('public.utility_bills') is not null and exists (select 1 from public.utility_bills where status = 'paid') then
-    raise exception using errcode = '55000', message = 'rollback s127 bills: a bill is already paid; void its transaction and archive the row by hand first';
+    raise exception using errcode = '55000', message = 'rollback s127 bills: a bill is already paid; delete or re-source its transaction row and archive the bill by hand first';
   end if;
   if exists (select 1 from public.transactions where source = 'bill') then
-    raise exception using errcode = '55000', message = 'rollback s127 bills: transactions rows with source bill exist; void them first';
+    raise exception using errcode = '55000', message = 'rollback s127 bills: transactions rows with source bill exist; delete them or give them another source first';
   end if;
 end $g$;
 

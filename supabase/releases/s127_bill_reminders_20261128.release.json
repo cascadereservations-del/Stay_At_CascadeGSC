@@ -10,19 +10,19 @@
     "20261128000000_s127_bill_reminders.sql"
   ],
   "migration_sha256": {
-    "20261128000000_s127_bill_reminders.sql": "8cd69faffdf1c9084f86e8bd8914bcccf4b6bcdb5c91f9b6ba397750937c3452"
+    "20261128000000_s127_bill_reminders.sql": "bd25a7cddd93245a87455bd36c2eeb8d354b5644a3430cda52e01cd2e034f9e6"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "RESTORE_POINT_PLACEHOLDER",
     "verified_at": "VERIFIED_AT_PLACEHOLDER",
-    "production_rule": "Monthly bill reminders and payment steps (Lloyd 2026-11-20, contract docs/s127/CONTRACT-B.md Lane B1 with Addendum 1). Adds the app_settings row bill_schedule (only if absent; account numbers, payee name, number and note are empty strings) with two restrictive policies that hide that key from anon and from every staff account but manage_staff; table utility_bills (RLS on, service_role only; one row per property, kind and period); bill_cfg_text_v1, bill_schedule_cfg_v1 and bill_json_v1 (internal, no grants); bill_due_open_v1 (opens the month's four rows from pay_day and returns the one nudge) and bill_step_v1 (Finance-gated pay, cancel, skip and paid with one transactions row, duplicate-screenshot refusal, amount band) for service_role only; extends transactions_source_check with 'bill' behind a guard (55000 on an unknown literal); and replaces today_bills_v1 in place behind an md5 guard (lane A body f7cfd2f8ddd001229df63601b636c5b7, this release 1f581c3b6ce841395c5e7d2cf6207936; 55000 when the live body is neither) adding the key 'due'. Every existing key, grant, security setting and search_path of today_bills_v1 is unchanged. notices_v1 is not changed: it already returns a reminder row with no source to every staff role."
+    "production_rule": "Monthly bill reminders and payment steps (Lloyd 2026-11-20, contract docs/s127/CONTRACT-B.md Lane B1 with Addendum 1). Adds the app_settings row bill_schedule (only if absent; account numbers, payee name, number and note are empty strings) with two restrictive policies that hide that key from anon and from every staff account but manage_staff; table utility_bills (RLS on, service_role only; one row per property, kind and period); bill_cfg_text_v1, bill_schedule_cfg_v1 and bill_json_v1 (internal, no grants); bill_due_open_v1 (opens the month's four rows from pay_day and returns the one nudge) and bill_step_v1 (Finance-gated pay, cancel, skip and paid with one transactions row, only the person who tapped pay may settle or skip, duplicate-screenshot refusal also against staff payments, an existing ledger row linked only when property, source and amount match, amount band; bill_due_open_v1 also opens the previous month's missing rows before pay_day) for service_role only; extends transactions_source_check with 'bill' behind a guard (55000 on an unknown literal; added NOT VALID, then validated); and replaces today_bills_v1 in place behind an md5 guard (lane A body f7cfd2f8ddd001229df63601b636c5b7, this release fda3eee593ec93968cddfd039c5d81f9; 55000 when the live body is neither) adding the key 'due' (this month's rows plus every unpaid bill of any period, oldest first). Every existing key, grant, security setting and search_path of today_bills_v1 is unchanged. notices_v1 is not changed: it already returns a reminder row with no source to every staff role."
   },
   "forward_verification": [
     {
       "name": "today_bills_v1_is_this_release",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '1f581c3b6ce841395c5e7d2cf6207936' from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'fda3eee593ec93968cddfd039c5d81f9' from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
