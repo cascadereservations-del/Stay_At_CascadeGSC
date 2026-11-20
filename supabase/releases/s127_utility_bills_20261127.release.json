@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "release_id": "s127_utility_bills_20261127",
+  "phase": "expand",
+  "source": {
+    "branch": "s127/kpi-bills",
+    "commit": "COMMIT_PLACEHOLDER"
+  },
+  "migrations": [
+    "20261127000000_s127_utility_bills.sql"
+  ],
+  "migration_sha256": {
+    "20261127000000_s127_utility_bills.sql": "cae6bfc7e602cc5dbb82b222d7f9efc19917cf1565c70f76cd8d95a36510340f"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "RESTORE_POINT_PLACEHOLDER",
+    "verified_at": "VERIFIED_AT_PLACEHOLDER",
+    "production_rule": "Utility bills, usage tracking and the Today bills card (Lloyd 2026-11-20, mockup v5, contract docs/s127/CONTRACT.md Lane A). Adds app_settings utility_billing (only if absent), utility_bill_estimate_v1 (internal), today_bills_v1 (every active staff role of the property, 42501 otherwise, money by design) and eight internal helpers, and replaces kpi_tab_v1 in place behind an md5 guard (s115 body 229c75a34209e1820c3e0209e8d67adf, this release 80efd89e916bcd6107c681baf86f143f; 55000 when the live body is neither) with three added statements: utility.usage_months (no money), admin.bills / rate_year_avg / rate_history / water_rate / stays and admin.rate.checked_at (read_finance only). Every existing key, grant, security setting and search_path of kpi_tab_v1 is unchanged."
+  },
+  "forward_verification": [
+    {
+      "name": "kpi_tab_v1_is_this_release",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '80efd89e916bcd6107c681baf86f143f' from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "kpi_tab_v1_grants_unchanged",
+      "query": "select has_function_privilege('authenticated', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('anon', 'public.kpi_tab_v1(uuid,date)', 'execute') and not has_function_privilege('service_role', 'public.kpi_tab_v1(uuid,date)', 'execute') and (select prosecdef from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) and (select proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "today_bills_v1_authenticated_only",
+      "query": "select has_function_privilege('authenticated', 'public.today_bills_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.today_bills_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.today_bills_v1(uuid)', 'execute') and (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_closed",
+      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.utility_billing_default_v1()', 'public.utility_billing_cfg_v1()', 'public.utility_cycle_v1(date,integer)', 'public.utility_rate_by_month_v1()', 'public.utility_water_php_v1(numeric,jsonb)', 'public.utility_water_next_v1(numeric,jsonb)', 'public.utility_bill_estimate_v1(uuid,date)', 'public.kpi_usage_months_v1(uuid,date)', 'public.kpi_admin_bills_v1(uuid,numeric)']) f",
+      "expect": true
+    },
+    {
+      "name": "settings_row_present",
+      "query": "select (select count(*) from public.app_settings where key = 'utility_billing') = 1 and (select value -> 'water' ->> 'min_php' from public.app_settings where key = 'utility_billing') = '212'",
+      "expect": true
+    },
+    {
+      "name": "water_tariff_hand_check",
+      "query": "select public.utility_water_php_v1(10.01, public.utility_billing_cfg_v1()) = 212.23 and public.utility_water_php_v1(20.5, public.utility_billing_cfg_v1()) = 455.83 and public.utility_water_php_v1(45, public.utility_billing_cfg_v1()) = 1186.50",
+      "expect": true
+    },
+    {
+      "name": "cycle_boundaries",
+      "query": "select public.utility_cycle_v1(date '2026-11-21', 21) = array[date '2026-10-21', date '2026-11-21'] and public.utility_cycle_v1(date '2026-11-22', 21) = array[date '2026-11-21', date '2026-12-21']",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always: the s115 kpi_tab_v1 body goes back and the new functions and the utility_billing setting are dropped. No data of any other table is touched.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261127_s127_utility_bills.sql with run-sql-on-host.sh; kpi_tab_v1 must be back to md5 229c75a34209e1820c3e0209e8d67adf. Roll the staff app back first (an old build ignores the extra keys, so either order is safe for it)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Old staff builds keep working: every existing key of kpi_tab_v1 stays and the new keys are additions an old build ignores; today_bills_v1 is only called by the new build."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "EVIDENCE_PLACEHOLDER"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the live md5 of kpi_tab_v1 is neither the s115 body nor this release (the migration stops with 55000)",
+    "the rehearsal has not run the migration and s127_utility_bills.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
