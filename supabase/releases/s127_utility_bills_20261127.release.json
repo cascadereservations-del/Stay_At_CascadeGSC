@@ -10,14 +10,14 @@
     "20261127000000_s127_utility_bills.sql"
   ],
   "migration_sha256": {
-    "20261127000000_s127_utility_bills.sql": "cae6bfc7e602cc5dbb82b222d7f9efc19917cf1565c70f76cd8d95a36510340f"
+    "20261127000000_s127_utility_bills.sql": "f6c77d78cba45d7ba3b136708f8e184b6dc52852a0b08ccb62f18b9d05231047"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "RESTORE_POINT_PLACEHOLDER",
     "verified_at": "VERIFIED_AT_PLACEHOLDER",
-    "production_rule": "Utility bills, usage tracking and the Today bills card (Lloyd 2026-11-20, mockup v5, contract docs/s127/CONTRACT.md Lane A). Adds app_settings utility_billing (only if absent), utility_bill_estimate_v1 (internal), today_bills_v1 (every active staff role of the property, 42501 otherwise, money by design) and eight internal helpers, and replaces kpi_tab_v1 in place behind an md5 guard (s115 body 229c75a34209e1820c3e0209e8d67adf, this release 80efd89e916bcd6107c681baf86f143f; 55000 when the live body is neither) with three added statements: utility.usage_months (no money), admin.bills / rate_year_avg / rate_history / water_rate / stays and admin.rate.checked_at (read_finance only). Every existing key, grant, security setting and search_path of kpi_tab_v1 is unchanged."
+    "production_rule": "Utility bills, usage tracking and the Today bills card (Lloyd 2026-11-20, mockup v5, contract docs/s127/CONTRACT.md Lane A). Adds app_settings utility_billing (only if absent), utility_bill_estimate_v1 (internal), today_bills_v1 (every active staff role of the property, 42501 otherwise, money by design) and eleven internal helpers (one per-day use helper, utility_daily_use_v1, that the cycle estimate, usage_months and the per-night figures all read, so a reading is spread over the days it covers; a settings read that falls back key by key and never raises; cycle days clamped per month), and replaces kpi_tab_v1 in place behind an md5 guard (s115 body 229c75a34209e1820c3e0209e8d67adf, this release 80efd89e916bcd6107c681baf86f143f; 55000 when the live body is neither) with three added statements: utility.usage_months (no money), admin.bills / rate_year_avg / rate_history / water_rate / stays and admin.rate.checked_at (read_finance only). Every existing key, grant, security setting and search_path of kpi_tab_v1 is unchanged."
   },
   "forward_verification": [
     {
@@ -37,7 +37,7 @@
     },
     {
       "name": "internal_functions_closed",
-      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.utility_billing_default_v1()', 'public.utility_billing_cfg_v1()', 'public.utility_cycle_v1(date,integer)', 'public.utility_rate_by_month_v1()', 'public.utility_water_php_v1(numeric,jsonb)', 'public.utility_water_next_v1(numeric,jsonb)', 'public.utility_bill_estimate_v1(uuid,date)', 'public.kpi_usage_months_v1(uuid,date)', 'public.kpi_admin_bills_v1(uuid,numeric)']) f",
+      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.utility_billing_default_v1()', 'public.utility_cfg_num_v1(jsonb,jsonb)', 'public.utility_billing_cfg_v1()', 'public.utility_cycle_day_v1(date,integer)', 'public.utility_daily_use_v1(uuid,date,date)', 'public.utility_cycle_v1(date,integer)', 'public.utility_rate_by_month_v1()', 'public.utility_water_php_v1(numeric,jsonb)', 'public.utility_water_next_v1(numeric,jsonb)', 'public.utility_bill_estimate_v1(uuid,date)', 'public.kpi_usage_months_v1(uuid,date)', 'public.kpi_admin_bills_v1(uuid,numeric)']) f",
       "expect": true
     },
     {
@@ -53,6 +53,11 @@
     {
       "name": "cycle_boundaries",
       "query": "select public.utility_cycle_v1(date '2026-11-21', 21) = array[date '2026-10-21', date '2026-11-21'] and public.utility_cycle_v1(date '2026-11-22', 21) = array[date '2026-11-21', date '2026-12-21']",
+      "expect": true
+    },
+    {
+      "name": "cycle_day_clamped",
+      "query": "select public.utility_cycle_v1(date '2021-03-05', 31) = array[date '2021-02-28', date '2021-03-31']",
       "expect": true
     }
   ],

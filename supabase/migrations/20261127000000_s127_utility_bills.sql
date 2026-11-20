@@ -8,8 +8,11 @@
 --   today_bills_v1(uuid)                        every active staff role of the property (read_operations, the same gate as kpi_tab_v1 non-admin); anyone else 42501. so-far figures only.
 --   kpi_tab_v1(uuid, date)                      the s115 body plus three statements: utility.usage_months (no money), admin.bills / rate_year_avg / rate_history / water_rate / stays and admin.rate.checked_at
 --                                                (read_finance only). Every existing key, grant, security setting and search_path is unchanged.
---   internal helpers                            utility_billing_default_v1, utility_billing_cfg_v1, utility_cycle_v1, utility_rate_by_month_v1 (the ONE rate precedence: manual before auto, then newest,
---                                                one rate per month, same order as the inline ordering in kpi_tab_v1), utility_water_php_v1, utility_water_next_v1, kpi_usage_months_v1, kpi_admin_bills_v1.
+--   internal helpers                            utility_billing_default_v1, utility_cfg_num_v1, utility_billing_cfg_v1 (never raises: a key of the wrong JSON type falls back to its default), utility_cycle_day_v1 + utility_cycle_v1
+--                                                (the cycle day is clamped per month to that month's last day), utility_rate_by_month_v1 (the ONE rate precedence: manual before auto, then newest, one rate per month, same order
+--                                                as the inline ordering in kpi_tab_v1; rows dated after Manila today are never read), utility_daily_use_v1 (THE per-day use rule: a counted reading's delta is spread evenly over the
+--                                                days after the previous counted reading up to its own day; cycles, usage_months and the per-night figures all read it), utility_water_php_v1, utility_water_next_v1,
+--                                                kpi_usage_months_v1 (with guest_nights and per-night figures from confirmed calendar_events), kpi_admin_bills_v1.
 -- Money rule: the new peso keys exist only under admin (kpi_tab_v1, read_finance) and in today_bills_v1 (Lloyd approved the Today card for every signed-in staff account). No phone, e-mail or ID number in any payload.
 -- app_settings has an anon read policy for keys that do not look secret: 'utility_billing' holds only the public Gensan Water District tariff and the fixed charge.
 -- Guard (55000, nothing changes): the live kpi_tab_v1 must be the s115 body or this release (md5 of prosrc, CR stripped). Grants restated (ML-21).
@@ -37,30 +40,74 @@ insert into public.app_settings(key, value)
 select 'utility_billing', public.utility_billing_default_v1()
  where not exists (select 1 from public.app_settings a where a.key = 'utility_billing');
 
--- the stored setting wins key by key; a missing or malformed part falls back to the default (the tiers list is replaced whole)
+-- one numeric setting: a JSON number that is not negative, else the default for that key (a setting of the wrong type never raises)
+create or replace function public.utility_cfg_num_v1(p_val jsonb, p_default jsonb)
+returns jsonb language sql immutable set search_path = '' as $$
+  select case when jsonb_typeof(p_val) = 'number' and p_val::numeric >= 0 then p_val else p_default end;
+$$;
+
+-- the stored setting wins key by key; a key of the wrong JSON type (or a setting that is not an object, or a tiers list that is not a list of {upto number|null, php number}) falls back to the default for that key.
+-- A cycle day is held to 1..31 and cut to a whole number. This function never raises.
 create or replace function public.utility_billing_cfg_v1()
 returns jsonb language sql stable set search_path = '' as $$
   select jsonb_build_object(
-    'electric', (d.v -> 'electric') || coalesce((select s.value -> 'electric' from public.app_settings s where s.key = 'utility_billing' and jsonb_typeof(s.value -> 'electric') = 'object'), '{}'::jsonb),
-    'water',    (d.v -> 'water')    || coalesce((select s.value -> 'water'    from public.app_settings s where s.key = 'utility_billing' and jsonb_typeof(s.value -> 'water')    = 'object'), '{}'::jsonb))
-    from (select public.utility_billing_default_v1() v) d;
+    'electric', jsonb_build_object(
+      'cycle_day', case when jsonb_typeof(s.v #> '{electric,cycle_day}') = 'number' then to_jsonb(least(31, greatest(1, trunc((s.v #> '{electric,cycle_day}')::numeric)))) else d.v #> '{electric,cycle_day}' end,
+      'fixed_php', public.utility_cfg_num_v1(s.v #> '{electric,fixed_php}', d.v #> '{electric,fixed_php}')),
+    'water', jsonb_build_object(
+      'cycle_day', case when jsonb_typeof(s.v #> '{water,cycle_day}') = 'number' then to_jsonb(least(31, greatest(1, trunc((s.v #> '{water,cycle_day}')::numeric)))) else d.v #> '{water,cycle_day}' end,
+      'min_php', public.utility_cfg_num_v1(s.v #> '{water,min_php}', d.v #> '{water,min_php}'),
+      'min_m3', public.utility_cfg_num_v1(s.v #> '{water,min_m3}', d.v #> '{water,min_m3}'),
+      'tiers', case when case when jsonb_typeof(s.v #> '{water,tiers}') = 'array'
+                              then jsonb_array_length(s.v #> '{water,tiers}') > 0
+                                   and not exists (select 1 from jsonb_array_elements(s.v #> '{water,tiers}') e
+                                                    where case when jsonb_typeof(e) <> 'object' then true
+                                                               when jsonb_typeof(e -> 'php') is distinct from 'number' then true
+                                                               when (e -> 'php')::numeric < 0 then true
+                                                               when coalesce(jsonb_typeof(e -> 'upto'), 'null') not in ('number', 'null') then true
+                                                               else false end)
+                              else false end
+                    then s.v #> '{water,tiers}' else d.v #> '{water,tiers}' end,
+      'source_url', case when jsonb_typeof(s.v #> '{water,source_url}') = 'string' then s.v #> '{water,source_url}' else d.v #> '{water,source_url}' end))
+    from (select public.utility_billing_default_v1() v) d,
+         (select coalesce((select a.value from public.app_settings a where a.key = 'utility_billing' and jsonb_typeof(a.value) = 'object'), '{}'::jsonb) v) s;
 $$;
 
--- the cycle (from, to] that contains p_on: to = the first cycle day on or after p_on; from = one month earlier. shortcut: a cycle day above 28 is held at 28, upgrade if the water district ever bills later in the month.
+-- the cycle day of the month that starts on p_month, held to that month's last day (day 31 in February is the 28th or 29th)
+create or replace function public.utility_cycle_day_v1(p_month date, p_day integer)
+returns date language sql immutable set search_path = '' as $$
+  select p_month + (least(greatest(1, p_day), (p_month + interval '1 month')::date - p_month) - 1);
+$$;
+
+-- the cycle (from, to] that contains p_on: to = the first cycle day on or after p_on; from = the cycle day of the month before. Each month clamps the cycle day to its own last day.
 create or replace function public.utility_cycle_v1(p_on date, p_day integer)
 returns date[] language sql immutable set search_path = '' as $$
-  select array[(y.t - interval '1 month')::date, y.t]
-    from (select case when p_on <= x.c then x.c else (x.c + interval '1 month')::date end t
-            from (select date_trunc('month', p_on)::date + (least(28, greatest(1, p_day)) - 1) c) x) y;
+  select array[public.utility_cycle_day_v1((y.mt - interval '1 month')::date, p_day), public.utility_cycle_day_v1(y.mt, p_day)]
+    from (select case when p_on <= public.utility_cycle_day_v1(date_trunc('month', p_on)::date, p_day) then date_trunc('month', p_on)::date
+                      else (date_trunc('month', p_on) + interval '1 month')::date end mt) y;
 $$;
 
--- the ONE rate per calendar month: manual before auto, then the newest (the same order kpi_tab_v1 uses to pick the rate in force)
+-- the ONE rate per calendar month: manual before auto, then the newest (the same order kpi_tab_v1 uses to pick the rate in force). A row dated after Manila today is not in force yet and is never read.
 create or replace function public.utility_rate_by_month_v1()
 returns table(rate_month date, php_per_kwh numeric, source text, source_url text, effective_from date)
 language sql stable set search_path = '' as $$
   select distinct on (date_trunc('month', r.effective_from)) date_trunc('month', r.effective_from)::date, r.php_per_kwh, r.source, r.source_url, r.effective_from
     from public.utility_rates r
+   where r.effective_from <= public.manila_today()
    order by date_trunc('month', r.effective_from), (r.source = 'manual') desc, r.effective_from desc, r.created_at desc;
+$$;
+
+-- THE use-per-day rule (one place). A counted reading (public.meter_chain_v1 chain_ok, the s115 rule) spreads its delta evenly over the days after the previous counted reading's day up to and including its own day;
+-- a reading with no previous counted reading, or one that is not later than the previous one, lands on its own day only. Returns the days of p_from..p_to that a reading covers, with that day's share.
+create or replace function public.utility_daily_use_v1(p_property_id uuid, p_from date, p_to date)
+returns table(d date, kwh numeric, m3 numeric)
+language sql stable set search_path = '' as $$
+  with s as (
+    select m.cd, m.electric_delta e, m.water_delta w, case when m.pcd is null or m.cd <= m.pcd then m.cd else m.pcd + 1 end st
+      from public.meter_chain_v1(p_property_id) m where m.chain_ok)
+  select s.st + k, sum(s.e / (s.cd - s.st + 1)), sum(s.w / (s.cd - s.st + 1))
+    from s cross join lateral generate_series(greatest(s.st, p_from) - s.st, least(s.cd, p_to) - s.st) k
+   group by 1;
 $$;
 
 -- water peso for p_m3 under the tariff: the minimum covers 0..min_m3, then each tier charges its rate for the cubic metres inside it. Never below min_php.
@@ -83,6 +130,7 @@ returns jsonb language sql immutable set search_path = '' as $$
 $$;
 
 -- 3. utility_bill_estimate_v1 ---------------------------------------------------------------------------------------------------------------------------------------------------------
+-- Use is read per day from utility_daily_use_v1: the cycle takes only the share of each reading's days that fall in (cycle_from, cycle_to]. days = cycle_from to the last day a counted reading covers inside the cycle.
 create or replace function public.utility_bill_estimate_v1(p_property_id uuid, p_on date)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -94,18 +142,16 @@ declare
   v_fk numeric; v_pdk numeric;
   v_m3 numeric; v_wlast date; v_wd integer; v_wdc integer := v_wc[2] - v_wc[1]; v_fm numeric; v_pdm numeric; v_next jsonb;
 begin
-  select coalesce(sum(m.electric_delta), 0), max(m.cd) into v_kwh, v_elast
-    from public.meter_chain_v1(p_property_id) m where m.chain_ok and m.cd > v_ec[1] and m.cd <= v_ec[2];
+  select coalesce(sum(u.kwh), 0), max(u.d) into v_kwh, v_elast from public.utility_daily_use_v1(p_property_id, v_ec[1] + 1, v_ec[2]) u;
   select m.recorded_at into v_eat
     from public.meter_chain_v1(p_property_id) m where m.chain_ok and m.cd > v_ec[1] and m.cd <= v_ec[2]
    order by m.cd desc, m.recorded_at desc, m.id desc limit 1;
   v_ed := coalesce(v_elast - v_ec[1], 0);
-  -- the billed month is the month the cycle ends in; no rate for it yet = the latest earlier rate, null only while no rate exists at all
+  -- the billed month is the month the cycle ends in; no rate for it yet = the latest earlier rate, null only while no rate exists at all (rates dated after today are never read)
   select r.php_per_kwh into v_rate from public.utility_rate_by_month_v1() r where r.rate_month <= date_trunc('month', v_ec[2])::date order by r.rate_month desc limit 1;
   if v_ed > 0 then v_pdk := v_kwh / v_ed; v_fk := v_pdk * v_edc; end if;
 
-  select coalesce(sum(m.water_delta), 0), max(m.cd) into v_m3, v_wlast
-    from public.meter_chain_v1(p_property_id) m where m.chain_ok and m.cd > v_wc[1] and m.cd <= v_wc[2];
+  select coalesce(sum(u.m3), 0), max(u.d) into v_m3, v_wlast from public.utility_daily_use_v1(p_property_id, v_wc[1] + 1, v_wc[2]) u;
   v_wd := coalesce(v_wlast - v_wc[1], 0);
   if v_wd > 0 then v_pdm := v_m3 / v_wd; v_fm := v_pdm * v_wdc; end if;
   v_next := public.utility_water_next_v1(v_m3, v_cfg);
@@ -148,6 +194,9 @@ end;
 $$;
 
 -- 5. utility.usage_months (no money) ------------------------------------------------------------------------------------------------------------------------------------------------
+-- kwh / m3 of a month = that month's share of the per-day use (utility_daily_use_v1); the current month is the share so far, forecast = so far / days elapsed x days in the month.
+-- guest_nights = days of the month (up to p_today) inside a confirmed calendar_events stay: checkin_date <= day < checkout_date; blocked and cancelled rows never count. Per night = month use / guest nights
+-- (the current month: so far / guest nights so far, never the forecast), null at zero nights. Changes are against the previous month that has a value, from the unrounded figures.
 create or replace function public.kpi_usage_months_v1(p_property_id uuid, p_today date)
 returns jsonb language plpgsql stable set search_path = '' as $$
 declare
@@ -156,12 +205,19 @@ declare
   v_el integer := extract(day from p_today)::integer;
   v_out jsonb;
 begin
-  with c as (select m.cd, m.electric_delta e, m.water_delta w from public.meter_chain_v1(p_property_id) m where m.chain_ok),
-  g as (select (v_cur - (k * interval '1 month'))::date m from generate_series(0, 5) k),
-  a as (select g.m, count(c.cd) n, sum(c.e) e, sum(c.w) w from g left join c on date_trunc('month', c.cd)::date = g.m group by g.m),
-  v as (select a.m, (a.m = v_cur) as is_cur, a.n, a.e, a.w,
+  with g as (select (v_cur - (k * interval '1 month'))::date m from generate_series(0, 5) k),
+  u as (select x.d, x.kwh, x.m3 from public.utility_daily_use_v1(p_property_id, (v_cur - interval '5 months')::date, p_today) x),
+  a as (select g.m, (select count(*) from u where date_trunc('month', u.d)::date = g.m) n,
+               (select sum(u.kwh) from u where date_trunc('month', u.d)::date = g.m) e, (select sum(u.m3) from u where date_trunc('month', u.d)::date = g.m) w,
+               (select count(*) from generate_series(0, least(((g.m + interval '1 month')::date - 1), p_today) - g.m) k
+                 where exists (select 1 from public.calendar_events ce where ce.property_id = p_property_id and ce.status = 'confirmed'
+                                  and ce.checkin_date <= g.m + k and g.m + k < ce.checkout_date))::integer gn
+          from g),
+  v as (select a.m, (a.m = v_cur) as is_cur, a.n, a.e, a.w, a.gn,
                case when a.n = 0 then null when a.m = v_cur then round(a.e / v_el * v_dim, 2) else round(a.e, 2) end kwh,
-               case when a.n = 0 then null when a.m = v_cur then round(a.w / v_el * v_dim, 2) else round(a.w, 2) end m3
+               case when a.n = 0 then null when a.m = v_cur then round(a.w / v_el * v_dim, 2) else round(a.w, 2) end m3,
+               case when a.n > 0 and a.gn > 0 then a.e / a.gn end pke,
+               case when a.n > 0 and a.gn > 0 then a.w / a.gn end pkw
           from a)
   select jsonb_agg(jsonb_build_object(
            'month', to_char(v.m, 'YYYY-MM'), 'kwh', v.kwh, 'm3', v.m3,
@@ -169,18 +225,25 @@ begin
            'm3_change_pct',  case when v.m3 is not null and pm.m3 > 0 then round((v.m3 - pm.m3) / pm.m3 * 100) end,
            'forecast', v.is_cur,
            'kwh_so_far', case when v.is_cur and v.n > 0 then round(v.e, 2) end,
-           'm3_so_far',  case when v.is_cur and v.n > 0 then round(v.w, 2) end) order by v.m)
+           'm3_so_far',  case when v.is_cur and v.n > 0 then round(v.w, 2) end,
+           'guest_nights', v.gn,
+           'kwh_per_night', round(v.pke, 1), 'm3_per_night', round(v.pkw, 2),
+           'kwh_night_change_pct', case when v.pke is not null and pe.pke > 0 then round((v.pke - pe.pke) / pe.pke * 100) end,
+           'm3_night_change_pct',  case when v.pkw is not null and pw.pkw > 0 then round((v.pkw - pw.pkw) / pw.pkw * 100) end) order by v.m)
     into v_out
     from v
     left join lateral (select x.kwh from v x where x.m < v.m and x.kwh is not null order by x.m desc limit 1) pk on true
-    left join lateral (select x.m3 from v x where x.m < v.m and x.m3 is not null order by x.m desc limit 1) pm on true;
+    left join lateral (select x.m3 from v x where x.m < v.m and x.m3 is not null order by x.m desc limit 1) pm on true
+    left join lateral (select x.pke from v x where x.m < v.m and x.pke is not null order by x.m desc limit 1) pe on true
+    left join lateral (select x.pkw from v x where x.m < v.m and x.pkw is not null order by x.m desc limit 1) pw on true;
   return v_out;
 end;
 $$;
 
 -- 6. admin.bills, rate_year_avg, rate_history, water_rate, stays (read_finance only, called from kpi_tab_v1) ---------------------------------------------------------------------------
 -- The guest of a stay and the ID photo fields are resolved exactly as staff_home_v1 / staff_guest_card_v1 do: staff_stay_guest_id_v1 on the confirmed calendar stay that checks out on the
--- reading's checkout day, then staff_primary_id_path_v1 and the id_face_box of that companion row, behind staff_may_see_guest_id_v1 (20261115000000_s116_guest_photo_name.sql lines 53-57).
+-- reading's checkout day (cd = the cleaning session's checkout date when the reading has a session, so that is the event preferred; a reading with no session and no event that checks out that day is no stay),
+-- from / to / nights are the event's check-in, check-out and nights (a session reading with no event falls back to the previous counted reading's day), then staff_primary_id_path_v1 and the id_face_box of that companion row, behind staff_may_see_guest_id_v1 (20261115000000_s116_guest_photo_name.sql lines 53-57).
 create or replace function public.kpi_admin_bills_v1(p_property_id uuid, p_rate numeric)
 returns jsonb language plpgsql stable set search_path = '' as $$
 declare
@@ -194,7 +257,8 @@ begin
   sy as (
     select c.id, c.cd, c.recorded_at,
            jsonb_build_object(
-             'from', coalesce(c.pcd, c.cd), 'to', c.cd, 'nights', case when c.pcd is not null then greatest(1, c.cd - c.pcd) end,
+             'from', coalesce(e.checkin_date, c.pcd, c.cd), 'to', coalesce(e.checkout_date, c.cd),
+             'nights', case when e.uid is not null then e.checkout_date - e.checkin_date when c.pcd is not null then greatest(1, c.cd - c.pcd) end,
              'kwh', c.electric_delta, 'm3', round(c.water_delta, 2),
              'cost_php', case when p_rate is not null then round(c.electric_delta * p_rate, 2) end,
              'guest_name', coalesce(public.staff_redact_v1(nullif(btrim(g.name), '')), public.staff_redact_v1(nullif(btrim(e.guest_name), ''))),
@@ -407,8 +471,11 @@ $body$
 
 -- 8. grants (ML-21): the internal helpers run for nobody but the owner and the definer functions above; today_bills_v1 for signed-in users only -----------------------------------------------------
 revoke all on function public.utility_billing_default_v1() from public, anon, authenticated, service_role;
+revoke all on function public.utility_cfg_num_v1(jsonb, jsonb) from public, anon, authenticated, service_role;
 revoke all on function public.utility_billing_cfg_v1() from public, anon, authenticated, service_role;
+revoke all on function public.utility_cycle_day_v1(date, integer) from public, anon, authenticated, service_role;
 revoke all on function public.utility_cycle_v1(date, integer) from public, anon, authenticated, service_role;
+revoke all on function public.utility_daily_use_v1(uuid, date, date) from public, anon, authenticated, service_role;
 revoke all on function public.utility_rate_by_month_v1() from public, anon, authenticated, service_role;
 revoke all on function public.utility_water_php_v1(numeric, jsonb) from public, anon, authenticated, service_role;
 revoke all on function public.utility_water_next_v1(numeric, jsonb) from public, anon, authenticated, service_role;

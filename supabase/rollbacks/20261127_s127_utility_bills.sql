@@ -190,9 +190,12 @@ drop function if exists public.kpi_usage_months_v1(uuid, date);
 drop function if exists public.utility_bill_estimate_v1(uuid, date);
 drop function if exists public.utility_water_next_v1(numeric, jsonb);
 drop function if exists public.utility_water_php_v1(numeric, jsonb);
+drop function if exists public.utility_daily_use_v1(uuid, date, date);
 drop function if exists public.utility_rate_by_month_v1();
 drop function if exists public.utility_cycle_v1(date, integer);
+drop function if exists public.utility_cycle_day_v1(date, integer);
 drop function if exists public.utility_billing_cfg_v1();
+drop function if exists public.utility_cfg_num_v1(jsonb, jsonb);
 drop function if exists public.utility_billing_default_v1();
 delete from public.app_settings where key = 'utility_billing';
 
