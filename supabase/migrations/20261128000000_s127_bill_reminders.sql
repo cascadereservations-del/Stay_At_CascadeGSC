@@ -5,7 +5,7 @@
 --                                                from a local file. Every function below reads it through bill_schedule_cfg_v1 and falls back key by key (a key of the wrong JSON type never raises).
 --   app_settings policies                       The key holds account numbers and a payee number, but its name does not look secret, so the existing anon / staff read policies would show it to anyone with the public key.
 --                                                Two RESTRICTIVE select policies hide that one key from anon and from every signed-in account except manage_staff (owner, admin). Every other key is untouched.
---   transactions_source_check                   gains 'bill' (the check listed ten values and 'bill' was not one). Rebuilt only after every literal the live check holds is shown to be in the known list, else 55000.
+--   transactions_source_check                   gains 'bill' (the check listed eleven values live, refund among them, and 'bill' was not one). Rebuilt only after every literal the live check holds is shown to be in the known list, else 55000.
 --   utility_bills                               one row per property, kind and month. service_role only. PAID is impossible without a stored screenshot or the typed override (utility_bills_paid_needs_proof).
 --   bill_due_open_v1(uuid, date)                service_role. From pay_day opens the missing rows of that month and returns {new, nudge}; the estimate of a meter bill is the forecast of the cycle that CLOSED in that
 --                                                month (p_on moved to that month's cycle day), not of the cycle that starts after it. nudge = rows still due or paying, once, on or after nudge_day (stamps nudged_at).
@@ -47,7 +47,7 @@ create policy app_settings_bill_schedule_closed_staff on public.app_settings as 
 do $c$
 declare
   v_def text; v_bad text;
-  v_known constant text[] := array['telegram', 'ocr', 'booking', 'manual', 'import', 'airbnb', 'airbnb_email', 'airbnb_payout_email', 'direct_booking', 'cleaner_fee'];
+  v_known constant text[] := array['telegram', 'ocr', 'booking', 'manual', 'import', 'airbnb', 'airbnb_email', 'airbnb_payout_email', 'direct_booking', 'cleaner_fee', 'refund'];
 begin
   select pg_get_constraintdef(c.oid) into v_def from pg_constraint c where c.conrelid = 'public.transactions'::regclass and c.conname = 'transactions_source_check';
   if v_def is null or v_def like '%''bill''%' then return; end if;
@@ -56,7 +56,7 @@ begin
     raise exception using errcode = '55000', message = 's127 bills: transactions_source_check holds values this release does not know (' || v_bad || '): re-cut the list from the live constraint';
   end if;
   execute 'alter table public.transactions drop constraint transactions_source_check';
-  execute 'alter table public.transactions add constraint transactions_source_check check (source = any (array[''telegram'', ''ocr'', ''booking'', ''manual'', ''import'', ''airbnb'', ''airbnb_email'', ''airbnb_payout_email'', ''direct_booking'', ''cleaner_fee'', ''bill'']))';
+  execute 'alter table public.transactions add constraint transactions_source_check check (source = any (array[''telegram'', ''ocr'', ''booking'', ''manual'', ''import'', ''airbnb'', ''airbnb_email'', ''airbnb_payout_email'', ''direct_booking'', ''cleaner_fee'', ''refund'', ''bill'']))';
 end $c$;
 
 -- 4. the table -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

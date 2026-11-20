@@ -108,7 +108,7 @@ select ok((select relrowsecurity from pg_class where oid = 'public.utility_bills
           and has_table_privilege('service_role', 'public.utility_bills', 'select,insert,update'), 'utility_bills: RLS on, no table privilege for anon or authenticated, service_role has it');
 select ok(md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.today_bills_v1(uuid)'::regprocedure), chr(13), '')) = '1f581c3b6ce841395c5e7d2cf6207936',
           'today_bills_v1 is exactly the body this release pins (the lane A body f7cfd2f8... plus the due key)');
-select ok((select pg_get_constraintdef(oid) like '%''bill''%' and pg_get_constraintdef(oid) like '%''cleaner_fee''%' and pg_get_constraintdef(oid) like '%''telegram''%'
+select ok((select pg_get_constraintdef(oid) like '%''bill''%' and pg_get_constraintdef(oid) like '%''cleaner_fee''%' and pg_get_constraintdef(oid) like '%''refund''%' and pg_get_constraintdef(oid) like '%''telegram''%'
             from pg_constraint where conrelid = 'public.transactions'::regclass and conname = 'transactions_source_check'),
           'transactions_source_check now lists bill and still lists the older values');
 insert into _t select 'badsrc', pg_temp.try($$insert into public.transactions(property_id, txn_type, category, status, source, gross_amount, payee_name, transaction_date, external_ref, notes, logged_by)

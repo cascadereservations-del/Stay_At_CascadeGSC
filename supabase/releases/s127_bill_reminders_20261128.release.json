@@ -10,7 +10,7 @@
     "20261128000000_s127_bill_reminders.sql"
   ],
   "migration_sha256": {
-    "20261128000000_s127_bill_reminders.sql": "fec1289fa5ba9b502708ab2e96981cf8fbbbdaff688273a217b2dd3d8b833ea9"
+    "20261128000000_s127_bill_reminders.sql": "8cd69faffdf1c9084f86e8bd8914bcccf4b6bcdb5c91f9b6ba397750937c3452"
   },
   "backup": {
     "required": true,

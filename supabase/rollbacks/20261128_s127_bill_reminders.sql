@@ -49,6 +49,6 @@ delete from public.app_settings where key = 'bill_schedule';
 
 alter table public.transactions drop constraint if exists transactions_source_check;
 alter table public.transactions add constraint transactions_source_check
-  check (source = any (array['telegram', 'ocr', 'booking', 'manual', 'import', 'airbnb', 'airbnb_email', 'airbnb_payout_email', 'direct_booking', 'cleaner_fee']));
+  check (source = any (array['telegram', 'ocr', 'booking', 'manual', 'import', 'airbnb', 'airbnb_email', 'airbnb_payout_email', 'direct_booking', 'cleaner_fee', 'refund']));
 
 commit;
