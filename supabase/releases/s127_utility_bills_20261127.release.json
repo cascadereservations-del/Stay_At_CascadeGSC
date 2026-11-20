@@ -10,7 +10,7 @@
     "20261127000000_s127_utility_bills.sql"
   ],
   "migration_sha256": {
-    "20261127000000_s127_utility_bills.sql": "f6c77d78cba45d7ba3b136708f8e184b6dc52852a0b08ccb62f18b9d05231047"
+    "20261127000000_s127_utility_bills.sql": "3b9e4cd8b58218daeef51007bd29259a7204cf870bbaf5f54a2e287af8da87b5"
   },
   "backup": {
     "required": true,

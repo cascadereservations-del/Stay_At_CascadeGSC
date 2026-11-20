@@ -97,7 +97,8 @@ language sql stable set search_path = '' as $$
    order by date_trunc('month', r.effective_from), (r.source = 'manual') desc, r.effective_from desc, r.created_at desc;
 $$;
 
--- THE use-per-day rule (one place). A counted reading (public.meter_chain_v1 chain_ok, the s115 rule) spreads its delta evenly over the days after the previous counted reading's day up to and including its own day;
+-- THE use-per-day rule (one place). Spreads from the previous ELIGIBLE reading of meter_chain_v1: days between a chain-broken row and the next counted reading get no use (same as the s115 days).
+-- A counted reading (public.meter_chain_v1 chain_ok, the s115 rule) spreads its delta evenly over the days after the previous counted reading's day up to and including its own day;
 -- a reading with no previous counted reading, or one that is not later than the previous one, lands on its own day only. Returns the days of p_from..p_to that a reading covers, with that day's share.
 create or replace function public.utility_daily_use_v1(p_property_id uuid, p_from date, p_to date)
 returns table(d date, kwh numeric, m3 numeric)
@@ -194,28 +195,29 @@ end;
 $$;
 
 -- 5. utility.usage_months (no money) ------------------------------------------------------------------------------------------------------------------------------------------------
--- kwh / m3 of a month = that month's share of the per-day use (utility_daily_use_v1); the current month is the share so far, forecast = so far / days elapsed x days in the month.
--- guest_nights = days of the month (up to p_today) inside a confirmed calendar_events stay: checkin_date <= day < checkout_date; blocked and cancelled rows never count. Per night = month use / guest nights
+-- kwh / m3 of a month = that month's share of the per-day use (utility_daily_use_v1); the current month is the share so far, forecast = so far / days covered x days in the month, where days covered = month start to the last day a counted reading covers
+-- (use only reaches that day, so calendar days elapsed would understate it); no covered day yet = null forecast, per night and change.
+-- guest_nights = days of the month (the current month: up to its last covered day) inside a confirmed calendar_events stay: checkin_date <= day < checkout_date; blocked and cancelled rows never count. Per night = month use / guest nights
 -- (the current month: so far / guest nights so far, never the forecast), null at zero nights. Changes are against the previous month that has a value, from the unrounded figures.
 create or replace function public.kpi_usage_months_v1(p_property_id uuid, p_today date)
 returns jsonb language plpgsql stable set search_path = '' as $$
 declare
   v_cur date := date_trunc('month', p_today)::date;
   v_dim integer := ((v_cur + interval '1 month')::date - v_cur);
-  v_el integer := extract(day from p_today)::integer;
   v_out jsonb;
 begin
   with g as (select (v_cur - (k * interval '1 month'))::date m from generate_series(0, 5) k),
   u as (select x.d, x.kwh, x.m3 from public.utility_daily_use_v1(p_property_id, (v_cur - interval '5 months')::date, p_today) x),
-  a as (select g.m, (select count(*) from u where date_trunc('month', u.d)::date = g.m) n,
+  lc as (select coalesce(max(u.d), v_cur - 1) d from u where u.d >= v_cur),
+  a as (select g.m, (select lc.d from lc) - v_cur + 1 el, (select count(*) from u where date_trunc('month', u.d)::date = g.m) n,
                (select sum(u.kwh) from u where date_trunc('month', u.d)::date = g.m) e, (select sum(u.m3) from u where date_trunc('month', u.d)::date = g.m) w,
-               (select count(*) from generate_series(0, least(((g.m + interval '1 month')::date - 1), p_today) - g.m) k
+               (select count(*) from generate_series(0, least(((g.m + interval '1 month')::date - 1), case when g.m = v_cur then (select lc.d from lc) else p_today end) - g.m) k
                  where exists (select 1 from public.calendar_events ce where ce.property_id = p_property_id and ce.status = 'confirmed'
                                   and ce.checkin_date <= g.m + k and g.m + k < ce.checkout_date))::integer gn
           from g),
   v as (select a.m, (a.m = v_cur) as is_cur, a.n, a.e, a.w, a.gn,
-               case when a.n = 0 then null when a.m = v_cur then round(a.e / v_el * v_dim, 2) else round(a.e, 2) end kwh,
-               case when a.n = 0 then null when a.m = v_cur then round(a.w / v_el * v_dim, 2) else round(a.w, 2) end m3,
+               case when a.n = 0 then null when a.m = v_cur then round(a.e / nullif(a.el, 0) * v_dim, 2) else round(a.e, 2) end kwh,
+               case when a.n = 0 then null when a.m = v_cur then round(a.w / nullif(a.el, 0) * v_dim, 2) else round(a.w, 2) end m3,
                case when a.n > 0 and a.gn > 0 then a.e / a.gn end pke,
                case when a.n > 0 and a.gn > 0 then a.w / a.gn end pkw
           from a)
@@ -243,7 +245,7 @@ $$;
 -- 6. admin.bills, rate_year_avg, rate_history, water_rate, stays (read_finance only, called from kpi_tab_v1) ---------------------------------------------------------------------------
 -- The guest of a stay and the ID photo fields are resolved exactly as staff_home_v1 / staff_guest_card_v1 do: staff_stay_guest_id_v1 on the confirmed calendar stay that checks out on the
 -- reading's checkout day (cd = the cleaning session's checkout date when the reading has a session, so that is the event preferred; a reading with no session and no event that checks out that day is no stay),
--- from / to / nights are the event's check-in, check-out and nights (a session reading with no event falls back to the previous counted reading's day), then staff_primary_id_path_v1 and the id_face_box of that companion row, behind staff_may_see_guest_id_v1 (20261115000000_s116_guest_photo_name.sql lines 53-57).
+-- from / to / nights are the event's check-in, check-out and nights (a session reading with no event falls back to the previous counted reading's day, with nights null: the reading gap counts empty days), then staff_primary_id_path_v1 and the id_face_box of that companion row, behind staff_may_see_guest_id_v1 (20261115000000_s116_guest_photo_name.sql lines 53-57).
 create or replace function public.kpi_admin_bills_v1(p_property_id uuid, p_rate numeric)
 returns jsonb language plpgsql stable set search_path = '' as $$
 declare
@@ -258,7 +260,7 @@ begin
     select c.id, c.cd, c.recorded_at,
            jsonb_build_object(
              'from', coalesce(e.checkin_date, c.pcd, c.cd), 'to', coalesce(e.checkout_date, c.cd),
-             'nights', case when e.uid is not null then e.checkout_date - e.checkin_date when c.pcd is not null then greatest(1, c.cd - c.pcd) end,
+             'nights', case when e.uid is not null then e.checkout_date - e.checkin_date end,
              'kwh', c.electric_delta, 'm3', round(c.water_delta, 2),
              'cost_php', case when p_rate is not null then round(c.electric_delta * p_rate, 2) end,
              'guest_name', coalesce(public.staff_redact_v1(nullif(btrim(g.name), '')), public.staff_redact_v1(nullif(btrim(e.guest_name), ''))),

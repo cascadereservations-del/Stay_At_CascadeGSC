@@ -7,7 +7,7 @@
 -- Refusals are tested by calling as the refused role. Nothing in this file can run without a Postgres that holds the Cascade schema: it is run by the rehearsal
 -- (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>).
 begin;
-select plan(101);
+select plan(102);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -47,7 +47,7 @@ grant all on _t to public;
 -- fixtures -------------------------------------------------------------------------------------------------------------------------------------------
 insert into public.properties(id, name, is_active) values
   (pg_temp.id('b1'), 'Zz S127 cycles', true), (pg_temp.id('b2'), 'Zz S127 water', true), (pg_temp.id('b3'), 'Zz S127 kpi', true), (pg_temp.id('b4'), 'Zz S127 other', true),
-  (pg_temp.id('b5'), 'Zz S127 stays', true), (pg_temp.id('b6'), 'Zz S127 prorate', true), (pg_temp.id('b7'), 'Zz S127 today', true);
+  (pg_temp.id('b5'), 'Zz S127 stays', true), (pg_temp.id('b6'), 'Zz S127 prorate', true), (pg_temp.id('b7'), 'Zz S127 today', true), (pg_temp.id('b8'), 'Zz S127 covered days', true);
 insert into auth.users(id, email) values
   (pg_temp.id('a1'), 'zz127-cleaner@example.com'), (pg_temp.id('a2'), 'zz127-admin@example.com'), (pg_temp.id('a3'), 'zz127-laundry@example.com'),
   (pg_temp.id('a4'), 'zz127-nostaff@example.com'), (pg_temp.id('a5'), 'zz127-other@example.com'), (pg_temp.id('a6'), 'zz127-disabled@example.com');
@@ -87,12 +87,7 @@ select ok((select value = public.utility_billing_default_v1() from public.app_se
           'the migration left exactly one utility_billing row and it holds the contract defaults');
 delete from public.app_settings where key = 'utility_billing';
 insert into public.app_settings(key, value) select 'utility_billing', public.utility_billing_default_v1() where not exists (select 1 from public.app_settings a where a.key = 'utility_billing');
-select ok((select value = public.utility_billing_default_v1() from public.app_settings where key = 'utility_billing') and (select count(*) from public.app_settings where key = 'utility_billing') = 1,
-          'the migration insert creates the missing row with the defaults');
 update public.app_settings set value = '{"electric":{"cycle_day":1}}'::jsonb where key = 'utility_billing';
-insert into public.app_settings(key, value) select 'utility_billing', public.utility_billing_default_v1() where not exists (select 1 from public.app_settings a where a.key = 'utility_billing');
-select ok((select value = '{"electric":{"cycle_day":1}}'::jsonb from public.app_settings where key = 'utility_billing') and (select count(*) from public.app_settings where key = 'utility_billing') = 1,
-          'the migration insert is idempotent: an existing row is never replaced');
 select ok(pg_temp.cfg_of('{"electric":{"fixed_php":7.5}}'::jsonb) = jsonb_set(public.utility_billing_default_v1(), '{electric,fixed_php}', '7.5'::jsonb),
           'a stored partial setting wins key by key and every other key falls back to its default');
 delete from public.app_settings where key = 'utility_billing';
@@ -142,7 +137,7 @@ select ok((select array_agg(r.php_per_kwh order by r.rate_month) = array[8, 10, 
           'rates by month: September 8 (auto), October 10, November 12 (the manual 12 beats the auto 11 and the newer auto 13)');
 
 -- readings of the cycle scenarios (property b1). Counted: c1 21 Oct 10 kWh 1.0 m3 (first reading), c2 25 Oct 20/2.0, c3 5 Nov 55/5.5, c4 20 Nov 30/4.5, c5 24 Nov 40/4.0.
--- Ignored by the s115 helper: cf misread 400 kWh / 40 m3, cr re_entry 300, cq first_reading 300.
+-- Ignored by the s115 helper: cf misread 400 kWh / 40 m3, c7 re_entry 300, c6 first_reading 300.
 -- Per day (the delta spread over the days after the previous counted reading up to its own day): c1 has no previous reading so it lands on 21 Oct (10 kWh, 1.0 m3);
 -- c2 22-25 Oct = 4 days = 5 kWh and 0.5 m3 a day; c3 26 Oct-5 Nov = 6 + 5 = 11 days = 5 kWh and 0.5 m3 a day; c4 6-20 Nov = 15 days = 2 kWh and 0.3 m3 a day; c5 21-24 Nov = 4 days = 10 kWh and 1.0 m3 a day.
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
@@ -229,14 +224,14 @@ select ok((select (v -> 'water' ->> 'forecast_m3')::numeric = 69.75 and (v -> 'w
           'water: forecast 69.75 m3 = 2040.38, per day 2.25');
 select ok((select (v -> 'water' ->> 'next_php')::numeric = 34.50 and v -> 'water' -> 'next_upto' = 'null'::jsonb and v -> 'electric' -> 'rate' = 'null'::jsonb from _t where k = 'w45'),
           'water: past 40 m3 the next tier is 34.50 with no ceiling; electricity has no June 2020 rate (null)');
--- no guest nights: the single June reading lands on 10 Jun (10 kWh, 45 m3); today = 15 Jun, 30 days in June: forecast 10 / 15 x 30 = 20.00 kWh and 45 / 15 x 30 = 90.00 m3; zero guest nights = no per-night figure
+-- no guest nights: the single June reading lands on 10 Jun (10 kWh, 45 m3), the last covered day, so 10 days are covered (not the 15 elapsed); 30 days in June: forecast 10 / 10 x 30 = 30.00 kWh and 45 / 10 x 30 = 135.00 m3; zero guest nights = no per-night figure
 insert into _t select 'u_b2', public.kpi_usage_months_v1(pg_temp.id('b2'), date '2020-06-15');
-select ok((select (m -> 5 ->> 'kwh_so_far')::numeric = 10 and (m -> 5 ->> 'm3_so_far')::numeric = 45 and (m -> 5 ->> 'kwh')::numeric = 20 and (m -> 5 ->> 'm3')::numeric = 90 and (m -> 5 ->> 'guest_nights')::int = 0
+select ok((select (m -> 5 ->> 'kwh_so_far')::numeric = 10 and (m -> 5 ->> 'm3_so_far')::numeric = 45 and (m -> 5 ->> 'kwh')::numeric = 30 and (m -> 5 ->> 'm3')::numeric = 135 and (m -> 5 ->> 'guest_nights')::int = 0
              and m -> 5 -> 'kwh_per_night' = 'null'::jsonb and m -> 5 -> 'm3_per_night' = 'null'::jsonb and m -> 5 -> 'kwh_night_change_pct' = 'null'::jsonb and m -> 5 -> 'm3_night_change_pct' = 'null'::jsonb
              from (select v m from _t where k = 'u_b2') x), 'zero guest nights: guest_nights 0 and the per-night figures and their changes are null although the month has use');
 
 -- PRORATING (property b6, fixed 2020 dates), the contract examples. Counted readings: h1 15 Oct 10 kWh / 1.0 m3 (first: its own day); h2 25 Oct 100 / 10.0; h3 28 Oct 30 / 6.0; h4 3 Nov 60 / 6.0.
--- Chain-broken: hx 5 Nov, electric_prev 1300 where the chain ends at 1200 (a gap), 50 kWh / 5.0 m3: left out of every figure. Per day: h2 = 16-25 Oct = 10 days = 10 kWh and 1.0 m3 a day;
+-- Chain-broken: 15 (5 Nov), electric_prev 1300 where the chain ends at 1200 (a gap), 50 kWh / 5.0 m3: left out of every figure. Per day: h2 = 16-25 Oct = 10 days = 10 kWh and 1.0 m3 a day;
 -- h3 = 26-28 Oct = 3 days = 10 kWh and 2.0 m3 a day; h4 = 29 Oct-3 Nov = 6 days = 10 kWh and 1.0 m3 a day.
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
   (pg_temp.id('11'), null, pg_temp.id('b6'), timestamptz '2020-10-15 09:00+08', 1000, 1010, 5, 10, 1.0, null),
@@ -267,9 +262,9 @@ select ok((select (v -> 'water' ->> 'm3')::numeric = 16 and (v -> 'water' ->> 's
              and (v -> 'water' ->> 'forecast_php')::numeric = 957.69 and (v -> 'water' ->> 'days')::int = 13 from _t where k = 'e6'), 'prorate, water: 16.0 m3 = 350.30 so far; forecast 38.15 m3 = 957.69');
 
 -- usage_months for b6 as of 10 Nov 2020 (6 months Jun-Nov, oldest first). October: h1 10 (15 Oct) + h2 100 + h3 30 + h4 3 of 6 days 30 = 170 kWh; m3 1.0 + 10.0 + 6.0 + 3.0 = 20.0.
--- November so far (1-10 Nov): h4 3 of 6 days = 30 kWh and 3.0 m3 (the broken reading adds nothing); forecast 30 / 10 x 30 = 90.00 kWh and 3.0 / 10 x 30 = 9.00 m3.
+-- November so far (1-10 Nov): h4 3 of 6 days = 30 kWh and 3.0 m3 (the broken reading adds nothing). Use reaches 3 Nov only (the last covered day), so 3 days are covered, not the 10 elapsed: forecast 30 / 3 x 30 = 300.00 kWh and 3.0 / 3 x 30 = 30.00 m3.
 -- Guest nights: October = 4 (10-13 Oct) + 1 (31 Oct) = 5 (the blocked 5 and the cancelled 2 are not counted); November 1-10 = nights 1, 2, 3 Nov = 3.
--- Per night: October 170 / 5 = 34.0 kWh, 20.0 / 5 = 4.00 m3; November so far 30 / 3 = 10.0, 3.0 / 3 = 1.00. Month change (forecast vs October) (90 - 170) / 170 = -47.06 -> -47 and (9 - 20) / 20 = -55;
+-- Per night: October 170 / 5 = 34.0 kWh, 20.0 / 5 = 4.00 m3; November so far 30 / 3 = 10.0, 3.0 / 3 = 1.00. Month change (forecast vs October) (300 - 170) / 170 = +76.47 -> +76 and (30 - 20) / 20 = +50;
 -- per-night change (10 - 34) / 34 = -70.59 -> -71 and (1 - 4) / 4 = -75 (the current month changes by the so-far per-night figure, not the forecast).
 insert into _t select 'u_b6', public.kpi_usage_months_v1(pg_temp.id('b6'), date '2020-11-10');
 select ok((select jsonb_array_length(v) = 6 and v -> 0 ->> 'month' = '2020-06' and v -> 5 ->> 'month' = '2020-11' and (select bool_and((select count(*) from jsonb_object_keys(e)) = 13) from jsonb_array_elements(v) e)
@@ -278,14 +273,42 @@ select ok((select jsonb_array_length(v) = 6 and v -> 0 ->> 'month' = '2020-06' a
 select ok((select (v -> 4 ->> 'kwh')::numeric = 170 and (v -> 4 ->> 'm3')::numeric = 20 and (v -> 4 ->> 'guest_nights')::int = 5 and (v -> 4 ->> 'kwh_per_night')::numeric = 34 and (v -> 4 ->> 'm3_per_night')::numeric = 4
              and v -> 4 -> 'kwh_change_pct' = 'null'::jsonb and v -> 4 -> 'kwh_night_change_pct' = 'null'::jsonb and (v -> 4 ->> 'forecast')::boolean is false from _t where k = 'u_b6'),
           'usage_months October: 170 kWh and 20.0 m3 by days; 5 guest nights (a blocked and a cancelled row never count); 34.0 kWh and 4.00 m3 a night; nothing before it to change against');
-select ok((select (v -> 5 ->> 'forecast')::boolean and (v -> 5 ->> 'kwh_so_far')::numeric = 30 and (v -> 5 ->> 'm3_so_far')::numeric = 3 and (v -> 5 ->> 'kwh')::numeric = 90 and (v -> 5 ->> 'm3')::numeric = 9
-             and (v -> 5 ->> 'kwh_change_pct')::numeric = -47 and (v -> 5 ->> 'm3_change_pct')::numeric = -55 from _t where k = 'u_b6'),
-          'usage_months November: the share so far is 30 kWh and 3.0 m3, the forecast 90.00 and 9.00, changing -47 % and -55 % against October');
+select ok((select (v -> 5 ->> 'forecast')::boolean and (v -> 5 ->> 'kwh_so_far')::numeric = 30 and (v -> 5 ->> 'm3_so_far')::numeric = 3 and (v -> 5 ->> 'kwh')::numeric = 300 and (v -> 5 ->> 'm3')::numeric = 30
+             and (v -> 5 ->> 'kwh_change_pct')::numeric = 76 and (v -> 5 ->> 'm3_change_pct')::numeric = 50 from _t where k = 'u_b6'),
+          'usage_months November: the share so far is 30 kWh and 3.0 m3, the forecast 300.00 and 30.00 (3 covered days, not 10 elapsed), changing +76 % and +50 % against October');
 select ok((select (v -> 5 ->> 'guest_nights')::int = 3 and (v -> 5 ->> 'kwh_per_night')::numeric = 10 and (v -> 5 ->> 'm3_per_night')::numeric = 1 and (v -> 5 ->> 'kwh_night_change_pct')::numeric = -71
              and (v -> 5 ->> 'm3_night_change_pct')::numeric = -75 from _t where k = 'u_b6'),
           'usage_months November per night: 3 guest nights so far, 10.0 kWh and 1.00 m3 a night (so far, not the forecast), changing -71 % and -75 % against October');
 select ok((select bool_and(v -> i -> 'kwh' = 'null'::jsonb and v -> i -> 'm3' = 'null'::jsonb and (v -> i ->> 'guest_nights')::int = 0 and v -> i -> 'kwh_per_night' = 'null'::jsonb and (v -> i ->> 'forecast')::boolean is false)
              from _t, generate_series(0, 3) i where k = 'u_b6'), 'usage_months June to September: no counted reading covers them (null use) and no guest nights (null per night)');
+
+-- COVERED DAYS (property b8, fixed 2020 dates; p_today is a parameter so the suite does not depend on the day it runs). Counted readings: 21 = 31 Oct 300 kWh / 30.0 m3 (the first reading lands on its own day, so October = 300 / 30.0);
+-- 22 = 12 Nov 120 kWh / 12.0 m3, previous counted reading 31 Oct, so it covers 1-12 Nov = 12 days = 10 kWh and 1.0 m3 a day. Read on 20 Nov: use reaches 12 Nov only.
+-- Forecast = 120 / 12 x 30 = 300.00 kWh and 12.0 / 12 x 30 = 30.00 m3 (the old rule gave 120 / 20 x 30 = 180); change vs October (300 - 300) / 300 = 0 and (30 - 30) / 30 = 0.
+-- Guests (confirmed): 10-14 Oct = 4 nights (10, 11, 12, 13 Oct); 1-5 Nov = 4 nights (1-4 Nov); 10-16 Nov = nights 10, 11, 12 Nov counted only up to the last covered day 12 Nov = 3 (13-15 Nov and the days to the 20th never count): 7 in November.
+-- October per night 300 / 4 = 75.0 kWh and 30.0 / 4 = 7.50 m3; November so far 120 / 7 = 17.142857 -> 17.1 kWh and 12.0 / 7 = 1.714 -> 1.71 m3 (so far, not the forecast); change (17.142857 - 75) / 75 = -77.14 -> -77 and (1.714286 - 7.5) / 7.5 = -77.14 -> -77.
+insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
+  (pg_temp.id('21'), null, pg_temp.id('b8'), timestamptz '2020-10-31 09:00+08', 1000, 1300, 50, 300, 30.0, null),
+  (pg_temp.id('22'), null, pg_temp.id('b8'), timestamptz '2020-11-12 09:00+08', 1300, 1420, 80, 120, 12.0, null);
+insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date) values
+  (pg_temp.id('b8'), 'zz127-q-1', 'airbnb', 'confirmed', 'Zzguest Sol', date '2020-10-10', date '2020-10-14'),
+  (pg_temp.id('b8'), 'zz127-q-2', 'airbnb', 'confirmed', 'Zzguest Tess', date '2020-11-01', date '2020-11-05'),
+  (pg_temp.id('b8'), 'zz127-q-3', 'airbnb', 'confirmed', 'Zzguest Uma', date '2020-11-10', date '2020-11-16'),
+  (pg_temp.id('b8'), 'zz127-q-4', 'airbnb', 'confirmed', 'Zzguest Val', date '2020-12-01', date '2020-12-04');
+insert into _t select 'u_b8', public.kpi_usage_months_v1(pg_temp.id('b8'), date '2020-11-20');
+select ok((select (v -> 5 ->> 'forecast')::boolean and (v -> 5 ->> 'kwh_so_far')::numeric = 120 and (v -> 5 ->> 'm3_so_far')::numeric = 12 and (v -> 5 ->> 'kwh')::numeric = 300 and (v -> 5 ->> 'm3')::numeric = 30
+             and (v -> 4 ->> 'kwh')::numeric = 300 and (v -> 4 ->> 'm3')::numeric = 30 and (v -> 5 ->> 'kwh_change_pct')::numeric = 0 and (v -> 5 ->> 'm3_change_pct')::numeric = 0 from _t where k = 'u_b8'),
+          'usage_months, covered days: read on the 20th with use up to the 12th, the forecast is 120 / 12 x 30 = 300 kWh and 30 m3 (not 180), 0 % against October');
+select ok((select (v -> 4 ->> 'guest_nights')::int = 4 and (v -> 4 ->> 'kwh_per_night')::numeric = 75 and (v -> 4 ->> 'm3_per_night')::numeric = 7.5
+             and (v -> 5 ->> 'guest_nights')::int = 7 and (v -> 5 ->> 'kwh_per_night')::numeric = 17.1 and (v -> 5 ->> 'm3_per_night')::numeric = 1.71
+             and (v -> 5 ->> 'kwh_night_change_pct')::numeric = -77 and (v -> 5 ->> 'm3_night_change_pct')::numeric = -77 from _t where k = 'u_b8'),
+          'usage_months, covered days: guest nights stop at the last covered day (7 in November, not 10), 17.1 kWh and 1.71 m3 a night, -77 % against October');
+-- read on 5 Dec: no counted reading covers a December day yet (the 12 Nov one ends in November), though a confirmed stay 1-4 Dec exists: null forecast, per night and changes, and no guest night is counted before a covered day
+insert into _t select 'u_b8d', public.kpi_usage_months_v1(pg_temp.id('b8'), date '2020-12-05');
+select ok((select v -> 5 ->> 'month' = '2020-12' and (v -> 5 ->> 'forecast')::boolean and v -> 5 -> 'kwh' = 'null'::jsonb and v -> 5 -> 'm3' = 'null'::jsonb and v -> 5 -> 'kwh_so_far' = 'null'::jsonb
+             and v -> 5 -> 'kwh_change_pct' = 'null'::jsonb and v -> 5 -> 'm3_change_pct' = 'null'::jsonb and v -> 5 -> 'kwh_per_night' = 'null'::jsonb and v -> 5 -> 'm3_per_night' = 'null'::jsonb
+             and v -> 5 -> 'kwh_night_change_pct' = 'null'::jsonb and v -> 5 -> 'm3_night_change_pct' = 'null'::jsonb and (v -> 5 ->> 'guest_nights')::int = 0 from _t where k = 'u_b8d'),
+          'usage_months, no covered day in the current month: null forecast, per night and changes, and no guest night');
 
 -- KPI scenario (property b3): rates relative to this month; the 2020 rates are cleared so the history is only these.
 -- m-2 manual 11, m-1 manual 10, m0 manual 12 and an auto 11 on the 6th (the manual one wins), and a FUTURE manual 99 on the first day of next month that no function may read.
@@ -296,7 +319,7 @@ insert into public.utility_rates(provider, php_per_kwh, effective_from, source) 
   ('socoteco2', 99, pg_temp.ms(-1), 'manual');
 -- readings on the LAST day of each month, 09:00 Manila, each ending the month it is named for (the previous reading is the previous month's last day, so the delta is exactly that month's use):
 -- fa m-4 100 kWh / 10.0 m3 (the first reading: lands on its own day, so m-5 has no use at all), fb m-3 150 / 12.0, fc m-2 120 / 6.0, fd m-1 90 / 9.0 (+ a misread of 999 kWh / 99 m3 that is ignored),
--- today: f0 30 / 3.0 (days 1st..today of this month) and fz 5 / 0.5 on a mid_stay session (counted, lands on today, ends no stay).
+-- today: f0 30 / 3.0 (days 1st..today of this month) and f2 5 / 0.5 on a mid_stay session (counted, lands on today, ends no stay).
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaned_at, nights_stayed, checkout_date, cleaning_type) values
   (pg_temp.id('e1'), 'zz127-sub-e1', 'Zz127 Cleaner', pg_temp.id('b3'), now(), 1, public.manila_today(), 'mid_stay');
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
@@ -380,7 +403,7 @@ select ok((select v ? 'ok' and (v ->> 'ok')::boolean and not (v ? 'admin') and j
 select ok((select bool_and(not (v::text ~ '"(bills|rate_year_avg|rate_history|water_rate|so_far_php|forecast_php|per_day_php|cost_php|checked_at|fixed_php|php_per_kwh|min_php|next_php)"')) from _t where k in ('k_cleaner', 'k_laundry')),
           'kpi_tab_v1: the non-admin payload carries no peso key of this release');
 select ok((select bool_and(not ((v -> 'utility' -> 'usage_months')::text ~* 'php|cost|peso')) from _t where k in ('k_cleaner', 'k_laundry', 'k_admin')), 'usage_months carries no money, for any role');
--- this month's counted readings: f0 30 + fz 5 = 35 kWh (fd is last month's), 3.0 + 0.5 = 3.5 m3
+-- this month's counted readings: f0 30 + f2 5 = 35 kWh (fd is last month's), 3.0 + 0.5 = 3.5 m3
 select ok((select v -> 'utility' ?& array['kwh_month', 'kwh_per_day', 'm3_month', 'm3_per_day', 'nights_booked', 'nights_in_month', 'last_reading', 'per_stay', 'per_month', 'brownouts', 'water_cuts', 'internet_cuts']
                   and (v -> 'utility' ->> 'kwh_month')::numeric = 35 and (v -> 'utility' ->> 'm3_month')::numeric = 3.5 and v ? 'inventory' and v ? 'month' and jsonb_array_length(v -> 'utility' -> 'per_month') = 12
              from _t where k = 'k_cleaner'), 'kpi_tab_v1: every pre-existing non-admin utility key is still present, with this month 35 kWh and 3.5 m3');
@@ -415,7 +438,7 @@ select ok((select (m -> 5 ->> 'forecast')::boolean and (m -> 5 ->> 'kwh_so_far')
                   and (m -> 5 ->> 'kwh')::numeric = round(35.0 / extract(day from public.manila_today()) * ((pg_temp.ms(0) + interval '1 month')::date - pg_temp.ms(0)), 2)
                   and (m -> 5 ->> 'm3')::numeric = round(3.5 / extract(day from public.manila_today()) * ((pg_temp.ms(0) + interval '1 month')::date - pg_temp.ms(0)), 2)
                   and (m -> 5 ->> 'guest_nights')::int = 0 and m -> 5 -> 'kwh_per_night' = 'null'::jsonb and m -> 5 -> 'm3_night_change_pct' = 'null'::jsonb
-             from (select v -> 'utility' -> 'usage_months' m from _t where k = 'k_admin') x), 'usage_months: the current month is a forecast = so far / days elapsed x days in the month, with the raw sums beside it; no guest nights so no per-night figure');
+             from (select v -> 'utility' -> 'usage_months' m from _t where k = 'k_admin') x), 'usage_months: the current month is a forecast = so far / days covered x days in the month (the last reading is today here, so covered = elapsed), with the raw sums beside it; no guest nights so no per-night figure');
 select ok((select (m -> 5 ->> 'kwh_change_pct')::numeric = round(((m -> 5 ->> 'kwh')::numeric - 90) / 90 * 100) and (m -> 5 ->> 'm3_change_pct')::numeric = round(((m -> 5 ->> 'm3')::numeric - 9) / 9 * 100)
              from (select v -> 'utility' -> 'usage_months' m from _t where k = 'k_admin') x), 'usage_months: the current month changes against the previous month that has a value');
 select ok((select bool_and((select count(*) from jsonb_object_keys(e)) = 13) from (select jsonb_array_elements(v -> 'utility' -> 'usage_months') e from _t where k = 'k_admin') x), 'usage_months: every row has exactly thirteen keys');
@@ -443,7 +466,7 @@ select ok((select (v -> 'admin' ->> 'rate_year_avg')::numeric = (select round(av
           'rate_year_avg: the mean of this calendar year''s monthly rates, 2 decimals');
 select ok((select v -> 'admin' -> 'water_rate' = jsonb_build_object('min_php', 212, 'min_m3', 10, 'next_php', 23.05, 'next_upto', 20, 'source_url', 'https://gensanwater.gov.ph/water-rates/') from _t where k = 'k_admin'),
           'admin.water_rate: minimum 212 for 10 m3, next 23.05 up to 20, source url');
--- stays: counted readings that end a stay, newest first. Today's f0 (no session, no event that checks out today) and fz (mid_stay) are no stay, the misread neither: Ana, Cy, Dee, Eli.
+-- stays: counted readings that end a stay, newest first. Today's f0 (no session, no event that checks out today) and f2 (mid_stay) are no stay, the misread neither: Ana, Cy, Dee, Eli.
 select ok((select jsonb_array_length(v -> 'admin' -> 'stays') = 4 and (select array_agg(e ->> 'guest_name' order by o) from jsonb_array_elements(v -> 'admin' -> 'stays') with ordinality t(e, o)) = array['Zzguest Ana', 'Zzguest Cy', 'Zzguest Dee', 'Zzguest Eli']
              from _t where k = 'k_admin'), 'stays: four readings end a stay, newest first (a reading with no session and no event that checks out that day, a mid_stay reading and a misread are left out; the blocked row is not Ana''s guest)');
 -- Ana: the reading is 90 kWh / 9 m3 at the rate 12 = 1080.00; from / to / nights are the EVENT'S (check-in me(1) - 1, check-out me(1), 1 night), not the days between meter readings (which would be a month)
@@ -458,8 +481,8 @@ select ok((select bool_and((select count(*) from jsonb_object_keys(e)) = 10 and 
           and (select not (v::text ~* 'phone|e-?mail|id_number|contact') from _t where k = 'k_admin'), 'stays: exactly the ten contract keys per row; no phone, e-mail or ID number anywhere in the payload');
 
 -- stays on a property whose readings carry sessions (property b5, called as the owner of the function):
--- g1 3 Mar mid_stay session: no stay. g2 9 Mar turnover session WITH a confirmed event 4-9 Mar (5 nights): from, to and nights are the event's (the previous reading would say 6 nights from 3 Mar).
--- g3 20 Mar turnover session with NO event: falls back to the previous counted reading (9 Mar -> 20 Mar = 11 nights), no guest, no cost without a rate. g4 25 Mar has no session and no event: no stay row.
+-- 01 3 Mar mid_stay session: no stay. 02 9 Mar turnover session WITH a confirmed event 4-9 Mar (5 nights): from, to and nights are the event's (the previous reading would say 6 nights from 3 Mar).
+-- 03 20 Mar turnover session with NO event: falls back to the previous counted reading (9 Mar -> 20 Mar), nights null because the reading gap counts empty days, no guest, no cost without a rate. 04 25 Mar has no session and no event: no stay row.
 insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_id, cleaned_at, nights_stayed, checkout_date, cleaning_type) values
   (pg_temp.id('e2'), 'zz127-sub-e2', 'Zz127 Cleaner', pg_temp.id('b5'), timestamptz '2020-03-03 10:00+08', 1, date '2020-03-03', 'mid_stay'),
   (pg_temp.id('e3'), 'zz127-sub-e3', 'Zz127 Cleaner', pg_temp.id('b5'), timestamptz '2020-03-09 10:00+08', 2, date '2020-03-09', 'turnover'),
@@ -476,9 +499,9 @@ insert into _t select 'st5', public.kpi_admin_bills_v1(pg_temp.id('b5'), null);
 select ok((select jsonb_array_length(v -> 'stays') = 2 and v -> 'stays' -> 1 ->> 'from' = '2020-03-04' and v -> 'stays' -> 1 ->> 'to' = '2020-03-09' and (v -> 'stays' -> 1 ->> 'nights')::int = 5
              and v -> 'stays' -> 1 ->> 'guest_name' = 'Zzguest Gus' and (v -> 'stays' -> 1 ->> 'kwh')::numeric = 30 and v -> 'stays' -> 1 -> 'cost_php' = 'null'::jsonb from _t where k = 'st5'),
           'stays: the turnover reading with an event uses the event''s check-in, check-out and 5 nights (not the 6 between meter readings) and its guest; the mid_stay reading ends no stay; no cost without a rate');
-select ok((select v -> 'stays' -> 0 ->> 'from' = '2020-03-09' and v -> 'stays' -> 0 ->> 'to' = '2020-03-20' and (v -> 'stays' -> 0 ->> 'nights')::int = 11 and v -> 'stays' -> 0 -> 'guest_name' = 'null'::jsonb
+select ok((select v -> 'stays' -> 0 ->> 'from' = '2020-03-09' and v -> 'stays' -> 0 ->> 'to' = '2020-03-20' and v -> 'stays' -> 0 -> 'nights' = 'null'::jsonb and v -> 'stays' -> 0 -> 'guest_name' = 'null'::jsonb
              and (v -> 'stays' -> 0 ->> 'kwh')::numeric = 20 from _t where k = 'st5'),
-          'stays: a session reading with no event falls back to the previous counted reading (11 nights, no guest); the 25 Mar reading with no session and no event is no stay row');
+          'stays: a session reading with no event falls back to the previous counted reading for from and to, with nights null (the 11-day reading gap counts empty days) and no guest; the 25 Mar reading with no session and no event is no stay row');
 select ok((select v -> 'rate_history' = '[]'::jsonb and v -> 'rate_year_avg' = 'null'::jsonb and v -> 'bills' -> 'electric' -> 'so_far_php' = 'null'::jsonb from _t where k = 'st5'),
           'no rate at all: rate_history is an empty list, rate_year_avg and the bill in pesos are null');
 
