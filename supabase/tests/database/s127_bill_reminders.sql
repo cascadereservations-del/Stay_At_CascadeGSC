@@ -567,7 +567,7 @@ insert into _t select 'rl', pg_temp.c1('bill_pay_open_v1', pg_temp.bi('nf10'));
 select pg_temp.as_user(pg_temp.id('a6'));
 insert into _t select 'rn', pg_temp.c1('bill_pay_open_v1', pg_temp.bi('nf10'));
 select pg_temp.as_user(pg_temp.id('a5'));
-insert into _t select 'rd', pg_temp.c1('bill_pay_open_v1', pg_temp.bi('nf10'));
+insert into _t select 'rdz', pg_temp.c1('bill_pay_open_v1', pg_temp.bi('nf10'));
 select pg_temp.as_user(pg_temp.id('a4'));
 insert into _t select 'rf', jsonb_build_array(pg_temp.cs('bill_schedule_get_v1', pg_temp.id('b7'), 'internet'), pg_temp.cs('bill_schedule_set_v1', pg_temp.id('b7'), 'internet', '{"note":"x"}'::jsonb));
 select pg_temp.as_user(pg_temp.id('a2'));
@@ -580,7 +580,7 @@ select ok((select jsonb_array_length(v) = 7 and (select bool_and(e = '{"ok":fals
           and (select count(*) = 0 from public.transactions where source = 'bill' and property_id = pg_temp.id('b7')),
           'a signed-in cleaner is not_authorized on open, settle, cancel, skip, proof, schedule get and schedule set; the bill is unchanged and nothing is written');
 select ok((select v = '{"ok":false,"reason":"not_authorized"}'::jsonb from _t where k = 'rl') and (select v = '{"ok":false,"reason":"not_authorized"}'::jsonb from _t where k = 'rn')
-          and (select v = '{"ok":false,"reason":"not_authorized"}'::jsonb from _t where k = 'rd'),
+          and (select v = '{"ok":false,"reason":"not_authorized"}'::jsonb from _t where k = 'rdz'),
           'laundry, a user with no staff profile and a disabled admin are not_authorized on pay open');
 select ok((select v = '[{"ok":false,"reason":"not_authorized"},{"ok":false,"reason":"not_authorized"}]'::jsonb from _t where k = 'rf')
           and (select value = pg_temp.cfg_expected() is not null from public.app_settings where key = 'bill_schedule')
@@ -623,16 +623,20 @@ insert into _t select 'st2', jsonb_build_array(
   pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('el10'), jsonb_build_object('path', (select v #>> '{}' from _t where k = 'p_el'), 'sha256', repeat('b', 64), 'amount', 1200)),
   pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('el10'), jsonb_build_object('path', (select v #>> '{}' from _t where k = 'p_el'))));
 insert into _t select 'st3', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('el10'), jsonb_build_object('path', (select v #>> '{}' from _t where k = 'p_el'), 'amount', 3000));
+-- snapshot of the bill after the refusals, before st4 pays it (superuser reads; the table is closed to the API roles)
+reset role;
+insert into _t select 'sb', jsonb_build_object('paying', b.status = 'paying', 'no_txn', b.txn_id is null, 'no_sha', b.proof_sha256 is null,
+  'n_txn', (select count(*) from public.transactions where external_ref = 'bill:electric:2020-10')) from public.utility_bills b where b.id = pg_temp.bi('el10');
+select pg_temp.as_user(pg_temp.id('a2'));
 insert into _t select 'st4', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('el10'), jsonb_build_object('path', (select v #>> '{}' from _t where k = 'p_el'), 'amount', 3000, 'confirmed', true));
 insert into _t select 'st5', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('el10'), jsonb_build_object('path', (select v #>> '{}' from _t where k = 'p_el'), 'amount', 3000, 'confirmed', true));
 reset role;
-select ok((select v = '{"ok":false,"reason":"not_payer","name":"Zz Admin"}'::jsonb from _t where k = 'st1') and (select status = 'paying' and txn_id is null from public.utility_bills where id = pg_temp.bi('el10')),
+select ok((select v = '{"ok":false,"reason":"not_payer","name":"Zz Admin"}'::jsonb from _t where k = 'st1') and (select v = '{"paying":true,"no_txn":true,"no_sha":true,"n_txn":0}'::jsonb from _t where k = 'sb'),
           'settle by a finance user who did not tap pay is not_payer (naming the payer) and the bill is unchanged');
 select ok((select (select jsonb_agg(e ->> 'reason') from jsonb_array_elements(v) e) = '["bad_proof","bad_proof","no_stored_proof","sha_mismatch","bad_amount"]'::jsonb from _t where k = 'st2')
-          and (select status = 'paying' and txn_id is null and proof_sha256 is null from public.utility_bills where id = pg_temp.bi('el10'))
-          and (select count(*) = 0 from public.transactions where external_ref = 'bill:electric:2020-10'),
+          and (select v = '{"paying":true,"no_txn":true,"no_sha":true,"n_txn":0}'::jsonb from _t where k = 'sb'),
           'a path in another user''s folder, a path with .., an object never stored, a client sha256 that differs from the recorded one, and a missing amount are all refused (bad_proof, bad_proof, no_stored_proof, sha_mismatch, bad_amount); nothing is written');
-select ok((select v = '{"ok":false,"reason":"confirm_amount","read":3000,"estimate_php":1000}'::jsonb from _t where k = 'st3') and (select status = 'paying' and txn_id is null from public.utility_bills where id = pg_temp.bi('el10')),
+select ok((select v = '{"ok":false,"reason":"confirm_amount","read":3000,"estimate_php":1000}'::jsonb from _t where k = 'st3') and (select v = '{"paying":true,"no_txn":true,"no_sha":true,"n_txn":0}'::jsonb from _t where k = 'sb'),
           '3000 is above the band 500 .. 2000 around the estimate 1000: confirm_amount with read 3000 and estimate_php 1000; the bill is unchanged');
 select ok((select v ->> 'ok' = 'true' and (v ->> 'paid_php')::numeric = 3000 and v -> 'bill' ->> 'status' = 'paid' and v -> 'bill' ->> 'paid_by_name' = 'Zz Admin' and v -> 'bill' ->> 'can_pay' = 'false'
                   and (v -> 'bill' ->> 'paid_php')::numeric = 3000 from _t where k = 'st4'),
@@ -716,8 +720,8 @@ select ok((select v ->> 'reason' = 'already_paid' and v -> 'bill' ->> 'status' =
 select pg_temp.as_user(pg_temp.id('a4'));
 insert into _t select 'pr1', jsonb_build_array(pg_temp.c1('bill_proof_v1', pg_temp.bi('el10')), pg_temp.c1('bill_proof_v1', pg_temp.bi('nf10')), pg_temp.c1('bill_proof_v1', 'e1280000-0000-4000-8000-0000000000ee'));
 reset role;
-select ok((select v = jsonb_build_array(jsonb_build_object('ok', true, 'path', (select v #>> '{}' from _t where k = 'p_el')), '{"ok":false,"reason":"no_proof"}'::jsonb, '{"ok":false,"reason":"not_authorized"}'::jsonb) from _t where k = 'pr1'),
-          'bill_proof_v1: the stored path of the paid bill; no_proof for a bill that is not paid; not_authorized for an id that does not exist (never not_found)');
+select ok((select v = jsonb_build_array(jsonb_build_object('ok', true, 'path', (select v #>> '{}' from _t where k = 'p_el')), '{"ok":false,"reason":"no_proof"}'::jsonb, '{"ok":false,"reason":"not_found"}'::jsonb) from _t where k = 'pr1'),
+          'bill_proof_v1: the stored path of the paid bill; no_proof for a bill that is not paid; not_found for an id that does not exist when the caller may pay (a cleaner gets not_authorized, tested above)');
 
 -- schedule get / set as admin a2 (manage_staff). Settings now: electric ZZ-ACCT-1 / Zz Power / note "Zz {month} bill"; internet Zz Net / 0900-000-0000 / note "" / amount 1500 / remind_day = pay_day 27.
 select pg_temp.as_user(pg_temp.id('a2'));
@@ -898,7 +902,7 @@ select ok((select bool_and(e ->> 'err' = '42501') and count(*) = 6 from _t, json
           and (select bool_and(e ->> 'err' = '42501') and count(*) = 6 from _t, jsonb_array_elements(v) e where k = 'ib')
           and (select bool_and(e ->> 'err' = '42501') and count(*) = 5 from _t, jsonb_array_elements(v) e where k = 'ic'),
           'anon, a signed-in admin and service_role cannot call the step core, the opener, the daily job, the push or the config helper (permission denied, called as those roles); anon and admin cannot read utility_bills');
-select ok(to_regclass('cron.job') is null or exists (select 1 from cron.job where jobname = 'bill-daily-0800-manila' and schedule = '0 0 * * *' and command = 'select public.bill_daily_v1()'),
+select ok(to_regclass('cron.job') is null or (xpath('/row/c/text()', query_to_xml('select count(*) as c from cron.job where jobname = ''bill-daily-0800-manila'' and schedule = ''0 0 * * *'' and command = ''select public.bill_daily_v1()''', false, true, '')))[1]::text::int = 1,
           'the daily job is scheduled at 00:00 UTC (08:00 Manila) calling bill_daily_v1() (skipped where pg_cron is absent)');
 
 -- 9. notices_v1: an ops_notices row of type reminder (what the daily job writes) reaches every role on Today as type note. Dated today, audience staff.
