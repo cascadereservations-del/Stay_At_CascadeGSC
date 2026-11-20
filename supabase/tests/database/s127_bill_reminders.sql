@@ -184,7 +184,7 @@ insert into _t select 'c1', public.bill_due_open_v1(pg_temp.id('b4'), date '2020
 select ok((select (select jsonb_agg(e ->> 'kind') from jsonb_array_elements(v -> 'new') e) = '["electric","water","internet","netflix"]'::jsonb
                   and (select bool_and(e ->> 'period' = '2020-03') from jsonb_array_elements(v -> 'new') e)
                   and (select jsonb_agg(e -> 'estimate_php') from jsonb_array_elements(v -> 'new') e) = '[null, null, 1500, 449]'::jsonb and v -> 'nudge' = '[]'::jsonb from _t where k = 'c0')
-          and (select count(*) = 4 and bool_and(status = 'due' and period = '2020-03') from public.utility_bills where property_id = pg_temp.id('b4')),
+          and (select count(*) = 4 and bool_and(status = 'due') from public.utility_bills where property_id = pg_temp.id('b4') and period = '2020-03'),
           'catch-up: on the 26th (before pay_day 27) the previous month 2020-03 opens its four missing rows with their estimates and no nudge');
 select ok((select v = '{"new":[],"nudge":[]}'::jsonb from _t where k = 'c0b')
           and (select jsonb_array_length(v -> 'new') = 4 and (select bool_and(e ->> 'period' = '2020-04') from jsonb_array_elements(v -> 'new') e) and v -> 'nudge' = '[]'::jsonb from _t where k = 'c1')
