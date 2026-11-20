@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261120T015139Z",
-    "verified_at": "2026-11-20T01:57:39.329Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261120T071318Z",
+    "verified_at": "2026-11-20T07:17:32.649Z",
     "production_rule": "Utility bills, usage tracking and the Today bills card (Lloyd 2026-11-20, mockup v5, contract docs/s127/CONTRACT.md Lane A). Adds app_settings utility_billing (only if absent), utility_bill_estimate_v1 (internal), today_bills_v1 (every active staff role of the property, 42501 otherwise, money by design) and eleven internal helpers (one per-day use helper, utility_daily_use_v1, that the cycle estimate, usage_months and the per-night figures all read, so a reading is spread over the days it covers; a settings read that falls back key by key and never raises; cycle days clamped per month), and replaces kpi_tab_v1 in place behind an md5 guard (s115 body 229c75a34209e1820c3e0209e8d67adf, this release 80efd89e916bcd6107c681baf86f143f; 55000 when the live body is neither) with three added statements: utility.usage_months (no money), admin.bills / rate_year_avg / rate_history / water_rate / stays and admin.rate.checked_at (read_finance only). Every existing key, grant, security setting and search_path of kpi_tab_v1 is unchanged."
   },
   "forward_verification": [
