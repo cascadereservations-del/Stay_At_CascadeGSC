@@ -5,6 +5,14 @@
 begin;
 select plan(20);
 
+-- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite); staff_home_v1 as production has it: authenticated and service_role, not public or anon
+alter role service_role bypassrls;
+grant usage on schema public, auth to anon, authenticated, service_role;
+grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
+grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
+revoke all on function public.staff_home_v1(uuid) from public, anon;
+grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
+
 select ok((select prosecdef and proconfig = array['search_path=""'] from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure),
   'staff_home_v1 stays security definer with an empty search_path');
 select ok(has_function_privilege('authenticated', 'public.staff_home_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.staff_home_v1(uuid)', 'execute'),
@@ -69,7 +77,7 @@ select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current
   '[{"name":"Zz Sh First","has_photo":false},{"name":"Zz Sh Second","has_photo":true}]'::jsonb, 'cleaner: current guest companions (s129, D-390)');
 select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions',
   '[{"name":"Zz Sh Third","has_photo":true}]'::jsonb, 'cleaner: next guest companions (s129, D-390)');
-select ok(jsonb_build_array(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions', public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|.jpg)',
+select ok(jsonb_build_array(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions', public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|\.jpg)',
   'cleaner: no photo path and no ID type in the companions lists');
 select ok(not (public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest' ? 'phone'), 'cleaner: still no contact details');
 

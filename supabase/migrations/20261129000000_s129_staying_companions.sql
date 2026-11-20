@@ -39,4 +39,8 @@ $$;
 -- 3. grants restated: internal helper, staff_home_v1 (its owner) is the only caller; no API role -----------------------------------------------------------------------------
 revoke all on function public.staff_guest_companions_v1(uuid) from public, anon, authenticated, service_role;
 
+-- 4. staff_home_v1 comment restated truthfully (COMMENT does not change prosrc, so the md5 guards stay valid)
+comment on function public.staff_home_v1(uuid) is
+  'Cascade Staff home (SPEC-36, S77, D-319, S82): calendar with block_reason/block_label, day_flags, current/next guest with returning marker and notes, open system-check warnings with key/acknowledged/facts, weather. Owner and admin sessions also get the current/next guest phone, e-mail and Messenger thread and arrival_ready {id, paid, door_code} on every upcoming or in-house stay; never money; cleaners and other roles never get contact details or arrival_ready (D-289). Every active staff role gets companions on the current and next guest (name and has_photo only, names redacted; S129, D-390).';
+
 commit;

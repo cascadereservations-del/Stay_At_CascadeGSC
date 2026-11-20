@@ -25,4 +25,8 @@ returns jsonb language sql stable security definer set search_path to '' as $$
 $$;
 revoke all on function public.staff_guest_companions_v1(uuid) from public, anon, authenticated, service_role;
 
+-- staff_home_v1 comment back to the s82 text
+comment on function public.staff_home_v1(uuid) is
+  'Cascade Staff home (SPEC-36, S77, D-319, S82): calendar with block_reason/block_label, day_flags, current/next guest with returning marker and notes, open system-check warnings with key/acknowledged/facts, weather. Owner and admin sessions also get the current/next guest phone, e-mail and Messenger thread, companions (name, has_photo) and arrival_ready {id, paid, door_code} on every upcoming or in-house stay; never money; cleaners and other roles never get contact details, companions or arrival_ready (D-289).';
+
 commit;

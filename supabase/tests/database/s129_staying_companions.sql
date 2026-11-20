@@ -4,7 +4,15 @@
 -- as s79_staff_home_companions.sql does; the internal helper (no grant to any API role) is called as the postgres role with claims set, which is how staff_home_v1 (security definer, owned by postgres) calls it.
 -- Everything rolls back.
 begin;
-select plan(23);
+select plan(26);
+
+-- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite); staff_home_v1 as production has it: authenticated and service_role, not public or anon
+alter role service_role bypassrls;
+grant usage on schema public, auth to anon, authenticated, service_role;
+grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
+grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
+revoke all on function public.staff_home_v1(uuid) from public, anon;
+grant execute on function public.staff_home_v1(uuid) to authenticated, service_role;
 
 create function pg_temp.claims(p_sub text, p_role text) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', nullif(p_sub, ''), 'role', p_role, 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true);
@@ -26,12 +34,12 @@ select is((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'pu
 -- fixtures ---------------------------------------------------------------------------------------------------------------------------------------------
 insert into public.properties(id, name, is_active) values ('e1290010-0000-4000-8000-0000000000b0', 'Synthetic S129 Staying', true);
 insert into auth.users(id) values ('e1290010-0000-4000-8000-000000000011'), ('e1290010-0000-4000-8000-000000000012'), ('e1290010-0000-4000-8000-000000000013'), ('e1290010-0000-4000-8000-000000000014'),
-  ('e1290010-0000-4000-8000-000000000015'), ('e1290010-0000-4000-8000-000000000016'), ('e1290010-0000-4000-8000-000000000017'), ('e1290010-0000-4000-8000-000000000018'), ('e1290010-0000-4000-8000-000000000019');
--- 11 cleaner, 12 laundry, 13 admin, 14 owner, 15 cleaner disabled, 16 no staff profile, 17 inspector, 18 finance, 19 maintenance
+  ('e1290010-0000-4000-8000-000000000015'), ('e1290010-0000-4000-8000-000000000016'), ('e1290010-0000-4000-8000-000000000017'), ('e1290010-0000-4000-8000-000000000018'), ('e1290010-0000-4000-8000-000000000019'), ('e1290010-0000-4000-8000-000000000020');
+-- 11 cleaner, 12 laundry, 13 admin, 14 owner, 15 cleaner disabled, 16 no staff profile, 17 inspector, 18 finance, 19 maintenance, 20 cleaner active with no property access
 insert into public.staff_access_profiles(user_id, role, disabled_at) values
   ('e1290010-0000-4000-8000-000000000011', 'cleaner', null), ('e1290010-0000-4000-8000-000000000012', 'laundry', null), ('e1290010-0000-4000-8000-000000000013', 'admin', null),
   ('e1290010-0000-4000-8000-000000000014', 'owner', null), ('e1290010-0000-4000-8000-000000000015', 'cleaner', now()), ('e1290010-0000-4000-8000-000000000017', 'inspector', null),
-  ('e1290010-0000-4000-8000-000000000018', 'finance', null), ('e1290010-0000-4000-8000-000000000019', 'maintenance', null);
+  ('e1290010-0000-4000-8000-000000000018', 'finance', null), ('e1290010-0000-4000-8000-000000000019', 'maintenance', null), ('e1290010-0000-4000-8000-000000000020', 'cleaner', null);
 insert into public.staff_property_access(user_id, property_id) values
   ('e1290010-0000-4000-8000-000000000011', 'e1290010-0000-4000-8000-0000000000b0'), ('e1290010-0000-4000-8000-000000000012', 'e1290010-0000-4000-8000-0000000000b0'),
   ('e1290010-0000-4000-8000-000000000013', 'e1290010-0000-4000-8000-0000000000b0'), ('e1290010-0000-4000-8000-000000000015', 'e1290010-0000-4000-8000-0000000000b0');
@@ -81,6 +89,12 @@ select pg_temp.claims('e1290010-0000-4000-8000-000000000014', 'authenticated');
 select is(public.staff_home_v1('e1290010-0000-4000-8000-0000000000b0')->'next_guest'->'companions',
   '[{"name":"Zz S129 Cara","has_photo":true}]'::jsonb, 'owner: next guest companions, unchanged');
 
+-- refusals through staff_home_v1 (42501 from its read_operations gate): an active profile with no property access row, and a disabled profile that does have one -----------
+select pg_temp.claims('e1290010-0000-4000-8000-000000000020', 'authenticated');
+select throws_ok($$select public.staff_home_v1('e1290010-0000-4000-8000-0000000000b0')$$, '42501', null, 'an active cleaner with no staff_property_access row cannot read the staff home');
+select pg_temp.claims('e1290010-0000-4000-8000-000000000015', 'authenticated');
+select throws_ok($$select public.staff_home_v1('e1290010-0000-4000-8000-0000000000b0')$$, '42501', null, 'a disabled cleaner cannot read the staff home');
+
 -- direct calls to the helper as the postgres role with claims set (what staff_home_v1 does inside) ---------------------------------------------
 reset role;
 select pg_temp.claims('e1290010-0000-4000-8000-000000000015', 'authenticated');
@@ -108,6 +122,9 @@ select is(public.staff_home_v1('e1290010-0000-4000-8000-0000000000b0')->'next_gu
 select throws_ok($$select public.staff_guest_companions_v1('e1290010-0000-4000-8000-0000000000c1')$$, '42501', null, 'authenticated cannot call the helper directly');
 select set_config('role', 'anon', true);
 select throws_ok($$select public.staff_guest_companions_v1('e1290010-0000-4000-8000-0000000000c1')$$, '42501', null, 'anon cannot call the helper directly');
+select pg_temp.claims('', 'service_role');
+select set_config('role', 'service_role', true);
+select throws_ok($$select public.staff_guest_companions_v1('e1290010-0000-4000-8000-0000000000c1')$$, '42501', null, 'service_role cannot call the helper directly');
 reset role;
 
 select * from finish();
