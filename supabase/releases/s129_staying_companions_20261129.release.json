@@ -67,8 +67,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "Not rehearsed yet: no local Postgres in the SQL lane. The orchestrator rehearses on a restored production backup (migration, forward verification 5 of 5, pgTAP s129_staying_companions.sql 26/26 and s79_staff_home_companions.sql 20/20), then sets verified to true."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-20 10:02Z on restored production backup cascade-supabase-20261120T094540Z at source commit 7b38710: migration applied, forward verification 5 of 5, pgTAP s129_staying_companions.sql 26/26 and s79_staff_home_companions.sql 20/20, public tables 141 before and after. Live grants read the same day: staff_home_v1 authenticated and service_role only, staff_guest_companions_v1 postgres only. Old app builds ignore the companions key for non-admin roles; the 3.4.46 app works with the key absent."
   },
   "approvals": {
     "production_required": true,
