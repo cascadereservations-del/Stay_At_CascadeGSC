@@ -98,12 +98,13 @@ async function rateStep(db: Db, today: string): Promise<string> {
     if (g?.value?.day === today) return 'rate_step already ran today';
     const res = await fetch(RATE_URL, { headers: UA, signal: AbortSignal.timeout(20_000) });
     if (!res.ok) throw new Error(`rate_page_${res.status}`);
-    const rows = ratesFromTable(await res.text());
+    const { rows, seen } = ratesFromTable(await res.text());
     if (!rows.length) throw new Error('rate_page_no_rows');
     for (const r of rows) {
       const { error } = await db.rpc('utility_rate_record_auto_v1', { p_php_per_kwh: r.php_per_kwh, p_effective_from: r.effective_from, p_source_url: RATE_URL });
       if (error) throw new Error(`utility_rate_record_auto_v1: ${String(error.message).slice(0, 160)}`);
     }
+    if (seen > rows.length) { console.warn('power_watch_rate_cells_skipped', { parsed: rows.length, seen }); return `rate_step recorded ${rows.length} of ${seen} cells, retries next run`; }
     const at = new Date().toISOString();
     await db.from('app_settings').upsert({ key: RATE_DAY_KEY, value: { day: today, checked_at: at, rows: rows.length }, updated_at: at }, { onConflict: 'key' });
     return `rate_step recorded ${rows.length} rows, latest ${rows[rows.length - 1].php_per_kwh} from ${rows[rows.length - 1].effective_from}`;
