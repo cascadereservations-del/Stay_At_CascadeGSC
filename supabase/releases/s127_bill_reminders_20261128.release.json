@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "release_id": "s127_bill_reminders_20261128",
+  "phase": "expand",
+  "source": {
+    "branch": "s127/bill-reminders",
+    "commit": "COMMIT_PLACEHOLDER"
+  },
+  "migrations": [
+    "20261128000000_s127_bill_reminders.sql"
+  ],
+  "migration_sha256": {
+    "20261128000000_s127_bill_reminders.sql": "fec1289fa5ba9b502708ab2e96981cf8fbbbdaff688273a217b2dd3d8b833ea9"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "RESTORE_POINT_PLACEHOLDER",
+    "verified_at": "VERIFIED_AT_PLACEHOLDER",
+    "production_rule": "Monthly bill reminders and payment steps (Lloyd 2026-11-20, contract docs/s127/CONTRACT-B.md Lane B1 with Addendum 1). Adds the app_settings row bill_schedule (only if absent; account numbers, payee name, number and note are empty strings) with two restrictive policies that hide that key from anon and from every staff account but manage_staff; table utility_bills (RLS on, service_role only; one row per property, kind and period); bill_cfg_text_v1, bill_schedule_cfg_v1 and bill_json_v1 (internal, no grants); bill_due_open_v1 (opens the month's four rows from pay_day and returns the one nudge) and bill_step_v1 (Finance-gated pay, cancel, skip and paid with one transactions row, duplicate-screenshot refusal, amount band) for service_role only; extends transactions_source_check with 'bill' behind a guard (55000 on an unknown literal); and replaces today_bills_v1 in place behind an md5 guard (lane A body f7cfd2f8ddd001229df63601b636c5b7, this release 1f581c3b6ce841395c5e7d2cf6207936; 55000 when the live body is neither) adding the key 'due'. Every existing key, grant, security setting and search_path of today_bills_v1 is unchanged. notices_v1 is not changed: it already returns a reminder row with no source to every staff role."
+  },
+  "forward_verification": [
+    {
+      "name": "today_bills_v1_is_this_release",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '1f581c3b6ce841395c5e7d2cf6207936' from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "today_bills_v1_grants_unchanged",
+      "query": "select has_function_privilege('authenticated', 'public.today_bills_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.today_bills_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.today_bills_v1(uuid)', 'execute') and (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure)",
+      "expect": true
+    },
+    {
+      "name": "bill_functions_service_role_only",
+      "query": "select bool_and(has_function_privilege('service_role', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute')) from unnest(array['public.bill_due_open_v1(uuid,date)', 'public.bill_step_v1(uuid,text,bigint,text,jsonb)']) f",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_closed",
+      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.bill_cfg_text_v1(jsonb,text)', 'public.bill_schedule_cfg_v1()', 'public.bill_json_v1(public.utility_bills)']) f",
+      "expect": true
+    },
+    {
+      "name": "utility_bills_closed_to_api_roles",
+      "query": "select (select relrowsecurity from pg_class where oid = 'public.utility_bills'::regclass) and not has_table_privilege('anon', 'public.utility_bills', 'select,insert,update,delete') and not has_table_privilege('authenticated', 'public.utility_bills', 'select,insert,update,delete')",
+      "expect": true
+    },
+    {
+      "name": "settings_row_present_and_hidden",
+      "query": "select (select count(*) from public.app_settings where key = 'bill_schedule') = 1 and (select count(*) from pg_policies where schemaname = 'public' and tablename = 'app_settings' and policyname in ('app_settings_bill_schedule_closed_anon', 'app_settings_bill_schedule_closed_staff')) = 2",
+      "expect": true
+    },
+    {
+      "name": "source_check_has_bill",
+      "query": "select pg_get_constraintdef(oid) like '%''bill''%' from pg_constraint where conrelid = 'public.transactions'::regclass and conname = 'transactions_source_check'",
+      "expect": true
+    },
+    {
+      "name": "no_bill_rows_yet",
+      "query": "select (select count(*) from public.utility_bills) = 0 and (select count(*) from public.transactions where source = 'bill') = 0",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Until a bill is marked paid or a transaction with source 'bill' exists: the rollback script refuses after that, because it would drop ledger evidence. Before then: today_bills_v1 goes back to the lane A body, the new functions, table, policies and setting are removed, and transactions_source_check loses 'bill'.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261128_s127_bill_reminders.sql with run-sql-on-host.sh; today_bills_v1 must be back to md5 f7cfd2f8ddd001229df63601b636c5b7. Roll the edge functions and staff app back first (they call bill_step_v1 and the due key)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Old staff builds keep working: today_bills_v1 only gains the key due, which an old build ignores; the new functions are called only by new edge function code."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "EVIDENCE_PLACEHOLDER"
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the live md5 of today_bills_v1 is neither the lane A body nor this release (the migration stops with 55000)",
+    "the live transactions_source_check holds a literal the migration does not know (the migration stops with 55000)",
+    "the rehearsal has not run the migration and s127_bill_reminders.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
