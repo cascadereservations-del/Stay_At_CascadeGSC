@@ -15,7 +15,7 @@ grant usage on schema public, auth to anon, authenticated, service_role;
 grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role;
 grant execute on function public.current_staff_authorized(text, uuid) to authenticated, service_role;
 
-create function pg_temp.id(p text) returns uuid language sql immutable as $$ select ('e1270000-0000-4000-8000-00000000' || encode(convert_to(p, 'utf8'), 'hex'))::uuid $$;
+create function pg_temp.id(p text) returns uuid language sql immutable as $$ select ('e1270000-0000-4000-8000-0000000000' || p)::uuid $$;
 create function pg_temp.as_user(p_uid uuid) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', p_uid, 'role', 'authenticated', 'aal', 'aal1', 'iat', 1790000000)::text, true),
          set_config('role', 'authenticated', true);
@@ -150,8 +150,8 @@ insert into public.meter_readings(id, session_id, property_id, recorded_at, elec
   (pg_temp.id('c2'), null, pg_temp.id('b1'), timestamptz '2020-10-25 09:00+08', 1010, 1030, 51, 20, 2.0, null),
   (pg_temp.id('c3'), null, pg_temp.id('b1'), timestamptz '2020-11-05 09:00+08', 1030, 1085, 53, 55, 5.5, null),
   (pg_temp.id('cf'), null, pg_temp.id('b1'), timestamptz '2020-11-08 09:00+08', 1085, 1485, 58, 400, 40, 'misread'),
-  (pg_temp.id('cr'), null, pg_temp.id('b1'), timestamptz '2020-11-12 09:00+08', 1085, 1385, 58, 300, 30, 're_entry'),
-  (pg_temp.id('cq'), null, pg_temp.id('b1'), timestamptz '2020-11-14 09:00+08', 1085, 1385, 58, 300, 30, 'first_reading'),
+  (pg_temp.id('c7'), null, pg_temp.id('b1'), timestamptz '2020-11-12 09:00+08', 1085, 1385, 58, 300, 30, 're_entry'),
+  (pg_temp.id('c6'), null, pg_temp.id('b1'), timestamptz '2020-11-14 09:00+08', 1085, 1385, 58, 300, 30, 'first_reading'),
   (pg_temp.id('c4'), null, pg_temp.id('b1'), timestamptz '2020-11-20 09:00+08', 1085, 1115, 58, 30, 4.5, null),
   (pg_temp.id('c5'), null, pg_temp.id('b1'), timestamptz '2020-11-24 09:00+08', 1115, 1155, 63, 40, 4.0, null);
 insert into _t select 'e1120', public.utility_bill_estimate_v1(pg_temp.id('b1'), date '2020-11-20');
@@ -239,11 +239,11 @@ select ok((select (m -> 5 ->> 'kwh_so_far')::numeric = 10 and (m -> 5 ->> 'm3_so
 -- Chain-broken: hx 5 Nov, electric_prev 1300 where the chain ends at 1200 (a gap), 50 kWh / 5.0 m3: left out of every figure. Per day: h2 = 16-25 Oct = 10 days = 10 kWh and 1.0 m3 a day;
 -- h3 = 26-28 Oct = 3 days = 10 kWh and 2.0 m3 a day; h4 = 29 Oct-3 Nov = 6 days = 10 kWh and 1.0 m3 a day.
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
-  (pg_temp.id('h1'), null, pg_temp.id('b6'), timestamptz '2020-10-15 09:00+08', 1000, 1010, 5, 10, 1.0, null),
-  (pg_temp.id('h2'), null, pg_temp.id('b6'), timestamptz '2020-10-25 09:00+08', 1010, 1110, 6, 100, 10.0, null),
-  (pg_temp.id('h3'), null, pg_temp.id('b6'), timestamptz '2020-10-28 09:00+08', 1110, 1140, 16, 30, 6.0, null),
-  (pg_temp.id('h4'), null, pg_temp.id('b6'), timestamptz '2020-11-03 09:00+08', 1140, 1200, 22, 60, 6.0, null),
-  (pg_temp.id('hx'), null, pg_temp.id('b6'), timestamptz '2020-11-05 09:00+08', 1300, 1350, 28, 50, 5.0, null);
+  (pg_temp.id('11'), null, pg_temp.id('b6'), timestamptz '2020-10-15 09:00+08', 1000, 1010, 5, 10, 1.0, null),
+  (pg_temp.id('12'), null, pg_temp.id('b6'), timestamptz '2020-10-25 09:00+08', 1010, 1110, 6, 100, 10.0, null),
+  (pg_temp.id('13'), null, pg_temp.id('b6'), timestamptz '2020-10-28 09:00+08', 1110, 1140, 16, 30, 6.0, null),
+  (pg_temp.id('14'), null, pg_temp.id('b6'), timestamptz '2020-11-03 09:00+08', 1140, 1200, 22, 60, 6.0, null),
+  (pg_temp.id('15'), null, pg_temp.id('b6'), timestamptz '2020-11-05 09:00+08', 1300, 1350, 28, 50, 5.0, null);
 -- guests of Oct/Nov 2020: confirmed 10-14 Oct (nights 10, 11, 12, 13 = 4) and 31 Oct-4 Nov (nights 31 Oct, 1, 2, 3 Nov); a BLOCKED 20-25 Oct (5 nights) and a CANCELLED 26-28 Oct (2 nights) that must not count.
 insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date) values
   (pg_temp.id('b6'), 'zz127-p-1', 'airbnb', 'confirmed', 'Zzguest Pia', date '2020-10-10', date '2020-10-14'),
@@ -304,10 +304,10 @@ insert into public.meter_readings(id, session_id, property_id, recorded_at, elec
   (pg_temp.id('fb'), null, pg_temp.id('b3'), pg_temp.mes(3), 1000, 1150, 15, 150, 12.0, null),
   (pg_temp.id('fc'), null, pg_temp.id('b3'), pg_temp.mes(2), 1150, 1270, 27, 120, 6.0, null),
   (pg_temp.id('fd'), null, pg_temp.id('b3'), pg_temp.mes(1), 1270, 1360, 33, 90, 9.0, null),
-  (pg_temp.id('fm'), null, pg_temp.id('b3'), pg_temp.mes(1) - interval '10 days', 1360, 2359, 42, 999, 99, 'misread'),
+  (pg_temp.id('f1'), null, pg_temp.id('b3'), pg_temp.mes(1) - interval '10 days', 1360, 2359, 42, 999, 99, 'misread'),
   (pg_temp.id('f0'), null, pg_temp.id('b3'), (public.manila_today() + time '00:10') at time zone 'Asia/Manila', 1360, 1390, 70, 30, 3.0, null);
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
-  (pg_temp.id('fz'), pg_temp.id('e1'), pg_temp.id('b3'), (public.manila_today() + time '00:20') at time zone 'Asia/Manila', 1390, 1395, 73, 5, 0.5, null);
+  (pg_temp.id('f2'), pg_temp.id('e1'), pg_temp.id('b3'), (public.manila_today() + time '00:20') at time zone 'Asia/Manila', 1390, 1395, 73, 5, 0.5, null);
 -- stays that end on those days: Ana (m-1, linked airbnb reservation, ID photo with a face box, 1 night) and three calendar-only stays (no guest record): Cy (m-2, 3 nights), Dee (m-3, 3 nights), Eli (m-4, 2 nights).
 -- Not counted anywhere: a BLOCKED row on Ana's night (it sorts first by uid, so a missing status filter would pick it as her guest), a second blocked row (2 nights) and a cancelled row (2 nights) inside m-1.
 insert into public.guests(id, property_id, name) values (pg_temp.id('91'), pg_temp.id('b3'), 'Zzguest Ana');
@@ -326,7 +326,7 @@ insert into public.guest_companions(id, guest_id, property_id, name, id_photo_pa
 insert into public.app_settings(key, value) values ('power_watch_rate_day', '{"checked_at":"2026-11-20T08:00:00+08:00","note":"zz127"}'::jsonb);
 -- today's reading of its own property (b7): the first reading of its chain lands on today only, so today's cycle holds exactly 35 kWh and 3.5 m3 whatever day of the month it is
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
-  (pg_temp.id('r7'), null, pg_temp.id('b7'), (public.manila_today() + time '00:10') at time zone 'Asia/Manila', 2000, 2035, 3, 35, 3.5, null);
+  (pg_temp.id('17'), null, pg_temp.id('b7'), (public.manila_today() + time '00:10') at time zone 'Asia/Manila', 2000, 2035, 3, 35, 3.5, null);
 
 -- non-admin callers read the payload as themselves
 select pg_temp.as_user(pg_temp.id('a1'));
@@ -465,10 +465,10 @@ insert into public.cleaning_sessions(id, submission_id, cleaner_name, property_i
   (pg_temp.id('e3'), 'zz127-sub-e3', 'Zz127 Cleaner', pg_temp.id('b5'), timestamptz '2020-03-09 10:00+08', 2, date '2020-03-09', 'turnover'),
   (pg_temp.id('e4'), 'zz127-sub-e4', 'Zz127 Cleaner', pg_temp.id('b5'), timestamptz '2020-03-20 10:00+08', 2, date '2020-03-20', 'turnover');
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, electric_delta, water_delta, meter_flag) values
-  (pg_temp.id('g1'), pg_temp.id('e2'), pg_temp.id('b5'), timestamptz '2020-03-03 10:00+08', 100, 120, 5, 20, 1, null),
-  (pg_temp.id('g2'), pg_temp.id('e3'), pg_temp.id('b5'), timestamptz '2020-03-09 10:00+08', 120, 150, 6, 30, 2, null),
-  (pg_temp.id('g3'), pg_temp.id('e4'), pg_temp.id('b5'), timestamptz '2020-03-20 10:00+08', 150, 170, 8, 20, 1, null),
-  (pg_temp.id('g4'), null, pg_temp.id('b5'), timestamptz '2020-03-25 10:00+08', 170, 180, 9, 10, 1, null);
+  (pg_temp.id('01'), pg_temp.id('e2'), pg_temp.id('b5'), timestamptz '2020-03-03 10:00+08', 100, 120, 5, 20, 1, null),
+  (pg_temp.id('02'), pg_temp.id('e3'), pg_temp.id('b5'), timestamptz '2020-03-09 10:00+08', 120, 150, 6, 30, 2, null),
+  (pg_temp.id('03'), pg_temp.id('e4'), pg_temp.id('b5'), timestamptz '2020-03-20 10:00+08', 150, 170, 8, 20, 1, null),
+  (pg_temp.id('04'), null, pg_temp.id('b5'), timestamptz '2020-03-25 10:00+08', 170, 180, 9, 10, 1, null);
 insert into public.calendar_events(property_id, uid, source, status, guest_name, checkin_date, checkout_date) values
   (pg_temp.id('b5'), 'zz127-ev-g', 'airbnb', 'confirmed', 'Zzguest Gus', date '2020-03-04', date '2020-03-09');
 delete from public.utility_rates;
