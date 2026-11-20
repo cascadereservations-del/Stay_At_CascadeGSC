@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "release_id": "s129_staying_companions_20261129",
+  "phase": "expand",
+  "source": {
+    "branch": "s129/staying-companions-sql",
+    "commit": "e498ccc428a21f9763beb2584b1451752b1c58dc"
+  },
+  "migrations": [
+    "20261129000000_s129_staying_companions.sql"
+  ],
+  "migration_sha256": {
+    "20261129000000_s129_staying_companions.sql": "f581588d04342d1c1413e91631ce110f69e2bc7ee75f0b20b86b7d23b68a7318"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER: stamp with fill-restore-point.mjs at apply time",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Who is staying follows the guest record (Lloyd 2026-11-20, D-390, contract docs/s129/CONTRACT-staying.md SQL lane). Replaces ONE live body in place behind an md5 guard (CR stripped, 55000 when the live body is neither the original nor this release): public.staff_guest_companions_v1(uuid) (original ab34f947cec8caa410540216fd3b39f1, new f1dac1d94870fb2575343b796fb94485). The only change is the gate: any staff_access_profiles row for auth.uid() with disabled_at null, instead of role owner or admin. Output shape {\"companions\":[{name: staff_redact_v1(name), has_photo}]}, attributes (sql, stable, security definer, search_path empty) and grants (revoked from public, anon, authenticated, service_role; postgres only) are unchanged. No ID photo path, phone or e-mail leaves the function. Its only caller is staff_home_v1, which is NOT replaced (live md5 b85530233f55696b136e4a49d1ed255c must be the same after the release): current_guest and next_guest gain the key companions for every active staff role.",
+    "notes": "Roll the staff app back before the SQL. Restamp restore_point and verified_at with a fresh backup at apply time (the checker refuses one older than an hour)."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_staff_guest_companions_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'f1dac1d94870fb2575343b796fb94485' from pg_proc where oid = 'public.staff_guest_companions_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_companions_v1_attributes_unchanged",
+      "query": "select prosecdef and provolatile = 's' and proconfig = array['search_path=\"\"'] and prorettype = 'jsonb'::regtype from pg_proc where oid = 'public.staff_guest_companions_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_guest_companions_v1_postgres_only",
+      "query": "select not has_function_privilege('anon', 'public.staff_guest_companions_v1(uuid)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.staff_guest_companions_v1(uuid)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.staff_guest_companions_v1(uuid)'::regprocedure, 'execute')",
+      "expect": true
+    },
+    {
+      "name": "gate_has_no_role_list",
+      "query": "select prosrc !~ 'owner' and prosrc !~ 'admin' and prosrc ~ 'disabled_at is null' from pg_proc where oid = 'public.staff_guest_companions_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_staff_home_v1_unchanged",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'b85530233f55696b136e4a49d1ed255c' from pg_proc where oid = 'public.staff_home_v1(uuid)'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Always: the rollback only puts the owner/admin-only body back; no data is written by this release.",
+    "steps": [
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261129_s129_staying_companions.sql with run-sql-on-host.sh; staff_guest_companions_v1 must be back to md5 ab34f947cec8caa410540216fd3b39f1. Roll the staff app back first."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. The staff app works with the companions key absent (it shows the booker and typed names only) and uses it when present; an old build ignores it."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed yet: no local Postgres in the SQL lane. The orchestrator rehearses on a restored production backup (migration, forward verification 5 of 5, pgTAP s129_staying_companions.sql 23/23 and s79_staff_home_companions.sql 20/20), then sets verified to true."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the live md5 of staff_guest_companions_v1 is neither ab34f947cec8caa410540216fd3b39f1 nor f1dac1d94870fb2575343b796fb94485 (the migration stops with 55000)",
+    "the live md5 of staff_home_v1 is not b85530233f55696b136e4a49d1ed255c before or after the release",
+    "the rehearsal has not run the migration and s129_staying_companions.sql green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
