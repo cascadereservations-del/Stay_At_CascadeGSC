@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s129/staying-companions-sql",
-    "commit": "e498ccc428a21f9763beb2584b1451752b1c58dc"
+    "commit": "7b38710c9f004fac9e1609693aba82f80d620e7c"
   },
   "migrations": [
     "20261129000000_s129_staying_companions.sql"
   ],
   "migration_sha256": {
-    "20261129000000_s129_staying_companions.sql": "f581588d04342d1c1413e91631ce110f69e2bc7ee75f0b20b86b7d23b68a7318"
+    "20261129000000_s129_staying_companions.sql": "4731f36da3669cb3c14fc8afc8e877ae8ed29833ef2d047c7b8ff7e0d2f7688b"
   },
   "backup": {
     "required": true,
@@ -68,7 +68,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": false,
-    "evidence": "Not rehearsed yet: no local Postgres in the SQL lane. The orchestrator rehearses on a restored production backup (migration, forward verification 5 of 5, pgTAP s129_staying_companions.sql 23/23 and s79_staff_home_companions.sql 20/20), then sets verified to true."
+    "evidence": "Not rehearsed yet: no local Postgres in the SQL lane. The orchestrator rehearses on a restored production backup (migration, forward verification 5 of 5, pgTAP s129_staying_companions.sql 26/26 and s79_staff_home_companions.sql 20/20), then sets verified to true."
   },
   "approvals": {
     "production_required": true,
