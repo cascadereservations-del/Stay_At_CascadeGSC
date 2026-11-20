@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PLACEHOLDER: stamp with fill-restore-point.mjs at apply time",
-    "verified_at": "1970-01-01T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261120T110359Z",
+    "verified_at": "2026-11-20T11:08:12.882Z",
     "production_rule": "Who is staying follows the guest record (Lloyd 2026-11-20, D-390, contract docs/s129/CONTRACT-staying.md SQL lane). Replaces ONE live body in place behind an md5 guard (CR stripped, 55000 when the live body is neither the original nor this release): public.staff_guest_companions_v1(uuid) (original ab34f947cec8caa410540216fd3b39f1, new f1dac1d94870fb2575343b796fb94485). The only change is the gate: any staff_access_profiles row for auth.uid() with disabled_at null, instead of role owner or admin. Output shape {\"companions\":[{name: staff_redact_v1(name), has_photo}]}, attributes (sql, stable, security definer, search_path empty) and grants (revoked from public, anon, authenticated, service_role; postgres only) are unchanged. No ID photo path, phone or e-mail leaves the function. Its only caller is staff_home_v1, which is NOT replaced (live md5 b85530233f55696b136e4a49d1ed255c must be the same after the release): current_guest and next_guest gain the key companions for every active staff role.",
     "notes": "Roll the staff app back before the SQL. Restamp restore_point and verified_at with a fresh backup at apply time (the checker refuses one older than an hour)."
   },
