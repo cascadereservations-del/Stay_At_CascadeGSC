@@ -10,14 +10,14 @@
     "20261128000000_s127_bill_reminders.sql"
   ],
   "migration_sha256": {
-    "20261128000000_s127_bill_reminders.sql": "2e008eb825df10e60ec85d4e3432723b4587a3a93182b52a1e68d10edb6aee99"
+    "20261128000000_s127_bill_reminders.sql": "6785d3ecd77b35aca930124629ee9e4dfb2667df6e90c3b4414735ae2c751f1f"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "RESTORE_POINT_PLACEHOLDER",
     "verified_at": "VERIFIED_AT_PLACEHOLDER",
-    "production_rule": "Monthly bill reminders and bill payment in the Staff app (Lloyd 2026-11-20; contract docs/s127/CONTRACT-B-APP.md over CONTRACT-B.md Addenda 1 and 3; the actor is the signed-in staff user, no Telegram). Adds the app_settings row bill_schedule (only if absent; account numbers, payee name, number and note are empty strings) with two restrictive policies hiding that key from anon and every account but manage_staff; table utility_bills (RLS on, service_role only; paying_by and paid_by are auth user ids); 14 internal functions with no grants (bill_step_v1 core, bill_due_open_v1 opener, bill_daily_v1 daily job, bill_push_v1 and the config and entry helpers); eight functions granted to authenticated only, each gating on auth.uid() and the role inside the body: bill_pay_open_v1, bill_pay_settle_v1, bill_pay_cancel_v1, bill_pay_skip_v1, bill_proof_v1 (approve_payment), bill_schedule_get_v1, bill_schedule_set_v1 (manage_staff), and today_bills_v1 (read_operations); a pg_cron job bill-daily-0800-manila (00:00 UTC) calling bill_daily_v1(), which opens bills from the floor month 2026-11 (October 2026 stays closed) and writes one ops_notices reminder per bill, re-dated daily until paid or skipped; extends transactions_source_check with 'bill' behind a guard (55000 on an unknown literal; NOT VALID, then validated); and replaces today_bills_v1 in place behind an md5 guard (lane A body f7cfd2f8ddd001229df63601b636c5b7, this release 70302291441c8493c622ae66befe6b79; 55000 when the live body is neither) adding the key 'due' with can_pay. Every existing key, grant and search_path of today_bills_v1 is unchanged. Push: bill_push_v1 calls notify-staff-inbox when it is deployed; no edge function is built here."
+    "production_rule": "Monthly bill reminders and bill payment in the Staff app (Lloyd 2026-11-20; contract docs/s127/CONTRACT-B-APP.md over CONTRACT-B.md Addenda 1 and 3; the actor is the signed-in staff user, no Telegram). Adds the app_settings row bill_schedule (only if absent; account numbers, payee name, number and note are empty strings) with two restrictive policies hiding that key from anon and every account but manage_staff; table utility_bills (RLS on, service_role only; paying_by and paid_by are auth user ids); 13 internal functions with no grants (bill_step_v1 core, bill_due_open_v1 opener, bill_daily_v1 daily job and the config and entry helpers); eight functions granted to authenticated only, each gating on auth.uid() and the role inside the body: bill_pay_open_v1, bill_pay_settle_v1, bill_pay_cancel_v1, bill_pay_skip_v1, bill_proof_v1 (approve_payment), bill_schedule_get_v1, bill_schedule_set_v1 (manage_staff), and today_bills_v1 (read_operations); a pg_cron job bill-daily-0800-manila (00:00 UTC) calling bill_daily_v1() (active properties only; a property that raises is skipped with a warning and does not stop the others), which opens bills from the floor month 2026-11 (October 2026 stays closed) and writes one ops_notices reminder per bill, re-dated daily until paid or skipped; extends transactions_source_check with 'bill' behind a guard (55000 on an unknown literal; NOT VALID, then validated); and replaces today_bills_v1 in place behind an md5 guard (lane A body f7cfd2f8ddd001229df63601b636c5b7, this release 70302291441c8493c622ae66befe6b79; 55000 when the live body is neither) adding the key 'due' with can_pay. Every existing key, grant and search_path of today_bills_v1 is unchanged. It also replaces staff_pay_admin_settle_v1 in place behind an md5 guard (S81 body f1909b8b1a166188797a7d28688664fb, this release 9035d0051294fcef4ff538fd65517524; 55000 when the live body is neither): the body is unchanged except that a screenshot whose sha256 already paid a bill is refused with its existing duplicate_proof reason; grants, owner, security definer and search_path are unchanged. This release ships in-app notices only: no push is sent. Account, payee and note settings are read only by bill_pay_open_v1 and bill_schedule_get_v1; bill_json_v1 and every other reply carry none of them."
   },
   "forward_verification": [
     {
@@ -31,13 +31,23 @@
       "expect": true
     },
     {
+      "name": "staff_pay_admin_settle_v1_is_this_release",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '9035d0051294fcef4ff538fd65517524' from pg_proc where oid = 'public.staff_pay_admin_settle_v1(uuid,jsonb)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "staff_pay_admin_settle_v1_grants_unchanged",
+      "query": "select has_function_privilege('authenticated', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute') and not has_function_privilege('anon', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute') and not has_function_privilege('service_role', 'public.staff_pay_admin_settle_v1(uuid,jsonb)', 'execute') and (select prosecdef and proconfig = array['search_path=\"\"'] from pg_proc where oid = 'public.staff_pay_admin_settle_v1(uuid,jsonb)'::regprocedure)",
+      "expect": true
+    },
+    {
       "name": "bill_app_functions_authenticated_only",
       "query": "select bool_and(has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.bill_pay_open_v1(uuid)', 'public.bill_pay_settle_v1(uuid,jsonb)', 'public.bill_pay_cancel_v1(uuid)', 'public.bill_pay_skip_v1(uuid)', 'public.bill_proof_v1(uuid)', 'public.bill_schedule_get_v1(uuid,text)', 'public.bill_schedule_set_v1(uuid,text,jsonb)']) f",
       "expect": true
     },
     {
       "name": "internal_functions_closed",
-      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.bill_step_v1(uuid,text,uuid,text,jsonb)', 'public.bill_due_open_v1(uuid,date,text)', 'public.bill_daily_v1(date,uuid)', 'public.bill_push_v1(uuid,uuid)', 'public.bill_reply_v1(jsonb,uuid)', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', 'public.bill_pay_info_v1(jsonb,text,text)', 'public.bill_can_v1(uuid)', 'public.bill_actor_name_v1(uuid)', 'public.bill_json_v1(public.utility_bills)', 'public.bill_schedule_cfg_v1()', 'public.bill_cfg_one_v1(jsonb,text,jsonb,integer)', 'public.bill_cfg_day_v1(jsonb,integer)', 'public.bill_cfg_text_v1(jsonb,text)']) f",
+      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.bill_step_v1(uuid,text,uuid,text,jsonb)', 'public.bill_due_open_v1(uuid,date,text)', 'public.bill_daily_v1(date,uuid)', 'public.bill_reply_v1(jsonb,uuid)', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', 'public.bill_pay_info_v1(jsonb,text,text)', 'public.bill_can_v1(uuid)', 'public.bill_actor_name_v1(uuid)', 'public.bill_json_v1(public.utility_bills)', 'public.bill_schedule_cfg_v1()', 'public.bill_cfg_one_v1(jsonb,text,jsonb,integer)', 'public.bill_cfg_day_v1(jsonb,integer)', 'public.bill_cfg_text_v1(jsonb,text)']) f",
       "expect": true
     },
     {
@@ -68,11 +78,11 @@
   ],
   "rollback": {
     "strategy": "compensating",
-    "safe_until": "Until a bill is marked paid or a transaction with source 'bill' exists: the rollback script refuses after that, because it would drop ledger evidence. Before then: today_bills_v1 goes back to the lane A body, the new functions, table, policies and setting are removed, and transactions_source_check loses 'bill'.",
+    "safe_until": "Until a bill is marked paid or a transaction with source 'bill' exists: the rollback script refuses after that, because it would drop ledger evidence. Before then: today_bills_v1 goes back to the lane A body, staff_pay_admin_settle_v1 goes back to the S81 body (md5 f1909b8b1a166188797a7d28688664fb), the new functions, table, policies and setting are removed, and transactions_source_check loses 'bill'.",
     "steps": [
       {
         "name": "run_compensating_script",
-        "action": "apply supabase/rollbacks/20261128_s127_bill_reminders.sql with run-sql-on-host.sh; today_bills_v1 must be back to md5 f7cfd2f8ddd001229df63601b636c5b7 and the cron job bill-daily-0800-manila gone. Roll the Staff app back first (it calls the bill_pay_*, bill_proof_v1, bill_schedule_* functions and the due key)."
+        "action": "apply supabase/rollbacks/20261128_s127_bill_reminders.sql with run-sql-on-host.sh; today_bills_v1 must be back to md5 f7cfd2f8ddd001229df63601b636c5b7, staff_pay_admin_settle_v1 to md5 f1909b8b1a166188797a7d28688664fb and the cron job bill-daily-0800-manila gone. Roll the Staff app back first (it calls the bill_pay_*, bill_proof_v1, bill_schedule_* functions and the due key)."
       }
     ]
   },
@@ -98,6 +108,7 @@
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
     "the live md5 of today_bills_v1 is neither the lane A body nor this release (the migration stops with 55000)",
+    "the live md5 of staff_pay_admin_settle_v1 is neither the S81 body nor this release (the migration stops with 55000)",
     "the live transactions_source_check holds a literal the migration does not know (the migration stops with 55000)",
     "the rehearsal has not run the migration and s127_bill_reminders.sql green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed"

@@ -2,26 +2,28 @@
 -- Four monthly bills (electric, water, internet, netflix) get a row on their reminder day, a card in the Staff app (Today, To pay) and ONE proof-backed expense row when paid. Telegram is out of this release:
 -- the actor is the signed-in staff user (auth.uid()).
 --
---   app_settings 'bill_schedule'                inserted only when absent: reading_day 21, pay_day 27, nudge_day 28 and the four bills. Account numbers, payee name, number and note are EMPTY here; the release block fills them
+--   app_settings 'bill_schedule'                inserted only when absent: reading_day 21, pay_day 27 and the four bills. Account numbers, payee name, number and note are EMPTY here; the release block fills them
 --                                                from a local file. Every function below reads it through bill_schedule_cfg_v1 and falls back key by key (a key of the wrong JSON type never raises).
 --                                                A bill may carry remind_day (1..28; default pay_day): the day its row opens and the day it is due by.
 --   app_settings policies                       The key holds account numbers and a payee number, but its name does not look secret, so the existing anon / staff read policies would show it to anyone with the public key.
 --                                                Two RESTRICTIVE select policies hide that one key from anon and from every signed-in account except manage_staff (owner, admin). Every other key is untouched.
 --   transactions_source_check                   gains 'bill'. Rebuilt only after every literal the live check holds is shown to be in the known list, else 55000. Added NOT VALID, then validated in the same guarded block.
---   utility_bills                               one row per property, kind and month. service_role only. PAID is impossible without a stored screenshot or the typed override (utility_bills_paid_needs_proof).
+--   utility_bills                               one row per property, kind and month. service_role only. PAID is impossible without a stored screenshot (utility_bills_paid_needs_proof; a typed verdict exists only for a hand fix).
 --                                                paying_by / paid_by are the staff user ids, paying_by_name / paid_by_name the display names, proof_path the stored screenshot (private cleaning-photos bucket), notice_id the Today notice.
 --   Staff app functions (authenticated only; each checks the role in its body, else {ok:false, reason:'not_authorized'}):
 --     today_bills_v1(uuid)                      read_operations. The lane A body plus "due": [bill entry]. No account, payee or note data.
 --     bill_pay_open_v1 / bill_pay_settle_v1 / bill_pay_cancel_v1 / bill_pay_skip_v1 / bill_proof_v1     approve_payment (owner, admin, finance).
 --     bill_schedule_get_v1 / bill_schedule_set_v1                                                          manage_staff (owner, admin).
 --   internal (granted to nobody; the definer functions and the cron job run as the owner):
---     bill_step_v1 (core pay | cancel | skip | paid with the one transactions row), bill_due_open_v1, bill_daily_v1 (the 08:00 Manila job), bill_push_v1, bill_reply_v1, bill_entry_v1, bill_pay_info_v1,
+--     bill_step_v1 (core pay | cancel | skip | paid with the one transactions row), bill_due_open_v1, bill_daily_v1 (the 08:00 Manila job), bill_reply_v1, bill_entry_v1, bill_pay_info_v1,
 --     bill_can_v1, bill_actor_name_v1, bill_json_v1, bill_schedule_cfg_v1, bill_cfg_one_v1, bill_cfg_day_v1, bill_cfg_text_v1.
---   pg_cron job 'bill-daily-0800-manila'        0 0 * * * (00:00 UTC = 08:00 Manila). Opens the bills, writes the Today notices (ops_notices type reminder, source system, no amount: notices_v1 hides amounts), keeps unpaid ones dated
---                                                today, asks notify-staff-inbox for a push (same call ops_notices_push_trg makes). The first run never opens a month before 2026-11 (October stays closed).
+--   pg_cron job 'bill-daily-0800-manila'        0 0 * * * (00:00 UTC = 08:00 Manila). For every ACTIVE property (each in its own exception block: one that raises is skipped with a warning, the others still run) it opens the bills and writes
+--                                                the Today notices (ops_notices type reminder, source system, no amount: notices_v1 hides amounts), keeps unpaid ones dated today. In-app notices only: no push is sent by this release.
+--                                                The first run never opens a month before 2026-11 (October stays closed).
+--   staff_pay_admin_settle_v1                   replaced in place (S81 body plus ONE check): a screenshot that already paid a bill is duplicate_proof for a staff payment too. Same name, arguments, returns, refusals, grants, owner, search_path.
 -- notices_v1 is NOT changed: it returns every active ops_notices row (audience staff or all, not expired, dated today to 30 days ahead) to every role with read_operations, type 'reminder' as 'note'.
 -- Money rule: a read amount is accepted without a question only inside a band (fixed bills: amount .. amount + 50; meter bills: half .. double the estimate); outside it the answer is confirm_amount unless confirmed true.
--- Guard (55000, nothing changes): today_bills_v1 must be the lane A body or this release (md5 of prosrc, CR stripped).
+-- Guard (55000, nothing changes): today_bills_v1 must be the lane A body or this release, and staff_pay_admin_settle_v1 must be the S81 body or this release (md5 of prosrc, CR stripped).
 -- Rollback: supabase/rollbacks/20261128_s127_bill_reminders.sql (refuses once a bill is paid or a bill ledger row exists; puts the lane A today_bills_v1 back, unschedules the job, drops the new objects).
 
 begin;
@@ -34,11 +36,16 @@ begin
   if v is distinct from 'f7cfd2f8ddd001229df63601b636c5b7' and v is distinct from '70302291441c8493c622ae66befe6b79' then
     raise exception using errcode = '55000', message = 's127 bills: public.today_bills_v1(uuid) is neither the lane A body nor this release (md5 ' || coalesce(v, 'null') || '): re-cut it from the live body';
   end if;
+  -- the staff payment settle is replaced below with the S81 body plus one check: a live body nobody vendored is never overwritten
+  select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.staff_pay_admin_settle_v1(uuid,jsonb)');
+  if v is distinct from 'f1909b8b1a166188797a7d28688664fb' and v is distinct from '9035d0051294fcef4ff538fd65517524' then
+    raise exception using errcode = '55000', message = 's127 bills: public.staff_pay_admin_settle_v1(uuid, jsonb) is not the body this release was cut from (md5 ' || coalesce(v, 'null') || '): nothing was changed; re-cut the replacement from the live body';
+  end if;
 end $g$;
 
 -- 2. settings ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 insert into public.app_settings(key, value)
-select 'bill_schedule', '{"reading_day":21,"pay_day":27,"nudge_day":28,"bills":{"electric":{"label":"Electricity (SOCOTECO II)","account":"","account_name":""},"water":{"label":"Water (Gensan Water District)","account":"","account_name":""},"internet":{"label":"Internet","amount":1500,"pay_to_name":"","pay_to_number":"","note":""},"netflix":{"label":"Netflix","amount":449}}}'::jsonb
+select 'bill_schedule', '{"reading_day":21,"pay_day":27,"bills":{"electric":{"label":"Electricity (SOCOTECO II)","account":"","account_name":""},"water":{"label":"Water (Gensan Water District)","account":"","account_name":""},"internet":{"label":"Internet","amount":1500,"pay_to_name":"","pay_to_number":"","note":""},"netflix":{"label":"Netflix","amount":449}}}'::jsonb
  where not exists (select 1 from public.app_settings a where a.key = 'bill_schedule');
 
 -- the key is not anon-readable and not readable by cleaners: it holds account numbers (restrictive = ANDed with every permissive policy)
@@ -83,7 +90,6 @@ create table if not exists public.utility_bills (
   paid_at timestamptz, paid_by uuid references public.staff_access_profiles(user_id) on delete set null, paid_by_name text,
   txn_id uuid references public.transactions(id) on delete set null,
   notice_id uuid references public.ops_notices(id) on delete set null,
-  nudged_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (property_id, kind, period),
@@ -101,7 +107,7 @@ create trigger set_utility_bills_updated_at before update on public.utility_bill
 drop trigger if exists admin_audit_row on public.utility_bills;
 create trigger admin_audit_row after insert or update on public.utility_bills for each row execute function public.admin_audit_row_v1();
 comment on table public.utility_bills is
-  's127 bill reminders: one row per property, bill kind and month (period YYYY-MM, the month billed). estimate_php is what the card shows before payment; paid_php is what was actually paid, read from the proof screenshot (billers add a fee). PAID is impossible without a stored screenshot or the typed override.';
+  's127 bill reminders: one row per property, bill kind and month (period YYYY-MM, the month billed). estimate_php is what the card shows before payment; paid_php is what was actually paid, read from the proof screenshot (billers add a fee). PAID is impossible without a stored screenshot (a typed verdict exists only for a hand fix).';
 
 -- 5. internal helpers (granted to nobody) --------------------------------------------------------------------------------------------------------------------------------------------------
 -- a text setting: a non-blank JSON string, else the default
@@ -130,7 +136,7 @@ $$;
 create or replace function public.bill_schedule_cfg_v1()
 returns jsonb language sql stable set search_path = '' as $$
   select jsonb_build_object(
-    'reading_day', public.bill_cfg_day_v1(s.v -> 'reading_day', 21), 'pay_day', to_jsonb(s.pd), 'nudge_day', public.bill_cfg_day_v1(s.v -> 'nudge_day', 28),
+    'reading_day', public.bill_cfg_day_v1(s.v -> 'reading_day', 21), 'pay_day', to_jsonb(s.pd),
     'bills', jsonb_build_object(
       'electric', public.bill_cfg_one_v1(s.v #> '{bills,electric}', 'Electricity (SOCOTECO II)', null, s.pd),
       'water',    public.bill_cfg_one_v1(s.v #> '{bills,water}', 'Water (Gensan Water District)', null, s.pd),
@@ -140,14 +146,12 @@ returns jsonb language sql stable set search_path = '' as $$
             from (select coalesce((select x.value from public.app_settings x where x.key = 'bill_schedule' and jsonb_typeof(x.value) = 'object'), '{}'::jsonb) v) a) s;
 $$;
 
--- one bill with its settings text, for the daily job (never reaches an API role)
+-- one bill with its label and remind_day, for the core and the daily job (never reaches an API role). No account, payee, number or note: only bill_pay_open_v1 and bill_schedule_get_v1 read those.
 create or replace function public.bill_json_v1(b public.utility_bills)
 returns jsonb language sql stable set search_path = '' as $$
   select jsonb_build_object(
     'id', b.id, 'ref', b.ref, 'kind', b.kind, 'period', b.period, 'label', c -> 'bills' -> b.kind ->> 'label', 'status', b.status,
     'estimate_php', b.estimate_php, 'paid_php', b.paid_php, 'paid_at', b.paid_at, 'paid_by_name', b.paid_by_name, 'paying_by_name', b.paying_by_name,
-    'account', c -> 'bills' -> b.kind ->> 'account', 'account_name', c -> 'bills' -> b.kind ->> 'account_name',
-    'pay_to_name', c -> 'bills' -> b.kind ->> 'pay_to_name', 'pay_to_number', c -> 'bills' -> b.kind ->> 'pay_to_number', 'note', c -> 'bills' -> b.kind ->> 'note',
     'remind_day', (c -> 'bills' -> b.kind ->> 'remind_day')::integer)
     from (select public.bill_schedule_cfg_v1() c) x;
 $$;
@@ -198,43 +202,20 @@ returns jsonb language sql stable set search_path = '' as $$
   select case when p_res ? 'bill' then coalesce((select jsonb_set(p_res, '{bill}', public.bill_entry_v1(b, public.bill_schedule_cfg_v1(), true, auth.uid())) from public.utility_bills b where b.id = p_id), p_res) else p_res end;
 $$;
 
--- a web push for one notice: the same call ops_notices_push_trg makes. Only the Cascade property; where pg_net or the vault secret is absent (a rehearsal copy) nothing is sent; a failure never stops the caller.
-create or replace function public.bill_push_v1(p_property_id uuid, p_notice_id uuid)
-returns void language plpgsql security definer set search_path = '' as $$
-declare v_secret text;
-begin
-  if p_notice_id is null or p_property_id is distinct from '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd'::uuid
-     or to_regnamespace('net') is null or to_regclass('vault.decrypted_secrets') is null then return; end if;
-  begin
-    execute $q$select decrypted_secret from vault.decrypted_secrets where name = 'cascade_cron_shared_secret' limit 1$q$ into v_secret;
-    if coalesce(v_secret, '') <> '' then
-      perform net.http_post(
-        url := 'https://qkgfhsdppslwunarczeq.supabase.co/functions/v1/notify-staff-inbox',
-        headers := jsonb_build_object('Content-Type', 'application/json', 'x-cascade-cron-secret', v_secret),
-        body := jsonb_build_object('kind', 'notice', 'notice_id', p_notice_id),
-        timeout_milliseconds := 20000);
-    end if;
-  exception when others then
-    raise warning 'bill_push_v1: could not queue the notice push (%)', sqlstate;
-  end;
-end $$;
-
 -- 6. bill_due_open_v1 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
--- Each bill opens on its own remind_day (default pay_day): on or after it, this month's row; before it, the PREVIOUS month's missing row (catch-up for a run that missed the day; no nudge). p_min_period
+-- Each bill opens on its own remind_day (default pay_day): on or after it, this month's row; before it, the PREVIOUS month's missing row (catch-up for a run that missed the day). p_min_period
 -- (YYYY-MM) is a floor: no row is opened for an earlier month. The estimate of a meter bill is the forecast of the cycle that CLOSED in the month billed (that month's cycle day), not of the cycle that starts after it.
--- nudge = this month's rows still due or paying, once, on or after nudge_day and pay_day (stamps nudged_at); nothing in the Staff app uses it, the notice simply stays until the bill is paid or skipped.
+-- Returns {new: [bill...]}: the rows this call inserted. The notice of an unpaid bill simply stays on Today until the bill is paid or skipped (bill_daily_v1).
 create or replace function public.bill_due_open_v1(p_property_id uuid, p_on date, p_min_period text default null)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_cfg jsonb := public.bill_schedule_cfg_v1();
   v_ucfg jsonb := public.utility_billing_cfg_v1();
-  v_pay integer := (v_cfg ->> 'pay_day')::integer;
-  v_nudge integer := (v_cfg ->> 'nudge_day')::integer;
   v_day integer;
-  v_ids uuid[]; v_nids uuid[]; v_new jsonb; v_nud jsonb;
+  v_ids uuid[]; v_new jsonb;
 begin
   if p_property_id is null or p_on is null then
-    return jsonb_build_object('new', '[]'::jsonb, 'nudge', '[]'::jsonb);
+    return jsonb_build_object('new', '[]'::jsonb);
   end if;
   v_day := extract(day from p_on)::integer;
   perform pg_advisory_xact_lock(hashtextextended('bill_due_open:' || p_property_id::text, 0));
@@ -258,19 +239,8 @@ begin
   select array_agg(i.id) into v_ids from ins i;
   v_ids := coalesce(v_ids, '{}');
 
-  -- the one second nudge: this month's rows still unpaid that this call did not just open
-  if v_day >= v_nudge and v_day >= v_pay then
-    with n as (
-      update public.utility_bills b set nudged_at = now()
-       where b.property_id = p_property_id and b.period = to_char(p_on, 'YYYY-MM') and b.status in ('due', 'paying') and b.nudged_at is null and b.id <> all (v_ids)
-      returning b.id)
-    select array_agg(n.id) into v_nids from n;
-  end if;
-  v_nids := coalesce(v_nids, '{}');
-
   select coalesce(jsonb_agg(public.bill_json_v1(b) order by array_position(array['electric', 'water', 'internet', 'netflix'], b.kind)), '[]'::jsonb) into v_new from public.utility_bills b where b.id = any (v_ids);
-  select coalesce(jsonb_agg(public.bill_json_v1(b) order by array_position(array['electric', 'water', 'internet', 'netflix'], b.kind)), '[]'::jsonb) into v_nud from public.utility_bills b where b.id = any (v_nids);
-  return jsonb_build_object('new', v_new, 'nudge', v_nud);
+  return jsonb_build_object('new', v_new);
 end;
 $$;
 
@@ -278,13 +248,13 @@ $$;
 -- No role gate here: the Staff app functions below check approve_payment, then call it with auth.uid(). steps pay | cancel | skip | paid. paid writes the one transactions row (external_ref bill:<kind>:<period>, found again by that ref).
 -- While a bill is paying, only the person who tapped pay may settle or skip it (bad_step for anyone else). A screenshot that settled a staff payment cannot settle a bill (duplicate_proof).
 -- An existing ledger row for the ref is linked only when property, source 'bill' and amount all match; otherwise (and for a VOID row) 55000 with a plain message. A paid or skipped bill closes its Today notice.
--- p_proof: {file_unique_id, file_id, sha256, amount, reference, path, read, verdict:'read', confirmed?} or {typed:true, amount, verdict:'typed'} (no caller in the app sends typed; it stays for a hand fix).
+-- p_proof: {file_unique_id, file_id, sha256, amount, reference, path, read, verdict:'read', confirmed?}. A proof without sha256 and file_unique_id is bad_step.
 create or replace function public.bill_step_v1(p_id uuid, p_step text, p_actor_uid uuid, p_actor_name text, p_proof jsonb default null)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_b public.utility_bills%rowtype;
   v_actor text := coalesce(nullif(btrim(p_actor_name), ''), 'Finance');
-  v_typed boolean; v_amt numeric; v_other text; v_ref text; v_label text; v_txn uuid; v_verdict text;
+  v_amt numeric; v_other text; v_ref text; v_label text; v_txn uuid;
   v_t record; v_why text; v_con text;
 begin
   if p_actor_uid is null or p_step is null or p_step not in ('pay', 'cancel', 'skip', 'paid') then return jsonb_build_object('ok', false, 'reason', 'bad_step'); end if;
@@ -321,25 +291,22 @@ begin
     else -- 'paid'
       if v_b.status = 'skipped' then return jsonb_build_object('ok', false, 'reason', 'bad_step', 'bill', public.bill_json_v1(v_b)); end if;
       if p_proof is null or jsonb_typeof(p_proof) <> 'object' then return jsonb_build_object('ok', false, 'reason', 'bad_step', 'bill', public.bill_json_v1(v_b)); end if;
-      v_typed := coalesce(p_proof -> 'typed' = 'true'::jsonb, false) or coalesce(p_proof ->> 'verdict' = 'typed', false);
       v_amt := case jsonb_typeof(p_proof -> 'amount')
                  when 'number' then (p_proof ->> 'amount')::numeric
                  when 'string' then case when (p_proof ->> 'amount') ~ '^[0-9]{1,6}(\.[0-9]{1,2})?$' then (p_proof ->> 'amount')::numeric end
                end;
       v_amt := round(v_amt, 2);
       if v_amt is null or v_amt <= 0 or v_amt > 100000 then return jsonb_build_object('ok', false, 'reason', 'bad_amount'); end if;
-      if not v_typed and (coalesce(p_proof ->> 'sha256', '') = '' or coalesce(p_proof ->> 'file_unique_id', '') = '') then
+      if coalesce(p_proof ->> 'sha256', '') = '' or coalesce(p_proof ->> 'file_unique_id', '') = '' then
         return jsonb_build_object('ok', false, 'reason', 'bad_step', 'bill', public.bill_json_v1(v_b));
       end if;
-      if not v_typed then
-        select o.ref into v_other from public.utility_bills o
-         where o.id <> v_b.id and (o.proof_file_unique_id = p_proof ->> 'file_unique_id' or o.proof_sha256 = p_proof ->> 'sha256') limit 1;
-        if not found then -- a screenshot that settled a staff payment cannot settle a bill either
-          select o.ref into v_other from public.staff_pay_requests o
-           where o.proof_file_unique_id = p_proof ->> 'file_unique_id' or o.proof_sha256 = p_proof ->> 'sha256' limit 1;
-        end if;
-        if found then return jsonb_build_object('ok', false, 'reason', 'duplicate_proof', 'other_ref', v_other); end if;
+      select o.ref into v_other from public.utility_bills o
+       where o.id <> v_b.id and (o.proof_file_unique_id = p_proof ->> 'file_unique_id' or o.proof_sha256 = p_proof ->> 'sha256') limit 1;
+      if not found then -- a screenshot that settled a staff payment cannot settle a bill either (staff_pay_admin_settle_v1 refuses the reverse)
+        select o.ref into v_other from public.staff_pay_requests o
+         where o.proof_file_unique_id = p_proof ->> 'file_unique_id' or o.proof_sha256 = p_proof ->> 'sha256' limit 1;
       end if;
+      if found then return jsonb_build_object('ok', false, 'reason', 'duplicate_proof', 'other_ref', v_other); end if;
       -- amount band (Addendum 1): fixed bills amount .. amount + 50, meter bills half .. double the estimate; an unknown estimate has no band, so it always asks
       if coalesce(p_proof -> 'confirmed' = 'true'::jsonb, false) is false and not coalesce(
            case when v_b.kind in ('internet', 'netflix') then v_amt between v_b.estimate_php and v_b.estimate_php + 50
@@ -347,7 +314,6 @@ begin
         return jsonb_build_object('ok', false, 'reason', 'confirm_amount', 'read', v_amt);
       end if;
 
-      v_verdict := case when v_typed then 'typed' else 'read' end;
       v_ref := 'bill:' || v_b.kind || ':' || v_b.period;
       v_label := public.bill_schedule_cfg_v1() -> 'bills' -> v_b.kind ->> 'label';
       perform set_config('cascade.audit_reason', 'bill ' || v_b.ref || ' paid by ' || v_actor, true);
@@ -375,14 +341,14 @@ begin
       update public.utility_bills set
         status = 'paid', paid_php = v_amt, paid_at = now(), paid_by = p_actor_uid, paid_by_name = v_actor, txn_id = v_txn,
         paying_by = coalesce(paying_by, p_actor_uid), paying_by_name = coalesce(paying_by_name, v_actor), paying_at = coalesce(paying_at, now()),
-        proof_file_unique_id = case when v_typed then null else p_proof ->> 'file_unique_id' end,
-        proof_file_id = case when v_typed then null else nullif(p_proof ->> 'file_id', '') end,
-        proof_sha256 = case when v_typed then null else p_proof ->> 'sha256' end,
-        proof_path = case when v_typed then null else nullif(p_proof ->> 'path', '') end,
+        proof_file_unique_id = p_proof ->> 'file_unique_id',
+        proof_file_id = nullif(p_proof ->> 'file_id', ''),
+        proof_sha256 = p_proof ->> 'sha256',
+        proof_path = nullif(p_proof ->> 'path', ''),
         proof_amount = v_amt,
-        proof_reference = case when v_typed then null else nullif(p_proof ->> 'reference', '') end,
-        proof_read = jsonb_build_object('read', p_proof -> 'read', 'verdict', v_verdict),
-        proof_verdict = v_verdict
+        proof_reference = nullif(p_proof ->> 'reference', ''),
+        proof_read = jsonb_build_object('read', p_proof -> 'read', 'verdict', 'read'),
+        proof_verdict = 'read'
        where id = v_b.id returning * into v_b;
       exception when unique_violation then -- the sub-transaction undoes the ledger insert too
         get stacked diagnostics v_con = constraint_name;
@@ -605,10 +571,90 @@ begin
 end;
 $$;
 
+-- 10b. staff_pay_admin_settle_v1: the S81 body plus one check --------------------------------------------------------------------------------------------------------------------------
+-- A screenshot that already paid a bill (utility_bills.proof_sha256 = the server-side sha256) is refused with the existing duplicate_proof answer (other_ref = the bill ref), like the same screenshot used on another staff payment.
+-- Everything else is the S81 body unchanged. The guard in section 1 has already checked the live body; grants are restated in section 12.
+create or replace function public.staff_pay_admin_settle_v1(p_request_id uuid, p_proof jsonb) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare
+  c_prop constant uuid := '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
+  v_uid uuid := auth.uid();
+  v_r public.staff_pay_requests%rowtype;
+  v_path text; v_client_sha text; v_sha text; v_ref text; v_amt numeric; v_verdict text; v_other text; v_name text; v_res jsonb; v_prefix text;
+begin
+  if v_uid is null or not public.current_staff_authorized('approve_payment', c_prop) then
+    return jsonb_build_object('ok', false, 'reason', 'not_authorized');
+  end if;
+  select * into v_r from public.staff_pay_requests where id = p_request_id and property_id = c_prop for update;
+  if not found then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
+  if v_r.status not in ('paying', 'paid') then return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', v_r.status, 'ref', v_r.ref); end if;
+
+  if p_proof is null or jsonb_typeof(p_proof) <> 'object' then return jsonb_build_object('ok', false, 'reason', 'bad_proof'); end if;
+  v_path := btrim(coalesce(p_proof ->> 'path', ''));
+  v_client_sha := lower(coalesce(p_proof ->> 'sha256', ''));
+  v_ref := nullif(regexp_replace(upper(coalesce(p_proof ->> 'reference', '')), '[^A-Z0-9]', '', 'g'), '');
+  v_prefix := c_prop::text || '/' || v_uid::text || '/';
+  if (v_client_sha <> '' and v_client_sha !~ '^[0-9a-f]{64}$') or v_ref is null or char_length(v_ref) not between 4 and 64
+     or coalesce(jsonb_typeof(p_proof -> 'amount'), '') <> 'number' or char_length(v_path) not between 40 and 300
+     or left(v_path, length(v_prefix)) <> v_prefix or position('..' in v_path) > 0 then
+    return jsonb_build_object('ok', false, 'reason', 'bad_proof');
+  end if;
+  v_amt := round((p_proof ->> 'amount')::numeric, 2);
+  if v_amt <= 0 or v_amt > 10000000 then return jsonb_build_object('ok', false, 'reason', 'bad_proof'); end if;
+
+  -- stored proof: the object exists in the private bucket and upload-photo recorded the hash of the bytes it stored
+  select h.sha256 into v_sha from public.staff_upload_hashes h where h.path = v_path;
+  if v_sha is null or not exists (select 1 from storage.objects o where o.bucket_id = 'cleaning-photos' and o.name = v_path) then
+    return jsonb_build_object('ok', false, 'reason', 'no_stored_proof', 'ref', v_r.ref);
+  end if;
+  if v_client_sha <> '' and v_client_sha <> v_sha then return jsonb_build_object('ok', false, 'reason', 'sha_mismatch', 'ref', v_r.ref); end if;
+
+  if v_r.status = 'paid' then -- a retry after a lost answer: the same screenshot bytes means it already worked
+    if v_r.proof_sha256 = v_sha then return jsonb_build_object('ok', true, 'replay', true, 'status', 'paid', 'ref', v_r.ref, 'total', v_r.total_amount); end if;
+    return jsonb_build_object('ok', false, 'reason', 'not_paying', 'status', 'paid', 'ref', v_r.ref);
+  end if;
+  if v_r.paying_by_user_id is distinct from v_uid then
+    return jsonb_build_object('ok', false, 'reason', 'not_your_payment', 'paying_by_name', v_r.paying_by_name, 'ref', v_r.ref);
+  end if;
+
+  select o.ref into v_other from public.staff_pay_requests o
+   where o.id <> v_r.id and (o.proof_sha256 = v_sha or o.proof_file_unique_id = 'web:' || v_path or o.proof_reference = v_ref) limit 1;
+  if not found then -- s127: a screenshot that already paid a bill cannot settle a staff payment either
+    select b.ref into v_other from public.utility_bills b where b.proof_sha256 = v_sha limit 1;
+  end if;
+  if found then return jsonb_build_object('ok', false, 'reason', 'duplicate_proof', 'other_ref', v_other, 'ref', v_r.ref); end if;
+
+  if abs(v_amt - v_r.total_amount) < 0.5 then v_verdict := 'match';
+  elsif coalesce(p_proof ->> 'override', '') = 'true' then v_verdict := 'override';
+  else return jsonb_build_object('ok', false, 'reason', 'amount_mismatch', 'typed', v_amt, 'total', v_r.total_amount, 'ref', v_r.ref);
+  end if;
+
+  select coalesce(nullif(btrim(u.raw_app_meta_data ->> 'display_name'), ''), nullif(btrim(u.raw_user_meta_data ->> 'display_name'), ''),
+                  initcap(replace(split_part(coalesce(u.email, ''), '@', 1), '.', ' ')), 'Finance')
+    into v_name from auth.users u where u.id = v_uid;
+  v_name := left(coalesce(v_name, 'Finance'), 30) || ' via Staff app';
+
+  begin
+    v_res := public.staff_pay_settle_v1(v_r.id, null, v_name, v_verdict,
+      jsonb_build_object('file_unique_id', 'web:' || v_path, 'file_id', v_path, 'sha256', v_sha, 'amount', v_amt, 'reference', v_ref,
+                         'read', jsonb_build_object('source', 'staff_app', 'typed_by', v_uid)));
+  exception when unique_violation then
+    return jsonb_build_object('ok', false, 'reason', 'duplicate_proof', 'ref', v_r.ref);
+  end;
+  if coalesce((v_res ->> 'ok')::boolean, false) then
+    update public.staff_pay_requests
+       set proof_path = v_path, paid_by_user_id = v_uid, sent_said_at = coalesce(sent_said_at, now())
+     where id = v_r.id;
+  end if;
+  return v_res;
+end $$;
+
 -- 11. the daily job ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- Per property: on reading_day one notice "Meter reading due today (21st)"; bill_due_open_v1 opens the bills (never a month before 2026-11); each new bill gets ONE notice
--- "<Label> is due by the <day>." (no amount: notices_v1 hides amounts in notice text; the amount is on the To pay list); an unpaid bill's notice is dated today again so it stays on Today until the bill
--- is paid or skipped (bill_step_v1 closes it). A second run the same day writes nothing new. p_on and p_property_id exist for tests and hand runs; the job calls it with no arguments (today in Manila, all properties).
+-- "<Label> is due by the <day>." (a bill opened late for an earlier month: "<Label> is overdue."; no amount: notices_v1 hides amounts in notice text; the amount is on the To pay list); an unpaid bill's notice is dated today again so it stays on Today until the bill
+-- is paid or skipped (bill_step_v1 closes it). A second run the same day writes nothing new. p_on and p_property_id exist for tests and hand runs; the job calls it with no arguments (today in Manila, every ACTIVE property).
+-- Each property runs in its own exception block: one that raises is skipped with a warning (its id, no data) and its rows are rolled back; the others still run, and the counts cover only the ones that finished.
+-- shortcut: the ledger external_ref bill:<kind>:<period> carries no property, so it assumes ONE active property; add the property to the ref before a second one goes live.
 create or replace function public.bill_daily_v1(p_on date default null, p_property_id uuid default null)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -616,34 +662,39 @@ declare
   v_today date := coalesce(p_on, public.manila_today());
   v_cfg jsonb := public.bill_schedule_cfg_v1();
   v_read integer := (v_cfg ->> 'reading_day')::integer;
-  v_prop uuid; v_res jsonb; v_bill jsonb; v_nid uuid; v_title text; v_opened integer := 0; v_notices integer := 0;
+  v_prop uuid; v_res jsonb; v_bill jsonb; v_nid uuid; v_title text; v_opened integer := 0; v_notices integer := 0; v_po integer; v_pn integer;
 begin
-  for v_prop in select p.id from public.properties p where p_property_id is null or p.id = p_property_id order by p.id loop
-    if extract(day from v_today)::integer = v_read then
-      v_title := 'Meter reading due today (' || to_char(make_date(2001, 1, v_read), 'FMDDth') || ')';
-      if not exists (select 1 from public.ops_notices n where n.property_id = v_prop and n.notice_type = 'reminder' and n.source = 'system' and n.effective_date = v_today and n.title = v_title) then
-        insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
-        values (v_prop, 'reminder', v_title, 'Read the electricity and water meters.', v_today, 'system', 'staff') returning id into v_nid;
-        perform public.bill_push_v1(v_prop, v_nid);
-        v_notices := v_notices + 1;
+  for v_prop in select p.id from public.properties p where p.is_active and (p_property_id is null or p.id = p_property_id) order by p.id loop
+    begin
+      v_po := 0; v_pn := 0;
+      if extract(day from v_today)::integer = v_read then
+        v_title := 'Meter reading due today (' || to_char(make_date(2001, 1, v_read), 'FMDDth') || ')';
+        if not exists (select 1 from public.ops_notices n where n.property_id = v_prop and n.notice_type = 'reminder' and n.source = 'system' and n.effective_date = v_today and n.title = v_title) then
+          insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
+          values (v_prop, 'reminder', v_title, 'Read the electricity and water meters.', v_today, 'system', 'staff');
+          v_pn := v_pn + 1;
+        end if;
       end if;
-    end if;
 
-    v_res := public.bill_due_open_v1(v_prop, v_today, c_floor);
-    for v_bill in select e from jsonb_array_elements(v_res -> 'new') e loop
-      v_opened := v_opened + 1;
-      insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
-      values (v_prop, 'reminder', (v_bill ->> 'label') || ' is due by the ' || to_char(make_date(2001, 1, (v_bill ->> 'remind_day')::integer), 'FMDDth') || '.',
-              'See To pay on Today.', v_today, 'system', 'staff') returning id into v_nid;
-      update public.utility_bills set notice_id = v_nid where id = (v_bill ->> 'id')::uuid;
-      perform public.bill_push_v1(v_prop, v_nid);
-      v_notices := v_notices + 1;
-    end loop;
+      v_res := public.bill_due_open_v1(v_prop, v_today, c_floor);
+      for v_bill in select e from jsonb_array_elements(v_res -> 'new') e loop
+        v_po := v_po + 1;
+        v_title := case when (v_bill ->> 'period') < to_char(v_today, 'YYYY-MM') then (v_bill ->> 'label') || ' is overdue.'
+                        else (v_bill ->> 'label') || ' is due by the ' || to_char(make_date(2001, 1, (v_bill ->> 'remind_day')::integer), 'FMDDth') || '.' end;
+        insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
+        values (v_prop, 'reminder', v_title, 'See To pay on Today.', v_today, 'system', 'staff') returning id into v_nid;
+        update public.utility_bills set notice_id = v_nid where id = (v_bill ->> 'id')::uuid;
+        v_pn := v_pn + 1;
+      end loop;
 
-    -- an unpaid bill stays on Today: its one notice is dated today (notices_v1 ends a notice at the end of its date)
-    update public.ops_notices n set effective_date = v_today
-     where n.is_active and n.effective_date < v_today
-       and n.id in (select b.notice_id from public.utility_bills b where b.property_id = v_prop and b.status in ('due', 'paying') and b.notice_id is not null);
+      -- an unpaid bill stays on Today: its one notice is dated today (notices_v1 ends a notice at the end of its date)
+      update public.ops_notices n set effective_date = v_today
+       where n.is_active and n.effective_date < v_today
+         and n.id in (select b.notice_id from public.utility_bills b where b.property_id = v_prop and b.status in ('due', 'paying') and b.notice_id is not null);
+      v_opened := v_opened + v_po; v_notices := v_notices + v_pn;
+    exception when others then
+      raise warning 'bill_daily_v1: property % skipped (sqlstate %)', v_prop, sqlstate;
+    end;
   end loop;
   return jsonb_build_object('on', v_today, 'bills_opened', v_opened, 'notices_written', v_notices);
 end $$;
@@ -672,7 +723,6 @@ revoke all on function public.bill_can_v1(uuid) from public, anon, authenticated
 revoke all on function public.bill_pay_info_v1(jsonb, text, text) from public, anon, authenticated, service_role;
 revoke all on function public.bill_entry_v1(public.utility_bills, jsonb, boolean, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.bill_reply_v1(jsonb, uuid) from public, anon, authenticated, service_role;
-revoke all on function public.bill_push_v1(uuid, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.bill_due_open_v1(uuid, date, text) from public, anon, authenticated, service_role;
 revoke all on function public.bill_step_v1(uuid, text, uuid, text, jsonb) from public, anon, authenticated, service_role;
 revoke all on function public.bill_daily_v1(date, uuid) from public, anon, authenticated, service_role;
@@ -692,9 +742,12 @@ grant execute on function public.bill_proof_v1(uuid) to authenticated;
 grant execute on function public.bill_schedule_get_v1(uuid, text) to authenticated;
 grant execute on function public.bill_schedule_set_v1(uuid, text, jsonb) to authenticated;
 grant execute on function public.today_bills_v1(uuid) to authenticated;
+-- as S81 left it: authenticated only (the Staff app), the body checks approve_payment
+revoke all on function public.staff_pay_admin_settle_v1(uuid, jsonb) from public, anon, service_role;
+grant execute on function public.staff_pay_admin_settle_v1(uuid, jsonb) to authenticated;
 
-comment on function public.bill_due_open_v1(uuid, date, text) is 's127 bills: internal. Opens each bill on its remind_day (this month; before it, last month''s missing row) and returns {new, nudge}; a second call the same day returns nothing new. p_min_period is a floor.';
-comment on function public.bill_step_v1(uuid, text, uuid, text, jsonb) is 's127 bills: internal core of the Staff app pay functions. pay | cancel | skip | paid. paid needs a stored screenshot (sha256 + file_unique_id) or typed true, writes one transactions row bill:<kind>:<period>.';
+comment on function public.bill_due_open_v1(uuid, date, text) is 's127 bills: internal. Opens each bill on its remind_day (this month; before it, last month''s missing row) and returns {new}; a second call the same day returns nothing new. p_min_period is a floor.';
+comment on function public.bill_step_v1(uuid, text, uuid, text, jsonb) is 's127 bills: internal core of the Staff app pay functions. pay | cancel | skip | paid. paid needs a stored screenshot (sha256 + file_unique_id), writes one transactions row bill:<kind>:<period>.';
 comment on function public.bill_daily_v1(date, uuid) is 's127 bills: internal, run by pg_cron at 08:00 Manila. Opens the bills and writes the Today notices (one per bill per period). Never opens a month before 2026-11.';
 comment on function public.bill_pay_open_v1(uuid) is 's127 bills: approve_payment. Marks the bill paying by the caller; returns {ok, bill, pay:{payee_name, number_label, number, note, amount_php, amount_editable}, can_edit}. Refusals: not_authorized, not_found, already_paid, paying_by_other.';
 comment on function public.bill_pay_settle_v1(uuid, jsonb) is 's127 bills: approve_payment. p_proof {path, sha256, amount, confirmed}; one expense row. Refusals: not_authorized, not_found, already_paid, not_payer, bad_proof, no_stored_proof, sha_mismatch, duplicate_proof, bad_amount, confirm_amount.';
