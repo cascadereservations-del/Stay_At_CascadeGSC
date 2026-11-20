@@ -23,7 +23,7 @@
 // never over a guest, and only for ops_notices.source = socoteco (an NGCP or staff notice ends by its date or an Unblock). The feed is 20 posts deep.
 // Session 71 (Lloyd 2026-10-05): each post's publish time (date_gmt) rides with its posters. A NEWER post with a poster of the same substation and kind (filename PMS) for another date
 // supersedes the older date (plan.ts supersededBy): the older poster is never announced again, and a hold power-watch inserted is released with the Keep it blocked card (watch.ts).
-// s110 (D-358): once a day, rateStep reads the same feed for SOCOTECO's residential rate (rates.ts) and records it with utility_rate_record_auto_v1 for the KPI tab. Never a Telegram message.
+// s110 (D-358): once a day, rateStep reads the table on socoteco2.com/effective-rates for SOCOTECO's residential rates (rates.ts, s127) and records it with utility_rate_record_auto_v1 for the KPI tab. Never a Telegram message.
 // ?dry=1 decides and logs but writes, alerts and marks nothing.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
@@ -33,7 +33,7 @@ import { parseModelJson, visionExtractText } from '../_shared/cascade-core/visio
 import { isPowerPost, noticeFrom, OCR_PROMPT, postedAt, posterUrls, type Ocr } from './poster.ts';
 import { agreedRead, decisionKey, freeReads, freeTiebreaks, usable } from './free-read.ts';
 import { scheduleFrom, supersededBy, touchedNights } from './plan.ts';
-import { RATE_OCR_PROMPT, rateFromImageJson, rateFromPosts, rateImageCandidate } from './rates.ts';
+import { ratesFromTable } from './rates.ts';
 import { reportStuck, scanPosts, STUCK_AFTER } from './scan.ts';
 import { pruneStates, reconcile } from './watch.ts';
 
@@ -46,6 +46,7 @@ const MAX_READS = 4;   // poster reads per run; the rest wait for the next run
 const READ_BUDGET_MS = 90_000; // no new read after this, so the run saves its state before the platform's wall clock ends it
 const KEEP = 300;
 const RATE_DAY_KEY = 'power_watch_rate_day';
+const RATE_URL = 'https://www.socoteco2.com/effective-rates/';
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } });
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -90,29 +91,23 @@ async function mail(db: Db, subject: string, message: string): Promise<boolean> 
   return !!r?.ok;
 }
 
-/** Once a day: the residential rate from the posts already fetched (text first; ONE image read, only if a rate post has no figure in text and a read is left under the cap). Never throws, never sends a message. */
-async function rateStep(db: Db, all: Array<Record<string, unknown>>, today: string, readsLeft: number): Promise<string> {
+/** Once a day: the residential rates from the table on RATE_URL, one utility_rate_record_auto_v1 call per month (a repeat is a no-op, so the year backfills). A fetch failure or 0 rows is not marked, so the next hourly run retries. Never throws, never sends a message. */
+async function rateStep(db: Db, today: string): Promise<string> {
   try {
     const { data: g } = await db.from('app_settings').select('value').eq('key', RATE_DAY_KEY).maybeSingle();
     if (g?.value?.day === today) return 'rate_step already ran today';
-    let found = rateFromPosts(all);
-    if (!found) {
-      const c = rateImageCandidate(all);
-      if (c && readsLeft > 0) {
-        const img = await fetch(c.url, { headers: UA, signal: AbortSignal.timeout(30_000) });
-        if (!img.ok) throw new Error(`rate_poster_${img.status}`);
-        const bytes = new Uint8Array(await img.arrayBuffer());
-        const text = await visionExtractText(RATE_OCR_PROMPT, bytes, img.headers.get('content-type') ?? 'image/jpeg', 'Cascade Power Watch');
-        found = rateFromImageJson(parseModelJson(text.trim().replace(/^```(?:json)?\s*|\s*```$/g, ''), null), c.post);
-      } else if (c) return 'rate_step image waits for a free read'; // not marked: tomorrow's run, or the next once the cap allows
-    }
-    if (found) {
-      const { error } = await db.rpc('utility_rate_record_auto_v1', { p_php_per_kwh: found.php_per_kwh, p_effective_from: found.effective_from, p_source_url: found.source_url });
+    const res = await fetch(RATE_URL, { headers: UA, signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) throw new Error(`rate_page_${res.status}`);
+    const rows = ratesFromTable(await res.text());
+    if (!rows.length) throw new Error('rate_page_no_rows');
+    for (const r of rows) {
+      const { error } = await db.rpc('utility_rate_record_auto_v1', { p_php_per_kwh: r.php_per_kwh, p_effective_from: r.effective_from, p_source_url: RATE_URL });
       if (error) throw new Error(`utility_rate_record_auto_v1: ${String(error.message).slice(0, 160)}`);
     }
-    await db.from('app_settings').upsert({ key: RATE_DAY_KEY, value: { day: today }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-    return found ? `rate_step recorded ${found.php_per_kwh} from ${found.effective_from} (${found.via})` : 'rate_step: no rate post today';
-  } catch (e) { console.warn('power_watch_rate_step_failed', String(e).slice(0, 200)); return 'rate_step failed (see log)'; }
+    const at = new Date().toISOString();
+    await db.from('app_settings').upsert({ key: RATE_DAY_KEY, value: { day: today, checked_at: at, rows: rows.length }, updated_at: at }, { onConflict: 'key' });
+    return `rate_step recorded ${rows.length} rows, latest ${rows[rows.length - 1].php_per_kwh} from ${rows[rows.length - 1].effective_from}`;
+  } catch (e) { console.warn('power_watch_rate_step_failed', String(e).slice(0, 200)); return `rate_step failed, retries next run (${String(e).slice(0, 80)})`; }
 }
 
 async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
@@ -168,7 +163,7 @@ async function run(db: Db, dry: boolean): Promise<Record<string, unknown>> {
     if (pruned) results.push(`pruned ${pruned} old notice states`);
     await db.from('app_settings').upsert({ key: STATE_KEY, value: { done: state.done.slice(-KEEP), images: state.images.slice(-KEEP), ours: Object.fromEntries(Object.entries(state.ours).filter(([u]) => state.images.slice(-KEEP).includes(u))), fails: Object.fromEntries(Object.entries(state.fails).filter(([u]) => !state.images.includes(u) && sched.some((p) => p.posters.includes(u)))) }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
   }
-  if (!dry) results.push(await rateStep(db, all, today, MAX_READS - reads));
+  if (!dry) results.push(await rateStep(db, today));
   const out = {
     posts: posts.length, reads, dry, results, log, superseded: [...superseded.dates].map(([d, m]) => `${d}->${m.to}`), schedule: schedule ? { listed: [...schedule.listed].sort() } : null,
     found: found.map((n) => `${n.date} ${n.time ?? ''} ${n.hours ?? ''}h ${n.status} nights ${touchedNights(n.date, n.time, n.hours).join('+')}`),

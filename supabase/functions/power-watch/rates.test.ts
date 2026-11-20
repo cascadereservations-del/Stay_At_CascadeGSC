@@ -1,52 +1,31 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { effectiveFrom, isRatePost, rateFromImageJson, rateFromPosts, rateFromText, rateImageCandidate } from './rates.ts';
+import { ratesFromTable } from './rates.ts';
 
-const post = (title: string, body: string, extra = {}) => ({ id: 1, link: 'https://www.socoteco2.com/rate', date_gmt: '2026-11-03T02:00:00', title: { rendered: title }, content: { rendered: body }, ...extra });
+const VALUES: Array<[string, string]> = [['January', '10.7775'], ['February', '9.5339'], ['March', '10.0517'], ['April', '9.6999'], ['May', '9.7504'], ['June', '9.9983'],
+  ['July', '11.1634'], ['August', '9.5944'], ['September', '12.4968'], ['October', '12.6406'], ['November', '12.0508'], ['December', '']];
+const row = (m: string, v: string, o = '/kwh') => `<tr><td data-title="Month">${m} 2026</td><td data-title="Residential">${v ? v + o : ''}</td><td data-title="Low Voltage">${v ? '9.1' + o : ''}</td><td data-title="High Voltage"></td></tr>`;
+const page = (rows: string) => `<div class="rate-table"><table class="table"><tr><th>Month</th><th>Residential</th></tr>${rows}</table></div>`;
 
-Deno.test('common wordings give the total residential rate', () => {
-  assertEquals(rateFromText('Residential rate: P 12.3456/kWh'), 12.3456);
-  assertEquals(rateFromText('Residential rate ₱12.35 per kWh'), 12.35);
-  assertEquals(rateFromText('Generation charge 6.1234 per kWh. Total Rate (Residential): PHP 11.9876'), 11.9876);
-  assertEquals(rateFromText('TOTAL RATE ....... 13.01'), 13.01);
-  assertEquals(rateFromText('Overall rate for residential: Php 12.5/kWh'), 12.5);
+Deno.test('the 2026 table gives 11 rows with exact values and first-of-month dates; empty December is skipped', () => {
+  const got = ratesFromTable(page(VALUES.map(([m, v]) => row(m, v)).join('\n')));
+  assertEquals(got.length, 11);
+  assertEquals(got[0], { php_per_kwh: 10.7775, effective_from: '2026-01-01' });
+  assertEquals(got[10], { php_per_kwh: 12.0508, effective_from: '2026-11-01' });
+  assertEquals(got.map((r) => r.php_per_kwh), VALUES.slice(0, 11).map(([, v]) => Number(v)));
+  assertEquals(got.map((r) => r.effective_from.slice(5)), ['01-01', '02-01', '03-01', '04-01', '05-01', '06-01', '07-01', '08-01', '09-01', '10-01', '11-01']);
 });
 
-Deno.test('a component charge, an implausible figure or no figure is ignored', () => {
-  assertEquals(rateFromText('Generation charge 6.1234 per kWh, system loss 0.4'), null);
-  assertEquals(rateFromText('Total rate 120.5'), null);
-  assertEquals(rateFromText('Total rate 2.1'), null);
-  assertEquals(rateFromText('Residential rates are posted at our offices'), null);
-  // a single component listed under residential is not the total (s110 review)
-  assertEquals(rateFromText('Residential generation charge P 6.12/kWh'), null);
-  assertEquals(rateFromText('Residential: Generation charge 6.1200 per kWh; Transmission 1.2 per kWh'), null);
-  assertEquals(rateFromText('Residential Customers ₱12.35 per kWh'), null, 'no total wording');
-  assertEquals(rateFromText('Residential rate: system loss charge P 0.9/kWh'), null);
-  assertEquals(rateFromText('Residential generation rate 6.12. Residential rate P 12.4/kWh'), 12.4);
+Deno.test('attribute order, whitespace, case and a /kWh suffix in any case are tolerated', () => {
+  const html = `<TR>\n <td class="x" DATA-TITLE='Month' >  november  2026 </td>\n<TD data-title = "Residential" class="y"> <b>12.0508</b> / kWh </TD></TR>`;
+  assertEquals(ratesFromTable(html), [{ php_per_kwh: 12.0508, effective_from: '2026-11-01' }]);
 });
 
-Deno.test('the effective month is the one named, else the month of the post (Manila)', () => {
-  assertEquals(effectiveFrom('Rate for the month of November 2026', post('', '')), '2026-11-01');
-  assertEquals(effectiveFrom('October, 2026 billing', post('', '')), '2026-10-01');
-  assertEquals(effectiveFrom('no month here', post('', '', { date_gmt: '2026-10-31T17:00:00' })), '2026-11-01'); // 01:00 on 1 Nov in Manila
-  assertEquals(effectiveFrom('', {}), null);
+Deno.test('an out-of-range, unparsable or month-less row is skipped', () => {
+  assertEquals(ratesFromTable(page(row('March', '120.5') + row('April', '2.1') + row('May', 'n/a', '') + row('June', '9.9983'))), [{ php_per_kwh: 9.9983, effective_from: '2026-06-01' }]);
+  assertEquals(ratesFromTable('<tr><td data-title="Month">Total</td><td data-title="Residential">12.0/kwh</td></tr>'), []);
 });
 
-Deno.test('rateFromPosts skips advisories and posts that are not about rates, and takes the newest rate post', () => {
-  const advisory = post('NOTICE OF SCHEDULED POWER INTERRUPTIONS ON November 5, 2026', 'Residential rate 99.00');
-  const news = post('Plebiscite results', 'Nothing here');
-  const old = post('Rate Update for the Month of October 2026', 'Residential rate P 11.1111/kWh');
-  const fresh = post('Electricity Rate Update - November 2026', '<p>Total Rate (Residential): P 12.3456 per kWh</p>');
-  assertEquals(isRatePost(advisory), false);
-  assertEquals(rateFromPosts([advisory, news, fresh, old]), { php_per_kwh: 12.3456, effective_from: '2026-11-01', source_url: 'https://www.socoteco2.com/rate', via: 'text' });
-  assertEquals(rateFromPosts([advisory, news]), null);
-});
-
-Deno.test('an image-only rate post is the one vision candidate, and its answer is validated', () => {
-  const img = 'https://www.socoteco2.com/wp-content/uploads/2026/11/RATE-NOV-2026.jpg';
-  const p = post('Rate Update November 2026', `<img src="${img}">`);
-  assertEquals(rateImageCandidate([post('Rate Update', 'Total rate 12.5'), p])?.url, img);
-  assertEquals(rateImageCandidate([post('Rate Update', 'Total rate 12.5')]), null);
-  assertEquals(rateFromImageJson({ residential_total_php_per_kwh: 12.4, month: '2026-11' }, p)?.effective_from, '2026-11-01');
-  assertEquals(rateFromImageJson({ residential_total_php_per_kwh: 124, month: '2026-11' }, p), null);
-  assertEquals(rateFromImageJson({ residential_total_php_per_kwh: null }, p), null);
+Deno.test('HTML with no table gives []', () => {
+  assertEquals(ratesFromTable('<html><body><p>Effective rates coming soon</p></body></html>'), []);
+  assertEquals(ratesFromTable(''), []);
 });
