@@ -1,5 +1,6 @@
 -- Session 79 (lane B), TASKS #42: staff_home_v1 lists the people on the current and next stay (name, has_photo) for owner and admin
--- sessions only. Synthetic property e7a00000-...-b0 and guests; every lookup is scoped to them. Roles are impersonated with
+-- sessions only. s129 (D-390) widened that to every active staff profile: the cleaner section below now expects the same lists (the
+-- new suite s129_staying_companions.sql covers the other roles, a disabled profile and the direct-call refusal). Synthetic property e7a00000-...-b0 and guests; every lookup is scoped to them. Roles are impersonated with
 -- request.jwt.claims as calendar_day_flags.sql does. Everything rolls back.
 begin;
 select plan(20);
@@ -61,12 +62,15 @@ select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_gu
 select ok(jsonb_build_array(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions', public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|\.jpg)',
   'admin: no photo path and no ID type in the companions lists (the guest id_photo_path is the s78 ID box, unchanged)');
 
--- the cleaner: the key is absent --------------------------------------------------------------------------------------------
+-- the cleaner (s129: the same lists as the owner) --------------------------------------------------------------------------------------------
 select set_config('request.jwt.claims', json_build_object('sub','e7a00000-0000-4000-8000-000000000001','role','authenticated','aal','aal1','iat',extract(epoch from now())::bigint)::text, true);
 select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->>'uid', 'cascade-direct-e7a00000-0000-4000-8000-0000000000d1', 'cleaner: still sees the current stay');
-select ok(not (public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest' ? 'companions'), 'cleaner: no companions key on the current guest');
-select ok(not (public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest' ? 'companions'), 'cleaner: no companions key on the next guest');
-select ok(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')::text !~ '(Zz Sh First|Zz Sh Second|Zz Sh Third)', 'cleaner: no companion name anywhere in the payload');
+select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions',
+  '[{"name":"Zz Sh First","has_photo":false},{"name":"Zz Sh Second","has_photo":true}]'::jsonb, 'cleaner: current guest companions (s129, D-390)');
+select is(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions',
+  '[{"name":"Zz Sh Third","has_photo":true}]'::jsonb, 'cleaner: next guest companions (s129, D-390)');
+select ok(jsonb_build_array(public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest'->'companions', public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'next_guest'->'companions')::text !~ '(e7a00000-0000-4000-8000-0000000000e[23]|passport|national_id|.jpg)',
+  'cleaner: no photo path and no ID type in the companions lists');
 select ok(not (public.staff_home_v1('e7a00000-0000-4000-8000-0000000000b0')->'current_guest' ? 'phone'), 'cleaner: still no contact details');
 
 -- a guest with nobody on file, seen by an owner, gets an empty list (not an absent key) --------------------------------------
