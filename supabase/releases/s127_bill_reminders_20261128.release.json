@@ -10,19 +10,19 @@
     "20261128000000_s127_bill_reminders.sql"
   ],
   "migration_sha256": {
-    "20261128000000_s127_bill_reminders.sql": "bd25a7cddd93245a87455bd36c2eeb8d354b5644a3430cda52e01cd2e034f9e6"
+    "20261128000000_s127_bill_reminders.sql": "2e008eb825df10e60ec85d4e3432723b4587a3a93182b52a1e68d10edb6aee99"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "RESTORE_POINT_PLACEHOLDER",
     "verified_at": "VERIFIED_AT_PLACEHOLDER",
-    "production_rule": "Monthly bill reminders and payment steps (Lloyd 2026-11-20, contract docs/s127/CONTRACT-B.md Lane B1 with Addendum 1). Adds the app_settings row bill_schedule (only if absent; account numbers, payee name, number and note are empty strings) with two restrictive policies that hide that key from anon and from every staff account but manage_staff; table utility_bills (RLS on, service_role only; one row per property, kind and period); bill_cfg_text_v1, bill_schedule_cfg_v1 and bill_json_v1 (internal, no grants); bill_due_open_v1 (opens the month's four rows from pay_day and returns the one nudge) and bill_step_v1 (Finance-gated pay, cancel, skip and paid with one transactions row, only the person who tapped pay may settle or skip, duplicate-screenshot refusal also against staff payments, an existing ledger row linked only when property, source and amount match, amount band; bill_due_open_v1 also opens the previous month's missing rows before pay_day) for service_role only; extends transactions_source_check with 'bill' behind a guard (55000 on an unknown literal; added NOT VALID, then validated); and replaces today_bills_v1 in place behind an md5 guard (lane A body f7cfd2f8ddd001229df63601b636c5b7, this release fda3eee593ec93968cddfd039c5d81f9; 55000 when the live body is neither) adding the key 'due' (this month's rows plus every unpaid bill of any period, oldest first). Every existing key, grant, security setting and search_path of today_bills_v1 is unchanged. notices_v1 is not changed: it already returns a reminder row with no source to every staff role."
+    "production_rule": "Monthly bill reminders and bill payment in the Staff app (Lloyd 2026-11-20; contract docs/s127/CONTRACT-B-APP.md over CONTRACT-B.md Addenda 1 and 3; the actor is the signed-in staff user, no Telegram). Adds the app_settings row bill_schedule (only if absent; account numbers, payee name, number and note are empty strings) with two restrictive policies hiding that key from anon and every account but manage_staff; table utility_bills (RLS on, service_role only; paying_by and paid_by are auth user ids); 14 internal functions with no grants (bill_step_v1 core, bill_due_open_v1 opener, bill_daily_v1 daily job, bill_push_v1 and the config and entry helpers); eight functions granted to authenticated only, each gating on auth.uid() and the role inside the body: bill_pay_open_v1, bill_pay_settle_v1, bill_pay_cancel_v1, bill_pay_skip_v1, bill_proof_v1 (approve_payment), bill_schedule_get_v1, bill_schedule_set_v1 (manage_staff), and today_bills_v1 (read_operations); a pg_cron job bill-daily-0800-manila (00:00 UTC) calling bill_daily_v1(), which opens bills from the floor month 2026-11 (October 2026 stays closed) and writes one ops_notices reminder per bill, re-dated daily until paid or skipped; extends transactions_source_check with 'bill' behind a guard (55000 on an unknown literal; NOT VALID, then validated); and replaces today_bills_v1 in place behind an md5 guard (lane A body f7cfd2f8ddd001229df63601b636c5b7, this release 70302291441c8493c622ae66befe6b79; 55000 when the live body is neither) adding the key 'due' with can_pay. Every existing key, grant and search_path of today_bills_v1 is unchanged. Push: bill_push_v1 calls notify-staff-inbox when it is deployed; no edge function is built here."
   },
   "forward_verification": [
     {
       "name": "today_bills_v1_is_this_release",
-      "query": "select md5(replace(prosrc, chr(13), '')) = 'fda3eee593ec93968cddfd039c5d81f9' from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '70302291441c8493c622ae66befe6b79' from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -31,13 +31,13 @@
       "expect": true
     },
     {
-      "name": "bill_functions_service_role_only",
-      "query": "select bool_and(has_function_privilege('service_role', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute')) from unnest(array['public.bill_due_open_v1(uuid,date)', 'public.bill_step_v1(uuid,text,bigint,text,jsonb)']) f",
+      "name": "bill_app_functions_authenticated_only",
+      "query": "select bool_and(has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.bill_pay_open_v1(uuid)', 'public.bill_pay_settle_v1(uuid,jsonb)', 'public.bill_pay_cancel_v1(uuid)', 'public.bill_pay_skip_v1(uuid)', 'public.bill_proof_v1(uuid)', 'public.bill_schedule_get_v1(uuid,text)', 'public.bill_schedule_set_v1(uuid,text,jsonb)']) f",
       "expect": true
     },
     {
       "name": "internal_functions_closed",
-      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.bill_cfg_text_v1(jsonb,text)', 'public.bill_schedule_cfg_v1()', 'public.bill_json_v1(public.utility_bills)']) f",
+      "query": "select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute')) from unnest(array['public.bill_step_v1(uuid,text,uuid,text,jsonb)', 'public.bill_due_open_v1(uuid,date,text)', 'public.bill_daily_v1(date,uuid)', 'public.bill_push_v1(uuid,uuid)', 'public.bill_reply_v1(jsonb,uuid)', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', 'public.bill_pay_info_v1(jsonb,text,text)', 'public.bill_can_v1(uuid)', 'public.bill_actor_name_v1(uuid)', 'public.bill_json_v1(public.utility_bills)', 'public.bill_schedule_cfg_v1()', 'public.bill_cfg_one_v1(jsonb,text,jsonb,integer)', 'public.bill_cfg_day_v1(jsonb,integer)', 'public.bill_cfg_text_v1(jsonb,text)']) f",
       "expect": true
     },
     {
@@ -56,6 +56,11 @@
       "expect": true
     },
     {
+      "name": "daily_job_scheduled",
+      "query": "select to_regclass('cron.job') is null or exists (select 1 from cron.job where jobname = 'bill-daily-0800-manila' and schedule = '0 0 * * *' and command = 'select public.bill_daily_v1()')",
+      "expect": true
+    },
+    {
       "name": "no_bill_rows_yet",
       "query": "select (select count(*) from public.utility_bills) = 0 and (select count(*) from public.transactions where source = 'bill') = 0",
       "expect": true
@@ -67,14 +72,14 @@
     "steps": [
       {
         "name": "run_compensating_script",
-        "action": "apply supabase/rollbacks/20261128_s127_bill_reminders.sql with run-sql-on-host.sh; today_bills_v1 must be back to md5 f7cfd2f8ddd001229df63601b636c5b7. Roll the edge functions and staff app back first (they call bill_step_v1 and the due key)."
+        "action": "apply supabase/rollbacks/20261128_s127_bill_reminders.sql with run-sql-on-host.sh; today_bills_v1 must be back to md5 f7cfd2f8ddd001229df63601b636c5b7 and the cron job bill-daily-0800-manila gone. Roll the Staff app back first (it calls the bill_pay_*, bill_proof_v1, bill_schedule_* functions and the due key)."
       }
     ]
   },
   "feature_flags": [
     {
       "name": "no_flag_the_app_follows_the_sql",
-      "required_state": "None. Old staff builds keep working: today_bills_v1 only gains the key due, which an old build ignores; the new functions are called only by new edge function code."
+      "required_state": "None. Old staff builds keep working: today_bills_v1 only gains the key due, which an old build ignores; the new functions are called only by the new Staff app build."
     }
   ],
   "compatibility": {

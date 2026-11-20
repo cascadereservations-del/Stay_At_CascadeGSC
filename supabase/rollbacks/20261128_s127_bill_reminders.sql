@@ -1,14 +1,14 @@
--- Rollback of s127_bill_reminders_20261128: puts the lane A today_bills_v1 body back (md5 f7cfd2f8ddd001229df63601b636c5b7, CR stripped), drops the bill functions, the table and the setting, removes the two restrictive
--- app_settings policies and takes 'bill' out of transactions_source_check again.
+-- Rollback of s127_bill_reminders_20261128: unschedules the daily job, puts the lane A today_bills_v1 body back (md5 f7cfd2f8ddd001229df63601b636c5b7, CR stripped), drops the bill functions, the table and the setting,
+-- removes the Today notices the job wrote, removes the two restrictive app_settings policies and takes 'bill' out of transactions_source_check again.
 -- Refuses (55000, nothing changes) once a bill has been PAID or a transactions row with source 'bill' exists: the screenshots and the ledger rows would be orphaned. Delete those rows, or give them another source, by hand first (a void row would still hold the bill reference).
--- Roll the Telegram lane (waves) back first: it calls these functions. Grants restated as before this release.
+-- Roll the Staff app back first: it calls these functions. Grants restated as before this release.
 begin;
 
 do $g$
 declare v text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.today_bills_v1(uuid)');
-  if v is distinct from 'fda3eee593ec93968cddfd039c5d81f9' and v is distinct from 'f7cfd2f8ddd001229df63601b636c5b7' then
+  if v is distinct from '70302291441c8493c622ae66befe6b79' and v is distinct from 'f7cfd2f8ddd001229df63601b636c5b7' then
     raise exception using errcode = '55000', message = 'rollback s127 bills: public.today_bills_v1(uuid) is neither this release nor the lane A body (md5 ' || coalesce(v, 'null') || ')';
   end if;
   if to_regclass('public.utility_bills') is not null and exists (select 1 from public.utility_bills where status = 'paid') then
@@ -18,6 +18,13 @@ begin
     raise exception using errcode = '55000', message = 'rollback s127 bills: transactions rows with source bill exist; delete them or give them another source first';
   end if;
 end $g$;
+
+do $cron$
+begin
+  if to_regclass('cron.job') is not null and exists (select 1 from cron.job where jobname = 'bill-daily-0800-manila') then
+    perform cron.unschedule('bill-daily-0800-manila');
+  end if;
+end $cron$;
 
 create or replace function public.today_bills_v1(p_property_id uuid)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
@@ -37,10 +44,32 @@ $$;
 revoke all on function public.today_bills_v1(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.today_bills_v1(uuid) to authenticated;
 
-drop function if exists public.bill_step_v1(uuid, text, bigint, text, jsonb);
-drop function if exists public.bill_due_open_v1(uuid, date);
+-- the Today notices the daily job wrote (system reminders about bills and the meter reading)
+delete from public.ops_notices n
+ where n.source = 'system' and n.notice_type = 'reminder'
+   and (n.id in (select b.notice_id from public.utility_bills b where b.notice_id is not null)
+        or n.title like 'Meter reading due today (%' or n.description = 'See To pay on Today.');
+
+drop function if exists public.bill_schedule_set_v1(uuid, text, jsonb);
+drop function if exists public.bill_schedule_get_v1(uuid, text);
+drop function if exists public.bill_proof_v1(uuid);
+drop function if exists public.bill_pay_skip_v1(uuid);
+drop function if exists public.bill_pay_cancel_v1(uuid);
+drop function if exists public.bill_pay_settle_v1(uuid, jsonb);
+drop function if exists public.bill_pay_open_v1(uuid);
+drop function if exists public.bill_daily_v1(date, uuid);
+drop function if exists public.bill_step_v1(uuid, text, uuid, text, jsonb);
+drop function if exists public.bill_due_open_v1(uuid, date, text);
+drop function if exists public.bill_reply_v1(jsonb, uuid);
+drop function if exists public.bill_entry_v1(public.utility_bills, jsonb, boolean, uuid);
 drop function if exists public.bill_json_v1(public.utility_bills);
+drop function if exists public.bill_push_v1(uuid, uuid);
+drop function if exists public.bill_pay_info_v1(jsonb, text, text);
+drop function if exists public.bill_can_v1(uuid);
+drop function if exists public.bill_actor_name_v1(uuid);
 drop function if exists public.bill_schedule_cfg_v1();
+drop function if exists public.bill_cfg_one_v1(jsonb, text, jsonb, integer);
+drop function if exists public.bill_cfg_day_v1(jsonb, integer);
 drop function if exists public.bill_cfg_text_v1(jsonb, text);
 drop table if exists public.utility_bills;
 drop policy if exists app_settings_bill_schedule_closed_anon on public.app_settings;
