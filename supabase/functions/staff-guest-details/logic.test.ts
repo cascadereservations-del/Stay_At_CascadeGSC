@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
-import { cleanPhone, handle, parseRead, propose, type Deps, type OnFile, type Ops, type RpcOut, type Stay } from './logic.ts';
+import { cleanPhone, handle, noteChunks, parseRead, propose, type Deps, type OnFile, type Ops, type RpcOut, type Stay } from './logic.ts';
 
 const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0x4a, 0x46, 0xff, 0xda, 0, 2, 1, 2, 3, 0xff, 0xd9]);
 const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
@@ -228,6 +228,30 @@ Deno.test('G: save writes preferences, birthday and tags only through save_guest
   assertEquals(rec.profile, [[{ stay_preferences: 'Quiet room\nGround floor', birthday: '1990-05-17', tags: ['anniversary', 'vegetarian'] }, 5]]);
   assertEquals(rec.reason, 'Guest asked in chat');
   assertEquals(r2.companions.length + r2.uploads.length, 0);
+});
+
+Deno.test('s130: a preference line is skipped only when it equals a whole note on file; addressed notes do not hide a new one', async () => {
+  const run = async (onFile: string, sent: string) => {
+    const saved: Array<Record<string, unknown>> = [];
+    const { deps } = fake({}, { saveProfile: (_g, patch) => { saved.push(patch); return Promise.resolve({ data: { ok: true }, error: null }); } }, { ...GUEST2, stayPreferences: onFile });
+    const res = await handle(post({ action: 'save', guest_id: GID, stay_preferences: sent, expected_version: 5, reason: 'Guest asked in chat' }), deps);
+    return { status: res.status, prefs: saved.length ? saved[0].stay_preferences : undefined };
+  };
+  // The addressed note is dated today and holds the same words: the new note is still added.
+  assertEquals((await run('2026-10-14: Late check-out [addressed 2026-10-14]', '2026-10-14: Late check-out')).prefs, '2026-10-14: Late check-out [addressed 2026-10-14]\n2026-10-14: Late check-out');
+  // A note that is the start of another note is added.
+  assertEquals((await run('2026-10-14: Teapot please', '2026-10-14: Tea')).prefs, '2026-10-14: Teapot please\n2026-10-14: Tea');
+  // An exact repeat of a whole note (any case, notes joined with || or line breaks) writes nothing.
+  assertEquals((await run('2026-10-13: Quiet room || 2026-10-14: Late check-out', '2026-10-14: late CHECK-out')).prefs, undefined);
+  // Of several lines only the new ones are added, each once; what is on file is not rewritten.
+  assertEquals((await run('A note\n2026-10-14: Tea', '2026-10-14: Tea\n2026-10-14: Coffee\n2026-10-14: coffee')).prefs, 'A note\n2026-10-14: Tea\n2026-10-14: Coffee');
+  // Nothing on file: the text is stored as sent.
+  assertEquals((await run('', '2026-10-14: Tea || with milk')).prefs, '2026-10-14: Tea || with milk');
+  // propose(): open notes hide a repeat, addressed notes do not.
+  const chat = (t: string) => [{ image: null, read: { kind: 'chat' as const, names: [], phone: null, email: null, guests: null, nationality: null, stayPreferences: t, birthday: null, tags: [] } }];
+  assertEquals(propose(chat('Late check-out'), { ...GUEST2, stayPreferences: '2026-10-14: Late check-out' }).stay_preferences, null);
+  assertEquals(propose(chat('Late check-out'), { ...GUEST2, stayPreferences: '2026-10-14: Late check-out [addressed 2026-10-15] || 2026-10-01: Quiet room' }).stay_preferences, 'Late check-out');
+  assertEquals(noteChunks(' a || b\r\nc \n\n'), ['a', 'b', 'c']);
 });
 
 Deno.test('G: save refuses bad preference, birthday, tags, reason and version; old clients still work', async () => {

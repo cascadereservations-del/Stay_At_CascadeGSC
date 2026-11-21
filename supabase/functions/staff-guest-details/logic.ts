@@ -88,6 +88,12 @@ export function cleanPreferencesSave(v: unknown): string | null {
   const s = String(v ?? '').replace(CTRL, ' ').replace(/[ \t]+/g, ' ').trim();
   return s.length >= 1 && s.length <= 4000 ? s : null;
 }
+/** The notes held in a preferences text, one per element: the staff app joins notes with ' || ', older writers with a line break. */
+export function noteChunks(v: string | null | undefined): string[] {
+  return String(v ?? '').split(/\r?\n| \|\| /).map((x) => x.trim()).filter(Boolean);
+}
+/** A note the staff ticked "Addressed or fixed" ends in [addressed] or [addressed YYYY-MM-DD]. */
+const ADDRESSED = /\[addressed(?: \d{4}-\d{2}-\d{2})?\]$/i;
 /** Short lower-case labels: letters, digits, spaces and hyphens, 2 to 30 characters, no repeats. `max` caps the list. */
 export function cleanTags(v: unknown, max = 5, maxLen = 30): string[] {
   const out: string[] = [];
@@ -156,7 +162,8 @@ export function propose(reads: Array<{ image: number | null; read: Read }>, g: O
   }
   // Nothing is proposed that is already on file: an equal birthday, text already in the preferences, tags already held.
   if (p.birthday && p.birthday === g.birthday) p.birthday = null;
-  if (p.stay_preferences && (g.stayPreferences ?? '').toLowerCase().includes(p.stay_preferences.toLowerCase())) p.stay_preferences = null;
+  // Only OPEN notes count: a request that was addressed and comes back in a new chat is proposed again (s130).
+  if (p.stay_preferences && noteChunks(g.stayPreferences).filter((c) => !ADDRESSED.test(c)).join('\n').toLowerCase().includes(p.stay_preferences.toLowerCase())) p.stay_preferences = null;
   p.tags = p.tags.filter((t) => !(g.tags ?? []).some((x) => x.trim().toLowerCase() === t));
   return p;
 }
@@ -373,8 +380,12 @@ async function save(body: any, g: OnFile, ops: Ops, deps: Deps): Promise<Respons
   if (ownType) patch.id_type = ownType;
   if (prefs) {
     const have = (g.stayPreferences ?? '').trim();
-    const next = have && have.toLowerCase().includes(prefs.toLowerCase()) ? have : have ? `${have}
-${prefs}` : prefs;
+    // s130: a line is skipped only when it equals a whole note on file (any letter case), never because it appears inside one.
+    // So "Late check-out" is added again when the note on file is the addressed one, and "Tea" is not lost to "Teapot please".
+    const held = new Set(noteChunks(have).map((c) => c.toLowerCase())), lines = noteChunks(prefs);
+    const add = lines.filter((c) => { const k = c.toLowerCase(); if (held.has(k)) return false; held.add(k); return true; });
+    const fresh = add.length === lines.length ? prefs : add.join('\n');
+    const next = !add.length ? have : have ? `${have}\n${fresh}` : fresh;
     if (next !== have) { if (next.length > 4000) return fail('bad_field', 400); patch.stay_preferences = next; }
   }
   if (birthday && birthday !== g.birthday) patch.birthday = birthday;
