@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s131/meter-cycle",
-    "commit": "PENDING"
+    "commit": "42194baee493f39b06d46a21e5e76357006e4cbf"
   },
   "migrations": [
     "20261130000000_s131_meter_cycle.sql"
