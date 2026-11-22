@@ -5,8 +5,7 @@
 -- utility_reading_warn_v1 (30 kWh / 3 m3 edges, interpolation and run-on), the table checks, grants and the md5 guard of the migration (run against the migration file itself).
 -- Every expected value is hand-computed in the comment above its block. Synthetic fixtures only (uuids e1310000-..., properties ...b1 to ...b9, names "Zz S131 ..."). Today is faked INSIDE this transaction by replacing public.manila_today()
 -- (rolled back with everything else) so the Today card is checked on 22 and 26 November 2026. The rate table is cleared inside the transaction (a real backup holds real rows). calendar_events and generated columns are never inserted.
--- Nothing in this file can run without a Postgres that holds the Cascade schema: it is run by the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>). The md5 guard test reads the migration
--- file at /work/migrations/ (where the rehearsal mounts it); outside the rehearsal that one test fails by design.
+-- Nothing in this file can run without a Postgres that holds the Cascade schema: it is run by the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>).
 begin;
 select plan(61);
 
@@ -67,12 +66,12 @@ create function pg_temp.reg(n text, k text, prop text, per text) returns void la
   insert into _t select 'id_' || n, to_jsonb(pg_temp.bid(k, prop, per)::text)
 $$;
 create function pg_temp.bi(n text) returns uuid language sql stable as $$ select (v #>> '{}')::uuid from _t where k = 'id_' || n $$;
--- a stored screenshot: the object in the private bucket and the sha256 upload-photo recorded for it (repeat(sha, 64)); returns the path
-create function pg_temp.ph(prop text, usr text, nm text, sha text) returns text language plpgsql as $f$
+-- a stored screenshot: the object in the private bucket and the sha256 upload-photo recorded for it (md5(sha) || md5(sha || 'x')); returns the path
+create function pg_temp.ph(prop text, usr text, nm text, sha text) returns text language plpgsql security definer as $f$
 declare p text := pg_temp.id(prop)::text || '/' || pg_temp.id(usr)::text || '/' || nm;
 begin
   insert into storage.objects(bucket_id, name) values ('cleaning-photos', p);
-  insert into public.staff_upload_hashes(path, sha256) values (p, repeat(sha, 64));
+  insert into public.staff_upload_hashes(path, sha256) values (p, md5(sha) || md5(sha || 'x'));
   return p;
 end $f$;
 -- a settle proof for the bill's property and the admin a2: amount amt, plus any extra keys (reading_date, reading_value, confirmed)
@@ -129,7 +128,7 @@ insert into _t select 'e1', pg_temp.est('b1', date '2026-11-22');
 select ok((select v -> 'electric' = jsonb_build_object('cycle_from', '2026-10-21', 'cycle_to', '2026-11-21', 'days', 29, 'days_in_cycle', 32, 'kwh', 120.00, 'rate', 12, 'fixed_php', 5.60,
                    'so_far_php', 1445.60, 'forecast_kwh', 132.41, 'forecast_php', 1594.57, 'per_day_kwh', 4.14, 'per_day_php', 49.66,
                    'last_reading_at', (timestamptz '2026-11-19 09:00+08')::text, 'billed_month', '2026-11', 'overdue', true) from _t where k = 'e1')
-          or (select v -> 'electric' - 'last_reading_at' = jsonb_build_object('cycle_from', '2026-10-21', 'cycle_to', '2026-11-21', 'days', 29, 'days_in_cycle', 32, 'kwh', 120.00, 'rate', 12, 'fixed_php', 5.60,
+          or (select (v -> 'electric') - 'last_reading_at' = jsonb_build_object('cycle_from', '2026-10-21', 'cycle_to', '2026-11-21', 'days', 29, 'days_in_cycle', 32, 'kwh', 120.00, 'rate', 12, 'fixed_php', 5.60,
                    'so_far_php', 1445.60, 'forecast_kwh', 132.41, 'forecast_php', 1594.57, 'per_day_kwh', 4.14, 'per_day_php', 49.66, 'billed_month', '2026-11', 'overdue', true) from _t where k = 'e1'),
           'electric on 22 Nov with no paid bill: counts from the 21 Oct start, everything counted (120 kWh), expected end 21 Nov already passed (overdue), 32 days in the cycle, PHP 1445.60 so far, forecast 1594.57');
 select ok((select v -> 'water' = jsonb_build_object('cycle_from', '2026-10-21', 'cycle_to', '2026-11-21', 'days', 29, 'm3', 7.00, 'so_far_php', 212.00, 'forecast_m3', 7.72, 'forecast_php', 212.00, 'per_day_m3', 0.24,
@@ -166,7 +165,7 @@ insert into public.utility_bills(property_id, kind, period, estimate_php, status
 values (pg_temp.id('b2'), 'electric', '2026-10', 1000, 'paid', 1000, now(), 'Zz Admin', 'typed', date '2026-10-31');
 insert into public.utility_bills(property_id, kind, period, estimate_php, status, reading_date) values (pg_temp.id('b2'), 'water', '2026-11', 300, 'due', date '2026-11-10');
 insert into _t select 'p2', pg_temp.est('b2', date '2026-11-22');
-select ok((select v -> 'electric' - 'last_reading_at' = jsonb_build_object('cycle_from', '2026-10-31', 'cycle_to', '2026-11-30', 'days', 19, 'days_in_cycle', 30, 'kwh', 60.00, 'rate', 12, 'fixed_php', 5.60,
+select ok((select (v -> 'electric') - 'last_reading_at' = jsonb_build_object('cycle_from', '2026-10-31', 'cycle_to', '2026-11-30', 'days', 19, 'days_in_cycle', 30, 'kwh', 60.00, 'rate', 12, 'fixed_php', 5.60,
                    'so_far_php', 725.60, 'forecast_kwh', 94.74, 'forecast_php', 1142.44, 'per_day_kwh', 3.16, 'per_day_php', 37.89, 'billed_month', '2026-11', 'overdue', false) from _t where k = 'p2'),
           'paid electric bill with reading date 31 Oct: the cycle runs 31 Oct to 30 Nov, 60 kWh, PHP 725.60 so far, forecast 1142.44, not overdue');
 select ok((select (v -> 'water' ->> 'cycle_from') = '2026-10-21' and (v -> 'water' ->> 'm3')::numeric = 7.00 from _t where k = 'p2'),
@@ -435,15 +434,39 @@ select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'pu
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) = '80efd89e916bcd6107c681baf86f143f',
           'the callers this release does not replace (bill_due_open_v1, bill_daily_v1, kpi_admin_bills_v1, bill_step_v1, kpi_tab_v1) are byte for byte the s127 bodies');
 
--- 10. the md5 guard of the migration, run against the migration file itself (last: it breaks one function on purpose) -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
--- the guard block is cut out of the file the rehearsal mounted. On the current bodies (the migration just ran) it passes; with bill_schedule_cfg_v1 replaced by an unknown body it stops with 55000.
-create function pg_temp.guard_sql() returns text language sql as $$
-  select (regexp_match(pg_read_file('/work/migrations/20261130000000_s131_meter_cycle.sql'), '(do \$g\$.*?end \$g\$;)', 's'))[1]
-$$;
-select ok(pg_temp.guard_sql() is not null and pg_temp.guard_sql() like 'do $g$%' and pg_temp.try('do ' || quote_literal('begin null; end')) is not null, 'the guard block of the migration is found in the file');
-select ok(pg_temp.try(pg_temp.guard_sql()) = 'null'::jsonb, 'the guard passes on the bodies of this release');
+-- 10. the md5 guard of the migration (last: it breaks one function on purpose) ---------------------------------------------------------------------------------------------------------------------------------------------------
+-- The guard block below is a verbatim copy of the one at the top of 20261130000000_s131_meter_cycle.sql (the rehearsal's database role cannot read the mounted file, so it cannot be cut out of it; keep the two identical).
+-- On the current bodies (the migration just ran) it passes; with bill_schedule_cfg_v1 replaced by an unknown body it stops with 55000 and the message names the function.
+create function pg_temp.run_do(p text) returns jsonb language plpgsql as $f$
+begin
+  execute p;
+  return 'null'::jsonb;
+exception when others then
+  return jsonb_build_object('err', sqlstate, 'msg', sqlerrm);
+end $f$;
+create function pg_temp.guard_sql() returns text language sql as $gq$
+select $dq$do $g$
+declare v text; r record;
+begin
+  for r in select * from (values
+    ('public.utility_billing_default_v1()', '93765639cafb84ce5860de301a5ba0af', 'a392b40c92122706aac8074ee8f490d3'),
+    ('public.utility_billing_cfg_v1()', '29c5cc443923797670a7b66f51c86781', '20acb9bbe5965c08fa9b317aa9073636'),
+    ('public.utility_bill_estimate_v1(uuid,date)', 'f821ade80aafe63d00dc51f8c5700bf4', '563e61f417555730a9294df15c7eca7f'),
+    ('public.today_bills_v1(uuid)', '70302291441c8493c622ae66befe6b79', '7fca3fd12b7e372010f8f20b12c491a4'),
+    ('public.bill_pay_settle_v1(uuid,jsonb)', 'df687957b354441f0874fac73a53ee9d', '542aa826c034741a2886863ca069c396'),
+    ('public.bill_schedule_cfg_v1()', 'c8a259b8e8be8e2dd0b129e62bb8a68a', '14293a6c2efbc387a8d97240321ca839')
+  ) t(sig, m_old, m_new) loop
+    select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
+    if v is distinct from r.m_old and v is distinct from r.m_new then
+      raise exception using errcode = '55000', message = 's131: ' || r.sig || ' is neither the s127 body nor this release (md5 ' || coalesce(v, 'null') || '): re-cut it from the live body';
+    end if;
+  end loop;
+end $g$;$dq$::text
+$gq$;
+select ok(pg_temp.guard_sql() like 'do $g$%' and (select count(*) = 6 from regexp_matches(pg_temp.guard_sql(), '\(''public\.', 'g')), 'the guard block lists the six replaced functions');
+select ok(pg_temp.run_do(pg_temp.guard_sql()) = 'null'::jsonb, 'the guard passes on the bodies of this release');
 create or replace function public.bill_schedule_cfg_v1() returns jsonb language sql stable set search_path = '' as $$ select '{"unknown":true}'::jsonb $$;
-select ok(pg_temp.try(pg_temp.guard_sql()) ->> 'err' = '55000' and pg_temp.try(pg_temp.guard_sql()) ->> 'msg' like 's131: public.bill_schedule_cfg_v1()%neither the s127 body nor this release%',
+select ok(pg_temp.run_do(pg_temp.guard_sql()) ->> 'err' = '55000' and pg_temp.run_do(pg_temp.guard_sql()) ->> 'msg' like 's131: public.bill_schedule_cfg_v1()%neither the s127 body nor this release%',
           'the guard refuses with 55000 when a replaced function is an unknown body');
 
 select * from finish();

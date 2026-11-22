@@ -39,7 +39,23 @@ begin
   end loop;
 end $g$;
 
--- 2. new internal helpers (granted to nobody) -----------------------------------------------------------------------------------------------------------------------------------------------
+-- 2. the table: reading date and value of a paid meter bill -------------------------------------------------------------------------------------------------------------------------------
+alter table public.utility_bills add column if not exists reading_date date, add column if not exists reading_value numeric(12,2);
+do $c$
+begin
+  if not exists (select 1 from pg_constraint where conrelid = 'public.utility_bills'::regclass and conname = 'utility_bills_reading_value_check') then
+    alter table public.utility_bills add constraint utility_bills_reading_value_check check (reading_value is null or reading_value >= 0);
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.utility_bills'::regclass and conname = 'utility_bills_reading_meter_only') then
+    alter table public.utility_bills add constraint utility_bills_reading_meter_only check ((reading_date is null and reading_value is null) or kind in ('electric', 'water'));
+  end if;
+end $c$;
+-- one bill per reading day and meter: a reading date can close only one cycle
+create unique index if not exists utility_bills_reading_date_uq on public.utility_bills(property_id, kind, reading_date) where reading_date is not null;
+comment on column public.utility_bills.reading_date is 's131: the meter reading date printed on a PAID electric or water bill (required when it is paid from the Staff app). The next cycle of that meter starts the day after it.';
+comment on column public.utility_bills.reading_value is 's131: the present reading printed on the bill (kWh or m3 on the meter), optional.';
+
+-- 3. new internal helpers (granted to nobody) -----------------------------------------------------------------------------------------------------------------------------------------------
 -- a YYYY-MM-DD text as a date, null when it is not a real date (2026-02-31 is null, not an error)
 create or replace function public.utility_safe_date_v1(p_text text)
 returns date language plpgsql immutable set search_path = '' as $$
@@ -84,22 +100,6 @@ returns boolean language sql stable set search_path = '' as $$
             from (select 1) x left join a on true left join b on true)
   select coalesce(abs(p_value - est.e) > case p_kind when 'electric' then 30 else 3 end, false) from est;
 $$;
-
--- 3. the table: reading date and value of a paid meter bill -------------------------------------------------------------------------------------------------------------------------------
-alter table public.utility_bills add column if not exists reading_date date, add column if not exists reading_value numeric(12,2);
-do $c$
-begin
-  if not exists (select 1 from pg_constraint where conrelid = 'public.utility_bills'::regclass and conname = 'utility_bills_reading_value_check') then
-    alter table public.utility_bills add constraint utility_bills_reading_value_check check (reading_value is null or reading_value >= 0);
-  end if;
-  if not exists (select 1 from pg_constraint where conrelid = 'public.utility_bills'::regclass and conname = 'utility_bills_reading_meter_only') then
-    alter table public.utility_bills add constraint utility_bills_reading_meter_only check ((reading_date is null and reading_value is null) or kind in ('electric', 'water'));
-  end if;
-end $c$;
--- one bill per reading day and meter: a reading date can close only one cycle
-create unique index if not exists utility_bills_reading_date_uq on public.utility_bills(property_id, kind, reading_date) where reading_date is not null;
-comment on column public.utility_bills.reading_date is 's131: the meter reading date printed on a PAID electric or water bill (required when it is paid from the Staff app). The next cycle of that meter starts the day after it.';
-comment on column public.utility_bills.reading_value is 's131: the present reading printed on the bill (kWh or m3 on the meter), optional.';
 
 -- 4. settings (keys only when absent) -------------------------------------------------------------------------------------------------------------------------------------------------------
 update public.app_settings set value = jsonb_set(value, '{electric}', (value -> 'electric') || '{"open_from":"2026-10-21"}'::jsonb), updated_at = now()
