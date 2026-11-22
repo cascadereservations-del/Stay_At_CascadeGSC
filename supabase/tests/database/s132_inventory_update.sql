@@ -4,7 +4,7 @@
 -- Fixture rows and the reads run as the owner role (a --no-acl restore gives authenticated no table grants); only the RPC calls run as the staff roles.
 -- NOT RUN when it was written (the builder has no local Postgres): the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>) is the first run.
 begin;
-select plan(106);
+select plan(107);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -376,11 +376,21 @@ alter table public.inventory_items alter column qty_on_hand set not null;
 -- F11: an item that is controlled now but whose use has no movement: the undo writes one adjustment of removed_qty (the owner insert fills removed_qty 2 for a controlled item)
 insert into public.inventory_usage(item_id, used_qty, session_date, logged_by, notes, property_id, submitted_by_user_id)
 values (pg_temp.id('e3'), 2, public.manila_today(), 'Zz Tester', 'zz s132 nomove [key:zz-s132-use-nomv-aaaa-0001]', pg_temp.id('b1'), pg_temp.id('03'));
+-- F16: the use happened before the item became controlled (controlled at now(), the use 2 minutes earlier)
+update public.inventory_usage set created_at = now() - interval '2 minutes' where notes like '%zz-s132-use-nomv-aaaa-0001%';
 select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'nomv_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-nomv-aaaa-0001')); reset role;
 select ok((select (v ->> 'ok')::boolean from _t where k = 'nomv_undo') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('e3')) = 6
       and (select quantity_after from public.inventory_stock_movements where item_id = pg_temp.id('e3') order by sequence_no desc limit 1) = 6
       and exists (select 1 from public.inventory_stock_movements m where m.item_id = pg_temp.id('e3') and m.kind = 'adjustment' and m.reason like 'Undo usage%' and m.quantity_before = 4 and m.quantity_after = 6),
   'usage undo (controlled now, no movement for the use): one adjustment 4 -> 6 for removed_qty, shelf and ledger agree');
+-- F16: a use inserted AFTER control with no movement took nothing off the shelf: its undo restores 0
+insert into public.inventory_usage(item_id, used_qty, session_date, logged_by, notes, property_id, submitted_by_user_id)
+values (pg_temp.id('e3'), 2, public.manila_today(), 'Zz Tester', 'zz s132 nomove2 [key:zz-s132-use-nomv-aaaa-0002]', pg_temp.id('b1'), pg_temp.id('03'));
+update public.inventory_usage set created_at = now() + interval '1 minute' where notes like '%zz-s132-use-nomv-aaaa-0002%';
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'nomv2_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-nomv-aaaa-0002')); reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'nomv2_undo') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('e3')) = 6
+      and (select quantity_after from public.inventory_stock_movements where item_id = pg_temp.id('e3') order by sequence_no desc limit 1) = 6,
+  'usage undo (inserted after control, no movement): restores 0, shelf and ledger stay 6');
 -- F13: the first phase locks the usage rows
 select ok((select position('from public.inventory_usage where id = v_id for update' in replace(p.prosrc, chr(13), '')) > 0 from pg_proc p where p.oid = to_regprocedure('public.undo_inventory_usage_v1(text)')),
   'undo_inventory_usage_v1 locks the usage row (for update) before it checks and restores');

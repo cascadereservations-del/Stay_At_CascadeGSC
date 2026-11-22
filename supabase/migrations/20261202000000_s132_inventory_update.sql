@@ -28,6 +28,7 @@
 --   F10  get_usage_medians() (legacy, defined only in schemas/000) skips an undone row (md5 30168efb... -> eb605dd6...).
 --   F11  the undo changes no stock when the amount to put back is 0 or qty_on_hand is null; a controlled item with no movement for the use gets an adjustment of removed_qty.
 --   F12  record_inventory_usage is pinned (365f7c6d50258a611612465e4ad3624b) in the guard.   F13  the undo locks the usage rows (for update) in its first phase.
+-- Known limits (round 4): a pre-release row (removed_qty null) on an item that is controlled now and has no movement for it restores 0 and still returns ok (F17; managers only, rows older than 15 minutes).
 -- Known limits: a LIVE usage row that was clamped (used 3, shelf 1) still adds back used_qty in inventory_qty_at_v1 (the s99f limit; the tombstone add-back uses what was really taken); a direct REST insert as authenticated
 -- records a usage row but changes no stock (its undo restores 0).
 -- Round 2: record_inventory_usage is NOT patched: its gate has accepted report_supply since s110 (20261112000000; the body 365f7c6d... pinned by s122). The guard asserts it (55000 if the live body lacks report_supply) and the grants are restated.
@@ -388,8 +389,9 @@ begin
          and x.idempotency_key = left('evt-' || encode(extensions.digest('inventory_usage|' || u.id::text || '|' || u.item_id::text || '|usage', 'sha256'), 'hex'), 80);
       if found then
         v_delta := m.quantity_before - m.quantity_after;
-      elsif u.removed_qty is not null then
-        -- F11: the use was made while the item was not controlled yet (no movement for it); the shelf took removed_qty, so the ledger gets it back as an adjustment
+      elsif u.removed_qty is not null and u.created_at < (select i.movement_controlled_at from public.inventory_items i where i.id = u.item_id) then
+        -- F11/F16: the use was made BEFORE the item became controlled (no movement for it); the shelf took removed_qty, so the ledger gets it back as an adjustment.
+        -- A row inserted after control with no movement (only a direct owner/service insert can do that) took nothing off the shelf: it restores 0.
         v_delta := u.removed_qty;
       else
         v_delta := 0;

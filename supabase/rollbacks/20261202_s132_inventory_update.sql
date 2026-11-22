@@ -442,6 +442,10 @@ drop function if exists public.record_inventory_damage_v1(uuid, jsonb, text, uui
 drop function if exists public.s_inventory_purchase_note_v1(text);
 drop table if exists public.inventory_damage_reports;
 -- the usage tombstone: an undone usage row is what the first version of the undo deleted, so those rows go; then the trigger, its function and the three columns
+-- F15: the usage_undo audit rows carry the real before/after since round 3; the restored s99f inventory_qty_at_v1 has no tombstone term, so once the
+-- tombstones are deleted those deltas would count twice for a time before the use. Set before = after on them (the round-2 state the old body expects).
+update public.inventory_audit_log set before = jsonb_set(before, '{qty_on_hand}', after -> 'qty_on_hand')
+ where entity_type = 'inventory_items' and action = 'usage_undo' and jsonb_typeof(before -> 'qty_on_hand') = 'number' and jsonb_typeof(after -> 'qty_on_hand') = 'number';
 delete from public.inventory_usage where undone_at is not null;
 drop trigger if exists inventory_usage_removed_v1 on public.inventory_usage;
 drop function if exists public.s_inventory_usage_removed_v1();
