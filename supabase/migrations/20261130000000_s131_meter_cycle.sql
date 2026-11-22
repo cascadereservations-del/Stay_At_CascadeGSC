@@ -8,12 +8,19 @@
 --   today_bills_v1                    every key kept; adds water_since, waiting_for / water_waiting_for (month name once the expected reading day has passed), can_pay_list and check_bills.
 --                                     A role without approve_payment gets due = [] and check_bills = true from the electric or water remind day while this month's bill of that kind is not paid (or skipped).
 --   bill_schedule_cfg_v1              a bill with no stored remind_day opens on the 25th (was the pay day). The four stored bills get remind_day 25 only where they have none; pay_day (27) and every payee or account value are untouched.
---   bill_pay_settle_v1                electric and water need p_proof.reading_date (reading_date_required); it must be after the previous paid reading date (open_from while none) and not after Manila today (reading_date_invalid).
+--   bill_entry_v1                     due_day = the later of remind_day and pay_day: a bill opens on the 25th but stays due by the pay day (27th).
+--   bill_daily_v1                     the notice of a new bill reads "<Label> bill: due by the 27th." (the later of remind_day and pay_day; no "See To pay on Today.": cleaners have no To pay list now).
+--   bill_pay_settle_v1                electric and water need p_proof.reading_date (reading_date_required); it must be after the previous paid reading date of an earlier period (open_from while none), not before the 1st of the month before the billed period,
+--                                     and not after Manila today (reading_date_invalid). A meter bill is refused while an OLDER period bill of the same kind is still due or paying (older_bill_open).
 --                                     p_proof.reading_value is optional (>= 0, else reading_value_invalid). Both are stored on the row in the same call as the paid status. The answer adds reading_date and reading_warn (a typed
 --                                     reading more than 30 kWh / 3 m3 away from the meter log at that date; never blocks).
 --   internal helpers                  utility_safe_date_v1, utility_cfg_date_v1, utility_meter_from_v1, utility_reading_warn_v1 (granted to nobody).
--- Callers re-checked (ML-11): kpi_admin_bills_v1 and kpi_tab_v1 read the estimate for today and only keys that are kept; bill_due_open_v1 reads forecast_php of the cycle that closes in the billed month (p_on = that month's 21st), which is the
--- same cycle (from, from + 1 month] for the first bill and for every later one while the reading date is the 21st; bill_daily_v1 reads no estimate key. None of them is replaced.
+-- Callers re-checked (ML-11): kpi_admin_bills_v1 and kpi_tab_v1 read the estimate for today and only keys that are kept; bill_due_open_v1 reads forecast_php of the cycle that closes in the billed month (p_on = that month's 21st). That is the
+-- same cycle (from, from + 1 month] for the first bill, and for every later one only while the previous bill is paid before the next one opens (the reading date stays the 21st and the cycle stays one month). bill_due_open_v1 is not replaced.
+-- ACCEPTED KNOWN LIMIT: when the previous meter bill is still unpaid as the next one opens (the reading date has not moved), bill_due_open_v1 asks for the 21st of the next month and gets a forecast from the same open start, so the new bill's
+-- estimate counts use the older bill already covers (a double estimate on that one row). It is only an estimate on the row: the pay sheet asks the real amount, and settle refuses the newer bill until the older one is paid (older_bill_open).
+-- bill_daily_v1 reads no estimate key. kpi_tab_v1, kpi_admin_bills_v1, bill_due_open_v1 and bill_step_v1 are not replaced.
+-- Grants of bill_step_v1 (nobody) and bill_pay_open_v1 (authenticated only) are restated as s127 left them, so the read-back can prove an API role still cannot run the core. Neither body is touched.
 -- Guard (55000, nothing changes): each replaced function must be the s127 body or this release (md5 of prosrc, CR stripped). Grants restated (ML-21).
 -- Rollback: supabase/rollbacks/20261130_s131_meter_cycle.sql (refuses once a bill carries a reading date or value).
 
@@ -29,8 +36,10 @@ begin
     ('public.utility_billing_cfg_v1()', '29c5cc443923797670a7b66f51c86781', '20acb9bbe5965c08fa9b317aa9073636'),
     ('public.utility_bill_estimate_v1(uuid,date)', 'f821ade80aafe63d00dc51f8c5700bf4', '563e61f417555730a9294df15c7eca7f'),
     ('public.today_bills_v1(uuid)', '70302291441c8493c622ae66befe6b79', '7fca3fd12b7e372010f8f20b12c491a4'),
-    ('public.bill_pay_settle_v1(uuid,jsonb)', 'df687957b354441f0874fac73a53ee9d', '542aa826c034741a2886863ca069c396'),
-    ('public.bill_schedule_cfg_v1()', 'c8a259b8e8be8e2dd0b129e62bb8a68a', '14293a6c2efbc387a8d97240321ca839')
+    ('public.bill_pay_settle_v1(uuid,jsonb)', 'df687957b354441f0874fac73a53ee9d', 'ede3c0432079186f73b7db56900e6671'),
+    ('public.bill_schedule_cfg_v1()', 'c8a259b8e8be8e2dd0b129e62bb8a68a', '14293a6c2efbc387a8d97240321ca839'),
+    ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', '9fe4d8c1b506de6eb80a93d11301bdca', '64e749cf8ed30afc9c4475bcd398685a'),
+    ('public.bill_daily_v1(date,uuid)', '11146bc4e4577ed2e104ac119fb0b4a0', '91a6d8a62fafd25894310e522de23494')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -254,13 +263,70 @@ begin
 end;
 $$;
 
+-- a bill opens on remind_day (the 25th) but stays due by the pay day: due_day is the later of the two (s127 showed remind_day, which was the pay day until s131 moved the opening to the 25th)
+create or replace function public.bill_entry_v1(b public.utility_bills, p_cfg jsonb, p_approve boolean, p_uid uuid)
+returns jsonb language sql stable set search_path = '' as $$
+  select jsonb_build_object(
+    'id', b.id, 'kind', b.kind, 'label', p_cfg -> 'bills' -> b.kind ->> 'label', 'period', b.period, 'status', b.status,
+    'estimate_php', b.estimate_php, 'paid_php', b.paid_php, 'is_estimate', b.kind in ('electric', 'water'),
+    'due_day', greatest((p_cfg -> 'bills' -> b.kind ->> 'remind_day')::integer, (p_cfg ->> 'pay_day')::integer),
+    'paying_by_name', case when b.status = 'paying' then b.paying_by_name end,
+    'paid_by_name', case when b.status = 'paid' then b.paid_by_name end, 'paid_at', b.paid_at,
+    'can_pay', coalesce(p_approve, false) and (b.status = 'due' or (b.status = 'paying' and b.paying_by is not distinct from p_uid)));
+$$;
+
+-- the daily job: same as s127 except the notice of a new bill ("<Label> bill: due by the 27th.", no pointer to a To pay list that a cleaner no longer has)
+create or replace function public.bill_daily_v1(p_on date default null, p_property_id uuid default null)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  c_floor constant text := '2026-11'; -- the release month: October 2026 and earlier stay closed
+  v_today date := coalesce(p_on, public.manila_today());
+  v_cfg jsonb := public.bill_schedule_cfg_v1();
+  v_read integer := (v_cfg ->> 'reading_day')::integer;
+  v_prop uuid; v_res jsonb; v_bill jsonb; v_nid uuid; v_title text; v_opened integer := 0; v_notices integer := 0; v_po integer; v_pn integer;
+begin
+  for v_prop in select p.id from public.properties p where p.is_active and (p_property_id is null or p.id = p_property_id) order by p.id loop
+    begin
+      v_po := 0; v_pn := 0;
+      if extract(day from v_today)::integer = v_read then
+        v_title := 'Meter reading due today (' || to_char(make_date(2001, 1, v_read), 'FMDDth') || ')';
+        if not exists (select 1 from public.ops_notices n where n.property_id = v_prop and n.notice_type = 'reminder' and n.source = 'system' and n.effective_date = v_today and n.title = v_title) then
+          insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
+          values (v_prop, 'reminder', v_title, 'Read the electricity and water meters.', v_today, 'system', 'staff');
+          v_pn := v_pn + 1;
+        end if;
+      end if;
+
+      v_res := public.bill_due_open_v1(v_prop, v_today, c_floor);
+      for v_bill in select e from jsonb_array_elements(v_res -> 'new') e loop
+        v_po := v_po + 1;
+        v_title := case when (v_bill ->> 'period') < to_char(v_today, 'YYYY-MM') then (v_bill ->> 'label') || ' is overdue.'
+                        else (v_bill ->> 'label') || ' bill: due by the ' || to_char(make_date(2001, 1, greatest((v_bill ->> 'remind_day')::integer, (v_cfg ->> 'pay_day')::integer)), 'FMDDth') || '.' end;
+        insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
+        values (v_prop, 'reminder', v_title, '', v_today, 'system', 'staff') returning id into v_nid;
+        update public.utility_bills set notice_id = v_nid where id = (v_bill ->> 'id')::uuid;
+        v_pn := v_pn + 1;
+      end loop;
+
+      -- an unpaid bill stays on Today: its one notice is dated today (notices_v1 ends a notice at the end of its date)
+      update public.ops_notices n set effective_date = v_today
+       where n.is_active and n.effective_date < v_today
+         and n.id in (select b.notice_id from public.utility_bills b where b.property_id = v_prop and b.status in ('due', 'paying') and b.notice_id is not null);
+      v_opened := v_opened + v_po; v_notices := v_notices + v_pn;
+    exception when others then
+      raise warning 'bill_daily_v1: property % skipped (sqlstate %)', v_prop, sqlstate;
+    end;
+  end loop;
+  return jsonb_build_object('on', v_today, 'bills_opened', v_opened, 'notices_written', v_notices);
+end $$;
+
 -- pay a bill from the Staff app: a meter bill also takes its reading date and optional present reading
 create or replace function public.bill_pay_settle_v1(p_bill_id uuid, p_proof jsonb)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_uid uuid := auth.uid(); v_prop uuid; v_b public.utility_bills%rowtype; v_cfg jsonb; v_res jsonb;
   v_path text; v_client_sha text; v_sha text; v_prefix text;
-  v_rd date; v_rv numeric; v_prev date; v_warn boolean;
+  v_rd date; v_rv numeric; v_prev date; v_low date; v_warn boolean;
 begin
   select b.property_id into v_prop from public.utility_bills b where b.id = p_bill_id;
   if v_uid is null or not public.bill_can_v1(v_prop) then return jsonb_build_object('ok', false, 'reason', 'not_authorized'); end if;
@@ -272,17 +338,23 @@ begin
 
   if p_proof is null or jsonb_typeof(p_proof) <> 'object' then return jsonb_build_object('ok', false, 'reason', 'bad_proof'); end if;
   -- s131: a meter bill carries the reading date printed on it (required) and, optionally, the present reading. The date must move the cycle forward: later than the previous paid reading date
-  -- (the setting open_from while none is paid yet) and not after Manila today. Nothing is stored here; the row gets both only when the bill is paid, in this same call.
+  -- (the setting open_from while none is paid yet) of an EARLIER period, not before the 1st of the month before the billed period, and not after Manila today. Nothing is stored here; the row gets both only when the bill is paid, in this same call.
   if v_b.kind in ('electric', 'water') then
     perform pg_advisory_xact_lock(hashtextextended('bill_reading:' || v_b.property_id::text || ':' || v_b.kind, 0));
+    -- an older bill of the same meter that is still due or paying must be settled first: the cycle follows the bills in order
+    if exists (select 1 from public.utility_bills o where o.property_id = v_b.property_id and o.kind = v_b.kind and o.period < v_b.period and o.status not in ('paid', 'skipped')) then
+      return jsonb_build_object('ok', false, 'reason', 'older_bill_open');
+    end if;
     if jsonb_typeof(p_proof -> 'reading_date') is distinct from 'string' or btrim(p_proof ->> 'reading_date') = '' then
       return jsonb_build_object('ok', false, 'reason', 'reading_date_required');
     end if;
     v_rd := public.utility_safe_date_v1(btrim(p_proof ->> 'reading_date'));
-    v_prev := coalesce((select max(o.reading_date) from public.utility_bills o where o.property_id = v_b.property_id and o.kind = v_b.kind and o.status = 'paid' and o.reading_date is not null and o.id <> v_b.id),
+    v_prev := coalesce((select max(o.reading_date) from public.utility_bills o where o.property_id = v_b.property_id and o.kind = v_b.kind and o.status = 'paid' and o.reading_date is not null and o.period < v_b.period),
                        (public.utility_billing_cfg_v1() -> v_b.kind ->> 'open_from')::date);
-    if v_rd is null or v_rd <= v_prev or v_rd > public.manila_today() then
-      return jsonb_build_object('ok', false, 'reason', 'reading_date_invalid', 'after', v_prev);
+    -- not before the 1st of the month before the billed period (a bill for November is read in October or November)
+    v_low := (public.utility_safe_date_v1(v_b.period || '-01') - interval '1 month')::date;
+    if v_rd is null or v_rd <= v_prev or v_rd < v_low or v_rd > public.manila_today() then
+      return jsonb_build_object('ok', false, 'reason', 'reading_date_invalid', 'after', greatest(v_prev, v_low - 1));
     end if;
     if jsonb_typeof(p_proof -> 'reading_value') in ('number', 'string') and btrim(p_proof ->> 'reading_value') <> '' then
       v_rv := case when btrim(p_proof ->> 'reading_value') ~ '^[0-9]{1,10}(\.[0-9]{1,6})?$' then round(btrim(p_proof ->> 'reading_value')::numeric, 2) end;
@@ -327,14 +399,20 @@ revoke all on function public.utility_billing_default_v1() from public, anon, au
 revoke all on function public.utility_billing_cfg_v1() from public, anon, authenticated, service_role;
 revoke all on function public.bill_schedule_cfg_v1() from public, anon, authenticated, service_role;
 revoke all on function public.utility_bill_estimate_v1(uuid, date) from public, anon, authenticated, service_role;
+revoke all on function public.bill_entry_v1(public.utility_bills, jsonb, boolean, uuid) from public, anon, authenticated, service_role;
+revoke all on function public.bill_daily_v1(date, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.today_bills_v1(uuid) from public, anon, authenticated, service_role;
 grant execute on function public.today_bills_v1(uuid) to authenticated;
+-- not replaced, restated exactly as s127 left them (a no-op on production; it lets the read-back below prove them on a copy that carries no ACLs)
+revoke all on function public.bill_step_v1(uuid, text, uuid, text, jsonb) from public, anon, authenticated, service_role;
+revoke all on function public.bill_pay_open_v1(uuid) from public, anon, service_role;
+grant execute on function public.bill_pay_open_v1(uuid) to authenticated;
 revoke all on function public.bill_pay_settle_v1(uuid, jsonb) from public, anon, service_role;
 grant execute on function public.bill_pay_settle_v1(uuid, jsonb) to authenticated;
 
 comment on function public.utility_bill_estimate_v1(uuid, date) is 's131: internal. The open bill of each meter: from = the reading date of the newest paid bill of that kind (else the setting open_from), counted use from the day after it up to p_on, forecast to from + 1 month or p_on once that has passed. Keys cycle_from, cycle_to (= from + 1 month), days, days_in_cycle, billed_month (YYYY-MM) and overdue (p_on after cycle_to). Counted readings = meter_chain_v1.';
 comment on function public.today_bills_v1(uuid) is 's131: the electricity and water bill so far for the Today tab (since per meter, waiting_for / water_waiting_for month name once the expected reading day has passed) plus the bills to pay (due) for roles with approve_payment (can_pay_list true); other roles get due [] and check_bills (from the remind day while this month''s electric or water bill is not paid or skipped). Every active staff role of the property (read_operations); anyone else 42501.';
-comment on function public.bill_pay_settle_v1(uuid, jsonb) is 's131: approve_payment. p_proof {path, sha256, amount, confirmed, reading_date (required for electric and water), reading_value (optional)}; one expense row. Refusals: not_authorized, not_found, already_paid, not_payer, bad_proof, reading_date_required, reading_date_invalid, reading_value_invalid, no_stored_proof, sha_mismatch, duplicate_proof, bad_amount, confirm_amount. Adds reading_date and reading_warn.';
+comment on function public.bill_pay_settle_v1(uuid, jsonb) is 's131: approve_payment. p_proof {path, sha256, amount, confirmed, reading_date (required for electric and water), reading_value (optional)}; one expense row. Refusals: not_authorized, not_found, already_paid, not_payer, bad_proof, older_bill_open, reading_date_required, reading_date_invalid, reading_value_invalid, no_stored_proof, sha_mismatch, duplicate_proof, bad_amount, confirm_amount. Adds reading_date and reading_warn.';
 
 -- forward check ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 do $$
@@ -346,6 +424,9 @@ begin
   if has_function_privilege('anon', 'public.utility_bill_estimate_v1(uuid,date)', 'execute') or has_function_privilege('authenticated', 'public.utility_bill_estimate_v1(uuid,date)', 'execute') then raise exception 's131: an API role can run utility_bill_estimate_v1'; end if;
   if not has_function_privilege('authenticated', 'public.today_bills_v1(uuid)', 'execute') or not has_function_privilege('authenticated', 'public.bill_pay_settle_v1(uuid,jsonb)', 'execute') then raise exception 's131: authenticated lost a grant'; end if;
   if has_function_privilege('anon', 'public.today_bills_v1(uuid)', 'execute') or has_function_privilege('anon', 'public.bill_pay_settle_v1(uuid,jsonb)', 'execute') then raise exception 's131: anon can run a Staff app bill function'; end if;
+  if has_function_privilege('anon', 'public.bill_pay_open_v1(uuid)', 'execute') or has_function_privilege('anon', 'public.bill_step_v1(uuid,text,uuid,text,jsonb)', 'execute') or has_function_privilege('authenticated', 'public.bill_step_v1(uuid,text,uuid,text,jsonb)', 'execute') then raise exception 's131: an API role can run the bill core'; end if;
+  if has_function_privilege('anon', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', 'execute') or has_function_privilege('authenticated', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', 'execute')
+     or has_function_privilege('anon', 'public.bill_daily_v1(date,uuid)', 'execute') or has_function_privilege('authenticated', 'public.bill_daily_v1(date,uuid)', 'execute') then raise exception 's131: an API role can run bill_entry_v1 or bill_daily_v1'; end if;
 end $$;
 
 commit;

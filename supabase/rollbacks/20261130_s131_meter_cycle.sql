@@ -1,10 +1,12 @@
--- Rollback of s131_meter_cycle_20261130: puts the s127 bodies back (utility_billing_default_v1, utility_billing_cfg_v1, bill_schedule_cfg_v1, utility_bill_estimate_v1, today_bills_v1, bill_pay_settle_v1; md5s of the originals:
+-- Rollback of s131_meter_cycle_20261130: puts the s127 bodies back (utility_billing_default_v1, utility_billing_cfg_v1, bill_schedule_cfg_v1, utility_bill_estimate_v1, today_bills_v1, bill_pay_settle_v1, bill_entry_v1, bill_daily_v1; md5s of the originals:
 --   utility_billing_default_v1 93765639cafb84ce5860de301a5ba0af
 --   utility_billing_cfg_v1 29c5cc443923797670a7b66f51c86781
 --   utility_bill_estimate_v1 f821ade80aafe63d00dc51f8c5700bf4
 --   today_bills_v1 70302291441c8493c622ae66befe6b79
 --   bill_pay_settle_v1 df687957b354441f0874fac73a53ee9d
 --   bill_schedule_cfg_v1 c8a259b8e8be8e2dd0b129e62bb8a68a
+--   bill_entry_v1 9fe4d8c1b506de6eb80a93d11301bdca
+--   bill_daily_v1 11146bc4e4577ed2e104ac119fb0b4a0
 -- CR stripped), drops the four helpers this release adds, the reading_date / reading_value columns with their constraints and unique index, the open_from keys of utility_billing and the remind_day 25 this release stored.
 -- Refuses (55000, nothing changes) once any bill carries a reading date or value: those are real bill data and would be lost; clear them by hand first (and move the paid meter bills' cycles back with the Staff app rolled back first).
 -- Also refuses when a replaced function is neither this release's body nor the s127 body. Roll the Staff app back first: it sends reading_date. Grants restated as before this release.
@@ -19,8 +21,10 @@ begin
     ('public.utility_billing_cfg_v1()', '29c5cc443923797670a7b66f51c86781', '20acb9bbe5965c08fa9b317aa9073636'),
     ('public.utility_bill_estimate_v1(uuid,date)', 'f821ade80aafe63d00dc51f8c5700bf4', '563e61f417555730a9294df15c7eca7f'),
     ('public.today_bills_v1(uuid)', '70302291441c8493c622ae66befe6b79', '7fca3fd12b7e372010f8f20b12c491a4'),
-    ('public.bill_pay_settle_v1(uuid,jsonb)', 'df687957b354441f0874fac73a53ee9d', '542aa826c034741a2886863ca069c396'),
-    ('public.bill_schedule_cfg_v1()', 'c8a259b8e8be8e2dd0b129e62bb8a68a', '14293a6c2efbc387a8d97240321ca839')
+    ('public.bill_pay_settle_v1(uuid,jsonb)', 'df687957b354441f0874fac73a53ee9d', 'ede3c0432079186f73b7db56900e6671'),
+    ('public.bill_schedule_cfg_v1()', 'c8a259b8e8be8e2dd0b129e62bb8a68a', '14293a6c2efbc387a8d97240321ca839'),
+    ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', '9fe4d8c1b506de6eb80a93d11301bdca', '64e749cf8ed30afc9c4475bcd398685a'),
+    ('public.bill_daily_v1(date,uuid)', '11146bc4e4577ed2e104ac119fb0b4a0', '91a6d8a62fafd25894310e522de23494')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -179,6 +183,63 @@ begin
   return public.bill_reply_v1(v_res, v_b.id);
 end $$;
 
+create or replace function public.bill_entry_v1(b public.utility_bills, p_cfg jsonb, p_approve boolean, p_uid uuid)
+returns jsonb language sql stable set search_path = '' as $$
+  select jsonb_build_object(
+    'id', b.id, 'kind', b.kind, 'label', p_cfg -> 'bills' -> b.kind ->> 'label', 'period', b.period, 'status', b.status,
+    'estimate_php', b.estimate_php, 'paid_php', b.paid_php, 'is_estimate', b.kind in ('electric', 'water'),
+    'due_day', (p_cfg -> 'bills' -> b.kind ->> 'remind_day')::integer,
+    'paying_by_name', case when b.status = 'paying' then b.paying_by_name end,
+    'paid_by_name', case when b.status = 'paid' then b.paid_by_name end, 'paid_at', b.paid_at,
+    'can_pay', coalesce(p_approve, false) and (b.status = 'due' or (b.status = 'paying' and b.paying_by is not distinct from p_uid)));
+$$;
+
+create or replace function public.bill_daily_v1(p_on date default null, p_property_id uuid default null)
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare
+  c_floor constant text := '2026-11'; -- the release month: October 2026 and earlier stay closed
+  v_today date := coalesce(p_on, public.manila_today());
+  v_cfg jsonb := public.bill_schedule_cfg_v1();
+  v_read integer := (v_cfg ->> 'reading_day')::integer;
+  v_prop uuid; v_res jsonb; v_bill jsonb; v_nid uuid; v_title text; v_opened integer := 0; v_notices integer := 0; v_po integer; v_pn integer;
+begin
+  for v_prop in select p.id from public.properties p where p.is_active and (p_property_id is null or p.id = p_property_id) order by p.id loop
+    begin
+      v_po := 0; v_pn := 0;
+      if extract(day from v_today)::integer = v_read then
+        v_title := 'Meter reading due today (' || to_char(make_date(2001, 1, v_read), 'FMDDth') || ')';
+        if not exists (select 1 from public.ops_notices n where n.property_id = v_prop and n.notice_type = 'reminder' and n.source = 'system' and n.effective_date = v_today and n.title = v_title) then
+          insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
+          values (v_prop, 'reminder', v_title, 'Read the electricity and water meters.', v_today, 'system', 'staff');
+          v_pn := v_pn + 1;
+        end if;
+      end if;
+
+      v_res := public.bill_due_open_v1(v_prop, v_today, c_floor);
+      for v_bill in select e from jsonb_array_elements(v_res -> 'new') e loop
+        v_po := v_po + 1;
+        v_title := case when (v_bill ->> 'period') < to_char(v_today, 'YYYY-MM') then (v_bill ->> 'label') || ' is overdue.'
+                        else (v_bill ->> 'label') || ' is due by the ' || to_char(make_date(2001, 1, (v_bill ->> 'remind_day')::integer), 'FMDDth') || '.' end;
+        insert into public.ops_notices(property_id, notice_type, title, description, effective_date, source, audience)
+        values (v_prop, 'reminder', v_title, 'See To pay on Today.', v_today, 'system', 'staff') returning id into v_nid;
+        update public.utility_bills set notice_id = v_nid where id = (v_bill ->> 'id')::uuid;
+        v_pn := v_pn + 1;
+      end loop;
+
+      -- an unpaid bill stays on Today: its one notice is dated today (notices_v1 ends a notice at the end of its date)
+      update public.ops_notices n set effective_date = v_today
+       where n.is_active and n.effective_date < v_today
+         and n.id in (select b.notice_id from public.utility_bills b where b.property_id = v_prop and b.status in ('due', 'paying') and b.notice_id is not null);
+      v_opened := v_opened + v_po; v_notices := v_notices + v_pn;
+    exception when others then
+      raise warning 'bill_daily_v1: property % skipped (sqlstate %)', v_prop, sqlstate;
+    end;
+  end loop;
+  return jsonb_build_object('on', v_today, 'bills_opened', v_opened, 'notices_written', v_notices);
+end $$;
+
+revoke all on function public.bill_entry_v1(public.utility_bills, jsonb, boolean, uuid) from public, anon, authenticated, service_role;
+revoke all on function public.bill_daily_v1(date, uuid) from public, anon, authenticated, service_role;
 revoke all on function public.utility_billing_default_v1() from public, anon, authenticated, service_role;
 revoke all on function public.utility_billing_cfg_v1() from public, anon, authenticated, service_role;
 revoke all on function public.bill_schedule_cfg_v1() from public, anon, authenticated, service_role;
@@ -220,6 +281,8 @@ do $$
 begin
   if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'utility_bills' and column_name in ('reading_date', 'reading_value')) then raise exception 'rollback s131: reading columns still there'; end if;
   if md5(replace((select prosrc from pg_proc where oid = 'public.today_bills_v1(uuid)'::regprocedure), chr(13), '')) <> '70302291441c8493c622ae66befe6b79' then raise exception 'rollback s131: today_bills_v1 is not the s127 body'; end if;
+  if md5(replace((select prosrc from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure), chr(13), '')) <> '9fe4d8c1b506de6eb80a93d11301bdca'
+     or md5(replace((select prosrc from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure), chr(13), '')) <> '11146bc4e4577ed2e104ac119fb0b4a0' then raise exception 'rollback s131: bill_entry_v1 or bill_daily_v1 is not the s127 body'; end if;
 end $$;
 
 commit;

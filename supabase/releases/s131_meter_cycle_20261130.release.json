@@ -4,20 +4,20 @@
   "phase": "expand",
   "source": {
     "branch": "s131/meter-cycle",
-    "commit": "5042d3eee471fc501d5c636e45aa554a0416a0eb"
+    "commit": "PENDING"
   },
   "migrations": [
     "20261130000000_s131_meter_cycle.sql"
   ],
   "migration_sha256": {
-    "20261130000000_s131_meter_cycle.sql": "c1c9acdac68b965129d8f58e64b48fe2908303b643b1528dd83d398fc1c2aa73"
+    "20261130000000_s131_meter_cycle.sql": "fd98dd2a5c49cc52d3e628a9a79b65ad67e25d352f0f6baf6e410ef74c4ac036"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "C:/Cascade-Backups/cascade-supabase-20261120T110359Z",
     "verified_at": "2026-11-20T11:08:12.882Z",
-    "production_rule": "The meter cycle follows the paid bill (Lloyd 2026-11-22, D-393, contract docs/s131/CONTRACT.md Lane S). Replaces SIX live bodies in place behind an md5 guard (CR stripped, 55000 when a live body is neither the original nor this release): utility_billing_default_v1 (original 93765639cafb84ce5860de301a5ba0af, new a392b40c92122706aac8074ee8f490d3); utility_billing_cfg_v1 (original 29c5cc443923797670a7b66f51c86781, new 20acb9bbe5965c08fa9b317aa9073636); utility_bill_estimate_v1 (original f821ade80aafe63d00dc51f8c5700bf4, new 563e61f417555730a9294df15c7eca7f); today_bills_v1 (original 70302291441c8493c622ae66befe6b79, new 7fca3fd12b7e372010f8f20b12c491a4); bill_pay_settle_v1 (original df687957b354441f0874fac73a53ee9d, new 542aa826c034741a2886863ca069c396); bill_schedule_cfg_v1 (original c8a259b8e8be8e2dd0b129e62bb8a68a, new 14293a6c2efbc387a8d97240321ca839). Adds utility_bills.reading_date and reading_value (null; meter kinds only), a unique partial index on (property_id, kind, reading_date), four internal helpers granted to nobody, settings utility_billing.*.open_from and bill_schedule remind_day 25 (inserted only where absent). Grants, security definer, volatility and the empty search_path of the replaced functions are restated unchanged (today_bills_v1 and bill_pay_settle_v1 authenticated only, the rest postgres only). Callers not replaced and byte-identical after the release: kpi_tab_v1, bill_due_open_v1, bill_daily_v1, kpi_admin_bills_v1, bill_step_v1, bill_entry_v1. bill_entry_v1 shows remind_day as the \"due by\" day, so it now shows the 25th (see handoff).",
+    "production_rule": "The meter cycle follows the paid bill (Lloyd 2026-11-22, D-393, contract docs/s131/CONTRACT.md Lane S). Replaces EIGHT live bodies in place behind an md5 guard (CR stripped, 55000 when a live body is neither the original nor this release): utility_billing_default_v1 (original 93765639cafb84ce5860de301a5ba0af, new a392b40c92122706aac8074ee8f490d3); utility_billing_cfg_v1 (original 29c5cc443923797670a7b66f51c86781, new 20acb9bbe5965c08fa9b317aa9073636); utility_bill_estimate_v1 (original f821ade80aafe63d00dc51f8c5700bf4, new 563e61f417555730a9294df15c7eca7f); today_bills_v1 (original 70302291441c8493c622ae66befe6b79, new 7fca3fd12b7e372010f8f20b12c491a4); bill_pay_settle_v1 (original df687957b354441f0874fac73a53ee9d, new ede3c0432079186f73b7db56900e6671); bill_entry_v1 (original 9fe4d8c1b506de6eb80a93d11301bdca, new 64e749cf8ed30afc9c4475bcd398685a); bill_daily_v1 (original 11146bc4e4577ed2e104ac119fb0b4a0, new 91a6d8a62fafd25894310e522de23494); bill_entry_v1 (original 9fe4d8c1b506de6eb80a93d11301bdca, new 64e749cf8ed30afc9c4475bcd398685a); bill_daily_v1 (original 11146bc4e4577ed2e104ac119fb0b4a0, new 91a6d8a62fafd25894310e522de23494); bill_schedule_cfg_v1 (original c8a259b8e8be8e2dd0b129e62bb8a68a, new 14293a6c2efbc387a8d97240321ca839). Adds utility_bills.reading_date and reading_value (null; meter kinds only), a unique partial index on (property_id, kind, reading_date), four internal helpers granted to nobody, settings utility_billing.*.open_from and bill_schedule remind_day 25 (inserted only where absent). Grants, security definer, volatility and the empty search_path of the replaced functions are restated unchanged (today_bills_v1 and bill_pay_settle_v1 authenticated only, the rest postgres only). Callers not replaced and byte-identical after the release: kpi_tab_v1, bill_due_open_v1, kpi_admin_bills_v1, bill_step_v1. bill_entry_v1 now shows due_day = greatest(remind_day, pay_day) (the 27th) and bill_daily_v1 writes the notice \"<Label> bill: due by the 27th.\" with no pointer to To pay. Grants of entry, daily, step and pay_open are restated as live (postgres only for the internal ones). The settle also refuses older_bill_open and a reading_date earlier than the 1st of the month before the billed period (reading_date_invalid). Known accepted limit: the cycle stays one month only while the previous bill is paid before the next opens; otherwise a double estimate is shown.",
     "notes": "Roll the staff app back before the SQL. Restamp restore_point and verified_at with a fresh backup at apply time (the checker refuses one older than an hour)."
   },
   "forward_verification": [
@@ -43,12 +43,22 @@
     },
     {
       "name": "md5_bill_pay_settle_v1",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '542aa826c034741a2886863ca069c396' from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure",
+      "query": "select md5(replace(prosrc, chr(13), '')) = 'ede3c0432079186f73b7db56900e6671' from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure",
       "expect": true
     },
     {
       "name": "md5_bill_schedule_cfg_v1",
       "query": "select md5(replace(prosrc, chr(13), '')) = '14293a6c2efbc387a8d97240321ca839' from pg_proc where oid = 'public.bill_schedule_cfg_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_bill_entry_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '64e749cf8ed30afc9c4475bcd398685a' from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "md5_bill_daily_v1",
+      "query": "select md5(replace(prosrc, chr(13), '')) = '91a6d8a62fafd25894310e522de23494' from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure",
       "expect": true
     },
     {
@@ -62,11 +72,6 @@
       "expect": true
     },
     {
-      "name": "md5_bill_daily_v1_unchanged",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '11146bc4e4577ed2e104ac119fb0b4a0' from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure",
-      "expect": true
-    },
-    {
       "name": "md5_kpi_admin_bills_v1_unchanged",
       "query": "select md5(replace(prosrc, chr(13), '')) = 'd732f76179ea3433dbf6c710c69bec5f' from pg_proc where oid = 'public.kpi_admin_bills_v1(uuid,numeric)'::regprocedure",
       "expect": true
@@ -77,13 +82,8 @@
       "expect": true
     },
     {
-      "name": "md5_bill_entry_v1_unchanged",
-      "query": "select md5(replace(prosrc, chr(13), '')) = '9fe4d8c1b506de6eb80a93d11301bdca' from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure",
-      "expect": true
-    },
-    {
       "name": "internal_functions_postgres_only",
-      "query": "select not has_function_privilege('anon', 'public.utility_bill_estimate_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_bill_estimate_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_bill_estimate_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_billing_default_v1()'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_billing_default_v1()'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_billing_default_v1()'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_billing_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_billing_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_billing_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.bill_schedule_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.bill_schedule_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.bill_schedule_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_safe_date_v1(text)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_safe_date_v1(text)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_safe_date_v1(text)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_cfg_date_v1(jsonb,jsonb)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_cfg_date_v1(jsonb,jsonb)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_cfg_date_v1(jsonb,jsonb)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_meter_from_v1(uuid,text,date,jsonb)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_meter_from_v1(uuid,text,date,jsonb)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_meter_from_v1(uuid,text,date,jsonb)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_reading_warn_v1(uuid,text,date,numeric)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_reading_warn_v1(uuid,text,date,numeric)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_reading_warn_v1(uuid,text,date,numeric)'::regprocedure, 'execute')",
+      "query": "select not has_function_privilege('anon', 'public.utility_bill_estimate_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_bill_estimate_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_bill_estimate_v1(uuid,date)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_billing_default_v1()'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_billing_default_v1()'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_billing_default_v1()'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_billing_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_billing_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_billing_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.bill_schedule_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.bill_schedule_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.bill_schedule_cfg_v1()'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_safe_date_v1(text)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_safe_date_v1(text)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_safe_date_v1(text)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_cfg_date_v1(jsonb,jsonb)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_cfg_date_v1(jsonb,jsonb)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_cfg_date_v1(jsonb,jsonb)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_meter_from_v1(uuid,text,date,jsonb)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_meter_from_v1(uuid,text,date,jsonb)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_meter_from_v1(uuid,text,date,jsonb)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.utility_reading_warn_v1(uuid,text,date,numeric)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.utility_reading_warn_v1(uuid,text,date,numeric)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.utility_reading_warn_v1(uuid,text,date,numeric)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.bill_daily_v1(date,uuid)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.bill_daily_v1(date,uuid)'::regprocedure, 'execute') and not has_function_privilege('service_role', 'public.bill_daily_v1(date,uuid)'::regprocedure, 'execute')",
       "expect": true
     },
     {
@@ -93,7 +93,7 @@
     },
     {
       "name": "replaced_functions_attributes_unchanged",
-      "query": "select bool_and(p.prosecdef = e.secdef and p.provolatile = e.vol and p.proconfig = array['search_path=\"\"']) from (values ('public.utility_bill_estimate_v1(uuid,date)'::regprocedure, true, 's'), ('public.today_bills_v1(uuid)'::regprocedure, true, 's'), ('public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure, true, 'v'), ('public.bill_schedule_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_default_v1()'::regprocedure, false, 'i')) e(oid, secdef, vol) join pg_proc p on p.oid = e.oid",
+      "query": "select bool_and(p.prosecdef = e.secdef and p.provolatile = e.vol and p.proconfig = array['search_path=\"\"']) from (values ('public.utility_bill_estimate_v1(uuid,date)'::regprocedure, true, 's'), ('public.today_bills_v1(uuid)'::regprocedure, true, 's'), ('public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure, true, 'v'), ('public.bill_schedule_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_default_v1()'::regprocedure, false, 'i'), ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure, false, 's'), ('public.bill_daily_v1(date,uuid)'::regprocedure, true, 'v')) e(oid, secdef, vol) join pg_proc p on p.oid = e.oid",
       "expect": true
     },
     {
@@ -125,6 +125,16 @@
       "name": "cfg_remind_day_25_pay_day_27",
       "query": "select (public.bill_schedule_cfg_v1() #>> '{bills,electric,remind_day}') = '25' and (public.bill_schedule_cfg_v1() #>> '{bills,netflix,remind_day}') = '25' and (public.bill_schedule_cfg_v1() ->> 'pay_day') = '27'",
       "expect": true
+    },
+    {
+      "name": "anon_cannot_run_app_bill_functions",
+      "query": "select not has_function_privilege('anon', 'public.bill_pay_open_v1(uuid)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.bill_step_v1(uuid,text,uuid,text,jsonb)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.bill_step_v1(uuid,text,uuid,text,jsonb)'::regprocedure, 'execute')",
+      "expect": true
+    },
+    {
+      "name": "service_role_still_reads_utility_bills",
+      "query": "select has_table_privilege('service_role', 'public.utility_bills', 'select') or (select c.relacl is null from pg_class c where c.oid = 'public.utility_bills'::regclass)",
+      "expect": true
     }
   ],
   "rollback": {
@@ -133,7 +143,7 @@
     "steps": [
       {
         "name": "run_compensating_script",
-        "action": "apply supabase/rollbacks/20261130_s131_meter_cycle.sql with run-sql-on-host.sh; the six functions must be back to their original md5s. Roll the staff app back first."
+        "action": "apply supabase/rollbacks/20261130_s131_meter_cycle.sql with run-sql-on-host.sh; the eight functions must be back to their original md5s. Roll the staff app back first."
       }
     ]
   },
@@ -148,7 +158,7 @@
     "old_reader": true,
     "old_writer": false,
     "verified": true,
-    "evidence": "Rehearsed 2026-11-22 on restored production backup cascade-supabase-20261120T110359Z at source commit 5042d3e (the release.json commit field names the migration commit): migration applied, forward verification 21 of 21, pgTAP s131_meter_cycle.sql 61/61, public tables 141 before and after; the rollback script was also rehearsed after the migration (six original md5s back, columns and helpers gone, 15 of 15). Old Staff 3.4.47 settling an electric or water bill gets reading_date_required (old_writer false). The s127 suites s127_utility_bills.sql and s127_bill_reminders.sql assert the replaced behaviour and are superseded for those assertions."
+    "evidence": "Rehearsed 2026-11-22 on restored production backup cascade-supabase-20261120T110359Z at the source commit named in this file (the last commit that changes the migration or the suites): migration applied, forward verification 23 of 23, pgTAP s131_meter_cycle.sql 71/71, s127_utility_bills.sql 102/102 and s127_bill_reminders.sql 120/120 (both patched only where they asserted replaced s131 behaviour), public tables 141 before and after; the rollback script was rehearsed after the migration (eight original md5s back, columns and helpers gone, 15 of 15). Old Staff 3.4.47 settling an electric or water bill gets reading_date_required (old_writer false)."
   },
   "approvals": {
     "production_required": true,
@@ -159,7 +169,7 @@
     "any forward verification query returns anything other than its expected value",
     "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
     "the live md5 of any replaced function is neither its original nor its new md5 (the migration stops with 55000)",
-    "the live md5 of kpi_tab_v1, bill_due_open_v1, bill_daily_v1, kpi_admin_bills_v1, bill_step_v1 or bill_entry_v1 differs from the value in forward_verification",
+    "the live md5 of kpi_tab_v1, bill_due_open_v1, kpi_admin_bills_v1 or bill_step_v1 differs from the value in forward_verification",
     "the rehearsal has not run the migration and s131_meter_cycle.sql green on this commit, compatibility.verified is still false",
     "the Opus 5.5 review of this SQL lane has not passed"
   ]

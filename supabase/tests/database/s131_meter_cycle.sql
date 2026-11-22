@@ -7,7 +7,7 @@
 -- (rolled back with everything else) so the Today card is checked on 22 and 26 November 2026. The rate table is cleared inside the transaction (a real backup holds real rows). calendar_events and generated columns are never inserted.
 -- Nothing in this file can run without a Postgres that holds the Cascade schema: it is run by the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>).
 begin;
-select plan(61);
+select plan(71);
 
 -- baseline grants a --no-acl restore lacks (idempotent, rolled back with the suite)
 alter role service_role bypassrls;
@@ -94,14 +94,14 @@ end $f$;
 insert into public.properties(id, name, is_active) values
   (pg_temp.id('b1'), 'Zz S131 cycle', true), (pg_temp.id('b2'), 'Zz S131 paid 31 Oct', true), (pg_temp.id('b3'), 'Zz S131 paid 31 Jan', true), (pg_temp.id('b4'), 'Zz S131 setting', true),
   (pg_temp.id('b5'), 'Zz S131 today', true), (pg_temp.id('b6'), 'Zz S131 skipped', true), (pg_temp.id('b7'), 'Zz S131 settle', true), (pg_temp.id('b8'), 'Zz S131 amount', true),
-  (pg_temp.id('b9'), 'Zz S131 open', true);
+  (pg_temp.id('b9'), 'Zz S131 open', true), (pg_temp.id('d1'), 'Zz S131 daily', true), (pg_temp.id('d2'), 'Zz S131 order', true), (pg_temp.id('d3'), 'Zz S131 lower bound', true), (pg_temp.id('d4'), 'Zz S131 later paid', true);
 insert into auth.users(id, email, raw_user_meta_data) values
   (pg_temp.id('a1'), 'zz131-cleaner@example.com', '{"display_name":"Zz Cleaner"}'::jsonb), (pg_temp.id('a2'), 'zz131-admin@example.com', '{"display_name":"Zz Admin"}'::jsonb),
   (pg_temp.id('a3'), 'zz131-laundry@example.com', '{"display_name":"Zz Laundry"}'::jsonb), (pg_temp.id('a4'), 'zz131-nostaff@example.com', '{"display_name":"Zz Nostaff"}'::jsonb);
 insert into public.staff_access_profiles(user_id, role, disabled_at) values
   (pg_temp.id('a1'), 'cleaner', null), (pg_temp.id('a2'), 'admin', null), (pg_temp.id('a3'), 'laundry', null);
 insert into public.staff_property_access(user_id, property_id)
-select pg_temp.id(u), pg_temp.id(b) from unnest(array['a1', 'a2', 'a3']) u, unnest(array['b1', 'b5', 'b6', 'b7', 'b8']) b;
+select pg_temp.id(u), pg_temp.id(b) from unnest(array['a1', 'a2', 'a3']) u, unnest(array['b1', 'b5', 'b6', 'b7', 'b8', 'd2', 'd3', 'd4']) b;
 -- the stand-in property the bill_pay_settle_v1 family does not use (it takes the bill's own property); no extra fixtures needed
 
 delete from public.utility_rates;
@@ -116,7 +116,7 @@ select pg_temp.td(date '2026-11-22');
 --   c3 19 Nov 2026  4070 -> 4130 kWh (60),  104 -> 108 m3 (4.0)   spread over 1 Nov .. 19 Nov = 19 days: 3.157895 kWh and 0.210526 m3 a day
 insert into public.meter_readings(id, session_id, property_id, recorded_at, electric_prev, electric_curr, water_prev, water_curr, electric_delta, water_delta, meter_flag)
 select gen_random_uuid(), null, pg_temp.id(b), r.at, r.ep, r.ec, r.wp, r.wc, r.ec - r.ep, r.wc - r.wp, null
-  from unnest(array['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9']) b,
+  from unnest(array['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'd1']) b,
        (values (timestamptz '2026-10-21 09:00+08', 4000, 4010, 100, 101), (timestamptz '2026-10-31 09:00+08', 4010, 4070, 101, 104), (timestamptz '2026-11-19 09:00+08', 4070, 4130, 104, 108)) r(at, ep, ec, wp, wc);
 
 -- 1. open_from and the estimate on 22 Nov 2026 with no paid bill --------------------------------------------------------------------------------------------------------------------
@@ -227,6 +227,23 @@ select ok((select (select jsonb_agg(e ->> 'period') from jsonb_array_elements(v 
           and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'internet' and period = '2026-11') = 1500
           and (select estimate_php from public.utility_bills where property_id = pg_temp.id('b9') and kind = 'netflix' and period = '2026-11') = 449,
           'on the 25th the November rows open with the estimates of the cycle that closes in November: electric 1544.91, water 212.00, internet 1500, netflix 449');
+
+-- 3b. due day and the notice of a new bill ------------------------------------------------------------------------------------------------------------------------------------------
+-- A bill opens on the 25th (remind_day) but is due by the pay day: due_day = the later of remind_day and pay_day. b9's November electric bill (opened above): remind 25 + pay 27 -> 27; a stored remind_day 28 -> 28 (never earlier than the pay day).
+insert into _t select 'dd25', (select public.bill_entry_v1(b, public.bill_schedule_cfg_v1(), true, null) -> 'due_day' from public.utility_bills b where b.property_id = pg_temp.id('b9') and b.kind = 'electric' and b.period = '2026-11');
+select pg_temp.set_bs('{"pay_day":27,"bills":{"electric":{"remind_day":28}}}'::jsonb);
+insert into _t select 'dd28', (select public.bill_entry_v1(b, public.bill_schedule_cfg_v1(), true, null) -> 'due_day' from public.utility_bills b where b.property_id = pg_temp.id('b9') and b.kind = 'electric' and b.period = '2026-11');
+select pg_temp.set_bs(null);
+select ok((select v = '27'::jsonb from _t where k = 'dd25') and (select v = '28'::jsonb from _t where k = 'dd28'),
+          'bill_entry_v1 due_day stays the pay day while bills open on the 25th: remind 25 + pay 27 gives 27; a later stored remind_day (28) wins');
+-- bill_daily_v1 on the 25th for d1 (four rows open): four notices "<Label> bill: due by the 27th." (the pay day, not the 25th the rows opened on) and no "To pay" pointer (a cleaner has no list).
+insert into _t select 'dly', public.bill_daily_v1(date '2026-11-25', pg_temp.id('d1'));
+select ok((select v ->> 'on' = '2026-11-25' and (v ->> 'bills_opened')::integer = 4 and (v ->> 'notices_written')::integer = 4 from _t where k = 'dly'),
+          'bill_daily_v1 on the 25th opens the four November rows of d1 and writes four notices');
+select ok((select array_agg(n.title order by n.title) from public.ops_notices n where n.property_id = pg_temp.id('d1') and n.source = 'system')
+            = array['Electricity (SOCOTECO II) bill: due by the 27th.', 'Internet bill: due by the 27th.', 'Netflix bill: due by the 27th.', 'Water (Gensan Water District) bill: due by the 27th.']
+          and (select bool_and(n.description = '' and n.title not like '%To pay%') from public.ops_notices n where n.property_id = pg_temp.id('d1') and n.source = 'system'),
+          'the four notices read "<Label> bill: due by the 27th." with no To pay pointer');
 
 -- 4. Today card ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- b5 on 22 Nov, no bills: a cleaner (a1) and an admin (a2). The meters start 21 Oct and both are overdue for November. Every old key is still there.
@@ -381,6 +398,58 @@ reset role;
 select ok((select v = '{"ok":false,"reason":"not_authorized"}'::jsonb from _t where k = 'n1') and (select status = 'due' and reading_date is null from public.utility_bills where id = pg_temp.bi('el8')),
           'a cleaner is still not_authorized to settle; nothing is stored');
 
+-- 5b. order of the bills and the reading date window ---------------------------------------------------------------------------------------------------------------------------------------
+-- 22 Nov, admin a2. d2: electric 2026-10 and 2026-11 both due, water 2026-11 due. The newer electric bill cannot be settled while the older one is open (older_bill_open); water has its own order and is not blocked.
+-- Once 2026-10 is paid with reading date 25 Oct, 2026-11 must be after 25 Oct (25 Oct refused with after = 2026-10-25) and 21 Nov is accepted.
+select pg_temp.td(date '2026-11-22');
+-- the ledger holds one row per bill ref across properties: earlier sections of this suite already logged 2026-10 / 2026-11 / 2026-12 refs for other fixture properties, so clear them (rolled back with the suite)
+delete from public.transactions where source = 'bill' and external_ref in ('bill:electric:2026-10', 'bill:electric:2026-11', 'bill:electric:2026-12', 'bill:water:2026-11') and property_id not in (pg_temp.id('d2'), pg_temp.id('d3'), pg_temp.id('d4'));
+insert into public.utility_bills(property_id, kind, period, estimate_php, status) values
+  (pg_temp.id('d2'), 'electric', '2026-10', 1000, 'due'), (pg_temp.id('d2'), 'electric', '2026-11', 1000, 'due'), (pg_temp.id('d2'), 'water', '2026-11', 300, 'due');
+select pg_temp.reg('d2e10', 'electric', 'd2', '2026-10'); select pg_temp.reg('d2e11', 'electric', 'd2', '2026-11'); select pg_temp.reg('d2w11', 'water', 'd2', '2026-11');
+select pg_temp.as_user(pg_temp.id('a2'));
+insert into _t select 'q1', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d2e11'), pg_temp.pf('d2', 'zz131-proof-0030-a.jpg', 'q1', 1000, '{"reading_date":"2026-11-21"}'));
+insert into _t select 'q2', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d2w11'), pg_temp.pf('d2', 'zz131-proof-0031-a.jpg', 'q2', 300, '{"reading_date":"2026-11-21"}'));
+reset role;
+select ok((select v = '{"ok":false,"reason":"older_bill_open"}'::jsonb from _t where k = 'q1')
+          and (select status = 'due' and reading_date is null and paying_by is null from public.utility_bills where id = pg_temp.bi('d2e11'))
+          and (select count(*) = 0 from public.transactions where source = 'bill' and property_id = pg_temp.id('d2') and external_ref = 'bill:electric:2026-11'),
+          'electric 2026-11 is refused with older_bill_open while electric 2026-10 is still due; nothing is stored');
+select ok((select (v ->> 'ok')::boolean and v ->> 'reading_date' = '2026-11-21' from _t where k = 'q2') and (select status = 'paid' and reading_date = date '2026-11-21' from public.utility_bills where id = pg_temp.bi('d2w11')),
+          'the older electric bill does not block water: the water bill of the same month is paid with its reading date');
+select pg_temp.as_user(pg_temp.id('a2'));
+insert into _t select 'q3', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d2e10'), pg_temp.pf('d2', 'zz131-proof-0032-a.jpg', 'q3', 1000, '{"reading_date":"2026-10-25"}'));
+insert into _t select 'q4', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d2e11'), pg_temp.pf('d2', 'zz131-proof-0033-a.jpg', 'q4', 1000, '{"reading_date":"2026-10-25"}'));
+insert into _t select 'q5', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d2e11'), pg_temp.pf('d2', 'zz131-proof-0034-a.jpg', 'q5', 1000, '{"reading_date":"2026-11-21"}'));
+reset role;
+select ok((select (v ->> 'ok')::boolean and v ->> 'reading_date' = '2026-10-25' from _t where k = 'q3') and (select status = 'paid' and reading_date = date '2026-10-25' from public.utility_bills where id = pg_temp.bi('d2e10')),
+          'the older bill (2026-10) is paid first with reading date 25 Oct (after open_from 21 Oct)');
+select ok((select v = '{"ok":false,"reason":"reading_date_invalid","after":"2026-10-25"}'::jsonb from _t where k = 'q4')
+          and (select (v ->> 'ok')::boolean and v ->> 'reading_date' = '2026-11-21' from _t where k = 'q5')
+          and (select status = 'paid' and reading_date = date '2026-11-21' from public.utility_bills where id = pg_temp.bi('d2e11')),
+          'with 2026-10 paid, 2026-11 refuses 25 Oct (after = 2026-10-25) and accepts 21 Nov');
+-- the lowest date: the 1st of the month before the billed period. d3: electric 2026-11 skipped (does not block), 2026-12 due. Billed December: the window opens 1 Nov. 25 Oct and 31 Oct are after open_from but too early (after = 2026-10-31); 1 Nov is accepted.
+insert into public.utility_bills(property_id, kind, period, estimate_php, status) values (pg_temp.id('d3'), 'electric', '2026-11', 1000, 'skipped'), (pg_temp.id('d3'), 'electric', '2026-12', 1000, 'due');
+select pg_temp.reg('d3e12', 'electric', 'd3', '2026-12');
+select pg_temp.as_user(pg_temp.id('a2'));
+insert into _t select 'r1', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d3e12'), pg_temp.pf('d3', 'zz131-proof-0035-a.jpg', 'r1', 1000, '{"reading_date":"2026-10-25"}'));
+insert into _t select 'r2', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d3e12'), pg_temp.pf('d3', 'zz131-proof-0036-a.jpg', 'r2', 1000, '{"reading_date":"2026-10-31"}'));
+insert into _t select 'r3', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d3e12'), pg_temp.pf('d3', 'zz131-proof-0037-a.jpg', 'r3', 1000, '{"reading_date":"2026-11-01"}'));
+reset role;
+select ok((select v = '{"ok":false,"reason":"reading_date_invalid","after":"2026-10-31"}'::jsonb from _t where k = 'r1') and (select v = '{"ok":false,"reason":"reading_date_invalid","after":"2026-10-31"}'::jsonb from _t where k = 'r2')
+          and (select (v ->> 'ok')::boolean and v ->> 'reading_date' = '2026-11-01' from _t where k = 'r3') and (select status = 'paid' and reading_date = date '2026-11-01' from public.utility_bills where id = pg_temp.bi('d3e12')),
+          'a reading date before the 1st of the month before the billed period (December: before 1 Nov) is refused with reading_date_invalid; 1 Nov is accepted; a skipped older bill does not block');
+-- the previous reading date is read only from PAID bills of an EARLIER period. d4 (water, because the ledger holds one row per bill ref across properties): 2026-11 is already paid with reading date 21 Nov; the 2026-10 bill, settled afterwards with 10 Nov, is not held back by that later reading.
+insert into public.utility_bills(property_id, kind, period, estimate_php, status, paid_php, paid_at, paid_by_name, proof_verdict, reading_date)
+values (pg_temp.id('d4'), 'water', '2026-11', 300, 'paid', 300, now(), 'Zz Admin', 'typed', date '2026-11-21');
+insert into public.utility_bills(property_id, kind, period, estimate_php, status) values (pg_temp.id('d4'), 'water', '2026-10', 300, 'due');
+select pg_temp.reg('d4w10', 'water', 'd4', '2026-10');
+select pg_temp.as_user(pg_temp.id('a2'));
+insert into _t select 'u1', pg_temp.c2('bill_pay_settle_v1', pg_temp.bi('d4w10'), pg_temp.pf('d4', 'zz131-proof-0038-a.jpg', 'u1', 300, '{"reading_date":"2026-11-10"}'));
+reset role;
+select ok((select (v ->> 'ok')::boolean and v ->> 'reading_date' = '2026-11-10' from _t where k = 'u1') and (select status = 'paid' and reading_date = date '2026-11-10' from public.utility_bills where id = pg_temp.bi('d4w10')),
+          'the previous reading date is taken from paid bills of an earlier period only: water 2026-10 is settled with 10 Nov although 2026-11 is already paid with 21 Nov');
+
 -- 6. the reading warning helper -----------------------------------------------------------------------------------------------------------------------------------------------------------
 -- b1 meter log: c2 31 Oct 4070 kWh / 104 m3; c3 19 Nov 4130 / 108. On the day of a counted reading the log is that reading: 4070. 4100 is exactly 30 kWh away: no warning (more than 30 warns); 4100.01 warns; 4040 is 30 below: no; 4039.99 warns.
 select ok(not public.utility_reading_warn_v1(pg_temp.id('b1'), 'electric', date '2026-10-31', 4100) and public.utility_reading_warn_v1(pg_temp.id('b1'), 'electric', date '2026-10-31', 4100.01)
@@ -416,23 +485,29 @@ select ok(pg_temp.try($q$insert into public.utility_bills(property_id, kind, per
 -- 8. grants and bodies ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 select ok((select bool_and(not has_function_privilege('anon', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('service_role', f, 'execute'))
              from unnest(array['public.utility_safe_date_v1(text)', 'public.utility_cfg_date_v1(jsonb,jsonb)', 'public.utility_meter_from_v1(uuid,text,date,jsonb)', 'public.utility_reading_warn_v1(uuid,text,date,numeric)',
-                               'public.utility_bill_estimate_v1(uuid,date)', 'public.utility_billing_default_v1()', 'public.utility_billing_cfg_v1()', 'public.bill_schedule_cfg_v1()']) f),
-          'the four new helpers and the internal functions this release replaces are granted to nobody (anon, authenticated, service_role)');
+                               'public.utility_bill_estimate_v1(uuid,date)', 'public.utility_billing_default_v1()', 'public.utility_billing_cfg_v1()', 'public.bill_schedule_cfg_v1()',
+                               'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', 'public.bill_daily_v1(date,uuid)', 'public.bill_step_v1(uuid,text,uuid,text,jsonb)']) f),
+          'the four new helpers and the internal functions this release replaces (bill_entry_v1 and bill_daily_v1 included) are granted to nobody (anon, authenticated, service_role)');
 select ok(has_function_privilege('authenticated', 'public.today_bills_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.bill_pay_settle_v1(uuid,jsonb)', 'execute')
           and not has_function_privilege('anon', 'public.today_bills_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.bill_pay_settle_v1(uuid,jsonb)', 'execute')
-          and not has_function_privilege('service_role', 'public.today_bills_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.bill_pay_settle_v1(uuid,jsonb)', 'execute'),
-          'today_bills_v1 and bill_pay_settle_v1 stay authenticated only (not anon, not service_role)');
+          and not has_function_privilege('service_role', 'public.today_bills_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.bill_pay_settle_v1(uuid,jsonb)', 'execute')
+          and has_function_privilege('authenticated', 'public.bill_pay_open_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.bill_pay_open_v1(uuid)', 'execute') and not has_function_privilege('service_role', 'public.bill_pay_open_v1(uuid)', 'execute'),
+          'today_bills_v1 and bill_pay_settle_v1 stay authenticated only (not anon, not service_role); bill_pay_open_v1 is still authenticated only');
 select ok((select bool_and(p.prosecdef = e.secdef and p.provolatile = e.vol and p.proconfig = array['search_path=""'])
              from (values ('public.utility_bill_estimate_v1(uuid,date)'::regprocedure, true, 's'), ('public.today_bills_v1(uuid)'::regprocedure, true, 's'), ('public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure, true, 'v'),
-                          ('public.bill_schedule_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_default_v1()'::regprocedure, false, 'i')) e(oid, secdef, vol)
+                          ('public.bill_schedule_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_cfg_v1()'::regprocedure, false, 's'), ('public.utility_billing_default_v1()'::regprocedure, false, 'i'),
+                          ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure, false, 's'), ('public.bill_daily_v1(date,uuid)'::regprocedure, true, 'v')) e(oid, secdef, vol)
              join pg_proc p on p.oid = e.oid),
-          'security definer, volatility and the empty search_path of the six replaced functions are unchanged');
+          'security definer, volatility and the empty search_path of the eight replaced functions are unchanged');
 select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_due_open_v1(uuid,date,text)'::regprocedure) = '51c1bca21bbacbba9d214f963e3806d1'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure) = '11146bc4e4577ed2e104ac119fb0b4a0'
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_admin_bills_v1(uuid,numeric)'::regprocedure) = 'd732f76179ea3433dbf6c710c69bec5f'
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_step_v1(uuid,text,uuid,text,jsonb)'::regprocedure) = '36c9347d29f4b964540ca973af8cac19'
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) = '80efd89e916bcd6107c681baf86f143f',
-          'the callers this release does not replace (bill_due_open_v1, bill_daily_v1, kpi_admin_bills_v1, bill_step_v1, kpi_tab_v1) are byte for byte the s127 bodies');
+          'the callers this release does not replace (bill_due_open_v1, kpi_admin_bills_v1, bill_step_v1, kpi_tab_v1) are byte for byte the s127 bodies');
+select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure) = '64e749cf8ed30afc9c4475bcd398685a'
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure) = '91a6d8a62fafd25894310e522de23494'
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure) = 'ede3c0432079186f73b7db56900e6671',
+          'bill_entry_v1, bill_daily_v1 and bill_pay_settle_v1 are the bodies of this release');
 
 -- 10. the md5 guard of the migration (last: it breaks one function on purpose) ---------------------------------------------------------------------------------------------------------------------------------------------------
 -- The guard block below is a verbatim copy of the one at the top of 20261130000000_s131_meter_cycle.sql (the rehearsal's database role cannot read the mounted file, so it cannot be cut out of it; keep the two identical).
@@ -453,8 +528,10 @@ begin
     ('public.utility_billing_cfg_v1()', '29c5cc443923797670a7b66f51c86781', '20acb9bbe5965c08fa9b317aa9073636'),
     ('public.utility_bill_estimate_v1(uuid,date)', 'f821ade80aafe63d00dc51f8c5700bf4', '563e61f417555730a9294df15c7eca7f'),
     ('public.today_bills_v1(uuid)', '70302291441c8493c622ae66befe6b79', '7fca3fd12b7e372010f8f20b12c491a4'),
-    ('public.bill_pay_settle_v1(uuid,jsonb)', 'df687957b354441f0874fac73a53ee9d', '542aa826c034741a2886863ca069c396'),
-    ('public.bill_schedule_cfg_v1()', 'c8a259b8e8be8e2dd0b129e62bb8a68a', '14293a6c2efbc387a8d97240321ca839')
+    ('public.bill_pay_settle_v1(uuid,jsonb)', 'df687957b354441f0874fac73a53ee9d', 'ede3c0432079186f73b7db56900e6671'),
+    ('public.bill_schedule_cfg_v1()', 'c8a259b8e8be8e2dd0b129e62bb8a68a', '14293a6c2efbc387a8d97240321ca839'),
+    ('public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)', '9fe4d8c1b506de6eb80a93d11301bdca', '64e749cf8ed30afc9c4475bcd398685a'),
+    ('public.bill_daily_v1(date,uuid)', '11146bc4e4577ed2e104ac119fb0b4a0', '91a6d8a62fafd25894310e522de23494')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -463,7 +540,7 @@ begin
   end loop;
 end $g$;$dq$::text
 $gq$;
-select ok(pg_temp.guard_sql() like 'do $g$%' and (select count(*) = 6 from regexp_matches(pg_temp.guard_sql(), '\(''public\.', 'g')), 'the guard block lists the six replaced functions');
+select ok(pg_temp.guard_sql() like 'do $g$%' and (select count(*) = 8 from regexp_matches(pg_temp.guard_sql(), '\(''public\.', 'g')), 'the guard block lists the eight replaced functions');
 select ok(pg_temp.run_do(pg_temp.guard_sql()) = 'null'::jsonb, 'the guard passes on the bodies of this release');
 create or replace function public.bill_schedule_cfg_v1() returns jsonb language sql stable set search_path = '' as $$ select '{"unknown":true}'::jsonb $$;
 select ok(pg_temp.run_do(pg_temp.guard_sql()) ->> 'err' = '55000' and pg_temp.run_do(pg_temp.guard_sql()) ->> 'msg' like 's131: public.bill_schedule_cfg_v1()%neither the s127 body nor this release%',
