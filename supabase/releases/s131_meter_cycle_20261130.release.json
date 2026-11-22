@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s131/meter-cycle",
-    "commit": "1657eb8d28681cba628b40488ffbd8c905463a77"
+    "commit": "5042d3eee471fc501d5c636e45aa554a0416a0eb"
   },
   "migrations": [
     "20261130000000_s131_meter_cycle.sql"
@@ -147,8 +147,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": false,
-    "verified": false,
-    "evidence": "PENDING: fill from the rehearsal result."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-22 on restored production backup cascade-supabase-20261120T110359Z at source commit 5042d3e (the release.json commit field names the migration commit): migration applied, forward verification 21 of 21, pgTAP s131_meter_cycle.sql 61/61, public tables 141 before and after; the rollback script was also rehearsed after the migration (six original md5s back, columns and helpers gone, 15 of 15). Old Staff 3.4.47 settling an electric or water bill gets reading_date_required (old_writer false). The s127 suites s127_utility_bills.sql and s127_bill_reminders.sql assert the replaced behaviour and are superseded for those assertions."
   },
   "approvals": {
     "production_required": true,
