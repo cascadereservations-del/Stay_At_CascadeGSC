@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261122T020716Z",
-    "verified_at": "2026-11-22T02:11:33.544Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261122T025043Z",
+    "verified_at": "2026-11-22T02:55:05.694Z",
     "production_rule": "Follow-up to s131_meter_cycle_20261130 (D-395, Lloyd 2026-11-22); s131 must already be applied to production. Replaces ONE live body in place behind an md5 guard (CR stripped, 55000 when the live body is neither the s131 body nor this release): bill_pay_settle_v1(uuid,jsonb) (s131 ede3c0432079186f73b7db56900e6671, new 9784e8619b3aeb3d6b19c5fd7f679c79). It adds one refusal for a meter bill: reading_date_invalid (key before) when p_proof.reading_date is on or after the earliest reading_date of a PAID bill of the same property and kind with a later period; every other path is byte-identical to the s131 body. Signature, security definer, volatility, the empty search_path and the grants (authenticated only) are restated unchanged. No table, column, setting, helper or other function changes; the other s131 bodies and the callers kpi_tab_v1, bill_due_open_v1, kpi_admin_bills_v1 and bill_step_v1 stay byte-identical (checked below). Production read-back also checks that service_role can still select utility_bills (true on production on 2026-11-22; a rehearsal copy restored with --no-acl needs the baseline grant from CASCADE_REHEARSAL_PRE_SQL).",
     "notes": "Apply after s131 is applied and verified. Restamp restore_point and verified_at with a fresh backup at apply time (the checker refuses one older than an hour)."
   },
