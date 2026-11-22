@@ -506,8 +506,8 @@ select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'pu
           'the callers this release does not replace (bill_due_open_v1, kpi_admin_bills_v1, bill_step_v1, kpi_tab_v1) are byte for byte the s127 bodies');
 select ok((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_entry_v1(public.utility_bills,jsonb,boolean,uuid)'::regprocedure) = '64e749cf8ed30afc9c4475bcd398685a'
           and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_daily_v1(date,uuid)'::regprocedure) = '91a6d8a62fafd25894310e522de23494'
-          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure) = 'ede3c0432079186f73b7db56900e6671',
-          'bill_entry_v1, bill_daily_v1 and bill_pay_settle_v1 are the bodies of this release');
+          and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure) in ('ede3c0432079186f73b7db56900e6671', '9784e8619b3aeb3d6b19c5fd7f679c79'),
+          'bill_entry_v1, bill_daily_v1 and bill_pay_settle_v1 are the bodies of this release (settle: this release or s131b, which replaces it again)');
 
 -- 10. the md5 guard of the migration (last: it breaks one function on purpose) ---------------------------------------------------------------------------------------------------------------------------------------------------
 -- The guard block below is a verbatim copy of the one at the top of 20261130000000_s131_meter_cycle.sql (the rehearsal's database role cannot read the mounted file, so it cannot be cut out of it; keep the two identical).
@@ -519,8 +519,9 @@ begin
 exception when others then
   return jsonb_build_object('err', sqlstate, 'msg', sqlerrm);
 end $f$;
+-- s131b (D-395) replaces bill_pay_settle_v1 again after this release: the guard text is cut verbatim, but its settle row's new md5 is pointed at the live settle body (the previous test pins that to this release or s131b) so the guard also passes once s131b is applied
 create function pg_temp.guard_sql() returns text language sql as $gq$
-select $dq$do $g$
+select replace($dq$do $g$
 declare v text; r record;
 begin
   for r in select * from (values
@@ -538,7 +539,7 @@ begin
       raise exception using errcode = '55000', message = 's131: ' || r.sig || ' is neither the s127 body nor this release (md5 ' || coalesce(v, 'null') || '): re-cut it from the live body';
     end if;
   end loop;
-end $g$;$dq$::text
+end $g$;$dq$::text, '''ede3c0432079186f73b7db56900e6671''', quote_literal((select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.bill_pay_settle_v1(uuid,jsonb)'::regprocedure)))
 $gq$;
 select ok(pg_temp.guard_sql() like 'do $g$%' and (select count(*) = 8 from regexp_matches(pg_temp.guard_sql(), '\(''public\.', 'g')), 'the guard block lists the eight replaced functions');
 select ok(pg_temp.run_do(pg_temp.guard_sql()) = 'null'::jsonb, 'the guard passes on the bodies of this release');

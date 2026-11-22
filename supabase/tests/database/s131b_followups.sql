@@ -109,6 +109,8 @@ select ok((select (v ->> 'ok')::boolean and v ->> 'reading_date' = '2026-11-21' 
 
 -- 3. only the same meter of the same property counts --------------------------------------------------------------------------------------------------------------------------------------------
 -- c3: electric 2026-11 is PAID with 5 Nov; the water bill 2026-10 is due and is settled with 10 Nov (after the electric reading date): the other kind does not bound it.
+-- the water ref of 2026-10 was logged by c2 above: clear it again (one ledger row per bill ref)
+delete from public.transactions where source = 'bill' and external_ref = 'bill:water:2026-10' and property_id <> pg_temp.id('c3');
 insert into public.utility_bills(property_id, kind, period, estimate_php, status, paid_php, paid_at, paid_by_name, proof_verdict, reading_date)
 values (pg_temp.id('c3'), 'electric', '2026-11', 1000, 'paid', 1000, now(), 'Zz Admin', 'typed', date '2026-11-05');
 insert into public.utility_bills(property_id, kind, period, estimate_php, status) values (pg_temp.id('c3'), 'water', '2026-10', 300, 'due');
