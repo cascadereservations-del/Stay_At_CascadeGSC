@@ -7,6 +7,7 @@
 --         s_inventory_staff_movement_v1, reconcile_inventory_baseline_v1, inventory_undo_v1   report_supply (laundry) also counts and undoes a count: one gate line each.
 --         inventory_item_update_v1                                                           a category change into Kitchen utensils or Appliances with no consumable sent makes the item lasting, for a caller with manage_inventory only (a cleaner cannot flip is_consumable that way).
 --         get_inventory_catalogue_v1, get_inventory_item_moves_v1                            the usage reads skip a usage row that was undone (undone_at is not null).
+--         inventory_item_change_undo_v1                                                      (round 2) the "used since the add" test of a created item skips an undone usage row (one anchored line, md5 pinned).
 --   A usage undo keeps a tombstone (F7): inventory_usage gains undone_at / undone_qty / removed_qty; an undone row has used_qty 0 (so every sum over usage ignores it), keeps its [key:K] note (so the same
 --   usage_key sent again is a replay, not a second record), and is skipped by the readers that count rows or days. removed_qty is what record_inventory_usage really took off the shelf (a use of 3 on stock 1
 --   clamps at 0 and takes 1); a BEFORE INSERT trigger fills it, because record_inventory_usage is not replaced here. The undo of a not-controlled item puts back only that amount (F1).
@@ -18,6 +19,7 @@
 --         inventory_item_history_v1     every row gains note and source; usage, receipt, damage and linen rows join; rows of those kinds carry qty. Existing keys unchanged.
 --   COLUMNS  linen_stain_reports.reason / note / photo_path / undone_at, inventory_receipt_drafts.note, inventory_usage.undone_at / undone_qty / removed_qty (all nullable; old rows keep null).
 --   TRIGGER  inventory_usage_removed_v1 (BEFORE INSERT on inventory_usage, internal function s_inventory_usage_removed_v1, no grant).
+-- Round 2: record_inventory_usage is NOT patched: its gate has accepted report_supply since s110 (20261112000000; the body 365f7c6d... pinned by s122). The guard asserts it (55000 if the live body lacks report_supply) and the grants are restated.
 -- Not replaced: record_inventory_usage, inventory_item_create_v1 (already defaults a new item to lasting; see the lane report), s_inventory_receipt_confirm_core_v1 and every other function.
 -- Guard (55000, nothing changes): each replaced function must be the body it was cut from or this release (md5 of prosrc, CR stripped). Grants restated (ML-21).
 -- Rollback: supabase/rollbacks/20261202_s132_inventory_update.sql (puts the exact previous bodies back and drops what is new; the md5s of the previous bodies are the first value of each guard row above).
@@ -45,7 +47,8 @@ begin
     ('public.inventory_item_update_v1(uuid,jsonb)', 'c6ec09668ba7416ababeebe6a225b9d0', '618e3ec14138f9ce05c4c3dc1b1fe7fa'),
     ('public.get_inventory_catalogue_v1(uuid)', '6832ffc21ce22a01f591cbcf03f42497', '2ed1f4a50454e4072409d98ed0eea53c'),
     ('public.get_inventory_item_moves_v1(uuid)', '84eaa4f00f2e7fcdb2e92a2b13b48f26', '865a052a81b49407dcf1b4e5f8f91f4e'),
-    ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', 'bbf90cfbd5f97158307e12502ae1223e')
+    ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', 'bbf90cfbd5f97158307e12502ae1223e'),
+    ('public.inventory_item_change_undo_v1(uuid)', '86d7879703760fdc90e6b455e33bdacd', 'f513d523af5ef4f99055ca73e789b7ce')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -64,6 +67,16 @@ begin
       raise exception using errcode = '55000', message = 's132: ' || r.sig_old || ' is not the body this release was cut from (md5 ' || coalesce(v, 'null') || ', new signature ' || coalesce(v2, 'absent') || '): re-cut it from the live body';
     end if;
   end loop;
+end $g$;
+
+-- contract rev 1: a laundry worker (report_supply) records "Used up" through record_inventory_usage. The gate has accepted report_supply since s110; refuse to go on if the live body does not.
+do $g$
+declare v_src text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.record_inventory_usage(uuid,date,text,text,jsonb)');
+  if v_src is null or position($a$public.current_staff_authorized('report_supply', p_property_id)$a$ in v_src) = 0 then
+    raise exception using errcode = '55000', message = 's132: record_inventory_usage does not accept report_supply (md5 ' || coalesce(md5(v_src), 'null') || '): the s110 gate patch is missing, re-cut it from the live body';
+  end if;
 end $g$;
 
 -- 2. tables and columns -------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -529,6 +542,20 @@ begin
     returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_new);
 end $g$;
 
+-- inventory_item_change_undo_v1: the "used since the add" test of a created item (a usage row after the add) skips a usage row that was undone (undone_at is not null); everything else, the stock movement test included, is unchanged
+do $g$
+declare v_src text; v_new text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.inventory_item_change_undo_v1(uuid)');
+  if v_src is null then raise exception 's132: public.inventory_item_change_undo_v1(uuid) is missing' using errcode = '55000'; end if;
+  if md5(v_src) = 'f513d523af5ef4f99055ca73e789b7ce' then raise notice 's132: inventory_item_change_undo_v1 already carries this change'; return; end if;
+  if md5(v_src) <> '86d7879703760fdc90e6b455e33bdacd' then raise exception 's132: inventory_item_change_undo_v1 is not the body this release was cut from (md5 %): re-cut it from the live body', md5(v_src) using errcode = '55000'; end if;
+  v_new := replace(v_src, replace($f$exists (select 1 from public.inventory_usage u where u.item_id = i.id and u.created_at > c.created_at)$f$, chr(13), ''), replace($r$exists (select 1 from public.inventory_usage u where u.item_id = i.id and u.undone_at is null and u.created_at > c.created_at)$r$, chr(13), ''));
+  if v_new = v_src or md5(v_new) <> 'f513d523af5ef4f99055ca73e789b7ce' then raise exception 's132: inventory_item_change_undo_v1 patch did not produce the expected body (md5 %)', md5(v_new) using errcode = '55000'; end if;
+  execute format($e$create or replace function public.inventory_item_change_undo_v1(p_change_id uuid)
+    returns jsonb language plpgsql volatile security definer set search_path = '' as %L$e$, v_new);
+end $g$;
+
 revoke all on function public.s_inventory_staff_movement_v1(uuid, text, numeric, text, text) from public, anon, authenticated, service_role;
 revoke all on function public.reconcile_inventory_baseline_v1(uuid, numeric, text, text) from public, anon, service_role;
 grant execute on function public.reconcile_inventory_baseline_v1(uuid, numeric, text, text) to authenticated;
@@ -540,6 +567,11 @@ revoke all on function public.get_inventory_catalogue_v1(uuid) from public, anon
 grant execute on function public.get_inventory_catalogue_v1(uuid) to authenticated;
 revoke all on function public.get_inventory_item_moves_v1(uuid) from public, anon, service_role;
 grant execute on function public.get_inventory_item_moves_v1(uuid) to authenticated;
+revoke all on function public.inventory_item_change_undo_v1(uuid) from public, anon, authenticated, service_role;
+grant execute on function public.inventory_item_change_undo_v1(uuid) to authenticated;
+-- record_inventory_usage is not replaced; its grants are restated as s122 left them (ML-21)
+revoke all on function public.record_inventory_usage(uuid, date, text, text, jsonb) from public, anon;
+grant execute on function public.record_inventory_usage(uuid, date, text, text, jsonb) to authenticated, service_role;
 
 -- 6. record_inventory_receipt_v1 gains p_note (9 -> 10 arguments) -------------------------------------------------------------------------------------------------------------------------------------
 -- built from the live body: the note goes after the key tag in the purchase notes ("Admin receipt [key:K] note"; the undo and replay lookups only read the prefix and the tag). The 9-argument function is dropped

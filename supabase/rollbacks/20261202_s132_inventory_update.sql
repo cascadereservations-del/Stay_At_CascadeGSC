@@ -18,6 +18,7 @@ begin
     ('public.get_inventory_catalogue_v1(uuid)', '6832ffc21ce22a01f591cbcf03f42497', '2ed1f4a50454e4072409d98ed0eea53c'),
     ('public.get_inventory_item_moves_v1(uuid)', '84eaa4f00f2e7fcdb2e92a2b13b48f26', '865a052a81b49407dcf1b4e5f8f91f4e'),
     ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', 'bbf90cfbd5f97158307e12502ae1223e'),
+    ('public.inventory_item_change_undo_v1(uuid)', '86d7879703760fdc90e6b455e33bdacd', 'f513d523af5ef4f99055ca73e789b7ce'),
     ('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', null, 'd190f6b6051be034e9e9babb99cbbf56'),
     ('public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)', null, '8c407320edbbc9d944a86461bef23adf'),
     ('public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', null, 'e4cfcd996dda6d2cd7a3239cf574ab9e')
@@ -107,6 +108,21 @@ begin
   execute format($e$create or replace function public.get_inventory_item_moves_v1(p_item_id uuid)
     returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_old);
 end $g$;
+
+-- inventory_item_change_undo_v1 (round 2): the usage test of a created item goes back to counting an undone usage row
+do $g$
+declare v_src text; v_old text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.inventory_item_change_undo_v1(uuid)');
+  if md5(v_src) = '86d7879703760fdc90e6b455e33bdacd' then raise notice 's132 rollback: inventory_item_change_undo_v1 is already the previous body'; return; end if;
+  if md5(v_src) <> 'f513d523af5ef4f99055ca73e789b7ce' then raise exception 's132 rollback: inventory_item_change_undo_v1 is not this release (md5 %)', md5(v_src) using errcode = '55000'; end if;
+  v_old := replace(v_src, replace($r$exists (select 1 from public.inventory_usage u where u.item_id = i.id and u.undone_at is null and u.created_at > c.created_at)$r$, chr(13), ''), replace($f$exists (select 1 from public.inventory_usage u where u.item_id = i.id and u.created_at > c.created_at)$f$, chr(13), ''));
+  if md5(v_old) <> '86d7879703760fdc90e6b455e33bdacd' then raise exception 's132 rollback: inventory_item_change_undo_v1 did not return to the previous body (md5 %)', md5(v_old) using errcode = '55000'; end if;
+  execute format($e$create or replace function public.inventory_item_change_undo_v1(p_change_id uuid)
+    returns jsonb language plpgsql volatile security definer set search_path = '' as %L$e$, v_old);
+end $g$;
+revoke all on function public.inventory_item_change_undo_v1(uuid) from public, anon, authenticated, service_role;
+grant execute on function public.inventory_item_change_undo_v1(uuid) to authenticated;
 
 -- 3. the history goes back to the s124 body
 create or replace function public.inventory_item_history_v1(p_item_id uuid)

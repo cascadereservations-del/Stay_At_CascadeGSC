@@ -4,7 +4,7 @@
 -- Fixture rows and the reads run as the owner role (a --no-acl restore gives authenticated no table grants); only the RPC calls run as the staff roles.
 -- NOT RUN when it was written (the builder has no local Postgres): the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>) is the first run.
 begin;
-select plan(88);
+select plan(95);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -442,6 +442,63 @@ select ok((select is_consumable from public.inventory_items where id = pg_temp.i
 select ok((select is_consumable from public.inventory_items where id = pg_temp.id('ce')) and (select category from public.inventory_items where id = pg_temp.id('ce')) = 'Cleaning', 'update: a move into another group changes nothing else');
 select ok((select (v ->> 'ok')::boolean from _t where k = 'up_cleaner') and (select category = 'Kitchen utensils' and is_consumable from public.inventory_items where id = pg_temp.id('cf')),
   'update: a cleaner moving an item into Kitchen utensils changes the group only, is_consumable stays (the default is manage_inventory only)');
+
+-- =============================================================================================================================================
+-- 10b. round 2: laundry "Used up", the undo of a created item after an undone use, the same item twice in one usage call
+-- =============================================================================================================================================
+-- d3 pad 5 and d4 liner 2 (used up, not controlled)
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, units_per_purchase, movement_controlled_at) values
+  (pg_temp.id('d3'), pg_temp.id('b1'), 'Zz S132 Pad', 'Toiletries', 'pc', 5, true, true, 1, null),
+  (pg_temp.id('d4'), pg_temp.id('b1'), 'Zz S132 Liner', 'Toiletries', 'pc', 2, true, true, 1, null);
+-- contract rev 1: record_inventory_usage accepts report_supply (laundry); finance is refused 42501
+select pg_temp.as_user(pg_temp.id('05')); insert into _t select 'r2_ul', pg_temp.use('d3', 1, 'zz-s132-use-r2-laundry-aaaa'); reset role;
+select pg_temp.as_user(pg_temp.id('06')); insert into _t select 'r2_uf', pg_temp.use('d3', 1, 'zz-s132-use-r2-finance-aaaa'); reset role;
+select ok((select (v ->> 'ok')::boolean and (v ->> 'rows')::int = 1 from _t where k = 'r2_ul') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('d3')) = 4
+      and (select count(*) = 1 and min(u.removed_qty) = 1 from public.inventory_usage u where u.notes like '%zz-s132-use-r2-laundry-aaaa%'),
+  'usage: a laundry worker (report_supply) records Used up, stock 5 -> 4, one usage row');
+select ok((select v ->> 'err' = '42501' from _t where k = 'r2_uf') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('d3')) = 4
+      and not exists (select 1 from public.inventory_usage u where u.notes like '%zz-s132-use-r2-finance-aaaa%'),
+  'usage: finance is refused 42501 and writes nothing');
+select ok(has_function_privilege('authenticated', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute') and has_function_privilege('service_role', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute')
+      and not has_function_privilege('anon', 'public.record_inventory_usage(uuid,date,text,text,jsonb)', 'execute'),
+  'usage: record_inventory_usage keeps its grants (authenticated and service_role, not anon)');
+-- inventory_item_change_undo_v1: a created item whose only use was undone can be undone; a live use still blocks it
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r2_n1', pg_temp.try(format('select public.inventory_item_create_v1(%L::uuid, %L::jsonb)', pg_temp.id('b1'), '{"name":"Zz S132 R2 Pad One","category":"Toiletries","unit":"pc","consumable":true}'));
+insert into _t select 'r2_n2', pg_temp.try(format('select public.inventory_item_create_v1(%L::uuid, %L::jsonb)', pg_temp.id('b1'), '{"name":"Zz S132 R2 Pad Two","category":"Toiletries","unit":"pc","consumable":true}'));
+reset role;
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'r2_a1', pg_temp.try(format('select public.record_inventory_usage(%L::uuid, public.manila_today(), %L, %L, %L::jsonb)', pg_temp.id('b1'), 'Zz Tester', 'zz s132 r2',
+  jsonb_build_array(jsonb_build_object('item_id', (select v ->> 'item_id' from _t where k = 'r2_n1'), 'used_qty', 1, 'usage_key', 'zz-s132-use-r2-n1-aaaa'))));
+insert into _t select 'r2_a2', pg_temp.try(format('select public.record_inventory_usage(%L::uuid, public.manila_today(), %L, %L, %L::jsonb)', pg_temp.id('b1'), 'Zz Tester', 'zz s132 r2',
+  jsonb_build_array(jsonb_build_object('item_id', (select v ->> 'item_id' from _t where k = 'r2_n2'), 'used_qty', 1, 'usage_key', 'zz-s132-use-r2-n2-aaaa'))));
+reset role;
+-- the transaction clock is frozen: stamp both usage rows after the create rows (their created_at is clock_timestamp()) so "used since the add" is true for them
+update public.inventory_usage set created_at = clock_timestamp() where notes like '%zz-s132-use-r2-n%';
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'r2_ua', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-r2-n1-aaaa')); reset role;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r2_c1', pg_temp.try(format('select public.inventory_item_change_undo_v1(%L::uuid)', (select v ->> 'change_id' from _t where k = 'r2_n1')));
+insert into _t select 'r2_c2', pg_temp.try(format('select public.inventory_item_change_undo_v1(%L::uuid)', (select v ->> 'change_id' from _t where k = 'r2_n2')));
+reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'r2_ua') and (select (v ->> 'ok')::boolean and v ->> 'kind' = 'created' from _t where k = 'r2_c1')
+      and (select not is_active from public.inventory_items where id = ((select v ->> 'item_id' from _t where k = 'r2_n1'))::uuid),
+  'change undo: a created item whose only use was undone is undone (the tombstone is not "used since the add")');
+select ok((select v ->> 'reason' = 'changed_since' from _t where k = 'r2_c2') and (select is_active from public.inventory_items where id = ((select v ->> 'item_id' from _t where k = 'r2_n2'))::uuid),
+  'change undo: a created item with a live use is still refused changed_since and stays active');
+-- one usage call with the same item twice: stock 2, a use of 2 and a use of 2 (the second finds the shelf already at 0 and takes nothing)
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'r2_tw', pg_temp.try(format('select public.record_inventory_usage(%L::uuid, public.manila_today(), %L, %L, %L::jsonb)', pg_temp.id('b1'), 'Zz Tester', 'zz s132 twice',
+  jsonb_build_array(jsonb_build_object('item_id', pg_temp.id('d4'), 'used_qty', 2, 'usage_key', 'zz-s132-use-r2-tw1-aaaa'), jsonb_build_object('item_id', pg_temp.id('d4'), 'used_qty', 2, 'usage_key', 'zz-s132-use-r2-tw2-aaaa'))));
+reset role;
+select ok((select (v ->> 'ok')::boolean and (v ->> 'rows')::int = 2 from _t where k = 'r2_tw') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('d4')) = 0
+      and (select count(*) = 2 and sum(u.removed_qty) = 2 and sum(u.used_qty) = 4 from public.inventory_usage u where u.item_id = pg_temp.id('d4')),
+  'usage twice in one call: stock 2 -> 0, the two rows took 2 in total (removed_qty 2 and 0), not 4');
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'r2_tu1', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-r2-tw1-aaaa'));
+insert into _t select 'r2_tu2', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-r2-tw2-aaaa'));
+reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'r2_tu1') and (select (v ->> 'ok')::boolean from _t where k = 'r2_tu2') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('d4')) = 2,
+  'usage twice in one call: undoing both puts back 2 (what was taken), not 4');
 
 -- =============================================================================================================================================
 -- 11. finance is refused everywhere (one line over what the sections above showed)
