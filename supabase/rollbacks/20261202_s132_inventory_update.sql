@@ -1,5 +1,6 @@
 -- Rollback of release s132_inventory_update_20261202 (D-396). Run it only when no client calls the new functions any more.
 --   * replaced functions go back to their exact previous bodies (the in-place ones by putting the anchor back and pinning the md5, the re-cut ones from the stored bodies); every step is guarded by md5 (55000, nothing changes);
+--   * (round 3) inventory_qty_at_v1 and get_usage_medians go back to their previous bodies (section 4b, md5 pinned);
 --   * the new functions, the inventory_damage_reports table, the usage trigger and the new columns are dropped; usage rows that were undone (tombstones) are removed, as the first version of the undo did. Stock changes the new functions already made STAY (undo them in the app first if they should go);
 --     reports, notes and photo paths kept in the dropped table and columns are lost.
 -- The previous bodies were derived from the migrations (s85, s86, s91, s110, s120, s124); the guard md5s in the s132 migration say which is which.
@@ -21,7 +22,9 @@ begin
     ('public.inventory_item_change_undo_v1(uuid)', '86d7879703760fdc90e6b455e33bdacd', 'f513d523af5ef4f99055ca73e789b7ce'),
     ('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', null, 'd190f6b6051be034e9e9babb99cbbf56'),
     ('public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)', null, '8c407320edbbc9d944a86461bef23adf'),
-    ('public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', null, 'e4cfcd996dda6d2cd7a3239cf574ab9e')
+    ('public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', null, 'e4cfcd996dda6d2cd7a3239cf574ab9e'),
+    ('public.inventory_qty_at_v1(uuid,timestamptz)', '75e63656262684e72e8e02bdf6179818', '14b0a49112a97cbc3ca8318461af2078'),
+    ('public.get_usage_medians()', '30168efbcee85ff9cccd6ab8f76d5a7d', 'eb605dd66ebd70bb83061e2f38795132')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -380,6 +383,56 @@ revoke all on function public.record_linen_stains_v1(uuid, date, text, text, jso
 grant execute on function public.record_linen_stains_v1(uuid, date, text, text, jsonb) to authenticated;
 comment on function public.record_linen_stains_v1(uuid, date, text, text, jsonb) is
   'S120 (D-374): the checklist linen check. cleaned = audit row; needs_replacing / replaced = stock down (clamp 0, ledger adjustment for a controlled item); needs_replacing also adds to ONE open linen_replace task per item. Key replays write nothing. Needs submit_cleaning.';
+
+-- 4b. inventory_qty_at_v1 (s99f body) and get_usage_medians (schemas/000 body) go back to their exact previous bodies, each pinned by md5 after the restore
+create or replace function public.inventory_qty_at_v1(p_item_id uuid, p_at timestamptz)
+returns numeric language plpgsql stable security definer set search_path = '' as $$
+declare
+  it public.inventory_items%rowtype;
+  v_first numeric;
+begin
+  select * into it from public.inventory_items where id = p_item_id;
+  if not found then return null; end if;
+  if p_at is null then return it.qty_on_hand; end if;
+
+  if it.movement_controlled_at is not null then
+    select m.quantity_before into v_first from public.inventory_stock_movements m
+     where m.item_id = it.id and m.created_at > p_at order by m.sequence_no limit 1;
+    return coalesce(v_first, it.qty_on_hand);
+  end if;
+
+  return it.qty_on_hand
+    + coalesce((select sum(u.used_qty) from public.inventory_usage u where u.item_id = it.id and u.created_at > p_at), 0)
+    - coalesce((select sum(p.qty) from public.inventory_purchases p
+                 where p.item_id = it.id and p.created_at > p_at and coalesce(p.notes, '') not like 'Auto-restock from receipt OCR%'), 0)
+    - coalesce((select sum((a.after ->> 'qty_added')::numeric) from public.inventory_audit_log a
+                 where a.entity_type = 'inventory_items' and a.entity_id = it.id and a.action = 'ocr_restock' and a.created_at > p_at
+                   and exists (select 1 from public.inventory_purchases p where p.id::text = a.after ->> 'purchase_id')), 0)
+    - coalesce((select sum((a.after ->> 'qty_on_hand')::numeric - (a.before ->> 'qty_on_hand')::numeric) from public.inventory_audit_log a
+                 where a.entity_type = 'inventory_items' and a.entity_id = it.id and a.action <> 'ocr_restock' and a.created_at > p_at
+                   and jsonb_typeof(a.before -> 'qty_on_hand') = 'number' and jsonb_typeof(a.after -> 'qty_on_hand') = 'number'), 0);
+end $$;
+comment on function public.inventory_qty_at_v1(uuid, timestamptz) is
+  'S99f (D-351): what was on hand for an item at a past time. Not controlled: qty_now + usage after T - purchases after T - counts and other audited changes after T. Controlled: quantity_before of the first movement after T. Null time = now.';
+revoke all on function public.inventory_qty_at_v1(uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.inventory_qty_at_v1(uuid, timestamptz) to service_role;
+create or replace function public.get_usage_medians() returns table(item_id uuid, median_used numeric)
+language sql security definer set search_path to 'public' as $$
+  select item_id,
+         percentile_cont(0.5) within group (order by used_qty)::numeric(10,2)
+  from inventory_usage
+  where session_date >= current_date - interval '90 days'
+  group by item_id;
+$$;
+revoke all on function public.get_usage_medians() from public, anon;
+grant execute on function public.get_usage_medians() to authenticated, service_role;
+do $g$
+begin
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = to_regprocedure('public.inventory_qty_at_v1(uuid,timestamptz)')), chr(13), '')) is distinct from '75e63656262684e72e8e02bdf6179818'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = to_regprocedure('public.get_usage_medians()')), chr(13), '')) is distinct from '30168efbcee85ff9cccd6ab8f76d5a7d' then
+    raise exception 's132 rollback: inventory_qty_at_v1 or get_usage_medians did not return to the previous body' using errcode = '55000';
+  end if;
+end $g$;
 
 -- 5. the new objects go (the stock changes they made stay: undo what you need through the app first)
 drop function if exists public.undo_linen_stain_v1(text);

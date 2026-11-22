@@ -4,7 +4,7 @@
 -- Fixture rows and the reads run as the owner role (a --no-acl restore gives authenticated no table grants); only the RPC calls run as the staff roles.
 -- NOT RUN when it was written (the builder has no local Postgres): the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>) is the first run.
 begin;
-select plan(95);
+select plan(106);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -272,8 +272,8 @@ select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uu1', pg_temp.t
 select ok((select (v ->> 'ok')::boolean from _t where k = 'uu1') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('c7')) = 17
       and (select u.removed_qty = 3 and u.undone_at is not null and u.used_qty = 0 and u.undone_qty = 3 from public.inventory_usage u where u.notes like '%zz-s132-use-0001-aaaa%'),
   'usage undo (not controlled): stock 14 -> 17, the usage row stays as a tombstone (removed_qty 3, undone_at set, used_qty 0, undone_qty 3)');
-select ok((select count(*) = 1 and bool_and((before ->> 'qty_on_hand')::numeric = (after ->> 'qty_on_hand')::numeric) from public.inventory_audit_log where entity_id = pg_temp.id('c7') and action = 'usage_undo'),
-  'usage undo: one audit row with the same quantity before and after (the zeroed usage row is the reversal for inventory_qty_at_v1)');
+select ok((select count(*) = 1 and bool_and((before ->> 'qty_on_hand')::numeric = 14 and (after ->> 'qty_on_hand')::numeric = 17) from public.inventory_audit_log where entity_id = pg_temp.id('c7') and action = 'usage_undo'),
+  'usage undo: one audit row with the REAL shelf before (14) and after (17) the restore, so inventory_qty_at_v1 can see the window between the use and the undo (F8)');
 select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uu1_again', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-0001-aaaa')); reset role;
 select is((select v ->> 'reason' from _t where k = 'uu1_again'), 'already_undone', 'usage undo twice: already_undone');
 select pg_temp.as_user(pg_temp.id('04')); insert into _t select 'uu2_other', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-0002-aaaa')); reset role;
@@ -316,6 +316,80 @@ select ok((select (e ->> 'usageDays')::int = 0 and (e ->> 'usage30d')::numeric =
       and jsonb_array_length((select v from _t where k = 'uc_mov')) = 0
       and not exists (select 1 from jsonb_array_elements((select v from _t where k = 'uc_hist')) c where c ->> 'source' = 'usage'),
   'readers: an undone use is not counted by the catalogue (days and sum), the item moves list or the history');
+
+-- =============================================================================================================================================
+-- 6b. round 3: stock at a past time after an undo (F8), a direct insert (F9), the legacy median (F10), null and no-movement undo (F11), the lock (F13), the trigger function (F14)
+--     Fixtures: e1 pail 10 (qty_at), e2 qty null (null undo), e3 controlled 4 (use without a movement), e4 5 (forged insert), e5 10 (median). The transaction clock is frozen, so every stamp below is set by hand.
+-- =============================================================================================================================================
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, units_per_purchase, movement_controlled_at) values
+  (pg_temp.id('e1'), pg_temp.id('b1'), 'Zz S132 Pail', 'Cleaning', 'pc', 10, true, true, 1, null),
+  (pg_temp.id('e3'), pg_temp.id('b1'), 'Zz S132 Funnel', 'Cleaning', 'pc', 4, true, true, 1, now()),
+  (pg_temp.id('e4'), pg_temp.id('b1'), 'Zz S132 Sieve', 'Cleaning', 'pc', 5, true, true, 1, null),
+  (pg_temp.id('e5'), pg_temp.id('b1'), 'Zz S132 Rag', 'Cleaning', 'pc', 10, true, true, 1, null);
+insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key) values
+  (pg_temp.id('e3'), pg_temp.id('b1'), 'reconcile', 4, 4, 'Baseline count: zz s132 baseline', pg_temp.id('01'), 'zz-s132-baseline-e3-0001');
+-- F8: stock 10, a use of 3 at t1 (3 hours ago), its undo at t2 (1 hour ago)
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'q_use', pg_temp.use('e1', 3, 'zz-s132-use-q1-aaaa-0001'); reset role;
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'q_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-q1-aaaa-0001')); reset role;
+update public.inventory_usage set created_at = now() - interval '3 hours' where notes like '%zz-s132-use-q1-aaaa-0001%';
+update public.inventory_audit_log set created_at = now() - interval '1 hour' where entity_id = pg_temp.id('e1') and action = 'usage_undo';
+select is(public.inventory_qty_at_v1(pg_temp.id('e1'), now() - interval '4 hours'), 10::numeric, 'qty_at before the use (T < t1): stock S = 10');
+select is(public.inventory_qty_at_v1(pg_temp.id('e1'), now() - interval '2 hours'), 7::numeric, 'qty_at between the use and its undo (t1 < T < t2): S - r = 7');
+select is(public.inventory_qty_at_v1(pg_temp.id('e1'), now() - interval '30 minutes'), 10::numeric, 'qty_at after the undo (T > t2): S = 10');
+-- a controlled item still reads the ledger: baseline 20 -> use 20 -> 15 -> undo 15 -> 20 (c8, section 6)
+update public.inventory_stock_movements set created_at = now() - interval '5 hours' where item_id = pg_temp.id('c8') and reason like 'Baseline%';
+update public.inventory_stock_movements set created_at = now() - interval '4 hours' where item_id = pg_temp.id('c8') and kind = 'usage';
+update public.inventory_stock_movements set created_at = now() - interval '3 hours' where item_id = pg_temp.id('c8') and reason like 'Undo usage%';
+select ok(public.inventory_qty_at_v1(pg_temp.id('c8'), now() - interval '4 hours 30 minutes') = 20 and public.inventory_qty_at_v1(pg_temp.id('c8'), now() - interval '3 hours 30 minutes') = 15
+      and public.inventory_qty_at_v1(pg_temp.id('c8'), now() - interval '2 hours') = 20, 'qty_at (controlled tissue): 20 before the use, 15 between the use and the undo, 20 after');
+-- F9: a direct REST insert (authenticated has INSERT on inventory_usage live; a --no-acl restore has no grant, so the suite gives it, and a permissive insert policy, both rolled back)
+grant insert on table public.inventory_usage to authenticated;
+create policy zz_s132_forge on public.inventory_usage for insert to authenticated with check (true);
+select pg_temp.as_user(pg_temp.id('03'));
+insert into public.inventory_usage(item_id, used_qty, session_date, logged_by, notes, property_id, submitted_by_user_id)
+values (pg_temp.id('e4'), 4, public.manila_today(), 'Zz Forger', 'zz s132 forged [key:zz-s132-forge-0001-aaaa]', pg_temp.id('b1'), pg_temp.id('03'));
+reset role;
+select ok((select u.removed_qty = 0 and u.used_qty = 4 from public.inventory_usage u where u.notes like '%zz-s132-forge-0001-aaaa%') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('e4')) = 5,
+  'direct insert as authenticated: the row records removed_qty 0 (it never lowered the shelf), the shelf stays 5');
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'forge_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-forge-0001-aaaa')); reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'forge_undo') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('e4')) = 5, 'undo of a forged row restores 0: the shelf stays 5, stock cannot be raised that way');
+-- F10: the legacy median skips a tombstone (live rows 4 and 6 -> 5; the undone 2 must not pull it to 4)
+insert into public.inventory_usage(item_id, used_qty, session_date, logged_by, notes, property_id) values
+  (pg_temp.id('e5'), 4, public.manila_today(), 'Zz Tester', 'zz s132 median a', pg_temp.id('b1')), (pg_temp.id('e5'), 6, public.manila_today(), 'Zz Tester', 'zz s132 median b', pg_temp.id('b1'));
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'med_use', pg_temp.use('e5', 2, 'zz-s132-use-med1-aaaa-0001'); reset role;
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'med_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-med1-aaaa-0001')); reset role;
+select is((select m.median_used from public.get_usage_medians() m where m.item_id = pg_temp.id('e5')), 5.00::numeric, 'get_usage_medians: an undone use (tombstone, used_qty 0) does not lower the median (4 and 6 -> 5)');
+-- F11: a null qty_on_hand is never turned into 0 (the column is NOT NULL live; the suite drops that for this check and puts it back)
+alter table public.inventory_items alter column qty_on_hand drop not null;
+insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, units_per_purchase, movement_controlled_at)
+values (pg_temp.id('e2'), pg_temp.id('b1'), 'Zz S132 Brush Null', 'Cleaning', 'pc', null, true, true, 1, null);
+insert into public.inventory_usage(item_id, used_qty, session_date, logged_by, notes, property_id, submitted_by_user_id)
+values (pg_temp.id('e2'), 2, public.manila_today(), 'Zz Tester', 'zz s132 null [key:zz-s132-use-null-aaaa-0001]', pg_temp.id('b1'), pg_temp.id('03'));
+update public.inventory_usage set removed_qty = 2 where notes like '%zz-s132-use-null-aaaa-0001%';
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'null_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-null-aaaa-0001')); reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'null_undo') and (select qty_on_hand is null from public.inventory_items where id = pg_temp.id('e2'))
+      and (select u.undone_at is not null from public.inventory_usage u where u.notes like '%zz-s132-use-null-aaaa-0001%'), 'usage undo of an item with no shelf figure (null): ok, the shelf stays null, not 0');
+delete from public.inventory_audit_log where entity_id = pg_temp.id('e2');
+delete from public.inventory_usage where item_id = pg_temp.id('e2');
+delete from public.inventory_items where id = pg_temp.id('e2');
+alter table public.inventory_items alter column qty_on_hand set not null;
+-- F11: an item that is controlled now but whose use has no movement: the undo writes one adjustment of removed_qty (the owner insert fills removed_qty 2 for a controlled item)
+insert into public.inventory_usage(item_id, used_qty, session_date, logged_by, notes, property_id, submitted_by_user_id)
+values (pg_temp.id('e3'), 2, public.manila_today(), 'Zz Tester', 'zz s132 nomove [key:zz-s132-use-nomv-aaaa-0001]', pg_temp.id('b1'), pg_temp.id('03'));
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'nomv_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-nomv-aaaa-0001')); reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'nomv_undo') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('e3')) = 6
+      and (select quantity_after from public.inventory_stock_movements where item_id = pg_temp.id('e3') order by sequence_no desc limit 1) = 6
+      and exists (select 1 from public.inventory_stock_movements m where m.item_id = pg_temp.id('e3') and m.kind = 'adjustment' and m.reason like 'Undo usage%' and m.quantity_before = 4 and m.quantity_after = 6),
+  'usage undo (controlled now, no movement for the use): one adjustment 4 -> 6 for removed_qty, shelf and ledger agree');
+-- F13: the first phase locks the usage rows
+select ok((select position('from public.inventory_usage where id = v_id for update' in replace(p.prosrc, chr(13), '')) > 0 from pg_proc p where p.oid = to_regprocedure('public.undo_inventory_usage_v1(text)')),
+  'undo_inventory_usage_v1 locks the usage row (for update) before it checks and restores');
+-- F14: the trigger function is internal: no grant to anon, authenticated or service_role, search_path pinned, and SECURITY INVOKER by design (it reads current_user to tell a REST insert from record_inventory_usage)
+select ok(not has_function_privilege('anon', 'public.s_inventory_usage_removed_v1()', 'execute') and not has_function_privilege('authenticated', 'public.s_inventory_usage_removed_v1()', 'execute')
+      and not has_function_privilege('service_role', 'public.s_inventory_usage_removed_v1()', 'execute')
+      and (select not p.prosecdef and p.proconfig = array['search_path=""'] from pg_proc p where p.oid = to_regprocedure('public.s_inventory_usage_removed_v1()'))
+      and exists (select 1 from pg_trigger t where t.tgrelid = 'public.inventory_usage'::regclass and t.tgname = 'inventory_usage_removed_v1' and t.tgenabled = 'O'),
+  'trigger function s_inventory_usage_removed_v1: no EXECUTE for anon / authenticated / service_role, security invoker, search_path pinned, trigger enabled');
 
 -- =============================================================================================================================================
 -- 7. staff supply entry: total paid, receipt photo, note; the admin receipt note

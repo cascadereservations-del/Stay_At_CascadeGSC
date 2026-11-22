@@ -18,7 +18,18 @@
 --   CHANGED (same signature)
 --         inventory_item_history_v1     every row gains note and source; usage, receipt, damage and linen rows join; rows of those kinds carry qty. Existing keys unchanged.
 --   COLUMNS  linen_stain_reports.reason / note / photo_path / undone_at, inventory_receipt_drafts.note, inventory_usage.undone_at / undone_qty / removed_qty (all nullable; old rows keep null).
---   TRIGGER  inventory_usage_removed_v1 (BEFORE INSERT on inventory_usage, internal function s_inventory_usage_removed_v1, no grant).
+--   TRIGGER  inventory_usage_removed_v1 (BEFORE INSERT on inventory_usage, internal function s_inventory_usage_removed_v1, security invoker, no grant).
+--   CHANGED (round 3, same signature, md5 pinned) inventory_qty_at_v1 (past stock knows the usage tombstone), get_usage_medians (skips an undone use).
+-- Round 3 (fix round, narrow list):
+--   F8   undo_inventory_usage_v1 writes the usage_undo audit row with the REAL shelf before and after; inventory_qty_at_v1 is re-cut (section 4b, md5 75e63656... -> 14b0a491...): a tombstone created after T is added back,
+--        the undo audit delta is subtracted by the existing audit term, so stock S, use r, undo gives S before the use, S - r between use and undo, S after the undo.
+--   F9   the removed_qty trigger is SECURITY INVOKER and gives removed_qty 0 when current_user is authenticated or anon (a direct REST insert never lowered any stock); inside record_inventory_usage (owner postgres) it is unchanged.
+--        DEVIATION from the "security definer" wording of F14: a definer trigger function sees its owner as current_user for both callers and could not tell them apart; it keeps search_path '' and no grant.
+--   F10  get_usage_medians() (legacy, defined only in schemas/000) skips an undone row (md5 30168efb... -> eb605dd6...).
+--   F11  the undo changes no stock when the amount to put back is 0 or qty_on_hand is null; a controlled item with no movement for the use gets an adjustment of removed_qty.
+--   F12  record_inventory_usage is pinned (365f7c6d50258a611612465e4ad3624b) in the guard.   F13  the undo locks the usage rows (for update) in its first phase.
+-- Known limits: a LIVE usage row that was clamped (used 3, shelf 1) still adds back used_qty in inventory_qty_at_v1 (the s99f limit; the tombstone add-back uses what was really taken); a direct REST insert as authenticated
+-- records a usage row but changes no stock (its undo restores 0).
 -- Round 2: record_inventory_usage is NOT patched: its gate has accepted report_supply since s110 (20261112000000; the body 365f7c6d... pinned by s122). The guard asserts it (55000 if the live body lacks report_supply) and the grants are restated.
 -- Not replaced: record_inventory_usage, inventory_item_create_v1 (already defaults a new item to lasting; see the lane report), s_inventory_receipt_confirm_core_v1 and every other function.
 -- Guard (55000, nothing changes): each replaced function must be the body it was cut from or this release (md5 of prosrc, CR stripped). Grants restated (ML-21).
@@ -48,7 +59,9 @@ begin
     ('public.get_inventory_catalogue_v1(uuid)', '6832ffc21ce22a01f591cbcf03f42497', '2ed1f4a50454e4072409d98ed0eea53c'),
     ('public.get_inventory_item_moves_v1(uuid)', '84eaa4f00f2e7fcdb2e92a2b13b48f26', '865a052a81b49407dcf1b4e5f8f91f4e'),
     ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', 'bbf90cfbd5f97158307e12502ae1223e'),
-    ('public.inventory_item_change_undo_v1(uuid)', '86d7879703760fdc90e6b455e33bdacd', 'f513d523af5ef4f99055ca73e789b7ce')
+    ('public.inventory_item_change_undo_v1(uuid)', '86d7879703760fdc90e6b455e33bdacd', 'f513d523af5ef4f99055ca73e789b7ce'),
+    ('public.inventory_qty_at_v1(uuid,timestamptz)', '75e63656262684e72e8e02bdf6179818', '14b0a49112a97cbc3ca8318461af2078'),
+    ('public.get_usage_medians()', '30168efbcee85ff9cccd6ab8f76d5a7d', 'eb605dd66ebd70bb83061e2f38795132')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -76,6 +89,10 @@ begin
   select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.record_inventory_usage(uuid,date,text,text,jsonb)');
   if v_src is null or position($a$public.current_staff_authorized('report_supply', p_property_id)$a$ in v_src) = 0 then
     raise exception using errcode = '55000', message = 's132: record_inventory_usage does not accept report_supply (md5 ' || coalesce(md5(v_src), 'null') || '): the s110 gate patch is missing, re-cut it from the live body';
+  end if;
+  -- F12: the undo and the removed_qty trigger lean on exactly this body (it inserts the usage row before it lowers the shelf, and takes the stock from inventory_items itself): pin it (s122 patched body)
+  if md5(v_src) is distinct from '365f7c6d50258a611612465e4ad3624b' then
+    raise exception using errcode = '55000', message = 's132: record_inventory_usage is not the body this release was cut from (md5 ' || coalesce(md5(v_src), 'null') || ', expected 365f7c6d50258a611612465e4ad3624b): re-cut it from the live body';
   end if;
 end $g$;
 
@@ -107,16 +124,24 @@ alter table public.linen_stain_reports add column if not exists photo_path text 
 alter table public.linen_stain_reports add column if not exists undone_at timestamptz;
 
 -- a usage undo keeps a tombstone instead of deleting the row (F7): undone_at marks it, undone_qty keeps the quantity that was logged, and used_qty is set to 0 so every sum over usage (KPI, forecast,
--- accounting, inventory_qty_at_v1) ignores it with no change to those readers; the [key:K] note stays, so the same usage_key sent again is a replay and records nothing.
+-- accounting) ignores it with no change to those readers (inventory_qty_at_v1 and get_usage_medians are re-cut in section 4b); the [key:K] note stays, so the same usage_key sent again is a replay and records nothing.
 -- removed_qty is what record_inventory_usage really took off the shelf (F1): a use of 3 on stock 1 clamps at 0 and takes 1, so its undo puts back 1. The trigger below fills it on insert
 -- (record_inventory_usage inserts the row before it lowers qty_on_hand, so the shelf is still the "before" there); a controlled item keeps the full quantity (its ledger movement is the truth).
 -- Rows from before this release have removed_qty null: an undo then puts back used_qty, as it would have.
 alter table public.inventory_usage add column if not exists undone_at timestamptz;
 alter table public.inventory_usage add column if not exists undone_qty numeric(10, 2);
 alter table public.inventory_usage add column if not exists removed_qty numeric(10, 2);
+-- F9: SECURITY INVOKER on purpose. A direct REST insert (authenticated has INSERT on inventory_usage) never lowered any stock, so it must not record that it "removed" anything, or its undo would raise
+-- the shelf. The trigger tells the two callers apart by current_user: inside record_inventory_usage (security definer, owned by the migration owner postgres, see schemas/000 "OWNER TO postgres") the current
+-- user is that owner; a PostgREST insert runs as the JWT role, authenticated or anon, and gets removed_qty 0. (A definer trigger function could not tell: current_user would be its owner in both cases.)
+-- Every other role (the owner, service_role) takes the computed amount, so a fixture or script insert as the owner behaves as before.
 create or replace function public.s_inventory_usage_removed_v1()
-returns trigger language plpgsql security definer set search_path = '' as $$
+returns trigger language plpgsql set search_path = '' as $$
 begin
+  if current_user in ('authenticated', 'anon') then
+    new.removed_qty := 0;
+    return new;
+  end if;
   select case when i.movement_controlled_at is not null then new.used_qty else least(new.used_qty, greatest(0, coalesce(i.qty_on_hand, 0))) end
     into new.removed_qty from public.inventory_items i where i.id = new.item_id;
   return new;
@@ -312,12 +337,14 @@ $$;
 -- p_usage_key is the usage_key the client sent to record_inventory_usage (kept in the row's notes as [key:K]). The person who logged it inside 15 minutes; manage_inventory any time.
 -- The stock comes back (a compensating movement for a controlled item; for the others qty_on_hand gets back only what the use really took, removed_qty: a use of 3 on stock 1 clamped at 0 and took 1) and the
 -- usage row stays as a tombstone (undone_at, undone_qty, used_qty 0): the same usage_key sent again to record_inventory_usage finds the row and is a replay, so an undone use is never recorded twice, and every
--- reader that sums usage sees 0. inventory_qty_at_v1 rebuilds past stock from the usage rows, so the zeroed row IS the reversal for past counts: the audit row written here has the same quantity before and after.
+-- reader that sums usage sees 0. inventory_qty_at_v1 (re-cut in section 4b) rebuilds past stock from the usage rows AND the audit rows: the undo audit row written here carries the REAL shelf before and after
+-- (F8), so the stock at a time between the use and its undo is the shelf without the restore. A phase 1 lock (for update) is taken on the usage rows; a null qty_on_hand is never turned into 0 and a zero
+-- restore changes nothing (F11); a usage made before the item became movement-controlled (no movement for it) comes back as one adjustment of removed_qty (F11).
 create or replace function public.undo_inventory_usage_v1(p_usage_key text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_uid uuid := auth.uid(); u public.inventory_usage%rowtype; v_prop uuid; v_mgr boolean; v_ids uuid[] := '{}'; v_id uuid; v_name text; v_ctl boolean; v_cur numeric; v_last numeric; v_new numeric;
-  m public.inventory_stock_movements%rowtype; v_delta numeric; v_restored integer := 0;
+  m public.inventory_stock_movements%rowtype; v_delta numeric; v_restored integer := 0; v_raw numeric; v_before numeric; v_after numeric;
 begin
   if v_uid is null then raise exception using errcode = '42501', message = 'authentication required'; end if;
   if p_usage_key is null or char_length(p_usage_key) not between 1 and 160 then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
@@ -334,7 +361,8 @@ begin
 
   -- 1. check every row before anything is written
   foreach v_id in array v_ids loop
-    select * into u from public.inventory_usage where id = v_id;
+    select * into u from public.inventory_usage where id = v_id for update;
+    if u.undone_at is not null then return jsonb_build_object('ok', false, 'reason', 'already_undone'); end if;
     select i.property_id into v_prop from public.inventory_items i where i.id = u.item_id;
     v_mgr := public.current_staff_authorized('manage_inventory', v_prop);
     if not (v_mgr or public.current_staff_authorized('submit_cleaning', v_prop) or public.current_staff_authorized('report_supply', v_prop)) then
@@ -351,14 +379,22 @@ begin
   -- 2. put the stock back
   foreach v_id in array v_ids loop
     select * into u from public.inventory_usage where id = v_id;
-    select i.name, (i.movement_controlled_at is not null), coalesce(i.qty_on_hand, 0), i.property_id into v_name, v_ctl, v_cur, v_prop
+    select i.name, (i.movement_controlled_at is not null), i.qty_on_hand, i.property_id into v_name, v_ctl, v_raw, v_prop
       from public.inventory_items i where i.id = u.item_id for update;
+    v_cur := coalesce(v_raw, 0); v_before := v_raw; v_after := v_raw;
     if v_ctl then
       -- the movement record_inventory_usage wrote for this row (none when the stock did not change): its quantity comes back as one adjustment
       select * into m from public.inventory_stock_movements x where x.item_id = u.item_id
          and x.idempotency_key = left('evt-' || encode(extensions.digest('inventory_usage|' || u.id::text || '|' || u.item_id::text || '|usage', 'sha256'), 'hex'), 80);
       if found then
         v_delta := m.quantity_before - m.quantity_after;
+      elsif u.removed_qty is not null then
+        -- F11: the use was made while the item was not controlled yet (no movement for it); the shelf took removed_qty, so the ledger gets it back as an adjustment
+        v_delta := u.removed_qty;
+      else
+        v_delta := 0;
+      end if;
+      if v_delta <> 0 and v_raw is not null then
         select x.quantity_after into v_last from public.inventory_stock_movements x where x.item_id = u.item_id order by x.sequence_no desc limit 1;
         if v_last is distinct from v_cur then raise exception using errcode = '22023', message = 'stock reconciliation required for ' || v_name; end if;
         v_new := v_cur + v_delta;
@@ -366,16 +402,21 @@ begin
         values (u.item_id, v_prop, 'adjustment', v_cur, v_new, 'Undo usage ' || u.session_date::text, v_uid,
                 left('evt-' || encode(extensions.digest('inventory_usage|' || u.id::text || '|' || u.item_id::text || '|undo', 'sha256'), 'hex'), 80));
         update public.inventory_items set qty_on_hand = v_new where id = u.item_id;
-        v_cur := v_new;
+        v_cur := v_new; v_after := v_new;
       end if;
     else
-      -- F1: only what the use really took off the shelf comes back (a use clamped at 0 took less than used_qty); a row from before this release has no removed_qty and puts back used_qty
-      v_new := v_cur + least(u.used_qty, coalesce(u.removed_qty, u.used_qty));
-      update public.inventory_items set qty_on_hand = v_new where id = u.item_id;
-      v_cur := v_new;
+      -- F1: only what the use really took off the shelf comes back (a use clamped at 0 took less than used_qty); a row from before this release has no removed_qty and puts back used_qty.
+      -- F11: nothing to put back (0) or no shelf figure (null) changes nothing: a null qty_on_hand is never turned into 0
+      v_delta := least(u.used_qty, coalesce(u.removed_qty, u.used_qty));
+      if v_delta <> 0 and v_raw is not null then
+        v_new := v_cur + v_delta;
+        update public.inventory_items set qty_on_hand = v_new where id = u.item_id;
+        v_cur := v_new; v_after := v_new;
+      end if;
     end if;
+    -- F8: the audit row carries the real shelf before and after the restore (equal when nothing changed); inventory_qty_at_v1 subtracts after - before for a time before this undo
     insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
-    values ('inventory_items', u.item_id, 'usage_undo', jsonb_build_object('qty_on_hand', v_cur), jsonb_build_object('qty_on_hand', v_cur, 'usage_key', p_usage_key), v_uid::text);
+    values ('inventory_items', u.item_id, 'usage_undo', jsonb_build_object('qty_on_hand', v_before), jsonb_build_object('qty_on_hand', v_after, 'usage_key', p_usage_key), v_uid::text);
     -- F7: the tombstone (see the header): undone_at marks it, the logged quantity is kept in undone_qty, used_qty goes to 0 so no sum counts it, the [key:K] note stays for the replay
     update public.inventory_usage set undone_at = now(), undone_qty = u.used_qty, used_qty = 0 where id = u.id;
     v_restored := v_restored + 1;
@@ -383,6 +424,64 @@ begin
   return jsonb_build_object('ok', true, 'restored', v_restored);
 end;
 $$;
+
+-- 4b. inventory_qty_at_v1 and get_usage_medians know the tombstone ---------------------------------------------------------------------------------------------------------------------------
+-- inventory_qty_at_v1 (s99f body 75e63656...) = stock now + usage after T - purchases after T - audited changes after T. A tombstone has used_qty 0, so the usage term lost its use and for a T between the
+-- use (t1) and its undo (t2) the old maths gave S instead of S - r. Derivation, shelf S0 before the use, g = what the use took (least(undone_qty, removed_qty); r unless clamped), shelf now S0:
+--   deltas of the shelf after T:  use at t1: -g;  undo at t2: +g (the audit row usage_undo has before = S0 - g, after = S0, written by undo_inventory_usage_v1);  stock(T) = now - (sum of deltas after T).
+--   T < t1:       deltas -g + g = 0  -> S0.  The formula: + g (tombstone created after T, added back below) - g (the undo audit delta, already counted by the existing audit term, t2 > T) = now.
+--   t1 < T < t2:  delta +g           -> S0 - g.  The formula: tombstone created before T adds nothing; the undo audit delta (t2 > T) subtracts g = now - g = S - r.
+--   T > t2:       no delta           -> now.  Neither term counts anything.
+-- So ONE new term (the add-back of g for a tombstone created after T) is enough: the subtraction for "undone after T" is the audit row the existing term already sums; adding a second one would count it twice.
+-- A live usage row keeps adding back used_qty (the disclosed s99f clamp limit is unchanged). A movement-controlled item still reads quantity_before of the first movement after T.
+create or replace function public.inventory_qty_at_v1(p_item_id uuid, p_at timestamptz)
+returns numeric language plpgsql stable security definer set search_path = '' as $$
+declare
+  it public.inventory_items%rowtype;
+  v_first numeric;
+begin
+  select * into it from public.inventory_items where id = p_item_id;
+  if not found then return null; end if;
+  if p_at is null then return it.qty_on_hand; end if;
+
+  if it.movement_controlled_at is not null then
+    select m.quantity_before into v_first from public.inventory_stock_movements m
+     where m.item_id = it.id and m.created_at > p_at order by m.sequence_no limit 1;
+    return coalesce(v_first, it.qty_on_hand);
+  end if;
+
+  return it.qty_on_hand
+    + coalesce((select sum(u.used_qty) from public.inventory_usage u where u.item_id = it.id and u.created_at > p_at), 0)
+    + coalesce((select sum(least(u.undone_qty, coalesce(u.removed_qty, u.undone_qty))) from public.inventory_usage u
+                 where u.item_id = it.id and u.undone_at is not null and u.created_at > p_at), 0)
+    - coalesce((select sum(p.qty) from public.inventory_purchases p
+                 where p.item_id = it.id and p.created_at > p_at and coalesce(p.notes, '') not like 'Auto-restock from receipt OCR%'), 0)
+    - coalesce((select sum((a.after ->> 'qty_added')::numeric) from public.inventory_audit_log a
+                 where a.entity_type = 'inventory_items' and a.entity_id = it.id and a.action = 'ocr_restock' and a.created_at > p_at
+                   and exists (select 1 from public.inventory_purchases p where p.id::text = a.after ->> 'purchase_id')), 0)
+    - coalesce((select sum((a.after ->> 'qty_on_hand')::numeric - (a.before ->> 'qty_on_hand')::numeric) from public.inventory_audit_log a
+                 where a.entity_type = 'inventory_items' and a.entity_id = it.id and a.action <> 'ocr_restock' and a.created_at > p_at
+                   and jsonb_typeof(a.before -> 'qty_on_hand') = 'number' and jsonb_typeof(a.after -> 'qty_on_hand') = 'number'), 0);
+end $$;
+comment on function public.inventory_qty_at_v1(uuid, timestamptz) is
+  'S99f (D-351), s132: what was on hand for an item at a past time. Not controlled: qty_now + usage after T + what an undone usage took (created after T) - purchases after T - counts and other audited changes after T (the usage undo audit row carries the real before and after). Controlled: quantity_before of the first movement after T. Null time = now.';
+revoke all on function public.inventory_qty_at_v1(uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.inventory_qty_at_v1(uuid, timestamptz) to service_role;
+
+-- F10: the legacy get_usage_medians() (schemas/000, SECURITY DEFINER, search_path public; no later migration defines it, only the grants of 20260925030000) took the median of used_qty over 90 days: a
+-- tombstone (used_qty 0) would pull it down. Only the undone_at filter is added; signature, owner and attributes are the same.
+create or replace function public.get_usage_medians()
+returns table(item_id uuid, median_used numeric)
+language sql security definer set search_path to 'public' as $$
+  select item_id,
+         percentile_cont(0.5) within group (order by used_qty)::numeric(10,2)
+  from inventory_usage
+  where session_date >= current_date - interval '90 days'
+    and undone_at is null
+  group by item_id;
+$$;
+revoke all on function public.get_usage_medians() from public, anon;
+grant execute on function public.get_usage_medians() to authenticated, service_role;
 
 -- p_idempotency_key is the key the client sent to record_linen_stains_v1 (one submission = one or more rows). The reporter inside 15 minutes; manage_inventory any time. Every changed row's stock
 -- comes back (a movement for a controlled item, an audit row for every item), the row is marked undone, and the open linen_replace task is reduced by its quantity (cancelled at 0).
