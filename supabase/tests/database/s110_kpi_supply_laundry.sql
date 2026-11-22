@@ -364,7 +364,7 @@ select ok(has_table_privilege('service_role', 'public.inventory_receipt_drafts',
 select ok(has_column_privilege('service_role', 'public.inventory_item_options', 'title', 'select') and has_column_privilege('service_role', 'public.inventory_item_options', 'item_id', 'select')
           and not has_column_privilege('service_role', 'public.inventory_item_options', 'price', 'select') and not has_table_privilege('authenticated', 'public.inventory_item_options', 'select'),
   'the matcher reads item_id and title of the options, no price, and clients nothing');
-select ok((select prosrc like '%pg_advisory_xact_lock(hashtextextended(''s110-manual:''%' from pg_proc where oid = 'public.inventory_receipt_manual_v1(jsonb,date,text,text)'::regprocedure),
+select ok((select prosrc like '%pg_advisory_xact_lock(hashtextextended(''s110-manual:''%' from pg_proc where oid = 'public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)'::regprocedure),
   'manual: the replay lookup is behind a per-key advisory lock');
 
 -- the exact insert the ocr-receipt edge function makes, as the service role

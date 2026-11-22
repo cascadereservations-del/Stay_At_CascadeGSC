@@ -4,7 +4,7 @@
 -- Fixture rows and the reads run as the owner role (a --no-acl restore gives authenticated no table grants); only the RPC calls run as the staff roles.
 -- NOT RUN when it was written (the builder has no local Postgres): the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>) is the first run.
 begin;
-select plan(78);
+select plan(88);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -89,6 +89,10 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
   (pg_temp.id('cd'), pg_temp.id('b1'), 'Zz S132 Sponge', 'Toiletries', 'pc', 3, true, true, 1, null),
   (pg_temp.id('ce'), pg_temp.id('b1'), 'Zz S132 Mop', 'Toiletries', 'pc', 3, true, true, 1, null),
   (pg_temp.id('cf'), pg_temp.id('b1'), 'Zz S132 Cup', 'Toiletries', 'pc', 3, true, true, 1, null);
+-- d1 cloth 1 (used up, clamp test of the usage undo), d2 colander 5 (lasting, bought by the box)
+insert into public.inventory_items(id, property_id, name, category, unit, purchase_unit, qty_on_hand, is_consumable, is_active, units_per_purchase, movement_controlled_at) values
+  (pg_temp.id('d1'), pg_temp.id('b1'), 'Zz S132 Cloth', 'Toiletries', 'pc', null, 1, true, true, 1, null),
+  (pg_temp.id('d2'), pg_temp.id('b1'), 'Zz S132 Colander', 'Kitchen utensils', 'pc', 'box', 5, false, true, 1, null);
 insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key) values
   (pg_temp.id('c2'), pg_temp.id('b1'), 'reconcile', 4, 4, 'Baseline count: zz s132 baseline', pg_temp.id('01'), 'zz-s132-baseline-c2-0001'),
   (pg_temp.id('c6'), pg_temp.id('b1'), 'reconcile', 1, 1, 'Baseline count: zz s132 baseline', pg_temp.id('01'), 'zz-s132-baseline-c6-0001'),
@@ -165,6 +169,8 @@ select ok((select qty_on_hand from public.inventory_items where id = pg_temp.id(
       and (select quantity_after from public.inventory_stock_movements where item_id = pg_temp.id('c2') order by sequence_no desc limit 1) = 3, 'controlled pan: 4 -> 3, one movement by the actor, ledger and shelf agree');
 select ok((select count(*) = 1 from public.inventory_shopping_list s where s.item_id = pg_temp.id('c2') and s.status = 'proposed' and s.quantity = 1 and s.idempotency_key like 'damage-' || pg_temp.rid('dm_ctl') || '-%'),
   'shopping list: the replacement is proposed (a table, so a row)');
+select ok((select count(*) = 1 and min(s.purchase_unit) = 'pc' from public.inventory_shopping_list s where s.idempotency_key like 'damage-' || pg_temp.rid('dm_ctl') || '-%'),
+  'shopping list: an item with no pack name is bought in its unit (pc)');
 select ok((select count(*) = 1 and min(t.title) like 'Damage reported: 1 x Zz S132 Pan (broken)%' and min(t.detail) like '%zz s132 pan handle%' and min(t.status) = 'open'
              from public.follow_up_tasks t where t.source_kind = 'inventory_damage' and t.source_ref = pg_temp.rid('dm_ctl')), 'task: ONE open follow-up for the report, naming the item, the quantity, the reason and the note');
 
@@ -185,6 +191,15 @@ select ok((select count(*) = 1 and min(t.title) like 'Damage during a guest stay
       and (select photo_path = 'zz/s132/photo1.jpg' and booking_id = pg_temp.id('f1') and note = 'zz s132 guest broke it' and source = 'update' and reason = 'broken' from public.inventory_damage_reports where id = pg_temp.rid('dm_guest')::uuid),
   'guest stay: the task says so; the report keeps photo, booking, note, source and the first row''s reason');
 select is((select count(*)::int from public.inventory_shopping_list s where s.idempotency_key like 'damage-' || pg_temp.rid('dm_guest') || '-%'), 0, 'p_add_to_list false: no shopping row');
+-- F4 (free text of the task goes through staff_redact_v1) and F5 (the shopping row is bought in the pack name)
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'dm_red', pg_temp.dm('zz-s132-dmg-redact-0001', jsonb_build_array(pg_temp.rw('d2', 1, 'broken', 'call 0917 123 4567')), null, null, true, 'mail zz-s132@example.com');
+reset role;
+select ok((select count(*) = 1 and min(t.detail) like '%[hidden]%' and min(t.detail) not like '%0917%' and min(t.detail) not like '%example.com%'
+             from public.follow_up_tasks t where t.source_kind = 'inventory_damage' and t.source_ref = pg_temp.rid('dm_red')),
+  'damage task text: a phone number (row note) and an e-mail (report note) are hidden by staff_redact_v1');
+select ok((select count(*) = 1 and min(s.purchase_unit) = 'box' from public.inventory_shopping_list s where s.idempotency_key like 'damage-' || pg_temp.rid('dm_red') || '-%'),
+  'shopping list: an item with a pack name (box) is bought in it');
 
 -- =============================================================================================================================================
 -- 4. damage: undo (15 minutes for the actor, manage_inventory any time)
@@ -255,9 +270,10 @@ select pg_temp.as_user(pg_temp.id('06')); insert into _t select 'uu_fin', pg_tem
 select is((select v ->> 'reason' from _t where k = 'uu_fin'), 'not_allowed', 'usage undo by finance: not_allowed');
 select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uu1', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-0001-aaaa')); reset role;
 select ok((select (v ->> 'ok')::boolean from _t where k = 'uu1') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('c7')) = 17
-      and not exists (select 1 from public.inventory_usage where notes like '%zz-s132-use-0001-aaaa%'), 'usage undo (not controlled): stock 14 -> 17, the usage row is gone');
+      and (select u.removed_qty = 3 and u.undone_at is not null and u.used_qty = 0 and u.undone_qty = 3 from public.inventory_usage u where u.notes like '%zz-s132-use-0001-aaaa%'),
+  'usage undo (not controlled): stock 14 -> 17, the usage row stays as a tombstone (removed_qty 3, undone_at set, used_qty 0, undone_qty 3)');
 select ok((select count(*) = 1 and bool_and((before ->> 'qty_on_hand')::numeric = (after ->> 'qty_on_hand')::numeric) from public.inventory_audit_log where entity_id = pg_temp.id('c7') and action = 'usage_undo'),
-  'usage undo: one marker audit row with the same quantity before and after (the deleted usage row is the reversal for inventory_qty_at_v1)');
+  'usage undo: one audit row with the same quantity before and after (the zeroed usage row is the reversal for inventory_qty_at_v1)');
 select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uu1_again', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-0001-aaaa')); reset role;
 select is((select v ->> 'reason' from _t where k = 'uu1_again'), 'already_undone', 'usage undo twice: already_undone');
 select pg_temp.as_user(pg_temp.id('04')); insert into _t select 'uu2_other', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-0002-aaaa')); reset role;
@@ -274,6 +290,32 @@ select ok((select (v ->> 'ok')::boolean from _t where k = 'uu_ctl') and (select 
   'usage undo (controlled tissue): 15 -> 20 through one compensating movement, shelf and ledger agree');
 select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uu_none', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-nope-aaaa')); reset role;
 select is((select v ->> 'reason' from _t where k = 'uu_none'), 'not_found', 'usage undo of an unknown key: not_found');
+
+-- F1: stock 1, a use of 3 clamps at 0 and takes 1; the undo puts back 1, not 3
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uc_use', pg_temp.use('d1', 3, 'zz-s132-use-0005-aaaa'); reset role;
+select ok((select qty_on_hand from public.inventory_items where id = pg_temp.id('d1')) = 0
+      and (select u.removed_qty = 1 and u.used_qty = 3 from public.inventory_usage u where u.notes like '%zz-s132-use-0005-aaaa%'),
+  'usage clamp: stock 1, a use of 3 leaves 0 and the row records that it took 1 (removed_qty)');
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uc_undo', pg_temp.try(format('select public.undo_inventory_usage_v1(%L)', 'zz-s132-use-0005-aaaa')); reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'uc_undo') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('d1')) = 1,
+  'usage undo of a clamped use: stock back to 1 (what was taken), not 3');
+-- F7: the tombstone keeps the key, so the same usage_key sent again is a replay
+select ok((select u.undone_at is not null and u.used_qty = 0 and u.undone_qty = 3 and u.notes like '%[key:zz-s132-use-0005-aaaa]%' from public.inventory_usage u where u.notes like '%zz-s132-use-0005-aaaa%'),
+  'usage undo keeps a tombstone: undone_at set, used_qty 0, undone_qty 3, the key note stays');
+select pg_temp.as_user(pg_temp.id('03')); insert into _t select 'uc_replay', pg_temp.use('d1', 3, 'zz-s132-use-0005-aaaa'); reset role;
+select ok((select (v ->> 'ok')::boolean and (v ->> 'rows')::int = 1 from _t where k = 'uc_replay') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('d1')) = 1
+      and (select count(*) = 1 and min(u.used_qty) = 0 from public.inventory_usage u where u.notes like '%zz-s132-use-0005-aaaa%'),
+  'the same usage_key sent again after the undo is a replay: stock stays 1, no second usage row, the tombstone stays at 0');
+-- the readers that count rows or days skip the undone row (the sums see used_qty 0)
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'uc_cat', pg_temp.try(format('select public.get_inventory_catalogue_v1(%L::uuid) -> %L', pg_temp.id('b1'), 'items'));
+insert into _t select 'uc_mov', pg_temp.try(format('select public.get_inventory_item_moves_v1(%L::uuid) -> %L', pg_temp.id('d1'), 'usage'));
+insert into _t select 'uc_hist', pg_temp.try(format('select pg_temp.hist(%L)', 'd1'));
+reset role;
+select ok((select (e ->> 'usageDays')::int = 0 and (e ->> 'usage30d')::numeric = 0 from jsonb_array_elements((select v from _t where k = 'uc_cat')) e where e ->> 'id' = pg_temp.id('d1')::text)
+      and jsonb_array_length((select v from _t where k = 'uc_mov')) = 0
+      and not exists (select 1 from jsonb_array_elements((select v from _t where k = 'uc_hist')) c where c ->> 'source' = 'usage'),
+  'readers: an undone use is not counted by the catalogue (days and sum), the item moves list or the history');
 
 -- =============================================================================================================================================
 -- 7. staff supply entry: total paid, receipt photo, note; the admin receipt note
@@ -345,6 +387,19 @@ select ok((select v ->> 'err' from _t where k = 'ln_badreason') = '22023' and (s
       and (select r.reason is null and r.note is null and r.photo_path is null from public.linen_stain_reports r where r.idempotency_key = 'zz-s132-linen-key-0005'),
   'linen: an unknown reason is refused 22023; the old 5-argument call still works and stores nulls');
 
+-- F4 (the linen task text goes through staff_redact_v1) and F6 (a cleaned row stays in the history, kind cleaned, before = after)
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'ln_red', pg_temp.ln('zz-s132-linen-red-0001', 'cb', 1, 'needs_replacing', 'stained', 'call 0917 123 4567');
+insert into _t select 'ln_clean', pg_temp.ln('zz-s132-linen-clean-001', 'cb', 1, 'cleaned', null, 'zz s132 cleaned note');
+reset role;
+select pg_temp.as_user(pg_temp.id('01')); insert into _t select 'h_cb', pg_temp.try(format('select pg_temp.hist(%L)', 'cb')); reset role;
+select ok((select count(*) = 1 and min(t.detail) like '%[hidden]%' and min(t.detail) not like '%0917%'
+             from public.follow_up_tasks t where t.source_kind = 'linen_replace' and t.source_ref like pg_temp.id('cb')::text || ':%' and t.status = 'open'),
+  'linen task text: a phone number in the note is hidden by staff_redact_v1');
+select ok(exists (select 1 from jsonb_array_elements((select v from _t where k = 'h_cb')) c
+                   where c ->> 'source' = 'linen' and c ->> 'kind' = 'cleaned' and c ->> 'before' = c ->> 'after' and c ->> 'note' = 'zz s132 cleaned note'),
+  'history: a cleaned linen row stays, source linen, kind cleaned, before = after');
+
 -- =============================================================================================================================================
 -- 9. history: note and source on every row, all five sources
 -- =============================================================================================================================================
@@ -385,7 +440,8 @@ select ok((select coalesce(bool_and(i.is_consumable = false), false) and count(*
 select ok((select (v ->> 'ok')::boolean from _t where k = 'up_app') and (select not is_consumable from public.inventory_items where id = pg_temp.id('cc')), 'update: a move into Appliances with no consumable sent makes the item lasting');
 select ok((select is_consumable from public.inventory_items where id = pg_temp.id('cd')) and (select category from public.inventory_items where id = pg_temp.id('cd')) = 'Appliances', 'update: an explicit consumable true is kept');
 select ok((select is_consumable from public.inventory_items where id = pg_temp.id('ce')) and (select category from public.inventory_items where id = pg_temp.id('ce')) = 'Cleaning', 'update: a move into another group changes nothing else');
-select ok((select (v ->> 'ok')::boolean from _t where k = 'up_cleaner') and (select not is_consumable from public.inventory_items where id = pg_temp.id('cf')), 'update: a cleaner moving an item into Kitchen utensils gets the same default');
+select ok((select (v ->> 'ok')::boolean from _t where k = 'up_cleaner') and (select category = 'Kitchen utensils' and is_consumable from public.inventory_items where id = pg_temp.id('cf')),
+  'update: a cleaner moving an item into Kitchen utensils changes the group only, is_consumable stays (the default is manage_inventory only)');
 
 -- =============================================================================================================================================
 -- 11. finance is refused everywhere (one line over what the sections above showed)

@@ -5,14 +5,19 @@
 --         s_inventory_purchase_note_v1 (internal helper of the history, no grant). Undo window 15 minutes for the person who did it; manage_inventory any time.
 --   CHANGED (same signature, grants restated, in place from the live body, the result pinned by md5)
 --         s_inventory_staff_movement_v1, reconcile_inventory_baseline_v1, inventory_undo_v1   report_supply (laundry) also counts and undoes a count: one gate line each.
---         inventory_item_update_v1                                                           a category change into Kitchen utensils or Appliances with no consumable sent makes the item lasting.
+--         inventory_item_update_v1                                                           a category change into Kitchen utensils or Appliances with no consumable sent makes the item lasting, for a caller with manage_inventory only (a cleaner cannot flip is_consumable that way).
+--         get_inventory_catalogue_v1, get_inventory_item_moves_v1                            the usage reads skip a usage row that was undone (undone_at is not null).
+--   A usage undo keeps a tombstone (F7): inventory_usage gains undone_at / undone_qty / removed_qty; an undone row has used_qty 0 (so every sum over usage ignores it), keeps its [key:K] note (so the same
+--   usage_key sent again is a replay, not a second record), and is skipped by the readers that count rows or days. removed_qty is what record_inventory_usage really took off the shelf (a use of 3 on stock 1
+--   clamps at 0 and takes 1); a BEFORE INSERT trigger fills it, because record_inventory_usage is not replaced here. The undo of a not-controlled item puts back only that amount (F1).
 --   CHANGED (new argument list, the old one dropped so a short call is never ambiguous)
 --         record_inventory_receipt_v1   9 -> 10 arguments: p_note (stored after the key tag in the purchase notes).
 --         inventory_receipt_manual_v1   4 -> 7 arguments: p_total_paid, p_receipt_path, p_note (stored on the draft row; still no finance write; the owner/admin task says "Paid PHP x" and "receipt photo").
 --         record_linen_stains_v1        5 -> 6 arguments: p_photo_path; rows take reason ('stained'|'damaged') and note; report_supply also allowed; an undone report no longer counts toward its task.
 --   CHANGED (same signature)
 --         inventory_item_history_v1     every row gains note and source; usage, receipt, damage and linen rows join; rows of those kinds carry qty. Existing keys unchanged.
---   COLUMNS  linen_stain_reports.reason / note / photo_path / undone_at, inventory_receipt_drafts.note (all nullable; old rows keep null).
+--   COLUMNS  linen_stain_reports.reason / note / photo_path / undone_at, inventory_receipt_drafts.note, inventory_usage.undone_at / undone_qty / removed_qty (all nullable; old rows keep null).
+--   TRIGGER  inventory_usage_removed_v1 (BEFORE INSERT on inventory_usage, internal function s_inventory_usage_removed_v1, no grant).
 -- Not replaced: record_inventory_usage, inventory_item_create_v1 (already defaults a new item to lasting; see the lane report), s_inventory_receipt_confirm_core_v1 and every other function.
 -- Guard (55000, nothing changes): each replaced function must be the body it was cut from or this release (md5 of prosrc, CR stripped). Grants restated (ML-21).
 -- Rollback: supabase/rollbacks/20261202_s132_inventory_update.sql (puts the exact previous bodies back and drops what is new; the md5s of the previous bodies are the first value of each guard row above).
@@ -37,8 +42,10 @@ begin
     ('public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', '61b51c8b14d81d167dffd74c14dfe6e0', 'b56d8bce61c205b3265ff99b8336bf35'),
     ('public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)', '18bea3e74b205dc7526a9614b83521cc', 'fdeaf212bebc578ee82f9240e6c05417'),
     ('public.inventory_undo_v1(uuid,uuid)', 'b1c19525aa43a0a529c511932d97a2fa', '5125463a4d686d5a180f1ee599fa00b7'),
-    ('public.inventory_item_update_v1(uuid,jsonb)', 'c6ec09668ba7416ababeebe6a225b9d0', '15e88d935d8423692c3baa417f395b5a'),
-    ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', '34ead94c48ed4c05ea877603b2a33947')
+    ('public.inventory_item_update_v1(uuid,jsonb)', 'c6ec09668ba7416ababeebe6a225b9d0', '618e3ec14138f9ce05c4c3dc1b1fe7fa'),
+    ('public.get_inventory_catalogue_v1(uuid)', '6832ffc21ce22a01f591cbcf03f42497', '2ed1f4a50454e4072409d98ed0eea53c'),
+    ('public.get_inventory_item_moves_v1(uuid)', '84eaa4f00f2e7fcdb2e92a2b13b48f26', '865a052a81b49407dcf1b4e5f8f91f4e'),
+    ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', 'bbf90cfbd5f97158307e12502ae1223e')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -49,7 +56,7 @@ begin
   for r in select * from (values
     ('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', '549d602feb38ab8f0ab0a7bd8fb95ab3', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', 'd190f6b6051be034e9e9babb99cbbf56'),
     ('public.inventory_receipt_manual_v1(jsonb,date,text,text)', '654f5be5d88cc9210c0a682f0fc16c43', 'public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)', '8c407320edbbc9d944a86461bef23adf'),
-    ('public.record_linen_stains_v1(uuid,date,text,text,jsonb)', '40167053bb97aa54d1cfff4f8dc243fe', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', '66890c2410c4d09cde6895b5434a4a0d')
+    ('public.record_linen_stains_v1(uuid,date,text,text,jsonb)', '40167053bb97aa54d1cfff4f8dc243fe', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', 'e4cfcd996dda6d2cd7a3239cf574ab9e')
   ) t(sig_old, m_old, sig_new, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig_old);
     select md5(replace(p.prosrc, chr(13), '')) into v2 from pg_proc p where p.oid = to_regprocedure(r.sig_new);
@@ -86,6 +93,26 @@ alter table public.linen_stain_reports add column if not exists note text check 
 alter table public.linen_stain_reports add column if not exists photo_path text check (photo_path is null or char_length(photo_path) <= 500);
 alter table public.linen_stain_reports add column if not exists undone_at timestamptz;
 
+-- a usage undo keeps a tombstone instead of deleting the row (F7): undone_at marks it, undone_qty keeps the quantity that was logged, and used_qty is set to 0 so every sum over usage (KPI, forecast,
+-- accounting, inventory_qty_at_v1) ignores it with no change to those readers; the [key:K] note stays, so the same usage_key sent again is a replay and records nothing.
+-- removed_qty is what record_inventory_usage really took off the shelf (F1): a use of 3 on stock 1 clamps at 0 and takes 1, so its undo puts back 1. The trigger below fills it on insert
+-- (record_inventory_usage inserts the row before it lowers qty_on_hand, so the shelf is still the "before" there); a controlled item keeps the full quantity (its ledger movement is the truth).
+-- Rows from before this release have removed_qty null: an undo then puts back used_qty, as it would have.
+alter table public.inventory_usage add column if not exists undone_at timestamptz;
+alter table public.inventory_usage add column if not exists undone_qty numeric(10, 2);
+alter table public.inventory_usage add column if not exists removed_qty numeric(10, 2);
+create or replace function public.s_inventory_usage_removed_v1()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  select case when i.movement_controlled_at is not null then new.used_qty else least(new.used_qty, greatest(0, coalesce(i.qty_on_hand, 0))) end
+    into new.removed_qty from public.inventory_items i where i.id = new.item_id;
+  return new;
+end;
+$$;
+revoke all on function public.s_inventory_usage_removed_v1() from public, anon, authenticated, service_role;
+drop trigger if exists inventory_usage_removed_v1 on public.inventory_usage;
+create trigger inventory_usage_removed_v1 before insert on public.inventory_usage for each row execute function public.s_inventory_usage_removed_v1();
+
 -- the staff supply entry takes a note (the total paid and the receipt photo use the existing total and receipt_path columns)
 alter table public.inventory_receipt_drafts add column if not exists note text check (note is null or char_length(note) <= 500);
 
@@ -112,6 +139,7 @@ declare
   v_bits text[] := '{}'; v_lines text[] := '{}'; v_title text; v_detail text; v_tid uuid; v_listed integer := 0;
 begin
   if v_uid is null then raise exception using errcode = '42501', message = 'authentication required'; end if;
+  -- F2: who sees the Update button is the app's call (D-396: hidden for finance, inspector and maintenance); this gate is only the server-side floor and hides nothing by role name.
   if p_property_id is null or not (public.current_staff_authorized('manage_inventory', p_property_id) or public.current_staff_authorized('submit_cleaning', p_property_id)
                                    or public.current_staff_authorized('report_supply', p_property_id)) then
     return jsonb_build_object('ok', false, 'reason', 'not_allowed');
@@ -167,7 +195,8 @@ begin
     v_qty := (v_row ->> 'qty')::numeric;
     v_reason := v_row ->> 'reason';
     v_rnote := left(nullif(btrim(coalesce(v_row ->> 'note', '')), ''), 300);
-    select i.name, i.unit, (i.movement_controlled_at is not null), coalesce(i.qty_on_hand, 0) into v_name, v_unit, v_ctl, v_before
+    -- F5: the shopping row is bought in the item's pack name when it has one (purchase_unit), else in its unit
+    select i.name, coalesce(nullif(btrim(i.purchase_unit), ''), i.unit), (i.movement_controlled_at is not null), coalesce(i.qty_on_hand, 0) into v_name, v_unit, v_ctl, v_before
       from public.inventory_items i where i.id = v_item for update;
     v_clamped := v_before < v_qty;
     v_after := greatest(0, v_before - v_qty);
@@ -191,7 +220,7 @@ begin
     v_store := v_store || jsonb_build_array(jsonb_build_object('item_id', v_item, 'qty', v_qty, 'reason', v_reason, 'note', v_rnote, 'before', v_before, 'after', v_after, 'clamped', v_clamped, 'movement_id', v_move));
     v_out := v_out || jsonb_build_array(jsonb_build_object('item_id', v_item, 'before', v_before, 'after', v_after, 'clamped', v_clamped));
     v_bits := v_bits || (trim_scale(v_qty)::text || ' x ' || v_name || ' (' || v_reason || ')');
-    v_lines := v_lines || (trim_scale(v_qty)::text || ' x ' || v_name || ', ' || v_reason || coalesce(': ' || v_rnote, ''));
+    v_lines := v_lines || (trim_scale(v_qty)::text || ' x ' || v_name || ', ' || v_reason || coalesce(': ' || public.staff_redact_v1(v_rnote), ''));   -- F4: free text goes through staff_redact_v1 like the supply task
     if coalesce(p_add_to_list, true) then
       insert into public.inventory_shopping_list(property_id, item_id, item_name, quantity, purchase_unit, reason, proposed_by, idempotency_key)
       values (p_property_id, v_item, v_name, v_qty, v_unit, 'Replace ' || v_reason || ' (damage report)', v_uid, 'damage-' || v_rid::text || '-' || v_no::text);
@@ -204,7 +233,7 @@ begin
   v_title := case when p_booking_id is not null then 'Damage during a guest stay: ' else 'Damage reported: ' end || array_to_string(v_bits, ', ');
   v_detail := array_to_string(v_lines, E'\n')
               || case when p_booking_id is not null then E'\nHappened during a guest stay.' else '' end
-              || coalesce(E'\nNote: ' || v_note, '')
+              || coalesce(E'\nNote: ' || public.staff_redact_v1(v_note), '')
               || case when v_photo is not null then E'\nA photo was attached.' else '' end
               || case when v_listed > 0 then E'\nA replacement was proposed on the shopping list.' else '' end
               || case when p_source = 'turnover' then E'\nFound in the turnover utensils check.' else E'\nReported from the inventory Update sheet.' end;
@@ -268,8 +297,9 @@ $$;
 
 -- 4. undo of a usage line and of a linen report ----------------------------------------------------------------------------------------------------------------------------------------------
 -- p_usage_key is the usage_key the client sent to record_inventory_usage (kept in the row's notes as [key:K]). The person who logged it inside 15 minutes; manage_inventory any time.
--- The stock comes back (a compensating movement for a controlled item, qty_on_hand for the others) and the usage row is deleted. inventory_qty_at_v1 rebuilds past stock from the usage rows, so the
--- deleted row IS the reversal for past counts: the audit row written here has the same quantity before and after (it only marks the key as undone, for already_undone).
+-- The stock comes back (a compensating movement for a controlled item; for the others qty_on_hand gets back only what the use really took, removed_qty: a use of 3 on stock 1 clamped at 0 and took 1) and the
+-- usage row stays as a tombstone (undone_at, undone_qty, used_qty 0): the same usage_key sent again to record_inventory_usage finds the row and is a replay, so an undone use is never recorded twice, and every
+-- reader that sums usage sees 0. inventory_qty_at_v1 rebuilds past stock from the usage rows, so the zeroed row IS the reversal for past counts: the audit row written here has the same quantity before and after.
 create or replace function public.undo_inventory_usage_v1(p_usage_key text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -279,9 +309,11 @@ begin
   if v_uid is null then raise exception using errcode = '42501', message = 'authentication required'; end if;
   if p_usage_key is null or char_length(p_usage_key) not between 1 and 160 then return jsonb_build_object('ok', false, 'reason', 'not_found'); end if;
   perform pg_advisory_xact_lock(hashtextextended('inventory_usage_undo|' || p_usage_key, 0));
-  select coalesce(array_agg(x.id order by x.created_at, x.id), '{}') into v_ids from public.inventory_usage x where position('[key:' || p_usage_key || ']' in coalesce(x.notes, '')) > 0;
+  select coalesce(array_agg(x.id order by x.created_at, x.id), '{}') into v_ids from public.inventory_usage x
+   where position('[key:' || p_usage_key || ']' in coalesce(x.notes, '')) > 0 and x.undone_at is null;
   if cardinality(v_ids) = 0 then
-    if exists (select 1 from public.inventory_audit_log a where a.entity_type = 'inventory_items' and a.action = 'usage_undo' and a.after ->> 'usage_key' = p_usage_key) then
+    -- every row of the key is a tombstone: it was undone already
+    if exists (select 1 from public.inventory_usage x where position('[key:' || p_usage_key || ']' in coalesce(x.notes, '')) > 0 and x.undone_at is not null) then
       return jsonb_build_object('ok', false, 'reason', 'already_undone');
     end if;
     return jsonb_build_object('ok', false, 'reason', 'not_found');
@@ -324,13 +356,15 @@ begin
         v_cur := v_new;
       end if;
     else
-      v_new := v_cur + u.used_qty;
+      -- F1: only what the use really took off the shelf comes back (a use clamped at 0 took less than used_qty); a row from before this release has no removed_qty and puts back used_qty
+      v_new := v_cur + least(u.used_qty, coalesce(u.removed_qty, u.used_qty));
       update public.inventory_items set qty_on_hand = v_new where id = u.item_id;
       v_cur := v_new;
     end if;
     insert into public.inventory_audit_log(entity_type, entity_id, action, before, after, actor)
     values ('inventory_items', u.item_id, 'usage_undo', jsonb_build_object('qty_on_hand', v_cur), jsonb_build_object('qty_on_hand', v_cur, 'usage_key', p_usage_key), v_uid::text);
-    delete from public.inventory_usage where id = u.id;
+    -- F7: the tombstone (see the header): undone_at marks it, the logged quantity is kept in undone_qty, used_qty goes to 0 so no sum counts it, the [key:K] note stays for the replay
+    update public.inventory_usage set undone_at = now(), undone_qty = u.used_qty, used_qty = 0 where id = u.id;
     v_restored := v_restored + 1;
   end loop;
   return jsonb_build_object('ok', true, 'restored', v_restored);
@@ -448,23 +482,51 @@ begin
     returns jsonb language plpgsql security definer set search_path = '' as %L$e$, v_new);
 end $g$;
 
--- inventory_item_update_v1: a category change into Kitchen utensils or Appliances with no consumable sent makes the item lasting
+-- inventory_item_update_v1: a category change into Kitchen utensils or Appliances with no consumable sent makes the item lasting (manage_inventory only)
 do $g$
 declare v_src text; v_new text;
 begin
   select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.inventory_item_update_v1(uuid,jsonb)');
   if v_src is null then raise exception 's132: public.inventory_item_update_v1(uuid,jsonb) is missing' using errcode = '55000'; end if;
-  if md5(v_src) = '15e88d935d8423692c3baa417f395b5a' then raise notice 's132: inventory_item_update_v1 already carries this change'; return; end if;
+  if md5(v_src) = '618e3ec14138f9ce05c4c3dc1b1fe7fa' then raise notice 's132: inventory_item_update_v1 already carries this change'; return; end if;
   if md5(v_src) <> 'c6ec09668ba7416ababeebe6a225b9d0' then raise exception 's132: inventory_item_update_v1 is not the body this release was cut from (md5 %): re-cut it from the live body', md5(v_src) using errcode = '55000'; end if;
   v_new := replace(v_src, replace($f$    i.is_consumable := (p_patch->>'consumable')::boolean;
   end if;$f$, chr(13), ''), replace($r$    i.is_consumable := (p_patch->>'consumable')::boolean;
-  elsif p_patch ? 'category' and lower(btrim(i.category)) in ('kitchen utensils', 'appliances') then
-    -- s132: a move into a lasting group (no consumable sent) makes the item lasting
+  elsif p_patch ? 'category' and v_mgr and lower(btrim(i.category)) in ('kitchen utensils', 'appliances') then
+    -- s132: a move into a lasting group (no consumable sent) makes the item lasting; only for manage_inventory (a cleaner's edit never flips is_consumable, not even through the category)
     i.is_consumable := false;
   end if;$r$, chr(13), ''));
-  if v_new = v_src or md5(v_new) <> '15e88d935d8423692c3baa417f395b5a' then raise exception 's132: inventory_item_update_v1 patch did not produce the expected body (md5 %)', md5(v_new) using errcode = '55000'; end if;
+  if v_new = v_src or md5(v_new) <> '618e3ec14138f9ce05c4c3dc1b1fe7fa' then raise exception 's132: inventory_item_update_v1 patch did not produce the expected body (md5 %)', md5(v_new) using errcode = '55000'; end if;
   execute format($e$create or replace function public.inventory_item_update_v1(p_item_id uuid, p_patch jsonb)
     returns jsonb language plpgsql volatile security definer set search_path = '' as %L$e$, v_new);
+end $g$;
+
+-- get_inventory_catalogue_v1: the 30-day usage (sum and number of days) skips an undone usage row (the days count would otherwise count the day of a zeroed row)
+do $g$
+declare v_src text; v_new text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.get_inventory_catalogue_v1(uuid)');
+  if v_src is null then raise exception 's132: public.get_inventory_catalogue_v1(uuid) is missing' using errcode = '55000'; end if;
+  if md5(v_src) = '2ed1f4a50454e4072409d98ed0eea53c' then raise notice 's132: get_inventory_catalogue_v1 already carries this change'; return; end if;
+  if md5(v_src) <> '6832ffc21ce22a01f591cbcf03f42497' then raise exception 's132: get_inventory_catalogue_v1 is not the body this release was cut from (md5 %): re-cut it from the live body', md5(v_src) using errcode = '55000'; end if;
+  v_new := replace(v_src, replace($f$from public.inventory_usage x where x.item_id = i.id and x.session_date >= public.manila_today() - 30$f$, chr(13), ''), replace($r$from public.inventory_usage x where x.item_id = i.id and x.undone_at is null and x.session_date >= public.manila_today() - 30$r$, chr(13), ''));
+  if v_new = v_src or md5(v_new) <> '2ed1f4a50454e4072409d98ed0eea53c' then raise exception 's132: get_inventory_catalogue_v1 patch did not produce the expected body (md5 %)', md5(v_new) using errcode = '55000'; end if;
+  execute format($e$create or replace function public.get_inventory_catalogue_v1(p_property_id uuid)
+    returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_new);
+end $g$;
+
+-- get_inventory_item_moves_v1: the item's usage rows of the last 30 days skip an undone one
+do $g$
+declare v_src text; v_new text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.get_inventory_item_moves_v1(uuid)');
+  if v_src is null then raise exception 's132: public.get_inventory_item_moves_v1(uuid) is missing' using errcode = '55000'; end if;
+  if md5(v_src) = '865a052a81b49407dcf1b4e5f8f91f4e' then raise notice 's132: get_inventory_item_moves_v1 already carries this change'; return; end if;
+  if md5(v_src) <> '84eaa4f00f2e7fcdb2e92a2b13b48f26' then raise exception 's132: get_inventory_item_moves_v1 is not the body this release was cut from (md5 %): re-cut it from the live body', md5(v_src) using errcode = '55000'; end if;
+  v_new := replace(v_src, replace($f$from public.inventory_usage u where u.item_id = i.id and u.session_date >= v_today - 30$f$, chr(13), ''), replace($r$from public.inventory_usage u where u.item_id = i.id and u.undone_at is null and u.session_date >= v_today - 30$r$, chr(13), ''));
+  if v_new = v_src or md5(v_new) <> '865a052a81b49407dcf1b4e5f8f91f4e' then raise exception 's132: get_inventory_item_moves_v1 patch did not produce the expected body (md5 %)', md5(v_new) using errcode = '55000'; end if;
+  execute format($e$create or replace function public.get_inventory_item_moves_v1(p_item_id uuid)
+    returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_new);
 end $g$;
 
 revoke all on function public.s_inventory_staff_movement_v1(uuid, text, numeric, text, text) from public, anon, authenticated, service_role;
@@ -474,6 +536,10 @@ revoke all on function public.inventory_undo_v1(uuid, uuid) from public, anon, s
 grant execute on function public.inventory_undo_v1(uuid, uuid) to authenticated;
 revoke all on function public.inventory_item_update_v1(uuid, jsonb) from public, anon, authenticated, service_role;
 grant execute on function public.inventory_item_update_v1(uuid, jsonb) to authenticated;
+revoke all on function public.get_inventory_catalogue_v1(uuid) from public, anon, authenticated, service_role;
+grant execute on function public.get_inventory_catalogue_v1(uuid) to authenticated;
+revoke all on function public.get_inventory_item_moves_v1(uuid) from public, anon, service_role;
+grant execute on function public.get_inventory_item_moves_v1(uuid) to authenticated;
 
 -- 6. record_inventory_receipt_v1 gains p_note (9 -> 10 arguments) -------------------------------------------------------------------------------------------------------------------------------------
 -- built from the live body: the note goes after the key tag in the purchase notes ("Admin receipt [key:K] note"; the undo and replay lookups only read the prefix and the tag). The 9-argument function is dropped
@@ -657,7 +723,7 @@ begin
       select coalesce(sum(r.qty), 0)::integer into v_total from public.linen_stain_reports r where r.task_id = v_tid and r.undone_at is null;
       v_title := 'Replace ' || case when v_total = 1 then '1 ' else v_total::text || ' x ' end || v_name || ', ' || case when v_reason = 'damaged' then 'damaged' else 'stained' end || ' on ' || to_char(p_session_date, 'FMDD Mon');
       update public.follow_up_tasks t
-         set title = left(v_title, 200), detail = 'Reported in the cleaning checklist. Buy or replace it, then mark this task done.' || coalesce(' Note: ' || v_rnote, '') || case when v_photo is not null then ' A photo was attached.' else '' end, updated_at = now()
+         set title = left(v_title, 200), detail = 'Reported in the cleaning checklist. Buy or replace it, then mark this task done.' || coalesce(' Note: ' || public.staff_redact_v1(v_rnote), '') || case when v_photo is not null then ' A photo was attached.' else '' end, updated_at = now()
        where t.id = v_tid;
       if not v_tasks @> to_jsonb(v_tid) then v_tasks := v_tasks || to_jsonb(v_tid); end if;
     end if;
@@ -670,8 +736,19 @@ $$;
 drop function if exists public.record_linen_stains_v1(uuid, date, text, text, jsonb);
 revoke all on function public.record_linen_stains_v1(uuid, date, text, text, jsonb, text) from public, anon, service_role;
 grant execute on function public.record_linen_stains_v1(uuid, date, text, text, jsonb, text) to authenticated;
+-- F7: the 5-argument function was dropped with its comment; the S120 text comes back unchanged, then the S132 additions
+comment on function public.record_linen_stains_v1(uuid, date, text, text, jsonb, text) is
+  'S120 (D-374): the checklist linen check. cleaned = audit row; needs_replacing / replaced = stock down (clamp 0, ledger adjustment for a controlled item); needs_replacing also adds to ONE open linen_replace task per item. Key replays write nothing. Needs submit_cleaning. S132 (D-396): p_photo_path added; rows take reason (stained or damaged) and note (the note goes into the task text through staff_redact_v1); report_supply (laundry) is allowed too; an undone report (undo_linen_stain_v1) no longer counts toward its task.';
 
 -- 9. inventory_item_history_v1: every row gains note and source; usage, receipt, damage and linen rows join the movements ---------------------------------------------------------------------------------
+-- The vocabulary of a history row {at, kind, before, after, who, note, source[, qty][, fields]} (the client words these; newest first, 10 rows):
+--   source 'count'   kind 'counted' (a reconcile movement) | 'telegram_count' (a Telegram count)
+--   source 'usage'   kind 'used' (a usage line, qty set; or the movement of a controlled use, before/after set) | an undone usage line is left out, and the undo of a controlled use shows as 'adjusted'
+--   source 'receipt' kind 'received' (a stock movement, or a purchase row with qty)
+--   source 'damage'  kind 'broken' | 'missing' (a damage report row with qty; undone reports are left out)
+--   source 'linen'   kind 'stained' | 'damaged' (a linen report whose outcome is needs_replacing or replaced) | 'cleaned' (outcome cleaned: the stock does not change, before = after); qty; undone reports are left out
+--   source 'edit'    kind 'adjusted' (any other stock movement) | 'undo' (the staff app's undo) | 'details' | 'price' | 'photo' (a change row: fields instead of before/after)
+-- A damage or linen stock movement is shown by its report row, never twice. F2: who may open the Update sheet is decided in the app; this function only needs read_operations.
 create or replace function public.inventory_item_history_v1(p_item_id uuid)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare v_prop uuid; v_fin boolean; v_c30 integer; v_c14 integer; v_used numeric; v_changes jsonb; v_last jsonb;
@@ -730,7 +807,7 @@ begin
         (select ub.created_at, 'used', null::numeric, null::numeric, public.s_inventory_actor_name_v1(ub.submitted_by_user_id), null::jsonb, 'usage', ub.used_qty,
                 nullif(btrim(regexp_replace(coalesce(ub.notes, ''), '\s*\[key:[^]]*\]', '', 'g')), ''), null::text, null::text, null::text
            from public.inventory_usage ub
-          where ub.item_id = p_item_id
+          where ub.item_id = p_item_id and ub.undone_at is null
             and not exists (select 1 from public.inventory_stock_movements m2 where m2.item_id = ub.item_id
                               and m2.idempotency_key = left('evt-' || encode(extensions.digest('inventory_usage|' || ub.id::text || '|' || ub.item_id::text || '|usage', 'sha256'), 'hex'), 80))
           order by ub.created_at desc limit 10)
@@ -748,7 +825,7 @@ begin
           where r.property_id = v_prop and r.undone_at is null and e.value ->> 'item_id' = p_item_id::text
           order by r.created_at desc limit 10)
         union all
-        (select l.created_at, coalesce(l.reason, 'stained'), l.stock_before, l.stock_after, public.s_inventory_actor_name_v1(l.reported_by_user_id), null::jsonb, 'linen', l.qty::numeric, l.note,
+        (select l.created_at, case when l.outcome = 'cleaned' then 'cleaned' else coalesce(l.reason, 'stained') end, l.stock_before, l.stock_after, public.s_inventory_actor_name_v1(l.reported_by_user_id), null::jsonb, 'linen', l.qty::numeric, l.note,
                 null::text, null::text, null::text
            from public.linen_stain_reports l
           where l.item_id = p_item_id and l.undone_at is null

@@ -49,16 +49,16 @@ select ok(not (has_function_privilege('anon', 'public.inventory_supplier_list_v1
   or has_function_privilege('anon', 'public.inventory_supplier_detail_v1(uuid)', 'execute') or has_function_privilege('anon', 'public.inventory_item_supplier_link_v1(uuid,uuid,jsonb)', 'execute')
   or has_function_privilege('anon', 'public.inventory_item_supplier_unlink_v1(uuid,uuid)', 'execute') or has_function_privilege('anon', 'public.inventory_price_history_v1(uuid)', 'execute')
   or has_function_privilege('anon', 'public.inventory_item_photo_set_v1(uuid,text)', 'execute') or has_function_privilege('anon', 'public.inventory_items_recategorize_v1(uuid,uuid[],text)', 'execute')
-  or has_function_privilege('anon', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') or has_function_privilege('anon', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute')),
-  'anon executes none of R1-R9 or the 9-argument receipt');
+  or has_function_privilege('anon', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') or has_function_privilege('anon', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', 'execute')),
+  'anon executes none of R1-R9 or the 10-argument receipt');
 select ok(has_function_privilege('authenticated', 'public.inventory_supplier_list_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_supplier_save_v1(uuid,jsonb,text)', 'execute')
   and has_function_privilege('authenticated', 'public.inventory_supplier_detail_v1(uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_item_supplier_link_v1(uuid,uuid,jsonb)', 'execute')
   and has_function_privilege('authenticated', 'public.inventory_item_supplier_unlink_v1(uuid,uuid)', 'execute') and has_function_privilege('authenticated', 'public.inventory_price_history_v1(uuid)', 'execute')
   and has_function_privilege('authenticated', 'public.inventory_item_photo_set_v1(uuid,text)', 'execute') and has_function_privilege('authenticated', 'public.inventory_items_recategorize_v1(uuid,uuid[],text)', 'execute')
-  and has_function_privilege('authenticated', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') and has_function_privilege('authenticated', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute'),
+  and has_function_privilege('authenticated', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') and has_function_privilege('authenticated', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', 'execute'),
   'signed-in users execute R1-R9 and the receipt (each gates itself)');
 select ok(not (has_function_privilege('service_role', 'public.inventory_supplier_list_v1(uuid)', 'execute') or has_function_privilege('service_role', 'public.inventory_price_history_v1(uuid)', 'execute')
-  or has_function_privilege('service_role', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') or has_function_privilege('service_role', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)', 'execute')),
+  or has_function_privilege('service_role', 'public.inventory_code_mint_v1(uuid,uuid[])', 'execute') or has_function_privilege('service_role', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', 'execute')),
   'the signed-in RPCs are not executable by service_role');
 select ok(has_function_privilege('service_role', 'public.apply_inventory_purchase(uuid,numeric,numeric,text,date,uuid,uuid)', 'execute') and has_function_privilege('service_role', 'public.s_inventory_supplier_create_v1(uuid,text,text)', 'execute')
   and has_function_privilege('service_role', 'public.s_inventory_supplier_alias_v1(uuid,text)', 'execute') and has_function_privilege('service_role', 'public.s_inventory_purchase_supplier_set_v1(uuid[],uuid)', 'execute')
@@ -286,7 +286,7 @@ insert into public.inventory_shopping_list(id, property_id, item_id, item_name, 
 select pg_temp.as_user('d8600000-0000-4000-8000-0000000000a5');
 insert into _t select 'r1', pg_temp.try($$select public.record_inventory_receipt_v1('d8600000-0000-4000-8000-0000000000c3', 1, 120, 'Zz printed name', null, null, 'd8600000-0000-4000-8000-0000000000f1', 'zz86-recv-key-000001', 'd8600000-0000-4000-8000-0000000000e1')$$);
 reset role;
-select ok((select v ->> 'ok' = 'true' from _t where k = 'r1'), 'receipt: the 9-argument call with a supplier id works');
+select ok((select v ->> 'ok' = 'true' from _t where k = 'r1'), 'receipt: the 9-argument call (supplier id, no note) still works through the new default');
 select is((select qty from public.inventory_purchases where id = (select (v ->> 'purchaseId')::uuid from _t where k = 'r1')), 12.00, 'receipt: 1 pack of 12 stores qty 12 base units');
 select is((select unit_cost from public.inventory_purchases where id = (select (v ->> 'purchaseId')::uuid from _t where k = 'r1')), 10.00, 'receipt: pack price 120 stores unit_cost 10 per base unit');
 select is((select supplier_id::text || '|' || supplier from public.inventory_purchases where id = (select (v ->> 'purchaseId')::uuid from _t where k = 'r1')), 'd8600000-0000-4000-8000-0000000000e1|Zz86 Alpha Mart', 'receipt: supplier_id set and the text column holds the supplier''s name');

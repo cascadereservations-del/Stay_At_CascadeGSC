@@ -2,7 +2,7 @@
 -- Fixture rows and the reads run as the owner role (a --no-acl restore gives authenticated no table grants); only the RPC calls run as the staff roles.
 -- NOT RUN when it was written (the builder has no database): the orchestrator's rehearsal is the first run.
 begin;
-select plan(50);
+select plan(51);
 
 create function pg_temp.as_user(u uuid) returns void language sql as $$
   select set_config('request.jwt.claims', json_build_object('sub', u, 'role', 'authenticated', 'aal', 'aal1', 'iat', extract(epoch from now())::bigint)::text, true),
@@ -13,9 +13,9 @@ create temp table _t(k text primary key, v jsonb);
 grant all on _t to public;
 
 insert into public.properties(id, name, is_active) values ('e8200000-0000-4000-8000-0000000000a1', 'Synthetic Linen A', true), ('e8200000-0000-4000-8000-0000000000b1', 'Synthetic Linen B', true);
-insert into auth.users(id) values ('e8200000-0000-4000-8000-000000000001'), ('e8200000-0000-4000-8000-000000000002'), ('e8200000-0000-4000-8000-000000000003'), ('e8200000-0000-4000-8000-000000000004');
-insert into public.staff_access_profiles(user_id, role) values ('e8200000-0000-4000-8000-000000000001', 'cleaner'), ('e8200000-0000-4000-8000-000000000003', 'laundry'), ('e8200000-0000-4000-8000-000000000004', 'cleaner');
-insert into public.staff_property_access(user_id, property_id) values ('e8200000-0000-4000-8000-000000000001', 'e8200000-0000-4000-8000-0000000000a1'), ('e8200000-0000-4000-8000-000000000003', 'e8200000-0000-4000-8000-0000000000a1'), ('e8200000-0000-4000-8000-000000000004', 'e8200000-0000-4000-8000-0000000000a1');
+insert into auth.users(id) values ('e8200000-0000-4000-8000-000000000001'), ('e8200000-0000-4000-8000-000000000002'), ('e8200000-0000-4000-8000-000000000003'), ('e8200000-0000-4000-8000-000000000004'), ('e8200000-0000-4000-8000-000000000005');
+insert into public.staff_access_profiles(user_id, role) values ('e8200000-0000-4000-8000-000000000001', 'cleaner'), ('e8200000-0000-4000-8000-000000000003', 'laundry'), ('e8200000-0000-4000-8000-000000000004', 'cleaner'), ('e8200000-0000-4000-8000-000000000005', 'finance');
+insert into public.staff_property_access(user_id, property_id) values ('e8200000-0000-4000-8000-000000000001', 'e8200000-0000-4000-8000-0000000000a1'), ('e8200000-0000-4000-8000-000000000003', 'e8200000-0000-4000-8000-0000000000a1'), ('e8200000-0000-4000-8000-000000000004', 'e8200000-0000-4000-8000-0000000000a1'), ('e8200000-0000-4000-8000-000000000005', 'e8200000-0000-4000-8000-0000000000a1');
 -- W1 towel 10, W2 pillow case 1 (clamp), W3 sheet 5, C4 controlled 5 with a baseline movement, C8 controlled with NO movement, K5 consumable, X6 inactive, F7 in property B
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, is_active, units_per_purchase, movement_controlled_at) values
   ('e8200000-0000-4000-8000-0000000000c1', 'e8200000-0000-4000-8000-0000000000a1', 'zz Bath Towel', 'Bedroom', 'pc', 10, false, true, 1, null),
@@ -29,16 +29,20 @@ insert into public.inventory_items(id, property_id, name, category, unit, qty_on
 insert into public.inventory_stock_movements(item_id, property_id, kind, quantity_before, quantity_after, reason, actor_user_id, idempotency_key) values
   ('e8200000-0000-4000-8000-0000000000c4', 'e8200000-0000-4000-8000-0000000000a1', 'reconcile', 5, 5, 'zz baseline count', 'e8200000-0000-4000-8000-000000000001', 'zz-s120r-baseline-c4-0001');
 
-select ok(has_function_privilege('authenticated', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)', 'execute')
-      and not has_function_privilege('anon', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)', 'execute')
-      and not has_function_privilege('service_role', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)', 'execute'),
+select ok(has_function_privilege('authenticated', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', 'execute')
+      and not has_function_privilege('anon', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', 'execute')
+      and not has_function_privilege('service_role', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', 'execute'),
   'grants: authenticated only');
 
 select pg_temp.as_user('e8200000-0000-4000-8000-000000000002');
 select throws_ok($$select public.record_linen_stains_v1('e8200000-0000-4000-8000-0000000000a1', public.manila_today(), 'Honey', 'zz-s120r-key-refused-1', '[{"item_id":"e8200000-0000-4000-8000-0000000000c1","qty":1,"outcome":"cleaned"}]'::jsonb)$$, '42501', 'staff access denied', 'a user with no staff profile is refused');
 reset role;
 select pg_temp.as_user('e8200000-0000-4000-8000-000000000003');
-select throws_ok($$select public.record_linen_stains_v1('e8200000-0000-4000-8000-0000000000a1', public.manila_today(), 'Honey', 'zz-s120r-key-refused-2', '[{"item_id":"e8200000-0000-4000-8000-0000000000c1","qty":1,"outcome":"cleaned"}]'::jsonb)$$, '42501', 'staff access denied', 'laundry has no submit_cleaning and is refused');
+-- s132 (D-396): laundry holds report_supply and is now allowed past the gate. A valid call would leave a row that the counts below do not expect (and a savepoint rollback would disturb pgTAP's own state), so the proof is a bad quantity: the refusal is 22023 (validation), not 42501 (access)
+select throws_ok($$select public.record_linen_stains_v1('e8200000-0000-4000-8000-0000000000a1', public.manila_today(), 'Honey', 'zz-s120r-key-laundry-1', '[{"item_id":"e8200000-0000-4000-8000-0000000000c3","qty":0,"outcome":"cleaned"}]'::jsonb)$$, '22023', 'qty must be a whole number from 1 to 99', 'laundry (report_supply) passes the access gate since s132 and reaches validation');
+reset role;
+select pg_temp.as_user('e8200000-0000-4000-8000-000000000005');
+select throws_ok($$select public.record_linen_stains_v1('e8200000-0000-4000-8000-0000000000a1', public.manila_today(), 'Honey', 'zz-s120r-key-refused-5', '[{"item_id":"e8200000-0000-4000-8000-0000000000c1","qty":1,"outcome":"cleaned"}]'::jsonb)$$, '42501', 'staff access denied', 'finance has neither submit_cleaning nor report_supply and is refused');
 reset role;
 select pg_temp.as_user('e8200000-0000-4000-8000-000000000001');
 select throws_ok($$select public.record_linen_stains_v1('e8200000-0000-4000-8000-0000000000b1', public.manila_today(), 'Honey', 'zz-s120r-key-refused-3', '[{"item_id":"e8200000-0000-4000-8000-0000000000c7","qty":1,"outcome":"cleaned"}]'::jsonb)$$, '42501', 'staff access denied', 'a cleaner of house A is refused on house B');
@@ -146,7 +150,7 @@ select ok((select relrowsecurity from pg_class where oid = 'public.linen_stain_r
 select is((select count(*)::int from public.inventory_stock_movements where property_id = 'e8200000-0000-4000-8000-0000000000a1' and kind = 'usage'), 0, 'no usage movement was written for linen');
 
 select is((select (v->>'rows') || '/' || (v->>'replayed') from _t where k = 'k3b'), '1/true', 'a replay returns the first result (one row) and not a second write');
-select ok((select position('pg_advisory_xact_lock' in prosrc) > 0 and position('pg_advisory_xact_lock' in prosrc) < position('idempotency_key = p_idempotency_key' in prosrc) from pg_proc where oid = 'public.record_linen_stains_v1(uuid,date,text,text,jsonb)'::regprocedure), 'two taps at once: the key is locked before the replay check (a race waits, then replays; run twice from two sessions in the rehearsal to see it)');
+select ok((select position('pg_advisory_xact_lock' in prosrc) > 0 and position('pg_advisory_xact_lock' in prosrc) < position('idempotency_key = p_idempotency_key' in prosrc) from pg_proc where oid = 'public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)'::regprocedure), 'two taps at once: the key is locked before the replay check (a race waits, then replays; run twice from two sessions in the rehearsal to see it)');
 
 select * from finish();
 rollback;

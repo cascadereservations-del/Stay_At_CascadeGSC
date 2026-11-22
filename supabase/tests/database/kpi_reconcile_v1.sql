@@ -39,7 +39,7 @@ select ok((select prosecdef and proconfig = array['search_path=""'] and not exis
 select is(public.health_check_problem_v1('kpi_reconciled'), 'KPIs do not reconcile', 'the health sentence for the new row');
 select is((select format_type(atttypid, atttypmod) from pg_attribute where attrelid = 'public.inventory_purchases'::regclass and attname = 'units_per_purchase' and not attisdropped),
           'numeric(10,4)', 'F10: a purchase can record a fractional pack size');
-select ok(position('units_per_purchase, 1)::integer' in (select prosrc from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)'::regprocedure)) = 0,
+select ok(position('units_per_purchase, 1)::integer' in (select prosrc from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)'::regprocedure)) = 0,
           'F10: record_inventory_receipt_v1 no longer casts the pack size to integer');
 select ok(position('v_today   := public.manila_today();' in (select prosrc from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure)) > 0
       and position('v_today   := current_date;' in (select prosrc from pg_proc where oid = 'public.get_missed_cleanings(uuid,integer)'::regprocedure)) = 0,

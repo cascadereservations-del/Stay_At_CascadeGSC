@@ -140,7 +140,7 @@ select ok(not has_table_privilege('anon', 'public.price_history_by_item', 'selec
   and not has_table_privilege('authenticated', 'public.price_history_by_item', 'delete') and has_table_privilege('service_role', 'public.price_history_by_item', 'select'),
   'view grants as before: anon nothing, authenticated read only, service_role all');
 select is(obj_description('public.price_history_by_item'::regclass), 'Inventory purchase price history ranked newest-first per item.', 'the view comment is back');
-select ok((select prosrc like '%nullif(units_per_purchase, 0), 1), 4) end, unit_cost)%' from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)'::regprocedure),
+select ok((select prosrc like '%nullif(units_per_purchase, 0), 1), 4) end, unit_cost)%' from pg_proc where oid = 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)'::regprocedure),
   'record_inventory_receipt_v1 sets the item cost to 4 dp');
 
 insert into public.inventory_items(id, property_id, name, category, unit, qty_on_hand, is_consumable, units_per_purchase, purchase_unit) values

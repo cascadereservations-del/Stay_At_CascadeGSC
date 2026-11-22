@@ -1,6 +1,6 @@
 -- Rollback of release s132_inventory_update_20261202 (D-396). Run it only when no client calls the new functions any more.
 --   * replaced functions go back to their exact previous bodies (the in-place ones by putting the anchor back and pinning the md5, the re-cut ones from the stored bodies); every step is guarded by md5 (55000, nothing changes);
---   * the new functions, the inventory_damage_reports table and the new columns are dropped. Stock changes the new functions already made STAY (undo them in the app first if they should go);
+--   * the new functions, the inventory_damage_reports table, the usage trigger and the new columns are dropped; usage rows that were undone (tombstones) are removed, as the first version of the undo did. Stock changes the new functions already made STAY (undo them in the app first if they should go);
 --     reports, notes and photo paths kept in the dropped table and columns are lost.
 -- The previous bodies were derived from the migrations (s85, s86, s91, s110, s120, s124); the guard md5s in the s132 migration say which is which.
 
@@ -14,11 +14,13 @@ begin
     ('public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)', '61b51c8b14d81d167dffd74c14dfe6e0', 'b56d8bce61c205b3265ff99b8336bf35'),
     ('public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)', '18bea3e74b205dc7526a9614b83521cc', 'fdeaf212bebc578ee82f9240e6c05417'),
     ('public.inventory_undo_v1(uuid,uuid)', 'b1c19525aa43a0a529c511932d97a2fa', '5125463a4d686d5a180f1ee599fa00b7'),
-    ('public.inventory_item_update_v1(uuid,jsonb)', 'c6ec09668ba7416ababeebe6a225b9d0', '15e88d935d8423692c3baa417f395b5a'),
-    ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', '34ead94c48ed4c05ea877603b2a33947'),
+    ('public.inventory_item_update_v1(uuid,jsonb)', 'c6ec09668ba7416ababeebe6a225b9d0', '618e3ec14138f9ce05c4c3dc1b1fe7fa'),
+    ('public.get_inventory_catalogue_v1(uuid)', '6832ffc21ce22a01f591cbcf03f42497', '2ed1f4a50454e4072409d98ed0eea53c'),
+    ('public.get_inventory_item_moves_v1(uuid)', '84eaa4f00f2e7fcdb2e92a2b13b48f26', '865a052a81b49407dcf1b4e5f8f91f4e'),
+    ('public.inventory_item_history_v1(uuid)', 'a8669ba0b6ff6654edf352e9b8d98543', 'bbf90cfbd5f97158307e12502ae1223e'),
     ('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', null, 'd190f6b6051be034e9e9babb99cbbf56'),
     ('public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)', null, '8c407320edbbc9d944a86461bef23adf'),
-    ('public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', null, '66890c2410c4d09cde6895b5434a4a0d')
+    ('public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', null, 'e4cfcd996dda6d2cd7a3239cf574ab9e')
   ) t(sig, m_old, m_new) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is distinct from r.m_old and v is distinct from r.m_new then
@@ -27,7 +29,7 @@ begin
   end loop;
 end $g$;
 
--- 2. the three in-place gate patches and the update default go back to the previous bodies (read from the live body, the anchor put back, the result pinned)
+-- 2. the in-place patches (three gate lines, the update default, the usage reads of the catalogue and the item moves) go back to the previous bodies (read from the live body, the anchor put back, the result pinned)
 -- s_inventory_staff_movement_v1
 do $g$
 declare v_src text; v_old text;
@@ -70,16 +72,40 @@ declare v_src text; v_old text;
 begin
   select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.inventory_item_update_v1(uuid,jsonb)');
   if md5(v_src) = 'c6ec09668ba7416ababeebe6a225b9d0' then raise notice 's132 rollback: inventory_item_update_v1 is already the previous body'; return; end if;
-  if md5(v_src) <> '15e88d935d8423692c3baa417f395b5a' then raise exception 's132 rollback: inventory_item_update_v1 is not this release (md5 %)', md5(v_src) using errcode = '55000'; end if;
+  if md5(v_src) <> '618e3ec14138f9ce05c4c3dc1b1fe7fa' then raise exception 's132 rollback: inventory_item_update_v1 is not this release (md5 %)', md5(v_src) using errcode = '55000'; end if;
   v_old := replace(v_src, replace($r$    i.is_consumable := (p_patch->>'consumable')::boolean;
-  elsif p_patch ? 'category' and lower(btrim(i.category)) in ('kitchen utensils', 'appliances') then
-    -- s132: a move into a lasting group (no consumable sent) makes the item lasting
+  elsif p_patch ? 'category' and v_mgr and lower(btrim(i.category)) in ('kitchen utensils', 'appliances') then
+    -- s132: a move into a lasting group (no consumable sent) makes the item lasting; only for manage_inventory (a cleaner's edit never flips is_consumable, not even through the category)
     i.is_consumable := false;
   end if;$r$, chr(13), ''), replace($f$    i.is_consumable := (p_patch->>'consumable')::boolean;
   end if;$f$, chr(13), ''));
   if md5(v_old) <> 'c6ec09668ba7416ababeebe6a225b9d0' then raise exception 's132 rollback: inventory_item_update_v1 did not return to the previous body (md5 %)', md5(v_old) using errcode = '55000'; end if;
   execute format($e$create or replace function public.inventory_item_update_v1(p_item_id uuid, p_patch jsonb)
     returns jsonb language plpgsql volatile security definer set search_path = '' as %L$e$, v_old);
+end $g$;
+-- get_inventory_catalogue_v1
+do $g$
+declare v_src text; v_old text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.get_inventory_catalogue_v1(uuid)');
+  if md5(v_src) = '6832ffc21ce22a01f591cbcf03f42497' then raise notice 's132 rollback: get_inventory_catalogue_v1 is already the previous body'; return; end if;
+  if md5(v_src) <> '2ed1f4a50454e4072409d98ed0eea53c' then raise exception 's132 rollback: get_inventory_catalogue_v1 is not this release (md5 %)', md5(v_src) using errcode = '55000'; end if;
+  v_old := replace(v_src, replace($r$from public.inventory_usage x where x.item_id = i.id and x.undone_at is null and x.session_date >= public.manila_today() - 30$r$, chr(13), ''), replace($f$from public.inventory_usage x where x.item_id = i.id and x.session_date >= public.manila_today() - 30$f$, chr(13), ''));
+  if md5(v_old) <> '6832ffc21ce22a01f591cbcf03f42497' then raise exception 's132 rollback: get_inventory_catalogue_v1 did not return to the previous body (md5 %)', md5(v_old) using errcode = '55000'; end if;
+  execute format($e$create or replace function public.get_inventory_catalogue_v1(p_property_id uuid)
+    returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_old);
+end $g$;
+-- get_inventory_item_moves_v1
+do $g$
+declare v_src text; v_old text;
+begin
+  select replace(p.prosrc, chr(13), '') into v_src from pg_proc p where p.oid = to_regprocedure('public.get_inventory_item_moves_v1(uuid)');
+  if md5(v_src) = '84eaa4f00f2e7fcdb2e92a2b13b48f26' then raise notice 's132 rollback: get_inventory_item_moves_v1 is already the previous body'; return; end if;
+  if md5(v_src) <> '865a052a81b49407dcf1b4e5f8f91f4e' then raise exception 's132 rollback: get_inventory_item_moves_v1 is not this release (md5 %)', md5(v_src) using errcode = '55000'; end if;
+  v_old := replace(v_src, replace($r$from public.inventory_usage u where u.item_id = i.id and u.undone_at is null and u.session_date >= v_today - 30$r$, chr(13), ''), replace($f$from public.inventory_usage u where u.item_id = i.id and u.session_date >= v_today - 30$f$, chr(13), ''));
+  if md5(v_old) <> '84eaa4f00f2e7fcdb2e92a2b13b48f26' then raise exception 's132 rollback: get_inventory_item_moves_v1 did not return to the previous body (md5 %)', md5(v_old) using errcode = '55000'; end if;
+  execute format($e$create or replace function public.get_inventory_item_moves_v1(p_item_id uuid)
+    returns jsonb language plpgsql stable security definer set search_path = '' as %L$e$, v_old);
 end $g$;
 
 -- 3. the history goes back to the s124 body
@@ -336,6 +362,8 @@ end;
 $$;
 revoke all on function public.record_linen_stains_v1(uuid, date, text, text, jsonb) from public, anon, service_role;
 grant execute on function public.record_linen_stains_v1(uuid, date, text, text, jsonb) to authenticated;
+comment on function public.record_linen_stains_v1(uuid, date, text, text, jsonb) is
+  'S120 (D-374): the checklist linen check. cleaned = audit row; needs_replacing / replaced = stock down (clamp 0, ledger adjustment for a controlled item); needs_replacing also adds to ONE open linen_replace task per item. Key replays write nothing. Needs submit_cleaning.';
 
 -- 5. the new objects go (the stock changes they made stay: undo what you need through the app first)
 drop function if exists public.undo_linen_stain_v1(text);
@@ -344,6 +372,11 @@ drop function if exists public.undo_inventory_damage_v1(uuid);
 drop function if exists public.record_inventory_damage_v1(uuid, jsonb, text, uuid, boolean, text, text, text);
 drop function if exists public.s_inventory_purchase_note_v1(text);
 drop table if exists public.inventory_damage_reports;
+-- the usage tombstone: an undone usage row is what the first version of the undo deleted, so those rows go; then the trigger, its function and the three columns
+delete from public.inventory_usage where undone_at is not null;
+drop trigger if exists inventory_usage_removed_v1 on public.inventory_usage;
+drop function if exists public.s_inventory_usage_removed_v1();
+alter table public.inventory_usage drop column if exists removed_qty, drop column if exists undone_qty, drop column if exists undone_at;
 alter table public.inventory_receipt_drafts drop column if exists note;
 alter table public.linen_stain_reports drop column if exists undone_at, drop column if exists photo_path, drop column if exists note, drop column if exists reason;
 
