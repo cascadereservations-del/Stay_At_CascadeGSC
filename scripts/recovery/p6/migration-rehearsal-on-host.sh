@@ -17,6 +17,8 @@
 #
 # Usage: migration-rehearsal-on-host.sh <backup-set-dir> <release-contract-json> [pgtap-suite.sql ...]
 # Env:   CASCADE_SSH_HOST (default alfred), CASCADE_SSH_BIN, CASCADE_SUPABASE_PASSPHRASE_FILE
+#        CASCADE_REHEARSAL_PRE_SQL (optional local .sql file run on the copy after the shims and before the migrations: baseline grants a --no-acl restore lacks, so a strict read-back such as
+#        has_table_privilege('service_role', ...) can be rehearsed without weakening it; it never touches production)
 set -euo pipefail
 
 SSH_HOST="${CASCADE_SSH_HOST:-alfred}"
@@ -85,6 +87,10 @@ done
 for t in "${TESTS[@]}"; do
   rssh "umask 077; cat > $remote_tmp/tests/$(basename "$t")" < "$t"
 done
+if [[ -n "${CASCADE_REHEARSAL_PRE_SQL:-}" ]]; then
+  [[ -f "$CASCADE_REHEARSAL_PRE_SQL" ]] || { echo "missing pre-SQL file: $CASCADE_REHEARSAL_PRE_SQL" >&2; exit 2; }
+  rssh "umask 077; cat > $remote_tmp/pre.sql" < "$CASCADE_REHEARSAL_PRE_SQL"
+fi
 
 # Forward-verification queries, one per line as name<TAB>expect<TAB>query.
 node -e 'const c=require(process.argv[1]);for(const v of c.forward_verification){process.stdout.write([v.name,String(v.expect),v.query.replace(/\s+/g," ")].join("\t")+"\n");}' "$release_abs" \
@@ -161,6 +167,7 @@ grant execute on all functions in schema auth to anon, authenticated, service_ro
 SHIM
 sql -f /work/shims.sql >/dev/null 2>&1
 echo "compatibility shims installed (auth.uid/jwt/role, auth.users, uuid-ossp, pgcrypto)"
+if [[ -f "$R/pre.sql" ]]; then sql -f /work/pre.sql >/dev/null; echo "pre-SQL applied (CASCADE_REHEARSAL_PRE_SQL)"; fi
 
 applied=0; failed=0
 for f in $(ls "$R/migrations" | sort); do
