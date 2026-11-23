@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s134/expenses",
-    "commit": "PENDING_COMMIT"
+    "commit": "ca502a9f47df4be307833433ebfed718bad4217c"
   },
   "migrations": [
     "20261204000000_s134_expenses.sql"
@@ -213,8 +213,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING: the rehearsal on a restored production backup has not been recorded in this file yet."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-23 (fix round 3, commit ca502a9f47df4be307833433ebfed718bad4217c) on restored production backup cascade-supabase-20261123T120703Z with the staff_upload_hashes grant shim a --no-acl restore lacks and REHEARSAL_TAP_LINES=all (full failure output kept in .s134/rehearsal-r3.log): migration applied, forward verification 16 of 16; pgTAP s134_expenses 136/136, s127_utility_bills 102/102, s127_bill_reminders 120/120; every other suite fails exactly the numbers in accepted_failing_tests and nothing else: s110 ok 118 of 147 not ok 39,47,48,49,50,51,58,59,63,64,128,129 with 41 psql errors (identical without s134, see .s134/s110-base.tap and .s134/s110-s134.tap), s111 56,57, s115_integrity 85-89, s131_meter_cycle 64,65, s132_inventory_update 1,2,4,64,102, s133_option_stock 3,4,81, s89_admin_hub 2,62 (60 of 62 ok with and without s134: .s134/s89-s134.tap, .s134/s89-base.tap), and the wrapped s132/s133 (constraints immediate plus the per-group invariant assertion, which passes) the same numbers as the plain suites. Cycle on a restored copy (.s134/cycle-r3.log): apply (forward 16 of 16), back-fill (6 pending_review rows, none confirmed, all carrying ocr_raw.s134_incomplete), forward 16 of 16, rollback with those rows present (kpi_tab_v1 back to md5 80efd89e..., admin_review_transaction_v1 back to the s89 body, cut-over setting and CHECK value kept), apply again (forward 16 of 16), back-fill again (0 rows, idempotent), apply a third time (forward 16 of 16, kpi_tab_v1 md5 7c6d5a22...). source.commit is the SQL commit the rehearsal ran; the stamp commit that follows changes only this release file."
   },
   "approvals": {
     "production_required": true,
