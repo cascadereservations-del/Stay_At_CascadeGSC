@@ -5492,6 +5492,7 @@
   <style id="gs-style-sheet">
   /* ---------- T6: booking sheet (one dialog, three steps + done + submit error) ---------- */
   body.bs-open { overflow: hidden; }
+  body.bs-open #heroPhoto, body.bs-open .hero-slide img, body.bs-open .hero-slide, body.bs-open .gs-tone, body.bs-open .gs-o1, body.bs-open .gs-o2, body.bs-open .gs-cta, body.bs-open .gs-cta::after, body.bs-open .hero-bk-cta::after, body.bs-open #qbwSubmit { animation-play-state: paused; }
   body.bs-open .concierge-float, body.bs-open .sticky-book-cta, body.bs-open .desk-sidebar { visibility: hidden; }
   dialog.bs { padding: 0; border: 0; background: transparent; width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; color: var(--gs-ink); font-family: var(--gs-body); }
   dialog.bs:not([open]) { display: none; }
@@ -5516,7 +5517,7 @@
   .bs-h--big { font-size: 2.25rem; line-height: 1.05; }
   .bs-month { display: flex; align-items: center; justify-content: space-between; }
   .bs-month-l { font-family: var(--gs-display); font-size: 1.375rem; font-weight: 600; }
-  .bs-month button { width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--gs-rule); background: color-mix(in srgb, var(--gs-paper) 70%, transparent); color: var(--gs-ink); cursor: pointer; font-size: 1.25rem; margin-left: 0.4rem; }
+  .bs-month button { -webkit-appearance: none; appearance: none; padding: 0; display: inline-grid; place-items: center; overflow: hidden; width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--gs-rule); background: color-mix(in srgb, var(--gs-paper) 70%, transparent); color: var(--gs-ink); cursor: pointer; font-size: 1.25rem; margin-left: 0.4rem; }
   .bs-month button:disabled { opacity: 0.35; cursor: not-allowed; }
   .bs-dow, .bs-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; }
   .bs-dow { font-size: 0.875rem; font-weight: 600; color: var(--gs-accent-text); text-align: center; margin-bottom: -0.4rem; }
@@ -10232,10 +10233,10 @@
     if (mn.last) { S.hold = null; go(3); return; }                     /* within five days: no hold, the payment reserves */
     if (holdLive()) { go(3); return; }                                 /* same dates: reuse the hold; if the contact differs step 3 explains (no second POST) */
     setBusy('bsNext2', true, 'Holding your dates…');
-    var p = buildPayload(mn); p.hold = true;
+    var p = buildPayload(mn); p.hold = true; var c = contactNow();   /* captured now: the guest may edit the fields while the POST is in flight */
     track('reservation_submit', {});
     postBooking(p).then(function (data) {
-      var c = contactNow(); data._key = holdKey(); data._name = c.name; data._phone = c.phone; data._email = c.email; S.hold = data; setBusy('bsNext2', false); go(3);
+      data._key = holdKey(); data._name = c.name; data._phone = c.phone; data._email = c.email; S.hold = data; setBusy('bsNext2', false); go(3);
     }).catch(function (e) {
       setBusy('bsNext2', false);
       if (e.network) { showError(); return; }
@@ -10314,7 +10315,7 @@
   function summary() {
     var mn = money() || (S.done && S.done.mn), ref = (S.done && S.done.ref) || (S.hold && S.hold.ref) || '';
     return 'Hi Cascade, I would like to book ' + (S.ci && S.co ? rangeLabel() : 'a stay') + ' for ' + S.guests + (S.guests === 1 ? ' guest' : ' guests') + '. Name: ' + S.name +
-      '. Mobile: ' + (S.phone ? phoneFull() : '') + (mn ? '. Total ' + peso(mn.total) + ', due now ' + peso(mn.dep) : '') + (ref ? '. Booking ref ' + ref : '') + (S.ref.trim() ? '. Payment ref ' + S.ref.trim() : '') + '.';
+      '. Mobile: ' + (S.phone ? phoneFull() : '') + (mn ? '. Total ' + peso(mn.total) + ', due now ' + peso(mn.dep) : '') + (ref ? '. Booking ref ' + ref : '') + (contactChanged() && S.hold._name ? '. Held under ' + S.hold._name : '') + (S.ref.trim() ? '. Payment ref ' + S.ref.trim() : '') + '.';
   }
   function msgrHref() { return MESSENGER + '?text=' + encodeURIComponent(summary()); }
   function paintDone() {

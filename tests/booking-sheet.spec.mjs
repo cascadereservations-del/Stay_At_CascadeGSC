@@ -6,7 +6,7 @@ const plus = (n) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d
 const CI = plus(30), CO = plus(32), BLOCK_FROM = plus(34), BLOCK_TO = plus(36), CLASH_CI = plus(32), CLASH_CO = plus(37);
 
 async function mock(page, { submit } = {}) {
-  const posts = [];
+  const posts = [], uploads = [];
   await page.route('**/*.supabase.co/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route('**/functions/v1/availability**', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ checkin_date: BLOCK_FROM, checkout_date: BLOCK_TO }]) }));
   await page.route('**/functions/v1/rate-card**', (route) => {
@@ -17,15 +17,14 @@ async function mock(page, { submit } = {}) {
   await page.route('**/functions/v1/submit-booking', async (route) => {
     posts.push(route.request().postDataJSON());
     if (submit) return submit(route);
-    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ref: 'CH-TEST1', hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString(), receipt_upload_token: 'tok' }) });
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ref: 'CH-TEST1', hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString(), receipt_upload_token: 'hold-token-1' }) });
   });
-  await page.route('**/functions/v1/upload-booking-receipt', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+  await page.route('**/functions/v1/upload-booking-receipt', (route) => { uploads.push({ auth: route.request().headers()['authorization'] }); route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+  posts.uploads = uploads;
   return posts;
 }
-/* JS click: Playwright's actionability wait stalls on controls below the fold of the 664 px WebKit viewport in this sheet (also at the rebase base); the app handler still runs. */
-const tap = (page, sel) => page.locator(sel).evaluate((el) => el.click());
 async function pickDay(page, ds) {
-  for (let i = 0; i < 3 && !(await page.locator(`#bsGrid [data-d="${ds}"]`).count()); i++) await tap(page, '#bsNext');
+  for (let i = 0; i < 3 && !(await page.locator(`#bsGrid [data-d="${ds}"]`).count()); i++) await page.locator('#bsNext').click();
   await page.locator(`#bsGrid [data-d="${ds}"]`).click();
 }
 async function step1(page, ci = CI, co = CO) {
@@ -113,8 +112,8 @@ test.describe('booking sheet', () => {
   test('same dates and same contact reuse the hold without a second POST', async ({ page }) => {
     const posts = await mock(page); await openHeader(page);
     await step1(page); await step2(page, 'Maria Santos');
-    await tap(page, '#bsBack');
-    await tap(page, '#bsNext2');
+    await page.locator('#bsBack').click();
+    await page.locator('#bsNext2').click();
     await expect(page.locator('#bsH3')).toBeVisible();
     await expect(page.locator('#bsHeldNote')).toBeHidden();
     expect(posts.length).toBe(1);
@@ -124,21 +123,21 @@ test.describe('booking sheet', () => {
   test('editing the name or phone after a hold makes no second POST and shows the held-under notice', async ({ page }) => {
     const posts = await mock(page); await openHeader(page);
     await step1(page); await step2(page, 'Maria Santos');
-    await tap(page, '#bsBack');
+    await page.locator('#bsBack').click();
     await page.locator('#bsName').fill('Maria S. Santos');
-    await tap(page, '#bsNext2');
+    await page.locator('#bsNext2').click();
     await expect(page.locator('#bsH3')).toBeVisible();
     await expect(page.locator('#bsHeldNote')).toBeVisible();
     await expect(page.locator('#bsHeldNote')).toContainText('Your dates are held under Maria Santos · •••• 4567. To change these details, message us on Messenger.');
     await expect(page.locator('#bsHeldNoteA')).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720/);
     expect(posts.length).toBe(1);
-    await tap(page, '#bsBack');
+    await page.locator('#bsBack').click();
     await page.locator('#bsName').fill('Maria Santos'); await page.locator('#bsPhone').fill('917 999 0000');
-    await tap(page, '#bsNext2');
+    await page.locator('#bsNext2').click();
     await expect(page.locator('#bsHeldNote')).toContainText('held under Maria Santos · •••• 4567');
     expect(posts.length).toBe(1);
     await page.locator('#bsRef').fill('1234567890');
-    await tap(page, '#bsNext3');
+    await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toBeVisible();
     expect(posts.length).toBe(1);                                              /* payment still rides the existing hold */
   });
@@ -146,27 +145,60 @@ test.describe('booking sheet', () => {
   test('changed dates take a new hold', async ({ page }) => {
     const posts = await mock(page); await openHeader(page);
     await step1(page); await step2(page);
-    await tap(page, '#bsBack'); await tap(page, '#bsBack');
+    await page.locator('#bsBack').click(); await page.locator('#bsBack').click();
     await expect(page.locator('#bsGrid')).toBeVisible();
     await pickDay(page, plus(40)); await pickDay(page, plus(42));
-    await tap(page, '#bsNext1');
-    await tap(page, '#bsNext2');
+    await page.locator('#bsNext1').click();
+    await page.locator('#bsNext2').click();
     await expect(page.locator('#bsH3')).toBeVisible();
     await expect.poll(() => posts.length).toBe(2);
   });
 
-  test('WMO codes classify to rain, cloudy and clear; the 15 min cache skips the fetch', async ({ page }) => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+
+  test('payment with a receipt after a name edit uploads once with the hold token and makes no second submit', async ({ page }) => {
+    const posts = await mock(page); await openHeader(page);
+    await step1(page); await step2(page, 'Maria Santos');
+    await page.locator('#bsBack').click();
+    await page.locator('#bsName').fill('Maria S. Santos');
+    await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsHeldNote')).toBeVisible();
+    await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
+    await expect(page.locator('#bsFileName')).toContainText('receipt.png');
+    await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsH4')).toBeVisible();
+    expect(posts.uploads).toEqual([{ auth: 'Bearer hold-token-1' }]);
+    expect(posts.length).toBe(1);
+  });
+
+  test('WMO codes classify to rain, cloudy and clear', async ({ page }) => {
     await mock(page);
     await page.goto('/index.html');
     const got = await page.evaluate(() => [61, 63, 80, 95, 3, 45, 0, 1].map((code) => window.CascadeTheme.classify({ current: { code } })));
     expect(got).toEqual(['rain', 'rain', 'rain', 'rain', 'cloudy', 'cloudy', 'clear', 'clear']);
     expect(await page.evaluate(() => window.CascadeTheme.classify({ current: { description: 'Light rain' } }))).toBe('rain');   /* no code: text rules */
-    await page.evaluate(() => sessionStorage.setItem('cascade.wx.v1', JSON.stringify({ t: Date.now(), wx: 'rain' })));
+  });
+
+  test('a fresh weather cache (under 15 min) skips the fetch', async ({ page }) => {
+    await mock(page);
     let hits = 0;
     await page.route('**/functions/v1/weather-proxy', (route) => { hits++; route.fulfill({ contentType: 'application/json', body: '{"current":{"code":0}}' }); });
-    await page.reload();
+    const t = Date.now() - 60000;
+    await page.addInitScript((t0) => { try { sessionStorage.setItem('cascade.wx.v1', JSON.stringify({ t: t0, wx: 'rain' })); } catch (e) { /* blocked */ } }, t);
+    await page.goto('/index.html');
     await expect(page.locator('html')).toHaveAttribute('data-wx', 'rain');
     expect(hits).toBe(0);
+  });
+
+  test('an expired weather cache (16 min old) fetches again', async ({ page }) => {
+    await mock(page);
+    let hits = 0;
+    await page.route('**/functions/v1/weather-proxy', (route) => { hits++; route.fulfill({ contentType: 'application/json', body: '{"current":{"code":0}}' }); });
+    const t = Date.now() - 16 * 60 * 1000;
+    await page.addInitScript((t0) => { try { sessionStorage.setItem('cascade.wx.v1', JSON.stringify({ t: t0, wx: 'rain' })); } catch (e) { /* blocked */ } }, t);
+    await page.goto('/index.html');
+    await expect.poll(() => hits).toBe(1);
+    await expect(page.locator('html')).toHaveAttribute('data-wx', 'clear');
   });
 
   test('step 3 requires a reference or a receipt, then reports payment and offers calendar and Messenger', async ({ page }) => {
