@@ -5129,7 +5129,12 @@
       var hero = document.getElementById('hero'); if (!hero || !('IntersectionObserver' in window)) return;
       new IntersectionObserver(function (e) { document.body.classList.toggle('gs-hero-in', e[0].isIntersecting); }, { threshold: 0.35 }).observe(hero);
     }
-    function init() { apply(state); fetchWeather(); watchHero(); }
+    function watchMotion() {
+      if (!('IntersectionObserver' in window)) return;
+      var io = new IntersectionObserver(function (es) { es.forEach(function (e) { e.target.classList.toggle('gs-off', !e.isIntersecting); }); }, { rootMargin: '120px' });
+      document.querySelectorAll('.gs-tone, .gs-o1, .gs-o2, .luxury-hero-media, .gs-cta, .hero-bk-cta').forEach(function (el) { io.observe(el); });
+    }
+    function init() { apply(state); fetchWeather(); watchHero(); watchMotion(); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
   }());
   </script>
@@ -5429,13 +5434,17 @@
 
   /* ---------- T4: motion (all of it off under prefers-reduced-motion) ---------- */
   @keyframes gs-kb { from { transform: scale(1.03) translate(0, 0); } to { transform: scale(1.11) translate(-1.5%, -1%); } }
-  @keyframes gs-drift { 0% { background-position: 0% 40%; } 100% { background-position: 100% 60%; } }
+  /* transform drift: the tone layer is 240% of its section and slides, so the compositor moves it (the old background-position drift repainted every frame).
+     Offsets match the old 0% 40% -> 100% 60% on a 240% background: x 0 -> -1.4W, y -0.56H -> -0.84H, as shares of the 240% box. */
+  @keyframes gs-drift { 0% { transform: translate3d(0%, -23.333%, 0); } 100% { transform: translate3d(-58.333%, -35%, 0); } }
   @keyframes gs-sheen { 0%, 72% { transform: translateX(-140%) skewX(-18deg); } 100% { transform: translateX(260%) skewX(-18deg); } }
   @keyframes gs-f1 { 0% { transform: translate(0, 0) scale(1); } 50% { transform: translate(46px, -34px) scale(1.15); } 100% { transform: translate(-24px, 22px) scale(0.95); } }
   @keyframes gs-f2 { 0% { transform: translate(0, 0) scale(1); } 50% { transform: translate(-40px, 28px) scale(0.9); } 100% { transform: translate(30px, -18px) scale(1.1); } }
   @media (prefers-reduced-motion: no-preference) {
     .theme-quiet-luxury .luxury-hero-media { animation: gs-kb 26s ease-in-out infinite alternate; transform-origin: 60% 40%; will-change: transform; }
-    .gs-toned > .gs-tone { background-size: 240% 240%; animation: gs-drift 22s ease-in-out infinite alternate; }
+    .gs-toned { overflow: clip; }
+    .gs-toned > .gs-tone { inset: auto; top: 0; left: 0; width: 240%; height: 240%; will-change: transform; animation: gs-drift 22s ease-in-out infinite alternate; }
+    .gs-off, .gs-off::after { animation-play-state: paused !important; }
     .gs-cta::after, .theme-quiet-luxury .hero-bk-cta::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.42), transparent); animation: gs-sheen 6.5s ease-in-out infinite; pointer-events: none; }
     .gs-o1 { animation: gs-f1 19s ease-in-out infinite alternate; }
     .gs-o2 { animation: gs-f2 23s ease-in-out infinite alternate; }
