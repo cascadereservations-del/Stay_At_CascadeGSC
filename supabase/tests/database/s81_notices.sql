@@ -62,6 +62,7 @@ insert into public.inventory_items(id, property_id, name, category, qty_on_hand,
   ('e8100000-0000-4000-8000-0000000000c4', 'e8100000-0000-4000-8000-0000000000a1', '0 Zz S81 plenty', 'Supplies', 9, 5, true);
 insert into public.verifier_findings(key, check_id, severity, title, detail, status) values
   ('zz-s81-finding', 'V6', 'yellow', '0 Zz S81 finding, guest paid P1,500', '{"guest":"Zz Guest","amount":1500}', 'open');
+insert into public.concierge_threads(psid, guest_name, history, updated_at) values ('zz-s81-psid-1', 'Zz S81 1', '[]'::jsonb, now()), ('zz-s81-psid-2', 'Zz S81 2', '[]'::jsonb, now());
 insert into public.concierge_handoffs(id, psid, guest_text, risk, status) values
   ('e8100000-0000-4000-8000-0000000000d1', 'zz-s81-psid-1', 'Zz S81 guest text', 'zz', 'open'),
   ('e8100000-0000-4000-8000-0000000000d2', 'zz-s81-psid-2', 'Zz S81 guest text', 'zz', 'open');
@@ -136,7 +137,7 @@ select ok(exists(select 1 from jsonb_array_elements(public.notices_v1('e8100000-
 select ok(exists(select 1 from jsonb_array_elements(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->'house') h
   where h->>'kind' = 'finding' and h->>'id' = 'zz-s81-finding' and h->>'title' = '0 Zz S81 finding, guest paid [hidden]' and h->'detail' = 'null'::jsonb),
   'admin: the open finding is in house, its money redacted and its jsonb detail not sent');
-select ok((public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->>'inbox_open')::int >= 2, 'admin: inbox_open counts the open handoffs');
+select ok((public.notices_v1('e8100000-0000-4000-8000-0000000000a1')->>'inbox_open')::int >= 2, 'admin: inbox_open counts the guests waiting (the two open handoffs, each on its own thread)');
 select ok(public.notices_v1('e8100000-0000-4000-8000-0000000000a1')::text !~* '"[^"]*(phone|e-?mail|messenger|psid|id_photo|amount|total|payout|price)[^"]*"\s*:',
   'admin: no forbidden key anywhere either');
 select is((select n->>'type' || '|' || (n->>'start_time') || '|' || (n->>'end_time') || '|' || (n->>'duration_hours') || '|' || (n->>'source')

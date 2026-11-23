@@ -58,7 +58,7 @@ select throws_ok($$select * from public.concierge_conversations_v1(100)$$, '4250
 -- The owner reads.
 set local request.jwt.claims = '{"sub":"e7200000-0000-4000-8000-0000000006a1","aal":"aal1"}';
 select is((select count(*)::int from public.concierge_conversations_v1(100) where psid like 'zz-conv-%'), 3, 'the owner sees the three synthetic threads');
-select is((select array_agg(t.psid order by t.n) from public.concierge_conversations_v1(100) with ordinality as t(psid, psid_short, guest_name, updated_at, last_role, last_text, last_guest_at, open_handoffs, human_until, last_risk, n) where t.psid like 'zz-conv-%'),
+select is((select array_agg(t.psid order by t.n) from public.concierge_conversations_v1(100) with ordinality as t(psid, psid_short, guest_name, updated_at, last_role, last_text, last_guest_at, open_handoffs, human_until, last_risk, needs_reply, waiting_since, n) where t.psid like 'zz-conv-%'),
   array['zz-conv-old-open', 'zz-conv-bad-at', 'zz-conv-new'], 'a thread with an open handoff sorts first, then newest first');
 select is((select open_handoffs from public.concierge_conversations_v1(100) where psid = 'zz-conv-old-open'), 1, 'only the open handoff is counted');
 select is((select open_handoffs from public.concierge_conversations_v1(100) where psid = 'zz-conv-new'), 0, 'a dismissed handoff is not counted');
