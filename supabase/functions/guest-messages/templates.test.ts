@@ -17,12 +17,11 @@ const CH: Channel[] = ['messenger', 'email', 'card_only'];
 Deno.test('every message passes the word rules, whole and per paragraph, on every channel', () => {
   for (const k of KEYS) for (const c of CH) for (const f of [ben, full, long]) {
     const t = render(k, f, c);
-    // declined: R1.6 is verbatim and its chat wording ("Reply here in the chat") trips command_tone; its own test pins the rest.
-    assertEquals(words(t).filter((v) => k !== 'declined' || v !== 'command_tone'), [], `${k}/${c}`);
+    assertEquals(words(t), [], `${k}/${c}`);
     // Session 58, the persona gate: the concierge's tone rules too (no urgency, no "!", two "po" at most). The one-🌿-at-
     // the-close rule is a chat rule: these letters (section 7 verbatim) carry the leaf at the salutation and the sign-off.
     assertEquals(toneRules(t.replace('{{door_pin}}', '')).filter((v) => v !== 'leaf_not_at_close'), [], `${k}/${c} tone`);
-    for (const p of t.split(/\n\s*\n/)) assertEquals(words(p).filter((v) => k !== 'declined' || v !== 'command_tone'), [], `${k}/${c}: ${p.slice(0, 60)}`);
+    for (const p of t.split(/\n\s*\n/)) assertEquals(words(p), [], `${k}/${c}: ${p.slice(0, 60)}`);
   }
 });
 
@@ -156,11 +155,11 @@ const dec: Fields = { guest_name: 'Ben Cruz', checkin_date: '2026-12-04', checko
 const WHEN = 'Fri, Dec 4 to Mon, Dec 7';
 const OPEN = 'Hello Ben,\n\n', CLOSE = '\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿';
 const refundLine = (here: string) => `If you already sent a payment, please reply ${here} with the GCash name and number it came from, and we will return it in full.`;
-const againLine = (here: string) => `We would still love to host you. Reply ${here} with other dates that suit you, or see what is open at ${SITE_URL}, and we will gladly check them for you.`;
+const againLine = (here: string) => `We would still love to host you. Please reply ${here} with other dates that suit you, or see what is open at ${SITE_URL}, and we will gladly check them for you.`;
 const golden = (code: string, receipt: boolean, here: string): string => {
   const p: string[] = code === 'dates' ? [`Thank you for choosing Cascade Hideaway. We are sorry: ${WHEN} are no longer available, so we could not confirm this request.`, ...(receipt ? [refundLine(here)] : []), againLine(here)]
     : code === 'payment' && !receipt ? [`Thank you for choosing Cascade Hideaway. We held ${WHEN} for you, but the payment did not reach us in time, so the hold has ended and this request is closed.`,
-        `Still planning to come? Reply ${here} and, if the dates are still open, we will gladly hold them for you again. You can also check dates at ${SITE_URL}.`]
+        `Still planning to come? Please reply ${here} and, if the dates are still open, we will gladly hold them for you again. You can also check dates at ${SITE_URL}.`]
     : code === 'payment' ? [`Thank you for choosing Cascade Hideaway. We could not find the payment for ${WHEN} in our account, so we could not confirm this request.`,
         `If the payment did leave your account, please reply ${here} with the GCash name and number it came from. We will trace it and return it in full.`,
         'Once that is sorted, we would be glad to hold the dates for you again if they are still open.']
@@ -192,11 +191,9 @@ Deno.test('declined: a null, unknown or duplicate code reads as other; the refun
 Deno.test('declined: passes the word rules and the tone rules, whole and per paragraph, on every channel', () => {
   for (const code of ['dates', 'payment', 'guest_cancel', 'other']) for (const receipt of [false, true]) for (const c of CH) {
     const t = render('declined', { ...dec, reason_code: code, receipt_sent: receipt }, c);
-    // R1.6 is verbatim: "Reply here in the chat" trips command_tone on Messenger only (reported); every other word rule holds.
-    assertEquals(words(t).filter((v) => v !== 'command_tone'), [], `${code}/${c}/${receipt}`);
+    assertEquals(words(t), [], `${code}/${c}/${receipt}`);
     assertEquals(toneRules(t).filter((v) => v !== 'leaf_not_at_close'), [], `${code}/${c}/${receipt} tone`);
-    for (const p of t.split(/\n\s*\n/)) assertEquals(words(p).filter((v) => v !== 'command_tone'), [], p.slice(0, 60));
-    assert(c !== 'email' || !words(t).includes('command_tone'), 'only the Messenger wording trips command_tone');
+    for (const p of t.split(/\n\s*\n/)) assertEquals(words(p), [], p.slice(0, 60));
     assert(t.length <= 2000 && chunks(t).length === 1, 'fits one Messenger message');
     assert(!t.includes('!'));
   }

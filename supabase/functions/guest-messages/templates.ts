@@ -217,12 +217,12 @@ const replyHere = (c: Channel) => c === 'email' ? 'to this e-mail' : 'here in th
 function declined(f: Fields, c: Channel): string {
   const dates = `${day(f.checkin_date)} to ${day(f.checkout_date)}`, here = replyHere(c), code = declineReason(f.reason_code), sent = f.receipt_sent === true;
   const refund = sent ? `If you already sent a payment, please reply ${here} with the GCash name and number it came from, and we will return it in full.` : '';
-  const again = `We would still love to host you. Reply ${here} with other dates that suit you, or see what is open at ${SITE_URL}, and we will gladly check them for you.`;
+  const again = `We would still love to host you. Please reply ${here} with other dates that suit you, or see what is open at ${SITE_URL}, and we will gladly check them for you.`;
   const paras: string[] = code === 'dates'
     ? [`Thank you for choosing Cascade Hideaway. We are sorry: ${dates} are no longer available, so we could not confirm this request.`, refund, again]
     : code === 'payment' && !sent
     ? [`Thank you for choosing Cascade Hideaway. We held ${dates} for you, but the payment did not reach us in time, so the hold has ended and this request is closed.`,
-       `Still planning to come? Reply ${here} and, if the dates are still open, we will gladly hold them for you again. You can also check dates at ${SITE_URL}.`]
+       `Still planning to come? Please reply ${here} and, if the dates are still open, we will gladly hold them for you again. You can also check dates at ${SITE_URL}.`]
     : code === 'payment'
     ? [`Thank you for choosing Cascade Hideaway. We could not find the payment for ${dates} in our account, so we could not confirm this request.`,
        `If the payment did leave your account, please reply ${here} with the GCash name and number it came from. We will trace it and return it in full.`,
