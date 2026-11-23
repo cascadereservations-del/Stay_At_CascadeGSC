@@ -48,6 +48,37 @@ export const keyForPending = (pendingId: unknown): string | null => (pendingId =
 export const keyForPhoto = (objectPath: string, again?: string | null): string | null =>
   objectPath ? `tgocr:${objectPath}${again ? `#${again}` : ''}` : null;
 
+/** s134 fix r1: the photo path was only held by a discarded (void) row, and the person sends the same photo again. The key must differ from the
+ *  first pass, or the save replays the voided row and nothing is shown. Null (the plain first-pass key) when no void row holds the path. */
+// deno-lint-ignore no-explicit-any
+export async function againForVoidedPhoto(db: any, objectPath: string, messageId: unknown): Promise<string | null> {
+  if (messageId == null || String(messageId) === '') return null;
+  const { data } = await db.from('transactions').select('id').eq('receipt_image_path', objectPath).eq('status', 'void').limit(1);
+  return Array.isArray(data) && data.length ? `m${messageId}` : null;
+}
+
+/** The plain line sent when a save replays a row that is no longer waiting (so no card can be drawn). */
+export const replayLine = (ref: string, status: string): string => `That receipt was already logged as Ref ${ref} and is now ${status}.`;
+
+/** A save that answered replayed:true: the card again while the row still waits, otherwise one plain line (never silence). */
+export async function onReplayedReceipt(
+  // deno-lint-ignore no-explicit-any
+  db: any, id: string, ref: string,
+  deps: { loadPending: (id: string) => Promise<unknown>; sendCard: (id: string) => Promise<void>; send: (text: string) => Promise<void> },
+): Promise<void> {
+  if (await deps.loadPending(id)) { await deps.sendCard(id); return; }
+  const { data } = await db.from('transactions').select('status').eq('id', id).maybeSingle();
+  await deps.send(replayLine(ref, String(data?.status ?? 'closed')));
+}
+
+/** Line items of a receipt row that is still waiting for review. A confirmed or voided row is never changed by an old card's tap. */
+// deno-lint-ignore no-explicit-any
+export async function writeLineItems(db: any, txnId: string, ocrRaw: unknown, items: unknown[]) {
+  const raw = (ocrRaw && typeof ocrRaw === 'object') ? { ...(ocrRaw as Record<string, unknown>) } : {};
+  raw.line_items = items;
+  return await db.from('transactions').update({ ocr_raw: raw, updated_at: new Date().toISOString() }).eq('id', txnId).eq('status', 'pending_review');
+}
+
 // ---- save ----
 
 export type Lookalike = { id?: string; date?: string; amount?: number; chip?: string } | null;

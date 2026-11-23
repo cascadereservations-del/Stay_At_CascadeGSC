@@ -261,10 +261,24 @@ export async function loadSlugs(db: Db, propertyId: string): Promise<string[]> {
 
 // ---- storing an upload (attach, extract) ----
 
+export const UPLOAD_DAILY_LIMIT = 100;
+/** Start of today in Manila, as a timestamp Postgres reads. */
+const manilaDayStart = () => `${new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+08:00`;
+
+/** s134 fix r1: at most UPLOAD_DAILY_LIMIT stored uploads (attach, extract) per user per Manila day, counted from the proof rows. Null = under the limit. */
+export async function uploadLimit(db: Db, userId: string): Promise<Out | null> {
+  const used = await db.from('staff_upload_hashes').select('path', { count: 'exact', head: true }).eq('uploaded_by', userId).gte('created_at', manilaDayStart());
+  if (used.error) { console.warn('ocr_upload_limit_check_failed', String(used.error.message ?? used.error).slice(0, 120)); return out(500, { ok: false, error: 'load_failed' }); }
+  if ((used.count ?? 0) >= UPLOAD_DAILY_LIMIT) return out(429, { ok: false, error: 'daily_limit' });
+  return null;
+}
+
 export type Stored = { ok: true; path: string; sha256: string; hashOk: boolean } | { ok: false; out: Out };
 
 /** Upload under <property>/<caller>/<uuid>.<ext>, hash the stored bytes, record the proof row. The object is never removed here. */
 export async function storeUpload(f: Extract<DecodedFile, { ok: true }>, who: Who, d: Deps): Promise<Stored> {
+  const lim = await uploadLimit(d.db, who.userId);
+  if (lim) return { ok: false, out: lim };
   const path = receiptPath(d.propertyId, who.userId, f.ext, d.newId());
   const up = await d.db.storage.from(RECEIPTS_BUCKET).upload(path, f.bytes, { contentType: f.mime, upsert: false });
   if (up.error) { console.warn('ocr_upload_failed', String(up.error.message).slice(0, 120)); return { ok: false, out: out(500, { ok: false, error: 'upload_failed' }) }; }

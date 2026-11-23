@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'jsr:@std/assert@1';
-import { attachHandler, checkSupplyPath, decodeFile, type Deps, NO_HINT, pairAllowed, sha256Hex, signHandler, SIGN_SECONDS, stockHint, supplyByPath, buildPrompt, decodeImage, gateAction, mapCategory, receiptPath, scrubMoney, shapeExtraction, validDate } from './logic.ts';
+import { attachHandler, storeUpload, UPLOAD_DAILY_LIMIT, checkSupplyPath, decodeFile, type Deps, NO_HINT, pairAllowed, sha256Hex, signHandler, SIGN_SECONDS, stockHint, supplyByPath, buildPrompt, decodeImage, gateAction, mapCategory, receiptPath, scrubMoney, shapeExtraction, validDate } from './logic.ts';
 
 Deno.test('buildPrompt swaps the hardcoded category list for the live slugs and ignores odd ones', () => {
   const base = 'x ONE of: supplies, utilities, cleaning, maintenance, repairs, platform_fees, other y';
@@ -395,4 +395,36 @@ Deno.test('index.ts: extract answers add sha256, stock_hint and the proof flag; 
   assertEquals(gateAction({ mode: 'sign' }), 'approve_payment');
   assertEquals(gateAction({ mode: 'attach' }), 'approve_payment');
   assertEquals(gateAction({ mode: 'supply' }), 'report_supply');
+});
+
+// ---- s134 fix round 1: per-user daily upload cap ----
+
+Deno.test('upload cap: 100 stored uploads a day per caller; the 101st is refused with 429 and nothing is stored (attach)', async () => {
+  assertEquals(UPLOAD_DAILY_LIMIT, 100);
+  const under = fakeDb({ tables: { ...ITEMS, staff_upload_hashes: { count: 99 } } });
+  const ok = await attachHandler({ file_base64: JPEG_B64, mime_type: 'image/jpeg', read: false }, { userId: USER }, deps(under));
+  assertEquals(ok.status, 200);
+  assertEquals(under.uploads.length, 1);
+  const full = fakeDb({ tables: { ...ITEMS, staff_upload_hashes: { count: 100 } } });
+  const d = deps(full);
+  const r = await attachHandler({ file_base64: JPEG_B64, mime_type: 'image/jpeg' }, { userId: USER }, d);
+  assertEquals([r.status, r.body], [429, { ok: false, error: 'daily_limit' }]);
+  assertEquals([full.uploads.length, full.inserts.length, d.reads], [0, 0, 0]);
+});
+
+Deno.test('upload cap: the same cap guards storeUpload for extract, and a failed count check stores nothing', async () => {
+  const f = fakeDb({ tables: { staff_upload_hashes: { count: 100 } } });
+  const img = decodeFile(JPEG_B64, 'image/jpeg');
+  if (!img.ok) throw new Error('fixture');
+  const st = await storeUpload(img, { userId: USER }, deps(f));
+  assertEquals(st.ok, false);
+  if (!st.ok) assertEquals([st.out.status, st.out.body], [429, { ok: false, error: 'daily_limit' }]);
+  assertEquals(f.uploads.length, 0);
+  const g = fakeDb({ tables: { staff_upload_hashes: { error: { message: 'down' } } } });
+  const st2 = await storeUpload(img, { userId: USER }, deps(g));
+  assertEquals(st2.ok, false);
+  if (!st2.ok) assertEquals(st2.out.status, 500);
+  assertEquals(g.uploads.length, 0);
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assert(src.includes('storeUpload(img, who, buildDeps(db))'), 'extract mode goes through storeUpload');
 });
