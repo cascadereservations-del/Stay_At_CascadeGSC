@@ -4,13 +4,13 @@
   "phase": "expand",
   "source": {
     "branch": "s134/expenses",
-    "commit": "e00beaf14eec1ef55297a6cb43022e8a50043d18"
+    "commit": "f9497d5d9b2f4f6534666f5ea953f1b06f132b49"
   },
   "migrations": [
     "20261204000000_s134_expenses.sql"
   ],
   "migration_sha256": {
-    "20261204000000_s134_expenses.sql": "064f920dd630ba004e059943a5140b565d49aa1665ab4b3e7b8e948b41e94651"
+    "20261204000000_s134_expenses.sql": "d6d8f88bb17a320bdb75e1c19c42719ea4967de141c7195a6622af503c127e6b"
   },
   "backup": {
     "required": true,
@@ -214,7 +214,7 @@
     "old_reader": true,
     "old_writer": true,
     "verified": true,
-    "evidence": "Rehearsed 2026-11-23 (fix round 5, commit e00beaf14eec1ef55297a6cb43022e8a50043d18) on restored production backup cascade-supabase-20261123T120703Z with the staff_upload_hashes grant shim a --no-acl restore lacks and REHEARSAL_TAP_LINES=all (full failure output kept in .s134/rehearsal-r5.log): migration applied, forward verification 16 of 16 (admin_review_queue_v1 and admin_save_transaction_v1 md5 pinned in md5_s134_functions); pgTAP s134_expenses 142/142, s127_utility_bills 102/102, s127_bill_reminders 120/120; every other suite fails exactly the numbers in accepted_failing_tests and nothing else: s110 ok 118 of 147 not ok 39,47,48,49,50,51,58,59,63,64,128,129 with 41 psql errors (identical without s134, see .s134/s110-base.tap and .s134/s110-s134.tap), s111 56,57, s115_integrity 85-89, s131_meter_cycle 64,65, s132_inventory_update 1,2,4,64,102, s133_option_stock 3,4,81, s89_admin_hub 2,62 (60 of 62 ok with and without s134: .s134/s89-s134.tap, .s134/s89-base.tap), and the wrapped s132/s133 (constraints immediate plus the per-group invariant assertion, which passes) the same numbers as the plain suites. Cycle on a restored copy (.s134/cycle-r5.log): apply (forward 16 of 16), back-fill (6 pending_review rows, none confirmed, all carrying ocr_raw.s134_incomplete), forward 16 of 16, rollback with those rows present (kpi_tab_v1 back to md5 80efd89e..., admin_review_transaction_v1, admin_review_queue_v1 (md5 ed2a6920...) and admin_save_transaction_v1 (md5 ff48081b...) back to the s89 bodies, cut-over setting and CHECK value kept), apply again (forward 16 of 16), back-fill again (0 rows, idempotent), apply a third time (forward 16 of 16, kpi_tab_v1 md5 7c6d5a22...). source.commit is the SQL commit the rehearsal ran; the stamp commit that follows changes only this release file."
+    "evidence": "Rehearsed 2026-11-23 (fix round 6, commit f9497d5d9b2f4f6534666f5ea953f1b06f132b49) on restored production backup cascade-supabase-20261123T120703Z with the staff_upload_hashes grant shim a --no-acl restore lacks and REHEARSAL_TAP_LINES=all (full failure output kept in .s134/rehearsal-r6.log): migration applied, forward verification 16 of 16 (admin_review_queue_v1, admin_save_transaction_v1, expense_receipt_set_v1 and the confirm-gate function md5 pinned in md5_s134_functions; trigger s134_stock_expense_confirm_guard checked in triggers_present_enabled); pgTAP s134_expenses 151/151, s127_utility_bills 102/102, s127_bill_reminders 120/120; every other suite fails exactly the numbers in accepted_failing_tests and nothing else: s110 ok 118 of 147 not ok 39,47,48,49,50,51,58,59,63,64,128,129 with 41 psql errors (identical without s134, see .s134/s110-base.tap and .s134/s110-s134.tap), s111 56,57, s115_integrity 85-89, s131_meter_cycle 64,65, s132_inventory_update 1,2,4,64,102, s133_option_stock 3,4,81, s89_admin_hub 2,62 (60 of 62 ok with and without s134: .s134/s89-s134.tap, .s134/s89-base.tap), and the wrapped s132/s133 (constraints immediate plus the per-group invariant assertion, which passes) the same numbers as the plain suites. Cycle on a restored copy (.s134/cycle-r6.log): apply (forward 16 of 16), back-fill (6 pending_review rows, none confirmed, all carrying ocr_raw.s134_incomplete), forward 16 of 16, rollback with those rows present (the confirm-gate trigger and function gone (0,0), kpi_tab_v1 back to md5 80efd89e..., admin_review_transaction_v1, admin_review_queue_v1 (md5 ed2a6920...) and admin_save_transaction_v1 (md5 ff48081b...) back to the s89 bodies, cut-over setting and CHECK value kept), apply again (forward 16 of 16, trigger and function back (1,1)), back-fill again (0 rows, idempotent), apply a third time (forward 16 of 16, kpi_tab_v1 md5 7c6d5a22...). source.commit is the SQL commit the rehearsal ran; the stamp commit that follows changes only this release file."
   },
   "approvals": {
     "production_required": true,
