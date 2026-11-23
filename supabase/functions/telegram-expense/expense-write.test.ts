@@ -1,8 +1,8 @@
 // deno test --allow-read telegram-expense/expense-write.test.ts - s134 L3 (D-405): the Telegram expense writes go through two RPCs; the RPCs are faked here (L1 writes the SQL).
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
-  againForVoidedPhoto, categoryKeyboardFrom, categoryUnion, confirmExpense, FALLBACK_CATEGORIES, keyForMessage, keyForPending, keyForPhoto, lookalikeLine, onReplayedReceipt, pickableCategories,
-  reviewExpense, reviewRefusal, saveExpense, setExpenseAmount, shortDate, SYSTEM_SLUGS, voidExpense, voidMany, writeLineItems,
+  againForVoidedPhoto, categoryKeyboardFrom, categoryUnion, confirmExpense, FALLBACK_CATEGORIES, keyForMessage, keyForPending, keyForPhoto, lookalikeLine, ocrDate, ocrTxn, onReplayedReceipt, pickableCategories, readableTotal,
+  reviewExpense, reviewRefusal, saveExpense, setExpenseAmount, shortDate, SYSTEM_SLUGS, typedTxn, voidExpense, voidMany, writeLineItems,
 } from './expense-write.ts';
 
 const PROP = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
@@ -36,7 +36,7 @@ function rig(opts: { cats?: string[]; rows?: Record<string, { status: string; lo
   return { db, calls };
 }
 
-const txn = (extra: Record<string, unknown> = {}) => ({ category: 'supplies', amount: 540, payee: 'Shop', notes: null, logged_by: 'Lloyd 1', ...extra });
+const txn = (extra: Record<string, unknown> = {}) => ({ category: 'supplies', amount: 540, payee_name: 'Shop', notes: null, logged_by: 'Lloyd 1', ...extra });
 
 Deno.test('keys: one per message, one per stored question, one per photo; a missing part gives no key', () => {
   assertEquals(keyForMessage(-100123, 77), 'tg:-100123:77');
@@ -196,7 +196,7 @@ Deno.test('expense-write.ts: its only direct transactions write is the status-gu
 Deno.test('index.ts wiring: keys per flow, the look-alike line, review calls, and the replay does not notify twice', async () => {
   const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
   assertStringIncludes(src, 'key:keyForMessage(chatId,msg.message_id)');
-  assertEquals(src.split('key:keyForMessage(chatId,msg.message_id)').length - 1, 2, 'the fast-entry text and the answered prompt');
+  assertEquals(src.split('key:keyForMessage(chatId,msg.message_id)').length - 1, 3, 'the fast-entry text, the answered prompt and the answered prompt of a held receipt photo');
   assertStringIncludes(src, "key:keyForPending(data.slice('dup_ok:'.length))");
   assertStringIncludes(src, "key:keyForPending(data.slice('llm_expense_confirm:'.length))");
   assertStringIncludes(src, 'keyForPhoto(objectPath,again)');
@@ -205,7 +205,7 @@ Deno.test('index.ts wiring: keys per flow, the look-alike line, review calls, an
   assertStringIncludes(src, 'confirmExpense(db,txnId,whoFrom(cq.from))');
   assertStringIncludes(src, 'setExpenseAmount(db,String(p.txnId),amount,loggedBy)');
   assertStringIncludes(src, 'if(!r.replayed)notifyOps(');
-  assertEquals(src.split('row.id,row.look)').length - 1, 3, 'all three confirmations carry the look-alike line');
+  assertEquals(src.split('row.id,row.look)').length - 1, 4, 'the three confirmations and the held-receipt answer carry the look-alike line');
   assert(src.includes('Looks like') === false, 'the sentence itself lives in expense-write.ts');
 });
 
@@ -291,4 +291,60 @@ Deno.test('fix r1 (2): line items change only on a row still pending review; a c
   assertEquals((rows[1] as any).updated_at, undefined, 'the confirmed row was not touched at all');
   const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
   assertStringIncludes(src, 'await writeLineItems(db,txnId,ocrRaw,items)');
+});
+
+// ---- s134 fix round 2 ----
+
+Deno.test('fix r2 (1): the vendor goes to the RPC as payee_name, for a typed /log and for a receipt photo; no payee key is sent', async () => {
+  const r = rig();
+  await saveExpense(r.db, PROP, typedTxn({ category: 'supplies', amount: 250, payee: 'Demo shop', notes: '250 Demo shop', loggedBy: 'Lloyd 1' }), 'k-typed');
+  await saveExpense(r.db, PROP, ocrTxn({ category: 'supplies', amount: 540, vendor: 'Demo store', notes: null, loggedBy: 'Lloyd 1', receipt: 'receipts/5/u.jpg', confidence: 0.9, raw: { amount: 540 }, date: null }), keyForPhoto('receipts/5/u.jpg'));
+  assertEquals(r.calls[0].args.p_txn.payee_name, 'Demo shop');
+  assertEquals(r.calls[1].args.p_txn.payee_name, 'Demo store');
+  for (const c of r.calls) assertFalse('payee' in c.args.p_txn, 'the RPC does not read payee');
+  assertEquals(typedTxn({ category: 'other', amount: 1 }).payee_name, null);
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertFalse(/saveExpense\([^)]*\{[^}]*payee\s*:/.test(src), 'index.ts builds no p_txn with a payee key');
+  assertStringIncludes(src, 'typedTxn({');
+  assertStringIncludes(src, 'ocrTxn({');
+});
+
+Deno.test('fix r2 (2): a total that is 0, missing or not a number is not saved; a readable one is', () => {
+  assertEquals([readableTotal(0), readableTotal(null), readableTotal(undefined), readableTotal(''), readableTotal('abc'), readableTotal(-5), readableTotal(NaN)], [null, null, null, null, null, null, null]);
+  assertEquals([readableTotal(540), readableTotal('1,706'), readableTotal('1706.5')], [540, null, 1706.5]);
+});
+
+Deno.test('fix r2 (2): amount 0 -> no save call, the category prompt (pre 0, receipt held) is shown; answering the amount saves one row with the receipt path', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  // wiring: the unreadable-total branch comes before the OCR save and holds the photo
+  const iGuard = src.indexOf('readableTotal(extracted.amount)===null');
+  const iSave = src.indexOf('saveExpense(db,PROPERTY_ID,ocrTxn(');
+  assert(iGuard > 0 && iSave > iGuard, 'the guard sits before the OCR save');
+  assertStringIncludes(src.slice(iGuard, iSave), 'categoryKeyboard(db,0,true)');
+  assertStringIncludes(src.slice(iGuard, iSave), "'photo_dup',{hold:true,objectPath");
+  // the keyboard carries the hold flag; the plain keyboard does not
+  const held = categoryKeyboardFrom([{ slug: 'supplies', label: 'Supplies' }, { slug: 'other', label: 'Other' }], 0, true).inline_keyboard.flat();
+  assertEquals(held.map((b) => b.callback_data), ['cat:supplies:0:h', 'cat:other:0:h']);
+  assert(held.every((b) => b.callback_data.length <= 64));
+  assertEquals(categoryKeyboardFrom([{ slug: 'other', label: 'Other' }], 0).inline_keyboard.flat()[0].callback_data, 'cat:other:0');
+  // the answer: one save, carrying the receipt path, the typed amount and the vendor as payee_name
+  const r = rig();
+  const out = await saveExpense(r.db, PROP, typedTxn({ category: 'supplies', amount: 1706, payee: 'Demo shop', notes: 'items: a | Demo shop', loggedBy: 'Lloyd 1', receipt: 'receipts/5/u.jpg' }), keyForMessage(-100, 91));
+  assert(out.ok);
+  assertEquals(r.calls.length, 1);
+  assertEquals(r.calls[0].args.p_txn, { category: 'supplies', amount: 1706, payee_name: 'Demo shop', notes: 'items: a | Demo shop', logged_by: 'Lloyd 1', receipt_image_path: 'receipts/5/u.jpg' });
+  assertStringIncludes(src, 'receipt:String(r.objectPath)');
+  assertStringIncludes(src, "holdFlag==='h'");
+});
+
+Deno.test('fix r2 (3): the receipt date is kept up to Manila tomorrow and dropped after it (boundary at 23:30 and 00:30 Manila)', () => {
+  // 2026-11-23 23:30 Manila = 15:30Z; 2026-11-24 00:30 Manila = 16:30Z on the 23rd
+  const a = Date.parse('2026-11-23T15:30:00Z'), b = Date.parse('2026-11-23T16:30:00Z');
+  assertEquals([ocrDate('2026-11-23', a), ocrDate('2026-11-24', a), ocrDate('2026-11-25', a)], ['2026-11-23', '2026-11-24', null]);
+  assertEquals([ocrDate('2026-11-24', b), ocrDate('2026-11-25', b), ocrDate('2026-11-26', b)], ['2026-11-24', '2026-11-25', null]);
+  assertEquals([ocrDate('2019-12-31', a), ocrDate('nope', a), ocrDate(null, a), ocrDate('2026-02-30', a)], [null, null, null, null]);
+  const kept = ocrTxn({ category: 'other', amount: 1, vendor: null, notes: null, loggedBy: null, receipt: 'p', confidence: 1, raw: {}, date: ocrDate('2026-11-24', a) });
+  const dropped = ocrTxn({ category: 'other', amount: 1, vendor: null, notes: null, loggedBy: null, receipt: 'p', confidence: 1, raw: {}, date: ocrDate('2026-11-25', a) });
+  assertEquals(kept.transaction_date, '2026-11-24');
+  assertFalse('transaction_date' in dropped, 'the RPC then uses Manila today and the save is kept');
 });

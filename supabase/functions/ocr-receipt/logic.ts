@@ -342,6 +342,7 @@ export async function signHandler(body: any, d: Deps): Promise<Out> {
     const refused = r.error.code === '42501' || /forbidden|not allowed|permission/i.test(String(r.error.message ?? ''));
     return refused ? out(403, { ok: false, error: 'forbidden' }) : out(502, { ok: false, error: 'sign_failed' });
   }
+  // The RPC answers [] (not an error) to a caller who may not see receipts, so that caller gets ok with no links; the 403 branches stay for a refusing error.
   const rows = r.data;
   if (!Array.isArray(rows)) {
     // deno-lint-ignore no-explicit-any

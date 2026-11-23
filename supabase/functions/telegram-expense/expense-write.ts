@@ -20,13 +20,13 @@ export function pickableCategories<T extends { slug: string }>(cats: T[] | null 
   return (cats ?? []).filter((c) => c && typeof c.slug === 'string' && c.slug && !SYSTEM_SLUGS.includes(c.slug));
 }
 
-/** The /log keyboard: two buttons a row, from the category list given (callers pass the pickable list), `cat:<slug>:<detected amount>`. */
-export function categoryKeyboardFrom(cats: Array<{ slug: string; label: string }>, pre: number) {
+/** The /log keyboard: two buttons a row, from the category list given (callers pass the pickable list), `cat:<slug>:<detected amount>`, plus `:h` when a receipt photo is held for the answer. */
+export function categoryKeyboardFrom(cats: Array<{ slug: string; label: string }>, pre: number, hold = false) {
   const list = pickableCategories(cats);
   const use = list.length ? list : FALLBACK_CATEGORIES;
   const rows: Array<Array<{ text: string; callback_data: string }>> = [];
   for (let i = 0; i < use.length; i += 2) {
-    rows.push(use.slice(i, i + 2).map((c) => ({ text: `${EMOJI[c.slug] ? EMOJI[c.slug] + ' ' : ''}${c.label || c.slug}`, callback_data: `cat:${c.slug}:${pre}` })));
+    rows.push(use.slice(i, i + 2).map((c) => ({ text: `${EMOJI[c.slug] ? EMOJI[c.slug] + ' ' : ''}${c.label || c.slug}`, callback_data: `cat:${c.slug}:${pre}${hold ? ':h' : ''}` })));
   }
   return { inline_keyboard: rows };
 }
@@ -103,6 +103,28 @@ export async function saveExpense(db: any, propertyId: string, txn: Record<strin
   const d = res?.data;
   if (!d || d.ok !== true || !d.id) { const code = String(d?.error ?? 'save_failed'); return { ok: false, error: code, message: saveRefusal(code) }; }
   return { ok: true, id: String(d.id), replayed: d.replayed === true, lookalike: d.lookalike && typeof d.lookalike === 'object' ? d.lookalike : null };
+}
+
+// s134 fix r2: the p_txn objects. The RPC reads `payee_name` (not `payee`), so both builders live here and are tested against the fake RPC.
+/** A typed or answered expense. `receipt` is set only when the person answered the amount prompt of a receipt photo whose total could not be read. */
+export function typedTxn(o: { category: string; amount: number; payee?: string | null; notes?: string | null; loggedBy?: string | null; receipt?: string | null }): Record<string, unknown> {
+  return { category: o.category, amount: o.amount, payee_name: o.payee ?? null, notes: o.notes ?? null, logged_by: o.loggedBy ?? null, ...(o.receipt ? { receipt_image_path: o.receipt } : {}) };
+}
+/** A receipt photo with a readable total: waits for review. `transaction_date` is left out when the read date is missing or not accepted. */
+export function ocrTxn(o: { category: string; amount: number; vendor: string | null; notes: string | null; loggedBy: string | null; receipt: string; confidence: number; raw: unknown; date: string | null }): Record<string, unknown> {
+  return { category: o.category, amount: o.amount, payee_name: o.vendor, notes: o.notes, logged_by: o.loggedBy, status: 'pending_review', source: 'ocr', receipt_image_path: o.receipt, ocr_confidence: o.confidence, ocr_raw: o.raw, ...(o.date ? { transaction_date: o.date } : {}) };
+}
+/** The total can be saved only when it is a number above zero; otherwise the person is asked (null is never a 0 save). */
+export const readableTotal = (n: unknown): number | null => { const v = Number(n); return n != null && n !== '' && isFinite(v) && v > 0 ? v : null; };
+/** The receipt date to save: YYYY-MM-DD, 2020 or later, and not after Manila tomorrow (the RPC refuses later as future_date). Otherwise null, and the RPC uses Manila today. */
+export function ocrDate(d: unknown, nowMs: number = Date.now()): string | null {
+  const s = String(d ?? '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const t = new Date(s + 'T00:00:00Z').getTime();
+  if (isNaN(t) || t < new Date('2020-01-01').getTime() || new Date(t).toISOString().slice(0, 10) !== s) return null;
+  const manilaToday = new Date(nowMs).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  const manilaTomorrow = new Date(new Date(manilaToday + 'T00:00:00Z').getTime() + 86_400_000).toISOString().slice(0, 10);
+  return s > manilaTomorrow ? null : s;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
