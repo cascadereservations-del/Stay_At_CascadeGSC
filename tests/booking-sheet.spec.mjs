@@ -140,4 +140,17 @@ test.describe('booking sheet', () => {
     await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
     await expect(page.locator('#bsRange')).toContainText('2 nights');
   });
+
+  test('contact options are Messenger then a call button fed by app_settings; no WhatsApp; chat hook is hidden', async ({ page }) => {
+    await mock(page);
+    await page.route('**/rest/v1/app_settings**', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ key: 'onground_name', value: 'Ana' }, { key: 'onground_phone', value: '0917 000 1111' }]) }));
+    await page.goto('/index.html');
+    const links = page.locator('#contact .loc-cta-btn');
+    await expect(links.nth(0)).toHaveAttribute('href', /messenger\.com\/t\/699640026568720/);
+    await expect(links.nth(1)).toHaveAttribute('href', 'tel:+639170001111');
+    await expect(links.nth(1)).toContainText('Ask for Ana');
+    await expect(page.locator('#siteChatEntry')).toBeHidden();
+    expect(await page.content()).not.toMatch(/wa\.me|api\.whatsapp/);
+    expect(await page.locator('a[href="#"], a[href=""]').count()).toBe(0);
+  });
 });

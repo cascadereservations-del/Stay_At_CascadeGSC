@@ -27,12 +27,11 @@ test('public HTML does not use unsupported luxury superlatives', () => {
   assert.doesNotMatch(html, /world-class|pinnacle of luxury|bespoke|iconic destinations|elevated stays/i);
 });
 
-test('all WhatsApp links use wa.me with the one guest-facing number', () => {
-  // wa.me opens the app on phones; web.whatsapp.com/send is desktop-web only (d047990). +63 961 805 6979 (FACTS, D-278).
-  const numbers = [...html.matchAll(/https:\/\/wa\.me\/(\d+)/g)].map(match => match[1]);
-  assert.ok(numbers.length > 0);
-  assert.deepEqual([...new Set(numbers)], ['639618056979']);
-  assert.doesNotMatch(html, /web\.whatsapp\.com/);
+test('guest contact is Messenger plus a call button; no WhatsApp links and the retired number is gone', () => {
+  // Lloyd's brief: Messenger first, then call (tel from the one CONTACT object, fallback Honey +63 991 853 8269). Ms Jary's 09618056979 is retired.
+  assert.doesNotMatch(html, /wa\.me|web\.whatsapp\.com|api\.whatsapp\.com|639618056979|0961 ?805 ?6979/);
+  assert.match(html, /data-contact="tel" href="tel:\+639918538269"/);
+  assert.match(html, /<!-- SITE-CHAT: in-app messaging entry point \(spec pending\) -->\s*<div id="siteChatEntry" hidden>/);
 });
 
 test('every direct communication route has a non-empty, full-domain destination', () => {
