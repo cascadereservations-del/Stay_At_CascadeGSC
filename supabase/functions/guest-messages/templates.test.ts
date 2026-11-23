@@ -214,3 +214,14 @@ Deno.test('declined: the OPS card carries the text on a Show as text block and n
   assertEquals(c.finance, null);
   assert(c.ops.endsWith(`📨 ⤵\n${text}`) && c.ops.includes('Decline message for Ben Cruz'));
 });
+
+// R1.6: one golden fixture shared with Cascade-Staff (tests/fixtures/guest-decline-golden.json); both repos assert the same strings.
+import goldenFixture from './guest-decline-golden.json' with { type: 'json' };
+Deno.test('declined: matches the shared golden fixture (Staff copy) word for word', () => {
+  assertEquals(SUBJECT.declined, goldenFixture.subject);
+  assertEquals(SITE_URL, goldenFixture.site);
+  for (const c of goldenFixture.cases) {
+    const f: Fields = { guest_name: goldenFixture.guest_name, checkin_date: goldenFixture.checkin_date, checkout_date: goldenFixture.checkout_date, pax: 2, total_amount: 3560, deposit_amount: 1780, reason_code: c.reason_code, receipt_sent: c.receipt_sent };
+    assertEquals(render('declined', f, c.channel as Channel), c.text, `${c.reason_code}/${c.channel}/${c.receipt_sent}`);
+  }
+});

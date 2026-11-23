@@ -1,0 +1,105 @@
+{
+  "subject": "About your request at Cascade Hideaway",
+  "guest_name": "Ben Cruz",
+  "checkin_date": "2026-12-04",
+  "checkout_date": "2026-12-07",
+  "site": "https://tinyurl.com/Stay-at-Cascade",
+  "cases": [
+    {
+      "reason_code": "dates",
+      "receipt_sent": false,
+      "channel": "email",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry: Fri, Dec 4 to Mon, Dec 7 are no longer available, so we could not confirm this request.\n\nWe would still love to host you. Please reply to this e-mail with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "dates",
+      "receipt_sent": false,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry: Fri, Dec 4 to Mon, Dec 7 are no longer available, so we could not confirm this request.\n\nWe would still love to host you. Please reply here in the chat with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "dates",
+      "receipt_sent": true,
+      "channel": "email",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry: Fri, Dec 4 to Mon, Dec 7 are no longer available, so we could not confirm this request.\n\nIf you already sent a payment, please reply to this e-mail with the GCash name and number it came from, and we will return it in full.\n\nWe would still love to host you. Please reply to this e-mail with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "dates",
+      "receipt_sent": true,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry: Fri, Dec 4 to Mon, Dec 7 are no longer available, so we could not confirm this request.\n\nIf you already sent a payment, please reply here in the chat with the GCash name and number it came from, and we will return it in full.\n\nWe would still love to host you. Please reply here in the chat with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "payment",
+      "receipt_sent": false,
+      "channel": "email",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We held Fri, Dec 4 to Mon, Dec 7 for you, but the payment did not reach us in time, so the hold has ended and this request is closed.\n\nStill planning to come? Please reply to this e-mail and, if the dates are still open, we will gladly hold them for you again. You can also check dates at https://tinyurl.com/Stay-at-Cascade.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "payment",
+      "receipt_sent": false,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We held Fri, Dec 4 to Mon, Dec 7 for you, but the payment did not reach us in time, so the hold has ended and this request is closed.\n\nStill planning to come? Please reply here in the chat and, if the dates are still open, we will gladly hold them for you again. You can also check dates at https://tinyurl.com/Stay-at-Cascade.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "payment",
+      "receipt_sent": true,
+      "channel": "email",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We could not find the payment for Fri, Dec 4 to Mon, Dec 7 in our account, so we could not confirm this request.\n\nIf the payment did leave your account, please reply to this e-mail with the GCash name and number it came from. We will trace it and return it in full.\n\nOnce that is sorted, we would be glad to hold the dates for you again if they are still open.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "payment",
+      "receipt_sent": true,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We could not find the payment for Fri, Dec 4 to Mon, Dec 7 in our account, so we could not confirm this request.\n\nIf the payment did leave your account, please reply here in the chat with the GCash name and number it came from. We will trace it and return it in full.\n\nOnce that is sorted, we would be glad to hold the dates for you again if they are still open.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "guest_cancel",
+      "receipt_sent": false,
+      "channel": "email",
+      "text": "Hello Ben,\n\nAs you asked, we have cancelled your request for Fri, Dec 4 to Mon, Dec 7. Nothing more is needed from you.\n\nYou are welcome any time. When new dates come up, reply to this e-mail or visit https://tinyurl.com/Stay-at-Cascade.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "guest_cancel",
+      "receipt_sent": false,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nAs you asked, we have cancelled your request for Fri, Dec 4 to Mon, Dec 7. Nothing more is needed from you.\n\nYou are welcome any time. When new dates come up, reply here in the chat or visit https://tinyurl.com/Stay-at-Cascade.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "guest_cancel",
+      "receipt_sent": true,
+      "channel": "email",
+      "text": "Hello Ben,\n\nAs you asked, we have cancelled your request for Fri, Dec 4 to Mon, Dec 7. Nothing more is needed from you.\n\nIf you already sent a payment, please reply to this e-mail with the GCash name and number it came from, and we will return it in full.\n\nYou are welcome any time. When new dates come up, reply to this e-mail or visit https://tinyurl.com/Stay-at-Cascade.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "guest_cancel",
+      "receipt_sent": true,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nAs you asked, we have cancelled your request for Fri, Dec 4 to Mon, Dec 7. Nothing more is needed from you.\n\nIf you already sent a payment, please reply here in the chat with the GCash name and number it came from, and we will return it in full.\n\nYou are welcome any time. When new dates come up, reply here in the chat or visit https://tinyurl.com/Stay-at-Cascade.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "other",
+      "receipt_sent": false,
+      "channel": "email",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry, we could not confirm your request for Fri, Dec 4 to Mon, Dec 7.\n\nWe would still love to host you. Please reply to this e-mail with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "other",
+      "receipt_sent": false,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry, we could not confirm your request for Fri, Dec 4 to Mon, Dec 7.\n\nWe would still love to host you. Please reply here in the chat with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "other",
+      "receipt_sent": true,
+      "channel": "email",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry, we could not confirm your request for Fri, Dec 4 to Mon, Dec 7.\n\nIf you already sent a payment, please reply to this e-mail with the GCash name and number it came from, and we will return it in full.\n\nWe would still love to host you. Please reply to this e-mail with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    },
+    {
+      "reason_code": "other",
+      "receipt_sent": true,
+      "channel": "messenger",
+      "text": "Hello Ben,\n\nThank you for choosing Cascade Hideaway. We are sorry, we could not confirm your request for Fri, Dec 4 to Mon, Dec 7.\n\nIf you already sent a payment, please reply here in the chat with the GCash name and number it came from, and we will return it in full.\n\nWe would still love to host you. Please reply here in the chat with other dates that suit you, or see what is open at https://tinyurl.com/Stay-at-Cascade, and we will gladly check them for you.\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿"
+    }
+  ]
+}
