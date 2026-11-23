@@ -93,7 +93,7 @@ test.describe('booking sheet', () => {
   });
 
   test('a 20 s timeout shows the submit-error state with nothing lost, then Try again works', async ({ page }) => {
-    test.setTimeout(70000);
+    test.setTimeout(45000);
     let n = 0;
     const posts = await mock(page, { submit: async (route) => { n++; if (n === 1) { await new Promise((r) => setTimeout(r, 24000)); return route.abort(); } route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ref: 'CH-TEST1', hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString() }) }); } });
     await openHeader(page); await step1(page);
@@ -141,6 +141,9 @@ test.describe('booking sheet', () => {
     await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toBeVisible();
     expect(posts.length).toBe(1);                                              /* payment still rides the existing hold */
+    const msgr = decodeURIComponent(await page.locator('#bsMsgr').getAttribute('href'));
+    expect(msgr).toContain('Held under Maria Santos');                         /* the Messenger summary names the hold's original name */
+    expect(msgr).not.toContain('Held under Maria S. Santos');
   });
 
   test('changed dates take a new hold', async ({ page }) => {
