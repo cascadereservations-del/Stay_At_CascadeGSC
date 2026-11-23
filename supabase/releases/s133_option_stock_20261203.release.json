@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "PENDING_FRESH_BACKUP",
-    "verified_at": "2026-11-23T00:00:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T103115Z",
+    "verified_at": "2026-11-23T10:37:15.405Z",
     "production_rule": "Per-product stock (D-399 to D-402, Lloyd 2026-11-23): inventory_item_options.qty_on_hand (default 0, check >= 0) and inventory_purchases.option_id (null, FK on delete set null); the clamp trigger inventory_items_option_clamp_v1 (after update of qty_on_hand, never raises); new functions inventory_option_count_v1, inventory_receipt_lines_v1, inventory_option_use_v1, inventory_group_update_v1, inventory_item_history_v2, inventory_log_v1 (authenticated only) and the internal s_inventory_option_clamp_v1, s_inventory_derive_key_v1; s_inventory_option_payload_v1 and inventory_item_options_v1 re-cut behind md5 guards; the table checks on source_url and image_url relaxed. Over s132_inventory_update_20261202, which must already be applied. No released s132 function is edited (Rule 0). Existing data: every option starts at 0, so the invariant sum(options) <= item holds from the first second. Also: the index inventory_stock_movements_property_created_idx (property_id, created_at desc) for inventory_log_v1; a product link whose host part contains @ is refused (payload check and table CHECK).",
     "notes": "Apply after s132 is applied. Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). The Staff push (3.4.52) follows the SQL."
   },
