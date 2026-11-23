@@ -5,10 +5,13 @@
 export type CountItem = { id: string; name: string; unit: string; qty: number; reorder: number | null };
 export type CountRow = { is_consumable: boolean; category: string; name: string };
 
+/** s132 (D-397) split 'Kitchen & Dining' into 'Kitchen utensils' and 'Appliances'; all three group as appliances. */
+const APPLIANCE_CATEGORIES = new Set(['kitchen & dining', 'kitchen utensils', 'appliances']);
+
 /** B70's three groups, in one place. `handleStockQuery` does not group today and is left alone. */
 export function inventoryGroup(row: CountRow): 'consumables' | 'appliances' | 'stores' {
   if (row.is_consumable) return 'consumables';
-  if (row.category === 'Kitchen & Dining' || row.name === 'Washing Machine (Panasonic)') return 'appliances';
+  if (APPLIANCE_CATEGORIES.has((row.category ?? '').trim().toLowerCase()) || row.name === 'Washing Machine (Panasonic)') return 'appliances';
   return 'stores';
 }
 
