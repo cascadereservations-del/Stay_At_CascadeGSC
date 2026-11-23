@@ -65,7 +65,6 @@ begin
                           and not exists (select 1 from public.inventory_purchases ip where ip.transaction_id = o.id));
       v_note := 'Stock bought: ' || array_to_string(v_names[1:3], ', ') || case when array_length(v_names, 1) > 3 then ' (+' || (array_length(v_names, 1) - 3) || ' more)' else '' end
                 || case when g.nsup >= 2 then ' - Several suppliers' else '' end
-                || case when v_incomplete then ' - amount incomplete' else '' end
                 || ' [back-fill s134]' || case when v_dup then ' [possible duplicate]' else '' end;
       perform public.admin_audit_context_v1('s134 back-fill', null, null);
       insert into public.transactions (property_id, txn_type, category, status, source, transaction_date, gross_amount, currency, payee_name, notes, external_ref, logged_by, ocr_raw)

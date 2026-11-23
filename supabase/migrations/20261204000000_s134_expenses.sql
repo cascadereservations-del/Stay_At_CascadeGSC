@@ -14,6 +14,7 @@
 --                    s_txn_void_core_v1, s_expense_chip_v1, s_expense_mime_v1, s_expense_receipt_v1, s_expense_lookalike_v1, s_expense_receipt_gate_v1, s_expense_bucket_pdf_v1, kpi_admin_costs_v1   (no grants)
 --   CHANGED          kpi_tab_v1(uuid,date): ONE anchored replace inside `if v_fin` (SPEC 6). Guard: the live body is the s127 body or this release (both md5s pinned); the replace must match exactly once.
 --   BUCKET           expense-receipts gains application/pdf in allowed_mime_types when the list is not null; the migration stops when file_size_limit is not null and under 5 MB (R4).
+--                   admin_review_transaction_v1(uuid,uuid,text,jsonb,text) (s89, same signature and grants): approve refuses amount_incomplete, amount_locked, system_category, locked as {ok:false,error,where}; the rollback restores the s89 body.
 -- Guard (55000, nothing changes): the functions the trigger depends on must be the bodies this release was cut from. Grants restated (ML-21).
 -- Rollback: supabase/rollbacks/20261204_s134_expenses.sql (keeps the 'inventory' CHECK value and the two purchase columns: expand-only, inert without the triggers).
 
@@ -34,7 +35,8 @@ begin
     ('public.inventory_group_update_v1(uuid,text,jsonb,text)', '960acf4721bd5b0b95fde7845069035c', null),
     ('public.s_inventory_derive_key_v1(text,text)', '736e38143d5e421624c129c9ac5d9dde', null),
     ('public.inventory_receipt_undo_v1(uuid)', '589b583719a611445fcd88a6c1badf92', null),
-    ('public.inventory_undo_v1(uuid,uuid)', '5125463a4d686d5a180f1ee599fa00b7', null)
+    ('public.inventory_undo_v1(uuid,uuid)', '5125463a4d686d5a180f1ee599fa00b7', null),
+    ('public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)', 'fef25e31f2ba4b3df8a9105f38e8c1c2', '9fc10f4c47ca1343015acdfd6e637510')
   ) t(sig, m_a, m_b) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is null then raise exception 's134: % is missing (apply s133 first)', r.sig using errcode = '55000'; end if;
@@ -185,6 +187,12 @@ begin
       select * into v_draft from public.inventory_receipt_drafts d where d.id = substr(p_group, 7)::uuid;
     end if;
 
+    -- the group's amount, needed by step 1 (a sync-voided row that is priced again) as well as by steps 3-5
+    v_total := case when v_draft.total is not null and v_draft.total > 0 then round(v_draft.total, 2) end;
+    v_amt := coalesce(v_total, v_sum);
+    v_incomplete := v_amt > 0 and v_priced < v_n and v_total is null;
+    v_payee := case when v_nsup = 1 then v_sup end;
+
     -- step 1: the group's row. A purchase's link, else stock:<group>, else the draft's own row (OCR path).
     v_tid := (select p.transaction_id from public.inventory_purchases p where p.expense_group = p_group and p.transaction_id is not null order by p.created_at, p.id limit 1);
     if v_tid is null and v_draft.id is not null then v_tid := v_draft.transaction_id; end if;
@@ -199,6 +207,28 @@ begin
     -- a foreign or void row: link every purchase to it and stop (OCR and Telegram keep their one row; a voided "not a cost" row is never recreated)
     if v_row.id is not null and (v_row.external_ref is distinct from v_ref or v_row.status = 'void') then
       update public.inventory_purchases set transaction_id = v_row.id where expense_group = p_group and transaction_id is distinct from v_row.id;
+      -- the group is priced again after its own stock row was voided (fix r3, item 1). A row the SYNC voided (its marker ends the note) is reopened as pending_review: a void row cannot be inserted over
+      -- (uq_transactions_external_ref), and one live row per priced group is the invariant. A row a PERSON voided is never reopened: a follow-up task says the stock is priced again.
+      if v_row.status = 'void' and v_row.external_ref = v_ref and v_n > 0 and v_amt > 0 then
+        if v_row.source = 'inventory' and v_row.notes ~ '\[voided: stock receipt (undone|has no priced line left)\]$' then
+          perform public.admin_audit_context_v1('stock sync', null, null);
+          update public.transactions set status = 'pending_review', gross_amount = v_amt, transaction_date = v_date, payee_name = v_payee,
+                 notes = nullif(btrim(regexp_replace(notes, '\s*\[voided: stock receipt (undone|has no priced line left)\]$', '')), ''),
+                 ocr_raw = coalesce(ocr_raw, '{}'::jsonb) || jsonb_build_object('s134_auto', false, 's134_amount', v_amt, 's134_incomplete', v_incomplete),
+                 updated_at = now()
+           where id = v_row.id and status = 'void' and source = 'inventory' and external_ref like 'stock:%' and notes ~ '\[voided: stock receipt (undone|has no priced line left)\]$'
+             and case when (ocr_raw ->> 's134_amount') ~ '^[0-9]+(\.[0-9]+)?$' then gross_amount = (ocr_raw ->> 's134_amount')::numeric else false end;
+          get diagnostics v_n2 = row_count;
+          perform public.admin_audit_context_v1('', null, null);
+          if v_n2 = 0 then
+            perform public.s_stock_expense_task_v1(v_row.property_id, 'repriced:' || p_group, 'Stock priced again after its expense was voided',
+              'Expense ' || left(v_row.id::text, 8) || ' was voided and the stock now adds up to P' || v_amt || '. Check it in Expenses.');
+          end if;
+        elsif v_amt is distinct from v_row.gross_amount then
+          perform public.s_stock_expense_task_v1(v_row.property_id, 'repriced:' || p_group, 'Stock priced again after its expense was voided',
+            'Expense ' || left(v_row.id::text, 8) || ' was voided by a person (P' || v_row.gross_amount || ') but the stock now adds up to P' || v_amt || '. The expense was left voided.');
+        end if;
+      end if;
       return;
     end if;
     v_owned := v_row.id is not null and public.s_stock_expense_owned_v1(v_row.id);
@@ -214,11 +244,7 @@ begin
     end if;
     v_prop := coalesce(v_prop, v_row.property_id);
 
-    -- step 3: values
-    v_total := case when v_draft.total is not null and v_draft.total > 0 then round(v_draft.total, 2) end;
-    v_amt := coalesce(v_total, v_sum);
-    v_incomplete := v_amt > 0 and v_priced < v_n and v_total is null;
-    v_payee := case when v_nsup = 1 then v_sup end;
+    -- step 3: values (v_total, v_amt, v_incomplete and v_payee are set above)
     select array_agg(x.name order by x.first_at, x.name) into v_names
       from (select i.name, min(p.created_at) first_at from public.inventory_purchases p join public.inventory_items i on i.id = p.item_id where p.expense_group = p_group group by i.name) x;
     v_note := 'Stock bought: ' || array_to_string(v_names[1:3], ', ') || case when array_length(v_names, 1) > 3 then ' (+' || (array_length(v_names, 1) - 3) || ' more)' else '' end
@@ -514,7 +540,7 @@ begin
        where v_flt is null or v_flt = 'all' or (v_flt = 'review' and c.status = 'pending_review') or (v_flt like 'cat:%' and c.category = substr(v_flt, 5)) or c.chip = v_flt
        order by c.created_at desc, c.id desc limit v_lim + 1
     ), numbered as (
-      select p.*, row_number() over (order by p.created_at desc, p.id desc) rn from picked p
+      select p.*, row_number() over (order by p.created_at desc, p.id desc) rn, public.s_expense_lookalike_v1(p.id) lk from picked p
     )
     select coalesce(jsonb_agg(jsonb_build_object(
              'id', n.id, 'date', n.transaction_date, 'amount', n.gross_amount, 'category', n.category,
@@ -529,7 +555,7 @@ begin
              'locked', n.locked,
              'amount_locked', (n.locked or (n.has_stock and public.s_stock_expense_owned_v1(n.id))),
              'stock', case when n.has_stock then (select jsonb_build_object('lines', count(*), 'items', count(distinct ip.item_id)) from public.inventory_purchases ip where ip.transaction_id = n.id) end,
-             'lookalike_id', public.s_expense_lookalike_v1(n.id) ->> 'id',
+             'lookalike_id', n.lk ->> 'id', 'lookalike', n.lk,
              's134_incomplete', coalesce((n.ocr_raw ->> 's134_incomplete') = 'true', false),
              'created_at', n.created_at) order by n.rn), '[]'::jsonb),
            coalesce(bool_or(n.rn > v_lim), false)
@@ -622,7 +648,7 @@ begin
       v_raw := '{}'::jsonb;
       if p_txn ? 'ocr_raw' and jsonb_typeof(p_txn -> 'ocr_raw') = 'object' then
         if char_length((p_txn -> 'ocr_raw')::text) > 20000 then return jsonb_build_object('ok', false, 'error', 'ocr_raw_too_large'); end if;
-        v_raw := (p_txn -> 'ocr_raw') - 'receipt_sha256' - 'receipt_mime' - 's134_auto' - 's134_amount' - 's134_group' - 's134_backfill' - 'draft_id' - 'source';
+        v_raw := (p_txn -> 'ocr_raw') - 'receipt_sha256' - 'receipt_mime' - 's134_auto' - 's134_amount' - 's134_group' - 's134_backfill' - 's134_incomplete' - 'draft_id' - 'source';
       end if;
       v_raw := v_raw || jsonb_build_object('receipt_sha256', v_gate ->> 'sha256', 'receipt_mime', v_gate ->> 'mime');
     end if;
@@ -737,7 +763,7 @@ create or replace function public.expense_receipt_set_v1(p_property_id uuid, p_i
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_row public.transactions%rowtype; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_cur jsonb; v_gate jsonb; v_raw jsonb; v_where text; v_new jsonb;
-  v_keep constant text[] := array['s134_auto', 's134_amount', 's134_group', 's134_backfill', 'draft_id', 'source'];
+  v_keep constant text[] := array['s134_auto', 's134_amount', 's134_group', 's134_backfill', 's134_incomplete', 'draft_id', 'source'];
 begin
   perform public.admin_require('approve_payment', p_property_id);
   if p_path is null and (v_reason is null or char_length(v_reason) not between 3 and 200) then return jsonb_build_object('ok', false, 'error', 'reason_required'); end if;
@@ -804,7 +830,7 @@ begin
   v_src := coalesce(nullif(p_txn ->> 'source', ''), case when v_path is not null or p_txn ? 'ocr_raw' then 'ocr' else 'telegram' end);
   if v_src not in ('telegram', 'ocr') then return jsonb_build_object('ok', false, 'error', 'bad_source'); end if;
   if p_txn ? 'ocr_raw' and jsonb_typeof(p_txn -> 'ocr_raw') = 'object' and char_length((p_txn -> 'ocr_raw')::text) <= 20000 then
-    v_raw := (p_txn -> 'ocr_raw') - 's134_auto' - 's134_amount' - 's134_group' - 's134_backfill' - 'draft_id';
+    v_raw := (p_txn -> 'ocr_raw') - 's134_auto' - 's134_amount' - 's134_group' - 's134_backfill' - 's134_incomplete' - 'draft_id';
   end if;
   perform public.admin_audit_context_v1('telegram', null, null);
   insert into public.transactions(property_id, txn_type, category, status, source, transaction_date, gross_amount, currency, payee_name, notes, external_ref, logged_by, receipt_image_path, ocr_confidence, ocr_raw)
@@ -836,6 +862,8 @@ begin
   if v_row.status = 'void' then return jsonb_build_object('ok', false, 'error', 'void'); end if;
   if p_action = 'confirm' then
     if v_row.status = 'confirmed' then return jsonb_build_object('ok', true, 'id', v_row.id, 'status', 'confirmed', 'unchanged', true); end if;
+    -- a stock row whose receipt has an unpriced line holds only the priced part: a person prices the line (or voids the row) first
+    if coalesce(v_row.ocr_raw ->> 's134_incomplete', '') = 'true' then return jsonb_build_object('ok', false, 'error', 'amount_incomplete', 'where', 'Inventory'); end if;
     if v_row.category in ('guest_refund', 'airbnb_adjustment') or not exists (select 1 from public.expense_categories c where c.property_id = v_row.property_id and c.slug = v_row.category and c.is_active) then
       return jsonb_build_object('ok', false, 'error', 'bad_category');
     end if;
@@ -857,6 +885,69 @@ begin
   return jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status, 'amount', v_amount);
 end $$;
 
+-- 6c. admin_review_transaction_v1 (s89, same signature and grants): the review queue's approve gets the s134 refusals. A refusal is an answer {ok:false, error, where}, never an exception (the s89 errors stay exceptions).
+--     amount_incomplete (stock row with an unpriced line), amount_locked (the purchases decide amount, date and payee), system_category, locked (a staff pay row keeps its category). The rollback restores the s89 body.
+create or replace function public.admin_review_transaction_v1(p_property_id uuid, p_id uuid, p_action text, p_edits jsonb default '{}'::jsonb, p_reason text default null)
+returns jsonb language plpgsql security definer set search_path to '' as $$
+declare v_row public.transactions%rowtype; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_cat text; v_amount numeric; v_date date;
+begin
+  perform public.admin_require('approve_payment', p_property_id);
+  if p_action is null or p_action not in ('approve', 'void') then raise exception using errcode = '22023', message = 'action must be approve or void'; end if;
+  p_edits := coalesce(p_edits, '{}'::jsonb);
+  if jsonb_typeof(p_edits) <> 'object' then raise exception using errcode = '22023', message = 'edits must be an object'; end if;
+  if p_action = 'void' and (v_reason is null or char_length(v_reason) < 3) then raise exception using errcode = '22023', message = 'a reason is required to void'; end if;
+  select * into v_row from public.transactions where id = p_id and property_id = p_property_id for update;
+  if not found then raise exception using errcode = 'P0002', message = 'transaction not found'; end if;
+  if v_row.status <> 'pending_review' then raise exception using errcode = '22023', message = 'this transaction is not waiting for review (it is ' || v_row.status || ')'; end if;
+  if v_row.source = 'direct_booking' and v_row.booking_id is not null then
+    raise exception using errcode = '22023', message = 'a direct booking payment is confirmed on Inquiries, not here';
+  end if;
+  if p_action = 'void' then
+    -- the shared soft delete: sets void, adds the [voided: reason] note marker and writes the soft_delete audit row
+    return public.admin_soft_delete_v1('transactions', v_row.id, v_reason) || jsonb_build_object('status', 'void');
+  else
+    v_cat := nullif(btrim(coalesce(p_edits->>'category', '')), '');
+    v_amount := nullif(p_edits->>'gross_amount', '')::numeric;
+    v_date := nullif(p_edits->>'transaction_date', '')::date;
+    -- s134 refusals (answers, not exceptions)
+    if coalesce(v_row.ocr_raw ->> 's134_incomplete', '') = 'true' then return jsonb_build_object('ok', false, 'error', 'amount_incomplete', 'where', 'Inventory'); end if;
+    if v_row.txn_type = 'expense' and v_cat is not null and v_cat is distinct from v_row.category then
+      if v_row.source = 'cleaner_fee' then return jsonb_build_object('ok', false, 'error', 'locked', 'where', 'Pay staff'); end if;
+      if v_cat = any (array['guest_refund', 'airbnb_adjustment']) then return jsonb_build_object('ok', false, 'error', 'system_category'); end if;
+    end if;
+    if ((v_amount is not null and v_amount is distinct from v_row.gross_amount) or (v_date is not null and v_date is distinct from v_row.transaction_date)
+        or (p_edits ? 'payee_name' and nullif(btrim(p_edits->>'payee_name'), '') is distinct from v_row.payee_name))
+       and public.s_stock_expense_owned_v1(v_row.id) and exists (select 1 from public.inventory_purchases ip where ip.transaction_id = v_row.id) then
+      return jsonb_build_object('ok', false, 'error', 'amount_locked', 'where', 'Inventory');
+    end if;
+    if p_edits <> '{}'::jsonb and (v_reason is null or char_length(v_reason) < 3) then
+      raise exception using errcode = '22023', message = 'a reason is required to change a row while approving';
+    end if;
+    if v_date is not null and v_date > public.manila_today() + 1 then raise exception using errcode = '22023', message = 'the date cannot be in the future'; end if;
+    if v_amount is not null and v_amount <= 0 then raise exception using errcode = '22023', message = 'amount must be more than zero'; end if;
+    if v_amount is null and v_row.gross_amount <= 0 then raise exception using errcode = '22023', message = 'enter the amount before approving'; end if;
+    if v_cat is not null and v_cat is distinct from v_row.category and v_row.txn_type = 'expense'
+       and not exists (select 1 from public.expense_categories c where c.property_id = p_property_id and c.slug = v_cat and c.is_active) then
+      raise exception using errcode = '22023', message = 'unknown expense category';
+    end if;
+    perform public.admin_audit_context_v1(coalesce(v_reason, case when p_edits = '{}'::jsonb then 'approved in review queue' else 'edited and approved in review queue' end), null, null);
+    update public.transactions set
+      status = 'confirmed',
+      category = coalesce(v_cat, category),
+      gross_amount = coalesce(v_amount, gross_amount),
+      transaction_date = coalesce(v_date, transaction_date),
+      payee_name = case when p_edits ? 'payee_name' then nullif(btrim(p_edits->>'payee_name'), '') else payee_name end,
+      notes = case when p_edits ? 'notes' then nullif(btrim(p_edits->>'notes'), '') else notes end,
+      or_number = case when p_edits ? 'or_number' then nullif(btrim(p_edits->>'or_number'), '') else or_number end,
+      updated_at = now()
+    where id = v_row.id returning * into v_row;
+  end if;
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status,
+    'auditId', (select a.id from public.admin_audit_log a where a.entity_table = 'transactions' and a.entity_id = v_row.id order by a.created_at desc, a.id limit 1));
+end;
+$$;
+comment on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) is 'S89: approve (optionally with edits) or void a pending_review ledger row. approve_payment only; audited by the table trigger; void is a soft_delete audit row with the reason. S134: approve refuses amount_incomplete, amount_locked, system_category and locked as {ok:false,error,where}.';
+
 -- 7. grants, restated (ML-21) ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 revoke all on function public.expenses_screen_v1(uuid, date, integer, timestamptz, text, uuid) from public, anon, service_role;
 revoke all on function public.admin_save_transaction_v2(uuid, jsonb, text) from public, anon, service_role;
@@ -868,6 +959,9 @@ grant execute on function public.admin_save_transaction_v2(uuid, jsonb, text) to
 grant execute on function public.expense_void_v1(uuid, uuid, text, uuid) to authenticated;
 grant execute on function public.expense_receipt_paths_v1(uuid, uuid[]) to authenticated;
 grant execute on function public.expense_receipt_set_v1(uuid, uuid, text, text) to authenticated;
+
+revoke all on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) from public, anon, service_role;
+grant execute on function public.admin_review_transaction_v1(uuid, uuid, text, jsonb, text) to authenticated;
 
 revoke all on function public.telegram_expense_save_v1(uuid, jsonb, text) from public, anon, authenticated;
 revoke all on function public.telegram_expense_review_v1(uuid, text, jsonb, text) from public, anon, authenticated;

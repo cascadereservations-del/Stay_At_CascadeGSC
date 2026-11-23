@@ -4,26 +4,26 @@
   "phase": "expand",
   "source": {
     "branch": "s134/expenses",
-    "commit": "9603ce1ade56370c5f53541255cc8b5634a80376"
+    "commit": "PENDING_COMMIT"
   },
   "migrations": [
     "20261204000000_s134_expenses.sql"
   ],
   "migration_sha256": {
-    "20261204000000_s134_expenses.sql": "8b40c72ecec5dbf1e3a8e5befb14a120d00598fd1dc17bf7adebd452f45192d4"
+    "20261204000000_s134_expenses.sql": "dd144230d956b7f9dc9abecfc9c45f5c9efbd815f295b099ee8a3f743255bd3b"
   },
   "backup": {
     "required": true,
     "scope": "production",
     "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T120703Z",
     "verified_at": "2026-11-23T12:20:00.000Z",
-    "production_rule": "One expense ledger (D-405, Lloyd 2026-11-23): inventory_purchases.transaction_id (FK, on delete set null) and .expense_group; transactions_source_check gains 'inventory'; a BEFORE INSERT trigger (s134_stock_expense_group) and a deferred constraint trigger (s134_stock_expense_sync) turn stock bought into ONE ledger row per receipt without ever failing a stock write; kpi_tab_v1 gets one anchored replace inside if v_fin (md5 80efd89e to 7c6d5a22); 5 client RPCs (authenticated only), 2 Telegram RPCs (service_role only), 15 internal functions (no grants); the expense-receipts mime list gains application/pdf (NULL stays NULL, a size limit under 5 MB stops the migration). The migration writes no ledger row: old stock is the back-fill's (supabase/sql/s134_backfill.sql, run only after Lloyd has seen the preview).",
+    "production_rule": "One expense ledger (D-405, Lloyd 2026-11-23): inventory_purchases.transaction_id (FK, on delete set null) and .expense_group; transactions_source_check gains 'inventory'; a BEFORE INSERT trigger (s134_stock_expense_group) and a deferred constraint trigger (s134_stock_expense_sync) turn stock bought into ONE ledger row per receipt without ever failing a stock write; kpi_tab_v1 gets one anchored replace inside if v_fin (md5 80efd89e to 7c6d5a22); 5 client RPCs (authenticated only) plus admin_review_transaction_v1 (s89 body, same signature and grants; approve refuses amount_incomplete / amount_locked / system_category / locked as answers), 2 Telegram RPCs (service_role only), 15 internal functions (no grants); the expense-receipts mime list gains application/pdf (NULL stays NULL, a size limit under 5 MB stops the migration). The migration writes no ledger row: old stock is the back-fill's (supabase/sql/s134_backfill.sql, run only after Lloyd has seen the preview).",
     "notes": "Apply after s133 is applied. Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). The Admin and Staff pushes and the Telegram edge functions follow the SQL; the back-fill is a separate, approved step."
   },
   "forward_verification": [
     {
       "name": "md5_s134_functions",
-      "query": "select count(*) = 23 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.admin_save_transaction_v2(uuid,jsonb,text)'::regprocedure, '4b6c661099802460f6d4f93efe88b1bd'), ('public.expense_receipt_paths_v1(uuid,uuid[])'::regprocedure, '0f964141f6bed34eddcecda71a699ad0'), ('public.expense_receipt_set_v1(uuid,uuid,text,text)'::regprocedure, '866c53333b9fba1dcb9d3f0a63f8e0e7'), ('public.expense_void_v1(uuid,uuid,text,uuid)'::regprocedure, '3387bf108b0095a0adcfca6ea1229cd6'), ('public.expenses_screen_v1(uuid,date,integer,timestamp with time zone,text,uuid)'::regprocedure, '813cbbaaab1d387582d68e090cbc08fe'), ('public.kpi_admin_costs_v1(uuid,date,date)'::regprocedure, 'c02e8700ced805d1bb99ed68833469b5'), ('public.kpi_tab_v1(uuid,date)'::regprocedure, '7c6d5a22d09ad96916804630f31df602'), ('public.s_expense_bucket_pdf_v1(text)'::regprocedure, '4722557b7939e6d3b44d76e145337836'), ('public.s_expense_chip_v1(text,boolean,boolean)'::regprocedure, '08bedf386b29abb01b1300114cc23bf8'), ('public.s_expense_lookalike_v1(uuid)'::regprocedure, '15fe9800149343b47f926faa21c603e0'), ('public.s_expense_mime_v1(text)'::regprocedure, 'a3fe73cef27ac85e1589d963806deeb5'), ('public.s_expense_receipt_gate_v1(uuid,text,uuid)'::regprocedure, '0a7fba8b969efba14c3fd2a6cce2bfbc'), ('public.s_expense_receipt_v1(uuid,boolean)'::regprocedure, '0dac6ddaa834dbea818901f959898b68'), ('public.s_stock_expense_group_of_v1(uuid,text)'::regprocedure, '6bd71d86fd3bddf930a621df71957a5c'), ('public.s_stock_expense_group_v1()'::regprocedure, '7883e102b14ebeed6ae4d941bf802358'), ('public.s_stock_expense_owned_v1(uuid)'::regprocedure, '1304863015b47dc954ced31b64885a54'), ('public.s_stock_expense_sync_v1(text)'::regprocedure, '420b451d38cb24725ac494b56c90009d'), ('public.s_stock_expense_task_v1(uuid,text,text,text)'::regprocedure, '319d646bfafebadd61614e06ebea98fc'), ('public.s_stock_expense_trg_v1()'::regprocedure, 'ba0d3c299cd8c1d801436263ed62656c'), ('public.s_stock_expense_txn_of_v1(text)'::regprocedure, '550f87c5a31ffb553cd89bfcc901cac9'), ('public.s_txn_void_core_v1(uuid,text,text,boolean)'::regprocedure, '626431ec8bba6a0c312acef343c67c2d'), ('public.telegram_expense_review_v1(uuid,text,jsonb,text)'::regprocedure, '1483455b56d80fcd9aba8119ccee5d74'), ('public.telegram_expense_save_v1(uuid,jsonb,text)'::regprocedure, '4fc16cc8593971dd29583139bdd355d2')) e(f, m) join pg_proc p on p.oid = e.f",
+      "query": "select count(*) = 24 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)'::regprocedure, '9fc10f4c47ca1343015acdfd6e637510'), ('public.admin_save_transaction_v2(uuid,jsonb,text)'::regprocedure, '3f6547827d1cd04c8875c6fc2fe8a154'), ('public.expense_receipt_paths_v1(uuid,uuid[])'::regprocedure, '0f964141f6bed34eddcecda71a699ad0'), ('public.expense_receipt_set_v1(uuid,uuid,text,text)'::regprocedure, '0a01b80ea7be65520cf2003ad9903443'), ('public.expense_void_v1(uuid,uuid,text,uuid)'::regprocedure, '3387bf108b0095a0adcfca6ea1229cd6'), ('public.expenses_screen_v1(uuid,date,integer,timestamp with time zone,text,uuid)'::regprocedure, '0a94343249946154b709a4a7f9e407b9'), ('public.kpi_admin_costs_v1(uuid,date,date)'::regprocedure, 'c02e8700ced805d1bb99ed68833469b5'), ('public.kpi_tab_v1(uuid,date)'::regprocedure, '7c6d5a22d09ad96916804630f31df602'), ('public.s_expense_bucket_pdf_v1(text)'::regprocedure, '4722557b7939e6d3b44d76e145337836'), ('public.s_expense_chip_v1(text,boolean,boolean)'::regprocedure, '08bedf386b29abb01b1300114cc23bf8'), ('public.s_expense_lookalike_v1(uuid)'::regprocedure, '15fe9800149343b47f926faa21c603e0'), ('public.s_expense_mime_v1(text)'::regprocedure, 'a3fe73cef27ac85e1589d963806deeb5'), ('public.s_expense_receipt_gate_v1(uuid,text,uuid)'::regprocedure, '0a7fba8b969efba14c3fd2a6cce2bfbc'), ('public.s_expense_receipt_v1(uuid,boolean)'::regprocedure, '0dac6ddaa834dbea818901f959898b68'), ('public.s_stock_expense_group_of_v1(uuid,text)'::regprocedure, '6bd71d86fd3bddf930a621df71957a5c'), ('public.s_stock_expense_group_v1()'::regprocedure, '7883e102b14ebeed6ae4d941bf802358'), ('public.s_stock_expense_owned_v1(uuid)'::regprocedure, '1304863015b47dc954ced31b64885a54'), ('public.s_stock_expense_sync_v1(text)'::regprocedure, '153348d5516ecdf9f6783db258d24fc6'), ('public.s_stock_expense_task_v1(uuid,text,text,text)'::regprocedure, '319d646bfafebadd61614e06ebea98fc'), ('public.s_stock_expense_trg_v1()'::regprocedure, 'ba0d3c299cd8c1d801436263ed62656c'), ('public.s_stock_expense_txn_of_v1(text)'::regprocedure, '550f87c5a31ffb553cd89bfcc901cac9'), ('public.s_txn_void_core_v1(uuid,text,text,boolean)'::regprocedure, '626431ec8bba6a0c312acef343c67c2d'), ('public.telegram_expense_review_v1(uuid,text,jsonb,text)'::regprocedure, 'bfd0b095ca0255b987e0456bdf384ce9'), ('public.telegram_expense_save_v1(uuid,jsonb,text)'::regprocedure, 'b4494401e88408767ec979ddeb09c1a1')) e(f, m) join pg_proc p on p.oid = e.f",
       "expect": true
     },
     {
@@ -33,7 +33,7 @@
     },
     {
       "name": "client_functions_authenticated_only",
-      "query": "select bool_and(has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.expenses_screen_v1(uuid,date,integer,timestamptz,text,uuid)', 'public.admin_save_transaction_v2(uuid,jsonb,text)', 'public.expense_void_v1(uuid,uuid,text,uuid)', 'public.expense_receipt_paths_v1(uuid,uuid[])', 'public.expense_receipt_set_v1(uuid,uuid,text,text)', 'public.kpi_tab_v1(uuid,date)']) f",
+      "query": "select bool_and(has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)', 'public.expenses_screen_v1(uuid,date,integer,timestamptz,text,uuid)', 'public.admin_save_transaction_v2(uuid,jsonb,text)', 'public.expense_void_v1(uuid,uuid,text,uuid)', 'public.expense_receipt_paths_v1(uuid,uuid[])', 'public.expense_receipt_set_v1(uuid,uuid,text,text)', 'public.kpi_tab_v1(uuid,date)']) f",
       "expect": true
     },
     {
@@ -122,6 +122,14 @@
       ],
       "note": "Measured on backup cascade-supabase-20261123T120703Z, full TAP in .s134/s110-base.tap (no s134) and .s134/s110-s134.tap (s134 applied): both runs print ok 118 of 147, not ok 12, psql errors 41, byte-identical not-ok lists. 39,47-51,58,59,63,64 = data the copy lacks (rate list and meter readings); 128,129 = grants the --no-acl copy lacks (service_role on inventory_receipt_drafts and the matcher function). The first psql error is at suite line 380, permission denied for table inventory_receipt_drafts (the service_role insert), which aborts the suite transaction: tests 131-147 then never run and the other 40 psql errors are 'current transaction is aborted'. With that one grant replayed on the copy (rehearsal copy only) the suite runs all 147 with 0 errors and the same 10 data failures plus 129 in both runs (.s134/s110-base-granted.tap, .s134/s110-s134-granted.tap)."
     },
+    "s89_admin_hub": {
+      "kind": "acl",
+      "tests": [
+        2,
+        62
+      ],
+      "note": "Measured on backup cascade-supabase-20261123T120703Z: 60 of 62 ok, not ok 2 (anon and PUBLIC cannot execute) and 62 (anon is refused outright) with s134 applied (.s134/s89-s134.tap) and with s134 rolled back (.s134/s89-base.tap): identical; the --no-acl copy lacks the grants these two assert."
+    },
     "s111_kpi_stay_avg": {
       "kind": "acl",
       "tests": [
@@ -205,8 +213,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": true,
-    "evidence": "Rehearsed 2026-11-23 (fix round 2, commit 9603ce1ade56370c5f53541255cc8b5634a80376) on restored production backup cascade-supabase-20261123T120703Z with the staff_upload_hashes grant shim a --no-acl restore lacks and REHEARSAL_TAP_LINES=all (full failure output kept in .s134/rehearsal.tap): migration applied, forward verification 16 of 16; pgTAP s134_expenses 122/122, s127_utility_bills 102/102, s127_bill_reminders 120/120; every other suite fails exactly the numbers in accepted_failing_tests and nothing else: s110 ok 118 of 147 not ok 39,47,48,49,50,51,58,59,63,64,128,129 with 41 psql errors (the first at suite line 380, permission denied for table inventory_receipt_drafts, aborts the suite transaction so tests 131-147 never run; identical without s134, see .s134/s110-base.tap and .s134/s110-s134.tap; with that one grant replayed all 147 run, 0 errors, 136 ok, 11 not ok in both runs), s111 56,57, s115_integrity 85-89, s131_meter_cycle 64,65, s132_inventory_update 1,2,4,64,102, s133_option_stock 3,4,81, and the wrapped s132/s133 (constraints immediate plus the per-group invariant assertion, which passes) the same numbers as the plain suites. Cycle on a restored copy (.s134/cycle-r2.log): apply (forward 16 of 16), back-fill (6 pending_review rows, none confirmed, all carrying ocr_raw.s134_incomplete), forward 16 of 16, rollback with those rows present (kpi_tab_v1 back to md5 80efd89e..., cut-over setting and CHECK value kept), apply again (forward 16 of 16), back-fill again (0 rows, idempotent), apply a third time (forward 16 of 16, kpi_tab_v1 md5 7c6d5a22...). source.commit is the SQL commit the rehearsal ran; the stamp commit that follows changes only this release file."
+    "verified": false,
+    "evidence": "PENDING: the rehearsal on a restored production backup has not been recorded in this file yet."
   },
   "approvals": {
     "production_required": true,
