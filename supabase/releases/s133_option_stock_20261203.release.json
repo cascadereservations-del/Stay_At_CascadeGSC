@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "release_id": "s133_option_stock_20261203",
+  "phase": "expand",
+  "source": {
+    "branch": "s133/option-stock",
+    "commit": "d22421079e26734069d6161a6c51169bf41d7e82"
+  },
+  "migrations": [
+    "20261203000000_s133_option_stock.sql"
+  ],
+  "migration_sha256": {
+    "20261203000000_s133_option_stock.sql": "6f99908ac143f3136f05bcabadc54c99f5859161099ae3287a9d647cb6a4267b"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PENDING_FRESH_BACKUP",
+    "verified_at": "2026-11-23T00:00:00.000Z",
+    "production_rule": "Per-product stock (D-399 to D-402, Lloyd 2026-11-23): inventory_item_options.qty_on_hand (default 0, check >= 0) and inventory_purchases.option_id (null, FK on delete set null); the clamp trigger inventory_items_option_clamp_v1 (after update of qty_on_hand, never raises); new functions inventory_option_count_v1, inventory_receipt_lines_v1, inventory_option_use_v1, inventory_group_update_v1, inventory_item_history_v2, inventory_log_v1 (authenticated only) and the internal s_inventory_option_clamp_v1, s_inventory_derive_key_v1; s_inventory_option_payload_v1 and inventory_item_options_v1 re-cut behind md5 guards; the table checks on source_url and image_url relaxed. Over s132_inventory_update_20261202, which must already be applied. No released s132 function is edited (Rule 0). Existing data: every option starts at 0, so the invariant sum(options) <= item holds from the first second.",
+    "notes": "Apply after s132 is applied. Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). The Staff push (3.4.52) follows the SQL."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_new_functions",
+      "query": "select count(*) = 8 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.inventory_option_count_v1(uuid,jsonb,numeric,text,text)'::regprocedure, 'b2ffd5cf32439788d1cf35292f39b554'), ('public.inventory_receipt_lines_v1(uuid,jsonb,numeric,date,uuid,text)'::regprocedure, 'aff79ca9f33b04253d35ecf8f6038d9a'), ('public.inventory_option_use_v1(uuid,uuid,uuid,numeric,text,date,text)'::regprocedure, 'c3afc694618ce2bc631e7a60e87e9d59'), ('public.inventory_group_update_v1(uuid,text,jsonb,text)'::regprocedure, '960acf4721bd5b0b95fde7845069035c'), ('public.inventory_item_history_v2(uuid)'::regprocedure, '763e0b929c65647ee73daa94aa6238f5'), ('public.inventory_log_v1(uuid,timestamptz,integer,text,uuid,boolean)'::regprocedure, '40cbd2db7561bd792a9dee8ae1d4dc44'), ('public.s_inventory_option_clamp_v1()'::regprocedure, 'a105f176fa7fcbcefd9ef08a3fe74bcf'), ('public.s_inventory_derive_key_v1(text,text)'::regprocedure, '8d092a61e545715e0981d1410620f458')) e(f, m) join pg_proc p on p.oid = e.f",
+      "expect": true
+    },
+    {
+      "name": "md5_recut_functions",
+      "query": "select count(*) = 2 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.inventory_item_options_v1(uuid)'::regprocedure, '55f85ee60e29243ef6dfc68173a76912'), ('public.s_inventory_option_payload_v1(uuid,jsonb,boolean)'::regprocedure, 'd59adbbd060e1d58cfc9d7aac893596b')) e(f, m) join pg_proc p on p.oid = e.f",
+      "expect": true
+    },
+    {
+      "name": "rule_0_released_s132_functions_unchanged",
+      "query": "select count(*) = 10 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure, 'fdeaf212bebc578ee82f9240e6c05417'), ('public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure, '365f7c6d50258a611612465e4ad3624b'), ('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)'::regprocedure, 'd190f6b6051be034e9e9babb99cbbf56'), ('public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)'::regprocedure, '8c407320edbbc9d944a86461bef23adf'), ('public.record_inventory_damage_v1(uuid,jsonb,text,uuid,boolean,text,text,text)'::regprocedure, '5e8e9bb09ce488f86566236d32620a01'), ('public.undo_inventory_damage_v1(uuid)'::regprocedure, 'bbb566116e036671a30fa15f1c2ba1e7'), ('public.undo_inventory_usage_v1(text)'::regprocedure, '77de62aa768dc56b9c711beb9c10e49f'), ('public.undo_linen_stain_v1(text)'::regprocedure, '5d6fdd96f8fd8e3a53ca158f3859d9e1'), ('public.inventory_undo_v1(uuid,uuid)'::regprocedure, '5125463a4d686d5a180f1ee599fa00b7'), ('public.inventory_item_history_v1(uuid)'::regprocedure, 'bbf90cfbd5f97158307e12502ae1223e')) e(f, m) join pg_proc p on p.oid = e.f",
+      "expect": true
+    },
+    {
+      "name": "callable_functions_authenticated_only",
+      "query": "select bool_and(has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.inventory_option_count_v1(uuid,jsonb,numeric,text,text)', 'public.inventory_receipt_lines_v1(uuid,jsonb,numeric,date,uuid,text)', 'public.inventory_option_use_v1(uuid,uuid,uuid,numeric,text,date,text)', 'public.inventory_group_update_v1(uuid,text,jsonb,text)', 'public.inventory_item_history_v2(uuid)', 'public.inventory_log_v1(uuid,timestamptz,integer,text,uuid,boolean)']) f",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_no_client_grants",
+      "query": "select bool_and(not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.s_inventory_option_clamp_v1()', 'public.s_inventory_derive_key_v1(text,text)', 'public.s_inventory_option_payload_v1(uuid,jsonb,boolean)']) f",
+      "expect": true
+    },
+    {
+      "name": "columns_present",
+      "query": "select count(*) = 2 from information_schema.columns where table_schema = 'public' and ((table_name = 'inventory_item_options' and column_name = 'qty_on_hand' and is_nullable = 'NO') or (table_name = 'inventory_purchases' and column_name = 'option_id' and is_nullable = 'YES'))",
+      "expect": true
+    },
+    {
+      "name": "clamp_trigger_enabled",
+      "query": "select count(*) = 1 from pg_trigger t where t.tgrelid = 'public.inventory_items'::regclass and t.tgname = 'inventory_items_option_clamp_v1' and t.tgenabled = 'O' and t.tgfoid = 'public.s_inventory_option_clamp_v1()'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "invariant_options_never_exceed_item",
+      "query": "select not exists (select 1 from public.inventory_items i join (select o.item_id, sum(o.qty_on_hand) s from public.inventory_item_options o group by o.item_id) x on x.item_id = i.id where x.s > i.qty_on_hand)",
+      "expect": true
+    },
+    {
+      "name": "link_and_photo_checks_relaxed",
+      "query": "select (select pg_get_constraintdef(c.oid) from pg_constraint c where c.conname = 'inventory_item_options_source_url_check') not like '%shopsuki%' and (select pg_get_constraintdef(c.oid) from pg_constraint c where c.conname = 'inventory_item_options_image_url_check') like '%items/%'",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Any time, losing only what s133 added: the rollback drops the trigger and the new functions, puts the two re-cut functions back to their exact previous bodies (md5 pinned) and the two table checks back to the old host lists (NOT VALID), and drops the two new columns. The per-brand quantities and the brand of each receipt line are lost; the item quantities are not touched.",
+    "steps": [
+      {
+        "name": "rollback_staff_first",
+        "action": "Revert the Cascade-Staff push first (Staff 3.4.52 calls the new functions)."
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261203_s133_option_stock.sql with run-sql-on-host.sh; inventory_item_options_v1 and s_inventory_option_payload_v1 must read their pre-s133 md5 again (8f1ca123739b2d13d23c92dcac3ba76d, ce729144e29fba1dd96aab1d46aadeff)."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Every change is additive: the old app keeps working against the new SQL (an option reads one more key, the count / receipt / usage functions are unchanged). Staff 3.4.52 uses the new functions; push it right after the SQL."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "NOT YET REHEARSED. The functions were run in PGlite against a stub schema (count, trigger clamp, receipt split, use, group rollback, payload and table checks, log paging and filters, rollback restoring both md5s); pgTAP s133_option_stock.sql (80 assertions) has not been executed. The rehearsal on a restored production backup (migration, forward verification, s133_option_stock, s132_inventory_update, s106, s107, s108, s116, s120, s86, s89, kpi_reconcile, movement_compat, s110) must run on this commit and set compatibility.verified."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (a live body moved, or s132 is missing)",
+    "the rehearsal has not run the migration and the suites s133_option_stock, s132_inventory_update, s106_item_options, s107_preferred_picks, s108_option_requests, s116_item_photo_options and s110 green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}

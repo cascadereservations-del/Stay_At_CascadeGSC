@@ -60,8 +60,8 @@ insert into s116_pairs values
     ('Microwave (Midea)', 'https://shopee.ph/product/129365759/2451462175');
 
 select ok((select count(*) from s116_pairs) = 52, 'the pair list holds 52 rows');
-select ok(exists (select 1 from pg_constraint where conname = 'inventory_item_options_source_url_check' and pg_get_constraintdef(oid) like '%mandauefoam%' and pg_get_constraintdef(oid) like '%myhanabishi%' and pg_get_constraintdef(oid) like '%shopsuki%'),
-  'source_url check allows mandauefoam.ph, myhanabishi.com and the old hosts');
+select ok(exists (select 1 from pg_constraint where conname = 'inventory_item_options_source_url_check' and pg_get_constraintdef(oid) like '%https://%' and pg_get_constraintdef(oid) not like '%mandauefoam%'),
+  'source_url check allows any https link (s133 replaced the four-store list; mandauefoam.ph and myhanabishi.com stay accepted)');
 select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or (select count(*) from public.inventory_suppliers s where s.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd' and lower(btrim(s.name)) in ('mandaue foam', 'hanabishi')) = 2, 'both new suppliers exist');
 select ok(not exists (select 1 from public.properties where id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') or (select count(*) from public.inventory_item_options o join public.inventory_items i on i.id = o.item_id join s116_pairs p on p.item = i.name and p.source_url = o.source_url
            where i.property_id = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd') = 52, 'all 52 item-photo options exist');
@@ -80,16 +80,16 @@ insert into public.inventory_items(id, property_id, name, category, qty_on_hand)
 
 select lives_ok($$insert into public.inventory_item_options(property_id, item_id, supplier_id, title, source_url, image_url) values ('a1160100-0000-4000-8000-0000000000b0', 'a1160100-0000-4000-8000-0000000000a1', 'a1160100-0000-4000-8000-0000000000d1', 'Zz probe', 'https://mandauefoam.ph/products/zz-probe', 'https://cdn.shopify.com/s/files/1/0078/2555/5571/files/zz.png')$$,
   'a mandauefoam.ph source is accepted');
-select throws_ok($$insert into public.inventory_item_options(property_id, item_id, supplier_id, title, source_url) values ('a1160100-0000-4000-8000-0000000000b0', 'a1160100-0000-4000-8000-0000000000a1', 'a1160100-0000-4000-8000-0000000000d1', 'Zz bad host', 'https://evil.example/products/zz')$$,
-  '23514', null, 'a source on another host is still refused');
-select throws_ok($$insert into public.inventory_item_options(property_id, item_id, supplier_id, title, source_url) values ('a1160100-0000-4000-8000-0000000000b0', 'a1160100-0000-4000-8000-0000000000a1', 'a1160100-0000-4000-8000-0000000000d1', 'Zz look-alike', 'https://mandauefoam.ph.evil.example/products/zz')$$,
-  '23514', null, 'a look-alike host is refused');
+select throws_ok($$insert into public.inventory_item_options(property_id, item_id, supplier_id, title, source_url) values ('a1160100-0000-4000-8000-0000000000b0', 'a1160100-0000-4000-8000-0000000000a1', 'a1160100-0000-4000-8000-0000000000d1', 'Zz bad host', 'http://evil.example/products/zz')$$,
+  '23514', null, 'a source that is not https is still refused (s133: any https host is allowed)');
+select throws_ok($$insert into public.inventory_item_options(property_id, item_id, supplier_id, title, source_url) values ('a1160100-0000-4000-8000-0000000000b0', 'a1160100-0000-4000-8000-0000000000a1', 'a1160100-0000-4000-8000-0000000000d1', 'Zz look-alike', 'https://nodot/products/zz')$$,
+  '23514', null, 'a host with no dot is refused (s133: look-alike hosts are allowed, any https host is)');
 
 -- the Staff request validator (internal, no grants; pgTAP runs as the owner) accepts the same hosts as the table check
 select lives_ok($$select public.s_inventory_option_payload_v1('a1160100-0000-4000-8000-0000000000b0'::uuid, '{"source_url":"https://mandauefoam.ph/products/zz"}'::jsonb, false)$$, 'the validator accepts a mandauefoam.ph link');
 select lives_ok($$select public.s_inventory_option_payload_v1('a1160100-0000-4000-8000-0000000000b0'::uuid, '{"source_url":"https://myhanabishi.com/products/zz"}'::jsonb, false)$$, 'the validator accepts a myhanabishi.com link');
-select throws_ok($$select public.s_inventory_option_payload_v1('a1160100-0000-4000-8000-0000000000b0'::uuid, '{"source_url":"https://mandauefoam.ph.evil/products/zz"}'::jsonb, false)$$,
-  '22023', 'product link must be https on shopsuki.ph, shopee.ph, mandauefoam.ph or myhanabishi.com', 'the validator refuses mandauefoam.ph.evil and names the four stores');
+select throws_ok($$select public.s_inventory_option_payload_v1('a1160100-0000-4000-8000-0000000000b0'::uuid, '{"source_url":"http://mandauefoam.ph/products/zz"}'::jsonb, false)$$,
+  '22023', 'product link must be an https link', 'the validator refuses an http link (s133 wording)');
 
 select * from finish();
 rollback;
