@@ -98,7 +98,7 @@
     },
     {
       "name": "kpi_patch_inside_finance_branch",
-      "query": "select (select p.prosrc from pg_proc p where p.oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) ~ 'if v_fin then[^$]*kpi_admin_costs_v1\\(p_property_id, v_m0, v_m1\\)[^$]*end if;'",
+      "query": "select (select p.prosrc from pg_proc p where p.oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure) ~ 'if v_fin then[^$]*kpi_admin_costs_v1\\(p_property_id, v_m0, v_m1\\)[^$]*end if\\x3b'",
       "expect": true
     }
   ],
