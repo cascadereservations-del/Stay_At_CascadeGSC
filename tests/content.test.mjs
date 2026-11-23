@@ -102,3 +102,29 @@ test('T8 SEO: JSON-LD rating matches RATING, FAQPage matches the visible FAQ exa
   assert.ok(desc.length <= 160, `description is ${desc.length} chars`);
   assert.doesNotMatch(desc, /[₱\d]/);
 });
+
+test('B111: the payment QR is never lazy-loaded', () => {
+  const tag = html.match(/<img[^>]*id="bsQr"[^>]*>/)[0];
+  assert.doesNotMatch(tag, /loading\s*=\s*["']?lazy/i);
+});
+
+function stripBalanced(src, openRe) {
+  let out = src, m;
+  while ((m = openRe.exec(out))) {
+    const tag = m[1], re = new RegExp(`<(/?)${tag}\b[^>]*>`, 'g'); re.lastIndex = m.index; let depth = 0, end = out.length, t;
+    while ((t = re.exec(out))) { depth += t[1] ? -1 : 1; if (depth === 0) { end = re.lastIndex; break; } }
+    out = out.slice(0, m.index) + out.slice(end); openRe.lastIndex = 0;
+  }
+  return out;
+}
+
+test('marketing copy shows no peso price or percentage while SHOW_PRICE is false', () => {
+  // [data-price-only] nodes are removed at runtime, the booking sheet is the payment flow, and #deskSidebar is a legacy node that stays `hidden`.
+  assert.match(html, /const SHOW_PRICE = false;/);
+  let marketing = html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  marketing = stripBalanced(marketing, /<(dialog)\b[^>]*id="bookSheet"[^>]*>/);
+  marketing = stripBalanced(marketing, /<(aside)\b[^>]*id="deskSidebar"[^>]*>/);
+  marketing = stripBalanced(marketing, /<([a-z0-9]+)\b[^>]*data-price-only[^>]*>/);
+  const text = marketing.replace(/<[^>]+>/g, ' ').replace(/&#x20B1;|&#8369;|&peso;/gi, '₱');
+  assert.doesNotMatch(text, /₱\s?\d|\b\d{1,3}\s?%|\b1,?780\b/);
+});

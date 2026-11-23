@@ -22,8 +22,10 @@ async function mock(page, { submit } = {}) {
   await page.route('**/functions/v1/upload-booking-receipt', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
   return posts;
 }
+/* JS click: Playwright's actionability wait stalls on controls below the fold of the 664 px WebKit viewport in this sheet (also at the rebase base); the app handler still runs. */
+const tap = (page, sel) => page.locator(sel).evaluate((el) => el.click());
 async function pickDay(page, ds) {
-  for (let i = 0; i < 3 && !(await page.locator(`#bsGrid [data-d="${ds}"]`).count()); i++) await page.locator('#bsNext').click();
+  for (let i = 0; i < 3 && !(await page.locator(`#bsGrid [data-d="${ds}"]`).count()); i++) await tap(page, '#bsNext');
   await page.locator(`#bsGrid [data-d="${ds}"]`).click();
 }
 async function step1(page, ci = CI, co = CO) {
@@ -108,15 +110,63 @@ test.describe('booking sheet', () => {
     expect(posts.length).toBe(2);
   });
 
-  test('the hold is reused when only the name changes', async ({ page }) => {
+  test('same dates and same contact reuse the hold without a second POST', async ({ page }) => {
     const posts = await mock(page); await openHeader(page);
     await step1(page); await step2(page, 'Maria Santos');
-    await page.locator('#bsBack').click();
-    await page.locator('#bsName').fill('Maria S. Santos');
-    await page.locator('#bsNext2').click();
+    await tap(page, '#bsBack');
+    await tap(page, '#bsNext2');
     await expect(page.locator('#bsH3')).toBeVisible();
+    await expect(page.locator('#bsHeldNote')).toBeHidden();
     expect(posts.length).toBe(1);
     expect(posts[0].hold).toBe(true);
+  });
+
+  test('editing the name or phone after a hold makes no second POST and shows the held-under notice', async ({ page }) => {
+    const posts = await mock(page); await openHeader(page);
+    await step1(page); await step2(page, 'Maria Santos');
+    await tap(page, '#bsBack');
+    await page.locator('#bsName').fill('Maria S. Santos');
+    await tap(page, '#bsNext2');
+    await expect(page.locator('#bsH3')).toBeVisible();
+    await expect(page.locator('#bsHeldNote')).toBeVisible();
+    await expect(page.locator('#bsHeldNote')).toContainText('Your dates are held under Maria Santos · •••• 4567. To change these details, message us on Messenger.');
+    await expect(page.locator('#bsHeldNoteA')).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720/);
+    expect(posts.length).toBe(1);
+    await tap(page, '#bsBack');
+    await page.locator('#bsName').fill('Maria Santos'); await page.locator('#bsPhone').fill('917 999 0000');
+    await tap(page, '#bsNext2');
+    await expect(page.locator('#bsHeldNote')).toContainText('held under Maria Santos · •••• 4567');
+    expect(posts.length).toBe(1);
+    await page.locator('#bsRef').fill('1234567890');
+    await tap(page, '#bsNext3');
+    await expect(page.locator('#bsH4')).toBeVisible();
+    expect(posts.length).toBe(1);                                              /* payment still rides the existing hold */
+  });
+
+  test('changed dates take a new hold', async ({ page }) => {
+    const posts = await mock(page); await openHeader(page);
+    await step1(page); await step2(page);
+    await tap(page, '#bsBack'); await tap(page, '#bsBack');
+    await expect(page.locator('#bsGrid')).toBeVisible();
+    await pickDay(page, plus(40)); await pickDay(page, plus(42));
+    await tap(page, '#bsNext1');
+    await tap(page, '#bsNext2');
+    await expect(page.locator('#bsH3')).toBeVisible();
+    await expect.poll(() => posts.length).toBe(2);
+  });
+
+  test('WMO codes classify to rain, cloudy and clear; the 15 min cache skips the fetch', async ({ page }) => {
+    await mock(page);
+    await page.goto('/index.html');
+    const got = await page.evaluate(() => [61, 63, 80, 95, 3, 45, 0, 1].map((code) => window.CascadeTheme.classify({ current: { code } })));
+    expect(got).toEqual(['rain', 'rain', 'rain', 'rain', 'cloudy', 'cloudy', 'clear', 'clear']);
+    expect(await page.evaluate(() => window.CascadeTheme.classify({ current: { description: 'Light rain' } }))).toBe('rain');   /* no code: text rules */
+    await page.evaluate(() => sessionStorage.setItem('cascade.wx.v1', JSON.stringify({ t: Date.now(), wx: 'rain' })));
+    let hits = 0;
+    await page.route('**/functions/v1/weather-proxy', (route) => { hits++; route.fulfill({ contentType: 'application/json', body: '{"current":{"code":0}}' }); });
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-wx', 'rain');
+    expect(hits).toBe(0);
   });
 
   test('step 3 requires a reference or a receipt, then reports payment and offers calendar and Messenger', async ({ page }) => {
