@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "release_id": "guide_v8_messages_analytics_20261205",
+  "phase": "backfill",
+  "source": {
+    "branch": "s135/guide-v8-sql",
+    "commit": "5e7a0df1ff55d41c1d01485ef2884da93a4b8138"
+  },
+  "migrations": [
+    "20261205000000_guide_v8_messages_analytics.sql"
+  ],
+  "migration_sha256": {
+    "20261205000000_guide_v8_messages_analytics.sql": "70b5de1b70d632a40c77f63335b9c9b607a2fc42ac054566b6346ee7f2886bf5"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "PLACEHOLDER: stamp with scripts/migrations/fill-restore-point.mjs right before the apply",
+    "verified_at": "1970-01-01T00:00:00.000Z",
+    "production_rule": "Guest guide v8.0.0 backend (s135), additive only: five tables guide_threads, guide_sessions, guide_messages, guide_auth_attempts, guide_events (RLS on, no policies, no grants to anon or authenticated); four guest RPCs (guide_session_v1, guide_thread_v1, guide_send_v1, guide_track_v1; anon and authenticated, SECURITY DEFINER, search_path empty); five staff RPCs (staff_guide_threads_v1, staff_guide_thread_v1, staff_guide_reply_v1, staff_guide_resolve_v1, staff_guide_usage_v1; authenticated only, gated by current_staff_authorized('manage_guest_inbox'); a missing thread id raises P0002 before the 42501 access check); the token helper, the push trigger function and guide_sweep_v1 (service_role only) have no client grants; trigger guide_messages_push on guide_messages calls notify-staff-inbox through pg_net and the vault secret and never fails the insert. No existing table, function or setting is touched; verify_booking is called, not replaced. Phase is backfill, not expand, only because the body of guide_sweep_v1 contains DELETE FROM (housekeeping of the new tables), which release-safety refuses in an expand migration; the migration itself deletes no existing row and writes no data.",
+    "notes": "Apply after s134 is applied. Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). After the apply add select public.guide_sweep_v1() to the weekly sweep (or a pg_cron job guide-sweep-weekly) and confirm notify-staff-inbox accepts {kind guest_wrote, psid guide:<uuid>} from the database caller. The Staff app Guide inbox and the guide v8.0.0 frontend follow the SQL."
+  },
+  "forward_verification": [
+    {
+      "name": "guide_tables_present",
+      "query": "select count(*) = 5 from pg_tables where schemaname = 'public' and tablename in ('guide_threads','guide_sessions','guide_messages','guide_auth_attempts','guide_events')",
+      "expect": true
+    },
+    {
+      "name": "guide_rls_on_all_five",
+      "query": "select bool_and(c.relrowsecurity) and count(*) = 5 from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname in ('guide_threads','guide_sessions','guide_messages','guide_auth_attempts','guide_events')",
+      "expect": true
+    },
+    {
+      "name": "guide_anon_has_no_table_grants",
+      "query": "select not exists (select 1 from information_schema.role_table_grants where grantee in ('anon','authenticated') and table_schema = 'public' and table_name like 'guide\\_%')",
+      "expect": true
+    },
+    {
+      "name": "guide_anon_may_call_four_guest_functions",
+      "query": "select bool_and(has_function_privilege('anon', f, 'execute')) from unnest(array['public.guide_session_v1(date,text,text,uuid)','public.guide_thread_v1(text,timestamptz)','public.guide_send_v1(text,text,text)','public.guide_track_v1(text,jsonb,text,text)']::regprocedure[]) f",
+      "expect": true
+    },
+    {
+      "name": "guide_anon_may_not_call_staff_functions",
+      "query": "select not bool_or(has_function_privilege('anon', f, 'execute')) from unnest(array['public.staff_guide_threads_v1(uuid)','public.staff_guide_thread_v1(uuid)','public.staff_guide_reply_v1(uuid,text,text)','public.staff_guide_resolve_v1(uuid,boolean)','public.staff_guide_usage_v1(integer,uuid)','public.guide_token_thread_v1(text)','public.guide_sweep_v1()']::regprocedure[]) f",
+      "expect": true
+    },
+    {
+      "name": "guide_definer_functions_pin_search_path",
+      "query": "select bool_and(p.proconfig @> array['search_path=\"\"']) and count(*) >= 12 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and (p.proname like 'guide\\_%' or p.proname like 'staff\\_guide\\_%')",
+      "expect": true
+    },
+    {
+      "name": "guide_push_trigger_present",
+      "query": "select exists (select 1 from pg_trigger where tgname = 'guide_messages_push' and not tgisinternal)",
+      "expect": true
+    },
+    {
+      "name": "guide_bad_token_is_refused",
+      "query": "select (public.guide_thread_v1(repeat('0', 64)))->>'reason' = 'session'",
+      "expect": true
+    }
+  ],
+  "accepted_failing_tests": {
+    "note": "Baseline of a --no-acl restore of the production backup (DATA: the copy lacks the rows the suite expects; ACL: the copy lacks the grants). Each fails identically on a scratch DB without this release. Any failure outside these numbers stops the release. Copied from the s134 contract; re-measure on the rehearsal copy.",
+    "guide_v8_messages_analytics": {
+      "kind": "none",
+      "tests": []
+    },
+    "s89_admin_hub": {
+      "kind": "acl",
+      "tests": [
+        2,
+        62
+      ]
+    },
+    "s111_kpi_stay_avg": {
+      "kind": "acl",
+      "tests": [
+        56,
+        57
+      ]
+    },
+    "s115_integrity": {
+      "kind": "acl",
+      "tests": [
+        85,
+        86,
+        87,
+        88,
+        89
+      ]
+    },
+    "s131_meter_cycle": {
+      "kind": "acl",
+      "tests": [
+        64,
+        65
+      ]
+    },
+    "s132_inventory_update": {
+      "kind": "acl",
+      "tests": [
+        1,
+        2,
+        4,
+        64,
+        102
+      ]
+    },
+    "s133_option_stock": {
+      "kind": "acl",
+      "tests": [
+        3,
+        4,
+        81
+      ]
+    }
+  },
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Any time. The rollback drops the trigger, the twelve functions and the five tables of this release; guest messages and usage events are deleted with their tables (export public.guide_messages first with the read-only runner if they matter). Nothing else is touched.",
+    "steps": [
+      {
+        "name": "rollback_clients_first",
+        "action": "Revert the guide v8.0.0 frontend and the Cascade-Staff Guide inbox push first (they call the new functions); until then the guide degrades to the Airbnb / Messenger / call / e-mail options and analytics calls fail silently."
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261205_guide_v8.sql with run-sql-on-host.sh; select count(*) from pg_tables where tablename like guide_% must then read 0."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Additive: the live guide keeps working without the SQL (the Messages tab keeps its contact options, analytics calls fail silently and are dropped after 200 queued events). The v8.0.0 frontend and the Staff app Guide inbox need this SQL first."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": false,
+    "evidence": "Not rehearsed on a restored production copy yet. Built and run 2026-11-24 only on local Postgres 16 with stubs (verify_booking, current_staff_authorized, calendar_events, auth, pgTAP shim): migration applies, pgTAP suite guide_v8_messages_analytics 72 of 72, verify 8 of 8, rollback leaves 0 tables, re-apply clean. The rehearsal on a fresh backup (apply, forward checks, suite, rollback, apply again) is the next step and must replace this text."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (verify_booking, current_staff_authorized or calendar_events missing, or public.guide_threads already exists)",
+    "the rehearsal has not run the migration (apply, rollback, apply again, forward checks after each) and the suite guide_v8_messages_analytics on this commit, or any test fails outside the accepted_failing_tests lists, or compatibility.verified is still false",
+    "notify-staff-inbox has not been checked to accept kind guest_wrote with a guide:<uuid> psid from the database caller (the push would be silent, the messages still arrive)"
+  ]
+}
