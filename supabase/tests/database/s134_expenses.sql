@@ -3,7 +3,7 @@
 -- only the RPC calls run as the staff roles. Every case that relies on the deferred stock trigger issues "set constraints all immediate;" after the write (one uncommitted transaction never fires it otherwise).
 -- T12 does not exist (dropped from the plan). T16 runs a verbatim copy of supabase/sql/s134_backfill.sql (between the BACKFILL markers; the lane's gate compares the two).
 begin;
-select plan(138);
+select plan(142);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -1244,6 +1244,38 @@ select ok((select (r ->> 's134_incomplete')::boolean is true and jsonb_typeof(r 
 select ok((select (r ->> 's134_incomplete')::boolean is false and jsonb_typeof(r -> 's134_incomplete') = 'boolean' from _t, jsonb_array_elements(v -> 'rows') r where k = 'r4q' and (r ->> 'id')::uuid = pg_temp.id('fa'))
       and (select v ->> 'count' from _t where k = 'r4q') = (select count(*)::text from public.transactions t where t.property_id = pg_temp.id('b3') and t.status = 'pending_review' and not (t.source = 'direct_booking' and t.booking_id is not null)),
   'fix r4: admin_review_queue_v1 returns s134_incomplete = false for an ordinary pending row; count and shape are the s89 ones');
+
+-- (3c) fix r5: the queue never raises on a client-written ocr_raw (s134_incomplete as a JSON string); admin_save_transaction_v1 (s89, granted to authenticated) cannot write or clear the server's s134 keys
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, notes, ocr_raw) values
+  (pg_temp.id('fb'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'manual', public.manila_today(), 34, 'Zz S134 r5 junk marker', '{"s134_incomplete": "x"}'::jsonb),
+  (pg_temp.id('fc'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'manual', public.manila_today(), 35, 'Zz S134 r5 string true', '{"s134_incomplete": "true"}'::jsonb),
+  (pg_temp.id('fd'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'manual', public.manila_today(), 36, 'Zz S134 r5 stock-marked row', '{"s134_incomplete": "true", "s134_amount": "12", "s134_auto": "false", "s134_group": "zz-r5", "keep": 1}'::jsonb);
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r5q', pg_temp.try('select public.admin_review_queue_v1(''' || pg_temp.id('b3') || '''::uuid)');
+reset role;
+select ok((select v ? 'err' is false from _t where k = 'r5q')
+      and (select (r ->> 's134_incomplete')::boolean is false and jsonb_typeof(r -> 's134_incomplete') = 'boolean' from _t, jsonb_array_elements(v -> 'rows') r where k = 'r5q' and (r ->> 'id')::uuid = pg_temp.id('fb')),
+  'fix r5: admin_review_queue_v1 does not raise when ocr_raw.s134_incomplete is a non-boolean JSON string; that row returns false');
+select ok((select (r ->> 's134_incomplete')::boolean is true from _t, jsonb_array_elements(v -> 'rows') r where k = 'r5q' and (r ->> 'id')::uuid = pg_temp.id('fc')),
+  'fix r5: admin_review_queue_v1 returns true for s134_incomplete = the JSON string "true" (same reading as approve)');
+select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '8a', repeat('8a', 32));
+select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '8b', repeat('8b', 32));
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r5i', public.admin_save_transaction_v1(pg_temp.id('b3'),
+  json_build_object('txn_type', 'expense', 'gross_amount', 7, 'transaction_date', public.manila_today(), 'category', 'other', 'receipt_image_path', pg_temp.rpath(pg_temp.id('b3'), pg_temp.id('01'), '8a'),
+    'ocr_raw', json_build_object('s134_incomplete', false, 's134_amount', 1, 's134_auto', true, 's134_group', 'x', 's134_backfill', true, 'keep', 1))::jsonb, 'zz-s134-r5-key-0001');
+insert into _t select 'r5u', public.admin_save_transaction_v1(pg_temp.id('b3'),
+  json_build_object('id', pg_temp.id('fd'), 'reason', 'zz r5', 'receipt_image_path', pg_temp.rpath(pg_temp.id('b3'), pg_temp.id('01'), '8b'),
+    'ocr_raw', json_build_object('s134_incomplete', false, 's134_amount', 999, 's134_auto', true, 's134_group', 'y', 'keep', 2))::jsonb, 'zz-s134-r5-key-0002');
+reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'r5i')
+      and (select t.ocr_raw = '{"keep": 1}'::jsonb from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'r5i')),
+  'fix r5: admin_save_transaction_v1 strips the client''s s134_* keys from ocr_raw on insert (the other keys stay)');
+select ok((select (v ->> 'ok')::boolean from _t where k = 'r5u')
+      and (select t.receipt_image_path = pg_temp.rpath(pg_temp.id('b3'), pg_temp.id('01'), '8b') and t.ocr_raw ->> 's134_incomplete' = 'true' and t.ocr_raw ->> 's134_amount' = '12' and t.ocr_raw ->> 's134_auto' = 'false'
+                  and t.ocr_raw ->> 's134_group' = 'zz-r5' and (t.ocr_raw -> 'keep') = '2'::jsonb
+             from public.transactions t where t.id = pg_temp.id('fd')),
+  'fix r5: admin_save_transaction_v1 on an edit keeps the row''s own s134_* keys (s134_incomplete stays true) while the client''s other ocr_raw keys are written');
 
 -- (4) item 3: a receipt attached to the incomplete owned row keeps the marker (and the other system keys)
 select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '86', repeat('86', 32));

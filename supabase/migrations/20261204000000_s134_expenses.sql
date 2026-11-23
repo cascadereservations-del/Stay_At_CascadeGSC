@@ -38,7 +38,8 @@ begin
     ('public.inventory_receipt_undo_v1(uuid)', '589b583719a611445fcd88a6c1badf92', null),
     ('public.inventory_undo_v1(uuid,uuid)', '5125463a4d686d5a180f1ee599fa00b7', null),
     ('public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)', 'fef25e31f2ba4b3df8a9105f38e8c1c2', '9fc10f4c47ca1343015acdfd6e637510'),
-    ('public.admin_review_queue_v1(uuid)', 'ed2a69205d365ea8afe96d5f55aa677b', '3b8c664b80293f1d56ee23e6f3f1eb42')
+    ('public.admin_review_queue_v1(uuid)', 'ed2a69205d365ea8afe96d5f55aa677b', '48ef55da008a00763a0ec2d9fc9053dc'),
+    ('public.admin_save_transaction_v1(uuid,jsonb,text)', 'ff48081b485cacf547a1692d7641d85b', 'd58ca5bd59aac0681f8ed8fd914cbe13')
   ) t(sig, m_a, m_b) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is null then raise exception 's134: % is missing (apply s133 first)', r.sig using errcode = '55000'; end if;
@@ -963,7 +964,7 @@ begin
   select coalesce(jsonb_agg(to_jsonb(q) order by q.transaction_date desc, q.created_at desc), '[]'::jsonb) into v_rows from (
     select t.id, t.transaction_date, t.txn_type, t.category, t.gross_amount, t.payee_name, t.notes, t.or_number, t.source,
            t.receipt_image_path, t.ocr_confidence, t.created_at,
-           coalesce((t.ocr_raw->>'s134_incomplete')::boolean, false) as s134_incomplete
+           coalesce(t.ocr_raw->>'s134_incomplete' = 'true', false) as s134_incomplete
       from public.transactions t
      where t.property_id = p_property_id and t.status = 'pending_review' and not (t.source = 'direct_booking' and t.booking_id is not null)
      order by t.transaction_date desc, t.created_at desc limit 100) q;
@@ -971,6 +972,84 @@ begin
 end;
 $$;
 comment on function public.admin_review_queue_v1(uuid) is 'S89: transactions waiting for review (count, total, newest 100). No guest data; direct-booking payments are on Inquiries. owner/admin/finance. S134: each row also returns s134_incomplete (an unpriced stock line: the row cannot be approved yet).';
+
+-- 6e. admin_save_transaction_v1 (s89, same signature and grants, still granted to authenticated): the s134 system keys of ocr_raw (s134_auto, s134_amount, s134_group, s134_backfill, s134_incomplete) are the server's, never the client's.
+--     Body = the s89 body plus two changes: on insert the five keys are stripped from the client's ocr_raw; on an edit that replaces ocr_raw the row's own five keys are carried over, so a client cannot clear s134_incomplete on a stock row
+--     (approve would let it through) or rewrite its amount. The guard in section 0 pins the s89 body (md5 ff48081b485cacf547a1692d7641d85b) and this release's body. The rollback restores the s89 body byte for byte.
+create or replace function public.admin_save_transaction_v1(p_property_id uuid, p_txn jsonb, p_idempotency_key text)
+returns jsonb language plpgsql security definer set search_path to '' as $$
+declare v_id uuid; v_row public.transactions%rowtype; v_type text; v_amount numeric; v_date date; v_ref text; v_reason text;
+        v_receipt text; v_conf numeric; v_raw jsonb;
+begin
+  perform public.admin_require('approve_payment', p_property_id);
+  v_id := nullif(p_txn->>'id', '')::uuid;
+  v_type := coalesce(p_txn->>'txn_type', 'expense');
+  if v_type not in ('income','expense','drawing') then raise exception using errcode = '22023', message = 'txn_type must be income, expense or drawing'; end if;
+  v_amount := nullif(p_txn->>'gross_amount', '')::numeric;
+  v_date := nullif(p_txn->>'transaction_date', '')::date;
+  v_reason := nullif(btrim(coalesce(p_txn->>'reason', '')), '');
+  -- S89: optional receipt. Validated before anything is written.
+  v_receipt := nullif(btrim(coalesce(p_txn->>'receipt_image_path', '')), '');
+  if v_receipt is not null then
+    if v_receipt like '%..%' or v_receipt like '/%' or char_length(v_receipt) > 300
+       or not (v_receipt like p_property_id::text || '/%' or v_receipt like 'receipts/%') then
+      raise exception using errcode = '22023', message = 'receipt path is not allowed';
+    end if;
+    if not exists (select 1 from storage.objects o where o.bucket_id = 'expense-receipts' and o.name = v_receipt) then
+      raise exception using errcode = '22023', message = 'receipt file was not found';
+    end if;
+    if exists (select 1 from public.transactions t where t.receipt_image_path = v_receipt and t.status <> 'void' and t.id is distinct from v_id) then
+      raise exception using errcode = '23505', message = 'this receipt is already attached to another transaction';
+    end if;
+    if nullif(p_txn->>'ocr_confidence', '') is not null then
+      v_conf := (p_txn->>'ocr_confidence')::numeric;
+      if v_conf < 0 or v_conf > 1 then raise exception using errcode = '22023', message = 'ocr_confidence must be between 0 and 1'; end if;
+    end if;
+    if p_txn ? 'ocr_raw' and jsonb_typeof(p_txn->'ocr_raw') = 'object' then
+      v_raw := (p_txn->'ocr_raw') - 's134_auto' - 's134_amount' - 's134_group' - 's134_backfill' - 's134_incomplete';
+      if char_length(v_raw::text) > 20000 then raise exception using errcode = '22023', message = 'ocr_raw is too large'; end if;
+    end if;
+  end if;
+  if v_id is null then
+    if p_idempotency_key is null or char_length(p_idempotency_key) not between 16 and 160 then raise exception using errcode = '22023', message = 'idempotency key required'; end if;
+    if v_amount is null or v_amount < 0 or v_date is null then raise exception using errcode = '22023', message = 'amount and date are required'; end if;
+    v_ref := coalesce(nullif(p_txn->>'external_ref', ''), 'admin:' || p_idempotency_key);
+    select * into v_row from public.transactions where property_id = p_property_id and external_ref = v_ref;
+    if found then return jsonb_build_object('ok', true, 'id', v_row.id, 'replayed', true); end if;
+    perform public.admin_audit_context_v1(coalesce(v_reason, 'created in admin'), null, null);
+    insert into public.transactions(property_id, txn_type, category, status, source, transaction_date, gross_amount, currency, or_number, payee_name, notes, external_ref, income_stage, reservation_id, booking_id, logged_by, receipt_image_path, ocr_confidence, ocr_raw)
+    values (p_property_id, v_type, coalesce(nullif(p_txn->>'category', ''), case v_type when 'drawing' then 'owner_drawing' else 'other' end), coalesce(nullif(p_txn->>'status', ''), 'confirmed'), 'manual', v_date, v_amount, 'PHP',
+            nullif(p_txn->>'or_number', ''), nullif(p_txn->>'payee_name', ''), nullif(p_txn->>'notes', ''), v_ref, case when v_type = 'income' then 'confirmed' end,
+            nullif(p_txn->>'reservation_id', '')::uuid, nullif(p_txn->>'booking_id', '')::uuid, 'admin', v_receipt, v_conf, v_raw)
+    returning * into v_row;
+  else
+    select * into v_row from public.transactions where id = v_id and property_id = p_property_id for update;
+    if not found then raise exception using errcode = 'P0002', message = 'transaction not found'; end if;
+    if v_row.status = 'void' then raise exception using errcode = '22023', message = 'a void transaction cannot be edited; undo the void first'; end if;
+    if v_reason is null then raise exception using errcode = '22023', message = 'a reason is required to edit a ledger row'; end if;
+    perform public.admin_audit_context_v1(v_reason, null, null);
+    update public.transactions set
+      txn_type = case when p_txn ? 'txn_type' then v_type else txn_type end,
+      category = coalesce(nullif(p_txn->>'category', ''), category),
+      transaction_date = coalesce(v_date, transaction_date),
+      gross_amount = coalesce(v_amount, gross_amount),
+      or_number = case when p_txn ? 'or_number' then nullif(p_txn->>'or_number', '') else or_number end,
+      payee_name = case when p_txn ? 'payee_name' then nullif(p_txn->>'payee_name', '') else payee_name end,
+      notes = case when p_txn ? 'notes' then nullif(p_txn->>'notes', '') else notes end,
+      reservation_id = case when p_txn ? 'reservation_id' then nullif(p_txn->>'reservation_id', '')::uuid else reservation_id end,
+      status = case when p_txn ? 'status' and (p_txn->>'status') in ('confirmed','pending_review') then p_txn->>'status' else status end,
+      receipt_image_path = coalesce(v_receipt, receipt_image_path),
+      ocr_confidence = case when v_receipt is not null then coalesce(v_conf, ocr_confidence) else ocr_confidence end,
+      ocr_raw = case when v_receipt is not null then case when v_raw is null then ocr_raw else v_raw || coalesce((select jsonb_object_agg(e.key, e.value) from jsonb_each(coalesce(ocr_raw, '{}'::jsonb)) e
+                                                                                                where e.key = any (array['s134_auto', 's134_amount', 's134_group', 's134_backfill', 's134_incomplete'])), '{}'::jsonb) end else ocr_raw end,
+      updated_at = now()
+    where id = v_id returning * into v_row;
+  end if;
+  return jsonb_build_object('ok', true, 'id', v_row.id, 'status', v_row.status, 'auditId', (select id from public.admin_audit_log where entity_table = 'transactions' and entity_id = v_row.id order by created_at desc limit 1));
+end;
+$$;
+revoke all on function public.admin_save_transaction_v1(uuid, jsonb, text) from public, anon, service_role;
+grant execute on function public.admin_save_transaction_v1(uuid, jsonb, text) to authenticated;
 
 -- 7. grants, restated (ML-21) ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 revoke all on function public.expenses_screen_v1(uuid, date, integer, timestamptz, text, uuid) from public, anon, service_role;
