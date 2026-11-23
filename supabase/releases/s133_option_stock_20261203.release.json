@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s133/option-stock",
-    "commit": "d22421079e26734069d6161a6c51169bf41d7e82"
+    "commit": "1c726b6590850081c6b252fd1a569e6e61153169"
   },
   "migrations": [
     "20261203000000_s133_option_stock.sql"
