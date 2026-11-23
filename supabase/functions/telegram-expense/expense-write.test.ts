@@ -121,6 +121,10 @@ Deno.test('void: a bill or staff-pay row answers where it is undone, and nothing
     assertEquals([b.error, b.where, p.where], ['locked', 'bills', 'pay']);
   }
   assertEquals(reviewRefusal('locked'), 'That one is undone in the app: Bills / Pay staff');
+  assertEquals(reviewRefusal('amount_incomplete'), 'Not counted: some items have no price yet. Price the rest in Inventory first.');
+  assertEquals(reviewRefusal('amount_locked'), 'That amount follows Inventory. Change the price in Inventory.');
+  assertEquals(reviewRefusal('void'), 'That entry was removed.');
+  assertEquals(reviewRefusal('bad_amount'), 'That amount was not accepted. Enter more than zero.');
 });
 
 Deno.test('confirm: sends confirm with an empty payload; a row that is no longer pending is refused in plain words', async () => {

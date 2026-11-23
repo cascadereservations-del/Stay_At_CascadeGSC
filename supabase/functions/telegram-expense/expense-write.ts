@@ -156,6 +156,10 @@ export function reviewRefusal(code: string, where?: string): string {
   if (code === 'not_found') return 'That entry was not found.';
   if (code === 'not_pending') return 'That receipt is no longer waiting for review.';
   if (code === 'bad_category') return 'Its category is not available any more. Change it in the app.';
+  if (code === 'amount_incomplete') return 'Not counted: some items have no price yet. Price the rest in Inventory first.';
+  if (code === 'amount_locked') return 'That amount follows Inventory. Change the price in Inventory.';
+  if (code === 'void') return 'That entry was removed.';
+  if (code === 'bad_amount') return 'That amount was not accepted. Enter more than zero.';
   return 'The entry was not changed.';
 }
 
