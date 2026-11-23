@@ -138,12 +138,13 @@ test.describe('booking sheet', () => {
     await expect(page.locator('#bsHeldNote')).toContainText('held under Maria Santos · •••• 4567');
     expect(posts.length).toBe(1);
     await page.locator('#bsRef').fill('1234567890');
+    await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64') });
     await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toBeVisible();
     expect(posts.length).toBe(1);                                              /* payment still rides the existing hold */
     const msgr = decodeURIComponent(await page.locator('#bsMsgr').getAttribute('href'));
-    expect(msgr).toContain('Held under Maria Santos');                         /* the Messenger summary names the hold's original name */
-    expect(msgr).not.toContain('Held under Maria S. Santos');
+    expect(msgr).toContain('Hi Cascade, I just sent a booking request for');   /* success prefill (fix round item 3); the held-under name is shown in the step 3 notice */
+    expect(msgr).toContain('(ref CH-TEST1)');
   });
 
   test('changed dates take a new hold', async ({ page }) => {
@@ -205,16 +206,25 @@ test.describe('booking sheet', () => {
     await expect(page.locator('html')).toHaveAttribute('data-wx', 'clear');
   });
 
-  test('step 3 requires a reference or a receipt, then reports payment and offers calendar and Messenger', async ({ page }) => {
-    await mock(page); await openHeader(page); await step1(page); await step2(page);
+  test('step 3 on a held booking requires a screenshot (a typed reference alone is not enough), then reports payment and offers calendar and Messenger', async ({ page }) => {
+    const posts = await mock(page); await openHeader(page); await step1(page); await step2(page);
     await expect(page.locator('#bsHeld')).toContainText('Held');
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
     await page.locator('#bsNext3').click();
-    await expect(page.locator('#bsErr3')).toContainText('reference number');
-    await expect(page.locator('#bsH3')).toBeVisible();
+    await expect(page.locator('#bsErr3')).toHaveText('Please attach a screenshot of your receipt so we can match your payment.');
     await page.locator('#bsRef').fill('1234567890');
     await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsErr3')).toContainText('attach a screenshot');
+    await expect(page.locator('#bsH3')).toBeVisible();
+    expect(posts.uploads.length).toBe(0);
+    await page.locator('#bsFile').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: PNG });
+    await page.locator('#bsNext3').click();
     await expect(page.locator('#bsH4')).toHaveText('Request sent, Maria.');
+    expect(posts.uploads.length).toBe(1);
     await expect(page.locator('#bsDoneKicker')).toHaveText('Payment reported');
+    await expect(page.locator('#bsDoneReach')).toHaveText(/^We will confirm on Messenger or by call at \+63 •••• 4567\.$/);
+    await expect(page.locator('#bsH4 ~ .bs-card')).toContainText('₱1,000 refundable security deposit');
+    await expect(page.locator('#bsMsgr')).toHaveAttribute('href', /text=Hi%20Cascade%2C%20I%20just%20sent%20a%20booking%20request%20for%20.*%20\(ref%20CH-TEST1\)%20and%20my%20payment%20of%20/);
     const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('#bsIcs').click()]);
     expect(dl.suggestedFilename()).toBe('cascade-hideaway-stay.ics');
     await expect(page.locator('#bsMsgr')).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720/);
@@ -252,7 +262,10 @@ test.describe('booking sheet', () => {
   test('step 3 labels: heading, button amount, reference copy, short placeholder', async ({ page }) => {
     await mock(page); await openHeader(page);
     await step1(page); await step2(page);
-    await expect(page.locator('#bsH3')).toHaveText('Hold your dates');
+    await expect(page.locator('#bsH3')).toHaveText('Your dates are held');
+    await expect(page.locator('#bsHoldLine')).toContainText('Send half within 24 hours to keep');
+    await expect(page.locator('#bsDepLine')).toHaveText('Plus a ₱1,000 refundable security deposit with the balance, returned after check-out.');
+    await expect(page.locator('#bsFileLbl')).toHaveText('Add receipt');
     await expect(page.locator('#bsNext3')).toHaveText(/^I.ve sent ₱[\d,]+$/);
     await expect(page.locator('#bsAcctB')).toContainText('Put your name in the message or notes');
     await expect(page.locator('#bsRef')).toHaveAttribute('placeholder', 'Reference no.');

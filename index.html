@@ -106,13 +106,6 @@
       "postalCode": "9500",
       "addressCountry": "PH"
     },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "4.97",
-      "reviewCount": "64",
-      "bestRating": "5",
-      "worstRating": "1"
-    },
     "priceRange": "₱₱",
     "checkinTime": "14:00",
     "checkoutTime": "12:00",
@@ -155,7 +148,7 @@
       "name": "How do I confirm my booking?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in — no surprises."
+        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in — no surprises."
       }
     },
     {
@@ -219,7 +212,7 @@
       "name": "Do returning guests get any exclusive rates?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "This site exists for guests who prefer a direct relationship with the host. For those planning longer stays — or returning for another visit — we offer loyalty rates that reflect that relationship. These are applied automatically when you book here; no codes, no negotiation needed. Rates are applied automatically as you pick your dates — no codes, no negotiation needed."
+        "text": "This site exists for guests who prefer a direct relationship with the host. For those planning longer stays — or returning for another visit — we offer loyalty rates that reflect that relationship. These are applied automatically when you book here; no codes, no negotiation needed."
       }
     }
   ]
@@ -231,9 +224,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Raleway:wght@400;500;600&display=swap" rel="stylesheet">
 
-  <!-- Hero LCP preload — same-origin property photo and first carousel slide -->
+  <!-- Hero LCP preload — the same studio-wide image the hero img below uses -->
   <link rel="preload" as="image"
-        href="og-image.jpg"
+        href="assets/images/stay/studio-wide.webp"
+        imagesrcset="assets/images/stay/studio-wide-480.webp 480w, assets/images/stay/studio-wide-960.webp 960w, assets/images/stay/studio-wide.webp 1400w"
+        imagesizes="(max-width: 600px) 300vw, 100vw"
         fetchpriority="high">
 
   <style>
@@ -3927,7 +3922,7 @@
     .nearby-category { display: flex; align-items: flex-start; gap: 8px; }
     .nearby-cat-label { flex-shrink: 0; width: 6em; padding-top: 5px; font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgb(201 150 58 / 0.85); }
     .nearby-chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
-    .nearby-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 1px solid rgb(247 242 232 / 0.10); font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 400; color: rgb(247 242 232 / 0.55); white-space: nowrap; text-decoration: none; transition: border-color 200ms,color 200ms,background 200ms; }
+    .nearby-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 4px 9px; border: 1px solid rgb(247 242 232 / 0.10); font-family: var(--ch-font-body); font-size: var(--step--2); font-weight: 400; color: rgb(247 242 232 / 0.55); white-space: nowrap; text-decoration: none; transition: border-color 200ms,color 200ms,background 200ms; }
     .nearby-chip:hover { border-color: rgb(201 150 58 / 0.30); color: rgb(247 242 232 / 0.80); background: rgb(201 150 58 / 0.05); }
     .nearby-chip-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--ch-gold); opacity: 0.50; flex-shrink: 0; }
     .nearby-chip strong { font-weight: 600; color: rgb(247 242 232 / 0.75); }
@@ -5233,7 +5228,7 @@
   /* ---------- Cover (hero) ---------- */
   .theme-quiet-luxury .luxury-hero-grid { grid-template-rows: 1fr auto; grid-template-columns: minmax(0, 1fr); justify-items: stretch; align-items: end; padding: 6.5rem clamp(1rem, 4vw, 3rem) clamp(1.25rem, 3vw, 2.5rem); min-height: max(min-content, min(100svh, 56rem)); background: var(--gs-deep); }
   .theme-quiet-luxury .hero-overlay { background: var(--gs-scrim); }
-  .theme-quiet-luxury .luxury-hero-media img, .theme-quiet-luxury .luxury-hero-media .hero-slide img { object-position: 88% 50%; }
+  .theme-quiet-luxury .luxury-hero-media img, .theme-quiet-luxury .luxury-hero-media .hero-slide img { object-position: 30% 50%; }
   .theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy { grid-row: 1; grid-column: 1; align-self: end; justify-self: start; width: 100%; max-width: 52rem; align-items: flex-start; text-align: left; gap: 0.75rem; padding: 0 0.5rem; color: #fff; }
   .gs-greet { align-self: flex-start; margin-bottom: 0.5rem; padding: 0.4rem 0.85rem; border-radius: 999px; background: rgb(0 0 0 / 0.55); font-size: 0.875rem; line-height: 1.3; color: #fff; max-width: 100%; text-shadow: 0 1px 3px rgb(20 10 4 / 0.85); }
   .gs-eb--cover { align-self: flex-start; padding: 0.3rem 0.75rem; border-radius: 999px; background: rgb(0 0 0 / 0.55); color: #fff; font-size: 0.875rem; text-shadow: 0 1px 3px rgb(20 10 4 / 0.85), 0 2px 18px rgb(20 10 4 / 0.7); }
@@ -5507,6 +5502,7 @@
   dialog.bs:not([open]) { display: none; }
   dialog.bs::backdrop { background: rgb(40 24 10 / 0.5); }
   .bs-panel { position: fixed; left: 0; right: 0; bottom: 0; top: 3rem; max-width: 34rem; margin-inline: auto; box-sizing: border-box; display: flex; flex-direction: column; padding: 0.6rem 1.25rem 0; border-radius: 1.875rem 1.875rem 0 0; background: color-mix(in srgb, var(--gs-bg) 84%, transparent); -webkit-backdrop-filter: var(--gs-blur); backdrop-filter: var(--gs-blur); box-shadow: 0 -12px 40px rgb(40 24 10 / 0.18); overflow: hidden; }
+  @media (max-width: 374px) { .bs-panel { padding-inline: 0.75rem; } }  /* 360: seven 44 px day cells need a 336 px grid */
   @media (min-width: 700px) { .bs-panel { top: 50%; bottom: auto; height: min(46rem, 92dvh); transform: translateY(-50%); border-radius: 1.875rem; } }
   @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .bs-panel { background: var(--gs-bg); -webkit-backdrop-filter: none; backdrop-filter: none; } }
   .bs-grab { width: 2.75rem; height: 0.3rem; border-radius: 0.2rem; background: var(--gs-rule); align-self: center; margin-bottom: 0.4rem; flex-shrink: 0; }
@@ -5629,7 +5625,7 @@
       <div class="hero-slide is-active" aria-hidden="true">
         <img
           src="assets/images/stay/studio-wide.webp" srcset="assets/images/stay/studio-wide-480.webp 480w, assets/images/stay/studio-wide-960.webp 960w, assets/images/stay/studio-wide.webp 1400w"
-          sizes="100vw"
+          sizes="(max-width: 600px) 300vw, 100vw"
           alt=""
           width="1400" height="1050"
           loading="eager" fetchpriority="high" decoding="auto"
@@ -5648,7 +5644,6 @@
       <p class="gs-eb gs-eb--cover">Guest Stories &middot; General Santos</p>
       <h1 class="hero-title gs-quote" id="hero-heading">“Our home away from home in <em>GenSan.</em>”</h1>
       <p class="gs-attrib">Bianca, on her third stay</p>
-      <p class="gs-cover-chip">Book direct, no platform fees<span data-price-only="save"></span></p>
     </div>
 
     <!-- Hero Booking Card — airline-style glass morphism widget -->
@@ -6533,7 +6528,7 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in &mdash; no surprises.</p>
+              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours if you gave an email address. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation by email if you gave one, otherwise on Messenger or by call. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in &mdash; no surprises.</p>
             </div>
           </div>
         </details>
@@ -6647,7 +6642,6 @@
           <div class="faq-body-wrap">
             <div class="faq-body">
               <p class="faq-answer">This site exists for guests who prefer a direct relationship with the host. For those planning longer stays &mdash; or returning for another visit &mdash; we offer loyalty rates that reflect that relationship. These are applied automatically when you book here; no codes, no negotiation needed.</p>
-              <p class="faq-answer" style="margin-top:0.75em;">Rates are applied automatically as you pick your dates &mdash; no codes, no negotiation needed.</p>
               <div class="faq-tier-card" data-price-only="tiers">
                 <p style="font-family:var(--ch-font-body);font-size:var(--step--2);font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:rgba(201,150,58,0.80);margin-bottom:0.6em;">Duration &rarr; Nightly Rate</p>
                 <div class="tier-row tier-row--head" role="row">
@@ -7142,7 +7136,7 @@
                 <input class="bs-in" id="bsPhone" name="tel" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="bsPhoneE bsPhoneH" placeholder="917 123 4567">
               </div>
               <span class="bs-sub" id="bsPhoneH">We confirm on Messenger or by call. Abroad? Change the country code.</span><span class="bs-err" id="bsPhoneE" role="alert"></span></div>
-            <div class="bs-field"><label class="bs-lbl" for="bsEmail">Email <span class="bs-sub" style="display:inline">(optional, for your receipt)</span></label><input class="bs-in" id="bsEmail" name="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-describedby="bsEmailE"><span class="bs-err" id="bsEmailE" role="alert"></span></div>
+            <div class="bs-field"><label class="bs-lbl" for="bsEmail">Email <span class="bs-sub" style="display:inline">(recommended: your confirmation and stay details are sent here)</span></label><input class="bs-in" id="bsEmail" name="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-describedby="bsEmailE"><span class="bs-err" id="bsEmailE" role="alert"></span></div>
             <div class="bs-actions">
               <p class="bs-sub">Saved as you type. Safe to switch apps.</p>
               <p class="bs-err" id="bsErr2" role="alert"></p>
@@ -7152,9 +7146,10 @@
         </section>
 
         <section class="bs-step" id="bsS3" aria-labelledby="bsH3" hidden>
-          <h2 class="bs-h" id="bsH3" tabindex="-1">Hold your dates</h2>
+          <h2 class="bs-h" id="bsH3" tabindex="-1">Your dates are held</h2>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem"><p class="bs-sub" style="color:var(--gs-ink);font-size:0.9375rem" id="bsHoldLine"></p><span class="bs-held" id="bsHeld" role="timer" hidden></span></div>
           <p class="bs-sub" id="bsHeldNote" role="status" hidden><span id="bsHeldNoteT"></span><a id="bsHeldNoteA" href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener">message us on Messenger</a>.</p>
+          <p class="bs-sub" id="bsDepLine">Plus a &#8369;1,000 refundable security deposit with the balance, returned after check-out.</p>
           <div class="bs-pay"><div><small style="text-align:left" id="bsPayLbl">Pay now (50%)</small><strong id="bsFee"></strong></div><div><small id="bsPayTotal"></small><small id="bsPayLater"></small></div></div>
           <div class="bs-seg" role="group" aria-label="Payment method"><button type="button" id="bsG" aria-pressed="true">GCash</button><button type="button" id="bsB" aria-pressed="false">Bank transfer</button></div>
           <div class="bs-acct">
@@ -7164,7 +7159,7 @@
           </div>
           <div class="bs-refrow">
             <input class="bs-in" id="bsRef" type="text" inputmode="numeric" autocomplete="off" aria-label="GCash or bank reference number" placeholder="Reference no.">
-            <label class="bs-up" for="bsFile"><span id="bsFileLbl">Upload</span><input type="file" id="bsFile" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"></label>
+            <label class="bs-up" for="bsFile"><span id="bsFileLbl">Add receipt</span><input type="file" id="bsFile" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"></label>
           </div>
           <p class="bs-sub" id="bsFileName" role="status"></p>
           <div class="bs-actions">
@@ -7180,7 +7175,8 @@
           <p class="bs-sub" id="bsDoneKicker" style="font-weight:600;color:var(--gs-accent-text)">Payment reported</p>
           <h2 class="bs-h bs-h--big" id="bsH4" tabindex="-1">Request sent.</h2>
           <p class="bs-sub" style="font-size:1rem;color:var(--gs-ink)">We confirm personally, usually within a couple of hours. Your smart-lock code and guide arrive before check-in.</p>
-          <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div></div>
+          <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div><div class="bs-sub"><span>Plus a &#8369;1,000 refundable security deposit with the balance, returned after check-out.</span></div></div>
+          <p class="bs-sub" id="bsDoneReach" style="font-size:1rem;color:var(--gs-ink)"></p>
           <div class="bs-actions" style="width:100%">
             <p class="bs-sub" id="bsDoneNote" role="status"></p>
             <div class="bs-two"><button type="button" class="bs-ghost" id="bsIcs">Add to calendar</button><a class="bs-ghost" id="bsMsgr" href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener noreferrer">Open in Messenger</a></div>
@@ -7515,6 +7511,11 @@
 
       var container = document.getElementById('heroPhoto');
       if (!container) return;
+      /* One slide: the static markup in the page already is the hero; keep it (no rebuild, no second request) */
+      if (SLIDES.length === 1) {
+        container.setAttribute('aria-label', 'Cascade Hideaway — boutique retreat in General Santos City');
+        return;
+      }
 
       /* Build slides, replacing the no-JS fallback */
       container.innerHTML = '';
@@ -10268,19 +10269,19 @@
     ensureQuote();
     setText('bsFee', mn ? peso(mn.dep) : '…');
     var holdOn = !!(S.hold && S.hold.hold !== false && S.hold.hold_expires_at);
-    setText('bsH3', holdOn ? 'Hold your dates' : 'Pay and confirm');
+    setText('bsH3', holdOn ? 'Your dates are held' : 'Pay and confirm');
     if (!busy) setText('bsNext3', mn ? 'I\u2019ve sent ' + peso(mn.dep) : 'I\u2019ve sent the payment');
     setText('bsPayLbl', mn ? (mn.last ? 'Pay now (full amount)' : 'Pay now (' + mn.pct + '%)') : 'Pay now');
     setText('bsPayTotal', mn ? 'Total ' + peso(mn.total) : ''); setText('bsPayLater', mn && mn.later > 0 ? 'Later ' + peso(mn.later) : '');
     setText('bsHoldLine', !mn ? '' : mn.last ? 'Check-in is close, so we reserve on receipt. Send the full amount to book ' + rangeLabel() + '.'
-      : 'Send half to hold ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + '. The rest is due a day before you arrive.');
+      : 'Send half within 24 hours to keep ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + '. The rest is due a day before you arrive.');
     $('bsG').setAttribute('aria-pressed', String(gc)); $('bsB').setAttribute('aria-pressed', String(!gc));
     var qr = $('bsQr'); qr.src = gc ? 'assets/images/qr-gcash.png' : 'assets/images/qr-unionbank.png'; qr.alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code';
     setText('bsAcctT', gc ? 'Scan with GCash' : 'UnionBank InstaPay or bank transfer');
     setText('bsAcctB', (gc ? 'Or send to ' + a.gcash : 'Account no. ' + a.bank) + ' · ' + PAY_NAME + '. Put your name in the message or notes.');
     setText('bsCopyNum', gc ? 'Copy number' : 'Copy account no.'); setText('bsCopyAmt', 'Copy amount');
     if ($('bsRef').value !== S.ref) $('bsRef').value = S.ref;
-    setText('bsFileLbl', file ? 'Change' : 'Upload'); setText('bsFileName', file ? 'Attached: ' + file.name : '');
+    setText('bsFileLbl', file ? 'Change' : 'Add receipt'); setText('bsFileName', file ? 'Attached: ' + file.name : '');
     var hn = $('bsHeldNote'), showNote = !!(holdLive() && contactChanged());
     hn.hidden = !showNote;
     if (showNote) {
@@ -10301,6 +10302,7 @@
   function pay3() {
     showErr('bsErr3', '');
     var mn = money(); if (!mn) { showErr('bsErr3', 'Confirming your price… please tap again in a moment.'); ensureQuote(); return; }
+    if (holdLive() && !file) { showErr('bsErr3', 'Please attach a screenshot of your receipt so we can match your payment.'); return; }
     if (!(S.ref.trim().length >= 4) && !file) { showErr('bsErr3', 'Add the reference number from your receipt, or upload a screenshot.'); $('bsRef').focus(); return; }
     lastAction = pay3; setBusy('bsNext3', true, 'Sending…');
     var sendRef = S.ref.trim() ? 'Payment ref: ' + S.ref.trim() : undefined;
@@ -10333,7 +10335,10 @@
     setText('bsDoneRange', S.ci && S.co ? rangeLabel() : ''); setText('bsDoneTotal', mn.total ? peso(mn.total) : '');
     setText('bsDoneRef', 'Payment reported' + (d.ref ? ' · ref ' + d.ref : '')); setText('bsDoneFee', mn.dep ? peso(mn.dep) : '');
     setText('bsDoneNote', d.upload === 'unavailable' ? 'Your screenshot did not upload. Please send it on Messenger.' : d.upload === 'none' ? 'Send your reference number on Messenger so we can match it quickly.' : '');
-    $('bsMsgr').href = msgrHref();
+    var digits = S.phone.replace(/\D/g, ''), em = S.email.trim();
+    var ph = S.cc + ' ' + (digits.length >= 4 ? '•••• ' + digits.slice(-4) : '••••');
+    setText('bsDoneReach', em ? 'We will confirm by email at ' + em + ', and on Messenger or by call at ' + ph + '.' : 'We will confirm on Messenger or by call at ' + ph + '.');
+    $('bsMsgr').href = MESSENGER + '?text=' + encodeURIComponent('Hi Cascade, I just sent a booking request for ' + (S.ci && S.co ? rangeLabel() : 'a stay') + (d.ref ? ' (ref ' + d.ref + ')' : '') + (mn.dep ? ' and my payment of ' + peso(mn.dep) : '') + '.');
   }
   function showError() { show('E'); }
   function paintErrState() {

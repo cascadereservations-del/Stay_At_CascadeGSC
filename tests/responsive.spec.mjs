@@ -72,8 +72,9 @@ test.describe('responsive contract', () => {
     await expect(page.locator('#qbwSubmit')).toHaveCSS('border-radius', '4px');
   });
 
-  test('no visible interactive target under 44x44 in the booking sheet (mobile)', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+  for (const width of [360, 390]) {
+  test(`no visible interactive target under 44x44 in the booking sheet at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
     await page.goto('/index.html');
     await page.locator('a.header-cta[data-gs-book]').click();
     const undersized = await page.evaluate(() => {
@@ -88,6 +89,17 @@ test.describe('responsive contract', () => {
     });
     expect(undersized, JSON.stringify(undersized)).toEqual([]);
   });
+  }
+
+  for (const width of [360, 390]) {
+    test(`landing nearby chips are at least 44px tall at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/index.html');
+      const small = await page.evaluate(() => Array.from(document.querySelectorAll('.nearby-chip')).map(el => el.getBoundingClientRect().height).filter(h => h > 0 && h < 43.5));
+      expect(small).toEqual([]);
+      expect(await page.evaluate(() => document.querySelectorAll('.nearby-chip').length)).toBeGreaterThan(0);
+    });
+  }
 
   test('section nav is hidden below 768px', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
