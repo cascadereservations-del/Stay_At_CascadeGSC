@@ -5088,7 +5088,13 @@
       var g = document.getElementById('gsGreet'); if (g) g.textContent = r.greet;
     }
     function classify(j) {
-      var c = (j && j.current) || {}, d = String(c.description || '').toLowerCase();
+      var c = (j && j.current) || {}, d = String(c.description || '').toLowerCase(), wc = c.code;
+      if (wc !== null && wc !== undefined && wc !== '' && isFinite(Number(wc))) {   /* WMO code first */
+        wc = Number(wc);
+        if ((wc >= 51 && wc <= 67) || (wc >= 80 && wc <= 82) || (wc >= 95 && wc <= 99)) return 'rain';
+        if (wc === 2 || wc === 3 || wc === 45 || wc === 48) return 'cloudy';
+        if (wc === 0 || wc === 1) return 'clear';
+      }
       if (/rain|shower|drizzle|storm|thunder/.test(d) || Number(c.rain_prob) >= 70) return 'rain';
       if (/cloud|overcast|fog|mist|haze/.test(d) || Number(c.cloud_cover) >= 70) return 'cloudy';
       return 'clear';
@@ -5100,15 +5106,23 @@
     var tod = forcedTod || todFromClock();
     apply(resolve(tod, forcedWx || 'clear'));   /* time-only first paint; weather refines it below */
 
-    window.CascadeTheme = { resolve: resolve, apply: apply, state: function () { return state; } };
+    window.CascadeTheme = { resolve: resolve, apply: apply, classify: classify, state: function () { return state; } };
 
     function fetchWeather() {
       if (forcedWx) return;   /* test hook wins over detection */
+      var WX_KEY = 'cascade.wx.v1', WX_TTL = 15 * 60 * 1000;
+      try {
+        var hit = JSON.parse(sessionStorage.getItem(WX_KEY) || 'null');
+        if (hit && WXS.indexOf(hit.wx) >= 0 && Date.now() - hit.t >= 0 && Date.now() - hit.t < WX_TTL) { apply(resolve(tod, hit.wx)); return; }
+      } catch (e) { /* storage blocked: fetch */ }
       var sb = window._cascadeSb; if (!sb || !window.fetch) return;
       var ctl = window.AbortController ? new AbortController() : null, timer = setTimeout(function () { if (ctl) ctl.abort(); }, 5000);
       fetch(sb.url + '/functions/v1/weather-proxy', { headers: { apikey: sb.anon, Authorization: 'Bearer ' + sb.anon }, signal: ctl ? ctl.signal : undefined })
         .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('weather ' + r.status)); })
-        .then(function (j) { clearTimeout(timer); apply(resolve(tod, classify(j))); })
+        .then(function (j) {
+          clearTimeout(timer); var wx = classify(j); apply(resolve(tod, wx));
+          try { sessionStorage.setItem(WX_KEY, JSON.stringify({ t: Date.now(), wx: wx })); } catch (e) { /* storage blocked */ }
+        })
         .catch(function () { clearTimeout(timer); /* fall back to time only: already applied */ });
     }
     function watchHero() {
@@ -7130,6 +7144,7 @@
         <section class="bs-step" id="bsS3" aria-labelledby="bsH3" hidden>
           <h2 class="bs-h" id="bsH3" tabindex="-1">Hold your dates</h2>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem"><p class="bs-sub" style="color:var(--gs-ink);font-size:0.9375rem" id="bsHoldLine"></p><span class="bs-held" id="bsHeld" role="timer" hidden></span></div>
+          <p class="bs-sub" id="bsHeldNote" role="status" hidden><span id="bsHeldNoteT"></span><a id="bsHeldNoteA" href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener">message us on Messenger</a>.</p>
           <div class="bs-pay"><div><small style="text-align:left" id="bsPayLbl">Pay now (50%)</small><strong id="bsFee"></strong></div><div><small id="bsPayTotal"></small><small id="bsPayLater"></small></div></div>
           <div class="bs-seg" role="group" aria-label="Payment method"><button type="button" id="bsG" aria-pressed="true">GCash</button><button type="button" id="bsB" aria-pressed="false">Bank transfer</button></div>
           <div class="bs-acct">
@@ -10205,16 +10220,22 @@
     startHold(mn);
   }
   function holdKey() { return S.ci + '|' + S.co; }
+  function contactNow() { return { name: S.name.trim(), phone: phoneFull().replace(/[^\d+]/g, ''), email: S.email.trim().toLowerCase() }; }
+  /* a live hold made before this change has no stored contact: treat it as unchanged (never re-send) */
+  function contactChanged() {
+    var h = S.hold; if (!h || h._phone === undefined) return false; var c = contactNow();
+    return c.name.toLowerCase() !== String(h._name || '').toLowerCase() || c.phone !== h._phone || c.email !== h._email;
+  }
   function holdLive() { return S.hold && S.hold._key === holdKey() && !(S.hold.hold_expires_at && new Date(S.hold.hold_expires_at) <= new Date()); }
   function startHold(mn) {
     lastAction = function () { startHold(money() || mn); };
     if (mn.last) { S.hold = null; go(3); return; }                     /* within five days: no hold, the payment reserves */
-    if (holdLive()) { go(3); return; }                                 /* same dates: reuse, whatever the name or amount */
+    if (holdLive()) { go(3); return; }                                 /* same dates: reuse the hold; if the contact differs step 3 explains (no second POST) */
     setBusy('bsNext2', true, 'Holding your dates…');
     var p = buildPayload(mn); p.hold = true;
     track('reservation_submit', {});
     postBooking(p).then(function (data) {
-      data._key = holdKey(); S.hold = data; setBusy('bsNext2', false); go(3);
+      var c = contactNow(); data._key = holdKey(); data._name = c.name; data._phone = c.phone; data._email = c.email; S.hold = data; setBusy('bsNext2', false); go(3);
     }).catch(function (e) {
       setBusy('bsNext2', false);
       if (e.network) { showError(); return; }
@@ -10250,6 +10271,13 @@
     setText('bsCopyNum', gc ? 'Copy number' : 'Copy account no.'); setText('bsCopyAmt', 'Copy amount');
     if ($('bsRef').value !== S.ref) $('bsRef').value = S.ref;
     setText('bsFileLbl', file ? 'Change' : 'Upload'); setText('bsFileName', file ? 'Attached: ' + file.name : '');
+    var hn = $('bsHeldNote'), showNote = !!(holdLive() && contactChanged());
+    hn.hidden = !showNote;
+    if (showNote) {
+      var hp = S.hold._phone || '';
+      setText('bsHeldNoteT', 'Your dates are held under ' + S.hold._name + ' · ' + (hp.length >= 4 ? '•••• ' + hp.slice(-4) : hp) + '. To change these details, ');
+      $('bsHeldNoteA').href = MESSENGER;
+    }
     clearInterval(holdTimer);
     var held = $('bsHeld'); held.hidden = !(S.hold && S.hold.hold !== false && S.hold.hold_expires_at);
     if (!held.hidden) { tick(); holdTimer = setInterval(tick, 1000); }
