@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T004817Z",
-    "verified_at": "2026-11-23T00:52:39.811Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T010907Z",
+    "verified_at": "2026-11-23T01:13:48.912Z",
     "production_rule": "Inventory Update sheet server side (D-396, Lloyd 2026-11-22; Opus 5.5 lane PASS 2026-11-23 after 4 fix rounds). Over s131b_followups_20261201, which must already be applied. New table inventory_damage_reports (RLS on, no grants); new functions record_inventory_damage_v1, undo_inventory_damage_v1, undo_inventory_usage_v1, undo_linen_stain_v1 (authenticated only); internal s_inventory_purchase_note_v1 and trigger function s_inventory_usage_removed_v1 (no grant). Replaces 10 bodies in place behind an md5 guard (55000 when a live body is neither its cut-from body nor this release), re-signs record_inventory_receipt_v1 (9->10 args), inventory_receipt_manual_v1 (4->7) and record_linen_stains_v1 (5->6) with the old signatures dropped, adds nullable columns to linen_stain_reports, inventory_usage and inventory_receipt_drafts, and the BEFORE INSERT trigger inventory_usage_removed_v1. record_inventory_usage is not replaced; its live body is pinned (365f7c6d). No money write: inventory_receipt_manual_v1 still writes no finance row.",
     "notes": "Apply after s131b is applied. Restamp restore_point and verified_at with a fresh backup at apply time (the checker refuses one older than an hour). The Staff 3.4.50 push follows the SQL."
   },
