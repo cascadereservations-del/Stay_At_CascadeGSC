@@ -1,4 +1,5 @@
 // ocr-receipt pure helpers (s89): no I/O, so logic.test.ts covers them. index.ts keeps the request handling.
+import { matchLine, type Candidate } from './match.ts';
 
 export const EXTRACT_MIMES: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 export const MAX_IMAGE_B64_CHARS = 8_000_000; // about 6 MB of image, under the bucket's 10 MB limit
@@ -121,4 +122,292 @@ export function scrubMoney(description: string): string {
     .replace(/(?<![\w.,])\d{1,3}(?:,\d{3})*\.\d{2}(?![\w.])|(?<![\w.,])\d+\.\d{2}(?![\w.])/g, ' ')
     .replace(/\s+/g, ' ').replace(/[\s@=:\-–]+$/, '').replace(/^[\s@=:\-–]+/, '').trim();
   return out || 'Item';
+}
+
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// s134 L3 (D-405): receipts for the expense log. Modes `sign` and `attach`, PDF storage, upload proof, `supply` by path. The handlers take their
+// dependencies as arguments (a database client, the caller's RPC, the vision read) so logic.test.ts runs them with fakes; index.ts builds the
+// real ones. Existing request and response shapes stay valid: everything here is an addition.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+
+export const PDF_MAX_BYTES = 5 * 1024 * 1024;
+export const PDF_MAX_B64_CHARS = 7_000_000; // 5 MB is 6,990,508 base64 characters
+export const SIGN_SECONDS = 300;
+export const SIGN_MAX_IDS = 20;
+export const RECEIPTS_BUCKET = 'expense-receipts';
+/** The bucket the manual Bought photo lives in (s132 inventory_item receipt check: storage.objects bucket_id = 'inventory-photos'). */
+export const INVENTORY_BUCKET = 'inventory-photos';
+export const CLEANING_BUCKET = 'cleaning-photos';
+export const SYSTEM_CATEGORY_SLUGS = ['guest_refund', 'airbnb_adjustment'];
+
+export type Out = { status: number; body: Record<string, unknown> };
+const out = (status: number, body: Record<string, unknown>): Out => ({ status, body });
+
+export type DecodedFile =
+  | { ok: true; bytes: Uint8Array; mime: string; ext: string; pdf: boolean }
+  | { ok: false; status: number; error: string };
+
+/** decodeImage for the three image types, plus a PDF (<= 5 MB, must start with %PDF-). The old no-mode path keeps calling decodeImage, so it still answers 415 for a PDF. */
+export function decodeFile(b64: unknown, mime: unknown): DecodedFile {
+  const m = String(mime ?? 'image/jpeg').toLowerCase().trim();
+  if (m !== 'application/pdf') {
+    const r = decodeImage(b64, mime);
+    return r.ok ? { ...r, pdf: false } : r;
+  }
+  const s = String(b64 ?? '').trim();
+  if (!s) return { ok: false, status: 400, error: 'file_base64_required' };
+  if (s.length > PDF_MAX_B64_CHARS) return { ok: false, status: 413, error: 'file_too_large' };
+  try {
+    const bin = atob(s);
+    if (bin.length > PDF_MAX_BYTES) return { ok: false, status: 413, error: 'file_too_large' };
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    if (!bytes.length) return { ok: false, status: 400, error: 'file_base64_required' };
+    // %PDF-
+    if (![0x25, 0x50, 0x44, 0x46, 0x2d].every((v, k) => bytes[k] === v)) return { ok: false, status: 415, error: 'unsupported_file_type' };
+    return { ok: true, bytes, mime: 'application/pdf', ext: 'pdf', pdf: true };
+  } catch {
+    return { ok: false, status: 400, error: 'file_base64_invalid' };
+  }
+}
+
+export const isPdfMime = (mime: unknown) => String(mime ?? '').toLowerCase().trim() === 'application/pdf';
+
+/** The server's own figure for the stored bytes (same as upload-photo/hash.ts; copied so no other function's file is bundled). */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource));
+  return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// deno-lint-ignore no-explicit-any
+type Db = any;
+
+/** Upload proof (cross-lane contract 1): staff_upload_hashes(path, sha256, uploaded_by) with the service role. True only when the row is in. */
+export async function recordUploadHash(db: Db, row: { path: string; sha256: string; uploaded_by: string }): Promise<boolean> {
+  try {
+    const { error } = await db.from('staff_upload_hashes').insert(row);
+    if (error) { console.warn('ocr_upload_hash_not_recorded', String(error.code ?? error.message ?? error).slice(0, 80)); return false; }
+    return true;
+  } catch (e) {
+    console.warn('ocr_upload_hash_not_recorded', String((e as Error)?.message ?? e).slice(0, 80));
+    return false;
+  }
+}
+
+export type Deps = {
+  db: Db; // service role
+  propertyId: string;
+  newId: () => string;
+  /** The vision read, or null when no key is configured. `slugs` null = the function's default prompt. Returns the parsed model answer. */
+  read: ((b64: string, mime: string, slugs: string[] | null) => Promise<unknown>) | null;
+  toB64: (bytes: Uint8Array) => string;
+  /** The caller's own token on the RPC (that call is the gate for `sign`). */
+  callerRpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+  /** Signed link for a (bucket, path); null when it could not be made. Never logged. */
+  signUrl: (bucket: string, path: string, seconds: number) => Promise<string | null>;
+};
+
+export type Who = { userId: string };
+
+// ---- stock hint and the shared stock matching ----
+
+export type StockHint = { count: number; names: string[] };
+export const NO_HINT: StockHint = { count: 0, names: [] };
+
+export async function loadCandidates(db: Db, propertyId: string): Promise<{ ok: true; cands: Candidate[] } | { ok: false }> {
+  const [items, opts] = await Promise.all([
+    db.from('inventory_items').select('id,name').eq('property_id', propertyId).eq('is_active', true),
+    db.from('inventory_item_options').select('item_id,title'), // the real column is title (s110 grant: select (item_id, title)); an option title is an alias; a read error only costs those aliases
+  ]);
+  if (items.error) { console.warn('ocr_supply_items_failed', items.error.message); return { ok: false }; }
+  const names = new Map<string, string[]>((items.data ?? []).map((i: { id: string; name: string }) => [i.id, [String(i.name ?? '')]]));
+  for (const o of (opts.error ? [] : opts.data ?? []) as Array<{ item_id: string; title: string }>) names.get(o.item_id)?.push(String(o.title ?? ''));
+  return { ok: true, cands: [...names].map(([item_id, n]) => ({ item_id, names: n.filter(Boolean) })) };
+}
+/** The draft's lines: price scrubbed from the text (D-330), each matched to stock. */
+export function draftLines(items: LineItem[], cands: Candidate[]) {
+  return items.map((l, i) => {
+    const description = scrubMoney(l.description);
+    const m = matchLine(description, cands);
+    return { line_no: i + 1, description, qty: l.qty, unit_cost: l.unit_cost, match_item_id: m.item_id, match_score: m.score };
+  });
+}
+
+/** How many read lines match an active item or option title (the matcher mode `supply` uses), and the matched item names. No model call. */
+export function stockHint(items: LineItem[], cands: Candidate[]): StockHint {
+  const names: string[] = [];
+  let count = 0;
+  for (const l of items) {
+    const m = matchLine(scrubMoney(l.description), cands);
+    if (!m.item_id) continue;
+    count++;
+    const n = cands.find((c) => c.item_id === m.item_id)?.names[0];
+    if (n && !names.includes(n) && names.length < 10) names.push(n);
+  }
+  return { count, names };
+}
+
+export async function stockHintFor(db: Db, propertyId: string, items: LineItem[]): Promise<StockHint> {
+  if (!items.length) return NO_HINT;
+  const c = await loadCandidates(db, propertyId);
+  return c.ok ? stockHint(items, c.cands) : NO_HINT; // a hint is a convenience: a read error costs the hint, never the answer
+}
+
+export async function loadSlugs(db: Db, propertyId: string): Promise<string[]> {
+  const { data } = await db.from('expense_categories').select('slug').eq('property_id', propertyId).eq('is_active', true).order('sort_order');
+  return (data ?? []).map((c: { slug: string }) => c.slug).filter((s: string) => !SYSTEM_CATEGORY_SLUGS.includes(s));
+}
+
+// ---- storing an upload (attach, extract) ----
+
+export type Stored = { ok: true; path: string; sha256: string; hashOk: boolean } | { ok: false; out: Out };
+
+/** Upload under <property>/<caller>/<uuid>.<ext>, hash the stored bytes, record the proof row. The object is never removed here. */
+export async function storeUpload(f: Extract<DecodedFile, { ok: true }>, who: Who, d: Deps): Promise<Stored> {
+  const path = receiptPath(d.propertyId, who.userId, f.ext, d.newId());
+  const up = await d.db.storage.from(RECEIPTS_BUCKET).upload(path, f.bytes, { contentType: f.mime, upsert: false });
+  if (up.error) { console.warn('ocr_upload_failed', String(up.error.message).slice(0, 120)); return { ok: false, out: out(500, { ok: false, error: 'upload_failed' }) }; }
+  const sha256 = await sha256Hex(f.bytes);
+  const hashOk = await recordUploadHash(d.db, { path, sha256, uploaded_by: who.userId });
+  return { ok: true, path, sha256, hashOk };
+}
+
+export type Suggest = { amount: number | null; date: string | null; vendor: string | null; category: string; line_items: LineItem[]; confidence: number };
+
+/** mode attach {file_base64, mime_type, read?}: store, hash, record proof, read an image. It writes no ledger row; the app then calls expense_receipt_set_v1. */
+// deno-lint-ignore no-explicit-any
+export async function attachHandler(body: any, who: Who, d: Deps): Promise<Out> {
+  const f = decodeFile(body?.file_base64, body?.mime_type);
+  if (!f.ok) return out(f.status, { ok: false, error: f.error });
+  const st = await storeUpload(f, who, d);
+  if (!st.ok) return st.out;
+  const base = { ok: true, receipt_path: st.path, sha256: st.sha256, mime: f.mime };
+  // Without the proof row nothing can attach this file (the SQL requires it), so a failure here is loud rather than a path the app cannot use.
+  if (!st.hashOk) return out(500, { ok: false, error: 'hash_failed' });
+  if (f.pdf) return out(200, { ...base, suggest: null, unread: 'pdf', stock_hint: NO_HINT });
+  if (body?.read === false) return out(200, { ...base, suggest: null, unread: 'skipped', stock_hint: NO_HINT });
+  if (!d.read) return out(200, { ...base, suggest: null, unread: 'no_key', stock_hint: NO_HINT });
+  try {
+    const slugs = await loadSlugs(d.db, d.propertyId);
+    const x = shapeExtraction(await d.read(d.toB64(f.bytes), f.mime, slugs), new Set(slugs));
+    const suggest: Suggest = { amount: x.amount, date: x.date, vendor: x.vendor, category: x.category, line_items: x.line_items, confidence: x.confidence };
+    return out(200, { ...base, suggest, stock_hint: await stockHintFor(d.db, d.propertyId, x.line_items) });
+  } catch (e) {
+    console.warn('ocr_attach_read_failed', String(e).slice(0, 200));
+    return out(200, { ...base, suggest: null, unread: 'failed', stock_hint: NO_HINT }); // a read failure still returns the path
+  }
+}
+
+// ---- sign ----
+
+/** Which buckets each receipt kind may live in (R5). The kind fixes the bucket; the path is never taken from the request. */
+const KIND_BUCKETS: Record<string, string[]> = {
+  txn: [RECEIPTS_BUCKET],
+  draft: [RECEIPTS_BUCKET, INVENTORY_BUCKET], // scanned draft: expense-receipts; manual draft: the inventory photo bucket
+  bill: [CLEANING_BUCKET], // cleaning-photos is signed for kind bill only (C3: no kind pay)
+  stock: [INVENTORY_BUCKET],
+};
+export const pairAllowed = (kind: unknown, bucket: unknown): boolean =>
+  typeof kind === 'string' && typeof bucket === 'string' && Object.prototype.hasOwnProperty.call(KIND_BUCKETS, kind) && KIND_BUCKETS[kind].includes(bucket);
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const safePath = (p: unknown): p is string => typeof p === 'string' && p.length > 0 && p.length <= 500 && !p.includes('..') && !p.startsWith('/');
+
+/** mode sign {property_id?, ids}: the caller's token goes to expense_receipt_paths_v1 (the gate); only the pairs it returns, inside the kind-to-bucket map, are signed with the service role for 300 s. */
+// deno-lint-ignore no-explicit-any
+export async function signHandler(body: any, d: Deps): Promise<Out> {
+  if (body?.property_id !== undefined && body.property_id !== null && String(body.property_id) !== d.propertyId) return out(403, { ok: false, error: 'property_mismatch' });
+  const raw = body?.ids;
+  if (!Array.isArray(raw) || !raw.length) return out(400, { ok: false, error: 'ids_required' });
+  if (raw.length > SIGN_MAX_IDS) return out(400, { ok: false, error: 'too_many_ids' });
+  if (!raw.every((i: unknown) => typeof i === 'string' && UUID_RE.test(i))) return out(400, { ok: false, error: 'invalid_ids' });
+  const ids = [...new Set(raw.map((i: string) => i.toLowerCase()))];
+  const r = await d.callerRpc('expense_receipt_paths_v1', { p_property_id: d.propertyId, p_ids: ids });
+  if (r.error) {
+    const refused = r.error.code === '42501' || /forbidden|not allowed|permission/i.test(String(r.error.message ?? ''));
+    return refused ? out(403, { ok: false, error: 'forbidden' }) : out(502, { ok: false, error: 'sign_failed' });
+  }
+  const rows = r.data;
+  if (!Array.isArray(rows)) {
+    // deno-lint-ignore no-explicit-any
+    return (rows as any)?.error === 'forbidden' ? out(403, { ok: false, error: 'forbidden' }) : out(502, { ok: false, error: 'sign_failed' });
+  }
+  const asked = new Set(ids);
+  const links: Record<string, { url: string; kind: string; mime: string | null }> = {};
+  for (const row of rows as Array<Record<string, unknown>>) {
+    const id = String(row?.id ?? '').toLowerCase();
+    if (!asked.has(id) || links[id]) continue; // only ids that were asked for, once
+    if (!pairAllowed(row.kind, row.bucket) || !safePath(row.path)) continue; // a pair outside the map is never signed
+    const url = await d.signUrl(String(row.bucket), row.path, SIGN_SECONDS);
+    if (url) links[id] = { url, kind: String(row.kind), mime: typeof row.mime === 'string' ? row.mime : null };
+  }
+  return out(200, { ok: true, links });
+}
+
+// ---- supply by path ----
+
+/** The exact shape of a file the caller attached: <property>/<caller>/<uuid>.(jpg|png|webp). A prefix match with a wrong tail is refused. */
+export function checkSupplyPath(raw: unknown, propertyId: string, userId: string):
+  | { ok: true; path: string }
+  | { ok: false; status: number; error: string } {
+  const p = typeof raw === 'string' ? raw : '';
+  const prefix = `${propertyId}/${userId}/`;
+  if (!p || !p.startsWith(prefix) || p.includes('..')) return { ok: false, status: 400, error: 'invalid_receipt_path' };
+  const tail = p.slice(prefix.length);
+  if (/^[0-9a-f-]{36}\.pdf$/.test(tail)) return { ok: false, status: 415, error: 'unsupported_image_type' };
+  if (!/^[0-9a-f-]{36}\.(jpg|png|webp)$/.test(tail)) return { ok: false, status: 400, error: 'invalid_receipt_path' };
+  return { ok: true, path: p };
+}
+
+export const SUPPLY_DAILY_LIMIT = 20;
+
+/** At most SUPPLY_DAILY_LIMIT drafts per user per Manila day (one vision read each). Null = under the limit. */
+export async function supplyLimit(db: Db, userId: string): Promise<Out | null> {
+  const dayStart = `${new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+08:00`;
+  const used = await db.from('inventory_receipt_drafts').select('id', { count: 'exact', head: true }).eq('created_by', userId).gte('created_at', dayStart);
+  if (used.error) { console.warn('ocr_supply_limit_check_failed', used.error.message); return out(500, { ok: false, error: 'load_failed' }); }
+  if ((used.count ?? 0) >= SUPPLY_DAILY_LIMIT) return out(429, { ok: false, error: 'daily_limit' });
+  return null;
+}
+
+const MIME_OF_EXT: Record<string, string> = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+
+/** mode supply with receipt_path (no image_base64): continue a scan made in Expenses without a second upload. The object is never removed. */
+// deno-lint-ignore no-explicit-any
+export async function supplyByPath(body: any, who: Who, d: Deps): Promise<Out> {
+  const chk = checkSupplyPath(body?.receipt_path, d.propertyId, who.userId);
+  if (!chk.ok) return out(chk.status, { ok: false, error: chk.error });
+  const path = chk.path;
+  // a second call with the same path is a replay: the same draft, nothing created
+  const same = await d.db.from('inventory_receipt_drafts').select('id').eq('receipt_path', path).neq('status', 'cancelled').limit(1);
+  if (same.error) { console.warn('ocr_supply_replay_check_failed', same.error.message); return out(500, { ok: false, error: 'load_failed' }); }
+  if (same.data?.length) return out(200, { ok: true, draft_id: same.data[0].id });
+  const held = await d.db.from('transactions').select('id').eq('receipt_image_path', path).neq('status', 'void').limit(1);
+  if (held.error) { console.warn('ocr_supply_inuse_check_failed', held.error.message); return out(500, { ok: false, error: 'load_failed' }); }
+  if (held.data?.length) return out(409, { ok: false, error: 'receipt_in_use' });
+  const lim = await supplyLimit(d.db, who.userId);
+  if (lim) return lim;
+  const dl = await d.db.storage.from(RECEIPTS_BUCKET).download(path);
+  if (dl.error || !dl.data) return out(404, { ok: false, error: 'receipt_not_found' });
+  const bytes = new Uint8Array(await dl.data.arrayBuffer());
+  const b64 = d.toB64(bytes);
+  const img = decodeImage(b64, MIME_OF_EXT[path.slice(path.lastIndexOf('.') + 1)]);
+  if (!img.ok) return out(img.status, { ok: false, error: img.error });
+  if (!d.read) return out(500, { ok: false, error: 'no_vision_key' });
+  let x: ReturnType<typeof shapeExtraction>;
+  try {
+    x = shapeExtraction(await d.read(b64, img.mime, null), new Set(['other']));
+    if (!x.line_items.length) throw new Error('no_lines_read');
+  } catch (e) {
+    console.warn('ocr_supply_failed', String(e).slice(0, 300));
+    return out(502, { ok: false, error: 'ocr_failed' }); // the object stays: it may be on an expense
+  }
+  const c = await loadCandidates(d.db, d.propertyId);
+  if (!c.ok) return out(500, { ok: false, error: 'load_failed' });
+  const { data: row, error } = await d.db.from('inventory_receipt_drafts').insert({
+    property_id: d.propertyId, created_by: who.userId, receipt_path: path, vendor: x.vendor, purchased_on: x.date, total: x.amount, lines: draftLines(x.line_items, c.cands), status: 'draft',
+  }).select('id').single();
+  if (error || !row) { console.warn('ocr_supply_insert_failed', String(error?.message).slice(0, 200)); return out(500, { ok: false, error: 'insert_failed' }); }
+  return out(200, { ok: true, draft_id: row.id });
 }

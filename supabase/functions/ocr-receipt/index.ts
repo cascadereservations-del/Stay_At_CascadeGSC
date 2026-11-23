@@ -1,4 +1,8 @@
 // ocr-receipt — receipt OCR for the Cascade Smart Finance Layer.
+// v12 (s134, D-405): expense receipts. New modes: sign {ids} (signed 300 s links, only pairs expense_receipt_paths_v1 returns for the caller) and attach {file_base64, mime_type, read?}
+//   (store + sha256 + upload proof row + optional read, no ledger row). extract and attach also store a PDF (<= 5 MB, %PDF-, never read). extract/attach answers gain sha256 and
+//   stock_hint. supply accepts receipt_path (own, exact-shape, existing object) in place of image_base64 and never removes that object. sign and the PDF branches run before the vision-key check.
+//   The handlers for the new modes live in logic.ts (dependencies injected, logic.test.ts runs them with fakes).
 // v11 (s110): body mode:"supply" {image_base64, mime_type} for cleaners and laundry (capability report_supply; every other mode keeps approve_payment). Stores the photo,
 //   reads it with the same line_items prompt, matches each line to the active inventory_items (match.ts) and inserts ONE inventory_receipt_drafts row;
 //   returns {ok, draft_id} only (no prices: staff read the draft through inventory_receipt_draft_v1). A failed read inserts nothing (502 ocr_failed).
@@ -45,14 +49,14 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { withObservability } from '../_shared/observability.ts';
 import { requireStaffAccess, staffAuthResponse, type StaffIdentity } from '../_shared/staff-auth.ts';
-import { matchLine, type Candidate } from './match.ts';
-import { buildPrompt, decodeImage, formatLineItemsForNotes, gateAction, clamp01, mapCategory, normalizeLineItems, receiptPath, scrubMoney, shapeExtraction, validDate } from './logic.ts';
+import { attachHandler, buildPrompt, decodeFile, decodeImage, draftLines, formatLineItemsForNotes, gateAction, clamp01, isPdfMime, loadCandidates, loadSlugs, mapCategory, normalizeLineItems, NO_HINT, receiptPath, signHandler, stockHintFor, storeUpload, supplyByPath, supplyLimit, shapeExtraction, validDate, type Deps } from './logic.ts';
 // v9 (session 27): the vision call lives in cascade-core/vision.ts, shared with telegram-expense and
 // upload-booking-receipt (booking PRD task 2). Same env contract; this file only parses.
 import { VISION_PROVIDER as PROVIDER, hasVisionKey, bytesToBase64, visionExtractText } from '../_shared/cascade-core/vision.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY     = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 const TG_TOKEN     = Deno.env.get('TELEGRAM_BOT_TOKEN') ?? '';
 
 const PROPERTY_ID     = '6ae230f4-c189-4547-84b1-cb6e0b2cc9bd';
@@ -112,41 +116,66 @@ async function extractReceipt(b64: string, mime: string, prompt = EXTRACTION_PRO
 }
 
 
+// s134: the real dependencies of the logic.ts handlers. `callerToken` is only for mode sign: the caller's own token goes to expense_receipt_paths_v1, the service role only signs what it returned.
+// deno-lint-ignore no-explicit-any
+function buildDeps(db: any, callerToken?: string): Deps {
+  const caller = callerToken && ANON_KEY
+    ? createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: `Bearer ${callerToken}` } }, auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
+    : null;
+  return {
+    db, propertyId: PROPERTY_ID, newId: () => crypto.randomUUID(), toB64: bytesToBase64,
+    read: hasVisionKey() ? async (b64, mime, slugs) => (await extractReceipt(b64, mime, slugs ? buildPrompt(EXTRACTION_PROMPT, slugs) : EXTRACTION_PROMPT)).parsed : null,
+    callerRpc: async (fn, args) => {
+      if (!caller) return { data: null, error: { message: 'caller_client_unavailable' } };
+      try { const r = await caller.rpc(fn, args); return { data: r.data, error: r.error }; }
+      catch (e) { return { data: null, error: { message: String(e).slice(0, 100) } }; }
+    },
+    signUrl: async (bucket, path, seconds) => { // the link is returned to the caller and never logged
+      const r = await db.storage.from(bucket).createSignedUrl(path, seconds);
+      return r.error || !r.data?.signedUrl ? null : String(r.data.signedUrl);
+    },
+  };
+}
+
 // s89 mode "extract": keep the photo in expense-receipts and read it, but create NO transaction. The Manage hub pre-fills its form from this
 // and saves through admin_save_transaction_v1 (receipt_image_path). A failed read still returns the stored path so the receipt can be attached by hand.
 // deno-lint-ignore no-explicit-any
 async function extractMode(body: any, who: StaffIdentity): Promise<Response> {
-  const img = decodeImage(body.image_base64, body.mime_type);
+  const img = decodeFile(body.image_base64 ?? body.file_base64, body.mime_type); // s134: a PDF is stored too (never read); the old no-mode path below still answers 415 for one
   if (!img.ok) return json({ ok: false, error: img.error }, img.status);
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
-  const path = receiptPath(PROPERTY_ID, who.userId, img.ext, crypto.randomUUID());
-  const up = await db.storage.from(RECEIPTS_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: false });
-  if (up.error) { console.warn('ocr_extract_upload_failed', up.error.message); return json({ ok: false, error: 'upload_failed' }, 500); }
-  const { data: cats } = await db.from('expense_categories').select('slug').eq('property_id', PROPERTY_ID).eq('is_active', true).order('sort_order');
-  const slugs = (cats ?? []).map((c: { slug: string }) => c.slug);
+  const st = await storeUpload(img, who, buildDeps(db));
+  if (!st.ok) return json(st.out.body, st.out.status);
+  const path = st.path;
+  // best effort here (the Add sheet keeps working if the proof row fails); hash_recorded tells the app whether the file can be attached to a saved expense
+  const proof = { sha256: st.sha256, mime: img.mime, hash_recorded: st.hashOk };
+  if (img.pdf) return json({ ok: true, receipt_path: path, amount: null, date: null, vendor: null, category: null, line_items: [], confidence: 0, raw: null, unread: 'pdf', stock_hint: NO_HINT, ...proof });
+  const slugs = await loadSlugs(db, PROPERTY_ID);
   try {
     const r = await extractReceipt(bytesToBase64(img.bytes), img.mime, buildPrompt(EXTRACTION_PROMPT, slugs));
     const x = shapeExtraction(r.parsed, new Set(slugs));
-    return json({ ok: true, receipt_path: path, amount: x.amount, date: x.date, vendor: x.vendor, category: x.category, line_items: x.line_items, confidence: x.confidence, raw: r.parsed });
+    return json({ ok: true, receipt_path: path, amount: x.amount, date: x.date, vendor: x.vendor, category: x.category, line_items: x.line_items, confidence: x.confidence, raw: r.parsed, stock_hint: await stockHintFor(db, PROPERTY_ID, x.line_items), ...proof });
   } catch (e) {
     console.warn('ocr_extract_failed', String(e).slice(0, 300));
-    return json({ ok: false, error: 'ocr_failed', receipt_path: path }, 502);
+    return json({ ok: false, error: 'ocr_failed', receipt_path: path, sha256: st.sha256, hash_recorded: st.hashOk }, 502);
   }
 }
 
-const SUPPLY_DAILY_LIMIT = 20;
 // s110 mode "supply": a cleaner or laundry staff photographs a supply receipt; the lines are matched to stock and held as a draft the app reviews.
 // Prices stay server-side in the draft (D-330); the response is the draft id and nothing else.
 // deno-lint-ignore no-explicit-any
 async function supplyMode(body: any, who: StaffIdentity): Promise<Response> {
+  // s134: a receipt_path (and no image_base64) continues a scan made in Expenses; the object is never removed on that path.
+  if (!body.image_base64 && body.receipt_path !== undefined) {
+    const o = await supplyByPath(body, who, buildDeps(createClient(SUPABASE_URL, SERVICE_ROLE)));
+    return json(o.body, o.status);
+  }
   const img = decodeImage(body.image_base64, body.mime_type);
   if (!img.ok) return json({ ok: false, error: img.error }, img.status);
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
   // At most SUPPLY_DAILY_LIMIT drafts per user per Manila day (one vision read each); a failed read inserts nothing, so it is not counted.
-  const dayStart = `${new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+08:00`;
-  const used = await db.from('inventory_receipt_drafts').select('id', { count: 'exact', head: true }).eq('created_by', who.userId).gte('created_at', dayStart);
-  if (used.error) { console.warn('ocr_supply_limit_check_failed', used.error.message); return json({ ok: false, error: 'load_failed' }, 500); }
-  if ((used.count ?? 0) >= SUPPLY_DAILY_LIMIT) return json({ ok: false, error: 'daily_limit' }, 429);
+  const lim = await supplyLimit(db, who.userId);
+  if (lim) return json(lim.body, lim.status);
   const path = receiptPath(PROPERTY_ID, who.userId, img.ext, crypto.randomUUID());
   const up = await db.storage.from(RECEIPTS_BUCKET).upload(path, img.bytes, { contentType: img.mime, upsert: false });
   if (up.error) { console.warn('ocr_supply_upload_failed', up.error.message); return json({ ok: false, error: 'upload_failed' }, 500); }
@@ -159,19 +188,9 @@ async function supplyMode(body: any, who: StaffIdentity): Promise<Response> {
     await db.storage.from(RECEIPTS_BUCKET).remove([path]).catch(() => {}); // nothing refers to the photo
     return json({ ok: false, error: 'ocr_failed' }, 502);
   }
-  const [items, opts] = await Promise.all([
-    db.from('inventory_items').select('id,name').eq('property_id', PROPERTY_ID).eq('is_active', true),
-    db.from('inventory_item_options').select('item_id,title'), // the real column is title (s110 grant: select (item_id, title)); an option title is an alias; a read error only costs those aliases
-  ]);
-  if (items.error) { console.warn('ocr_supply_items_failed', items.error.message); return json({ ok: false, error: 'load_failed' }, 500); }
-  const names = new Map<string, string[]>((items.data ?? []).map((i: { id: string; name: string }) => [i.id, [String(i.name ?? '')]]));
-  for (const o of (opts.error ? [] : opts.data ?? []) as Array<{ item_id: string; title: string }>) names.get(o.item_id)?.push(String(o.title ?? ''));
-  const cands: Candidate[] = [...names].map(([item_id, n]) => ({ item_id, names: n.filter(Boolean) }));
-  const lines = x.line_items.map((l, i) => {
-    const description = scrubMoney(l.description); // D-330: no price in the text a cleaner can read; unit_cost stays in its own field
-    const m = matchLine(description, cands);
-    return { line_no: i + 1, description, qty: l.qty, unit_cost: l.unit_cost, match_item_id: m.item_id, match_score: m.score };
-  });
+  const c = await loadCandidates(db, PROPERTY_ID);
+  if (!c.ok) return json({ ok: false, error: 'load_failed' }, 500);
+  const lines = draftLines(x.line_items, c.cands); // D-330: no price in the text a cleaner can read; unit_cost stays in its own field
   const { data: row, error } = await db.from('inventory_receipt_drafts').insert({
     property_id: PROPERTY_ID, created_by: who.userId, receipt_path: path, vendor: x.vendor, purchased_on: x.date, total: x.amount, lines, status: 'draft',
   }).select('id').single();
@@ -194,6 +213,12 @@ Deno.serve(withObservability({ functionName: 'ocr-receipt', route: 'finance' }, 
   let who: StaffIdentity;
   try { who = await requireStaffAccess(req, gateAction(body), PROPERTY_ID); }
   catch (e) { const r = staffAuthResponse(e, CORS); if (r) return r; throw e; }
+  // s134 (R9): sign, attach and a PDF extract never call the vision model, so they run before the key check and work with no key configured.
+  if (body && typeof body === 'object') {
+    if (body.mode === 'sign') { const o = await signHandler(body, buildDeps(createClient(SUPABASE_URL, SERVICE_ROLE), who.accessToken)); return json(o.body, o.status); }
+    if (body.mode === 'attach') { const o = await attachHandler(body, who, buildDeps(createClient(SUPABASE_URL, SERVICE_ROLE))); return json(o.body, o.status); }
+    if (body.mode === 'extract' && isPdfMime(body.mime_type)) return await extractMode(body, who);
+  }
   if (!hasVisionKey()) {
     return json({ error: `no API key for VISION_PROVIDER=${PROVIDER}` }, 500);
   }

@@ -22,6 +22,7 @@
 // session 70 (SPEC-37, D-298): the Staff Payment Request. spr: taps and the transfer screenshot are staffpay-flow.ts; bookCleaningFee and
 //   payCleanList refuse a clean that sits in a pay request; the dead cleanpayinvoice: branch (its producer inserted a refused kind) is removed.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { categoryKeyboardFrom, categoryUnion, confirmExpense, keyForMessage, keyForPending, keyForPhoto, lookalikeLine, pickableCategories, saveExpense, setExpenseAmount, voidExpense, voidMany } from './expense-write.ts'; // s134 (D-405): every expense save and review goes through the two Telegram RPCs
 import { withObservability } from '../_shared/observability.ts';
 import { VISION_PROVIDER, hasVisionKey, visionExtractText } from '../_shared/cascade-core/vision.ts';
 import { chatJson } from '../_shared/cascade-core/providers.ts'; // /ping tests the real route (2026-09-24)
@@ -668,16 +669,16 @@ async function geminiFetch(url:string,init:RequestInit,tries=3):Promise<Response
   for(let i=0;i<tries;i++){const res=await fetch(url,init);if(res.ok||(res.status!==429&&res.status!==503))return res;if(i<tries-1)await new Promise(r=>setTimeout(r,800*(i+1)));}
   return fetch(url,init);
 }
-function buildGeminiPrompt(categoryHint:string) {
+function buildGeminiPrompt(categoryHint:string,slugs:string[]=[]) {
   const h=categoryHint?`The user already classified this as "${categoryHint}" — use that as category_hint unless clearly wrong.`:'Infer category_hint from the items.';
-  return `You are a receipt data extractor for a Philippine boutique Airbnb expense ledger.\nReturn ONLY a JSON object with these exact keys:\n{"amount":number|null,"currency":"PHP","date":"YYYY-MM-DD"|null,"vendor":string|null,"category_hint":"supplies"|"utilities"|"cleaning"|"maintenance"|"repairs"|"platform_fees"|"other","line_items":[{"name":string,"qty":number,"unit_price":number}],"confidence":number}\n${h}\nRules: amount=total paid. qty=units bought (default 1), unit_price=price per unit. If unreadable set amount null and confidence<0.2. Never invent a vendor.`;
+  return `You are a receipt data extractor for a Philippine boutique Airbnb expense ledger.\nReturn ONLY a JSON object with these exact keys:\n{"amount":number|null,"currency":"PHP","date":"YYYY-MM-DD"|null,"vendor":string|null,"category_hint":${categoryUnion(slugs)},"line_items":[{"name":string,"qty":number,"unit_price":number}],"confidence":number}\n${h}\nRules: amount=total paid. qty=units bought (default 1), unit_price=price per unit. If unreadable set amount null and confidence<0.2. Never invent a vendor.`;
 }
 function parseGeminiResponse(text:string,cat:string) { try{return JSON.parse(String(text).replace(/^```json\s*|\s*```$/g,'').trim());}catch{return{amount:null,currency:'PHP',date:null,vendor:null,category_hint:cat||'other',line_items:[],confidence:0};} }
-async function geminiExtract(bytes:Uint8Array,mime:string,cat='') {
-  const txt=await visionExtractText(buildGeminiPrompt(cat),bytes,mime,'Cascade Finance OCR');
+async function geminiExtract(bytes:Uint8Array,mime:string,cat='',slugs:string[]=[]) {
+  const txt=await visionExtractText(buildGeminiPrompt(cat,slugs),bytes,mime,'Cascade Finance OCR');
   return parseGeminiResponse(txt,cat);
 }
-function categoryKeyboard(pre:number){const cats=[['🛒 Supplies','supplies'],['⚡ Utilities','utilities'],['🧹 Cleaning','cleaning'],['🔧 Maintenance','maintenance'],['🔨 Repairs','repairs'],['💼 Platform Fees','platform_fees'],['📌 Other','other']];const rows:any[][]=[];for(let i=0;i<cats.length;i+=2)rows.push(cats.slice(i,i+2).map(([l,s])=>({text:l,callback_data:`cat:${s}:${pre}`})));return{inline_keyboard:rows};}
+async function categoryKeyboard(db:any,pre:number){return categoryKeyboardFrom(pickableCategories(await getCategories(db)),pre);} // s134: the live list minus guest_refund and airbnb_adjustment
 function receiptEditKeyboard(txnId:string,amount:number){const rows:any[][]=[];if(amount>0)rows.push([{text:`✅ Confirm  ₱${peso(amount)}`,callback_data:`ocr_ok:${txnId}`}]);else rows.push([{text:'💵 Enter total',callback_data:`ocr_edit:${txnId}`}]);rows.push([{text:'✏️ Edit item',callback_data:`item_edit:${txnId}`},{text:'➕ Add item',callback_data:`item_add:${txnId}`}]);const r3:any[]=[{text:'🗑️ Remove item',callback_data:`item_remove:${txnId}`}];if(amount>0)r3.push({text:'💵 Edit total',callback_data:`ocr_edit:${txnId}`});rows.push(r3);rows.push([{text:'❌ Discard',callback_data:`ocr_void:${txnId}`}]);return{inline_keyboard:rows};}
 function renderReceiptCard(txn:any,catLabel:string):{text:string;reply_markup:any}{
   const items=normalizeLineItems(txn.ocr_raw?.line_items);const total=Number(txn.gross_amount)||0;const sub=itemsSubtotal(items);const pct=Math.round(clamp01(txn.ocr_confidence)*100);
@@ -700,8 +701,9 @@ function parseAmount(tokens:string[]):{amount:number|null;idx:number}{for(let i=
 function detectAmountAnywhere(text:string){const m=text.match(/₱?\s*(\d[\d,]*(?:\.\d{1,2})?)/);if(!m)return 0;const n=Number(m[1].replace(/,/g,''));return isFinite(n)&&n>0?n:0;}
 function classify(remainder:string,cats:Category[]):{slug:string;label:string;matched:string|null}{const hay=` ${remainder.toLowerCase()} `;for(const c of cats){if(c.slug==='other')continue;for(const kw of c.keywords){const k=kw.toLowerCase();if(new RegExp(`(^|\\W)${k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}(\\W|$)`).test(hay))return{slug:c.slug,label:c.label,matched:k};}}return{slug:'other',label:cats.find(c=>c.slug==='other')?.label??'Other',matched:null};}
 function expensePromptText(label:string,pre:number){return pre>0?`📂 ${mdEsc(label)}\nDetected ₱${peso(pre)} — type a different amount, or the shop name to keep it.`:`📂 ${mdEsc(label)}\nType the amount, and the shop if you like: 1706  or  1706 Lazada`;}
-type InsertOpts={category:string;amount:number;label?:string;payee?:string|null;notes?:string|null;loggedBy?:string|null};
-async function insertExpense(db:any,opts:InsertOpts){const result=await db.from('transactions').insert({property_id:PROPERTY_ID,txn_type:'expense',category:opts.category,status:'confirmed',source:'telegram',gross_amount:opts.amount,payee_name:opts.payee??null,notes:opts.notes??null,logged_by:opts.loggedBy??null}).select('id').single();notifyOps(opts.category,opts.loggedBy??null,false);return result;}
+type InsertOpts={category:string;amount:number;label?:string;payee?:string|null;notes?:string|null;loggedBy?:string|null;key?:string|null};
+// s134: one RPC, one key per message. A retried webhook gets the first row back (replayed) and pings nobody twice. Same {data,error} shape as before; data.look is the look-alike line, if any.
+async function insertExpense(db:any,opts:InsertOpts){const r=await saveExpense(db,PROPERTY_ID,{category:opts.category,amount:opts.amount,payee:opts.payee??null,notes:opts.notes??null,logged_by:opts.loggedBy??null},opts.key??null);if(!r.ok)return{data:null,error:{message:r.message}};if(!r.replayed)notifyOps(opts.category,opts.loggedBy??null,false);return{data:{id:r.id,look:lookalikeLine(r.lookalike,shortRef(r.id))},error:null};}
 let _catCache: { ts: number; data: Category[] } | null = null;
 async function getCategories(db:any):Promise<Category[]>{
   if(_catCache && Date.now()-_catCache.ts < 60_000) return _catCache.data;
@@ -745,7 +747,7 @@ async function askReply(db:any,chatId:any,fromId:unknown,flow:Flow,refs:Record<s
 async function consumePending(db:any,pid:string){const{data}=await db.from('telegram_pending').delete().eq('id',pid).select('payload,expires_at').maybeSingle();if(!data)return null;if(new Date(data.expires_at)<new Date())return null;return data.payload;}
 function purgePending(db:any){db.from('telegram_pending').delete().lt('expires_at',new Date().toISOString()).then(()=>{}).catch(()=>{});}
 async function checkRecentDuplicates(db:any,amount:number){const since=new Date(Date.now()-RECENT_DUP_DAYS*86_400_000).toISOString().slice(0,10);const{data}=await db.from('transactions').select('id,gross_amount,category,transaction_date,payee_name,status').eq('property_id',PROPERTY_ID).eq('gross_amount',amount).neq('status','void').gte('transaction_date',since).order('transaction_date',{ascending:false}).limit(5);return data??[];}
-function confirmMsg(amount:number,label:string,payee:string|null,id:string){return[`✅ *Expense logged*`,`₱${peso(amount)}  ·  ${label}`,...(payee?[`   ${mdEsc(payee)}`]:[]),`_Ref: ${shortRef(id)}_`].join('\n');}
+function confirmMsg(amount:number,label:string,payee:string|null,id:string,look?:string|null){return[`✅ *Expense logged*`,`₱${peso(amount)}  ·  ${label}`,...(payee?[`   ${mdEsc(payee)}`]:[]),`_Ref: ${shortRef(id)}_`,...(look?[mdEsc(look)]:[])].join('\n');}
 async function loadReceiptTxn(db:any,txnId:string):Promise<any|null>{const{data}=await db.from('transactions').select('id,gross_amount,category,payee_name,transaction_date,status,ocr_confidence,ocr_raw').eq('id',txnId).maybeSingle();if(!data||data.status!=='pending_review')return null;return data;}
 async function persistItems(db:any,txnId:string,ocrRaw:any,items:LineItem[]){const raw=(ocrRaw&&typeof ocrRaw==='object')?{...ocrRaw}:{};raw.line_items=items;await db.from('transactions').update({ocr_raw:raw,updated_at:new Date().toISOString()}).eq('id',txnId);}
 async function sendReceiptCard(db:any,chatId:any,txnId:string,note?:string){const txn=await loadReceiptTxn(db,txnId);if(!txn){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}const catLabel=await getCategoryLabel(db,txn.category);const card=renderReceiptCard(txn,catLabel);await tgSend(chatId,(note?note+'\n\n':'')+card.text,{reply_markup:card.reply_markup});}
@@ -871,8 +873,8 @@ async function handleCountPhoto(db:any,chatId:any,msg:any,mode:'count'|'detect')
 }
 const _italic=(ls:string[])=>ls.map(l=>`_${mdEsc(l)}_`);
 
-async function runOcr(db:any,chatId:any,objectPath:string,bytes:Uint8Array,mime:string,loggedBy:string|null,notes:string|null,cat=''){if(!hasVisionKey()){await tgSend(chatId,`⚠️ No key for VISION_PROVIDER=${VISION_PROVIDER}. Tap a category:`,{reply_markup:categoryKeyboard(0)});return;}let extracted:any;try{extracted=await geminiExtract(bytes,mime,cat);}catch(e){console.warn('OCR:',String(e));await tgSend(chatId,'🧾 Could not read receipt. Tap a category:',{reply_markup:categoryKeyboard(0)});return;}const cats=await getCategories(db);const validSlugs=new Set(cats.map(c=>c.slug));const rawCat=String(extracted.category_hint??'').toLowerCase().trim();const category=cat&&validSlugs.has(cat)?cat:(validSlugs.has(rawCat)?rawCat:'other');const catLabel=cats.find(c=>c.slug===category)?.label??category;const amount=Number(extracted.amount);const grossAmount=isFinite(amount)&&amount>0?amount:0;const confidence=clamp01(extracted.confidence);const txnDate=validDate(extracted.date);const vendor=extracted.vendor?String(extracted.vendor).slice(0,200):null;const itemsText=lineItemsToText(extracted.line_items);const noteParts=[notes,itemsText?`items: ${itemsText}`:null].filter(Boolean);const insertRow:Record<string,unknown>={property_id:PROPERTY_ID,txn_type:'expense',category,status:'pending_review',source:'ocr',gross_amount:grossAmount,payee_name:vendor,receipt_image_path:objectPath,ocr_confidence:confidence,ocr_raw:extracted,logged_by:loggedBy,notes:noteParts.length?noteParts.join(' | '):null};if(txnDate)insertRow.transaction_date=txnDate;const{data:row,error}=await db.from('transactions').insert(insertRow).select('id').single();if(error||!row){await tgSend(chatId,`⚠️ OCR save error: ${errMsg(error?.message)}`);return;}const txnId=row.id;const card=renderReceiptCard({id:txnId,gross_amount:grossAmount,payee_name:vendor,transaction_date:txnDate,ocr_confidence:confidence,ocr_raw:extracted},catLabel);await tgSend(chatId,card.text,{reply_markup:card.reply_markup});notifyOps(category,loggedBy,true);}
-async function validateAndInsert(db:any,chatId:any,opts:InsertOpts){purgePending(db);const{amount,category:slug,label,payee,notes,loggedBy}=opts;const today=toManilaDate();const dupes=await checkRecentDuplicates(db,amount);const exactDupe=dupes.find((d:any)=>d.category===slug&&d.transaction_date===today);const recentDupe=!exactDupe&&amount>=RECENT_DUP_MIN_AMOUNT?dupes[0]:null;const isLarge=!exactDupe&&!recentDupe&&amount>=LARGE_AMOUNT_THRESHOLD;if(exactDupe){const pid=await createPending(db,chatId,'duplicate',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`⚠️ *Possible duplicate detected*`,`₱${peso(amount)} · ${label??slug} already logged *today* (Ref: \`${shortRef(exactDupe.id)}\`).`,``,`Is this a *new* transaction?`].join('\n'),{reply_markup:pendingKeyboard(pid)});return;}if(recentDupe){const pid=await createPending(db,chatId,'duplicate',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`⚠️ *Similar recent entry*`,`₱${peso(amount)} · ${recentDupe.category} logged *${daysDiff(recentDupe.transaction_date)} day(s) ago* (Ref: \`${shortRef(recentDupe.id)}\`).`,``,`Is this a *new* transaction?`].join('\n'),{reply_markup:pendingKeyboard(pid)});return;}if(isLarge){const pid=await createPending(db,chatId,'large_amount',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`💰 *Large expense: ₱${peso(amount)}*`,`${label??slug}${payee?` · ${mdEsc(payee)}`:''}`,`Confirm this entry?`].join('\n'),{reply_markup:pendingKeyboard(pid,'✅ Confirm')});return;}const{data:row,error}=await insertExpense(db,opts);if(error||!row){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error?.message)}`);return;}await tgSend(chatId,confirmMsg(amount,label??slug,payee??null,row.id));}
+async function runOcr(db:any,chatId:any,objectPath:string,bytes:Uint8Array,mime:string,loggedBy:string|null,notes:string|null,cat='',again:string|null=null){if(!hasVisionKey()){await tgSend(chatId,`⚠️ No key for VISION_PROVIDER=${VISION_PROVIDER}. Tap a category:`,{reply_markup:await categoryKeyboard(db,0)});return;}const cats=pickableCategories(await getCategories(db));let extracted:any;try{extracted=await geminiExtract(bytes,mime,cat,cats.map(c=>c.slug));}catch(e){console.warn('OCR:',String(e));await tgSend(chatId,'🧾 Could not read receipt. Tap a category:',{reply_markup:await categoryKeyboard(db,0)});return;}const validSlugs=new Set(cats.map(c=>c.slug));const rawCat=String(extracted.category_hint??'').toLowerCase().trim();const category=cat&&validSlugs.has(cat)?cat:(validSlugs.has(rawCat)?rawCat:'other');const catLabel=cats.find(c=>c.slug===category)?.label??category;const amount=Number(extracted.amount);const grossAmount=isFinite(amount)&&amount>0?amount:0;const confidence=clamp01(extracted.confidence);const txnDate=validDate(extracted.date);const vendor=extracted.vendor?String(extracted.vendor).slice(0,200):null;const itemsText=lineItemsToText(extracted.line_items);const noteParts=[notes,itemsText?`items: ${itemsText}`:null].filter(Boolean);const notesText=noteParts.length?noteParts.join(' | '):null;const saved=await saveExpense(db,PROPERTY_ID,{category,amount:grossAmount,payee:vendor,notes:notesText,logged_by:loggedBy,status:'pending_review',source:'ocr',receipt_image_path:objectPath,ocr_confidence:confidence,ocr_raw:extracted,...(txnDate?{transaction_date:txnDate}:{})},keyForPhoto(objectPath,again));if(!saved.ok){await tgSend(chatId,`⚠️ OCR save error: ${errMsg(saved.message)}`);return;}const txnId=saved.id;if(saved.replayed){if(await loadReceiptTxn(db,txnId))await sendReceiptCard(db,chatId,txnId);return;}/* a retried webhook: the first row stands, the card is sent again only while it is still waiting */const card=renderReceiptCard({id:txnId,gross_amount:grossAmount,payee_name:vendor,transaction_date:txnDate,ocr_confidence:confidence,ocr_raw:extracted},catLabel);await tgSend(chatId,card.text,{reply_markup:card.reply_markup});notifyOps(category,loggedBy,true);}
+async function validateAndInsert(db:any,chatId:any,opts:InsertOpts){purgePending(db);const{amount,category:slug,label,payee,notes,loggedBy}=opts;const today=toManilaDate();const dupes=await checkRecentDuplicates(db,amount);const exactDupe=dupes.find((d:any)=>d.category===slug&&d.transaction_date===today);const recentDupe=!exactDupe&&amount>=RECENT_DUP_MIN_AMOUNT?dupes[0]:null;const isLarge=!exactDupe&&!recentDupe&&amount>=LARGE_AMOUNT_THRESHOLD;if(exactDupe){const pid=await createPending(db,chatId,'duplicate',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`⚠️ *Possible duplicate detected*`,`₱${peso(amount)} · ${label??slug} already logged *today* (Ref: \`${shortRef(exactDupe.id)}\`).`,``,`Is this a *new* transaction?`].join('\n'),{reply_markup:pendingKeyboard(pid)});return;}if(recentDupe){const pid=await createPending(db,chatId,'duplicate',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`⚠️ *Similar recent entry*`,`₱${peso(amount)} · ${recentDupe.category} logged *${daysDiff(recentDupe.transaction_date)} day(s) ago* (Ref: \`${shortRef(recentDupe.id)}\`).`,``,`Is this a *new* transaction?`].join('\n'),{reply_markup:pendingKeyboard(pid)});return;}if(isLarge){const pid=await createPending(db,chatId,'large_amount',{amount,category:slug,label,payee,notes,loggedBy});await tgSend(chatId,[`💰 *Large expense: ₱${peso(amount)}*`,`${label??slug}${payee?` · ${mdEsc(payee)}`:''}`,`Confirm this entry?`].join('\n'),{reply_markup:pendingKeyboard(pid,'✅ Confirm')});return;}const{data:row,error}=await insertExpense(db,opts);if(error||!row){await tgSend(chatId,`⚠️ Could not save: ${errMsg(error?.message)}`);return;}await tgSend(chatId,confirmMsg(amount,label??slug,payee??null,row.id,row.look));}
 function buildSummaryCard(s:any):string{
   const topCats=(s.by_category??[]).filter((c:any)=>c.txn_type==='expense').slice(0,5).map((c:any)=>`   • ${mdEsc(c.label)}  —  ₱${peso(c.total)}`).join('\n');
   const lines=[
@@ -1528,9 +1530,9 @@ async function handleCallbackQueryInner(cq:any,db:any){
     const payload=await consumePending(db,data.slice('llm_expense_confirm:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired — please try again._');return;}
     await tgEdit(chatId,msgId,firstLine+'\n_Saving…_');
-    const{data:row,error}=await insertExpense(db,payload);
+    const{data:row,error}=await insertExpense(db,{...payload,key:keyForPending(data.slice('llm_expense_confirm:'.length))});
     if(error||!row){await tgEdit(chatId,msgId,'⚠️ Could not save.');return;}
-    await tgEdit(chatId,msgId,confirmMsg(payload.amount,payload.label??payload.category,payload.payee??null,row.id));
+    await tgEdit(chatId,msgId,confirmMsg(payload.amount,payload.label??payload.category,payload.payee??null,row.id,row.look));
     return;
   }
   if(data.startsWith('llm_void_confirm:')){
@@ -1580,7 +1582,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
   if(data.startsWith('lvt_confirm:')){
     const payload=await consumePending(db,data.slice('lvt_confirm:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
-    const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Voided via Telegram NL',updated_at:new Date().toISOString()}).eq('id',payload.txnId));
+    const vr=await voidExpense(db,String(payload.txnId),'Voided via Telegram NL',whoFrom(cq.from));const err=vr.ok?null:vr.message;
     if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('void that entry',err));return;}
     await tgEdit(chatId,msgId,firstLine+`\n✅ Ref \`${payload.refCode}\` voided.`);return;
   }
@@ -1588,9 +1590,9 @@ async function handleCallbackQueryInner(cq:any,db:any){
     const payload=await consumePending(db,data.slice('lvts_confirm:'.length));
     if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}
     const ids=Array.isArray(payload.txnIds)?payload.txnIds:[];
-    const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Voided via Telegram NL',updated_at:new Date().toISOString()}).in('id',ids));
+    const vm=await voidMany(db,ids.map(String),'Voided via Telegram NL',whoFrom(cq.from));const err=vm.done===0&&vm.total>0?(vm.firstFailure??'Nothing was changed.'):null;
     if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('void those entries',err));return;}
-    await tgEdit(chatId,msgId,firstLine+`\n✅ ${ids.length} transaction${ids.length!==1?'s':''} voided.`);return;
+    await tgEdit(chatId,msgId,firstLine+`\n✅ ${vm.done} transaction${vm.done!==1?'s':''} voided.${vm.done<vm.total?` ${vm.total-vm.done} could not be changed: ${vm.firstFailure}`:''}`);return;
   }
   // D-290: the brownout card. Done records that Marifel blocked Airbnb; Undo and Unblock free the nights we hold on our own site (never Airbnb).
   if(data.startsWith('pw:')){
@@ -1666,7 +1668,7 @@ async function handleCallbackQueryInner(cq:any,db:any){
       const cmd=rest.slice(3);
       if(cmd.startsWith('nt:'))    {await handleNoticesByType(chatId,db,cmd.slice(3));return;}
       switch(cmd){
-        case 'log':         await tgSend(chatId,'🧾 *Log an Expense*\n\nSelect a category:',{reply_markup:categoryKeyboard(0)});break;
+        case 'log':         await tgSend(chatId,'🧾 *Log an Expense*\n\nSelect a category:',{reply_markup:await categoryKeyboard(db,0)});break;
         case 'inventory':   await handleStockQuery(db,chatId,isF?'finance':'ops',{filter:'all'});break; // session 28: [/inventory] button
         case 'stock':       await handleStockQuery(db,chatId,isF?'finance':'ops',{filter:'low'});break;
         case 'count':       if(isF)await promptCountScope(db,chatId);else await tgSend(chatId,'Counts are updated from the Finance group.');break; // session 33: SPEC-03
@@ -1686,18 +1688,18 @@ async function handleCallbackQueryInner(cq:any,db:any){
     return;
   }
   if(data.startsWith('cat:'))    {const[,slug,amtStr]=data.split(':');const pre=Number(amtStr)||0;const label=await getCategoryLabel(db,slug);await tgEdit(chatId,msgId,`🧾 *Log an Expense*\n✅ Category: *${label}*`);await ask(db,chatId,cq.from?.id,'expense',{slug,pre},expensePromptText(label,pre));return;}
-  if(data.startsWith('dup_ok:')) {const payload=await consumePending(db,data.slice('dup_ok:'.length));if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}const{data:row,error}=await insertExpense(db,payload);if(error||!row){await tgEdit(chatId,msgId,'⚠️ Could not save.');return;}await tgEdit(chatId,msgId,confirmMsg(payload.amount,payload.label??payload.category,payload.payee,row.id));return;}
+  if(data.startsWith('dup_ok:')) {const payload=await consumePending(db,data.slice('dup_ok:'.length));if(!payload){await tgEdit(chatId,msgId,firstLine+'\n⏰ _Expired._');return;}const{data:row,error}=await insertExpense(db,{...payload,key:keyForPending(data.slice('dup_ok:'.length))});if(error||!row){await tgEdit(chatId,msgId,'⚠️ Could not save.');return;}await tgEdit(chatId,msgId,confirmMsg(payload.amount,payload.label??payload.category,payload.payee,row.id,row.look));return;}
   if(data.startsWith('dup_cancel:')){await db.from('telegram_pending').delete().eq('id',data.slice('dup_cancel:'.length));await tgEdit(chatId,msgId,firstLine+'\n❌ _Cancelled._');return;}
   if(data.startsWith('continue_ocr:')){
     const payload=await consumePending(db,data.slice('continue_ocr:'.length));if(!payload){await tgEdit(chatId,msgId,'⏰ _Expired._');return;}
     await tgEdit(chatId,msgId,'📸 _Processing receipt…_');
     const{data:blob,error:dlErr}=await db.storage.from(RECEIPTS_BUCKET).download(payload.objectPath);
     if(dlErr||!blob){await tgSend(chatId,'⚠️ Could not retrieve image. Please re-send.');return;}
-    await runOcr(db,chatId,payload.objectPath,new Uint8Array(await blob.arrayBuffer()),blob.type||'image/jpeg',payload.loggedBy,payload.notes,payload.categoryHint??'');return;
+    await runOcr(db,chatId,payload.objectPath,new Uint8Array(await blob.arrayBuffer()),blob.type||'image/jpeg',payload.loggedBy,payload.notes,payload.categoryHint??'',data.slice('continue_ocr:'.length));return;
   }
-  if(data.startsWith('ocr_ok:'))   {const txnId=data.slice('ocr_ok:'.length);const err=await dbWrite(db.from('transactions').update({status:'confirmed',updated_at:new Date().toISOString()}).eq('id',txnId));if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('confirm the receipt',err));return;}await tgEdit(chatId,msgId,firstLine+`\n✅ *Confirmed — added to ledger*\n🔖 Ref: ${shortRef(txnId)}`);await maybeOfferInventorySync(db,chatId,txnId);return;}
+  if(data.startsWith('ocr_ok:'))   {const txnId=data.slice('ocr_ok:'.length);const cr=await confirmExpense(db,txnId,whoFrom(cq.from));const err=cr.ok?null:cr.message;if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('confirm the receipt',err));return;}await tgEdit(chatId,msgId,firstLine+`\n✅ *Confirmed — added to ledger*\n🔖 Ref: ${shortRef(txnId)}`);await maybeOfferInventorySync(db,chatId,txnId);return;}
   if(data.startsWith('ocr_edit:')) {await ask(db,chatId,cq.from?.id,'edit_amount',{txnId:data.slice('ocr_edit:'.length)},'💵 Type the correct total, like 1706.');return;}
-  if(data.startsWith('ocr_void:')) {const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Discarded via Telegram',updated_at:new Date().toISOString()}).eq('id',data.slice('ocr_void:'.length)));if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('discard the receipt',err));return;}await tgEdit(chatId,msgId,firstLine+'\n❌ *Discarded*');return;}
+  if(data.startsWith('ocr_void:')) {const vr=await voidExpense(db,data.slice('ocr_void:'.length),'Discarded via Telegram',whoFrom(cq.from));const err=vr.ok?null:vr.message;if(err){await tgEdit(chatId,msgId,firstLine+'\n'+NOTHING_CHANGED('discard the receipt',err));return;}await tgEdit(chatId,msgId,firstLine+'\n❌ *Discarded*');return;}
   if(data.startsWith('item_edit:'))   {await promptEditItem(db,chatId,data.slice('item_edit:'.length));return;}
   if(data.startsWith('item_add:'))    {const txnId=data.slice('item_add:'.length);if(!await loadReceiptTxn(db,txnId)){await tgSend(chatId,'⏰ That receipt is no longer editable.');return;}await ask(db,chatId,cq.from?.id,'receipt_item_add',{txnId},'➕ Type the item and its price, like Joy Dishwashing 89. Add x2 for quantity.');return;}
   if(data.startsWith('item_remove:')) {await promptRemoveItem(db,chatId,data.slice('item_remove:'.length));return;}
@@ -1764,13 +1766,14 @@ async function handleAnswer(db:any,chatId:any,msg:any,aw:{id:string;payload:any}
     case 'expense':{
       const a=parseExpenseAnswer(text,Number(p.pre)||0);if(!a){await bad();return;}
       await done();const label=await getCategoryLabel(db,String(p.slug));
-      await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:a.vendor,loggedBy});return;
+      await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:a.vendor,loggedBy,key:keyForMessage(chatId,msg.message_id)});return;
     }
     case 'edit_amount':{
       const amount=parseMoney(text);if(amount===null){await bad();return;}
       if(!await loadReceiptTxn(db,String(p.txnId))){await gone();return;}
       await done();
-      await db.from('transactions').update({gross_amount:amount,updated_at:new Date().toISOString()}).eq('id',p.txnId);
+      const ar=await setExpenseAmount(db,String(p.txnId),amount,loggedBy);
+      if(!ar.ok){await tgReply(chatId,msg.message_id,NOTHING_CHANGED('change the total',ar.message));return;}
       await sendReceiptCard(db,chatId,String(p.txnId),`💵 Total set to ₱${peso(amount)}.`);return;
     }
     case 'payclean_amount':{
@@ -1865,7 +1868,7 @@ async function handleTextMessage(msg:any,db:any){
     if(cmd==='/purchase')    {await tgSend(chatId,'📸 Send me the receipt photo and I\'ll read it, then offer to update stock for any matched items.');return;}
     if(cmd==='/status')      {await handleStatus(db,chatId);return;}
     if(cmd==='/ping')        {await handlePing(chatId);return;}
-    if(cmd==='/log')         {await tgSend(chatId,'🧾 *Log an Expense*\n\nSelect a category:',{reply_markup:categoryKeyboard(0)});return;}
+    if(cmd==='/log')         {await tgSend(chatId,'🧾 *Log an Expense*\n\nSelect a category:',{reply_markup:await categoryKeyboard(db,0)});return;}
     if(cmd==='/payclean')    {await payCleanList(db,chatId);return;}
     if(cmd==='/manualclean') {await promptManualClean(db,chatId,from.id);return;}
     if(cmd==='/notifyclean') {await notifyCleanAcks(db,chatId);return;}
@@ -1880,7 +1883,7 @@ async function handleTextMessage(msg:any,db:any){
       const{data:rows}=await db.from('transactions').select('id,gross_amount,category,status').eq('property_id',PROPERTY_ID).gte('id',lo).lte('id',hi).limit(1);
       const txn=rows?.[0];if(!txn){await tgSend(chatId,`⚠️ No transaction with ref \`${refCode}\`.`);return;}
       if(txn.status==='void'){await tgSend(chatId,`ℹ️ \`${refCode}\` is already void.`);return;}
-      const err=await dbWrite(db.from('transactions').update({status:'void',notes:'Voided via /void',updated_at:new Date().toISOString()}).eq('id',txn.id));
+      const vr=await voidExpense(db,txn.id,'Voided via /void',loggedBy);const err=vr.ok?null:vr.message;
       if(err){await tgSend(chatId,NOTHING_CHANGED(`void \`${refCode}\``,err));return;}
       await tgSend(chatId,`✅ Ref \`${refCode}\` (₱${peso(txn.gross_amount)} · ${txn.category}) voided.`);return;
     }
@@ -1900,15 +1903,15 @@ async function handleTextMessage(msg:any,db:any){
   const firstTok=(tokens[0]??'').replace(/[₱,]/g,'');
   const{amount,idx}=/^\d+(\.\d{1,2})?$/.test(firstTok)?parseAmount(tokens):{amount:null,idx:-1};
   if(amount!==null){
-    const cats=await getCategories(db);const remTokens=tokens.filter((_,i)=>i!==idx);const remainder=remTokens.join(' ').trim();
+    const cats=pickableCategories(await getCategories(db));const remTokens=tokens.filter((_,i)=>i!==idx);const remainder=remTokens.join(' ').trim();
     const{slug,label,matched}=classify(remainder,cats);
     const stripped=matched?remTokens.filter(t=>t.toLowerCase()!==matched).join(' ').trim():remainder;
-    await validateAndInsert(db,chatId,{category:slug,amount,label,payee:stripped||null,notes:remainder||null,loggedBy});return;
+    await validateAndInsert(db,chatId,{category:slug,amount,label,payee:stripped||null,notes:remainder||null,loggedBy,key:keyForMessage(chatId,msg.message_id)});return;
   }
 
   {
     const det=detectAmountAnywhere(text);
-    await tgSend(chatId,`🧾 *Log an Expense*\n${det>0?`💡 Detected *₱${peso(det)}* — select a category:`:'Select a category to log an expense:'}`,{reply_markup:categoryKeyboard(det)});
+    await tgSend(chatId,`🧾 *Log an Expense*\n${det>0?`💡 Detected *₱${peso(det)}* — select a category:`:'Select a category to log an expense:'}`,{reply_markup:await categoryKeyboard(db,det)});
   }
 }
 
