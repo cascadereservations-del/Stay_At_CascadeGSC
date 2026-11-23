@@ -245,13 +245,15 @@ insert into _t select 'rc_laundry', pg_temp.try(format('select public.reconcile_
 reset role;
 select ok((select (v ->> 'ok')::boolean and (v ->> 'variance')::numeric = 1 from _t where k = 'rc_laundry') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('cb')) = 7
       and exists (select 1 from public.inventory_stock_movements m where m.item_id = pg_temp.id('cb') and m.kind = 'reconcile' and m.actor_user_id = pg_temp.id('05') and m.quantity_after = 7), 'laundry recount: allowed, 6 -> 7, one reconcile movement by the laundry user');
+insert into _t select 'id_rc_undo', jsonb_build_object('id', (select m.id from public.inventory_stock_movements m where m.item_id = pg_temp.id('cb') order by m.sequence_no desc limit 1)); -- read as postgres: the copy and production give authenticated no table read
 select pg_temp.as_user(pg_temp.id('05'));
-insert into _t select 'rc_undo', pg_temp.try(format('select public.inventory_undo_v1(%L::uuid, null)', (select m.id from public.inventory_stock_movements m where m.item_id = pg_temp.id('cb') order by m.sequence_no desc limit 1)));
+insert into _t select 'rc_undo', pg_temp.try(format('select public.inventory_undo_v1(%L::uuid, null)', (select v ->> 'id' from _t where k = 'id_rc_undo')));
 reset role;
 select ok((select (v ->> 'ok')::boolean from _t where k = 'rc_undo') and (select qty_on_hand from public.inventory_items where id = pg_temp.id('cb')) = 6, 'laundry undo of the recount: ok, 7 -> 6');
+insert into _t select 'id_rc_mnt_undo', jsonb_build_object('id', (select m.id from public.inventory_stock_movements m where m.item_id = pg_temp.id('cb') order by m.sequence_no desc limit 1)); -- read as postgres: the copy and production give authenticated no table read
 select pg_temp.as_user(pg_temp.id('06'));
 insert into _t select 'rc_fin', pg_temp.try(format('select public.reconcile_inventory_baseline_v1(%L::uuid, 9, %L, %L)', pg_temp.id('cb'), 'zz s132 finance recount', 'zz-s132-recount-finance-0001'));
-insert into _t select 'rc_mnt_undo', pg_temp.try(format('select public.inventory_undo_v1(%L::uuid, null)', (select m.id from public.inventory_stock_movements m where m.item_id = pg_temp.id('cb') order by m.sequence_no desc limit 1)));
+insert into _t select 'rc_mnt_undo', pg_temp.try(format('select public.inventory_undo_v1(%L::uuid, null)', (select v ->> 'id' from _t where k = 'id_rc_mnt_undo')));
 reset role;
 select is((select v ->> 'err' from _t where k = 'rc_fin'), '42501', 'finance recount: refused 42501');
 select is((select v ->> 'err' from _t where k = 'rc_mnt_undo'), '42501', 'finance undo of a count: refused 42501');
@@ -434,8 +436,9 @@ select ok((select (v ->> 'ok')::boolean from _t where k = 'adm_rcpt') and exists
   'admin receipt: p_note is stored after the key tag');
 select ok((select (v ->> 'ok')::boolean from _t where k = 'adm_rcpt8') and exists (select 1 from public.inventory_purchases p where p.item_id = pg_temp.id('c3') and p.notes = 'Admin receipt [key:zz-s132-admrc-key-0002]'),
   'admin receipt: a call with the old 8 arguments still works and the notes are as before');
+insert into _t select 'id_adm_undo', jsonb_build_object('id', (select p.id from public.inventory_purchases p where p.item_id = pg_temp.id('c3') order by p.created_at desc limit 1)); -- read as postgres: the copy and production give authenticated no table read
 select pg_temp.as_user(pg_temp.id('01'));
-insert into _t select 'adm_undo', pg_temp.try(format('select public.inventory_undo_v1(null, %L::uuid)', (select p.id from public.inventory_purchases p where p.item_id = pg_temp.id('c3') order by p.created_at desc limit 1)));
+insert into _t select 'adm_undo', pg_temp.try(format('select public.inventory_undo_v1(null, %L::uuid)', (select v ->> 'id' from _t where k = 'id_adm_undo')));
 reset role;
 select ok((select (v ->> 'ok')::boolean from _t where k = 'adm_undo'), 'admin receipt: the undo still finds a receipt with a note after the key tag');
 
