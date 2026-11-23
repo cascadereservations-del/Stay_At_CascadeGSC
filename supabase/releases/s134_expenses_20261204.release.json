@@ -15,8 +15,8 @@
   "backup": {
     "required": true,
     "scope": "production",
-    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T120703Z",
-    "verified_at": "2026-11-23T12:20:00.000Z",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T162357Z",
+    "verified_at": "2026-11-23T16:28:16.230Z",
     "production_rule": "One expense ledger (D-405, Lloyd 2026-11-23): inventory_purchases.transaction_id (FK, on delete set null) and .expense_group; transactions_source_check gains 'inventory'; a BEFORE INSERT trigger (s134_stock_expense_group) and a deferred constraint trigger (s134_stock_expense_sync) turn stock bought into ONE ledger row per receipt without ever failing a stock write; kpi_tab_v1 gets one anchored replace inside if v_fin (md5 80efd89e to 7c6d5a22); 5 client RPCs (authenticated only) plus admin_review_queue_v1 (s89 body plus one column, s134_incomplete; same signature and grants) admin_save_transaction_v1 (s89 body plus two changes, same signature and grants: the five s134_* keys of ocr_raw are the server's, a client can neither write nor clear them), and admin_review_transaction_v1 (s89 body, same signature and grants; approve refuses amount_incomplete / amount_locked / system_category / locked as answers), 2 Telegram RPCs (service_role only), 15 internal functions (no grants); the expense-receipts mime list gains application/pdf (NULL stays NULL, a size limit under 5 MB stops the migration). The migration writes no ledger row: old stock is the back-fill's (supabase/sql/s134_backfill.sql, run only after Lloyd has seen the preview).",
     "notes": "Apply after s133 is applied. Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs; the checker refuses one older than an hour). The Admin and Staff pushes and the Telegram edge functions follow the SQL; the back-fill is a separate, approved step."
   },
