@@ -79,3 +79,26 @@ test('reserves a dated, non-live Airbnb proof fallback', () => {
 test('does not fetch or scrape airbnb.com from client code', () => {
   assert.doesNotMatch(html, /fetch\(['"`][^'"`]*airbnb\.com/i);
 });
+
+test('T8 SEO: JSON-LD rating matches RATING, FAQPage matches the visible FAQ exactly, meta description is short and price-free', () => {
+  const named = { mdash: '\u2014', ndash: '\u2013', rsquo: '\u2019', lsquo: '\u2018', amp: '&', rarr: '\u2192', middot: '\u00B7', nbsp: ' ', hellip: '\u2026', ldquo: '\u201C', rdquo: '\u201D' };
+  const clean = (x) => x.replace(/<[^>]+>/g, '').replace(/&#x([0-9a-f]+);/gi, (m, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (m, d) => String.fromCodePoint(+d)).replace(/&([a-z]+);/gi, (m, n) => named[n] ?? m).replace(/\s+/g, ' ').trim();
+  const rating = html.match(/const RATING = \{ score: ([\d.]+), count: (\d+)/);
+  const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(m => JSON.parse(m[1]));
+  const lodging = blocks.find(b => b.aggregateRating);
+  assert.equal(lodging.aggregateRating.ratingValue, rating[1]);
+  assert.equal(lodging.aggregateRating.reviewCount, rating[2]);
+  const faq = blocks.find(b => b['@type'] === 'FAQPage');
+  const visible = [...html.matchAll(/<details class="faq-item[\s\S]*?<\/details>/g)].map(m => {
+    const q = clean(m[0].match(/<summary>([\s\S]*?)<span class="faq-chevron"/)[1]);
+    const a = [...m[0].matchAll(/<p class="faq-answer"[^>]*>([\s\S]*?)<\/p>/g)].map(x => clean(x[1])).join(' ');
+    return { q, a };
+  });
+  const ratingSpans = (t) => t.replace(/\b4\.97\b/, 'SCORE');
+  assert.equal(faq.mainEntity.length, visible.length);
+  faq.mainEntity.forEach((e, i) => { assert.equal(e.name, visible[i].q); assert.equal(e.acceptedAnswer.text, visible[i].a, e.name); });
+  assert.ok(ratingSpans(faq.mainEntity.map(e => e.acceptedAnswer.text).join(' ')).includes('SCORE'));
+  const desc = html.match(/<meta name="description" content="([^"]*)"/)[1];
+  assert.ok(desc.length <= 160, `description is ${desc.length} chars`);
+  assert.doesNotMatch(desc, /[₱\d]/);
+});
