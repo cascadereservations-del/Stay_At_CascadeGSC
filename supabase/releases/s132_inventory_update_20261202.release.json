@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "release_id": "s132_inventory_update_20261202",
+  "phase": "expand",
+  "source": {
+    "branch": "s132/inventory-update",
+    "commit": "7d8357a277bb10181b54a99c8d444d5643c62460"
+  },
+  "migrations": [
+    "20261202000000_s132_inventory_update.sql"
+  ],
+  "migration_sha256": {
+    "20261202000000_s132_inventory_update.sql": "ddb40f4f5937c0e968a4e2307ca64a680b64a34577d6ec885573164ee31e1098"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T004817Z",
+    "verified_at": "2026-11-23T00:52:39.811Z",
+    "production_rule": "Inventory Update sheet server side (D-396, Lloyd 2026-11-22; Opus 5.5 lane PASS 2026-11-23 after 4 fix rounds). Over s131b_followups_20261201, which must already be applied. New table inventory_damage_reports (RLS on, no grants); new functions record_inventory_damage_v1, undo_inventory_damage_v1, undo_inventory_usage_v1, undo_linen_stain_v1 (authenticated only); internal s_inventory_purchase_note_v1 and trigger function s_inventory_usage_removed_v1 (no grant). Replaces 10 bodies in place behind an md5 guard (55000 when a live body is neither its cut-from body nor this release), re-signs record_inventory_receipt_v1 (9->10 args), inventory_receipt_manual_v1 (4->7) and record_linen_stains_v1 (5->6) with the old signatures dropped, adds nullable columns to linen_stain_reports, inventory_usage and inventory_receipt_drafts, and the BEFORE INSERT trigger inventory_usage_removed_v1. record_inventory_usage is not replaced; its live body is pinned (365f7c6d). No money write: inventory_receipt_manual_v1 still writes no finance row.",
+    "notes": "Apply after s131b is applied. Restamp restore_point and verified_at with a fresh backup at apply time (the checker refuses one older than an hour). The Staff 3.4.50 push follows the SQL."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_replaced_and_pinned_bodies",
+      "query": "select count(*) = 14 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)'::regprocedure, 'b56d8bce61c205b3265ff99b8336bf35'), ('public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)'::regprocedure, 'fdeaf212bebc578ee82f9240e6c05417'), ('public.inventory_undo_v1(uuid,uuid)'::regprocedure, '5125463a4d686d5a180f1ee599fa00b7'), ('public.inventory_item_update_v1(uuid,jsonb)'::regprocedure, '618e3ec14138f9ce05c4c3dc1b1fe7fa'), ('public.get_inventory_catalogue_v1(uuid)'::regprocedure, '2ed1f4a50454e4072409d98ed0eea53c'), ('public.get_inventory_item_moves_v1(uuid)'::regprocedure, '865a052a81b49407dcf1b4e5f8f91f4e'), ('public.inventory_item_history_v1(uuid)'::regprocedure, 'bbf90cfbd5f97158307e12502ae1223e'), ('public.inventory_item_change_undo_v1(uuid)'::regprocedure, 'f513d523af5ef4f99055ca73e789b7ce'), ('public.inventory_qty_at_v1(uuid,timestamptz)'::regprocedure, '14b0a49112a97cbc3ca8318461af2078'), ('public.get_usage_medians()'::regprocedure, 'eb605dd66ebd70bb83061e2f38795132'), ('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)'::regprocedure, 'd190f6b6051be034e9e9babb99cbbf56'), ('public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)'::regprocedure, '8c407320edbbc9d944a86461bef23adf'), ('public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)'::regprocedure, 'e4cfcd996dda6d2cd7a3239cf574ab9e'), ('public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure, '365f7c6d50258a611612465e4ad3624b')) e(oid, m) join pg_proc p on p.oid = e.oid",
+      "expect": true
+    },
+    {
+      "name": "md5_new_functions",
+      "query": "select count(*) = 6 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.record_inventory_damage_v1(uuid,jsonb,text,uuid,boolean,text,text,text)'::regprocedure, '5e8e9bb09ce488f86566236d32620a01'), ('public.undo_inventory_damage_v1(uuid)'::regprocedure, 'bbb566116e036671a30fa15f1c2ba1e7'), ('public.undo_inventory_usage_v1(text)'::regprocedure, '77de62aa768dc56b9c711beb9c10e49f'), ('public.undo_linen_stain_v1(text)'::regprocedure, '5d6fdd96f8fd8e3a53ca158f3859d9e1'), ('public.s_inventory_usage_removed_v1()'::regprocedure, '010e808e9cba4816290118a9490501a2'), ('public.s_inventory_purchase_note_v1(text)'::regprocedure, '170648a6fee4ea396c1752cb63a063b9')) e(oid, m) join pg_proc p on p.oid = e.oid",
+      "expect": true
+    },
+    {
+      "name": "old_signatures_dropped",
+      "query": "select to_regprocedure('public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid)') is null and to_regprocedure('public.inventory_receipt_manual_v1(jsonb,date,text,text)') is null and to_regprocedure('public.record_linen_stains_v1(uuid,date,text,text,jsonb)') is null",
+      "expect": true
+    },
+    {
+      "name": "callable_functions_authenticated_only",
+      "query": "select bool_and(has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.record_inventory_damage_v1(uuid,jsonb,text,uuid,boolean,text,text,text)', 'public.undo_inventory_damage_v1(uuid)', 'public.undo_inventory_usage_v1(text)', 'public.undo_linen_stain_v1(text)', 'public.inventory_item_history_v1(uuid)', 'public.record_inventory_receipt_v1(uuid,numeric,numeric,text,date,text,uuid,text,uuid,text)', 'public.inventory_receipt_manual_v1(jsonb,date,text,text,numeric,text,text)', 'public.record_linen_stains_v1(uuid,date,text,text,jsonb,text)', 'public.inventory_item_update_v1(uuid,jsonb)', 'public.get_inventory_catalogue_v1(uuid)', 'public.get_inventory_item_moves_v1(uuid)', 'public.inventory_item_change_undo_v1(uuid)', 'public.inventory_undo_v1(uuid,uuid)', 'public.reconcile_inventory_baseline_v1(uuid,numeric,text,text)']) f",
+      "expect": true
+    },
+    {
+      "name": "internal_functions_postgres_only",
+      "query": "select bool_and(not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.s_inventory_usage_removed_v1()', 'public.s_inventory_purchase_note_v1(text)', 'public.s_inventory_staff_movement_v1(uuid,text,numeric,text,text)']) f",
+      "expect": true
+    },
+    {
+      "name": "usage_qty_at_medians_grants",
+      "query": "select has_function_privilege('authenticated', 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.record_inventory_usage(uuid,date,text,text,jsonb)'::regprocedure, 'execute') and has_function_privilege('service_role', 'public.inventory_qty_at_v1(uuid,timestamptz)'::regprocedure, 'execute') and not has_function_privilege('authenticated', 'public.inventory_qty_at_v1(uuid,timestamptz)'::regprocedure, 'execute') and has_function_privilege('authenticated', 'public.get_usage_medians()'::regprocedure, 'execute') and not has_function_privilege('anon', 'public.get_usage_medians()'::regprocedure, 'execute')",
+      "expect": true
+    },
+    {
+      "name": "damage_table_rls_no_grants",
+      "query": "select c.relrowsecurity and not has_table_privilege('anon', 'public.inventory_damage_reports', 'select') and not has_table_privilege('authenticated', 'public.inventory_damage_reports', 'select') and not has_table_privilege('authenticated', 'public.inventory_damage_reports', 'insert') and not has_table_privilege('service_role', 'public.inventory_damage_reports', 'select') from pg_class c where c.oid = 'public.inventory_damage_reports'::regclass",
+      "expect": true
+    },
+    {
+      "name": "new_columns_present",
+      "query": "select count(*) = 8 from information_schema.columns where table_schema = 'public' and ((table_name = 'linen_stain_reports' and column_name in ('reason', 'note', 'photo_path', 'undone_at')) or (table_name = 'inventory_usage' and column_name in ('undone_at', 'undone_qty', 'removed_qty')) or (table_name = 'inventory_receipt_drafts' and column_name = 'note'))",
+      "expect": true
+    },
+    {
+      "name": "usage_removed_trigger_enabled",
+      "query": "select count(*) = 1 from pg_trigger t where t.tgrelid = 'public.inventory_usage'::regclass and t.tgname = 'inventory_usage_removed_v1' and t.tgenabled = 'O' and t.tgfoid = 'public.s_inventory_usage_removed_v1()'::regprocedure",
+      "expect": true
+    }
+  ],
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Any time, losing only what s132 added: the rollback puts the exact previous bodies back (the first md5 of each guard row), restores the old signatures, and drops inventory_damage_reports, the new functions, the trigger and the new columns. Usage tombstones are deleted after their usage_undo audit rows are neutralised (F15); reports and notes recorded through the new paths are lost (F18, accepted window).",
+    "steps": [
+      {
+        "name": "rollback_staff_first",
+        "action": "Revert the Cascade-Staff push first (Staff 3.4.50 calls the new signatures)."
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261202_s132_inventory_update.sql with run-sql-on-host.sh; the replaced bodies must read their pre-s132 md5 again."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Staff 3.4.50 uses the new functions. Between the SQL and the Staff push the old app keeps working except the three re-signed calls (receipt, manual receipt, linen stains), which it sends with the old argument count; push the Staff app right after the SQL."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": false,
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-23 on restored production backup cascade-supabase-20261123T004817Z (post-s131b, post D-397 group moves) at the source commit named in this file: migration applied, forward verification 9 of 9, pgTAP s132_inventory_update.sql 107/107 (run 2, after a test-only fix in 7d8357a: three ids are read as postgres before switching role, because neither the copy nor production gives authenticated a table read), inventory_movement_compat_v1 10/10, public tables 141 -> 142. Old suites (s120_linen_stains, s86_inventory_db, s89_backlog, kpi_reconcile_v1, s110_kpi_supply_laundry, s120_count_learning, s120_usage_learning, s122_item_moves, s124_item_edit, s125_add_item, s99f_count_as_of, record_inventory_usage_movement, security_grants) were compared with a baseline run on the same backup WITHOUT s132 (s131b re-applied, suites at d418904): no failing assertion is new with s132. Every failure in both runs is a function-grant assertion (a --no-acl restore leaves PUBLIC execute), an old data pin (s86 backfill, s110 meter rows) or the same grant test renamed by L1 (9-argument -> 10-argument receipt). s120_count_learning rehearses the s120 rollback, which pins reconcile_inventory_baseline_v1 at its s120 body and therefore stops after s132 replaces it (expected; s132 has its own rollback). Logs: %TEMP%/s132-rehearsal.log, s132-rehearsal2.log, s132-baseline.log on the workstation. Old writer: Staff 3.4.49 receipt, manual receipt and linen-stain calls are refused between the SQL and the Staff push (re-signed functions); every other old call works."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (a live body moved, or s131b is missing)",
+    "the rehearsal has not run the migration and the suites s132_inventory_update, s120_linen_stains, s86, s89, kpi_reconcile, movement_compat and s110 green on this commit, compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed"
+  ]
+}
