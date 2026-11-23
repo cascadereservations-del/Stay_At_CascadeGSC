@@ -1,9 +1,9 @@
 -- Rollback of release s134_expenses_20261204 (D-405). Revert the Cascade-Admin and Cascade-Staff pushes first (they call the new functions), and stop the Telegram functions that call telegram_expense_*.
---   * the two triggers on inventory_purchases and every s134 function are dropped (client, telegram and internal);
+--   * the two triggers on inventory_purchases, the confirm-gate trigger on transactions (s134_stock_expense_confirm_guard) and every s134 function are dropped (client, telegram and internal);
 --   * kpi_tab_v1 goes back to the s127 body by removing exactly the inserted lines (md5 pinned: 7c6d5a22... or 80efd89e..., 55000 on a body that is neither);
 --   * admin_review_transaction_v1 goes back to the s89 body (md5 pinned: fef25e31... or this release's 9fc10f4c..., 55000 on a body that is neither);
 --   * admin_review_queue_v1 goes back to the s89 body (md5 pinned: ed2a6920... or this release's 48ef55da008a00763a0ec2d9fc9053dc, 55000 on a body that is neither);
---   * admin_save_transaction_v1 goes back to the s89 body (md5 pinned: ff48081b485cacf547a1692d7641d85b or this release's d58ca5bd59aac0681f8ed8fd914cbe13, 55000 on a body that is neither);
+--   * admin_save_transaction_v1 goes back to the s89 body (md5 pinned: ff48081b485cacf547a1692d7641d85b or this release's 697fb240f1a177721601bb148af8c9cc, 55000 on a body that is neither);
 --   * the three s134 indexes are dropped.
 -- KEPT on purpose (expand-only, inert without the triggers): the app_settings key s134_stock_expense_from (the migration keeps the EARLIEST existing value when it is applied again, so the cut-over
 -- month never moves later and the KPI never flips back to the legacy figures for rows already filed), the 'inventory' value in transactions_source_check, the columns inventory_purchases.transaction_id and .expense_group, the guest_refund category,
@@ -140,7 +140,7 @@ declare v text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.admin_save_transaction_v1(uuid,jsonb,text)');
   if v is null then raise exception 's134 rollback: admin_save_transaction_v1 is missing' using errcode = '55000'; end if;
-  if v is distinct from 'ff48081b485cacf547a1692d7641d85b' and v is distinct from 'd58ca5bd59aac0681f8ed8fd914cbe13' then
+  if v is distinct from 'ff48081b485cacf547a1692d7641d85b' and v is distinct from '697fb240f1a177721601bb148af8c9cc' then
     raise exception 's134 rollback: admin_save_transaction_v1 is neither this release nor the s89 body (md5 %)', v using errcode = '55000';
   end if;
 end $s$;
@@ -219,6 +219,7 @@ revoke all on function public.admin_save_transaction_v1(uuid, jsonb, text) from 
 grant execute on function public.admin_save_transaction_v1(uuid, jsonb, text) to authenticated;
 
 -- 3. triggers, then functions
+drop trigger if exists s134_stock_expense_confirm_guard on public.transactions;
 drop trigger if exists s134_stock_expense_sync on public.inventory_purchases;
 drop trigger if exists s134_stock_expense_group on public.inventory_purchases;
 drop function if exists public.expenses_screen_v1(uuid, date, integer, timestamptz, text, uuid);
@@ -234,6 +235,7 @@ drop function if exists public.s_stock_expense_trg_v1();
 drop function if exists public.s_stock_expense_group_v1();
 drop function if exists public.s_stock_expense_sync_v1(text);
 drop function if exists public.s_stock_expense_owned_v1(uuid);
+drop function if exists public.s_stock_expense_confirm_guard_v1();
 drop function if exists public.s_stock_expense_task_v1(uuid, text, text, text);
 drop function if exists public.s_txn_void_core_v1(uuid, text, text, boolean);
 drop function if exists public.s_txn_void_core_v1(uuid, text, text);
@@ -268,6 +270,9 @@ begin
   end if;
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = to_regprocedure('public.admin_save_transaction_v1(uuid,jsonb,text)')) is distinct from 'ff48081b485cacf547a1692d7641d85b' then
     raise exception 's134 rollback: admin_save_transaction_v1 is not the s89 body' using errcode = '55000';
+  end if;
+  if exists (select 1 from pg_trigger t where t.tgrelid = 'public.transactions'::regclass and t.tgname = 's134_stock_expense_confirm_guard') then
+    raise exception 's134 rollback: the confirm-gate trigger is still present' using errcode = '55000';
   end if;
   if exists (select 1 from pg_trigger t where t.tgrelid = 'public.inventory_purchases'::regclass and t.tgname like 's134\_%') then
     raise exception 's134 rollback: an s134 trigger is still present' using errcode = '55000';

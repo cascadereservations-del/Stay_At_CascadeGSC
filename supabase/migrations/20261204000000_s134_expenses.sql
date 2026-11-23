@@ -16,6 +16,7 @@
 --   BUCKET           expense-receipts gains application/pdf in allowed_mime_types when the list is not null; the migration stops when file_size_limit is not null and under 5 MB (R4).
 --                   admin_review_transaction_v1(uuid,uuid,text,jsonb,text) (s89, same signature and grants): approve refuses amount_incomplete, amount_locked, system_category, locked as {ok:false,error,where}; the rollback restores the s89 body.
 --                   admin_review_queue_v1(uuid) (s89, same signature and grants): each row also returns s134_incomplete (boolean); the rollback restores the s89 body.
+--   CONFIRM GATE     BEFORE UPDATE OF status trigger s134_stock_expense_confirm_guard on transactions (function s_stock_expense_confirm_guard_v1): pending_review -> confirmed is refused (55000, hint amount_incomplete) while ocr_raw.s134_incomplete = 'true'.
 -- Guard (55000, nothing changes): the functions the trigger depends on must be the bodies this release was cut from. Grants restated (ML-21).
 -- Rollback: supabase/rollbacks/20261204_s134_expenses.sql (keeps the 'inventory' CHECK value and the two purchase columns: expand-only, inert without the triggers).
 
@@ -39,7 +40,7 @@ begin
     ('public.inventory_undo_v1(uuid,uuid)', '5125463a4d686d5a180f1ee599fa00b7', null),
     ('public.admin_review_transaction_v1(uuid,uuid,text,jsonb,text)', 'fef25e31f2ba4b3df8a9105f38e8c1c2', '9fc10f4c47ca1343015acdfd6e637510'),
     ('public.admin_review_queue_v1(uuid)', 'ed2a69205d365ea8afe96d5f55aa677b', '48ef55da008a00763a0ec2d9fc9053dc'),
-    ('public.admin_save_transaction_v1(uuid,jsonb,text)', 'ff48081b485cacf547a1692d7641d85b', 'd58ca5bd59aac0681f8ed8fd914cbe13')
+    ('public.admin_save_transaction_v1(uuid,jsonb,text)', 'ff48081b485cacf547a1692d7641d85b', '697fb240f1a177721601bb148af8c9cc')
   ) t(sig, m_a, m_b) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is null then raise exception 's134: % is missing (apply s133 first)', r.sig using errcode = '55000'; end if;
@@ -790,7 +791,7 @@ begin
     if (v_gate ->> 'ok')::boolean is not true then return v_gate; end if;
   end if;
   -- keep only the system keys of the old ocr_raw (the model read goes with the old file), add the new file's sha and type
-  select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) into v_raw from jsonb_each(coalesce(v_row.ocr_raw, '{}'::jsonb)) e where e.key = any (v_keep);
+  select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) into v_raw from jsonb_each(case when jsonb_typeof(v_row.ocr_raw) = 'object' then v_row.ocr_raw else '{}'::jsonb end) e where e.key = any (v_keep);
   if p_path is not null then v_raw := v_raw || jsonb_build_object('receipt_sha256', v_gate ->> 'sha256', 'receipt_mime', v_gate ->> 'mime'); end if;
   perform public.admin_audit_context_v1(coalesce(v_reason, case when v_row.receipt_image_path is null then 'receipt added' else 'receipt replaced' end), null, null);
   update public.transactions set receipt_image_path = p_path, ocr_confidence = null, ocr_raw = case when v_raw = '{}'::jsonb then null else v_raw end, updated_at = now() where id = v_row.id;
@@ -973,8 +974,8 @@ end;
 $$;
 comment on function public.admin_review_queue_v1(uuid) is 'S89: transactions waiting for review (count, total, newest 100). No guest data; direct-booking payments are on Inquiries. owner/admin/finance. S134: each row also returns s134_incomplete (an unpriced stock line: the row cannot be approved yet).';
 
--- 6e. admin_save_transaction_v1 (s89, same signature and grants, still granted to authenticated): the s134 system keys of ocr_raw (s134_auto, s134_amount, s134_group, s134_backfill, s134_incomplete) are the server's, never the client's.
---     Body = the s89 body plus two changes: on insert the five keys are stripped from the client's ocr_raw; on an edit that replaces ocr_raw the row's own five keys are carried over, so a client cannot clear s134_incomplete on a stock row
+-- 6e. admin_save_transaction_v1 (s89, same signature and grants, still granted to authenticated): the s134 system keys of ocr_raw (s134_auto, s134_amount, s134_group, s134_backfill, s134_incomplete) and draft_id are the server's, never the client's.
+--     Body = the s89 body plus two changes: on insert the six keys are stripped from the client's ocr_raw; on an edit that replaces ocr_raw the row's own six keys are carried over (a stored ocr_raw that is not an object counts as empty), so a client cannot clear s134_incomplete on a stock row
 --     (approve would let it through) or rewrite its amount. The guard in section 0 pins the s89 body (md5 ff48081b485cacf547a1692d7641d85b) and this release's body. The rollback restores the s89 body byte for byte.
 create or replace function public.admin_save_transaction_v1(p_property_id uuid, p_txn jsonb, p_idempotency_key text)
 returns jsonb language plpgsql security definer set search_path to '' as $$
@@ -1006,7 +1007,7 @@ begin
       if v_conf < 0 or v_conf > 1 then raise exception using errcode = '22023', message = 'ocr_confidence must be between 0 and 1'; end if;
     end if;
     if p_txn ? 'ocr_raw' and jsonb_typeof(p_txn->'ocr_raw') = 'object' then
-      v_raw := (p_txn->'ocr_raw') - 's134_auto' - 's134_amount' - 's134_group' - 's134_backfill' - 's134_incomplete';
+      v_raw := (p_txn->'ocr_raw') - 's134_auto' - 's134_amount' - 's134_group' - 's134_backfill' - 's134_incomplete' - 'draft_id';
       if char_length(v_raw::text) > 20000 then raise exception using errcode = '22023', message = 'ocr_raw is too large'; end if;
     end if;
   end if;
@@ -1040,8 +1041,8 @@ begin
       status = case when p_txn ? 'status' and (p_txn->>'status') in ('confirmed','pending_review') then p_txn->>'status' else status end,
       receipt_image_path = coalesce(v_receipt, receipt_image_path),
       ocr_confidence = case when v_receipt is not null then coalesce(v_conf, ocr_confidence) else ocr_confidence end,
-      ocr_raw = case when v_receipt is not null then case when v_raw is null then ocr_raw else v_raw || coalesce((select jsonb_object_agg(e.key, e.value) from jsonb_each(coalesce(ocr_raw, '{}'::jsonb)) e
-                                                                                                where e.key = any (array['s134_auto', 's134_amount', 's134_group', 's134_backfill', 's134_incomplete'])), '{}'::jsonb) end else ocr_raw end,
+      ocr_raw = case when v_receipt is not null then case when v_raw is null then ocr_raw else v_raw || coalesce((select jsonb_object_agg(e.key, e.value) from jsonb_each(case when jsonb_typeof(ocr_raw) = 'object' then ocr_raw else '{}'::jsonb end) e
+                                                                                                where e.key = any (array['s134_auto', 's134_amount', 's134_group', 's134_backfill', 's134_incomplete', 'draft_id'])), '{}'::jsonb) end else ocr_raw end,
       updated_at = now()
     where id = v_id returning * into v_row;
   end if;
@@ -1050,6 +1051,24 @@ end;
 $$;
 revoke all on function public.admin_save_transaction_v1(uuid, jsonb, text) from public, anon, service_role;
 grant execute on function public.admin_save_transaction_v1(uuid, jsonb, text) to authenticated;
+
+-- 6f. the confirm gate on the ledger itself (fix r6). The admin Finance Queue's Confirm button and any other REST client PATCH transactions.status through the owner/admin policy, past the amount_incomplete refusal
+--     that approve (6c) and Telegram (6a) give. A BEFORE UPDATE OF status trigger refuses pending_review -> confirmed while ocr_raw.s134_incomplete = 'true' (55000, hint amount_incomplete), the same pattern as
+--     trg_guard_direct_booking_income_confirm. The sync clears the marker in the UPDATE that prices the last line, and approve reads it, so no s134 path that confirms is blocked; marker and status may change in one statement.
+create or replace function public.s_stock_expense_confirm_guard_v1()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  raise exception using errcode = '55000', hint = 'amount_incomplete',
+    message = 'Not counted: some items have no price yet. Price the rest in Inventory first.';
+  return new;
+end $$;
+revoke all on function public.s_stock_expense_confirm_guard_v1() from public, anon, authenticated, service_role;
+drop trigger if exists s134_stock_expense_confirm_guard on public.transactions;
+create trigger s134_stock_expense_confirm_guard
+before update of status on public.transactions
+for each row
+when (old.status = 'pending_review' and new.status = 'confirmed' and coalesce(new.ocr_raw ->> 's134_incomplete', '') = 'true')
+execute function public.s_stock_expense_confirm_guard_v1();
 
 -- 7. grants, restated (ML-21) ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 revoke all on function public.expenses_screen_v1(uuid, date, integer, timestamptz, text, uuid) from public, anon, service_role;
@@ -1080,6 +1099,7 @@ revoke all on function public.s_stock_expense_trg_v1() from public, anon, authen
 revoke all on function public.s_stock_expense_sync_v1(text) from public, anon, authenticated, service_role;
 revoke all on function public.s_stock_expense_task_v1(uuid, text, text, text) from public, anon, authenticated, service_role;
 revoke all on function public.s_stock_expense_owned_v1(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.s_stock_expense_confirm_guard_v1() from public, anon, authenticated, service_role;
 revoke all on function public.s_txn_void_core_v1(uuid, text, text, boolean) from public, anon, authenticated, service_role;
 revoke all on function public.s_expense_chip_v1(text, boolean, boolean) from public, anon, authenticated, service_role;
 revoke all on function public.s_expense_mime_v1(text) from public, anon, authenticated, service_role;

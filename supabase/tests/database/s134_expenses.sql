@@ -3,7 +3,7 @@
 -- only the RPC calls run as the staff roles. Every case that relies on the deferred stock trigger issues "set constraints all immediate;" after the write (one uncommitted transaction never fires it otherwise).
 -- T12 does not exist (dropped from the plan). T16 runs a verbatim copy of supabase/sql/s134_backfill.sql (between the BACKFILL markers; the lane's gate compares the two).
 begin;
-select plan(142);
+select plan(151);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -1276,6 +1276,82 @@ select ok((select (v ->> 'ok')::boolean from _t where k = 'r5u')
                   and t.ocr_raw ->> 's134_group' = 'zz-r5' and (t.ocr_raw -> 'keep') = '2'::jsonb
              from public.transactions t where t.id = pg_temp.id('fd')),
   'fix r5: admin_save_transaction_v1 on an edit keeps the row''s own s134_* keys (s134_incomplete stays true) while the client''s other ocr_raw keys are written');
+
+-- (3d) fix r6: the confirm gate on transactions.status (REST clients skip the RPCs); a stored ocr_raw that is not an object does not break an edit; draft_id is the server's
+create function pg_temp.rest_confirm(p_id uuid) returns jsonb language plpgsql as $f$
+declare n integer; v_hint text;
+begin
+  update public.transactions set status = 'confirmed' where id = p_id;
+  get diagnostics n = row_count;
+  return jsonb_build_object('rows', n);
+exception when others then
+  get stacked diagnostics v_hint = pg_exception_hint;
+  return jsonb_build_object('err', sqlstate, 'hint', v_hint, 'msg', sqlerrm);
+end $f$;
+grant execute on function pg_temp.rest_confirm(uuid) to public;
+-- the REST caller: PostgREST sets role authenticated and the JWT claims; transactions_owner_admin_all reads app_metadata.role
+create function pg_temp.as_rest_owner() returns void language sql as $$
+  select set_config('request.jwt.claims', json_build_object('sub', pg_temp.id('01'), 'role', 'authenticated', 'aal', 'aal1', 'app_metadata', json_build_object('role', 'owner'), 'iat', 1790000000)::text, true),
+         set_config('role', 'authenticated', true);
+$$;
+grant execute on function pg_temp.as_rest_owner() to public;
+grant select, update on public.transactions to authenticated;
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, notes, ocr_raw) values
+  (pg_temp.id('96'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'inventory', public.manila_today(), 41, 'Zz S134 r6 incomplete stock row', '{"s134_incomplete": true, "s134_auto": false, "s134_amount": 41}'::jsonb),
+  (pg_temp.id('97'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'manual', public.manila_today(), 42, 'Zz S134 r6 plain pending row', null),
+  (pg_temp.id('98'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'manual', public.manila_today(), 43, 'Zz S134 r6 array ocr_raw', '[1, 2]'::jsonb),
+  (pg_temp.id('99'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'manual', public.manila_today(), 44, 'Zz S134 r6 draft row', '{"draft_id": "zz-orig-draft", "keep": 1}'::jsonb),
+  (pg_temp.id('aa'), pg_temp.id('b3'), 'expense', 'other', 'pending_review', 'inventory', public.manila_today(), 45, 'Zz S134 r6 same-statement clear', '{"s134_incomplete": true, "s134_auto": false}'::jsonb);
+select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '8c', repeat('8c', 32));
+select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '8d', repeat('8d', 32));
+select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '8e', repeat('8e', 32));
+select pg_temp.as_rest_owner();
+insert into _t select 'r6a', pg_temp.rest_confirm(pg_temp.id('96'));
+insert into _t select 'r6d', pg_temp.rest_confirm(pg_temp.id('97'));
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r6b', pg_temp.try(format('select public.admin_save_transaction_v1(%L::uuid, %L::jsonb, %L)', pg_temp.id('b3'),
+  jsonb_build_object('id', pg_temp.id('96'), 'reason', 'zz r6', 'status', 'confirmed'), 'zz-s134-r6-key-000001'));
+insert into _t select 'r6c', pg_temp.try(format('select public.admin_review_transaction_v1(%L::uuid, %L::uuid, %L)', pg_temp.id('b3'), pg_temp.id('96'), 'approve'));
+reset role;
+select ok((select v ->> 'err' = '55000' and v ->> 'hint' = 'amount_incomplete' and v ->> 'msg' = 'Not counted: some items have no price yet. Price the rest in Inventory first.' from _t where k = 'r6a')
+      and (select t.status = 'pending_review' from public.transactions t where t.id = pg_temp.id('96')),
+  'fix r6: a REST-style UPDATE of status to confirmed by an owner is refused on a row with s134_incomplete = true (55000, hint amount_incomplete, plain message); the row stays pending_review');
+select ok((select v ->> 'err' = '55000' and v ->> 'msg' like 'Not counted: some items have no price yet.%' from _t where k = 'r6b')
+      and (select t.status = 'pending_review' from public.transactions t where t.id = pg_temp.id('96')),
+  'fix r6: admin_save_transaction_v1 with status confirmed is refused on the same row (55000, the plain message); the row stays pending_review');
+select ok((select v ->> 'ok' = 'false' and v ->> 'error' = 'amount_incomplete' and v ->> 'where' = 'Inventory' and not (v ? 'err') from _t where k = 'r6c'),
+  'fix r6: admin_review_transaction_v1 still answers {ok:false, error:amount_incomplete} (an answer, not an exception)');
+select ok((select (v ->> 'rows')::int = 1 and not (v ? 'err') from _t where k = 'r6d') and (select t.status = 'confirmed' from public.transactions t where t.id = pg_temp.id('97')),
+  'fix r6: a normal pending row (no marker) still confirms by REST UPDATE');
+-- once priced (marker false) the same row confirms by REST and by approve; clearing the marker in the same UPDATE as the status also passes
+update public.transactions set ocr_raw = ocr_raw || '{"s134_incomplete": false}'::jsonb where id = pg_temp.id('96');
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r6e', pg_temp.try(format('select public.admin_review_transaction_v1(%L::uuid, %L::uuid, %L)', pg_temp.id('b3'), pg_temp.id('96'), 'approve'));
+reset role;
+update public.transactions set status = 'confirmed', ocr_raw = ocr_raw || '{"s134_incomplete": false}'::jsonb where id = pg_temp.id('aa');
+select ok((select (v ->> 'ok')::boolean and v ->> 'status' = 'confirmed' from _t where k = 'r6e')
+      and (select t.status = 'confirmed' from public.transactions t where t.id = pg_temp.id('96'))
+      and (select t.status = 'confirmed' and t.ocr_raw ->> 's134_incomplete' = 'false' from public.transactions t where t.id = pg_temp.id('aa')),
+  'fix r6: after pricing (marker false) approve works; an UPDATE that clears the marker and confirms in one statement passes');
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'r6f', pg_temp.try(format('select public.admin_save_transaction_v1(%L::uuid, %L::jsonb, %L)', pg_temp.id('b3'),
+  json_build_object('id', pg_temp.id('98'), 'reason', 'zz r6', 'receipt_image_path', pg_temp.rpath(pg_temp.id('b3'), pg_temp.id('01'), '8c'), 'ocr_raw', json_build_object('keep', 3))::jsonb, 'zz-s134-r6-key-000002'));
+insert into _t select 'r6g', public.admin_save_transaction_v1(pg_temp.id('b3'),
+  json_build_object('txn_type', 'expense', 'gross_amount', 8, 'transaction_date', public.manila_today(), 'category', 'other', 'receipt_image_path', pg_temp.rpath(pg_temp.id('b3'), pg_temp.id('01'), '8d'),
+    'ocr_raw', json_build_object('draft_id', 'zz-client-draft', 'keep', 1))::jsonb, 'zz-s134-r6-key-000003');
+insert into _t select 'r6h', public.admin_save_transaction_v1(pg_temp.id('b3'),
+  json_build_object('id', pg_temp.id('99'), 'reason', 'zz r6', 'receipt_image_path', pg_temp.rpath(pg_temp.id('b3'), pg_temp.id('01'), '8e'), 'ocr_raw', json_build_object('draft_id', 'zz-client-draft', 'keep', 4))::jsonb, 'zz-s134-r6-key-000004');
+reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'r6f') and (select t.ocr_raw = '{"keep": 3}'::jsonb from public.transactions t where t.id = pg_temp.id('98')),
+  'fix r6: admin_save_transaction_v1 edits a row whose stored ocr_raw is a JSON array (no error; the client''s ocr_raw is written)');
+select ok((select (v ->> 'ok')::boolean from _t where k = 'r6g') and (select t.ocr_raw = '{"keep": 1}'::jsonb from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'r6g')),
+  'fix r6: admin_save_transaction_v1 strips the client''s draft_id from ocr_raw on insert');
+select ok((select (v ->> 'ok')::boolean from _t where k = 'r6h') and (select t.ocr_raw ->> 'draft_id' = 'zz-orig-draft' and (t.ocr_raw -> 'keep') = '4'::jsonb from public.transactions t where t.id = pg_temp.id('99')),
+  'fix r6: admin_save_transaction_v1 on an edit keeps the row''s own draft_id and writes the client''s other ocr_raw keys');
+select ok((select count(*) = 1 from pg_trigger t where t.tgrelid = 'public.transactions'::regclass and t.tgname = 's134_stock_expense_confirm_guard' and t.tgenabled = 'O' and (t.tgtype & 2) = 2 and (t.tgtype & 16) = 16)
+      and not has_function_privilege('authenticated', 'public.s_stock_expense_confirm_guard_v1()', 'execute') and not has_function_privilege('anon', 'public.s_stock_expense_confirm_guard_v1()', 'execute')
+      and not has_function_privilege('service_role', 'public.s_stock_expense_confirm_guard_v1()', 'execute'),
+  'fix r6: the confirm-gate trigger is a BEFORE UPDATE trigger on transactions, enabled, and its function has no client grants');
 
 -- (4) item 3: a receipt attached to the incomplete owned row keeps the marker (and the other system keys)
 select pg_temp.upload(pg_temp.id('b3'), pg_temp.id('01'), '86', repeat('86', 32));
