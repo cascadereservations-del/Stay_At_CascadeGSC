@@ -11,17 +11,18 @@ const ben: Fields = { guest_name: 'Ben Cruz', checkin_date: '2026-10-20', checko
 const full: Fields = { ...ben, deposit_amount: 3560 };
 const long: Fields = { ...ben, guest_name: 'Maximiliano-Bartholomew Esperanza-Villanueva de los Santos', total_amount: 99999, deposit_amount: 12345, pax: 3,
   onground_name: 'Kristine Alexandra Montemayor', onground_phone: '0917 123 4567' };
-const KEYS: Key[] = ['confirmation', 'pre_arrival', 'door_code', 'mid_stay', 'checkout_reminder', 'after_departure'];
+const KEYS: Key[] = ['confirmation', 'pre_arrival', 'door_code', 'mid_stay', 'checkout_reminder', 'after_departure', 'declined'];
 const CH: Channel[] = ['messenger', 'email', 'card_only'];
 
 Deno.test('every message passes the word rules, whole and per paragraph, on every channel', () => {
   for (const k of KEYS) for (const c of CH) for (const f of [ben, full, long]) {
     const t = render(k, f, c);
-    assertEquals(words(t), [], `${k}/${c}`);
+    // declined: R1.6 is verbatim and its chat wording ("Reply here in the chat") trips command_tone; its own test pins the rest.
+    assertEquals(words(t).filter((v) => k !== 'declined' || v !== 'command_tone'), [], `${k}/${c}`);
     // Session 58, the persona gate: the concierge's tone rules too (no urgency, no "!", two "po" at most). The one-🌿-at-
     // the-close rule is a chat rule: these letters (section 7 verbatim) carry the leaf at the salutation and the sign-off.
     assertEquals(toneRules(t.replace('{{door_pin}}', '')).filter((v) => v !== 'leaf_not_at_close'), [], `${k}/${c} tone`);
-    for (const p of t.split(/\n\s*\n/)) assertEquals(words(p), [], `${k}/${c}: ${p.slice(0, 60)}`);
+    for (const p of t.split(/\n\s*\n/)) assertEquals(words(p).filter((v) => k !== 'declined' || v !== 'command_tone'), [], `${k}/${c}: ${p.slice(0, 60)}`);
   }
 });
 
@@ -146,4 +147,73 @@ Deno.test('messages with no money keep one unchanged OPS card and send nothing t
     assert(c.ops.endsWith(`📨 ⤵\n${c.text}`));
     assert(c.ops.includes('Do: send it by hand (Show as text, then long-press to copy).'));
   }
+});
+
+// D-418 (confirm flow): the decline message, golden strings of PLAN-confirm-flow R1.6. The same fixture is copied into the Staff test.
+import { declineReason } from './templates.ts';
+import { SITE_URL } from '../_shared/cascade-core/facts.ts';
+const dec: Fields = { guest_name: 'Ben Cruz', checkin_date: '2026-12-04', checkout_date: '2026-12-07', pax: 2, total_amount: 3560, deposit_amount: 1780 };
+const WHEN = 'Fri, Dec 4 to Mon, Dec 7';
+const OPEN = 'Hello Ben,\n\n', CLOSE = '\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿';
+const refundLine = (here: string) => `If you already sent a payment, please reply ${here} with the GCash name and number it came from, and we will return it in full.`;
+const againLine = (here: string) => `We would still love to host you. Reply ${here} with other dates that suit you, or see what is open at ${SITE_URL}, and we will gladly check them for you.`;
+const golden = (code: string, receipt: boolean, here: string): string => {
+  const p: string[] = code === 'dates' ? [`Thank you for choosing Cascade Hideaway. We are sorry: ${WHEN} are no longer available, so we could not confirm this request.`, ...(receipt ? [refundLine(here)] : []), againLine(here)]
+    : code === 'payment' && !receipt ? [`Thank you for choosing Cascade Hideaway. We held ${WHEN} for you, but the payment did not reach us in time, so the hold has ended and this request is closed.`,
+        `Still planning to come? Reply ${here} and, if the dates are still open, we will gladly hold them for you again. You can also check dates at ${SITE_URL}.`]
+    : code === 'payment' ? [`Thank you for choosing Cascade Hideaway. We could not find the payment for ${WHEN} in our account, so we could not confirm this request.`,
+        `If the payment did leave your account, please reply ${here} with the GCash name and number it came from. We will trace it and return it in full.`,
+        'Once that is sorted, we would be glad to hold the dates for you again if they are still open.']
+    : code === 'guest_cancel' ? [`As you asked, we have cancelled your request for ${WHEN}. Nothing more is needed from you.`, ...(receipt ? [refundLine(here)] : []), `You are welcome any time. When new dates come up, reply ${here} or visit ${SITE_URL}.`]
+    : [`Thank you for choosing Cascade Hideaway. We are sorry, we could not confirm your request for ${WHEN}.`, ...(receipt ? [refundLine(here)] : []), againLine(here)];
+  return OPEN + p.join('\n\n') + CLOSE;
+};
+
+Deno.test('declined: the golden strings, each reason, e-mail and Messenger, with and without a receipt', () => {
+  for (const code of ['dates', 'payment', 'guest_cancel', 'other']) for (const receipt of [false, true]) {
+    assertEquals(render('declined', { ...dec, reason_code: code, receipt_sent: receipt }, 'email'), golden(code, receipt, 'to this e-mail'), `${code}/email/${receipt}`);
+    assertEquals(render('declined', { ...dec, reason_code: code, receipt_sent: receipt }, 'messenger'), golden(code, receipt, 'here in the chat'), `${code}/messenger/${receipt}`);
+  }
+  assertEquals(SUBJECT.declined, 'About your request at Cascade Hideaway');
+});
+
+Deno.test('declined: a null, unknown or duplicate code reads as other; the refund paragraph only with a receipt; no staff note, no money', () => {
+  for (const code of [undefined, 'zzz', 'duplicate', '']) assertEquals(render('declined', { ...dec, reason_code: code }, 'email'), golden('other', false, 'to this e-mail'));
+  assertEquals(declineReason('duplicate'), 'other');
+  for (const code of ['dates', 'payment', 'guest_cancel', 'other']) {
+    assert(!render('declined', { ...dec, reason_code: code, receipt_sent: false }, 'email').includes('GCash') || code === 'payment' && false);
+    assert(render('declined', { ...dec, reason_code: code, receipt_sent: true }, 'email').includes('GCash name and number'));
+  }
+  const t = render('declined', { ...dec, reason_code: 'dates', receipt_sent: true, onground_name: 'Kris', onground_phone: '0917 123 4567' } as Fields, 'email');
+  assert(!/₱|0956|\{|\}|undefined|null|NaN/.test(t), t);
+  assert(t.includes(SITE_URL), 'the booking page link is the facts constant');
+});
+
+Deno.test('declined: passes the word rules and the tone rules, whole and per paragraph, on every channel', () => {
+  for (const code of ['dates', 'payment', 'guest_cancel', 'other']) for (const receipt of [false, true]) for (const c of CH) {
+    const t = render('declined', { ...dec, reason_code: code, receipt_sent: receipt }, c);
+    // R1.6 is verbatim: "Reply here in the chat" trips command_tone on Messenger only (reported); every other word rule holds.
+    assertEquals(words(t).filter((v) => v !== 'command_tone'), [], `${code}/${c}/${receipt}`);
+    assertEquals(toneRules(t).filter((v) => v !== 'leaf_not_at_close'), [], `${code}/${c}/${receipt} tone`);
+    for (const p of t.split(/\n\s*\n/)) assertEquals(words(p).filter((v) => v !== 'command_tone'), [], p.slice(0, 60));
+    assert(c !== 'email' || !words(t).includes('command_tone'), 'only the Messenger wording trips command_tone');
+    assert(t.length <= 2000 && chunks(t).length === 1, 'fits one Messenger message');
+    assert(!t.includes('!'));
+  }
+});
+
+Deno.test('declined: the channel rule treats a tapped decline like the tapped confirmation (HUMAN_AGENT inside 7 days), never a scheduled one', () => {
+  const now = Date.parse('2026-12-01T00:00:00Z'), h = (n: number) => now - n * 3_600_000;
+  assertEquals(channelFor('declined', h(48), true, true, true, now), { channel: 'messenger', humanAgent: true });
+  assertEquals(channelFor('declined', h(48), true, true, false, now), { channel: 'email', humanAgent: false });
+  assertEquals(channelFor('declined', h(170), true, true, true, now), { channel: 'email', humanAgent: false });
+  assertEquals(channelFor('declined', h(2), true, true, true, now), { channel: 'messenger', humanAgent: false });
+  assertEquals(channelFor('declined', h(2), false, false, true, now), { channel: 'card_only', humanAgent: false });
+});
+
+Deno.test('declined: the OPS card carries the text on a Show as text block and nothing goes to Finance', () => {
+  const text = render('declined', { ...dec, reason_code: 'payment', receipt_sent: true }, 'email');
+  const c = messageCards({ key: 'declined', ref: 'DIR-AB12CD34', name: 'Ben Cruz', checkin: dec.checkin_date, checkout: dec.checkout_date, outcome: '✅ e-mailed', status: 'sent', hold: false, text });
+  assertEquals(c.finance, null);
+  assert(c.ops.endsWith(`📨 ⤵\n${text}`) && c.ops.includes('Decline message for Ben Cruz'));
 });
