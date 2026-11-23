@@ -1,8 +1,9 @@
 -- Rollback of release s134_expenses_20261204 (D-405). Revert the Cascade-Admin and Cascade-Staff pushes first (they call the new functions), and stop the Telegram functions that call telegram_expense_*.
 --   * the two triggers on inventory_purchases and every s134 function are dropped (client, telegram and internal);
 --   * kpi_tab_v1 goes back to the s127 body by removing exactly the inserted lines (md5 pinned: 7c6d5a22... or 80efd89e..., 55000 on a body that is neither);
---   * the three s134 indexes and the app_settings key s134_stock_expense_from are dropped.
--- KEPT on purpose (expand-only, inert without the triggers): the 'inventory' value in transactions_source_check, the columns inventory_purchases.transaction_id and .expense_group, the guest_refund category,
+--   * the three s134 indexes are dropped.
+-- KEPT on purpose (expand-only, inert without the triggers): the app_settings key s134_stock_expense_from (the migration keeps the EARLIEST existing value when it is applied again, so the cut-over
+-- month never moves later and the KPI never flips back to the legacy figures for rows already filed), the 'inventory' value in transactions_source_check, the columns inventory_purchases.transaction_id and .expense_group, the guest_refund category,
 -- application/pdf in the expense-receipts mime list, and every ledger row already written (stock rows stay as ordinary expenses; void them in Expenses if they are not wanted).
 -- It works with inventory-source rows present: nothing here deletes or rewrites a transactions row.
 
@@ -39,6 +40,7 @@ grant execute on function public.kpi_tab_v1(uuid, date) to authenticated;
 -- 3. triggers, then functions
 drop trigger if exists s134_stock_expense_sync on public.inventory_purchases;
 drop trigger if exists s134_stock_expense_group on public.inventory_purchases;
+drop function if exists public.expenses_screen_v1(uuid, date, integer, timestamptz, text, uuid);
 drop function if exists public.expenses_screen_v1(uuid, date, integer, timestamptz, text);
 drop function if exists public.admin_save_transaction_v2(uuid, jsonb, text);
 drop function if exists public.expense_void_v1(uuid, uuid, text, uuid);
@@ -52,6 +54,7 @@ drop function if exists public.s_stock_expense_group_v1();
 drop function if exists public.s_stock_expense_sync_v1(text);
 drop function if exists public.s_stock_expense_owned_v1(uuid);
 drop function if exists public.s_stock_expense_task_v1(uuid, text, text, text);
+drop function if exists public.s_txn_void_core_v1(uuid, text, text, boolean);
 drop function if exists public.s_txn_void_core_v1(uuid, text, text);
 drop function if exists public.s_expense_receipt_gate_v1(uuid, text, uuid);
 drop function if exists public.s_expense_lookalike_v1(uuid);
@@ -62,11 +65,10 @@ drop function if exists public.s_expense_bucket_pdf_v1(text);
 drop function if exists public.s_stock_expense_txn_of_v1(text);
 drop function if exists public.s_stock_expense_group_of_v1(uuid, text);
 
--- 4. indexes and the cut-over setting (the columns and the CHECK value stay)
+-- 4. indexes (the cut-over setting, the columns and the CHECK value stay)
 drop index if exists public.inventory_purchases_transaction_idx;
 drop index if exists public.inventory_purchases_expense_group_idx;
 drop index if exists public.transactions_stock_ref_idx;
-delete from public.app_settings where key = 's134_stock_expense_from';
 
 -- 5. read-back: nothing of s134 is left callable, the s127 body is back, the kept pieces are still there
 do $v$

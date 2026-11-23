@@ -20,13 +20,15 @@ begin
   get diagnostics v_b1 = row_count;
   -- B2
   update public.inventory_purchases p set transaction_id = t.id
-    from public.transactions t
-   where p.transaction_id is null and t.id = public.s_stock_expense_txn_of_v1(p.notes);
+    from public.transactions t, public.inventory_items it
+   where p.transaction_id is null and t.id = public.s_stock_expense_txn_of_v1(p.notes)
+     and it.id = p.item_id and t.property_id = it.property_id and t.txn_type = 'expense';
   get diagnostics v_b2 = row_count;
   update public.inventory_purchases p set transaction_id = d.transaction_id
-    from public.inventory_receipt_drafts d
+    from public.inventory_receipt_drafts d, public.inventory_items it
    where p.transaction_id is null and p.expense_group = 'draft:' || d.id::text and d.transaction_id is not null
-     and exists (select 1 from public.transactions t where t.id = d.transaction_id);
+     and it.id = p.item_id
+     and exists (select 1 from public.transactions t where t.id = d.transaction_id and t.property_id = it.property_id and t.txn_type = 'expense');
   get diagnostics v_b2b = row_count;
   -- B4
   for g in
@@ -39,6 +41,8 @@ begin
      group by p.expense_group
     having bool_and(p.transaction_id is null) and min(p.purchased_at) >= v_from and count(*) filter (where p.unit_cost > 0) > 0
        and not exists (select 1 from public.transactions t where t.external_ref = 'stock:' || p.expense_group and t.txn_type = 'expense')
+       -- a scanned draft's own live row (the sync's step 1 rule): that group already has its one row
+       and not exists (select 1 from public.transactions t where p.expense_group like 'draft:%' and t.txn_type = 'expense' and t.status <> 'void' and t.ocr_raw ->> 'draft_id' = substr(p.expense_group, 7))
      order by min(p.purchased_at), p.expense_group
   loop
     declare
@@ -48,6 +52,11 @@ begin
       v_amt := coalesce(v_total, g.priced_sum);
       v_incomplete := v_total is null and g.priced < g.n;
       continue when v_amt is null or v_amt <= 0;
+      -- the sync's own lock for this group, then the checks again: a stock write that committed since the list was read may have made the group's row
+      perform pg_advisory_xact_lock(hashtextextended('s134:stock:' || g.grp, 0));
+      continue when exists (select 1 from public.transactions t where t.external_ref = 'stock:' || g.grp and t.txn_type = 'expense')
+                 or exists (select 1 from public.inventory_purchases ip where ip.expense_group = g.grp and ip.transaction_id is not null)
+                 or exists (select 1 from public.transactions t where g.grp like 'draft:%' and t.txn_type = 'expense' and t.status <> 'void' and t.ocr_raw ->> 'draft_id' = substr(g.grp, 7));
       select array_agg(x.name order by x.first_at, x.name) into v_names
         from (select i.name, min(p.created_at) first_at from public.inventory_purchases p join public.inventory_items i on i.id = p.item_id where p.expense_group = g.grp group by i.name) x;
       v_dup := exists (select 1 from public.transactions o

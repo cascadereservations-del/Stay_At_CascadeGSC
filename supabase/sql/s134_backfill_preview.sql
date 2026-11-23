@@ -17,4 +17,5 @@ select g.grp as expense_group, g.prop as property_id, g.first_date, g.n as purch
   left join public.inventory_receipt_drafts d on g.grp = 'draft:' || d.id::text and d.total > 0
  where not exists (select 1 from public.transactions t where t.external_ref = 'stock:' || g.grp and t.txn_type = 'expense')
    and not exists (select 1 from public.inventory_receipt_drafts dd where g.grp = 'draft:' || dd.id::text and dd.transaction_id is not null)
+   and not exists (select 1 from public.transactions t where g.grp like 'draft:%' and t.txn_type = 'expense' and t.status <> 'void' and t.ocr_raw ->> 'draft_id' = substr(g.grp, 7))
  order by g.first_date, g.grp;

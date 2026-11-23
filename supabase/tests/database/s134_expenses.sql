@@ -3,7 +3,7 @@
 -- only the RPC calls run as the staff roles. Every case that relies on the deferred stock trigger issues "set constraints all immediate;" after the write (one uncommitted transaction never fires it otherwise).
 -- T12 does not exist (dropped from the plan). T16 runs a verbatim copy of supabase/sql/s134_backfill.sql (between the BACKFILL markers; the lane's gate compares the two).
 begin;
-select plan(100);
+select plan(119);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -85,13 +85,13 @@ select ok((select count(*) = 1 from pg_trigger t where t.tgrelid = 'public.inven
   'the group trigger (before insert) and the sync trigger (deferred constraint trigger) exist and are enabled');
 select ok((select md5(replace(p.prosrc, chr(13), '')) = '7c6d5a22d09ad96916804630f31df602' from pg_proc p where p.oid = 'public.kpi_tab_v1(uuid,date)'::regprocedure), 'kpi_tab_v1 carries the s134 body (md5 pinned)');
 select ok((select bool_and(has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute'))
-             from unnest(array['public.expenses_screen_v1(uuid,date,integer,timestamptz,text)', 'public.admin_save_transaction_v2(uuid,jsonb,text)', 'public.expense_void_v1(uuid,uuid,text,uuid)',
+             from unnest(array['public.expenses_screen_v1(uuid,date,integer,timestamptz,text,uuid)', 'public.admin_save_transaction_v2(uuid,jsonb,text)', 'public.expense_void_v1(uuid,uuid,text,uuid)',
                                'public.expense_receipt_paths_v1(uuid,uuid[])', 'public.expense_receipt_set_v1(uuid,uuid,text,text)']) f), 'the five client RPCs: authenticated only');
 select ok((select bool_and(has_function_privilege('service_role', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('authenticated', f::regprocedure, 'execute'))
              from unnest(array['public.telegram_expense_save_v1(uuid,jsonb,text)', 'public.telegram_expense_review_v1(uuid,text,jsonb,text)']) f), 'the two Telegram RPCs: service_role only');
 select ok((select bool_and(not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute'))
              from unnest(array['public.s_stock_expense_group_of_v1(uuid,text)', 'public.s_stock_expense_txn_of_v1(text)', 'public.s_stock_expense_group_v1()', 'public.s_stock_expense_trg_v1()', 'public.s_stock_expense_sync_v1(text)',
-                               'public.s_stock_expense_task_v1(uuid,text,text,text)', 'public.s_stock_expense_owned_v1(uuid)', 'public.s_txn_void_core_v1(uuid,text,text)', 'public.s_expense_chip_v1(text,boolean,boolean)',
+                               'public.s_stock_expense_task_v1(uuid,text,text,text)', 'public.s_stock_expense_owned_v1(uuid)', 'public.s_txn_void_core_v1(uuid,text,text,boolean)', 'public.s_expense_chip_v1(text,boolean,boolean)',
                                'public.s_expense_mime_v1(text)', 'public.s_expense_receipt_v1(uuid,boolean)', 'public.s_expense_lookalike_v1(uuid)', 'public.s_expense_receipt_gate_v1(uuid,text,uuid)',
                                'public.s_expense_bucket_pdf_v1(text)', 'public.kpi_admin_costs_v1(uuid,date,date)']) f), 'the 15 internal functions: no client grant');
 select ok((select count(*) = 19 and bool_and(p.prosecdef) and bool_and(exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'))
@@ -297,7 +297,7 @@ set constraints all deferred;
 select pg_temp.as_user(pg_temp.id('01'));
 insert into _t select 'v2a', public.admin_save_transaction_v2(pg_temp.id('b1'), jsonb_build_object('txn_type', 'expense', 'category', 'supplies', 'gross_amount', 55, 'transaction_date', public.manila_today(), 'notes', 'Zz S134 v2 create'), 'zz-s134-save-key-00001');
 select pg_temp.as_service();
-insert into _t select 'tga', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 66, 'category', 'supplies', 'notes', 'Zz S134 tg create'), 'zz-s134-tg-key-000001');
+insert into _t select 'tga', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 66, 'category', 'supplies', 'notes', 'Zz S134 tg create'), 'tg:zz-s134-tg-key-000001');
 reset role;
 select ok((select (v ->> 'ok')::boolean and v -> 'lookalike' ->> 'id' is not null from _t where k = 'v2a') and (select (v ->> 'ok')::boolean and v -> 'lookalike' ->> 'id' is not null from _t where k = 'tga'),
   'T9b: admin_save_transaction_v2 and telegram_expense_save_v1 both return lookalike on create');
@@ -308,8 +308,101 @@ set constraints all deferred;
 update public.inventory_purchases set qty = qty + 1 where expense_group = 'rcpt:zz-s134-adm-key-00002';
 set constraints all immediate;
 select ok((select t.gross_amount = 40 and t.status = 'confirmed' from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00002')) and pg_temp.tasks(pg_temp.id('b1')) = 1
-      and (select count(*) = 1 from public.follow_up_tasks t where t.source_kind = 'stock_expense_sync' and t.source_ref = 'rcpt:zz-s134-adm-key-00002' and t.status = 'open'),
+      and (select count(*) = 1 from public.follow_up_tasks t where t.source_kind = 'stock_expense_sync' and t.source_ref = 'changed:rcpt:zz-s134-adm-key-00002' and t.status = 'open'),
   'T8c: a stock row a person approved keeps its amount when its purchase changes; one follow-up task is opened');
+
+-- =============================================================================================================================================
+-- Fix round 1, stock sync (review items 5-9, 13): an auto row that turns incomplete goes back to review (7); a person may change only category and note on a sync-owned row (13) and the sync keeps
+-- their note; the real invariant per receipt group (6); the ownership rule is inside the UPDATE and the void (5); one task per event kind (9).
+-- =============================================================================================================================================
+-- (7) an auto-confirmed row; then a second, unpriced line joins the same receipt
+set constraints all deferred;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'fx7', public.record_inventory_receipt_v1(pg_temp.id('e4'), 1, 10, 'Zz S134 Shop', null, null, null, 'zz-s134-adm-key-00031');
+reset role;
+set constraints all immediate;
+insert into _t select 'fx7a', jsonb_build_object('auto', (select t.status = 'confirmed' and t.ocr_raw ->> 's134_auto' = 'true' from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00031')));
+set constraints all deferred;
+insert into public.inventory_purchases(item_id, qty, unit_cost, notes) values (pg_temp.id('e3'), 1, null, 'Admin receipt [key:zz-s134-adm-key-00031:g2] extra line with no price');
+set constraints all immediate;
+select ok((select (v ->> 'auto')::boolean from _t where k = 'fx7a') and pg_temp.nrows('rcpt:zz-s134-adm-key-00031') = 1
+      and (select t.status = 'pending_review' and t.ocr_raw ->> 's134_auto' = 'false' and t.gross_amount = 10 and t.notes like 'Stock bought: Zz S134 Sugar%' and t.notes like '%amount incomplete%'
+             from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00031')),
+  'fix 7: an auto-confirmed row whose receipt gains an unpriced line goes back to pending_review (s134_auto false, still P10, noted "amount incomplete") and stays ONE row');
+
+-- (13) a second auto row: the person edits category and note; date and payee are refused; the purchases still move the amount and the note is kept
+set constraints all deferred;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'fx13', public.record_inventory_receipt_v1(pg_temp.id('e5'), 2, 10, 'Zz S134 Shop', null, null, null, 'zz-s134-adm-key-00032');
+reset role;
+set constraints all immediate;
+insert into _t select 'fx13id', jsonb_build_object('id', pg_temp.tid('rcpt:zz-s134-adm-key-00032'));
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'fx13a', public.admin_save_transaction_v2(pg_temp.id('b2'), jsonb_build_object('id', (select v ->> 'id' from _t where k = 'fx13id'), 'category', 'maintenance', 'notes', 'Zz S134 my own note', 'reason', 'tidy'), null);
+insert into _t select 'fx13d', public.admin_save_transaction_v2(pg_temp.id('b2'), jsonb_build_object('id', (select v ->> 'id' from _t where k = 'fx13id'), 'transaction_date', public.manila_today() - 1, 'reason', 'move it'), null);
+insert into _t select 'fx13p', public.admin_save_transaction_v2(pg_temp.id('b2'), jsonb_build_object('id', (select v ->> 'id' from _t where k = 'fx13id'), 'payee_name', 'Someone else', 'reason', 'rename it'), null);
+reset role;
+set constraints all deferred;
+update public.inventory_purchases set qty = qty + 1 where expense_group = 'rcpt:zz-s134-adm-key-00032';
+set constraints all immediate;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'fx13a') and (select v ->> 'error' = 'amount_locked' and v ->> 'where' = 'Inventory' from _t where k = 'fx13d')
+      and (select v ->> 'error' = 'amount_locked' and v ->> 'where' = 'Inventory' from _t where k = 'fx13p'),
+  'fix 13: on a sync-owned row with linked purchases a person can change category and note; a date or payee change is refused (amount_locked, where Inventory)');
+select ok(pg_temp.nrows('rcpt:zz-s134-adm-key-00032') = 1
+      and (select t.gross_amount = 30 and t.status = 'confirmed' and t.notes = 'Zz S134 my own note' and t.category = 'maintenance' and t.payee_name = 'Zz S134 Shop'
+             from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00032')),
+  'fix 13: a later change of the purchases still moves the amount (P30), date and payee, and the sync keeps the note and the category the person set');
+
+-- (6) the real invariant, per receipt group: at most one live row among the purchases links and the stock:<group> row; exactly one for a priced group made after the cut-over
+select ok((with g as (
+              select p.expense_group grp, min(p.created_at) first_at,
+                     (bool_or(p.unit_cost > 0) or exists (select 1 from public.inventory_receipt_drafts d where p.expense_group = 'draft:' || d.id::text and d.total > 0)) priced
+                from public.inventory_purchases p where p.expense_group is not null group by p.expense_group),
+            live as (
+              select p.expense_group grp, t.id from public.inventory_purchases p join public.transactions t on t.id = p.transaction_id and t.status <> 'void' where p.expense_group is not null
+              union
+              select g.grp, t.id from g join public.transactions t on t.external_ref = 'stock:' || g.grp and t.status <> 'void')
+           select not exists (select 1 from live group by grp having count(distinct id) > 1)
+              and not exists (select 1 from g where g.priced and g.first_at >= (select (s.value #>> '{}')::timestamptz from public.app_settings s where s.key = 's134_stock_expense_from')
+                                and not exists (select 1 from live l where l.grp = g.grp))),
+  'fix 6: per receipt group, at most one live row (purchase links + stock:<group>) and exactly one for every priced group made after the cut-over');
+
+-- (5, 9) the ownership rule inside the write. A pending stock row in the other house; then a person approves and edits it; the next sync is made to read it as still owned (a stale read), and its UPDATE refuses.
+set constraints all deferred;
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'fx5', public.record_inventory_receipt_v1(pg_temp.id('a3'), 1, 8, 'Zz S134 Shop', null, null, null, 'zz-s134-adm-key-00033');
+insert into _t select 'fx5b', public.record_inventory_receipt_v1(pg_temp.id('a1'), 1, 9, 'Zz S134 Shop', null, null, null, 'zz-s134-adm-key-00034');
+reset role;
+set constraints all immediate;
+insert into _t select 'owned_def', to_jsonb(pg_get_functiondef('public.s_stock_expense_owned_v1(uuid)'::regprocedure));
+update public.transactions set status = 'confirmed', gross_amount = 99, ocr_raw = ocr_raw || '{"s134_auto": false}'::jsonb where id = pg_temp.tid('rcpt:zz-s134-adm-key-00033');
+create or replace function public.s_stock_expense_owned_v1(p_id uuid) returns boolean language sql stable security definer set search_path = '' as 'select true';
+set constraints all deferred;
+update public.inventory_purchases set qty = qty + 1 where expense_group = 'rcpt:zz-s134-adm-key-00033';
+set constraints all immediate;
+select ok((select t.gross_amount = 99 and t.status = 'confirmed' and (t.ocr_raw ->> 's134_amount')::numeric = 8 from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00033'))
+      and (select count(*) = 1 from public.follow_up_tasks t where t.source_kind = 'stock_expense_sync' and t.source_ref = 'changed:rcpt:zz-s134-adm-key-00033' and t.status = 'open'),
+  'fix 5: when the sync read the row as owned but a person had already approved and edited it, the UPDATE (ownership in its WHERE) changes nothing and a "changed:" task opens');
+select ok(public.s_txn_void_core_v1(pg_temp.tid('rcpt:zz-s134-adm-key-00033'), 'guard test', null, true) is false
+      and (select t.status = 'confirmed' and t.notes not like '%voided%' from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00033')),
+  'fix 5: the guarded void (ownership in its WHERE) leaves an approved row alone and answers false');
+do $r$ begin execute (select v #>> '{}' from _t where k = 'owned_def'); end $r$;
+select ok((select p.prosrc like '%s134_auto%' from pg_proc p where p.oid = 'public.s_stock_expense_owned_v1(uuid)'::regprocedure)
+      and public.s_stock_expense_owned_v1(pg_temp.tid('rcpt:zz-s134-adm-key-00033')) is false and public.s_stock_expense_owned_v1(pg_temp.tid('rcpt:zz-s134-adm-key-00034')) is true,
+  'fix 5: the real ownership function is back (an approved, edited row is not owned; a pending sync row is)');
+-- an undo after the person took the row opens a different task (kind "undone:"), the earlier "changed:" task stays: two events, two tasks
+set constraints all deferred;
+delete from public.inventory_purchases where expense_group = 'rcpt:zz-s134-adm-key-00033';
+set constraints all immediate;
+select ok((select count(*) = 2 and count(distinct t.source_ref) = 2 and bool_and(t.status = 'open') from public.follow_up_tasks t
+            where t.source_kind = 'stock_expense_sync' and t.source_ref in ('changed:rcpt:zz-s134-adm-key-00033', 'undone:rcpt:zz-s134-adm-key-00033'))
+      and (select t.status = 'confirmed' from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00033')),
+  'fix 9: a later problem of another kind on the same receipt is its own task (changed: and undone:), the approved row stays confirmed');
+-- the guarded void of a row that is still the sync own does void it
+insert into _t select 'gv', to_jsonb(public.s_txn_void_core_v1(pg_temp.tid('rcpt:zz-s134-adm-key-00034'), 'guard test', null, true));
+select ok((select (v #>> '{}')::boolean from _t where k = 'gv')
+      and (select t.status = 'void' from public.transactions t where t.id = pg_temp.tid('rcpt:zz-s134-adm-key-00034')),
+  'fix 5: the guarded void of a pending sync row voids it');
 
 -- =============================================================================================================================================
 -- T10 admin_save_transaction_v2 refusals (business refusals answer {ok:false,error}; locked rows and void rows are never touched)
@@ -379,11 +472,11 @@ select ok(pg_temp.nrows('rcpt:zz-s134-adm-key-00001') = 0 and (select t.gross_am
 -- T13 Telegram RPCs (service_role only)
 -- =============================================================================================================================================
 select pg_temp.as_user(pg_temp.id('01'));
-insert into _t select 'tg_auth', pg_temp.try(format('select public.telegram_expense_save_v1(%L::uuid, %L::jsonb, %L)', pg_temp.id('b1'), '{"amount":5}', 'zz-s134-tg-key-000009'));
+insert into _t select 'tg_auth', pg_temp.try(format('select public.telegram_expense_save_v1(%L::uuid, %L::jsonb, %L)', pg_temp.id('b1'), '{"amount":5}', 'tg:zz-s134-tg-key-000009'));
 select pg_temp.as_service();
-insert into _t select 'tg_rep', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 66, 'category', 'supplies', 'notes', 'Zz S134 tg create'), 'zz-s134-tg-key-000001');
-insert into _t select 'tg_p1', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 120, 'category', 'other', 'status', 'pending_review', 'notes', 'Zz S134 tg pending'), 'zz-s134-tg-key-000002');
-insert into _t select 'tg_bad', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 120, 'category', 'guest_refund'), 'zz-s134-tg-key-000003');
+insert into _t select 'tg_rep', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 66, 'category', 'supplies', 'notes', 'Zz S134 tg create'), 'tg:zz-s134-tg-key-000001');
+insert into _t select 'tg_p1', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 120, 'category', 'other', 'status', 'pending_review', 'notes', 'Zz S134 tg pending'), 'tg:zz-s134-tg-key-000002');
+insert into _t select 'tg_bad', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 120, 'category', 'guest_refund'), 'tg:zz-s134-tg-key-000003');
 insert into _t select 'tg_amt', public.telegram_expense_review_v1((select (v ->> 'id')::uuid from _t where k = 'tg_p1'), 'amount', '{"amount":130}'::jsonb, 'Cassy');
 insert into _t select 'tg_conf', public.telegram_expense_review_v1((select (v ->> 'id')::uuid from _t where k = 'tg_p1'), 'confirm', '{}'::jsonb, 'Cassy');
 insert into _t select 'tg_amt2', public.telegram_expense_review_v1((select (v ->> 'id')::uuid from _t where k = 'tg_p1'), 'amount', '{"amount":140}'::jsonb, 'Cassy');
@@ -392,7 +485,7 @@ insert into _t select 'tg_lock', public.telegram_expense_review_v1(pg_temp.id('c
 insert into _t select 'tg_lock2', public.telegram_expense_review_v1(pg_temp.id('cd'), 'confirm', '{}'::jsonb, 'Cassy');
 reset role;
 select ok((select v ->> 'err' = '42501' from _t where k = 'tg_auth'), 'T13: a signed-in staff user cannot call the Telegram save (42501)');
-select ok((select (v ->> 'replayed')::boolean and v ->> 'id' = (select v ->> 'id' from _t where k = 'tga') from _t where k = 'tg_rep') and (select t.transaction_date = public.manila_today() and t.source = 'telegram' and t.logged_by = 'telegram' and t.external_ref = 'zz-s134-tg-key-000001' from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'tga')),
+select ok((select (v ->> 'replayed')::boolean and v ->> 'id' = (select v ->> 'id' from _t where k = 'tga') from _t where k = 'tg_rep') and (select t.transaction_date = public.manila_today() and t.source = 'telegram' and t.logged_by = 'telegram' and t.external_ref = 'tg:zz-s134-tg-key-000001' from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'tga')),
   'T13: the same key replays the same row; the date is the Manila day; the row is a telegram row');
 select ok((select v ->> 'error' = 'bad_category' from _t where k = 'tg_bad') and (select (v ->> 'ok')::boolean and (v ->> 'amount')::numeric = 130 from _t where k = 'tg_amt') and (select (v ->> 'ok')::boolean and v ->> 'status' = 'confirmed' from _t where k = 'tg_conf')
       and (select v ->> 'error' = 'not_pending' from _t where k = 'tg_amt2') and (select t.gross_amount = 130 from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'tg_p1')),
@@ -479,6 +572,73 @@ select ok((select (v ->> 'ok')::boolean from _t where k = 'f2') and exists (sele
       and pg_temp.tasks(pg_temp.id('b2')) = 1, 'T17: when the task call fails as well the stock write is still kept (no error reaches the caller)');
 drop trigger zz_s134_boom_task on public.follow_up_tasks;
 drop trigger zz_s134_boom_txn on public.transactions;
+
+-- =============================================================================================================================================
+-- Fix round 1, RPC contracts (review items 1, 2, 3, 11, 12, 14): Telegram payee and key prefixes, the keyset page, kpi_ledger_from, the staff pay category lock
+-- =============================================================================================================================================
+-- (1, 11, 12) telegram_expense_save_v1: payee_name and payee both store the vendor; a draft_id in the client ocr_raw is dropped; only the L3 key prefixes (tg:, tgp:, tgocr:) are accepted
+select pg_temp.as_service();
+insert into _t select 'tp1', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 11, 'category', 'other', 'payee_name', 'Zz S134 Vendor A'), 'tg:zz-s134-tg-key-000011');
+insert into _t select 'tp2', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 12, 'category', 'other', 'payee', 'Zz S134 Vendor B'), 'tgp:zz-s134-tg-key-000012');
+insert into _t select 'tp3', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 13, 'category', 'other', 'payee_name', 'Zz S134 Vendor C', 'status', 'pending_review',
+    'ocr_raw', jsonb_build_object('draft_id', 'zz', 'total', 13, 'keep', 1)), 'tgocr:zz-s134-obj-000013#m1');
+insert into _t select 'tp4', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 14, 'category', 'other'), 'admin:zz-s134-tg-key-000014');
+insert into _t select 'tp5', public.telegram_expense_save_v1(pg_temp.id('b1'), jsonb_build_object('amount', 15, 'category', 'other'), 'zz-s134-tg-key-000015');
+reset role;
+select ok((select (v ->> 'ok')::boolean from _t where k = 'tp1') and (select (v ->> 'ok')::boolean from _t where k = 'tp2') and (select (v ->> 'ok')::boolean from _t where k = 'tp3')
+      and (select t.payee_name = 'Zz S134 Vendor A' from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'tp1'))
+      and (select t.payee_name = 'Zz S134 Vendor B' from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'tp2'))
+      and (select t.payee_name = 'Zz S134 Vendor C' from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'tp3')),
+  'fix 1/12: the Telegram save stores the vendor sent as payee_name or as payee; the keys tg:, tgp: and tgocr: are accepted');
+select ok((select t.source = 'ocr' and not (t.ocr_raw ? 'draft_id') and t.ocr_raw ->> 'keep' = '1' and (t.ocr_raw ->> 'total')::numeric = 13 from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'tp3')),
+  'fix 11: a draft_id in the client ocr_raw is dropped by the Telegram save, the rest of the model read is kept');
+select ok((select v ->> 'error' = 'bad_request' from _t where k = 'tp4') and (select v ->> 'error' = 'bad_request' from _t where k = 'tp5')
+      and not exists (select 1 from public.transactions t where t.external_ref in ('admin:zz-s134-tg-key-000014', 'zz-s134-tg-key-000015')),
+  'fix 12: a key that does not start with tg:, tgp: or tgocr: is refused (bad_request) and nothing is written');
+
+-- (2) expenses_screen_v1: three rows with one created_at across a page boundary come back exactly once (keyset on created_at, id); p_before alone keeps its old meaning
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, notes, created_at) values
+  (pg_temp.id('91'), pg_temp.id('b1'), 'expense', 'other', 'confirmed', 'manual', date '2026-03-15', 1, 'Zz S134 page 1', timestamptz '2026-03-15 10:00:00+00'),
+  (pg_temp.id('92'), pg_temp.id('b1'), 'expense', 'other', 'confirmed', 'manual', date '2026-03-15', 2, 'Zz S134 page 2', timestamptz '2026-03-15 10:00:00+00'),
+  (pg_temp.id('93'), pg_temp.id('b1'), 'expense', 'other', 'confirmed', 'manual', date '2026-03-15', 3, 'Zz S134 page 3', timestamptz '2026-03-15 10:00:00+00'),
+  (pg_temp.id('94'), pg_temp.id('b1'), 'expense', 'other', 'confirmed', 'manual', date '2026-03-15', 4, 'Zz S134 page newest', timestamptz '2026-03-15 11:00:00+00'),
+  (pg_temp.id('95'), pg_temp.id('b1'), 'expense', 'other', 'confirmed', 'manual', date '2026-03-15', 5, 'Zz S134 page oldest', timestamptz '2026-03-15 09:00:00+00');
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'pg1', public.expenses_screen_v1(pg_temp.id('b1'), date '2026-03-01', 2);
+insert into _t select 'pg2', public.expenses_screen_v1(pg_temp.id('b1'), date '2026-03-01', 2, timestamptz '2026-03-15 10:00:00+00', null, pg_temp.id('93'));
+insert into _t select 'pg3', public.expenses_screen_v1(pg_temp.id('b1'), date '2026-03-01', 2, timestamptz '2026-03-15 10:00:00+00', null, pg_temp.id('91'));
+insert into _t select 'pg_old', public.expenses_screen_v1(pg_temp.id('b1'), date '2026-03-01', 10, timestamptz '2026-03-15 10:00:00+00');
+reset role;
+select ok((select (select array_agg((r.r ->> 'id')::uuid order by r.o) from jsonb_array_elements(v -> 'rows') with ordinality r(r, o)) = array[pg_temp.id('94'), pg_temp.id('93')] and (v ->> 'more')::boolean from _t where k = 'pg1')
+      and (select (select array_agg((r.r ->> 'id')::uuid order by r.o) from jsonb_array_elements(v -> 'rows') with ordinality r(r, o)) = array[pg_temp.id('92'), pg_temp.id('91')] and (v ->> 'more')::boolean from _t where k = 'pg2')
+      and (select (select array_agg((r.r ->> 'id')::uuid order by r.o) from jsonb_array_elements(v -> 'rows') with ordinality r(r, o)) = array[pg_temp.id('95')] and not (v ->> 'more')::boolean from _t where k = 'pg3'),
+  'fix 2: three rows sharing one created_at across a page boundary: page 1 = newest + 93, page 2 (before 93) = 92 + 91, page 3 (before 91) = the oldest; each exactly once, in (created_at desc, id desc) order');
+select ok((select (select array_agg((r ->> 'id')::uuid) from jsonb_array_elements(v -> 'rows') r) = array[pg_temp.id('95')] from _t where k = 'pg_old'),
+  'fix 2: p_before alone still means created_at < p_before (the old callers keep working)');
+select ok((select count(*) = 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'expenses_screen_v1'), 'fix 2: one signature of expenses_screen_v1 (the old one is dropped, no overload)');
+
+-- (3) kpi_ledger_from: the Manila month of the cut-over, null when the setting is unset
+insert into _t select 'cut_orig', (select to_jsonb(s.value) from public.app_settings s where s.key = 's134_stock_expense_from');
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'kl1', public.kpi_tab_v1(pg_temp.id('b1'));
+reset role;
+delete from public.app_settings where key = 's134_stock_expense_from';
+select pg_temp.as_user(pg_temp.id('03'));
+insert into _t select 'kl2', public.kpi_tab_v1(pg_temp.id('b1'));
+reset role;
+insert into public.app_settings (key, value) select 's134_stock_expense_from', v from _t where k = 'cut_orig';
+select ok((select v -> 'admin' ->> 'kpi_ledger_from' = to_char((select (s.value #>> '{}')::timestamptz from public.app_settings s where s.key = 's134_stock_expense_from') at time zone 'Asia/Manila', 'YYYY-MM') from _t where k = 'kl1')
+      and (select v -> 'admin' -> 'kpi_ledger_from' = 'null'::jsonb and v -> 'admin' ->> 'kpi_source' = 'legacy' from _t where k = 'kl2'),
+  'fix 3: admin.kpi_ledger_from is the Manila month of the cut-over (YYYY-MM) and null when it is unset');
+
+-- (14) a staff pay row keeps its category (the cleaning-pay month and the V19 reconciliation read category cleaning)
+select pg_temp.as_user(pg_temp.id('01'));
+insert into _t select 'cp1', public.admin_save_transaction_v2(pg_temp.id('b1'), jsonb_build_object('id', pg_temp.id('cd'), 'category', 'supplies', 'reason', 'recategorise'), null);
+insert into _t select 'cp2', public.admin_save_transaction_v2(pg_temp.id('b1'), jsonb_build_object('id', pg_temp.id('cd'), 'category', 'cleaning', 'notes', 'Zz S134 pay note', 'reason', 'note only'), null);
+reset role;
+select ok((select v ->> 'error' = 'locked' and v ->> 'where' = 'Pay staff' from _t where k = 'cp1') and (select (v ->> 'ok')::boolean from _t where k = 'cp2')
+      and (select t.category = 'cleaning' from public.transactions t where t.id = pg_temp.id('cd')),
+  'fix 14: the category of a staff pay row cannot be changed (locked, where Pay staff); a same-category edit still works');
 
 -- =============================================================================================================================================
 -- T18 receipt resolution: one fixture row per kind (txn, scanned draft, manual draft, bill, stock) and a staff pay row; the screen never carries a path
@@ -697,13 +857,13 @@ insert into _t select 'e_conf', public.admin_save_transaction_v2(pg_temp.id('b1'
 insert into _t select 'e_amt', public.admin_save_transaction_v2(pg_temp.id('b1'), jsonb_build_object('id', pg_temp.id('f8'), 'gross_amount', 62, 'reason', 'price corrected'), null);
 insert into _t select 'c_noup', public.admin_save_transaction_v2(pg_temp.id('b1'), jsonb_build_object('txn_type', 'expense', 'category', 'other', 'gross_amount', 5, 'transaction_date', public.manila_today(), 'receipt_image_path', pg_temp.rpath(pg_temp.id('b1'), pg_temp.id('01'), '7f')), 'zz-s134-save-key-25001');
 insert into _t select 'c_ok', public.admin_save_transaction_v2(pg_temp.id('b1'), jsonb_build_object('txn_type', 'expense', 'category', 'other', 'gross_amount', 5, 'transaction_date', public.manila_today(),
-    'receipt_image_path', pg_temp.rpath(pg_temp.id('b1'), pg_temp.id('01'), '7d'), 'ocr_raw', jsonb_build_object('receipt_sha256', repeat('0', 64), 's134_auto', true, 'note', 'kept')), 'zz-s134-save-key-25002');
+    'receipt_image_path', pg_temp.rpath(pg_temp.id('b1'), pg_temp.id('01'), '7d'), 'ocr_raw', jsonb_build_object('receipt_sha256', repeat('0', 64), 's134_auto', true, 'draft_id', 'zz', 'source', 'telegram', 'note', 'kept')), 'zz-s134-save-key-25002');
 reset role;
 select ok((select bool_and(v ->> 'error' = 'use_receipt_control') from _t where k in ('e_path', 'e_raw', 'e_conf')), 'T25: an edit that carries receipt_image_path, ocr_raw or ocr_confidence is refused (use_receipt_control)');
 select ok((select (v ->> 'ok')::boolean from _t where k = 'e_amt') and (select md5(coalesce(t.receipt_image_path, '') || coalesce(t.ocr_raw::text, '')) = (select v ->> 'h' from _t where k = 'snap25') and t.gross_amount = 62 from public.transactions t where t.id = pg_temp.id('f8')),
   'T25: an amount-only edit leaves the receipt pointer and ocr_raw byte-identical');
 select ok((select v ->> 'error' = 'no_upload_record' from _t where k = 'c_noup') and (select (v ->> 'ok')::boolean from _t where k = 'c_ok')
-      and (select t.receipt_image_path = pg_temp.rpath(pg_temp.id('b1'), pg_temp.id('01'), '7d') and t.ocr_raw ->> 'receipt_sha256' = repeat('3', 64) and not (t.ocr_raw ? 's134_auto') and t.ocr_raw ->> 'note' = 'kept'
+      and (select t.receipt_image_path = pg_temp.rpath(pg_temp.id('b1'), pg_temp.id('01'), '7d') and t.ocr_raw ->> 'receipt_sha256' = repeat('3', 64) and not (t.ocr_raw ? 's134_auto') and not (t.ocr_raw ? 'draft_id') and not (t.ocr_raw ? 'source') and t.ocr_raw ->> 'note' = 'kept'
           from public.transactions t where t.id = (select (v ->> 'id')::uuid from _t where k = 'c_ok')),
   'T25: a create with a path that has no upload row is refused; with one it stores the SERVER sha (a client-sent receipt_sha256 or s134 key is dropped)');
 
@@ -757,6 +917,16 @@ insert into public.inventory_purchases(id, item_id, qty, unit_cost, purchased_at
   (pg_temp.id('c8'), pg_temp.id('a3'), 2, 7, date '2026-09-20', null, 'Zz S134 bf look-alike purchase'),
   (pg_temp.id('c9'), pg_temp.id('a3'), 2, null, date '2026-09-05', null, 'Zz S134 bf nothing priced');
 update public.transactions set external_ref = 'stock:p:' || pg_temp.id('c7')::text where id = pg_temp.id('b9');
+-- fix round 1: a scanned draft whose own live row already exists (ocr_raw draft_id) must not get a second row; a "(txn ...)" note that names an expense of ANOTHER house must not link
+insert into public.inventory_receipt_drafts(id, property_id, created_by, receipt_path, lines, status, total) values
+  (pg_temp.id('9a'), pg_temp.id('b1'), pg_temp.id('01'), 'items/' || pg_temp.id('9a')::text || '/' || pg_temp.id('9a')::text || '.jpg', '[]'::jsonb, 'confirmed', 30);
+insert into public.transactions(id, property_id, txn_type, category, status, source, transaction_date, gross_amount, notes, ocr_raw) values
+  (pg_temp.id('9b'), pg_temp.id('b1'), 'expense', 'supplies', 'confirmed', 'ocr', date '2026-10-20', 30, 'Zz S134 bf draft own row', jsonb_build_object('draft_id', pg_temp.id('9a')::text)),
+  (pg_temp.id('9c'), pg_temp.id('b2'), 'expense', 'supplies', 'confirmed', 'manual', date '2026-10-21', 9, 'Zz S134 bf other house row', null);
+insert into public.inventory_purchases(id, item_id, qty, unit_cost, purchased_at, supplier, notes, expense_group) values
+  (pg_temp.id('9d'), pg_temp.id('a3'), 3, 10, date '2026-10-20', null, 'Zz S134 bf draft line', 'draft:' || pg_temp.id('9a')::text);
+insert into public.inventory_purchases(id, item_id, qty, unit_cost, purchased_at, supplier, notes) values
+  (pg_temp.id('9e'), pg_temp.id('a3'), 1, null, date '2026-10-21', null, 'Zz S134 bf cross house (txn ' || pg_temp.id('9c')::text || ')');
 alter table public.inventory_purchases enable trigger s134_stock_expense_group;
 alter table public.inventory_purchases enable trigger s134_stock_expense_sync;
 create temp table _bf0 as select t.id, md5(t::text) as h from public.transactions t;
@@ -773,13 +943,15 @@ begin
   get diagnostics v_b1 = row_count;
   -- B2
   update public.inventory_purchases p set transaction_id = t.id
-    from public.transactions t
-   where p.transaction_id is null and t.id = public.s_stock_expense_txn_of_v1(p.notes);
+    from public.transactions t, public.inventory_items it
+   where p.transaction_id is null and t.id = public.s_stock_expense_txn_of_v1(p.notes)
+     and it.id = p.item_id and t.property_id = it.property_id and t.txn_type = 'expense';
   get diagnostics v_b2 = row_count;
   update public.inventory_purchases p set transaction_id = d.transaction_id
-    from public.inventory_receipt_drafts d
+    from public.inventory_receipt_drafts d, public.inventory_items it
    where p.transaction_id is null and p.expense_group = 'draft:' || d.id::text and d.transaction_id is not null
-     and exists (select 1 from public.transactions t where t.id = d.transaction_id);
+     and it.id = p.item_id
+     and exists (select 1 from public.transactions t where t.id = d.transaction_id and t.property_id = it.property_id and t.txn_type = 'expense');
   get diagnostics v_b2b = row_count;
   -- B4
   for g in
@@ -792,6 +964,8 @@ begin
      group by p.expense_group
     having bool_and(p.transaction_id is null) and min(p.purchased_at) >= v_from and count(*) filter (where p.unit_cost > 0) > 0
        and not exists (select 1 from public.transactions t where t.external_ref = 'stock:' || p.expense_group and t.txn_type = 'expense')
+       -- a scanned draft's own live row (the sync's step 1 rule): that group already has its one row
+       and not exists (select 1 from public.transactions t where p.expense_group like 'draft:%' and t.txn_type = 'expense' and t.status <> 'void' and t.ocr_raw ->> 'draft_id' = substr(p.expense_group, 7))
      order by min(p.purchased_at), p.expense_group
   loop
     declare
@@ -801,6 +975,11 @@ begin
       v_amt := coalesce(v_total, g.priced_sum);
       v_incomplete := v_total is null and g.priced < g.n;
       continue when v_amt is null or v_amt <= 0;
+      -- the sync's own lock for this group, then the checks again: a stock write that committed since the list was read may have made the group's row
+      perform pg_advisory_xact_lock(hashtextextended('s134:stock:' || g.grp, 0));
+      continue when exists (select 1 from public.transactions t where t.external_ref = 'stock:' || g.grp and t.txn_type = 'expense')
+                 or exists (select 1 from public.inventory_purchases ip where ip.expense_group = g.grp and ip.transaction_id is not null)
+                 or exists (select 1 from public.transactions t where g.grp like 'draft:%' and t.txn_type = 'expense' and t.status <> 'void' and t.ocr_raw ->> 'draft_id' = substr(g.grp, 7));
       select array_agg(x.name order by x.first_at, x.name) into v_names
         from (select i.name, min(p.created_at) first_at from public.inventory_purchases p join public.inventory_items i on i.id = p.item_id where p.expense_group = g.grp group by i.name) x;
       v_dup := exists (select 1 from public.transactions o
@@ -840,13 +1019,15 @@ begin
   get diagnostics v_b1 = row_count;
   -- B2
   update public.inventory_purchases p set transaction_id = t.id
-    from public.transactions t
-   where p.transaction_id is null and t.id = public.s_stock_expense_txn_of_v1(p.notes);
+    from public.transactions t, public.inventory_items it
+   where p.transaction_id is null and t.id = public.s_stock_expense_txn_of_v1(p.notes)
+     and it.id = p.item_id and t.property_id = it.property_id and t.txn_type = 'expense';
   get diagnostics v_b2 = row_count;
   update public.inventory_purchases p set transaction_id = d.transaction_id
-    from public.inventory_receipt_drafts d
+    from public.inventory_receipt_drafts d, public.inventory_items it
    where p.transaction_id is null and p.expense_group = 'draft:' || d.id::text and d.transaction_id is not null
-     and exists (select 1 from public.transactions t where t.id = d.transaction_id);
+     and it.id = p.item_id
+     and exists (select 1 from public.transactions t where t.id = d.transaction_id and t.property_id = it.property_id and t.txn_type = 'expense');
   get diagnostics v_b2b = row_count;
   -- B4
   for g in
@@ -859,6 +1040,8 @@ begin
      group by p.expense_group
     having bool_and(p.transaction_id is null) and min(p.purchased_at) >= v_from and count(*) filter (where p.unit_cost > 0) > 0
        and not exists (select 1 from public.transactions t where t.external_ref = 'stock:' || p.expense_group and t.txn_type = 'expense')
+       -- a scanned draft's own live row (the sync's step 1 rule): that group already has its one row
+       and not exists (select 1 from public.transactions t where p.expense_group like 'draft:%' and t.txn_type = 'expense' and t.status <> 'void' and t.ocr_raw ->> 'draft_id' = substr(p.expense_group, 7))
      order by min(p.purchased_at), p.expense_group
   loop
     declare
@@ -868,6 +1051,11 @@ begin
       v_amt := coalesce(v_total, g.priced_sum);
       v_incomplete := v_total is null and g.priced < g.n;
       continue when v_amt is null or v_amt <= 0;
+      -- the sync's own lock for this group, then the checks again: a stock write that committed since the list was read may have made the group's row
+      perform pg_advisory_xact_lock(hashtextextended('s134:stock:' || g.grp, 0));
+      continue when exists (select 1 from public.transactions t where t.external_ref = 'stock:' || g.grp and t.txn_type = 'expense')
+                 or exists (select 1 from public.inventory_purchases ip where ip.expense_group = g.grp and ip.transaction_id is not null)
+                 or exists (select 1 from public.transactions t where g.grp like 'draft:%' and t.txn_type = 'expense' and t.status <> 'void' and t.ocr_raw ->> 'draft_id' = substr(g.grp, 7));
       select array_agg(x.name order by x.first_at, x.name) into v_names
         from (select i.name, min(p.created_at) first_at from public.inventory_purchases p join public.inventory_items i on i.id = p.item_id where p.expense_group = g.grp group by i.name) x;
       v_dup := exists (select 1 from public.transactions o
@@ -909,11 +1097,17 @@ select ok(not exists (select 1 from public.transactions t where t.external_ref =
   'T16: stock before the start date, stock with no price, and stock already linked (by its note, or to a human-owned stock row) get no new row; the note link is made and a human-owned stock row is left alone');
 select ok(not exists (select 1 from public.transactions t where t.external_ref like 'stock:%' and t.ocr_raw ->> 's134_backfill' = 'true' and (t.status <> 'pending_review' or t.ocr_raw ->> 's134_auto' <> 'false'))
       and not exists (select 1 from _bf0 b join public.transactions t on t.id = b.id where md5(t::text) is distinct from b.h)
-      and not exists (select 1 from (select t.external_ref from public.transactions t where t.external_ref like 'stock:%' and t.status <> 'void' group by t.external_ref having count(*) > 1) x),
-  'T16: no back-filled row is confirmed, no row that existed before is modified, and no stock group has two live rows');
+      and not exists (select 1 from (select p.expense_group grp, t.id from public.inventory_purchases p join public.transactions t on t.id = p.transaction_id and t.status <> 'void' where p.expense_group is not null
+                                       union select p.expense_group, t.id from public.inventory_purchases p join public.transactions t on t.external_ref = 'stock:' || p.expense_group and t.status <> 'void' where p.expense_group is not null) l
+                      group by grp having count(distinct id) > 1),
+  'T16: no back-filled row is confirmed, no row that existed before is modified, and no receipt group has two live rows (the real per-group invariant)');
 select ok(not exists (select 1 from (select 'p'::text as k, p.id::text as id, md5(p::text) as h from public.inventory_purchases p union all select 't', t.id::text, md5(t::text) from public.transactions t) a
                        where not exists (select 1 from _bf1 b where b.k = a.k and b.id = a.id and b.h = a.h))
       and (select count(*) from public.transactions) = (select count(*) from _bf1 where k = 't'), 'T16: running the back-fill a second time changes nothing (idempotent)');
+select ok(not exists (select 1 from public.transactions t where t.external_ref = 'stock:draft:' || pg_temp.id('9a')::text) and (select p.transaction_id is null from public.inventory_purchases p where p.id = pg_temp.id('9d')),
+  'fix 10: the back-fill gives no second row to a scanned draft that already has its own live row (ocr_raw draft_id)');
+select ok((select p.transaction_id is null from public.inventory_purchases p where p.id = pg_temp.id('9e')),
+  'fix 10: a "(txn ...)" note naming an expense of another house is not linked by the back-fill');
 
 select * from finish();
 rollback;
