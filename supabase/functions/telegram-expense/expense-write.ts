@@ -188,3 +188,50 @@ export async function voidMany(db: unknown, ids: string[], reason: string, actor
   }
   return { done, total: ids.length, firstFailure };
 }
+
+// ---- s134 fix r3: a held receipt photo, bound to its own prompt, and the same checks as /log ----
+
+/** The line sent when a held receipt cannot be found for the tapped keyboard (already used, lapsed, or replaced). */
+export const HOLD_GONE_LINE = 'That receipt is no longer waiting. Send it again.';
+/** The line sent when a new question replaced an open answer that carried a held receipt: the photo was never saved. */
+export const RECEIPT_LOST_LINE = 'The receipt you sent earlier was not saved. Send it again.';
+
+export type HoldPayload = { hold: true; objectPath: string; loggedBy: string | null; notes: string | null; prompt_mid?: unknown };
+
+/** After the keyboard is sent: store its message id on its own hold row, so only a tap on that keyboard can take it. False when there is no id to store. */
+// deno-lint-ignore no-explicit-any
+export async function bindHoldPrompt(db: any, holdId: string, hold: HoldPayload, promptMid: unknown): Promise<boolean> {
+  if (!holdId || promptMid == null || String(promptMid) === '') return false;
+  const { error } = await db.from('telegram_pending').update({ payload: { ...hold, prompt_mid: promptMid } }).eq('id', holdId);
+  return !error;
+}
+
+/** A tap on the hold keyboard: take (delete-returning) the hold whose prompt is exactly this message. A second tap, or a tap on another photo's keyboard, finds nothing. */
+// deno-lint-ignore no-explicit-any
+export async function takeHoldForPrompt(db: any, chatId: unknown, callbackMid: unknown, nowMs: number = Date.now()): Promise<HoldPayload | null> {
+  if (chatId == null || callbackMid == null || String(callbackMid) === '') return null;
+  const { data } = await db.from('telegram_pending').delete().eq('chat_id', chatId).eq('kind', 'photo_dup').eq('payload->>hold', 'true')
+    .eq('payload->>prompt_mid', String(callbackMid)).select('payload,expires_at').maybeSingle();
+  if (!data || !data.payload?.objectPath) return null;
+  if (data.expires_at && new Date(data.expires_at).getTime() < nowMs) return null;
+  return data.payload as HoldPayload;
+}
+
+/** Did a delete of open answers drop one that carried a held receipt? */
+export const droppedReceipt = (rows: unknown): boolean => Array.isArray(rows) && rows.some((r) => !!(r as { payload?: { receipt?: unknown } })?.payload?.receipt);
+
+export type SaveOpts = { category: string; amount: number; label?: string; payee?: string | null; notes?: string | null; loggedBy?: string | null; receipt?: string | null };
+type Dupe = { id: string; category?: string; transaction_date?: string };
+export type SavePlan = { kind: 'duplicate_today' | 'duplicate_recent' | 'large' | 'save'; dupe: Dupe | null; payload: Record<string, unknown> };
+
+/** The /log checks in one place: same-day same-category duplicate, a similar recent amount, a large amount, otherwise save.
+ *  The payload of every question carries the receipt path, so the final save attaches it. */
+export function planSave(o: SaveOpts, dupes: Dupe[], today: string, limits: { large: number; recentMin: number }): SavePlan {
+  const payload: Record<string, unknown> = { amount: o.amount, category: o.category, label: o.label, payee: o.payee, notes: o.notes, loggedBy: o.loggedBy, ...(o.receipt ? { receipt: o.receipt } : {}) };
+  const exact = dupes.find((d) => d.category === o.category && d.transaction_date === today) ?? null;
+  if (exact) return { kind: 'duplicate_today', dupe: exact, payload };
+  const recent = o.amount >= limits.recentMin ? (dupes[0] ?? null) : null;
+  if (recent) return { kind: 'duplicate_recent', dupe: recent, payload };
+  if (o.amount >= limits.large) return { kind: 'large', dupe: null, payload };
+  return { kind: 'save', dupe: null, payload };
+}

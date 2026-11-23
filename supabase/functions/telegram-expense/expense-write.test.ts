@@ -1,7 +1,7 @@
 // deno test --allow-read telegram-expense/expense-write.test.ts - s134 L3 (D-405): the Telegram expense writes go through two RPCs; the RPCs are faked here (L1 writes the SQL).
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import {
-  againForVoidedPhoto, categoryKeyboardFrom, categoryUnion, confirmExpense, FALLBACK_CATEGORIES, keyForMessage, keyForPending, keyForPhoto, lookalikeLine, ocrDate, ocrTxn, onReplayedReceipt, pickableCategories, readableTotal,
+  againForVoidedPhoto, bindHoldPrompt, droppedReceipt, HOLD_GONE_LINE, planSave, RECEIPT_LOST_LINE, takeHoldForPrompt, categoryKeyboardFrom, categoryUnion, confirmExpense, FALLBACK_CATEGORIES, keyForMessage, keyForPending, keyForPhoto, lookalikeLine, ocrDate, ocrTxn, onReplayedReceipt, pickableCategories, readableTotal,
   reviewExpense, reviewRefusal, saveExpense, setExpenseAmount, shortDate, SYSTEM_SLUGS, typedTxn, voidExpense, voidMany, writeLineItems,
 } from './expense-write.ts';
 
@@ -205,7 +205,7 @@ Deno.test('index.ts wiring: keys per flow, the look-alike line, review calls, an
   assertStringIncludes(src, 'confirmExpense(db,txnId,whoFrom(cq.from))');
   assertStringIncludes(src, 'setExpenseAmount(db,String(p.txnId),amount,loggedBy)');
   assertStringIncludes(src, 'if(!r.replayed)notifyOps(');
-  assertEquals(src.split('row.id,row.look)').length - 1, 4, 'the three confirmations and the held-receipt answer carry the look-alike line');
+  assertEquals(src.split('row.id,row.look)').length - 1, 3, 'the three confirmations carry the look-alike line (the held-receipt answer now goes through validateAndInsert, r3)');
   assert(src.includes('Looks like') === false, 'the sentence itself lives in expense-write.ts');
 });
 
@@ -347,4 +347,133 @@ Deno.test('fix r2 (3): the receipt date is kept up to Manila tomorrow and droppe
   const dropped = ocrTxn({ category: 'other', amount: 1, vendor: null, notes: null, loggedBy: null, receipt: 'p', confidence: 1, raw: {}, date: ocrDate('2026-11-25', a) });
   assertEquals(kept.transaction_date, '2026-11-24');
   assertFalse('transaction_date' in dropped, 'the RPC then uses Manila today and the save is kept');
+});
+
+// ---- s134 fix round 3 ----
+
+// A telegram_pending table that honours delete / eq (including payload->>key paths) / select / maybeSingle, delete-returning.
+function pendingTable(rows: Array<Record<string, any>>) {
+  const val = (r: Record<string, any>, c: string) => (c.startsWith('payload->>') ? (r.payload?.[c.slice(10)] == null ? null : String(r.payload[c.slice(10)])) : r[c]);
+  return {
+    from: (_t: string) => {
+      const filters: Array<[string, unknown]> = [];
+      let op: 'select' | 'delete' | 'update' = 'select';
+      let patch: Record<string, unknown> | null = null;
+      const match = () => rows.filter((r) => filters.every(([c, v]) => val(r, c) === v || String(val(r, c)) === String(v)));
+      const run = () => {
+        const m = match();
+        if (op === 'delete') for (const r of m) rows.splice(rows.indexOf(r), 1);
+        if (op === 'update' && patch) for (const r of m) Object.assign(r, patch);
+        return m;
+      };
+      // deno-lint-ignore no-explicit-any
+      const b: any = {
+        select: () => b,
+        delete: () => { op = 'delete'; return b; },
+        update: (p: Record<string, unknown>) => { op = 'update'; patch = p; return b; },
+        eq: (c: string, v: unknown) => { filters.push([c, v]); return b; },
+        maybeSingle: () => Promise.resolve({ data: run()[0] ?? null, error: null }),
+        then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve({ data: run(), error: null }).then(res, rej),
+      };
+      return b;
+    },
+  };
+}
+const future = () => new Date(Date.now() + 3_600_000).toISOString();
+const holdRow = (id: string, objectPath: string, mid?: unknown) => ({ id, chat_id: -100, kind: 'photo_dup', expires_at: future(), payload: { hold: true, objectPath, loggedBy: 'Lloyd 1', notes: null, ...(mid != null ? { prompt_mid: mid } : {}) } });
+
+Deno.test('fix r3 (1): two holds, each bound to its own keyboard: the older keyboard gets the older photo, the newer the newer, a second tap gets nothing', async () => {
+  const rows: Array<Record<string, any>> = [holdRow('h1', 'receipts/-100/old.jpg'), holdRow('h2', 'receipts/-100/new.jpg')];
+  const db = pendingTable(rows);
+  // runOcr: after each keyboard is sent, its message id is stored on its own hold row
+  assert(await bindHoldPrompt(db, 'h1', rows[0].payload, 501));
+  assert(await bindHoldPrompt(db, 'h2', rows[1].payload, 502));
+  assertEquals(rows.map((r) => r.payload.prompt_mid), [501, 502]);
+  assertFalse(await bindHoldPrompt(db, 'h1', rows[0].payload, undefined), 'no message id: nothing bound');
+  // tap on the OLDER keyboard (501): the older photo, not the newest hold
+  assertEquals((await takeHoldForPrompt(db, -100, 501))?.objectPath, 'receipts/-100/old.jpg');
+  assertEquals(rows.length, 1, 'consumed by delete-returning');
+  // a second tap on the same keyboard: nothing, and the other hold is untouched
+  assertEquals(await takeHoldForPrompt(db, -100, 501), null);
+  assertEquals(rows.length, 1);
+  // tap on the newer keyboard: the newer photo
+  assertEquals((await takeHoldForPrompt(db, -100, 502))?.objectPath, 'receipts/-100/new.jpg');
+  assertEquals(rows.length, 0);
+  assertEquals(HOLD_GONE_LINE, 'That receipt is no longer waiting. Send it again.');
+  // another chat, an unbound hold and an expired hold are never taken
+  const other = [holdRow('x', 'p1', 7), { ...holdRow('y', 'p2', 8), expires_at: new Date(Date.now() - 1000).toISOString() }, holdRow('z', 'p3')];
+  const odb = pendingTable(other);
+  assertEquals(await takeHoldForPrompt(odb, -999, 7), null);
+  assertEquals(await takeHoldForPrompt(odb, -100, 8), null, 'expired');
+  assertEquals(await takeHoldForPrompt(odb, -100, 9), null, 'a hold with no prompt id matches no tap');
+});
+
+Deno.test('fix r3 (1): index.ts wiring - the hold is bound after the keyboard is sent, and the tap looks it up by the callback message id', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertStringIncludes(src, 'bindHoldPrompt(db,hid,{hold:true,objectPath,loggedBy,notes:notesText},kr?.result?.message_id)');
+  assertStringIncludes(src, 'receipt=await takeHoldForPrompt(db,chatId,msgId)');
+  assertStringIncludes(src, 'tgSend(chatId,HOLD_GONE_LINE)');
+  assertFalse(src.includes("order('expires_at',{ascending:false}).limit(1).maybeSingle();receipt="), 'no newest-hold lookup is left');
+});
+
+Deno.test('fix r3: callback data of the hold keyboard stays within 64 bytes for the longest live slug', () => {
+  const longest = 'x'.repeat(40); // slugs are 1-40 chars of [a-z0-9_] (categoryUnion)
+  const kb = categoryKeyboardFrom([{ slug: longest, label: 'L' }, ...FALLBACK_CATEGORIES], 123456789, true).inline_keyboard.flat();
+  for (const b of kb) assert(new TextEncoder().encode(b.callback_data).length <= 64, b.callback_data);
+  assertEquals(new TextEncoder().encode(kb[0].callback_data).length, 4 + 40 + 1 + 9 + 2);
+});
+
+const LIM = { large: 10_000, recentMin: 500 };
+
+Deno.test('fix r3 (2): a held answer over the large-amount threshold asks first; confirming saves one row that carries the receipt', async () => {
+  const opts = { category: 'supplies', amount: 12_500, label: 'Supplies', payee: 'Demo shop', notes: 'a | Demo shop', loggedBy: 'Lloyd 1', receipt: 'receipts/-100/u.jpg' };
+  const plan = planSave(opts, [], '2026-11-23', LIM);
+  assertEquals(plan.kind, 'large');
+  assertEquals(plan.payload.receipt, 'receipts/-100/u.jpg');
+  const r = rig();
+  assertEquals(r.calls.length, 0, 'nothing saved before the confirm');
+  // the confirm tap: the stored payload goes back through typedTxn (insertExpense) with the pending key
+  // deno-lint-ignore no-explicit-any
+  const p = plan.payload as any;
+  const out = await saveExpense(r.db, PROP, typedTxn({ category: p.category, amount: p.amount, payee: p.payee, notes: p.notes, loggedBy: p.loggedBy, receipt: p.receipt }), keyForPending('pid-1'));
+  assert(out.ok);
+  assertEquals(r.calls.length, 1);
+  assertEquals(r.calls[0].args.p_txn.receipt_image_path, 'receipts/-100/u.jpg');
+  assertEquals(r.calls[0].args.p_txn.amount, 12_500);
+});
+
+Deno.test('fix r3 (2): a held answer with a same-day same-category amount, or a similar recent one, asks first and keeps the receipt; a plain one saves', () => {
+  const o = { category: 'supplies', amount: 700, receipt: 'receipts/-100/u.jpg' };
+  const today = planSave(o, [{ id: 'a', category: 'supplies', transaction_date: '2026-11-23' }], '2026-11-23', LIM);
+  assertEquals([today.kind, today.dupe?.id, today.payload.receipt], ['duplicate_today', 'a', 'receipts/-100/u.jpg']);
+  const recent = planSave(o, [{ id: 'b', category: 'utilities', transaction_date: '2026-11-20' }], '2026-11-23', LIM);
+  assertEquals([recent.kind, recent.dupe?.id, recent.payload.receipt], ['duplicate_recent', 'b', 'receipts/-100/u.jpg']);
+  assertEquals(planSave({ category: 'supplies', amount: 300 }, [{ id: 'c', category: 'x', transaction_date: '2026-11-20' }], '2026-11-23', LIM).kind, 'save', 'under the recent floor');
+  assertEquals(planSave(o, [], '2026-11-23', LIM).kind, 'save');
+  assertFalse('receipt' in planSave({ category: 'supplies', amount: 12_000 }, [], '2026-11-23', LIM).payload, 'a typed /log carries no receipt key');
+});
+
+Deno.test('fix r3 (2): index.ts wiring - the held answer goes through validateAndInsert; every pending payload comes from planSave', async () => {
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertStringIncludes(src, "await validateAndInsert(db,chatId,{category:String(p.slug),amount:a.amount,label,payee:a.vendor,notes:[r.notes,a.vendor].filter(Boolean).join(' | ')||null,loggedBy:r.loggedBy??loggedBy,key:keyForMessage(chatId,msg.message_id),receipt:String(r.objectPath)})");
+  assertStringIncludes(src, "createPending(db,chatId,'large_amount',plan.payload)");
+  assertEquals(src.split("createPending(db,chatId,'duplicate',plan.payload)").length - 1, 2);
+  assertFalse(src.includes("createPending(db,chatId,'duplicate',{amount"), 'no payload that forgets the receipt');
+});
+
+Deno.test('fix r3 (2): a new question that replaces an open answer carrying a receipt says so; one without a receipt stays silent', async () => {
+  const rows = [
+    { id: 'a1', chat_id: -100, kind: 'awaiting_reply', payload: { flow: 'expense', from_id: 5, receipt: { objectPath: 'p' } } },
+    { id: 'a2', chat_id: -100, kind: 'awaiting_reply', payload: { flow: 'expense', from_id: 6 } },
+  ];
+  const db = pendingTable(rows);
+  // the same delete awaiting() runs: returning the dropped rows
+  const gone5 = (await db.from('telegram_pending').delete().eq('chat_id', -100).eq('kind', 'awaiting_reply').eq('payload->>from_id', '5').select('payload')).data;
+  assert(droppedReceipt(gone5));
+  const gone6 = (await db.from('telegram_pending').delete().eq('chat_id', -100).eq('kind', 'awaiting_reply').eq('payload->>from_id', '6').select('payload')).data;
+  assertFalse(droppedReceipt(gone6));
+  assertFalse(droppedReceipt(null));
+  assertEquals(RECEIPT_LOST_LINE, 'The receipt you sent earlier was not saved. Send it again.');
+  const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
+  assertStringIncludes(src, 'if(droppedReceipt(gone))await tgSend(chatId,RECEIPT_LOST_LINE)');
 });
