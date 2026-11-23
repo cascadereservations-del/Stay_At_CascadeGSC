@@ -4,7 +4,7 @@
   "phase": "expand",
   "source": {
     "branch": "s134/expenses",
-    "commit": "__COMMIT__"
+    "commit": "206651f8b3727308cbf6db6a8b8ad0b6ba5c67b2"
   },
   "migrations": [
     "20261204000000_s134_expenses.sql"
@@ -126,8 +126,8 @@
     "mode": "widening",
     "old_reader": true,
     "old_writer": true,
-    "verified": false,
-    "evidence": "PENDING: the rehearsal on a restored production backup has not been recorded in this file yet."
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-23 on restored production backup cascade-supabase-20261123T120703Z with the shim for the staff_upload_hashes grant a --no-acl restore lacks: migration applied, forward verification 16 of 16, pgTAP s134_expenses 100/100, s127_utility_bills 102/102, s127_bill_reminders 120/120, s132 and s133 wrappers (constraints immediate plus one-live-row-per-group assertion) pass every assertion except the grant assertions that fail identically without s134 (--no-acl restore), s110/s111/s115/s131 fail only their pre-existing baseline assertions (rollback on a scratch DB shows the same set). Rollback rehearsed with 6 back-filled inventory rows present, then the migration applied again twice. Source commit is the SQL commit this file was cut from."
   },
   "approvals": {
     "production_required": true,
