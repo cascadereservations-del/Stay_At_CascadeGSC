@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "release_id": "cf_confirm_flow_20261205",
+  "phase": "expand",
+  "source": {
+    "branch": "feat/confirm-flow",
+    "commit": "7f626ec70241355c760cce4961044df3151b9d4e"
+  },
+  "migrations": [
+    "20261205000000_cf_confirm_flow.sql"
+  ],
+  "migration_sha256": {
+    "20261205000000_cf_confirm_flow.sql": "a5cd9fc10f8fb8a630d363b886e3fdd6636c3bba6fde02790d9660a1de18ccaa"
+  },
+  "backup": {
+    "required": true,
+    "scope": "production",
+    "restore_point": "C:/Cascade-Backups/cascade-supabase-20261123T162357Z",
+    "verified_at": "2026-11-23T16:28:16.230Z",
+    "production_rule": "Confirm flow, server side (D-418, Lloyd 2026-11-24): staff_inquiry_payments_v1 is dropped and re-created with three more columns (receipt_sent, receipt_at, contact_channel) and the new order; the 12 old columns keep their names and order, so the old Staff reads it unchanged. staff_decline_direct_booking_v1 gains a fourth argument p_reason_code (no default; the three-argument form stays as an invoker wrapper that passes null, so Staff 3.4.53 keeps working) and, on a fresh decline other than reason duplicate, queues one guest-messages post {booking_id, key declined, reason_code, receipt_sent, tapped} on commit (pg_net, wrapped so it never blocks the decline). The guest_message_log message_key CHECK gains declined. concierge_conversations_v1 is dropped and re-created with needs_reply and waiting_since (it loses service_role execute: only the signed-in dashboard calls it); concierge_waiting_v1 is new. notices_v1 gets one anchored replace (inbox_open counts guests waiting, md5 7906db74 to 06204588). Four internal helpers s_cf_* (no grants). No data is written. The Telegram decline path is NOT hooked: it already sends its own guest message (telegram-expense inquiry-flow), a hook would double-send.",
+    "notes": "Apply after s134 is applied (or independently: it touches none of the s134 functions). Restamp restore_point and verified_at with a fresh backup at apply time (scripts/migrations/fill-restore-point.mjs). Order: SQL, then the guest-messages deploy (it must answer the declined key before a decline posts it), then the Staff push; roll back in the reverse order."
+  },
+  "forward_verification": [
+    {
+      "name": "md5_cf_functions",
+      "query": "select count(*) = 9 and bool_and(md5(replace(p.prosrc, chr(13), '')) = e.m) from (values ('public.s_cf_ts_v1(text)'::regprocedure, '86ef29d98c9b4dbafdaa2870bdff997c'), ('public.s_cf_receipt_sent_v1(uuid)'::regprocedure, '28c18995bea324dfc1f7ccb286fef959'), ('public.s_cf_contact_channel_v1(uuid)'::regprocedure, '64a721e3965b5ae1aff107eb3e7fa1cc'), ('public.s_cf_waiting_v1()'::regprocedure, '329da92b282f0ba14ff2075b8c2ebc0f'), ('public.staff_inquiry_payments_v1(uuid)'::regprocedure, '094acaddf3ee474d59cc4f4319f38b8c'), ('public.staff_decline_direct_booking_v1(uuid,text,text,text)'::regprocedure, '42905864d5b773d0503a2e518ec26a50'), ('public.staff_decline_direct_booking_v1(uuid,text,text)'::regprocedure, 'be05cc371270d987abd5122f9677408d'), ('public.concierge_conversations_v1(int)'::regprocedure, 'd9dc746bf7a2a5f83f1d3b8f7c31a633'), ('public.concierge_waiting_v1()'::regprocedure, '85a01e5816502e4f25a02c0ad3ca0c63')) e(f, m) join pg_proc p on p.oid = e.f",
+      "expect": true
+    },
+    {
+      "name": "md5_notices_v1_s91_plus_one_line",
+      "query": "select md5(replace(p.prosrc, chr(13), '')) = '06204588643539a7a6b0e01df58a1d2a' from pg_proc p where p.oid = 'public.notices_v1(uuid)'::regprocedure",
+      "expect": true
+    },
+    {
+      "name": "client_functions_authenticated_only",
+      "query": "select bool_and(has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.staff_inquiry_payments_v1(uuid)', 'public.staff_decline_direct_booking_v1(uuid,text,text,text)', 'public.staff_decline_direct_booking_v1(uuid,text,text)', 'public.concierge_conversations_v1(int)', 'public.concierge_waiting_v1()']) f",
+      "expect": true
+    },
+    {
+      "name": "notices_v1_grants_unchanged",
+      "query": "select has_function_privilege('authenticated', 'public.notices_v1(uuid)', 'execute') and has_function_privilege('service_role', 'public.notices_v1(uuid)', 'execute') and not has_function_privilege('anon', 'public.notices_v1(uuid)', 'execute')",
+      "expect": true
+    },
+    {
+      "name": "internal_helpers_no_client_grants",
+      "query": "select count(*) = 4 and bool_and(not has_function_privilege('anon', f::regprocedure, 'execute') and not has_function_privilege('authenticated', f::regprocedure, 'execute') and not has_function_privilege('service_role', f::regprocedure, 'execute')) from unnest(array['public.s_cf_ts_v1(text)', 'public.s_cf_receipt_sent_v1(uuid)', 'public.s_cf_contact_channel_v1(uuid)', 'public.s_cf_waiting_v1()']) f",
+      "expect": true
+    },
+    {
+      "name": "decline_has_two_overloads",
+      "query": "select count(*) = 2 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'staff_decline_direct_booking_v1'",
+      "expect": true
+    },
+    {
+      "name": "log_check_allows_declined",
+      "query": "select pg_get_constraintdef(c.oid) like '%''declined''%' and c.convalidated from pg_constraint c where c.conrelid = 'public.guest_message_log'::regclass and c.conname = 'guest_message_log_message_key_check'",
+      "expect": true
+    },
+    {
+      "name": "payments_has_the_three_new_columns",
+      "query": "select (select proargnames from pg_proc where oid = 'public.staff_inquiry_payments_v1(uuid)'::regprocedure)[14:16] = array['receipt_sent', 'receipt_at', 'contact_channel']",
+      "expect": true
+    },
+    {
+      "name": "conversations_has_the_two_new_columns",
+      "query": "select (select proargnames from pg_proc where oid = 'public.concierge_conversations_v1(int)'::regprocedure)[12:13] = array['needs_reply', 'waiting_since']",
+      "expect": true
+    },
+    {
+      "name": "changed_functions_security_definer_empty_search_path_helpers_invoker",
+      "query": "select (select count(*) = 5 and bool_and(p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.oid in ('public.staff_inquiry_payments_v1(uuid)'::regprocedure, 'public.staff_decline_direct_booking_v1(uuid,text,text,text)'::regprocedure, 'public.concierge_conversations_v1(int)'::regprocedure, 'public.concierge_waiting_v1()'::regprocedure, 'public.notices_v1(uuid)'::regprocedure)) and (select count(*) = 4 and bool_and(not p.prosecdef and p.proconfig = array['search_path=\"\"']) from pg_proc p where p.oid in ('public.s_cf_ts_v1(text)'::regprocedure, 'public.s_cf_receipt_sent_v1(uuid)'::regprocedure, 'public.s_cf_contact_channel_v1(uuid)'::regprocedure, 'public.s_cf_waiting_v1()'::regprocedure))",
+      "expect": true
+    }
+  ],
+  "accepted_failing_tests": {
+    "note": "A --no-acl restore of the production backup lacks grants and some rows, so these assertions of older suites fail identically with and without this release (rolled-back state of the same restore: guest_message_log 12,13; inquiry_one_tap 3,4,5; s81_notices 54; concierge_conversations 5 all fail the same). Any failure outside these numbers stops the release. confirm_flow passes in full.",
+    "guest_message_log": {
+      "kind": "acl",
+      "tests": [
+        12,
+        13
+      ]
+    },
+    "inquiry_one_tap": {
+      "kind": "acl",
+      "tests": [
+        3,
+        4,
+        5
+      ]
+    },
+    "s81_notices": {
+      "kind": "data",
+      "tests": [
+        54
+      ]
+    },
+    "concierge_conversations": {
+      "kind": "acl",
+      "tests": [
+        5
+      ]
+    },
+    "confirm_flow": {
+      "kind": "none",
+      "tests": []
+    }
+  },
+  "rollback": {
+    "strategy": "compensating",
+    "safe_until": "Any time. The rollback puts notices_v1 back to the s91 body (md5 7906db74 pinned), restores the three old function bodies (md5-equal to the live ones, recorded before this release), drops concierge_waiting_v1, the four-argument decline and the s_cf_* helpers, and narrows the log CHECK only when no declined row exists. KEEPS every guest_message_log row and booking decision already written.",
+    "steps": [
+      {
+        "name": "rollback_clients_first",
+        "action": "Revert the Cascade-Staff push, then the guest-messages deploy (the new Staff reads the new columns and calls concierge_waiting_v1 and the four-argument decline)."
+      },
+      {
+        "name": "run_compensating_script",
+        "action": "apply supabase/rollbacks/20261205_cf_confirm_flow.sql with run-sql-on-host.sh; notices_v1 must read md5 7906db742100f93a2b56d33bbdb43baf again."
+      }
+    ]
+  },
+  "feature_flags": [
+    {
+      "name": "no_flag_the_app_follows_the_sql",
+      "required_state": "None. Additive for old readers: the old Staff reads the first 12 payments columns and the first 10 conversation columns by name; the three-argument decline still works (and now also posts the guest message, except for duplicate)."
+    }
+  ],
+  "compatibility": {
+    "mode": "widening",
+    "old_reader": true,
+    "old_writer": true,
+    "verified": true,
+    "evidence": "Rehearsed 2026-11-24 on commit 7f626ec70241355c760cce4961044df3151b9d4e (branch feat/confirm-flow) on restored production backup cascade-supabase-20261123T162357Z (REHEARSAL_TAP_LINES=all): sequence forward, compensating rollback, forward again, all three applied (3 of 3, 0 failed); forward verification 10 of 10 after the last forward; after the rollback (separate run, forward then rollback) 5 of 5 rolled-back checks (notices_v1 md5 7906db74, the three old bodies by md5 prefix, new functions gone, CHECK back to six keys, old grants). pgTAP: confirm_flow 73/73 (new); concierge_conversations 22/23, guest_message_log 12/14, inquiry_one_tap 92/95, s81_notices 58/59, each failing only the numbers in accepted_failing_tests, which fail the same on the rolled-back state of the same restore (--no-acl restore). Logs are in the session scratchpad (rehC4.log, rehB.log)."
+  },
+  "approvals": {
+    "production_required": true,
+    "owner_mfa_required": false,
+    "automatic_deployment_authorized": false
+  },
+  "stop_conditions": [
+    "any forward verification query returns anything other than its expected value",
+    "the restore point is older than one hour, or restore_point / verified_at are still the placeholders",
+    "the migration guard raises 55000 (a live body moved)",
+    "the rehearsal has not run the migration (apply, rollback, apply again, forward checks after each) and the suites confirm_flow, concierge_conversations, s81_notices, inquiry_one_tap and guest_message_log on this commit, or any test fails outside accepted_failing_tests, or compatibility.verified is still false",
+    "the Opus 5.5 review of this SQL lane has not passed",
+    "the guest-messages function (answers the declined key) is not deployed before this migration is applied"
+  ]
+}
