@@ -5401,6 +5401,48 @@
     .theme-quiet-luxury .sticky-book-cta.gs-dock { transition: none; }
   }
   </style>
+  <style id="gs-style-t5">
+  /* ---------- T5: tablet (641-1023) ---------- */
+  @media (min-width: 641px) {
+    .gs-proof { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; }
+    .gs-ch-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: clamp(2rem, 5vw, 4.5rem); grid-template-rows: auto auto 1fr; grid-template-areas: "media head" "media title" "media body"; }
+    .gs-ch--rev .gs-ch-grid { grid-template-areas: "head media" "title media" "body media"; }
+    .gs-ch-head { grid-area: head; } .gs-ch-title { grid-area: title; } .gs-ch-media { grid-area: media; } .gs-ch-body { grid-area: body; }
+    .gs-photo--tall { max-width: 100%; border-radius: 1.625rem; }
+    .gs-ch-head--end, .gs-ch--rev .gs-ch-head { flex-direction: row; justify-content: flex-start; text-align: left; }
+    .gs-ch--rev .gs-ch-title { text-align: left; }
+    .gs-floatq { margin-top: -2.25rem; }
+    .gs-comfort-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 2.5rem; }
+    .gs-card { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .gs-scores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .gs-space-info .gs-btn { align-self: flex-start; min-width: 18rem; }
+  }
+  @media (min-width: 760px) {
+    .gs-nav { display: flex; gap: 1.25rem; margin-inline: auto; }
+    .theme-quiet-luxury .site-header { height: 3.875rem; border-radius: 1.9375rem; top: 1.25rem; }
+    .theme-quiet-luxury .site-header.is-scrolled, .theme-quiet-luxury .site-header.is-revealed { height: 3.875rem; }
+    .theme-quiet-luxury .site-header .header-cta { min-height: 46px; padding-inline: 1.375rem; }
+  }
+
+  /* ---------- T5: desktop (>=1024) ---------- */
+  @media (min-width: 1024px) {
+    .theme-quiet-luxury .luxury-hero-grid { grid-template-columns: minmax(0, 1fr) minmax(24rem, 30rem); column-gap: 3rem; padding-bottom: clamp(2rem, 4vw, 3.5rem); }
+    .theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy { grid-row: 1; grid-column: 1; }
+    .theme-quiet-luxury .luxury-hero-grid .hero-bk { grid-row: 1; grid-column: 2; max-width: none; margin: 0; }
+    .theme-quiet-luxury .luxury-hero-media img, .theme-quiet-luxury .luxury-hero-media .hero-slide img { object-position: 50% 50%; }
+    .gs-orb { display: block; position: absolute; z-index: 1; border-radius: 50%; filter: blur(46px); pointer-events: none; mix-blend-mode: soft-light; }
+    .gs-o1 { width: 26rem; height: 26rem; left: -5rem; top: 30%; background: radial-gradient(circle, rgb(255 214 160 / 0.85), transparent 70%); }
+    .gs-o2 { width: 24rem; height: 24rem; right: -4rem; top: 12%; background: radial-gradient(circle, rgb(190 214 230 / 0.75), transparent 70%); }
+    .gs-proof { column-gap: 6rem; }
+    .gs-scores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .gs-strip-img { width: 22rem; height: 16rem; }
+    .gs-trip { width: 20rem; } .gs-trip img { height: 22rem; }
+    .gs-card-from, .gs-ladder { max-width: 30rem; }
+    .gs-bleed-copy { padding-bottom: 4rem; }
+  }
+  @media (min-width: 1024px) and (max-width: 1279px) { .gs-photo--tall { aspect-ratio: 5 / 6; } }
+
+  </style>
 </head>
 
 <body class="theme-quiet-luxury">
