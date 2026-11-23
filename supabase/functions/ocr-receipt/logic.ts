@@ -265,11 +265,11 @@ export const UPLOAD_DAILY_LIMIT = 100;
 /** Start of today in Manila, as a timestamp Postgres reads. */
 const manilaDayStart = () => `${new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10)}T00:00:00+08:00`;
 
-/** s134 fix r1: at most UPLOAD_DAILY_LIMIT stored uploads (attach, extract) per user per Manila day, counted from the proof rows. Null = under the limit. */
+/** s134 fix r1: at most UPLOAD_DAILY_LIMIT stored uploads (attach, extract) per user per Manila day, counted from the proof rows (shared with the bills, staff-pay and meter proof uploads). A missing count fails closed. Null = under the limit. */
 export async function uploadLimit(db: Db, userId: string): Promise<Out | null> {
   const used = await db.from('staff_upload_hashes').select('path', { count: 'exact', head: true }).eq('uploaded_by', userId).gte('created_at', manilaDayStart());
-  if (used.error) { console.warn('ocr_upload_limit_check_failed', String(used.error.message ?? used.error).slice(0, 120)); return out(500, { ok: false, error: 'load_failed' }); }
-  if ((used.count ?? 0) >= UPLOAD_DAILY_LIMIT) return out(429, { ok: false, error: 'daily_limit' });
+  if (used.error || typeof used.count !== 'number') { console.warn('ocr_upload_limit_check_failed', String(used.error?.message ?? used.error ?? 'no count').slice(0, 120)); return out(500, { ok: false, error: 'load_failed' }); }
+  if (used.count >= UPLOAD_DAILY_LIMIT) return out(429, { ok: false, error: 'daily_limit' });
   return null;
 }
 

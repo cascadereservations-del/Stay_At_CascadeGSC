@@ -185,6 +185,14 @@ Deno.test('index.ts: no direct transactions write is left except the cleaner fee
   assertFalse(/\bcategoryKeyboard\(\s*[0-9a-z]+\s*\)/.test(src.replace(/categoryKeyboard\(db,/g, '')), 'every keyboard call passes the db');
 });
 
+Deno.test('expense-write.ts: its only direct transactions write is the status-guarded line-items update', async () => {
+  const src = await Deno.readTextFile(new URL('./expense-write.ts', import.meta.url));
+  const writes = [...src.matchAll(/from\('transactions'\)\s*\.(\w+)/g)].filter((m) => m[1] !== 'select');
+  assertEquals(writes.length, 1, 'exactly one direct write');
+  assertEquals(writes[0][1], 'update');
+  assertStringIncludes(src.slice(writes[0].index!, writes[0].index! + 200), ".eq('status', 'pending_review')");
+});
+
 Deno.test('index.ts wiring: keys per flow, the look-alike line, review calls, and the replay does not notify twice', async () => {
   const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
   assertStringIncludes(src, 'key:keyForMessage(chatId,msg.message_id)');

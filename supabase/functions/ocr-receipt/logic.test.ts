@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from 'jsr:@std/assert@1';
-import { attachHandler, storeUpload, UPLOAD_DAILY_LIMIT, checkSupplyPath, decodeFile, type Deps, NO_HINT, pairAllowed, sha256Hex, signHandler, SIGN_SECONDS, stockHint, supplyByPath, buildPrompt, decodeImage, gateAction, mapCategory, receiptPath, scrubMoney, shapeExtraction, validDate } from './logic.ts';
+import { attachHandler, storeUpload, uploadLimit, UPLOAD_DAILY_LIMIT, checkSupplyPath, decodeFile, type Deps, NO_HINT, pairAllowed, sha256Hex, signHandler, SIGN_SECONDS, stockHint, supplyByPath, buildPrompt, decodeImage, gateAction, mapCategory, receiptPath, scrubMoney, shapeExtraction, validDate } from './logic.ts';
 
 Deno.test('buildPrompt swaps the hardcoded category list for the live slugs and ignores odd ones', () => {
   const base = 'x ONE of: supplies, utilities, cleaning, maintenance, repairs, platform_fees, other y';
@@ -398,6 +398,11 @@ Deno.test('index.ts: extract answers add sha256, stock_hint and the proof flag; 
 });
 
 // ---- s134 fix round 1: per-user daily upload cap ----
+
+Deno.test('upload cap: a count answer with no number fails closed (500 load_failed)', async () => {
+  const r = await uploadLimit({ from: () => ({ select: () => ({ eq: () => ({ gte: async () => ({ count: null, error: null }) }) }) }) } as never, USER);
+  assertEquals([r?.status, r?.body], [500, { ok: false, error: 'load_failed' }]);
+});
 
 Deno.test('upload cap: 100 stored uploads a day per caller; the 101st is refused with 429 and nothing is stored (attach)', async () => {
   assertEquals(UPLOAD_DAILY_LIMIT, 100);
