@@ -113,7 +113,7 @@
       "bestRating": "5",
       "worstRating": "1"
     },
-    "priceRange": "₱1,780/night",
+    "priceRange": "₱₱",
     "checkinTime": "14:00",
     "checkoutTime": "12:00",
     "amenityFeature": [
@@ -147,7 +147,7 @@
       "name": "What time is check-in and check-out?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon). Early check-in or late check-out may be arranged depending on availability — just mention it in your booking request and we’ll do our best. Early check-in before noon is ₱100 per hour when the calendar allows."
+        "text": "Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon). Early check-in or late check-out may be arranged depending on availability — just mention it in your booking request and we’ll do our best. Early check-in before noon carries a small hourly charge, which we confirm with you, when the calendar allows."
       }
     },
     {
@@ -155,7 +155,7 @@
       "name": "How do I confirm my booking?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the ₱1,000 refundable deposit are settled at least a day before check-in — no surprises."
+        "text": "Once you send your booking request, you’ll receive an Acknowledgement Receipt (AR) by email within 1–2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in — no surprises."
       }
     },
     {
@@ -3413,18 +3413,6 @@
       align-items: stretch;
       min-height: 500px;
     }
-    @media (min-width: 768px) {
-      .location-inner {
-        grid-template-columns: 1fr 360px;
-        min-height: 560px;
-      }
-    }
-    @media (min-width: 1024px) {
-      .location-inner {
-        grid-template-columns: 1fr 400px;
-        min-height: 600px;
-      }
-    }
 
     /* ── Explore panel (concierge list — map hidden pre-booking) ── */
     /* ══════════════════════════════════════════
@@ -3624,6 +3612,7 @@
       display: flex; flex-direction: column;
       justify-content: center; gap: var(--space-l);
       position: relative;
+      width: 100%; max-width: 56rem; margin-inline: auto; box-sizing: border-box;
     }
     .location-contact::before {
       content: '';
@@ -5227,8 +5216,8 @@
   .theme-quiet-luxury .hero-overlay { background: var(--gs-scrim); }
   .theme-quiet-luxury .luxury-hero-media img, .theme-quiet-luxury .luxury-hero-media .hero-slide img { object-position: 88% 50%; }
   .theme-quiet-luxury .luxury-hero-grid .luxury-hero-copy { grid-row: 1; grid-column: 1; align-self: end; justify-self: start; width: 100%; max-width: 52rem; align-items: flex-start; text-align: left; gap: 0.75rem; padding: 0 0.5rem; color: #fff; }
-  .gs-greet { align-self: flex-start; margin-bottom: 0.5rem; padding: 0.4rem 0.85rem; border-radius: 999px; background: rgb(0 0 0 / 0.40); font-size: 0.875rem; line-height: 1.3; color: #fff; max-width: 100%; }
-  .gs-eb--cover { color: #fff; font-size: 0.875rem; }
+  .gs-greet { align-self: flex-start; margin-bottom: 0.5rem; padding: 0.4rem 0.85rem; border-radius: 999px; background: rgb(0 0 0 / 0.55); font-size: 0.875rem; line-height: 1.3; color: #fff; max-width: 100%; text-shadow: 0 1px 3px rgb(20 10 4 / 0.85); }
+  .gs-eb--cover { color: #fff; font-size: 0.875rem; text-shadow: 0 1px 3px rgb(20 10 4 / 0.85), 0 2px 18px rgb(20 10 4 / 0.7); }
   .theme-quiet-luxury .luxury-hero-copy .hero-title.gs-quote { margin: 0; font-family: var(--gs-display); font-size: clamp(2.5rem, 1.5rem + 4.6vw, 5.75rem); line-height: 0.98; font-weight: 500; letter-spacing: -0.01em; color: #fff; text-shadow: 0 2px 24px rgb(30 18 8 / 0.45); text-wrap: balance; }
   .gs-quote em { font-weight: 400; }
   .gs-attrib { margin: 0; font-size: 1rem; color: #fff; }
@@ -5421,6 +5410,9 @@
     .theme-quiet-luxury .site-header::after, .theme-quiet-luxury .hero-bk::after, .theme-quiet-luxury .sticky-book-cta.gs-dock::after { display: none; }
   }
 
+  /* Glass belongs to the header and the booking dock only (also covers prefers-reduced-transparency). */
+  body.theme-quiet-luxury #qbwSubmit, body.theme-quiet-luxury .faq-item, body.theme-quiet-luxury #conciergePanel, body.theme-quiet-luxury #conciergeTrigger, body.theme-quiet-luxury #airbnbProofEmbed { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+
   /* ---------- T4: motion (all of it off under prefers-reduced-motion) ---------- */
   @keyframes gs-kb { from { transform: scale(1.03) translate(0, 0); } to { transform: scale(1.11) translate(-1.5%, -1%); } }
   @keyframes gs-drift { 0% { background-position: 0% 40%; } 100% { background-position: 100% 60%; } }
@@ -5499,7 +5491,7 @@
   .bs-ico[hidden] { display: block; visibility: hidden; }
   .bs-ico svg { width: 1.25rem; height: 1.25rem; }
   .bs-dots { display: flex; gap: 0.4rem; list-style: none; margin: 0; padding: 0; }
-  .bs-dots li { width: 1.75rem; height: 1.75rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.8125rem; font-weight: 600; background: var(--gs-rule); color: var(--gs-muted); }
+  .bs-dots li { width: 1.75rem; height: 1.75rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.875rem; font-weight: 600; background: var(--gs-rule); color: var(--gs-muted); }
   .bs-dots li[aria-current="step"] { background: var(--gs-deep); color: var(--gs-on-deep); }
   .bs-dots li.is-done { background: var(--gs-accent-text); color: var(--gs-bg); }
   .bs-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; margin-inline: -0.25rem; padding-inline: 0.25rem; }
@@ -5513,7 +5505,7 @@
   .bs-month button { width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--gs-rule); background: color-mix(in srgb, var(--gs-paper) 70%, transparent); color: var(--gs-ink); cursor: pointer; font-size: 1.25rem; margin-left: 0.4rem; }
   .bs-month button:disabled { opacity: 0.35; cursor: not-allowed; }
   .bs-dow, .bs-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; }
-  .bs-dow { font-size: 0.75rem; font-weight: 600; color: var(--gs-accent-text); text-align: center; margin-bottom: -0.4rem; }
+  .bs-dow { font-size: 0.875rem; font-weight: 600; color: var(--gs-accent-text); text-align: center; margin-bottom: -0.4rem; }
   .bs-day { min-height: 2.75rem; border: 0; border-radius: 0.75rem; font-family: var(--gs-body); font-size: 1rem; font-variant-numeric: lining-nums tabular-nums; cursor: pointer; background: color-mix(in srgb, var(--gs-paper) 75%, transparent); color: var(--gs-ink); padding: 0; }
   .bs-day[aria-disabled="true"] { background: transparent; color: var(--gs-muted); opacity: 0.55; text-decoration: line-through; cursor: not-allowed; }
   .bs-day.is-past { text-decoration: none; opacity: 0.35; }
@@ -5525,6 +5517,7 @@
   .bs-stepper { display: flex; align-items: center; gap: 0.9rem; }
   .bs-stepper button { width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--gs-rule); background: var(--gs-paper); color: var(--gs-ink); font-size: 1.25rem; cursor: pointer; }
   .bs-stepper strong { font-size: 1.125rem; min-width: 1rem; text-align: center; }
+  #bsS3 .bs-actions { position: static; background: none; }
   .bs-actions { position: sticky; bottom: 0; margin-top: auto; padding: 0.75rem 0 calc(1rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 0.6rem; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--gs-bg) 92%, transparent) 0.9rem); }
   .bs-total { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; font-size: 0.9375rem; }
   .bs-total strong { font-family: var(--gs-display); font-size: 1.75rem; font-weight: 600; }
@@ -5533,6 +5526,7 @@
   .bs-err:empty { display: none; }
   .bs-cta, .bs-ghost { display: flex; align-items: center; justify-content: center; min-height: 3.25rem; padding: 0 1.25rem; border-radius: 1.125rem; font-family: var(--gs-body); font-size: 1.0625rem; font-weight: 600; cursor: pointer; width: 100%; box-sizing: border-box; text-decoration: none; white-space: nowrap; }
   .bs-cta { border: 0; background: var(--gs-deep); color: var(--gs-on-deep); }
+  [data-theme="espresso"] .bs-cta { background: var(--gs-accent); color: var(--gs-on-accent); }
   .bs-cta:disabled { opacity: 0.5; cursor: not-allowed; }
   .bs-ghost { border: 1px solid var(--gs-rule); background: var(--gs-paper); color: var(--gs-ink); font-weight: 500; }
   .bs-link { background: none; border: 0; padding: 0.7rem 0; min-height: 2.75rem; font: inherit; color: var(--gs-accent-text); text-decoration: underline; cursor: pointer; }
@@ -5545,7 +5539,7 @@
   .bs-card > div { display: flex; justify-content: space-between; gap: 0.75rem; }
   .bs-pay { padding: 1.1rem; border-radius: 1.25rem; background: var(--gs-deep); color: var(--gs-on-deep); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
   .bs-pay strong { font-family: var(--gs-display); font-size: 2.125rem; font-weight: 600; display: block; }
-  .bs-pay small { font-size: 0.8125rem; color: var(--gs-on-deep-muted); display: block; text-align: right; }
+  .bs-pay small { font-size: 0.875rem; color: var(--gs-on-deep-muted); display: block; text-align: right; }
   .bs-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; padding: 0.25rem; border-radius: 1.125rem; background: var(--gs-rule); }
   .bs-seg button { min-height: 2.75rem; border: 0; border-radius: 0.875rem; background: transparent; font: inherit; font-weight: 600; color: var(--gs-muted); cursor: pointer; }
   .bs-seg button[aria-pressed="true"] { background: var(--gs-paper); color: var(--gs-ink); box-shadow: 0 2px 8px rgb(0 0 0 / 0.08); }
@@ -5554,7 +5548,7 @@
   .bs-acct > div { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; font-size: 0.9375rem; }
   .bs-copy { display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .bs-copy button { min-height: 2.75rem; padding: 0 0.8rem; border-radius: 0.75rem; border: 1px solid var(--gs-rule); background: var(--gs-bg); color: var(--gs-ink); font: inherit; font-size: 0.875rem; cursor: pointer; white-space: nowrap; }
-  .bs-held { flex-shrink: 0; padding: 0.4rem 0.7rem; border-radius: 999px; background: var(--gs-soft); font-size: 0.8125rem; font-weight: 600; color: var(--gs-accent-text); white-space: nowrap; }
+  .bs-held { flex-shrink: 0; padding: 0.4rem 0.7rem; border-radius: 999px; background: var(--gs-soft); font-size: 0.875rem; font-weight: 600; color: var(--gs-accent-text); white-space: nowrap; }
   .bs-refrow { display: flex; gap: 0.5rem; }
   .bs-refrow .bs-in { flex: 1; }
   .bs-refrow label.bs-up { display: inline-flex; align-items: center; justify-content: center; min-width: 5rem; height: 3.375rem; padding: 0 0.9rem; border: 1px solid var(--gs-rule); border-radius: 1rem; background: var(--gs-paper); font-size: 0.9375rem; cursor: pointer; }
@@ -5566,7 +5560,7 @@
   .bs-small { margin: 0; font-size: 0.875rem; color: var(--gs-muted); line-height: 1.5; }
   .bs button:focus-visible, .bs a:focus-visible, .bs input:focus-visible, .bs select:focus-visible, .bs-day:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 2px; }
     .booking-section[hidden] { display: none !important; }
-  .bs-legal { margin: 0; font-size: 0.8125rem; color: var(--gs-muted); text-align: center; }
+  .bs-legal { margin: 0; font-size: 0.875rem; color: var(--gs-muted); text-align: center; }
   .bs-legal a { color: var(--gs-accent-text); }
   </style>
 
@@ -5724,7 +5718,7 @@
         <ul class="gs-scores" aria-label="Category ratings out of 5"><li><span>Cleanliness</span><span class="gs-disp gs-score">5.0</span></li><li><span>Check-in</span><span class="gs-disp gs-score">5.0</span></li><li><span>Communication</span><span class="gs-disp gs-score">5.0</span></li><li><span>Accuracy</span><span class="gs-disp gs-score">5.0</span></li><li><span>Value</span><span class="gs-disp gs-score">4.9</span></li><li><span>Location</span><span class="gs-disp gs-score">4.8</span></li></ul>
         <a class="gs-link" id="airbnbOutboundLink" href="https://www.airbnb.com/rooms/1523827999359515793#reviews" target="_blank" rel="noopener noreferrer" data-track-event="airbnb_outbound">Read all reviews on Airbnb &#x2197;</a>
         <p class="gs-meta" id="airbnbProofVerifiedNote">Verified on <span data-rating="verified">23 Nov 2026</span> &middot; not a live feed</p>
-        <div class="airbnb-proof-embed gs-proof-embed" id="airbnbProofEmbed" data-state="pending" aria-label="Live Airbnb listing">
+        <div class="airbnb-proof-embed gs-proof-embed" id="airbnbProofEmbed" data-state="pending" role="group" aria-label="Live Airbnb listing">
           <div class="airbnb-proof-embed-loading" id="airbnbProofLoading" hidden aria-hidden="true">Loading live Airbnb reviews&hellip;</div>
           <!-- TODO(lloyd): paste official Airbnb embed HTML here -->
           <div class="airbnb-proof-embed-slot" id="airbnbProofSlot"></div>
@@ -6490,9 +6484,9 @@
         <p class="faq-subhead ch-reveal">Everything you need to know before booking direct.</p>
       </header>
 
-      <div class="faq-list" role="list">
+      <div class="faq-list">
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             What time is check-in and check-out?
             <span class="faq-chevron" aria-hidden="true">
@@ -6501,12 +6495,12 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon). Early check-in or late check-out may be arranged depending on availability &mdash; just mention it in your booking request and we&rsquo;ll do our best. Early check-in before noon is &#8369;100 per hour when the calendar allows.</p>
+              <p class="faq-answer">Check-in begins at 2:00 PM. Check-out is at 12:00 PM (noon). Early check-in or late check-out may be arranged depending on availability &mdash; just mention it in your booking request and we&rsquo;ll do our best. Early check-in before noon carries a small hourly charge, which we confirm with you, when the calendar allows.</p>
             </div>
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             How do I confirm my booking?
             <span class="faq-chevron" aria-hidden="true">
@@ -6515,12 +6509,12 @@
           </summary>
           <div class="faq-body-wrap">
             <div class="faq-body">
-              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the &#8369;1,000 refundable deposit are settled at least a day before check-in &mdash; no surprises.</p>
+              <p class="faq-answer">Once you send your booking request, you&rsquo;ll receive an Acknowledgement Receipt (AR) by email within 1&ndash;2 hours. Five or more days before check-in, submitting also holds your dates for 24 hours while you send the reservation fee; if nothing arrives, the hold is released quietly and nothing is owed. We verify both payment and availability, then send your personal confirmation. Your dates are not confirmed until that message arrives. The balance and the refundable security deposit are settled at least a day before check-in &mdash; no surprises.</p>
             </div>
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             What payment methods are accepted?
             <span class="faq-chevron" aria-hidden="true">
@@ -6534,7 +6528,7 @@
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             Is there free parking?
             <span class="faq-chevron" aria-hidden="true">
@@ -6548,7 +6542,7 @@
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             What is the WiFi like?
             <span class="faq-chevron" aria-hidden="true">
@@ -6562,7 +6556,7 @@
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             Can I have visitors during my stay?
             <span class="faq-chevron" aria-hidden="true">
@@ -6576,7 +6570,7 @@
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             What is the cancellation policy?
             <span class="faq-chevron" aria-hidden="true">
@@ -6590,7 +6584,7 @@
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             Is this an Airbnb listing?
             <span class="faq-chevron" aria-hidden="true">
@@ -6604,7 +6598,7 @@
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             What's included in every stay?
             <span class="faq-chevron" aria-hidden="true">
@@ -6619,7 +6613,7 @@
           </div>
         </details>
 
-        <details class="faq-item ch-reveal" role="listitem">
+        <details class="faq-item ch-reveal">
           <summary>
             Do returning guests get any exclusive rates?
             <span class="faq-chevron" aria-hidden="true">
@@ -6630,7 +6624,7 @@
             <div class="faq-body">
               <p class="faq-answer">This site exists for guests who prefer a direct relationship with the host. For those planning longer stays &mdash; or returning for another visit &mdash; we offer loyalty rates that reflect that relationship. These are applied automatically when you book here; no codes, no negotiation needed.</p>
               <p class="faq-answer" style="margin-top:0.75em;">Rates are applied automatically as you pick your dates &mdash; no codes, no negotiation needed.</p>
-              <div class="faq-tier-card">
+              <div class="faq-tier-card" data-price-only="tiers">
                 <p style="font-family:var(--ch-font-body);font-size:var(--step--2);font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:rgba(201,150,58,0.80);margin-bottom:0.6em;">Duration &rarr; Nightly Rate</p>
                 <div class="tier-row tier-row--head" role="row">
                   <span class="tier-cell-head" role="columnheader">Duration</span>
@@ -7106,6 +7100,7 @@
             <div class="bs-total"><span id="bsRange">Tap a check-in date</span><strong id="bsTotal"></strong></div>
             <p class="bs-err" id="bsErr1" role="alert"></p>
             <p class="bs-sub" id="bsQuoteNote" role="status"></p>
+            <a class="bs-link" id="bsQuoteMsgr" href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener noreferrer" hidden>Message us on Messenger</a>
             <p class="bs-sub">Cleaning included &middot; no charge yet</p>
             <button type="button" class="bs-link" id="bsShare" style="align-self:flex-start">Share these dates</button>
             <button type="button" class="bs-cta" id="bsNext1" disabled>Continue</button>
@@ -7143,7 +7138,7 @@
               <div class="bs-copy"><button type="button" id="bsCopyNum">Copy number</button><button type="button" id="bsCopyAmt">Copy amount</button></div></div>
           </div>
           <div class="bs-refrow">
-            <input class="bs-in" id="bsRef" type="text" inputmode="numeric" autocomplete="off" aria-label="GCash or bank reference number" placeholder="Reference no. (from your receipt)">
+            <input class="bs-in" id="bsRef" type="text" inputmode="numeric" autocomplete="off" aria-label="GCash or bank reference number" placeholder="Reference no.">
             <label class="bs-up" for="bsFile"><span id="bsFileLbl">Upload</span><input type="file" id="bsFile" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"></label>
           </div>
           <p class="bs-sub" id="bsFileName" role="status"></p>
@@ -7261,7 +7256,7 @@
       var bookingVis = false;
 
       function setSidebarState() {
-        var shouldShow = heroGone && !bookingVis;
+        var shouldShow = heroGone && !bookingVis && !sidebar.hidden;
         sidebar.classList.toggle('is-hidden', !shouldShow);
         sidebar.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
       }
@@ -9275,9 +9270,10 @@
         /* ── Section visibility via IntersectionObserver ── */
         var heroVis    = true;  /* start assumed visible — hero IS on screen at load */
         var bookingVis = false; /* true while #booking intersects, or a form field is focused */
+        var directVis  = false; /* true while the #book-direct card is in view (free-cancellation line) */
 
         function updateFloatVis() {
-          var shouldHide = heroVis || collisionVis || bookingVis;
+          var shouldHide = heroVis || collisionVis || bookingVis || directVis;
           if (shouldHide) {
             float_el.classList.add('is-hidden');
             float_el.classList.remove('is-entering');
@@ -9309,6 +9305,13 @@
           }
           /* Hide the concierge whenever the booking section is in view — it must
              never overlap booking form content (Task 5: remove mobile obstruction). */
+          var directSec = document.getElementById('book-direct');
+          if (directSec) {
+            new IntersectionObserver(function (entries) {
+              directVis = entries[0].isIntersecting;
+              updateFloatVis();
+            }, { threshold: 0.01 }).observe(directSec);
+          }
           if (bookingSec) {
             new IntersectionObserver(function (entries) {
               bookingVis = entries[0].isIntersecting;
@@ -9759,6 +9762,7 @@
       function doSubmit() {
         var ci = st.ci, co = st.co;
         clearStatus();
+        if (!ci || !co) { if (window.CascadeSheet) window.CascadeSheet.open({ opener: submitBtn }); return; }
         if (!ci) { ciField.classList.add('is-invalid'); errEl.textContent = 'Select a check-in date.'; openPicker('ci'); return; }
         if (!co) { coField.classList.add('is-invalid'); errEl.textContent = 'Select a check-out date.'; openPicker('co'); return; }
         var n = nightsBetween(ci, co);
@@ -9773,13 +9777,13 @@
       }
 
       /* ── Events ────────────────────────────────────────────────── */
-      ciField.addEventListener('click', function() { openPicker('ci'); });
-      coField.addEventListener('click', function() { openPicker(st.ci ? 'co' : 'ci'); });
-      ciField.addEventListener('keydown', function(e){
-        if (e.key==='Enter'||e.key===' '){ e.preventDefault(); openPicker('ci'); }
-      });
-      coField.addEventListener('keydown', function(e){
-        if (e.key==='Enter'||e.key===' '){ e.preventDefault(); openPicker(st.ci?'co':'ci'); }
+      /* Cover date fields open the booking sheet (step 1): one calendar only */
+      function openSheetFrom(field) { if (window.CascadeSheet) window.CascadeSheet.open({ opener: field }); }
+      [ciField, coField].forEach(function(f) {
+        f.addEventListener('click', function() { openSheetFrom(f); });
+        f.addEventListener('keydown', function(e){
+          if (e.key==='Enter'||e.key===' '){ e.preventDefault(); openSheetFrom(f); }
+        });
       });
 
       if (prevBtn) prevBtn.addEventListener('click', function() {
@@ -9843,7 +9847,7 @@
        DESKTOP STICKY SIDEBAR — min-width 1100px only
        Appears after hero, hides when booking section is visible
   ============================================================ -->
-  <aside class="desk-sidebar is-hidden" id="deskSidebar" aria-label="Quick booking" aria-hidden="true">
+  <aside class="desk-sidebar is-hidden" id="deskSidebar" aria-label="Quick booking" aria-hidden="true" hidden>
     <div class="desk-sidebar-rate">
       <span class="desk-sidebar-amount" id="deskSidebarAmount">&#x20B1;<span data-card-base>1,780</span></span>
       <span class="desk-sidebar-per" id="deskSidebarPer">/night</span>
@@ -9870,7 +9874,7 @@
        Hides when #booking section is in viewport
   ============================================================ -->
   <!-- Persistent bottom booking CTA — mobile only, hidden once #booking is in view -->
-  <div class="sticky-book-cta gs-dock" id="stickyBookCta" aria-hidden="true">
+  <div class="sticky-book-cta gs-dock" id="stickyBookCta" role="region" aria-label="Book direct" aria-hidden="true">
     <span class="sticky-book-cta-rate"><strong>Book direct</strong><span>No platform fees &middot; <span aria-hidden="true">&#9733;</span> <span data-rating="score">4.97</span><span data-price-only="from"></span></span></span>
     <a class="sticky-book-cta-btn gs-cta" href="#contact" id="stickyBookCtaBtn" data-gs-book>Check price</a>
   </div>
@@ -10008,7 +10012,7 @@
   /* ---------- state (sessionStorage, never the receipt file) ---------- */
   function fresh() { return { step: 1, open: false, ci: '', co: '', guests: 2, name: '', cc: '+63', phone: '', email: '', ref: '', method: 'gcash', view: '', hold: null, done: null }; }
   function load() { try { var s = JSON.parse(sessionStorage.getItem(KEY)); return s && typeof s === 'object' ? Object.assign(fresh(), s) : fresh(); } catch (e) { return fresh(); } }
-  var S = load(), file = null, opener = null, Q = null, qBusy = '', qFail = '', holdTimer = 0, lastAction = null, busy = false;
+  var S = load(), file = null, opener = null, Q = null, qBusy = '', qFail = '', qFailN = 0, qFailKey = '', holdTimer = 0, lastAction = null, busy = false;
   function save() { try { sessionStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* private mode */ } }
 
   /* ---------- dates ---------- */
@@ -10037,11 +10041,11 @@
   function ensureQuote() {
     var key = S.ci && S.co ? S.ci + '|' + S.co : '';
     if (!key || curQ() || qBusy === key) return;
-    qBusy = key; qFail = '';
+    qBusy = key; qFail = ''; if (qFailKey !== key) { qFailKey = key; qFailN = 0; }
     fetch(sb.url + '/functions/v1/rate-card?checkin=' + encodeURIComponent(S.ci) + '&checkout=' + encodeURIComponent(S.co))
       .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('rate-card ' + r.status)); })
       .then(function (j) { if (qBusy === key) qBusy = ''; if (!j.quote) throw new Error('no quote'); Q = { key: key, q: j.quote }; paint(); })
-      .catch(function () { if (qBusy === key) qBusy = ''; qFail = key; paint(); });
+      .catch(function () { if (qBusy === key) qBusy = ''; qFail = key; qFailN++; paint(); });
   }
   function money() {
     var q = curQ(); if (!q) return null;
@@ -10128,7 +10132,9 @@
     var has = S.ci && S.co, mn = has ? money() : null, ready = !!mn, failed = has && !mn && qFail === S.ci + '|' + S.co;
     setText('bsRange', has ? rangeLabel() : S.ci ? 'Now tap your check-out date' : 'Tap your check-in date');
     setText('bsTotal', mn ? peso(mn.total) : '');
-    setText('bsQuoteNote', has && !mn ? (failed ? 'We could not confirm the price just now. Tap Continue to try again.' : 'Confirming your price…') : '');
+    var hard = failed && qFailN >= 2;
+    setText('bsQuoteNote', has && !mn ? (hard ? 'Prices are not loading. Message us and we will quote you.' : failed ? 'We could not confirm the price just now. Tap Continue to try again.' : 'Confirming your price…') : '');
+    $('bsQuoteMsgr').hidden = !hard; if (hard) $('bsQuoteMsgr').href = MESSENGER;
     $('bsNext1').disabled = !(has && (ready || failed));
   }
   function pick(ds) {
@@ -10230,6 +10236,9 @@
     var mn = money(), a = acct(), gc = S.method === 'gcash';
     ensureQuote();
     setText('bsFee', mn ? peso(mn.dep) : '…');
+    var holdOn = !!(S.hold && S.hold.hold !== false && S.hold.hold_expires_at);
+    setText('bsH3', holdOn ? 'Hold your dates' : 'Pay and confirm');
+    if (!busy) setText('bsNext3', mn ? 'I\u2019ve sent ' + peso(mn.dep) : 'I\u2019ve sent the payment');
     setText('bsPayLbl', mn ? (mn.last ? 'Pay now (full amount)' : 'Pay now (' + mn.pct + '%)') : 'Pay now');
     setText('bsPayTotal', mn ? 'Total ' + peso(mn.total) : ''); setText('bsPayLater', mn && mn.later > 0 ? 'Later ' + peso(mn.later) : '');
     setText('bsHoldLine', !mn ? '' : mn.last ? 'Check-in is close, so we reserve on receipt. Send the full amount to book ' + rangeLabel() + '.'
@@ -10237,7 +10246,7 @@
     $('bsG').setAttribute('aria-pressed', String(gc)); $('bsB').setAttribute('aria-pressed', String(!gc));
     var qr = $('bsQr'); qr.src = gc ? 'assets/images/qr-gcash.png' : 'assets/images/qr-unionbank.png'; qr.alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code';
     setText('bsAcctT', gc ? 'Scan with GCash' : 'UnionBank InstaPay or bank transfer');
-    setText('bsAcctB', (gc ? 'Or send to ' + a.gcash : 'Account no. ' + a.bank) + ' · ' + PAY_NAME + '. Use your name as the reference.');
+    setText('bsAcctB', (gc ? 'Or send to ' + a.gcash : 'Account no. ' + a.bank) + ' · ' + PAY_NAME + '. Put your name in the message or notes.');
     setText('bsCopyNum', gc ? 'Copy number' : 'Copy account no.'); setText('bsCopyAmt', 'Copy amount');
     if ($('bsRef').value !== S.ref) $('bsRef').value = S.ref;
     setText('bsFileLbl', file ? 'Change' : 'Upload'); setText('bsFileName', file ? 'Attached: ' + file.name : '');

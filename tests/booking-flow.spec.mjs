@@ -7,11 +7,12 @@ test.describe('booking flow baseline', () => {
     await expect(page.locator('#qbwSubmit')).toBeVisible();
   });
 
-  test('hero check-in field opens the date picker', async ({ page }) => {
+  test('hero check-in field opens the booking sheet (one calendar)', async ({ page }) => {
     await page.goto('/index.html');
     await page.locator('#qbwCiField').click();
-    await expect(page.locator('#qbwPicker')).toBeVisible();
-    await expect(page.locator('#qbwPickerGrid')).toBeVisible();
+    await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+    await expect(page.locator('#bsGrid')).toBeVisible();
+    await expect(page.locator('#qbwPicker')).toBeHidden();
   });
 
   test('calendar error state renders on a blocked availability fetch', async ({ page }) => {
@@ -55,5 +56,38 @@ test.describe('booking flow baseline', () => {
     if (await title.count()) {
       await expect(title).toHaveText('Reservation request received');
     }
+  });
+
+  test('#contact has no empty column at 1440 and 820', async ({ page }) => {
+    for (const width of [1440, 820]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/index.html');
+      const r = await page.evaluate(() => {
+        const sec = document.getElementById('contact').getBoundingClientRect();
+        const c = document.querySelector('#contact .location-contact').getBoundingClientRect();
+        return { sec: sec.width, content: c.width, left: c.left - sec.left, right: sec.right - c.right };
+      });
+      if (width === 1440) expect(r.content / r.sec).toBeGreaterThanOrEqual(0.6 * 1);
+      else expect(r.content / r.sec).toBeGreaterThanOrEqual(0.9);
+      expect(Math.abs(r.left - r.right)).toBeLessThan(2);
+    }
+  });
+
+  test('no peso or percent figures in visible text outside the sheet while SHOW_PRICE is false', async ({ page }) => {
+    await page.goto('/index.html');
+    const bad = await page.evaluate(() => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const hits = [];
+      while (walker.nextNode()) {
+        const n = walker.currentNode, t = n.textContent;
+        if (!/[₱%]/.test(t) || n.parentElement.closest('dialog, script, style, noscript')) continue;
+        const el = n.parentElement;
+        const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+        if (cs.display === 'none' || cs.visibility === 'hidden' || el.closest('[hidden], [aria-hidden="true"]') && el.closest('[hidden]')) continue;
+        hits.push(t.trim().slice(0, 60));
+      }
+      return hits;
+    });
+    expect(bad).toEqual([]);
   });
 });

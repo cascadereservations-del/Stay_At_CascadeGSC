@@ -55,10 +55,10 @@ test.describe('booking sheet', () => {
     }
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.locator('#qbwCiField').click();
-    const dockDay = async (ds) => { for (let i = 0; i < 3 && !(await page.locator(`.qbw-picker-day[data-date="${ds}"]`).count()); i++) await page.locator('#qbwPickerNext').click(); await page.locator(`.qbw-picker-day[data-date="${ds}"]`).click(); };
-    await expect.poll(() => page.evaluate(() => !!(window._bkState && window._bkState.loaded))).toBe(true);
-    await dockDay(CI); await dockDay(CO);
     await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+    await expect(page.locator('#qbwPicker')).toBeHidden();
+    await expect.poll(() => page.evaluate(() => !!(window._bkState && window._bkState.loaded))).toBe(true);
+    await pickDay(page, CI); await pickDay(page, CO);
     await expect(page.locator('#bsRange')).toContainText('2 nights');
     await expect(page.locator('#bsNext1')).toBeEnabled();
   });
@@ -152,5 +152,34 @@ test.describe('booking sheet', () => {
     await expect(page.locator('#siteChatEntry')).toBeHidden();
     expect(await page.content()).not.toMatch(/wa\.me|api\.whatsapp/);
     expect(await page.locator('a[href="#"], a[href=""]').count()).toBe(0);
+  });
+
+  test('cover CTA without dates opens the sheet, never the old inline picker', async ({ page }) => {
+    await mock(page);
+    await page.goto('/index.html');
+    await page.locator('#qbwSubmit').click();
+    await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+    await expect(page.locator('#bsH1')).toBeFocused();
+    await expect(page.locator('#qbwPicker')).toBeHidden();
+  });
+
+  test('step 3 labels: heading, button amount, reference copy, short placeholder', async ({ page }) => {
+    await mock(page); await openHeader(page);
+    await step1(page); await step2(page);
+    await expect(page.locator('#bsH3')).toHaveText('Hold your dates');
+    await expect(page.locator('#bsNext3')).toHaveText(/^I.ve sent ₱[\d,]+$/);
+    await expect(page.locator('#bsAcctB')).toContainText('Put your name in the message or notes');
+    await expect(page.locator('#bsRef')).toHaveAttribute('placeholder', 'Reference no.');
+  });
+
+  test('quote failing twice shows the Messenger fallback', async ({ page }) => {
+    await mock(page);
+    await page.route('**/functions/v1/rate-card**', (route) => route.abort());
+    await openHeader(page);
+    await pickDay(page, CI); await pickDay(page, CO);
+    await expect(page.locator('#bsQuoteNote')).toContainText('could not confirm');
+    await page.locator('#bsNext1').click();
+    await expect(page.locator('#bsQuoteNote')).toContainText('Prices are not loading. Message us and we will quote you.');
+    await expect(page.locator('#bsQuoteMsgr')).toHaveAttribute('href', /messenger\.com/);
   });
 });
