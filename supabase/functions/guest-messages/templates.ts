@@ -7,14 +7,17 @@
 
 import { withHeader, groups } from '../_shared/cascade-core/format.ts';
 import { hasMoney, maskMoney } from '../_shared/ops-money.ts';
+import { SITE_URL } from '../_shared/cascade-core/facts.ts';
 
-export type Key = 'confirmation' | 'pre_arrival' | 'door_code' | 'mid_stay' | 'checkout_reminder' | 'after_departure';
+export type Key = 'confirmation' | 'pre_arrival' | 'door_code' | 'mid_stay' | 'checkout_reminder' | 'after_departure' | 'declined';
 export type Channel = 'messenger' | 'email' | 'card_only';
 export type Fields = {
   guest_name: string; checkin_date: string; checkout_date: string; pax: number | null;
   total_amount: number | string | null; deposit_amount: number | string | null;
   onground_name?: string; onground_phone?: string;
   review_facebook_url?: string; review_google_url?: string; review_airbnb_url?: string;
+  /** The declined message only (D-418): the staff's code and whether a receipt was sent. The staff's free-text note is never a field. */
+  reason_code?: string; receipt_sent?: boolean;
 };
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -49,6 +52,7 @@ export const SUBJECT: Record<Key, string> = {
   mid_stay: "A mid-stay refresh, if you'd like one",
   checkout_reminder: 'Your check-out today',
   after_departure: 'Thank you for staying with us',
+  declined: 'About your request at Cascade Hideaway',
 };
 
 function confirmation(f: Fields, c: Channel): string {
@@ -204,6 +208,31 @@ Warm regards,
 Marifel & The Cascade Team 💚`;
 }
 
+/** The four reasons that send a message; 'duplicate' sends nothing (the SQL never posts it), anything else reads as 'other'. */
+export type DeclineReason = 'dates' | 'payment' | 'guest_cancel' | 'other';
+export const declineReason = (code: unknown): DeclineReason => code === 'dates' || code === 'payment' || code === 'guest_cancel' ? code : 'other';
+const replyHere = (c: Channel) => c === 'email' ? 'to this e-mail' : 'here in the chat';
+
+/** The decline message (PLAN-confirm-flow R1.6, golden strings). {site} is SITE_URL from cascade-core/facts.ts (no new address). Never the staff's note. */
+function declined(f: Fields, c: Channel): string {
+  const dates = `${day(f.checkin_date)} to ${day(f.checkout_date)}`, here = replyHere(c), code = declineReason(f.reason_code), sent = f.receipt_sent === true;
+  const refund = sent ? `If you already sent a payment, please reply ${here} with the GCash name and number it came from, and we will return it in full.` : '';
+  const again = `We would still love to host you. Reply ${here} with other dates that suit you, or see what is open at ${SITE_URL}, and we will gladly check them for you.`;
+  const paras: string[] = code === 'dates'
+    ? [`Thank you for choosing Cascade Hideaway. We are sorry: ${dates} are no longer available, so we could not confirm this request.`, refund, again]
+    : code === 'payment' && !sent
+    ? [`Thank you for choosing Cascade Hideaway. We held ${dates} for you, but the payment did not reach us in time, so the hold has ended and this request is closed.`,
+       `Still planning to come? Reply ${here} and, if the dates are still open, we will gladly hold them for you again. You can also check dates at ${SITE_URL}.`]
+    : code === 'payment'
+    ? [`Thank you for choosing Cascade Hideaway. We could not find the payment for ${dates} in our account, so we could not confirm this request.`,
+       `If the payment did leave your account, please reply ${here} with the GCash name and number it came from. We will trace it and return it in full.`,
+       'Once that is sorted, we would be glad to hold the dates for you again if they are still open.']
+    : code === 'guest_cancel'
+    ? [`As you asked, we have cancelled your request for ${dates}. Nothing more is needed from you.`, refund, `You are welcome any time. When new dates come up, reply ${here} or visit ${SITE_URL}.`]
+    : [`Thank you for choosing Cascade Hideaway. We are sorry, we could not confirm your request for ${dates}.`, refund, again];
+  return `Hello ${firstName(f.guest_name)},\n\n${paras.filter(Boolean).join('\n\n')}\n\nWarm regards,\nCascade Hideaway\nHotel Comfort. Home Warmth. 🌿`;
+}
+
 export function render(key: Key, f: Fields, c: Channel): string {
   switch (key) {
     case 'confirmation': return confirmation(f, c);
@@ -212,6 +241,7 @@ export function render(key: Key, f: Fields, c: Channel): string {
     case 'mid_stay': return midStay(f);
     case 'checkout_reminder': return checkoutReminder(f);
     case 'after_departure': return afterDeparture(f);
+    case 'declined': return declined(f, c);
   }
 }
 
@@ -242,7 +272,7 @@ export function doorCodeCard(ref: string, f: Fields): string {
 export function channelFor(key: Key, lastGuestAt: number, hasThread: boolean, hasEmail: boolean, tapped: boolean, now: number): { channel: Channel; humanAgent: boolean } {
   const age = now - lastGuestAt, H = 3_600_000;
   if (hasThread && age < 23 * H) return { channel: 'messenger', humanAgent: false };
-  if (hasThread && key === 'confirmation' && tapped && age < 167 * H) return { channel: 'messenger', humanAgent: true };
+  if (hasThread && (key === 'confirmation' || key === 'declined') && tapped && age < 167 * H) return { channel: 'messenger', humanAgent: true };
   return { channel: hasEmail ? 'email' : 'card_only', humanAgent: false };
 }
 
@@ -262,6 +292,7 @@ export function chunks(text: string, max = 2000): string[] {
 export const LABEL: Record<Key, string> = {
   confirmation: 'Message 1 (confirmation)', pre_arrival: 'Message 2 (arrival and balance)', door_code: 'Message 3 (door code)',
   mid_stay: 'Message 4 (mid-stay refresh)', checkout_reminder: 'Message 5.1 (check-out reminder)', after_departure: 'Message 5.2 (thank you and reviews)',
+  declined: 'Decline message',
 };
 
 /** The card(s) after a scheduled message: always one for OPS, with the guest text below it (📨 ⤵, so Show as text works).

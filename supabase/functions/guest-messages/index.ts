@@ -1,5 +1,6 @@
 // guest-messages v2 (session 54 messages 1-2; session 56 messages 3-6: door-code card to Finance, mid_stay, checkout_reminder,
 // after_departure with the complaint hold). SPEC-05, D-174 / D-249 / D-253 / D-257.
+// D-418: a decline posts {booking_id, key: 'declined', reason_code, receipt_sent, tapped}; it bypasses due_guest_messages_v1 and never sends for 'duplicate'.
 // Hourly via pg_cron (guest-messages-hourly, minute 5) and at once from the Telegram Confirm tap (telegram-expense,
 // body {booking_id, tapped: true}). Asks due_guest_messages_v1 what is due, then for each message:
 //   1. the log row goes in FIRST as 'failed' (the primary key is the once-only lock; a crash leaves evidence),
@@ -16,7 +17,7 @@ import { heartbeat } from '../_shared/heartbeat.ts';
 import { cronSecretMatches } from '../_shared/cron-auth.ts';
 import { autoKeyboard } from '../_shared/cascade-core/format.ts';
 import { fbSendText, threadForBooking } from '../_shared/cascade-core/messenger.ts';
-import { SUBJECT, channelFor, chunks, doorCodeCard, messageCards, render, type Key } from './templates.ts';
+import { SUBJECT, channelFor, chunks, declineReason, doorCodeCard, messageCards, render, type Key } from './templates.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -68,14 +69,21 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
   const db = createClient(SUPABASE_URL, SERVICE_ROLE);
   const contact = await loadContact(db); // Lloyd 2026-09-28: the dashboard's Guest contact (app_settings), not an Edge secret
   const dry = new URL(req.url).searchParams.get('dry') === '1';
-  const body = await req.json().catch(() => ({})) as { booking_id?: string; tapped?: boolean };
+  const body = await req.json().catch(() => ({})) as { booking_id?: string; tapped?: boolean; key?: string; reason_code?: string; receipt_sent?: boolean };
   const one = typeof body.booking_id === 'string' && body.booking_id ? body.booking_id : null;
+  // D-418: a decline posts {booking_id, key: 'declined', reason_code, receipt_sent, tapped}. It is not a scheduled message, so it
+  // bypasses due_guest_messages_v1; the log row (booking_id, 'declined') is still the once-only lock.
+  const isDecline = !!one && body.key === 'declined';
   const hb = one ? null : heartbeat(db, 'guest-messages-hourly'); // a tap is not the hourly job
   await hb?.('started');
   try {
-    const { data, error } = await db.rpc('due_guest_messages_v1');
-    if (error) throw new Error('due_guest_messages_v1: ' + error.message);
-    const due = ((data ?? []) as Array<{ booking_id: string; message_key: Key | 'door_code_offer' }>).filter((d) => !one || d.booking_id === one);
+    let due: Array<{ booking_id: string; message_key: Key | 'door_code_offer' }>;
+    if (isDecline) due = [{ booking_id: one!, message_key: 'declined' }];
+    else {
+      const { data, error } = await db.rpc('due_guest_messages_v1');
+      if (error) throw new Error('due_guest_messages_v1: ' + error.message);
+      due = ((data ?? []) as typeof due).filter((d) => !one || d.booking_id === one);
+    }
     const results: Array<Record<string, unknown>> = [];
     const now = Date.now();
     // Message 5.2's review links; a blank or missing one drops its bullet.
@@ -87,8 +95,12 @@ Deno.serve(withObservability({ functionName: 'guest-messages', route: 'ops' }, a
       try {
         const { data: b, error: bErr } = await db.from('booking_inquiries')
           .select('id,guest_name,guest_email,guest_phone,checkin_date,checkout_date,pax,total_amount,deposit_amount,status').eq('id', d.booking_id).maybeSingle();
-        if (bErr || !b || b.status !== 'confirmed') { results.push({ ref, key: lockKey, status: 'not_confirmed' }); continue; }
-        const fields = { ...b, ...reviews, onground_name: contact.name, onground_phone: contact.phone };
+        // A decline is read on a cancelled booking, never a confirmed one (it must not tell a confirmed guest "no").
+        if (bErr || !b || (lockKey === 'declined' ? b.status !== 'cancelled' : b.status !== 'confirmed')) { results.push({ ref, key: lockKey, status: lockKey === 'declined' ? 'not_cancelled' : 'not_confirmed' }); continue; }
+        // 'duplicate' sends the guest nothing (the SQL never posts it; this is the second lock).
+        if (lockKey === 'declined' && body.reason_code === 'duplicate') { results.push({ ref, key: lockKey, status: 'no_message_for_duplicate' }); continue; }
+        const fields = { ...b, ...reviews, onground_name: contact.name, onground_phone: contact.phone,
+          reason_code: declineReason(body.reason_code), receipt_sent: body.receipt_sent === true };
 
         // Message 3 (D-174, fraud design section 4): never sent, never a PIN. One card to Finance with Show as text only;
         // the log says 'card offered' and nothing else.
