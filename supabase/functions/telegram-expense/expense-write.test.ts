@@ -475,5 +475,7 @@ Deno.test('fix r3 (2): a new question that replaces an open answer carrying a re
   assertFalse(droppedReceipt(null));
   assertEquals(RECEIPT_LOST_LINE, 'The receipt you sent earlier was not saved. Send it again.');
   const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
-  assertStringIncludes(src, 'if(droppedReceipt(gone))await tgSend(chatId,RECEIPT_LOST_LINE)');
+  assertStringIncludes(src, 'if(droppedReceipt((gone??[]).filter((g:any)=>!g.expires_at||new Date(g.expires_at)>new Date())))await tgSend(chatId,RECEIPT_LOST_LINE)'); // an already-expired answer does not raise a late alarm
+  assertStringIncludes(src, "expensePromptText(label,pre),[],receipt?60:10)"); // a held receipt keeps the hold's 60 min
+  assertStringIncludes(src, "if(!bound){console.error('hold_bind_failed'"); // a failed send or bind removes the hold and tells the person
 });
