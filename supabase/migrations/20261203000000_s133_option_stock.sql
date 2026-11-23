@@ -9,7 +9,7 @@
 --            undo, a recount through the old path) it shrinks the options until the invariant holds: the usual option first, then the others by largest quantity, then by id. It never raises (a problem is a warning).
 --   NEW      inventory_option_count_v1, inventory_receipt_lines_v1, inventory_option_use_v1, inventory_group_update_v1, inventory_item_history_v2, inventory_log_v1 (read only whole-inventory log, contract 5) (authenticated only);
 --            internal s_inventory_option_clamp_v1 and s_inventory_derive_key_v1 (no grant).
---   CHANGED  s_inventory_option_payload_v1 (internal, same signature, create or replace behind an md5 guard): source_url is any https link, image_url is one of the two current hosts or a stored photo path items/<item>/<uuid>.webp|jpg;
+--   CHANGED  s_inventory_option_payload_v1 (internal, same signature, create or replace behind an md5 guard): source_url is any https link whose host has no '@' (no userinfo), image_url is one of the two current hosts or a stored photo path items/<item>/<uuid>.webp|jpg;
 --            the table checks inventory_item_options_source_url_check and _image_url_check are relaxed to match. Every other check of the validator is unchanged.
 --            inventory_item_options_v1 (read, same signature, one anchored edit behind an md5 guard): every option also carries qty_on_hand.
 -- Order of work in the count wrapper: the listed options are set first and the item recount (reconcile) follows in the same transaction. The contract says reconcile first; the result is the same, but the other order stops the trigger
@@ -38,7 +38,7 @@ begin
     ('public.inventory_item_change_undo_v1(uuid)', 'f513d523af5ef4f99055ca73e789b7ce', null),
     ('public.inventory_item_history_v1(uuid)', 'bbf90cfbd5f97158307e12502ae1223e', null),
     ('public.inventory_item_options_v1(uuid)', '8f1ca123739b2d13d23c92dcac3ba76d', '55f85ee60e29243ef6dfc68173a76912'),
-    ('public.s_inventory_option_payload_v1(uuid,jsonb,boolean)', 'ce729144e29fba1dd96aab1d46aadeff', 'd59adbbd060e1d58cfc9d7aac893596b')
+    ('public.s_inventory_option_payload_v1(uuid,jsonb,boolean)', 'ce729144e29fba1dd96aab1d46aadeff', '065b6b1d88c60712b51ea5713e68c3b4')
   ) t(sig, m_a, m_b) loop
     select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure(r.sig);
     if v is null then raise exception 's133: % is missing (apply s132 first)', r.sig using errcode = '55000'; end if;
@@ -57,7 +57,7 @@ comment on column public.inventory_purchases.option_id is 'S133: the brand (opti
 -- 2. product link and photo rules (contract 2e): table checks relaxed, validator re-cut -------------------------------------------------------------------------------------------------------------------------------
 alter table public.inventory_item_options drop constraint if exists inventory_item_options_source_url_check;
 alter table public.inventory_item_options add constraint inventory_item_options_source_url_check
-  check (source_url is null or source_url ~ '^https://[^\s/]+\.[^\s/]+(/\S*)?$');
+  check (source_url is null or source_url ~ '^https://[^\s/@]+\.[^\s/@]+(/\S*)?$');
 alter table public.inventory_item_options drop constraint if exists inventory_item_options_image_url_check;
 alter table public.inventory_item_options add constraint inventory_item_options_image_url_check
   check (image_url is null or image_url ~ '^https://(cdn\.shopify\.com|down-ph\.img\.susercontent\.com)/' or image_url ~ ('^items/' || item_id::text || '/[0-9a-f-]{36}\.(webp|jpg)$'));
@@ -91,7 +91,7 @@ begin
     if k = 'pack_size' and not ((v #>> '{}')::numeric > 0 and (v #>> '{}')::numeric < 100000) then raise exception using errcode = '22023', message = 'pack size must be more than 0 and below 100000'; end if;
     if k = 'price' and not ((v #>> '{}')::numeric >= 0.01 and (v #>> '{}')::numeric < 1000000) then raise exception using errcode = '22023', message = 'price must be at least 0.01 and below 1000000'; end if;
     if k = 'image_url' and (v #>> '{}') !~ '^https://(cdn\.shopify\.com|down-ph\.img\.susercontent\.com)/' and (v #>> '{}') !~ '^items/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(webp|jpg)$' then raise exception using errcode = '22023', message = 'image must be https on cdn.shopify.com or down-ph.img.susercontent.com, or a stored photo of this item'; end if;
-    if k = 'source_url' and (v #>> '{}') !~ '^https://[^\s/]+\.[^\s/]+(/\S*)?$' then raise exception using errcode = '22023', message = 'product link must be an https link'; end if;
+    if k = 'source_url' and (v #>> '{}') !~ '^https://[^\s/@]+\.[^\s/@]+(/\S*)?$' then raise exception using errcode = '22023', message = 'product link must be an https link'; end if;
     if k in ('image_url', 'source_url') and char_length(v #>> '{}') > 500 then raise exception using errcode = '22023', message = k || ' is too long'; end if;
     if k = 'supplier_id' then
       if (v #>> '{}') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -123,10 +123,10 @@ revoke all on function public.inventory_item_options_v1(uuid) from public, anon,
 grant execute on function public.inventory_item_options_v1(uuid) to authenticated;
 
 -- 4. internal helpers ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
--- a key derived from a caller's key: key:suffix, or a fixed-length hash when that would pass 160 characters (so a nested group -> row -> line key never passes the 16..160 limit of the wrapped functions)
+-- a key derived from a caller's key: key:gSUFFIX (the fixed ':g' marks it as derived, so the log can tell a group's rows from a Staff single-call key), or a fixed-length hash when that would pass 160 characters (so a nested group -> row -> line key never passes the 16..160 limit of the wrapped functions)
 create or replace function public.s_inventory_derive_key_v1(p_key text, p_suffix text)
 returns text language sql immutable set search_path = '' as $$
-  select case when char_length(p_key || ':' || p_suffix) <= 160 then p_key || ':' || p_suffix else 'h' || md5(p_key || ':' || p_suffix) end
+  select case when char_length(p_key || ':g' || p_suffix) <= 160 then p_key || ':g' || p_suffix else 'h' || md5(p_key || ':g' || p_suffix) end
 $$;
 revoke all on function public.s_inventory_derive_key_v1(text, text) from public, anon, authenticated, service_role;
 
@@ -207,7 +207,7 @@ $$;
 
 -- 7. inventory_receipt_lines_v1 (contract 2b) ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- One receipt, several brands. Units of a line = packs x the option's pack_size (the item's own units_per_purchase when the line has no option or the option has no size). Every line is one record_inventory_receipt_v1 call with
--- p_packs = units / units_per_purchase (the receipt multiplies it back, so exactly the line's units are added), key = key:line_no. The option's quantity grows by what the receipt added; a line with no option adds to Not sorted.
+-- p_packs = units / units_per_purchase (the receipt multiplies it back, so exactly the line's units are added), key = key:gLINE_NO. The option's quantity grows by what the receipt added; a line with no option adds to Not sorted.
 -- p_total_paid is split over the lines by their share of price x packs (the line's unit_cost, else the option price, else the item's unit cost x pack), each share rounded to 2 places, the remainder on the last line.
 create or replace function public.inventory_receipt_lines_v1(p_item_id uuid, p_lines jsonb, p_total_paid numeric, p_purchased_at date, p_supplier_id uuid, p_idempotency_key text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
@@ -308,8 +308,8 @@ begin
   if p_option_id is not null then
     select * into o from public.inventory_item_options x where x.id = p_option_id and x.item_id = p_item_id for update;
     if not found then raise exception using errcode = '22023', message = 'option does not belong to this item'; end if;
-    -- a replay (a usage row of this key exists) takes nothing off the brand again
-    v_replay := exists (select 1 from public.inventory_usage u where (u.item_id = p_item_id or u.moved_from_item_id = p_item_id) and position('[key:' || p_idempotency_key || ']' in coalesce(u.notes, '')) > 0);
+    -- a replay (a usage row of this key exists) takes nothing off the brand again; the same LIKE predicate record_inventory_usage uses, so the two always agree
+    v_replay := exists (select 1 from public.inventory_usage u where (u.item_id = p_item_id or u.moved_from_item_id = p_item_id) and u.notes like '%[key:' || p_idempotency_key || ']%');
     if not v_replay then
       v_sub := least(p_qty, o.qty_on_hand);
       if v_sub > 0 then update public.inventory_item_options set qty_on_hand = qty_on_hand - v_sub where id = p_option_id; end if;
@@ -323,8 +323,8 @@ end;
 $$;
 
 -- 9. inventory_group_update_v1 (contract 2d) -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
--- Many items in one transaction: mode count ({item_id, qty[, note]}), used ({item_id, qty[, option_id][, note]}) or bought ({item_id, lines[, total_paid][, supplier_id]}). Each row calls the single-item function with key:idx
--- (idx counts from 0, the position in p_rows). Any failing row raises "row idx: ..." with the original SQLSTATE and the whole call rolls back, so nothing is half saved. The same item may appear once in count and bought.
+-- Many items in one transaction: mode count ({item_id, qty[, note]}), used ({item_id, qty[, option_id][, note]}) or bought ({item_id, lines[, total_paid][, supplier_id]}). Each row calls the single-item function with key:gIDX
+-- (IDX counts from 0, the position in p_rows). Any failing row raises "row idx: ..." with the original SQLSTATE and the whole call rolls back, so nothing is half saved. The same item may appear once in count and bought.
 create or replace function public.inventory_group_update_v1(p_property_id uuid, p_mode text, p_rows jsonb, p_idempotency_key text)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -477,10 +477,16 @@ revoke all on function public.inventory_item_history_v2(uuid) from public, anon,
 
 
 -- 12. inventory_log_v1 (contract 5): the whole-inventory history, read only ------------------------------------------------------------------------------------------------------------------------------------------
--- Sources: stock movements (count, bought, used, undo, other adjustments; a damage movement is shown by its report), damage reports (one row per item line, undone ones kept with undone_at), item changes (created, details,
--- price, photo; undone ones kept with undone_at), stock moves between items (inventory_audit_log). Option edits keep no history table, so none is shown. Money: a bought row carries {unit_cost,total_cost} and a price change
--- {before,after} only for finance_human_authorized; everyone else gets money null. Paging is by time alone (the cursor is p_before): newest first reads rows older than it, oldest first rows newer than it. A page never ends inside
--- a run of rows with the same timestamp (the run is finished), so no row is skipped or repeated; a page can therefore hold a few more than p_limit rows. next_before is null on the last page.
+-- Sources: stock movements (count, bought, used, undo, other adjustments; a damage movement is shown by its report), purchases and usage rows that wrote NO stock movement (a not-controlled item: its bought and used rows
+-- exist only in inventory_purchases / inventory_usage, as inventory_item_history_v2 shows them; an undone usage keeps its row with undone_at), damage reports (one row per item line, undone ones kept with undone_at), item
+-- changes (created, details, price, photo; undone ones kept with undone_at), stock moves between items (inventory_audit_log). Option edits keep no history table, so none is shown. The brand of a bought row is the title of
+-- the option on its purchase. Money: a bought row carries {unit_cost,total_cost} and a price change {before,after} only for finance_human_authorized; everyone else gets money null. group_key is set only for a key made by
+-- s_inventory_derive_key_v1 (it ends in ':g<n>' one or more times), so rows written by one group call share it and an unrelated single-call key never does. Paging is by time alone (the cursor is p_before): newest first
+-- reads rows older than it, oldest first rows newer than it. A page never ends inside a run of rows with the same timestamp (the run is finished), so no row is skipped or repeated; a page can therefore hold a few more than
+-- p_limit rows. next_before is null on the last page. Cost: the evt- key of a purchase or a usage row is hashed once per row in the page window (purchases and usage are bounded by p_item_id, p_kind and the cursor, with a one-day
+-- slack for the movement written beside them) and joined to the movements by key; the movement scan uses inventory_stock_movements_property_created_idx.
+create index if not exists inventory_stock_movements_property_created_idx on public.inventory_stock_movements (property_id, created_at desc);
+
 create or replace function public.inventory_log_v1(p_property_id uuid, p_before timestamptz default null, p_limit integer default 50, p_kind text default null, p_item_id uuid default null, p_oldest_first boolean default false)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare v_fin boolean; v_lim integer := least(greatest(coalesce(p_limit, 50), 1), 100); v_hi timestamptz; v_lo timestamptz; v_rows jsonb; v_next timestamptz; v_more boolean; v_old boolean := coalesce(p_oldest_first, false);
@@ -494,8 +500,20 @@ begin
   if p_item_id is not null and not exists (select 1 from public.inventory_items i where i.id = p_item_id and i.property_id = p_property_id) then raise exception using errcode = 'P0002', message = 'item not found'; end if;
   v_fin := public.finance_human_authorized(p_property_id);
   if v_old then v_lo := p_before; else v_hi := p_before; end if;
-  with src as (
-    -- stock movements
+  with pur as (
+    select pu.id, pu.item_id, pu.created_at, pu.option_id, pu.qty, pu.unit_cost, pu.total_cost, pu.notes,
+           left('evt-' || encode(extensions.digest('inventory_purchases|' || pu.id::text || '|' || pu.item_id::text || '|receipt', 'sha256'), 'hex'), 80) as ekey
+    from public.inventory_purchases pu join public.inventory_items pi on pi.id = pu.item_id and pi.property_id = p_property_id
+    where (p_kind is null or p_kind = 'bought') and (p_item_id is null or pu.item_id = p_item_id)
+      and (v_hi is null or pu.created_at < v_hi + interval '1 day') and (v_lo is null or pu.created_at > v_lo - interval '1 day')
+  ), usg as (
+    select us.id, us.item_id, us.created_at, us.used_qty, us.undone_at, us.undone_qty, us.notes, us.submitted_by_user_id,
+           left('evt-' || encode(extensions.digest('inventory_usage|' || us.id::text || '|' || us.item_id::text || '|usage', 'sha256'), 'hex'), 80) as ekey
+    from public.inventory_usage us join public.inventory_items ui on ui.id = us.item_id and ui.property_id = p_property_id
+    where (p_kind is null or p_kind = 'used') and (p_item_id is null or us.item_id = p_item_id)
+      and (v_hi is null or us.created_at < v_hi + interval '1 day') and (v_lo is null or us.created_at > v_lo - interval '1 day')
+  ), src as (
+    -- stock movements (the purchase / usage row beside a receipt / usage movement gives its note, brand, money and undo state)
     select m.created_at as at, m.item_id,
            case when m.kind = 'reconcile' then 'count' when m.kind = 'receipt' then 'bought' when m.kind = 'usage' then 'used'
                 when m.reason like 'Undo%' then 'undo' when m.reason like 'Linen %' then 'broken' else 'edit' end as kind,
@@ -504,41 +522,60 @@ begin
                 when m.kind = 'receipt' then public.s_inventory_purchase_note_v1(pu.notes)
                 when m.kind = 'usage' then nullif(btrim(regexp_replace(coalesce(us.notes, ''), '\s*\[key:[^]]*\]', '', 'g')), '')
                 else nullif(btrim(m.reason), '') end as note,
-           case when m.idempotency_key like 'evt-%' then null else nullif(regexp_replace(m.idempotency_key, ':[^:]*$', ''), m.idempotency_key) end as gk,
+           case when m.kind = 'receipt' then nullif(regexp_replace(substring(pu.notes from '\[key:([^]]*)\]'), '(:g[0-9]+)+$', ''), substring(pu.notes from '\[key:([^]]*)\]'))
+                when m.kind = 'usage' then nullif(regexp_replace(substring(us.notes from '\[key:([^]]*)\]'), '(:g[0-9]+)+$', ''), substring(us.notes from '\[key:([^]]*)\]'))
+                when m.idempotency_key like 'evt-%' then null
+                else nullif(regexp_replace(m.idempotency_key, '(:g[0-9]+)+$', ''), m.idempotency_key) end as gk,
            op.title as option_title,
            case when m.kind = 'receipt' and v_fin and pu.id is not null then jsonb_build_object('unit_cost', pu.unit_cost, 'total_cost', pu.total_cost) end as money,
            us.undone_at as undone, null::numeric as qty, m.id::text as rid
     from public.inventory_stock_movements m
-    left join public.inventory_purchases pu on m.kind = 'receipt' and pu.item_id = m.item_id
-         and m.idempotency_key = left('evt-' || encode(extensions.digest('inventory_purchases|' || pu.id::text || '|' || pu.item_id::text || '|receipt', 'sha256'), 'hex'), 80)
+    left join pur pu on m.kind = 'receipt' and pu.item_id = m.item_id and pu.ekey = m.idempotency_key
     left join public.inventory_item_options op on op.id = pu.option_id
-    left join public.inventory_usage us on m.kind = 'usage' and us.item_id = m.item_id
-         and m.idempotency_key = left('evt-' || encode(extensions.digest('inventory_usage|' || us.id::text || '|' || us.item_id::text || '|usage', 'sha256'), 'hex'), 80)
+    left join usg us on m.kind = 'usage' and us.item_id = m.item_id and us.ekey = m.idempotency_key
     where m.property_id = p_property_id and (p_item_id is null or m.item_id = p_item_id)
       and (v_hi is null or m.created_at < v_hi) and (v_lo is null or m.created_at > v_lo)
       and not (m.kind = 'adjustment' and (m.reason like 'Damage %' or m.reason like 'Undo damage %'))
+      and (p_kind is null or p_kind = 'edit' or (p_kind = 'count' and m.kind = 'reconcile') or (p_kind = 'bought' and m.kind = 'receipt') or (p_kind = 'used' and m.kind = 'usage')
+           or (p_kind = 'broken' and m.kind not in ('reconcile', 'receipt', 'usage') and m.reason like 'Linen %'))
+    union all
+    -- purchases that wrote no stock movement (a not-controlled item)
+    select pb.created_at, pb.item_id, 'bought', null::numeric, null::numeric, null::uuid, public.s_inventory_purchase_note_v1(pb.notes),
+           nullif(regexp_replace(substring(pb.notes from '\[key:([^]]*)\]'), '(:g[0-9]+)+$', ''), substring(pb.notes from '\[key:([^]]*)\]')),
+           ob.title, case when v_fin then jsonb_build_object('unit_cost', pb.unit_cost, 'total_cost', pb.total_cost) end, null::timestamptz, pb.qty, pb.id::text
+    from pur pb left join public.inventory_item_options ob on ob.id = pb.option_id
+    where (v_hi is null or pb.created_at < v_hi) and (v_lo is null or pb.created_at > v_lo)
+      and not exists (select 1 from public.inventory_stock_movements m2 where m2.item_id = pb.item_id and m2.idempotency_key = pb.ekey)
+    union all
+    -- usage rows that wrote no stock movement (a not-controlled item); an undone one keeps its row with undone_at and the quantity that was logged
+    select ub.created_at, ub.item_id, 'used', null::numeric, null::numeric, ub.submitted_by_user_id, nullif(btrim(regexp_replace(coalesce(ub.notes, ''), '\s*\[key:[^]]*\]', '', 'g')), ''),
+           nullif(regexp_replace(substring(ub.notes from '\[key:([^]]*)\]'), '(:g[0-9]+)+$', ''), substring(ub.notes from '\[key:([^]]*)\]')),
+           null::text, null::jsonb, ub.undone_at, case when ub.undone_at is not null then ub.undone_qty else ub.used_qty end, ub.id::text
+    from usg ub
+    where (v_hi is null or ub.created_at < v_hi) and (v_lo is null or ub.created_at > v_lo)
+      and not exists (select 1 from public.inventory_stock_movements m3 where m3.item_id = ub.item_id and m3.idempotency_key = ub.ekey)
     union all
     -- damage reports, one row per item line
     select r.created_at, (e.value ->> 'item_id')::uuid, 'broken', (e.value ->> 'before')::numeric, (e.value ->> 'after')::numeric, r.actor_user_id,
            coalesce(nullif(e.value ->> 'note', ''), r.note), null::text, null::text, null::jsonb, r.undone_at, (e.value ->> 'qty')::numeric, r.id::text || ':' || e.ord
     from public.inventory_damage_reports r cross join lateral jsonb_array_elements(r.rows) with ordinality e(value, ord)
-    where r.property_id = p_property_id and (p_item_id is null or e.value ->> 'item_id' = p_item_id::text)
+    where (p_kind is null or p_kind = 'broken') and r.property_id = p_property_id and (p_item_id is null or e.value ->> 'item_id' = p_item_id::text)
       and (v_hi is null or r.created_at < v_hi) and (v_lo is null or r.created_at > v_lo)
     union all
     -- item changes
     select c.created_at, c.item_id, case when c.kind = 'created' then 'created' else 'edit' end, null::numeric, null::numeric, c.actor,
            null::text, null::text, null::text,
-           case when c.kind = 'price' and v_fin then jsonb_build_object('before', c.before, 'after', c.after) end, c.undone_at, null::numeric, c.id::text
+           case when c.kind = 'price' and v_fin then jsonb_build_object('before', (c.before ->> 'unit_cost')::numeric, 'after', (c.after ->> 'unit_cost')::numeric) end, c.undone_at, null::numeric, c.id::text
     from public.inventory_item_changes c
-    where c.property_id = p_property_id and (p_item_id is null or c.item_id = p_item_id)
+    where (p_kind is null or p_kind = 'edit') and c.property_id = p_property_id and (p_item_id is null or c.item_id = p_item_id)
       and (v_hi is null or c.created_at < v_hi) and (v_lo is null or c.created_at > v_lo)
     union all
     -- stock moved between items
     select a.created_at, a.entity_id, 'moved', (a.before ->> 'qty_on_hand')::numeric, (a.after ->> 'qty_on_hand')::numeric,
            case when a.actor ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then a.actor::uuid end,
-           case when a.action = 'stock_moved_out' then 'to ' else 'from ' end || coalesce(a.after ->> 'other_item_name', 'another item'), null::text, null::text, null::jsonb, null::timestamptz, null::numeric, md5(a.created_at::text || a.action || a.entity_id::text)
+           case when a.action = 'stock_moved_out' then 'to ' else 'from ' end || coalesce(a.after ->> 'other_item_name', 'another item'), null::text, null::text, null::jsonb, null::timestamptz, null::numeric, a.id::text
     from public.inventory_audit_log a join public.inventory_items mi on mi.id = a.entity_id and mi.property_id = p_property_id
-    where a.entity_type = 'inventory_items' and a.action in ('stock_moved_out', 'stock_moved_in') and (p_item_id is null or a.entity_id = p_item_id)
+    where (p_kind is null or p_kind = 'edit') and a.entity_type = 'inventory_items' and a.action in ('stock_moved_out', 'stock_moved_in') and (p_item_id is null or a.entity_id = p_item_id)
       and (v_hi is null or a.created_at < v_hi) and (v_lo is null or a.created_at > v_lo)
   ), shown as (
     select s.*, i.name as item_name, i.unit as unit,
@@ -550,7 +587,8 @@ begin
       'at', p.at, 'kind', p.kind, 'item_id', p.item_id, 'item_name', p.item_name,
       'summary_parts', (select coalesce(jsonb_agg(t.part order by t.n), '[]'::jsonb) from (values
           (1, case p.kind when 'count' then 'Counted' when 'bought' then 'Bought' when 'used' then 'Used' when 'broken' then 'Broken or missing' when 'moved' then 'Moved' when 'created' then 'Added' when 'undo' then 'Undone' else 'Edited' end),
-          (2, case when p.qty is not null then p.qty::text || ' ' || coalesce(p.unit, '') when p.qb is not null and p.qa is not null then p.qb::text || ' to ' || p.qa::text end),
+          (2, case when p.qty is not null then trim_scale(round(p.qty, 2))::text || ' ' || coalesce(p.unit, '')
+                   when p.qb is not null and p.qa is not null then trim_scale(round(p.qb, 2))::text || ' to ' || trim_scale(round(p.qa, 2))::text end),
           (3, p.option_title), (4, case when p.kind = 'moved' then p.note end)) t(n, part) where t.part is not null),
       'qty_before', p.qb, 'qty_after', p.qa, 'delta', case when p.qb is not null and p.qa is not null then p.qa - p.qb end, 'unit', p.unit, 'option_title', p.option_title,
       'money', p.money, 'actor_first_name', public.s_inventory_actor_name_v1(p.actor),

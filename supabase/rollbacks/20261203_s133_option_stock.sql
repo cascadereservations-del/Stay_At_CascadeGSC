@@ -3,6 +3,7 @@
 --   * s_inventory_option_payload_v1 and inventory_item_options_v1 go back to their previous bodies (md5 pinned, 55000 on a body that is neither);
 --   * the two table checks go back to the previous host lists as NOT VALID (rows saved under the wider rule stay; only new writes are held to the old list);
 --   * the columns inventory_item_options.qty_on_hand and inventory_purchases.option_id are dropped: the per-brand quantities and the brand of each receipt line are LOST. The item quantities are not touched.
+--   * stored photo paths in inventory_item_options.image_url are cleared (the previous app cannot show them); product links on hosts outside the previous list stay and block edits of that option (23514) until fixed - see step 5.
 -- Nothing of s132 is edited by this release, so nothing of s132 is touched here.
 
 begin;
@@ -12,7 +13,7 @@ do $g$
 declare v text;
 begin
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.s_inventory_option_payload_v1(uuid,jsonb,boolean)');
-  if v is distinct from 'ce729144e29fba1dd96aab1d46aadeff' and v is distinct from 'd59adbbd060e1d58cfc9d7aac893596b' then raise exception 's133 rollback: s_inventory_option_payload_v1 is neither this release nor the previous body (md5 %)', v using errcode = '55000'; end if;
+  if v is distinct from 'ce729144e29fba1dd96aab1d46aadeff' and v is distinct from '065b6b1d88c60712b51ea5713e68c3b4' then raise exception 's133 rollback: s_inventory_option_payload_v1 is neither this release nor the previous body (md5 %)', v using errcode = '55000'; end if;
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p where p.oid = to_regprocedure('public.inventory_item_options_v1(uuid)');
   if v is distinct from '8f1ca123739b2d13d23c92dcac3ba76d' and v is distinct from '55f85ee60e29243ef6dfc68173a76912' then raise exception 's133 rollback: inventory_item_options_v1 is neither this release nor the previous body (md5 %)', v using errcode = '55000'; end if;
 end $g$;
@@ -27,6 +28,7 @@ drop function if exists public.inventory_group_update_v1(uuid, text, jsonb, text
 drop function if exists public.inventory_item_history_v2(uuid);
 drop function if exists public.inventory_log_v1(uuid, timestamptz, integer, text, uuid, boolean);
 drop function if exists public.s_inventory_derive_key_v1(text, text);
+drop index if exists public.inventory_stock_movements_property_created_idx;
 
 -- 3. the payload validator back to the s116 body
 create or replace function public.s_inventory_option_payload_v1(p_prop uuid, p_payload jsonb, p_allow_price boolean)
@@ -93,7 +95,11 @@ end $g$;
 revoke all on function public.inventory_item_options_v1(uuid) from public, anon, service_role;
 grant execute on function public.inventory_item_options_v1(uuid) to authenticated;
 
--- 5. the table checks back to the previous host lists (NOT VALID: stored rows are not re-checked)
+-- 5. the table checks back to the previous host lists (NOT VALID: stored rows are not re-checked, but a check still runs on every UPDATE of a row, so a row that breaks it could not be edited any more)
+-- A stored photo path (items/<item>/<uuid>.webp|jpg) is unusable by the previous app anyway, so image_url is cleared on every option that holds anything but a link on the two previous hosts.
+-- A product link (source_url) on a host outside the previous list is kept (it is the owner's data) and DOCUMENTED: after this rollback such an option cannot be edited (23514) until its link is removed or replaced
+-- by one on shopsuki.ph, shopee.ph, mandauefoam.ph or myhanabishi.com. Find them with: select id, source_url from public.inventory_item_options where source_url !~ '^https://(shopsuki\.ph|shopee\.ph|mandauefoam\.ph|myhanabishi\.com)/';
+update public.inventory_item_options set image_url = null where image_url is not null and image_url !~ '^https://(cdn\.shopify\.com|down-ph\.img\.susercontent\.com)/';
 alter table public.inventory_item_options drop constraint if exists inventory_item_options_source_url_check;
 alter table public.inventory_item_options add constraint inventory_item_options_source_url_check
   check (source_url is null or source_url ~ '^https://(shopsuki\.ph|shopee\.ph|mandauefoam\.ph|myhanabishi\.com)/') not valid;

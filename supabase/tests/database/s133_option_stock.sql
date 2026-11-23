@@ -4,7 +4,7 @@
 -- NOT RUN when it was written (the builder has no local Postgres and no pgTAP): the rehearsal (scripts/recovery/p6/migration-rehearsal-on-host.sh <backup> <release.json> <this file>) is the first run.
 -- The same functions were run (not through pgTAP) against a stub schema in PGlite: count, trigger, receipt split, use, group rollback, payload and table checks, and the log paging and filters all passed there.
 begin;
-select plan(80);
+select plan(87);
 
 -- baseline grants for a --no-acl rehearsal restore (idempotent, rolled back with the suite)
 grant usage on schema public, auth to anon, authenticated, service_role;
@@ -161,7 +161,7 @@ insert into _t select 'use2', public.inventory_option_use_v1(pg_temp.id('b1'), p
 insert into _t select 'use3', public.inventory_option_use_v1(pg_temp.id('b1'), pg_temp.id('a1'), null, 2, 'plain', public.manila_today(), 'zz133-use-000000000003');
 reset role;
 select ok((select (v ->> 'from_option')::numeric = 4 and (v ->> 'from_not_sorted')::numeric = 0 from _t where k = 'use1'), 'use: 4 of a brand holding 6 all comes off the brand (2 left)');
-select ok((select v ->> 'from_option' = '2' and (v ->> 'from_not_sorted')::numeric = 3 from _t where k = 'use2') and pg_temp.oq(pg_temp.id('f2')) = 0, 'use: 5 of a brand with 2 left takes 2 off the brand and 3 from Not sorted');
+select ok((select (v ->> 'from_option')::numeric = 2 and (v ->> 'from_not_sorted')::numeric = 3 from _t where k = 'use2') and pg_temp.oq(pg_temp.id('f2')) = 0, 'use: 5 of a brand with 2 left takes 2 off the brand and 3 from Not sorted');
 select ok(pg_temp.q(pg_temp.id('a1')) = 62 - 4 - 5 - 2, 'use: the item total fell by every use (62 - 4 - 5 - 2 = 51)');
 select ok(pg_temp.q(pg_temp.id('a1')) = 51 and pg_temp.oq(pg_temp.id('f2')) = 0, 'use: the same key again takes nothing more (the item stays 51, the brand 0)');
 select ok((select not (v ? 'option_id') from _t where k = 'use3') and pg_temp.oq(pg_temp.id('f1')) + pg_temp.oq(pg_temp.id('f2')) <= pg_temp.q(pg_temp.id('a1')), 'use: with no brand it is the plain usage call and the invariant holds');
@@ -208,6 +208,8 @@ select ok(pg_temp.try($$update public.inventory_item_options set image_url = 'it
   'table: the photo path of the option''s own item is accepted');
 select is(pg_temp.try($$update public.inventory_item_options set image_url = 'items/e1330000-0000-4000-8000-0000000000a2/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg' where id = 'e1330000-0000-4000-8000-0000000000f1' returning 1$$) ->> 'err', '23514', 'table: the photo path of another item is refused by the check');
 select is(pg_temp.try($$update public.inventory_item_options set source_url = 'http://shop.example/p' where id = 'e1330000-0000-4000-8000-0000000000f1' returning 1$$) ->> 'err', '23514', 'table: an http product link is refused by the check');
+select is(pg_temp.try($$select public.s_inventory_option_payload_v1('e1330000-0000-4000-8000-0000000000b1', '{"source_url":"https://shopee.ph@evil.example/"}'::jsonb, true)$$) ->> 'err', '22023', 'payload: a link with @ in the host part (userinfo) is refused');
+select is(pg_temp.try($$update public.inventory_item_options set source_url = 'https://shopee.ph@evil.example/' where id = 'e1330000-0000-4000-8000-0000000000f1' returning 1$$) ->> 'err', '23514', 'table: a link with @ in the host part is refused by the check');
 select pg_temp.as_user(pg_temp.id('01'));
 select ok((select bool_and(o.value ? 'qty_on_hand') and count(*) = 2 from jsonb_array_elements(public.inventory_item_options_v1(pg_temp.id('a1')) -> 'options') o(value)), 'options read: every option carries qty_on_hand');
 reset role;
@@ -237,6 +239,7 @@ insert into _t select 'log_used', public.inventory_log_v1(pg_temp.id('b1'), null
 insert into _t select 'log_count', public.inventory_log_v1(pg_temp.id('b1'), null, 100, 'count');
 insert into _t select 'log_broken', public.inventory_log_v1(pg_temp.id('b1'), null, 100, 'broken');
 insert into _t select 'log_edit', public.inventory_log_v1(pg_temp.id('b1'), null, 100, 'edit');
+insert into _t select 'log_a1_used', public.inventory_log_v1(pg_temp.id('b1'), null, 100, 'used', pg_temp.id('a1'));
 insert into _t select 'log_item', public.inventory_log_v1(pg_temp.id('b1'), null, 100, null, pg_temp.id('a5'));
 insert into _t select 'log_lim0', public.inventory_log_v1(pg_temp.id('b1'), null, 0);
 insert into _t select 'log_lim500', public.inventory_log_v1(pg_temp.id('b1'), null, 500);
@@ -251,8 +254,7 @@ select pg_temp.as_user(pg_temp.id('04'));
 select is(pg_temp.try($$select public.inventory_log_v1('e1330000-0000-4000-8000-0000000000b1', null, 10)$$) ->> 'err', '42501', 'log: staff without access to the house are refused');
 reset role;
 select ok((select jsonb_array_length(v -> 'rows') >= 10 and (v -> 'next_before') = 'null'::jsonb from _t where k = 'log_all'), 'log: every source is in the list and the last page has no next_before');
-select ok((select string_agg(e.value ->> 'at', ',' order by e.ord) from _t, jsonb_array_elements(v -> 'rows') with ordinality e(value, ord) where k = 'log_all') >= (select string_agg(e.value ->> 'at', ',' order by e.ord desc) from _t, jsonb_array_elements(v -> 'rows') with ordinality e(value, ord) where k = 'log_asc')
-select ok((select (select array_agg((e.value ->> 'at')::timestamptz order by e.ord) from jsonb_array_elements(v -> 'rows') with ordinality e(value, ord)) = (select array_agg((e.value ->> 'at')::timestamptz order by e.ord desc) from jsonb_array_elements(a.v -> 'rows') with ordinality e(value, ord))
+select ok((select (select array_agg((e.value ->> 'at')::timestamptz order by e.ord) from jsonb_array_elements(v -> 'rows') with ordinality e(value, ord)) = (select array_agg((e.value ->> 'at')::timestamptz order by e.ord desc) from _t a, jsonb_array_elements(a.v -> 'rows') with ordinality e(value, ord) where a.k = 'log_asc') from _t where k = 'log_all'), 'log: oldest first lists the same timestamps as newest first, in exactly the reverse order');
 select ok((select (select bool_and(x.at >= x.nxt) from (select (e.value ->> 'at')::timestamptz as at, lead((e.value ->> 'at')::timestamptz) over (order by e.ord) as nxt from jsonb_array_elements(v -> 'rows') with ordinality e(value, ord)) x where x.nxt is not null)
                   from _t where k = 'log_all'), 'log: newest first is in descending time order');
 select ok((select (select bool_and(x.at <= x.nxt) from (select (e.value ->> 'at')::timestamptz as at, lead((e.value ->> 'at')::timestamptz) over (order by e.ord) as nxt from jsonb_array_elements(v -> 'rows') with ordinality e(value, ord)) x where x.nxt is not null)
@@ -274,6 +276,13 @@ select ok((select bool_and(r.value ? 'at' and r.value ? 'kind' and r.value ? 'it
   'log: every row has the whole contract shape');
 select ok((select bool_or(r.value ->> 'kind' = 'bought' and r.value ->> 'option_title' in ('Sofia 12', 'Presto 6')) from _t, jsonb_array_elements(v -> 'rows') r(value) where k = 'log_all'), 'log: a bought row names its brand');
 select ok(not has_function_privilege('anon', 'public.inventory_log_v1(uuid,timestamptz,integer,text,uuid,boolean)', 'execute') and has_function_privilege('authenticated', 'public.inventory_log_v1(uuid,timestamptz,integer,text,uuid,boolean)', 'execute'), 'log: authenticated only');
+
+select ok((select count(*) >= 3 and bool_and(r.value ->> 'item_id' = pg_temp.id('a1')::text) from _t, jsonb_array_elements(v -> 'rows') r(value) where k = 'log_a1_used'), 'log: usage rows of a not-controlled item (no stock movement) are listed as used');
+select ok((select count(*) = 2 from _t, jsonb_array_elements(v -> 'rows') r(value) where k = 'log_all' and r.value ->> 'group_key' = 'zz133-group-000000001'), 'log: the two rows of one group call share its group_key');
+select ok((select bool_and(r.value -> 'group_key' = 'null'::jsonb) from _t, jsonb_array_elements(v -> 'rows') r(value) where k = 'log_all' and r.value ->> 'kind' = 'used' and r.value ->> 'item_id' = pg_temp.id('a1')::text and r.value ->> 'source_note' = 'plain'), 'log: a single-call key has no group_key');
+select ok((select bool_or(r.value ->> 'kind' = 'bought' and r.value ->> 'option_title' in ('Sofia 12', 'Presto 6') and (r.value -> 'money' ->> 'unit_cost') is not null and (r.value -> 'money' ->> 'total_cost') is not null) from _t, jsonb_array_elements(v -> 'rows') r(value) where k = 'log_all'), 'log: a bought row of a not-controlled item names its brand and carries {unit_cost,total_cost}');
+select ok((select bool_or((r.value -> 'money' ->> 'before')::numeric = 50 and (r.value -> 'money' ->> 'after')::numeric = 55) from _t, jsonb_array_elements(v -> 'rows') r(value) where k = 'log_all'), 'log: a price edit carries money {before: 50, after: 55} as numbers');
+select ok((select bool_and(r.value -> 'money' = 'null'::jsonb) from _t, jsonb_array_elements(v -> 'rows') r(value) where k = 'log_staff' and r.value ->> 'kind' in ('bought', 'edit')), 'log: money stays null on bought and price rows for a cleaner');
 
 select * from finish();
 rollback;
