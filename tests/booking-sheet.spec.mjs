@@ -24,8 +24,9 @@ async function mock(page, { submit } = {}) {
   return posts;
 }
 async function pickDay(page, ds) {
-  for (let i = 0; i < 3 && !(await page.locator(`#bsGrid [data-d="${ds}"]`).count()); i++) await page.locator('#bsNext').click();
-  await page.locator(`#bsGrid [data-d="${ds}"]`).click();
+  const day = page.locator(`#bsGrid [data-d="${ds}"]`);
+  for (let i = 0; i < 4 && !(await day.count()); i++) { await page.locator('#bsNext').click(); await day.waitFor({ state: 'attached', timeout: 4000 }).catch(() => {}); }   /* month paints after the availability fetch: wait for the cell, not a count */
+  await day.click();
 }
 async function step1(page, ci = CI, co = CO) {
   await pickDay(page, ci); await pickDay(page, co);
