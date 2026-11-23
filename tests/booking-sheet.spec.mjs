@@ -1,0 +1,143 @@
+import { test, expect } from '@playwright/test';
+
+/* T6 booking sheet. Every Supabase endpoint is mocked: the sandbox cannot reach the real host and a test must never write a booking. */
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const plus = (n) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); return iso(d); };
+const CI = plus(30), CO = plus(32), BLOCK_FROM = plus(34), BLOCK_TO = plus(36), CLASH_CI = plus(32), CLASH_CO = plus(37);
+
+async function mock(page, { submit } = {}) {
+  const posts = [];
+  await page.route('**/*.supabase.co/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route('**/functions/v1/availability**', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ checkin_date: BLOCK_FROM, checkout_date: BLOCK_TO }]) }));
+  await page.route('**/functions/v1/rate-card**', (route) => {
+    const u = new URL(route.request().url()); const a = new Date(u.searchParams.get('checkin')), b = new Date(u.searchParams.get('checkout'));
+    const n = Math.round((b - a) / 86400000); const total = 1691 * n;
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ card: { base: 1780, deposit_pct: 50, tiers: [{ min_nights: 2, pct: 5 }], promotions: [] }, quote: { n, total, deposit: Math.ceil(total / 2), last_minute: false } }) });
+  });
+  await page.route('**/functions/v1/submit-booking', async (route) => {
+    posts.push(route.request().postDataJSON());
+    if (submit) return submit(route);
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ref: 'CH-TEST1', hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString(), receipt_upload_token: 'tok' }) });
+  });
+  await page.route('**/functions/v1/upload-booking-receipt', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+  return posts;
+}
+async function pickDay(page, ds) {
+  for (let i = 0; i < 3 && !(await page.locator(`#bsGrid [data-d="${ds}"]`).count()); i++) await page.locator('#bsNext').click();
+  await page.locator(`#bsGrid [data-d="${ds}"]`).click();
+}
+async function step1(page, ci = CI, co = CO) {
+  await pickDay(page, ci); await pickDay(page, co);
+  await expect(page.locator('#bsTotal')).toContainText('₱');
+  await page.locator('#bsNext1').click();
+  await expect(page.locator('#bsH2')).toBeVisible();
+}
+async function step2(page, name = 'Maria Santos') {
+  await page.locator('#bsName').fill(name); await page.locator('#bsPhone').fill('917 123 4567');
+  await page.locator('#bsNext2').click();
+  await expect(page.locator('#bsH3')).toBeVisible();
+}
+const openHeader = async (page) => { await page.goto('/index.html'); await page.locator('a.header-cta[data-gs-book]').click(); await expect(page.locator('#bookSheet')).toHaveAttribute('open', ''); };
+
+test.describe('booking sheet', () => {
+  test('opens from the header link, the Book-direct card and the cover dock; Esc closes and focus returns', async ({ page }) => {
+    await mock(page);
+    await page.goto('/index.html');
+    for (const sel of ['a.header-cta[data-gs-book]', '#book-direct [data-gs-book]']) {
+      const opener = page.locator(sel).first();
+      await opener.evaluate((el) => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+      await opener.focus(); await opener.click();
+      await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+      await expect(page.locator('#bsH1')).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#bookSheet')).not.toHaveAttribute('open', '');
+      await expect(opener).toBeFocused();
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.locator('#qbwCiField').click();
+    const dockDay = async (ds) => { for (let i = 0; i < 3 && !(await page.locator(`.qbw-picker-day[data-date="${ds}"]`).count()); i++) await page.locator('#qbwPickerNext').click(); await page.locator(`.qbw-picker-day[data-date="${ds}"]`).click(); };
+    await expect.poll(() => page.evaluate(() => !!(window._bkState && window._bkState.loaded))).toBe(true);
+    await dockDay(CI); await dockDay(CO);
+    await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+    await expect(page.locator('#bsRange')).toContainText('2 nights');
+    await expect(page.locator('#bsNext1')).toBeEnabled();
+  });
+
+  test('a stay that crosses a booked night is blocked with an inline message', async ({ page }) => {
+    await mock(page); await openHeader(page);
+    await expect.poll(() => page.evaluate(() => !!(window._bkState && window._bkState.loaded))).toBe(true);
+    await pickDay(page, CLASH_CI); await pickDay(page, CLASH_CO);
+    await expect(page.locator('#bsErr1')).toContainText('crosses a booked night');
+    await expect(page.locator('#bsNext1')).toBeDisabled();
+  });
+
+  test('reload mid-flow restores the step and the fields; no navigation on a validation error', async ({ page }) => {
+    await mock(page); await openHeader(page);
+    await step1(page);
+    await page.locator('#bsNext2').click();                                   /* empty: inline errors, still step 2 */
+    await expect(page.locator('#bsNameE')).toContainText('full name');
+    await expect(page.locator('#bsH2')).toBeVisible();
+    await page.locator('#bsName').fill('Maria Santos'); await page.locator('#bsPhone').fill('917 123 4567');
+    await page.reload();
+    await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+    await expect(page.locator('#bsH2')).toBeVisible();
+    await expect(page.locator('#bsName')).toHaveValue('Maria Santos');
+    await expect(page.locator('#bsPhone')).toHaveValue('917 123 4567');
+    await expect(page.locator('#bsCc')).toHaveAttribute('aria-label', 'Country code, Philippines +63');
+    await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsH3')).toBeVisible();
+    await page.reload();
+    await expect(page.locator('#bsH3')).toBeVisible();
+  });
+
+  test('a 20 s timeout shows the submit-error state with nothing lost, then Try again works', async ({ page }) => {
+    test.setTimeout(70000);
+    let n = 0;
+    const posts = await mock(page, { submit: async (route) => { n++; if (n === 1) { await new Promise((r) => setTimeout(r, 24000)); return route.abort(); } route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, ref: 'CH-TEST1', hold: true, hold_expires_at: new Date(Date.now() + 86400000).toISOString() }) }); } });
+    await openHeader(page); await step1(page);
+    await page.locator('#bsName').fill('Maria Santos'); await page.locator('#bsPhone').fill('917 123 4567');
+    await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsSE')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('#bsHE')).toHaveText('We didn’t hear back in time');
+    await expect(page.locator('#bsSE')).toContainText('Nothing was charged, and your dates and details are saved.');
+    await expect(page.locator('#bsEWho')).toContainText('Maria Santos');
+    await expect(page.locator('#bsEMsgr')).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720/);
+    await expect(page.locator('#bsSE')).toContainText('cascadereservations@gmail.com');
+    await page.locator('#bsRetry').click();
+    await expect(page.locator('#bsH3')).toBeVisible();
+    expect(posts.length).toBe(2);
+  });
+
+  test('the hold is reused when only the name changes', async ({ page }) => {
+    const posts = await mock(page); await openHeader(page);
+    await step1(page); await step2(page, 'Maria Santos');
+    await page.locator('#bsBack').click();
+    await page.locator('#bsName').fill('Maria S. Santos');
+    await page.locator('#bsNext2').click();
+    await expect(page.locator('#bsH3')).toBeVisible();
+    expect(posts.length).toBe(1);
+    expect(posts[0].hold).toBe(true);
+  });
+
+  test('step 3 requires a reference or a receipt, then reports payment and offers calendar and Messenger', async ({ page }) => {
+    await mock(page); await openHeader(page); await step1(page); await step2(page);
+    await expect(page.locator('#bsHeld')).toContainText('Held');
+    await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsErr3')).toContainText('reference number');
+    await expect(page.locator('#bsH3')).toBeVisible();
+    await page.locator('#bsRef').fill('1234567890');
+    await page.locator('#bsNext3').click();
+    await expect(page.locator('#bsH4')).toHaveText('Request sent, Maria.');
+    await expect(page.locator('#bsDoneKicker')).toHaveText('Payment reported');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('#bsIcs').click()]);
+    expect(dl.suggestedFilename()).toBe('cascade-hideaway-stay.ics');
+    await expect(page.locator('#bsMsgr')).toHaveAttribute('href', /^https:\/\/www\.messenger\.com\/t\/699640026568720/);
+  });
+
+  test('a shared link with ?checkin=&checkout= opens the sheet on those dates', async ({ page }) => {
+    await mock(page);
+    await page.goto(`/?checkin=${CI}&checkout=${CO}`);
+    await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+    await expect(page.locator('#bsRange')).toContainText('2 nights');
+  });
+});

@@ -17,22 +17,23 @@ test.describe('booking flow baseline', () => {
   test('calendar error state renders on a blocked availability fetch', async ({ page }) => {
     await page.route('**/functions/v1/availability**', route => route.abort());
     await page.goto('/index.html');
-    await page.locator('#booking').scrollIntoViewIfNeeded();
-    // The calendar shell must remain legible even when the remote fetch fails.
-    await expect(page.locator('#calBody')).toBeVisible();
+    await page.locator('a.header-cta[data-gs-book]').click();
+    // The sheet's calendar must remain usable, with an honest note, even when the remote fetch fails.
+    await expect(page.locator('#bsGrid')).toBeVisible();
+    await expect(page.locator('#bsAvailNote')).toContainText('could not be loaded');
   });
 
   test('booking form shows validation errors on empty submit', async ({ page }) => {
     await page.goto('/index.html');
-    await page.locator('#booking').scrollIntoViewIfNeeded();
-    await page.locator('#continueToPayment').click();
-    // Dates are unselected, so the date gate must surface — never a silent no-op.
-    await expect(page.locator('#dateErrorBanner')).toBeVisible();
+    await page.locator('a.header-cta[data-gs-book]').click();
+    // Dates are unselected, so the gate is explicit: a prompt and a disabled Continue, never a silent no-op.
+    await expect(page.locator('#bsRange')).toHaveText('Tap your check-in date');
+    await expect(page.locator('#bsNext1')).toBeDisabled();
   });
 
   test('the just-in-time privacy note is present above the final submit action', async ({ page }) => {
     await page.goto('/index.html');
-    const note = page.locator('.booking-legal-note');
+    const note = page.locator('#bsS3 .bs-legal');
     await expect(note).toContainText('Privacy notice');
     await expect(note).toContainText('Booking terms');
   });

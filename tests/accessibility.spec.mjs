@@ -11,10 +11,11 @@ test.describe('accessibility baseline', () => {
     expect(serious, JSON.stringify(serious, null, 2)).toEqual([]);
   });
 
-  test('booking step 1 has no serious/critical axe violations', async ({ page }) => {
+  test('booking sheet step 1 has no serious/critical axe violations', async ({ page }) => {
     await page.goto('/index.html');
-    await page.locator('#booking').scrollIntoViewIfNeeded();
-    const results = await new AxeBuilder({ page }).include('#bookingStep1').analyze();
+    await page.locator('a.header-cta[data-gs-book]').click();
+    await expect(page.locator('#bookSheet')).toHaveAttribute('open', '');
+    const results = await new AxeBuilder({ page }).include('#bookSheet').analyze();
     const serious = results.violations.filter(v => v.impact === 'serious' || v.impact === 'critical');
     expect(serious, JSON.stringify(serious, null, 2)).toEqual([]);
   });

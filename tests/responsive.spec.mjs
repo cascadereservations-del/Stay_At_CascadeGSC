@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-const widths = [390, 640, 768, 1024, 1440];
+const widths = [360, 390, 600, 820, 1024, 1180, 1440, 1920];
 
 test.describe('responsive contract', () => {
   for (const width of widths) {
@@ -26,6 +26,40 @@ test.describe('responsive contract', () => {
     });
   }
 
+  test('no horizontal overflow in the booking sheet at any width', async ({ page }) => {
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/index.html');
+      await page.locator('a.header-cta[data-gs-book]').click();
+      const r = await page.evaluate(() => { const p = document.querySelector('.bs-panel').getBoundingClientRect(); const sc = document.querySelector('.bs-scroll'); return { left: p.left, right: p.right, over: sc.scrollWidth - sc.clientWidth, doc: document.documentElement.scrollWidth - document.documentElement.clientWidth }; });
+      expect(r.left, `panel left at ${width}`).toBeGreaterThanOrEqual(-1);
+      expect(r.right, `panel right at ${width}`).toBeLessThanOrEqual(width + 1);
+      expect(r.over, `sheet content overflow at ${width}`).toBeLessThanOrEqual(1);
+      expect(r.doc, `document overflow at ${width}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test('no button or CTA label wraps onto a second line at any width', async ({ page }) => {
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/index.html');
+      const wrapped = await page.evaluate(() => {
+        const out = [];
+        document.querySelectorAll('button, a.btn, a.gs-btn, .hero-bk-cta, .header-cta, .sticky-book-cta-btn, .loc-cta-btn').forEach(el => {
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height || el.closest('dialog') || el.closest('[hidden]') || getComputedStyle(el).visibility === 'hidden') return;
+          const txt = (el.innerText || '').trim();
+          if (!txt || txt.length > 32 || txt.indexOf('\n') > -1) return;
+          const range = document.createRange(); range.selectNodeContents(el);
+          const tops = new Set(Array.from(range.getClientRects()).filter(x => x.width > 1).map(x => Math.round(x.top / 4)));
+          if (tops.size > 1) out.push({ txt, id: el.id, cls: el.className.toString().slice(0, 40) });
+        });
+        return out;
+      });
+      expect(wrapped, `wrapped labels at ${width}`).toEqual([]);
+    }
+  });
+
   test('body background uses the quiet-luxury bone token', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
     await page.goto('/index.html');
@@ -38,12 +72,12 @@ test.describe('responsive contract', () => {
     await expect(page.locator('#qbwSubmit')).toHaveCSS('border-radius', '4px');
   });
 
-  test('no visible interactive target under 44x44 in the booking section (mobile)', async ({ page }) => {
+  test('no visible interactive target under 44x44 in the booking sheet (mobile)', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
-    await page.locator('#booking').evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await page.locator('a.header-cta[data-gs-book]').click();
     const undersized = await page.evaluate(() => {
-      const selectors = '#bookingStep1 button, #bookingStep1 a, #bookingStep1 [role="button"]';
+      const selectors = '#bsS1 button, #bsS1 a, #bsS1 [role="button"], #bsClose, #bsBack';
       const bad = [];
       document.querySelectorAll(selectors).forEach(el => {
         const r = el.getBoundingClientRect();
@@ -61,12 +95,12 @@ test.describe('responsive contract', () => {
     await expect(page.locator('#sectionNav')).toBeHidden();
   });
 
-  test('concierge is hidden while the booking section is in view', async ({ page }) => {
+  test('concierge and sticky CTA are hidden while the booking sheet is open', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/index.html');
-    await page.locator('#booking').evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
-    await page.waitForTimeout(150);
-    await expect(page.locator('#conciergeFloat')).toHaveClass(/is-hidden/);
+    await page.locator('a.header-cta[data-gs-book]').click();
+    await expect(page.locator('#conciergeFloat')).toBeHidden();
+    await expect(page.locator('#stickyBookCta')).toBeHidden();
   });
 
   test('sticky bottom booking CTA is visible on mobile before the booking section', async ({ page }) => {

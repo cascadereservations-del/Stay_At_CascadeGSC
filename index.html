@@ -5443,6 +5443,93 @@
   @media (min-width: 1024px) and (max-width: 1279px) { .gs-photo--tall { aspect-ratio: 5 / 6; } }
 
   </style>
+  <style id="gs-style-sheet">
+  /* ---------- T6: booking sheet (one dialog, three steps + done + submit error) ---------- */
+  body.bs-open { overflow: hidden; }
+  body.bs-open .concierge-float, body.bs-open .sticky-book-cta, body.bs-open .desk-sidebar { visibility: hidden; }
+  dialog.bs { padding: 0; border: 0; background: transparent; width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; color: var(--gs-ink); font-family: var(--gs-body); }
+  dialog.bs:not([open]) { display: none; }
+  dialog.bs::backdrop { background: rgb(40 24 10 / 0.5); }
+  .bs-panel { position: fixed; left: 0; right: 0; bottom: 0; top: 3rem; max-width: 34rem; margin-inline: auto; box-sizing: border-box; display: flex; flex-direction: column; padding: 0.6rem 1.25rem 0; border-radius: 1.875rem 1.875rem 0 0; background: color-mix(in srgb, var(--gs-bg) 84%, transparent); -webkit-backdrop-filter: var(--gs-blur); backdrop-filter: var(--gs-blur); box-shadow: 0 -12px 40px rgb(40 24 10 / 0.18); overflow: hidden; }
+  @media (min-width: 700px) { .bs-panel { top: 50%; bottom: auto; height: min(46rem, 92dvh); transform: translateY(-50%); border-radius: 1.875rem; } }
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .bs-panel { background: var(--gs-bg); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+  .bs-grab { width: 2.75rem; height: 0.3rem; border-radius: 0.2rem; background: var(--gs-rule); align-self: center; margin-bottom: 0.4rem; flex-shrink: 0; }
+  .bs-top { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .bs-ico { width: 2.75rem; height: 2.75rem; border: 0; background: none; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--gs-ink); border-radius: 50%; }
+  .bs-ico[hidden] { display: block; visibility: hidden; }
+  .bs-ico svg { width: 1.25rem; height: 1.25rem; }
+  .bs-dots { display: flex; gap: 0.4rem; list-style: none; margin: 0; padding: 0; }
+  .bs-dots li { width: 1.75rem; height: 1.75rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.8125rem; font-weight: 600; background: var(--gs-rule); color: var(--gs-muted); }
+  .bs-dots li[aria-current="step"] { background: var(--gs-deep); color: var(--gs-on-deep); }
+  .bs-dots li.is-done { background: var(--gs-accent-text); color: var(--gs-bg); }
+  .bs-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; margin-inline: -0.25rem; padding-inline: 0.25rem; }
+  .bs-step { display: flex; flex-direction: column; flex: 1; gap: 0.9rem; }
+  .bs-step[hidden] { display: none; }
+  .bs-h { margin: 0.25rem 0 0; font-family: var(--gs-display); font-weight: 500; font-size: 1.875rem; line-height: 1.1; color: var(--gs-ink); outline: none; text-wrap: balance; }
+  .bs .bs-h:focus, .bs .bs-h:focus-visible { outline: none; box-shadow: none; }
+  .bs-h--big { font-size: 2.25rem; line-height: 1.05; }
+  .bs-month { display: flex; align-items: center; justify-content: space-between; }
+  .bs-month-l { font-family: var(--gs-display); font-size: 1.375rem; font-weight: 600; }
+  .bs-month button { width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--gs-rule); background: color-mix(in srgb, var(--gs-paper) 70%, transparent); color: var(--gs-ink); cursor: pointer; font-size: 1.25rem; margin-left: 0.4rem; }
+  .bs-month button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .bs-dow, .bs-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.25rem; }
+  .bs-dow { font-size: 0.75rem; font-weight: 600; color: var(--gs-accent-text); text-align: center; margin-bottom: -0.4rem; }
+  .bs-day { min-height: 2.75rem; border: 0; border-radius: 0.75rem; font-family: var(--gs-body); font-size: 1rem; font-variant-numeric: lining-nums tabular-nums; cursor: pointer; background: color-mix(in srgb, var(--gs-paper) 75%, transparent); color: var(--gs-ink); padding: 0; }
+  .bs-day[aria-disabled="true"] { background: transparent; color: var(--gs-muted); opacity: 0.55; text-decoration: line-through; cursor: not-allowed; }
+  .bs-day.is-past { text-decoration: none; opacity: 0.35; }
+  .bs-day.is-mid { background: color-mix(in srgb, var(--gs-accent-text) 22%, transparent); }
+  .bs-day.is-end { background: var(--gs-deep); color: var(--gs-on-deep); font-weight: 600; text-decoration: none; opacity: 1; }
+  .bs-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding-block: 0.6rem; border-top: 1px solid var(--gs-rule); }
+  .bs-lbl { font-size: 0.875rem; font-weight: 600; }
+  .bs-sub { font-size: 0.875rem; color: var(--gs-muted); margin: 0; }
+  .bs-stepper { display: flex; align-items: center; gap: 0.9rem; }
+  .bs-stepper button { width: 2.75rem; height: 2.75rem; border-radius: 50%; border: 1px solid var(--gs-rule); background: var(--gs-paper); color: var(--gs-ink); font-size: 1.25rem; cursor: pointer; }
+  .bs-stepper strong { font-size: 1.125rem; min-width: 1rem; text-align: center; }
+  .bs-actions { position: sticky; bottom: 0; margin-top: auto; padding: 0.75rem 0 calc(1rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 0.6rem; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--gs-bg) 92%, transparent) 0.9rem); }
+  .bs-total { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; font-size: 0.9375rem; }
+  .bs-total strong { font-family: var(--gs-display); font-size: 1.75rem; font-weight: 600; }
+  .bs-err { margin: 0; font-size: 0.875rem; line-height: 1.45; color: #9C3A1E; }
+  [data-theme="espresso"] .bs-err { color: #F0A58E; }
+  .bs-err:empty { display: none; }
+  .bs-cta, .bs-ghost { display: flex; align-items: center; justify-content: center; min-height: 3.25rem; padding: 0 1.25rem; border-radius: 1.125rem; font-family: var(--gs-body); font-size: 1.0625rem; font-weight: 600; cursor: pointer; width: 100%; box-sizing: border-box; text-decoration: none; white-space: nowrap; }
+  .bs-cta { border: 0; background: var(--gs-deep); color: var(--gs-on-deep); }
+  .bs-cta:disabled { opacity: 0.5; cursor: not-allowed; }
+  .bs-ghost { border: 1px solid var(--gs-rule); background: var(--gs-paper); color: var(--gs-ink); font-weight: 500; }
+  .bs-link { background: none; border: 0; padding: 0.7rem 0; min-height: 2.75rem; font: inherit; color: var(--gs-accent-text); text-decoration: underline; cursor: pointer; }
+  .bs-field { display: flex; flex-direction: column; gap: 0.35rem; }
+  .bs-in { height: 3.375rem; border: 1px solid var(--gs-rule); border-radius: 1rem; padding: 0 1rem; font-family: var(--gs-body); font-size: 1.0625rem; color: var(--gs-ink); background: var(--gs-paper); box-sizing: border-box; width: 100%; min-width: 0; }
+  .bs-in[aria-invalid="true"] { border-color: #9C3A1E; }
+  .bs-phone { display: flex; gap: 0.5rem; }
+  .bs-phone select { flex: 0 0 6.5rem; width: 6.5rem; padding: 0 0.5rem; }
+  .bs-card { padding: 0.9rem 1rem; border-radius: 1rem; background: var(--gs-paper); border: 1px solid var(--gs-rule); display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.9375rem; }
+  .bs-card > div { display: flex; justify-content: space-between; gap: 0.75rem; }
+  .bs-pay { padding: 1.1rem; border-radius: 1.25rem; background: var(--gs-deep); color: var(--gs-on-deep); display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; }
+  .bs-pay strong { font-family: var(--gs-display); font-size: 2.125rem; font-weight: 600; display: block; }
+  .bs-pay small { font-size: 0.8125rem; color: var(--gs-on-deep-muted); display: block; text-align: right; }
+  .bs-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; padding: 0.25rem; border-radius: 1.125rem; background: var(--gs-rule); }
+  .bs-seg button { min-height: 2.75rem; border: 0; border-radius: 0.875rem; background: transparent; font: inherit; font-weight: 600; color: var(--gs-muted); cursor: pointer; }
+  .bs-seg button[aria-pressed="true"] { background: var(--gs-paper); color: var(--gs-ink); box-shadow: 0 2px 8px rgb(0 0 0 / 0.08); }
+  .bs-acct { display: flex; gap: 1rem; align-items: center; padding: 1rem; border-radius: 1.25rem; background: var(--gs-paper); border: 1px solid var(--gs-rule); }
+  .bs-acct img { width: 7.5rem; height: 7.5rem; border-radius: 0.75rem; flex-shrink: 0; object-fit: contain; background: #fff; }
+  .bs-acct > div { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; font-size: 0.9375rem; }
+  .bs-copy { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .bs-copy button { min-height: 2.75rem; padding: 0 0.8rem; border-radius: 0.75rem; border: 1px solid var(--gs-rule); background: var(--gs-bg); color: var(--gs-ink); font: inherit; font-size: 0.875rem; cursor: pointer; white-space: nowrap; }
+  .bs-held { flex-shrink: 0; padding: 0.4rem 0.7rem; border-radius: 999px; background: var(--gs-soft); font-size: 0.8125rem; font-weight: 600; color: var(--gs-accent-text); white-space: nowrap; }
+  .bs-refrow { display: flex; gap: 0.5rem; }
+  .bs-refrow .bs-in { flex: 1; }
+  .bs-refrow label.bs-up { display: inline-flex; align-items: center; justify-content: center; min-width: 5rem; height: 3.375rem; padding: 0 0.9rem; border: 1px solid var(--gs-rule); border-radius: 1rem; background: var(--gs-paper); font-size: 0.9375rem; cursor: pointer; }
+  .bs-up input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .bs-up:focus-within { outline: 2px solid var(--gs-accent-text); outline-offset: 2px; }
+  .bs-tick { margin-top: 1.5rem; width: 4rem; height: 4rem; border-radius: 50%; background: var(--gs-accent-text); color: var(--gs-bg); display: flex; align-items: center; justify-content: center; }
+  .bs-tick svg { width: 1.9rem; height: 1.9rem; }
+  .bs-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+  .bs-small { margin: 0; font-size: 0.875rem; color: var(--gs-muted); line-height: 1.5; }
+  .bs button:focus-visible, .bs a:focus-visible, .bs input:focus-visible, .bs select:focus-visible, .bs-day:focus-visible { outline: 2px solid var(--gs-accent-text); outline-offset: 2px; }
+    .booking-section[hidden] { display: none !important; }
+  .bs-legal { margin: 0; font-size: 0.8125rem; color: var(--gs-muted); text-align: center; }
+  .bs-legal a { color: var(--gs-accent-text); }
+  </style>
+
 </head>
 
 <body class="theme-quiet-luxury">
@@ -5463,7 +5550,7 @@
       <nav class="gs-nav" aria-label="Page sections">
         <a href="#stories">The stories</a><a href="#photos">Photos</a><a href="#location">Location</a>
       </nav>
-      <a href="#booking" class="btn btn-outline-gold header-cta" data-gs-book>Book direct</a>
+      <a href="#contact" class="btn btn-outline-gold header-cta" data-gs-book>Book direct</a>
 
     </div>
   </header>
@@ -5678,7 +5765,7 @@
     <div class="gs-wrap gs-space-info">
       <ul class="gs-chips" aria-label="Included with your stay"><li class="gs-chip">Fiber Wi-Fi</li><li class="gs-chip">Strong aircon</li><li class="gs-chip">Netflix TV</li><li class="gs-chip">Full kitchen</li><li class="gs-chip">Hot shower</li><li class="gs-chip">Workspace</li><li class="gs-chip">Free parking</li><li class="gs-chip">Laundry-ready</li><li class="gs-chip">Backup power</li><li class="gs-chip">Self check-in</li></ul>
       <p class="gs-meta">Up to 3 guests &middot; 1 queen bed + floor mattress</p>
-      <a class="gs-btn gs-btn--deep gs-cta" href="#booking" data-gs-book>See dates and price</a>
+      <a class="gs-btn gs-btn--deep gs-cta" href="#contact" data-gs-book>See dates and price</a>
     </div>
   </section>
 
@@ -5737,7 +5824,7 @@
           <li><span class="gs-step" aria-hidden="true">2</span><span>Add your name and mobile.</span></li>
           <li><span class="gs-step" aria-hidden="true">3</span><span>Send half by GCash or bank. Marifel confirms personally.</span></li>
         </ol>
-        <a class="gs-btn gs-btn--accent gs-btn--lg gs-cta" href="#booking" data-gs-book>Check my price</a>
+        <a class="gs-btn gs-btn--accent gs-btn--lg gs-cta" href="#contact" data-gs-book>Check my price</a>
         <figure class="gs-card-quote"><blockquote class="gs-disp">“I would definitely recommend this Airbnb to anyone looking for a comfortable, beautiful place to stay.”</blockquote><figcaption class="gs-meta">Babes Aubrey, Jan 2026</figcaption></figure>
         <p class="gs-meta gs-card-terms">Cancellation terms and any deposit are shown before you pay.</p>
       </div>
@@ -5747,7 +5834,7 @@
   <!-- ============================================================
        BOOKING — Live Availability Calendar
   ============================================================ -->
-  <section class="booking-section" id="booking" aria-labelledby="booking-heading">
+  <section class="booking-section" id="booking" aria-labelledby="booking-heading" hidden><!-- T6: superseded by the booking sheet (#bookSheet); kept for its ids until the gate on removal is decided -->
     <div class="container">
       <div class="booking-inner">
 
@@ -6955,6 +7042,111 @@
        SCRIPTS
   ============================================================ -->
   
+    <!-- T6 booking sheet: the one booking surface. Opened by every [data-gs-book] control and the cover dock. -->
+  <dialog class="bs" id="bookSheet" aria-label="Book your stay">
+    <div class="bs-panel">
+      <div class="bs-grab" aria-hidden="true"></div>
+      <div class="bs-top">
+        <button type="button" class="bs-ico" id="bsBack" aria-label="Back" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <ol class="bs-dots" id="bsDots" aria-label="Step 1 of 3"><li aria-current="step">1</li><li>2</li><li>3</li></ol>
+        <button type="button" class="bs-ico" id="bsClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="bs-scroll">
+
+        <section class="bs-step" id="bsS1" aria-labelledby="bsH1">
+          <h2 class="bs-h" id="bsH1" tabindex="-1">When are you coming?</h2>
+          <div class="bs-month">
+            <span class="bs-month-l" id="bsMonth" aria-live="polite"></span>
+            <span><button type="button" id="bsPrev" aria-label="Previous month">&#8249;</button><button type="button" id="bsNext" aria-label="Next month">&#8250;</button></span>
+          </div>
+          <div class="bs-dow" aria-hidden="true"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div>
+          <div class="bs-grid" id="bsGrid" role="group" aria-label="Choose check-in, then check-out"></div>
+          <p class="bs-sub" id="bsAvailNote" role="status"></p>
+          <div class="bs-row">
+            <div><span class="bs-lbl">Guests</span><p class="bs-sub">Up to 3</p></div>
+            <div class="bs-stepper"><button type="button" id="bsFewer" aria-label="Fewer guests">&#8722;</button><strong id="bsGuests" aria-live="polite">2</strong><button type="button" id="bsMore" aria-label="More guests">+</button></div>
+          </div>
+          <div class="bs-actions">
+            <div class="bs-total"><span id="bsRange">Tap a check-in date</span><strong id="bsTotal"></strong></div>
+            <p class="bs-err" id="bsErr1" role="alert"></p>
+            <p class="bs-sub" id="bsQuoteNote" role="status"></p>
+            <p class="bs-sub">Cleaning included &middot; no charge yet</p>
+            <button type="button" class="bs-link" id="bsShare" style="align-self:flex-start">Share these dates</button>
+            <button type="button" class="bs-cta" id="bsNext1" disabled>Continue</button>
+          </div>
+        </section>
+
+        <section class="bs-step" id="bsS2" aria-labelledby="bsH2" hidden>
+          <h2 class="bs-h" id="bsH2" tabindex="-1">Who&#8217;s staying?</h2>
+          <div class="bs-card"><div><span id="bsSum2"></span><strong id="bsSumTotal2"></strong></div></div>
+          <form id="bsForm" novalidate autocomplete="on" class="bs-step" style="flex:1">
+            <div class="bs-field"><label class="bs-lbl" for="bsName">Your name</label><input class="bs-in" id="bsName" name="name" autocomplete="name" aria-describedby="bsNameE"><span class="bs-err" id="bsNameE" role="alert"></span></div>
+            <div class="bs-field"><label class="bs-lbl" for="bsPhone">Mobile number</label>
+              <div class="bs-phone">
+                <select class="bs-in" id="bsCc" aria-label="Country code, Philippines +63"></select>
+                <input class="bs-in" id="bsPhone" name="tel" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="bsPhoneE bsPhoneH" placeholder="917 123 4567">
+              </div>
+              <span class="bs-sub" id="bsPhoneH">We confirm on Messenger or by call. Abroad? Change the country code.</span><span class="bs-err" id="bsPhoneE" role="alert"></span></div>
+            <div class="bs-field"><label class="bs-lbl" for="bsEmail">Email <span class="bs-sub" style="display:inline">(optional, for your receipt)</span></label><input class="bs-in" id="bsEmail" name="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-describedby="bsEmailE"><span class="bs-err" id="bsEmailE" role="alert"></span></div>
+            <div class="bs-actions">
+              <p class="bs-sub">Saved as you type. Safe to switch apps.</p>
+              <p class="bs-err" id="bsErr2" role="alert"></p>
+              <button type="submit" class="bs-cta" id="bsNext2">Continue to payment</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="bs-step" id="bsS3" aria-labelledby="bsH3" hidden>
+          <h2 class="bs-h" id="bsH3" tabindex="-1">Hold your dates</h2>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem"><p class="bs-sub" style="color:var(--gs-ink);font-size:0.9375rem" id="bsHoldLine"></p><span class="bs-held" id="bsHeld" role="timer" hidden></span></div>
+          <div class="bs-pay"><div><small style="text-align:left" id="bsPayLbl">Pay now (50%)</small><strong id="bsFee"></strong></div><div><small id="bsPayTotal"></small><small id="bsPayLater"></small></div></div>
+          <div class="bs-seg" role="group" aria-label="Payment method"><button type="button" id="bsG" aria-pressed="true">GCash</button><button type="button" id="bsB" aria-pressed="false">Bank transfer</button></div>
+          <div class="bs-acct">
+            <img id="bsQr" src="assets/images/qr-gcash.png" alt="GCash QR code" width="220" height="220">
+            <div><strong id="bsAcctT"></strong><span id="bsAcctB"></span>
+              <div class="bs-copy"><button type="button" id="bsCopyNum">Copy number</button><button type="button" id="bsCopyAmt">Copy amount</button></div></div>
+          </div>
+          <div class="bs-refrow">
+            <input class="bs-in" id="bsRef" type="text" inputmode="numeric" autocomplete="off" aria-label="GCash or bank reference number" placeholder="Reference no. (from your receipt)">
+            <label class="bs-up" for="bsFile"><span id="bsFileLbl">Upload</span><input type="file" id="bsFile" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf"></label>
+          </div>
+          <p class="bs-sub" id="bsFileName" role="status"></p>
+          <div class="bs-actions">
+            <p class="bs-err" id="bsErr3" role="alert"></p>
+            <button type="button" class="bs-cta" id="bsNext3">I&#8217;ve sent the payment</button>
+          </div>
+          <p class="bs-sub" style="text-align:center">Free cancellation up to 5 days before check-in</p>
+          <p class="bs-legal" style="padding-bottom:calc(1rem + env(safe-area-inset-bottom))">We use your details only to process and manage this stay. <a href="privacy.html" target="_blank" rel="noopener">Privacy notice</a> &middot; <a href="booking-terms.html" target="_blank" rel="noopener">Booking terms</a></p>
+        </section>
+
+        <section class="bs-step" id="bsS4" aria-labelledby="bsH4" hidden style="align-items:flex-start">
+          <div class="bs-tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12l4 4 10-10"/></svg></div>
+          <p class="bs-sub" id="bsDoneKicker" style="font-weight:600;color:var(--gs-accent-text)">Payment reported</p>
+          <h2 class="bs-h bs-h--big" id="bsH4" tabindex="-1">Request sent.</h2>
+          <p class="bs-sub" style="font-size:1rem;color:var(--gs-ink)">We confirm personally, usually within a couple of hours. Your smart-lock code and guide arrive before check-in.</p>
+          <div class="bs-card" style="width:100%;box-sizing:border-box"><div><span id="bsDoneRange"></span><strong id="bsDoneTotal"></strong></div><div class="bs-sub"><span id="bsDoneRef"></span><span id="bsDoneFee"></span></div><div class="bs-sub"><span>Check-in 2 PM &middot; Check-out 12 noon</span></div></div>
+          <div class="bs-actions" style="width:100%">
+            <p class="bs-sub" id="bsDoneNote" role="status"></p>
+            <div class="bs-two"><button type="button" class="bs-ghost" id="bsIcs">Add to calendar</button><a class="bs-ghost" id="bsMsgr" href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener noreferrer">Open in Messenger</a></div>
+            <button type="button" class="bs-cta" id="bsDone">Done</button>
+          </div>
+        </section>
+
+        <section class="bs-step" id="bsSE" aria-labelledby="bsHE" hidden>
+          <h2 class="bs-h" id="bsHE" tabindex="-1">We didn&#8217;t hear back in time</h2>
+          <p class="bs-sub" role="alert" style="font-size:1rem;color:var(--gs-ink)">The connection dropped while sending your request. Nothing was charged, and your dates and details are saved.</p>
+          <div class="bs-card"><div><span id="bsEDates"></span><strong id="bsETotal"></strong></div><div class="bs-sub"><span id="bsEWho"></span></div></div>
+          <div class="bs-actions">
+            <button type="button" class="bs-cta" id="bsRetry">Try again</button>
+            <a class="bs-ghost" id="bsEMsgr" href="https://www.messenger.com/t/699640026568720" target="_blank" rel="noopener noreferrer">Send these details on Messenger</a>
+            <p class="bs-sub" style="text-align:center">Or email cascadereservations@gmail.com &middot; we reply quickly</p>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </dialog>
+
   <script src="assets/js/analytics.js"></script>
   <script>
     /* ── Sticky mobile CTA bar — removed; rate integrated into concierge ── */
@@ -7907,6 +8099,7 @@
             .filter(function(ev) { return ev.start && ev.end && ev.start < ev.end; });
           if (calFreshness) calFreshness.textContent = 'Live availability \u2014 synced from all bookings';
           render();
+          document.dispatchEvent(new Event('cascade:availability'));
         })
         .catch(function(err) {
           console.warn('[calendar] Supabase fetch failed:', err);
@@ -7915,8 +8108,9 @@
             calErrorBanner.textContent = 'Live availability could not be loaded \u2014 our team will double-check before confirming.';
             calErrorBanner.hidden = false;
           }
-          state.loaded = true;
+          state.loaded = true; state.failed = true;
           render();
+          document.dispatchEvent(new Event('cascade:availability'));
         });
       }
 
@@ -8074,7 +8268,7 @@
            without a receipt). Same-day / last-minute keeps the pay-then-submit flow. */
         var holdEligible = !isLastMinute;
         if (!holdEligible) { state._hold = null; applyPayFirst(dep, total); showStep2(); return; }
-        var holdKey = state.checkin + '|' + state.checkout + '|' + (nm ? nm.value.trim() : '') + '|' + dep;
+        var holdKey = state.checkin + '|' + state.checkout;
         if (state._hold && state._hold._key === holdKey) { applyHold(state._hold); showStep2(); return; }
         continueBtn.disabled = true; continueBtn.textContent = 'Holding your dates\u2026';
         var holdPayload = buildPayload(total, dep); holdPayload.hold = true;
@@ -9539,12 +9733,7 @@
           showAvail('blocked', '✕ Those dates include unavailable nights.' + sug2);
           return;
         }
-        if (typeof window._cascadeQuickBook === 'function') window._cascadeQuickBook(ci, co, null);
-        var bookingEl = document.getElementById('booking');
-        if (bookingEl) {
-          var offset = bookingEl.getBoundingClientRect().top + window.scrollY - 80;
-          window.scrollTo({ top: offset, behavior: 'smooth' });
-        }
+        if (window.CascadeSheet) window.CascadeSheet.open({ ci: ci, co: co, opener: submitBtn });
       }
 
       /* ── Events ────────────────────────────────────────────────── */
@@ -9626,16 +9815,16 @@
     <div class="desk-sidebar-savings">&#10003;&nbsp;No service fees &middot; Book direct &middot; Save up to 25%</div>
     <div class="desk-sidebar-divider"></div>
     <div class="desk-sidebar-dates">
-      <button class="desk-sidebar-date-btn" id="deskSidebarCheckin" onclick="document.getElementById('booking').scrollIntoView({behavior:'smooth'}); setTimeout(function(){var c=document.getElementById('calPrev');if(c)c.focus();},400);" aria-label="Select check-in date">
+      <button class="desk-sidebar-date-btn" id="deskSidebarCheckin" data-gs-book aria-label="Select check-in date">
         <span class="desk-sidebar-date-label">Check&#8209;in</span>
         <span class="desk-sidebar-date-val" id="deskSidebarCheckinVal">Add date</span>
       </button>
-      <button class="desk-sidebar-date-btn" id="deskSidebarCheckout" onclick="document.getElementById('booking').scrollIntoView({behavior:'smooth'});" aria-label="Select check-out date">
+      <button class="desk-sidebar-date-btn" id="deskSidebarCheckout" data-gs-book aria-label="Select check-out date">
         <span class="desk-sidebar-date-label">Check&#8209;out</span>
         <span class="desk-sidebar-date-val" id="deskSidebarCheckoutVal">Add date</span>
       </button>
     </div>
-    <a href="#booking" class="desk-sidebar-cta" id="deskSidebarCta">Check Availability &#8594;</a>
+    <a href="#contact" class="desk-sidebar-cta" id="deskSidebarCta" data-gs-book>Check Availability &#8594;</a>
     <p class="desk-sidebar-trust">Direct to host &middot; Personal service</p>
   </aside>
 
@@ -9647,7 +9836,7 @@
   <!-- Persistent bottom booking CTA — mobile only, hidden once #booking is in view -->
   <div class="sticky-book-cta gs-dock" id="stickyBookCta" aria-hidden="true">
     <span class="sticky-book-cta-rate"><strong>Book direct</strong><span>No platform fees &middot; <span aria-hidden="true">&#9733;</span> <span data-rating="score"></span><span data-price-only="from"></span></span></span>
-    <a class="sticky-book-cta-btn gs-cta" href="#booking" id="stickyBookCtaBtn" data-gs-book>Check price</a>
+    <a class="sticky-book-cta-btn gs-cta" href="#contact" id="stickyBookCtaBtn" data-gs-book>Check price</a>
   </div>
 
   <div class="concierge-float is-hidden" id="conciergeFloat" aria-label="Contact us" role="complementary">
@@ -9655,7 +9844,7 @@
     <!-- Expandable panel -->
     <div class="concierge-panel" id="conciergePanel">
       <!-- Reserve Your Stay CTA — editorial display button -->
-      <a href="#booking"
+      <a href="#contact" data-gs-book
          class="concierge-reserve-btn"
          onclick="document.getElementById('conciergePanel').classList.remove('is-open');document.getElementById('conciergeTrigger').classList.remove('is-open');document.getElementById('conciergeTrigger').setAttribute('aria-expanded','false');"
          aria-label="Reserve your stay at Cascade Hideaway">
@@ -9740,6 +9929,432 @@
       }, { passive: true });
     }
   }());
+</script>
+<script id="gs-sheet">
+/* T6 booking sheet + T7 contact/share. One component; every booking control opens it.
+   Reuses the existing endpoints (availability via the shared window._bkState, rate-card, submit-booking, upload-booking-receipt)
+   and the buildPayload shape. Totals come only from the server quote. */
+(function () {
+  'use strict';
+  var KEY = 'cascade.sheet.v1', TIMEOUT_MS = 20000, MAX_FILE = 5 * 1024 * 1024, MAX_GUESTS = 3, MIN_GUESTS = 1;
+  var MESSENGER = 'https://www.messenger.com/t/699640026568720', EMAIL = 'cascadereservations@gmail.com';
+  var PAY_NAME = 'Marifel Suzanne Boncales';
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MON_L = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var CCS = [['+63','Philippines','🇵🇭'],['+1','United States and Canada','🇺🇸'],['+61','Australia','🇦🇺'],['+65','Singapore','🇸🇬'],['+44','United Kingdom','🇬🇧'],['+971','United Arab Emirates','🇦🇪'],['+60','Malaysia','🇲🇾'],['+62','Indonesia','🇮🇩'],['+852','Hong Kong','🇭🇰'],['+86','China','🇨🇳'],['+91','India','🇮🇳'],['+81','Japan','🇯🇵'],['+82','South Korea','🇰🇷'],['+66','Thailand','🇹🇭'],['+966','Saudi Arabia','🇸🇦'],['+974','Qatar','🇶🇦'],['+49','Germany','🇩🇪'],['+33','France','🇫🇷']];
+  var sb = window._cascadeSb || {};
+  function $(id) { return document.getElementById(id); }
+  function track(n, p) { if (window.CascadeAnalytics) window.CascadeAnalytics.track(n, p); }
+
+  /* ---------- CONTACT: the one on-ground contact, rendered into every link that needs it ---------- */
+  var CONTACT = { name: 'Honey', tel: '+639918538269' };
+  function normPh(p) {
+    var d = String(p || '').replace(/\D/g, '');
+    if (d.indexOf('63') === 0 && d.length >= 12) return '+' + d;
+    if (d.charAt(0) === '0' && d.length >= 11) return '+63' + d.slice(1);
+    return null;
+  }
+  function renderContact() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-contact="tel"]'), function (el) { el.setAttribute('href', 'tel:' + CONTACT.tel); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-contact="name"]'), function (el) { el.textContent = CONTACT.name; });
+  }
+  function loadContact() {
+    if (!sb.url) return;
+    fetch(sb.url + '/rest/v1/app_settings?select=key,value&key=in.(onground_name,onground_phone)', { headers: { apikey: sb.anon, Authorization: 'Bearer ' + sb.anon } })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (rows) {
+        (rows || []).forEach(function (row) {
+          var v = typeof row.value === 'string' ? row.value.trim() : '';
+          if (row.key === 'onground_name' && v) CONTACT.name = v;
+          if (row.key === 'onground_phone') { var p = normPh(v); if (p) CONTACT.tel = p; }
+        });
+        renderContact();
+      }).catch(function () { /* fallback contact stays */ });
+  }
+  renderContact(); loadContact();
+
+  /* ---------- state (sessionStorage, never the receipt file) ---------- */
+  function fresh() { return { step: 1, open: false, ci: '', co: '', guests: 2, name: '', cc: '+63', phone: '', email: '', ref: '', method: 'gcash', view: '', hold: null, done: null }; }
+  function load() { try { var s = JSON.parse(sessionStorage.getItem(KEY)); return s && typeof s === 'object' ? Object.assign(fresh(), s) : fresh(); } catch (e) { return fresh(); } }
+  var S = load(), file = null, opener = null, Q = null, qBusy = '', qFail = '', holdTimer = 0, lastAction = null, busy = false;
+  function save() { try { sessionStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* private mode */ } }
+
+  /* ---------- dates ---------- */
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function iso(y, m, d) { return y + '-' + pad(m + 1) + '-' + pad(d); }
+  function parse(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function todayISO() { var t = new Date(); return iso(t.getFullYear(), t.getMonth(), t.getDate()); }
+  function nightsOf(a, b) { return Math.round((parse(b) - parse(a)) / 86400000); }
+  function fmtMd(s) { var p = s.split('-'); return MON[+p[1] - 1] + ' ' + (+p[2]); }
+  function rangeLabel() {
+    var n = nightsOf(S.ci, S.co), same = S.ci.slice(0, 7) === S.co.slice(0, 7);
+    return fmtMd(S.ci) + ' to ' + (same ? +S.co.slice(8) : fmtMd(S.co)) + ', ' + n + (n === 1 ? ' night' : ' nights');
+  }
+  function peso(v) { return '₱' + Number(v).toLocaleString('en-PH'); }
+  function avail() { return window._bkState || {}; }
+  function blocked(ds) { return (avail().blocked || []).some(function (ev) { return ds >= ev.start && ds < ev.end; }); }
+  function clean(ci, co) { for (var c = parse(ci), e = parse(co); c < e; c.setDate(c.getDate() + 1)) { if (blocked(iso(c.getFullYear(), c.getMonth(), c.getDate()))) return false; } return true; }
+  function bookableLeft(y, m) {
+    var n = 0, t = todayISO(), dim = new Date(y, m + 1, 0).getDate();
+    for (var d = 1; d <= dim; d++) { var ds = iso(y, m, d); if (ds >= t && !blocked(ds)) n++; }
+    return n;
+  }
+
+  /* ---------- server quote (rate-card); the sheet never prices a stay itself ---------- */
+  function curQ() { return Q && Q.key === S.ci + '|' + S.co ? Q.q : null; }
+  function ensureQuote() {
+    var key = S.ci && S.co ? S.ci + '|' + S.co : '';
+    if (!key || curQ() || qBusy === key) return;
+    qBusy = key; qFail = '';
+    fetch(sb.url + '/functions/v1/rate-card?checkin=' + encodeURIComponent(S.ci) + '&checkout=' + encodeURIComponent(S.co))
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('rate-card ' + r.status)); })
+      .then(function (j) { if (qBusy === key) qBusy = ''; if (!j.quote) throw new Error('no quote'); Q = { key: key, q: j.quote }; paint(); })
+      .catch(function () { if (qBusy === key) qBusy = ''; qFail = key; paint(); });
+  }
+  function money() {
+    var q = curQ(); if (!q) return null;
+    var n = nightsOf(S.ci, S.co), total = q.total;
+    var daysOut = Math.round((parse(S.ci) - parse(todayISO())) / 86400000);
+    var last = daysOut <= 4 || !!q.last_minute;
+    var dep = last ? total : q.deposit;
+    return { n: n, total: total, dep: dep, later: total - dep, last: last, pct: Math.round(dep / total * 100) };
+  }
+
+  /* ---------- network: one POST helper with the 20 s abort ---------- */
+  function post(url, init) {
+    var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, TIMEOUT_MS);
+    init.signal = ctl.signal;
+    return fetch(url, init).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok || d.ok === false) { var e = new Error(d.error || ('HTTP ' + r.status)); e.server = true; throw e; }
+        return d;
+      });
+    }).catch(function (e) { if (e.server) throw e; var x = new Error(e && e.name === 'AbortError' ? 'timeout' : 'network'); x.network = true; throw x; })
+      .then(function (d) { clearTimeout(t); return d; }, function (e) { clearTimeout(t); throw e; });
+  }
+  function phoneFull() { return S.cc + ' ' + (S.cc === '+63' ? S.phone.replace(/^\s*0+/, '') : S.phone).trim(); }
+  function buildPayload(m, notes) {
+    return { guest_name: S.name.trim(), guest_phone: phoneFull(), guest_email: S.email.trim() || undefined, checkin_date: S.ci, checkout_date: S.co,
+      pax: S.guests, notes: notes || undefined, total_amount: m.total, deposit_amount: m.dep, pay_full: m.dep >= m.total, contact_type: 'phone' };
+  }
+  function postBooking(payload) { return post(sb.url + '/functions/v1/submit-booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); }
+  function uploadReceipt(f, token) {
+    var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, 60000);
+    return fetch(sb.url + '/functions/v1/upload-booking-receipt', { method: 'POST', signal: ctl.signal,
+      headers: { Authorization: 'Bearer ' + token, 'Content-Type': f.type || 'application/octet-stream', 'X-Receipt-Filename': f.name }, body: f })
+      .then(function (r) { clearTimeout(t); if (!r.ok) { var e = new Error('upload ' + r.status); e.server = true; throw e; } })
+      .catch(function (e) { clearTimeout(t); if (e.server) throw e; var x = new Error('network'); x.network = true; throw x; });
+  }
+
+  /* ---------- view ---------- */
+  var dlg = $('bookSheet');
+  if (!dlg) return;
+  var STEPS = ['bsS1', 'bsS2', 'bsS3', 'bsS4'];
+  function setText(id, v) { var el = $(id); if (el) el.textContent = v; }
+  function showErr(id, msg) { setText(id, msg || ''); }
+  function show(which) {
+    var ids = STEPS.concat(['bsSE']), target = which === 'E' ? 'bsSE' : STEPS[which - 1];
+    ids.forEach(function (id) { $(id).hidden = id !== target; });
+    var n = which === 'E' ? S.step : which, dots = $('bsDots').children;
+    for (var i = 0; i < 3; i++) {
+      dots[i].className = n > i + 1 ? 'is-done' : ''; dots[i].textContent = n > i + 1 ? '✓' : String(i + 1);
+      if (n === i + 1 && n <= 3) dots[i].setAttribute('aria-current', 'step'); else dots[i].removeAttribute('aria-current');
+    }
+    $('bsDots').setAttribute('aria-label', 'Step ' + Math.min(n, 3) + ' of 3');
+    $('bsDots').style.visibility = n === 4 ? 'hidden' : '';
+    $('bsBack').hidden = !(which === 2 || which === 3 || which === 'E');
+    dlg.setAttribute('aria-labelledby', $(target).getAttribute('aria-labelledby'));
+    clearInterval(holdTimer);
+    paint();
+    var h = $(target).querySelector('h2'); if (h && dlg.open) h.focus({ preventScroll: true });
+    $(target).parentNode.scrollTop = 0;
+  }
+  function go(step) { S.step = step; save(); show(step); }
+
+  function paint() {
+    if (S.step === 1) paint1(); else if (S.step === 2) paint2(); else if (S.step === 3) paint3(); else if (S.step === 4) paintDone();
+    if ($('bsSE') && !$('bsSE').hidden) paintErrState();
+  }
+
+  /* step 1 */
+  function viewYM() { var v = S.view || (S.ci || todayISO()).slice(0, 7); return [+v.slice(0, 4), +v.slice(5, 7) - 1]; }
+  function paint1() {
+    var ym = viewYM(), y = ym[0], m = ym[1], t = todayISO(), grid = $('bsGrid'), a = avail();
+    setText('bsMonth', MON_L[m] + ' ' + y);
+    var cur = new Date(); $('bsPrev').disabled = y === cur.getFullYear() && m === cur.getMonth();
+    var off = (new Date(y, m, 1).getDay() + 6) % 7, dim = new Date(y, m + 1, 0).getDate(), html = '';
+    for (var i = 0; i < off; i++) html += '<span></span>';
+    for (var d = 1; d <= dim; d++) {
+      var ds = iso(y, m, d), past = ds < t, bk = !past && blocked(ds), end = ds === S.ci || ds === S.co, mid = S.ci && S.co && ds > S.ci && ds < S.co;
+      var label = MON_L[m] + ' ' + d + (past ? ', unavailable' : bk ? ', booked' : end ? (ds === S.ci ? ', check-in' : ', check-out') : ', available');
+      html += '<button type="button" class="bs-day' + (past ? ' is-past' : '') + (end ? ' is-end' : mid ? ' is-mid' : '') + '" data-d="' + ds + '" aria-label="' + label + '"' +
+        (past ? ' disabled' : bk ? ' aria-disabled="true"' : '') + (end ? ' aria-pressed="true"' : '') + '>' + d + '</button>';
+    }
+    grid.innerHTML = html;
+    setText('bsAvailNote', !a.loaded ? 'Checking availability…' : a.failed ? 'Live availability could not be loaded. Our team will double-check before confirming.' : '');
+    setText('bsGuests', S.guests); $('bsFewer').disabled = S.guests <= MIN_GUESTS; $('bsMore').disabled = S.guests >= MAX_GUESTS;
+    var has = S.ci && S.co, mn = has ? money() : null, ready = !!mn, failed = has && !mn && qFail === S.ci + '|' + S.co;
+    setText('bsRange', has ? rangeLabel() : S.ci ? 'Now tap your check-out date' : 'Tap your check-in date');
+    setText('bsTotal', mn ? peso(mn.total) : '');
+    setText('bsQuoteNote', has && !mn ? (failed ? 'We could not confirm the price just now. Tap Continue to try again.' : 'Confirming your price…') : '');
+    $('bsNext1').disabled = !(has && (ready || failed));
+  }
+  function pick(ds) {
+    showErr('bsErr1', '');
+    if (S.ci && !S.co && ds > S.ci) {
+      if (!clean(S.ci, ds)) {
+        var ok = ds >= todayISO() && !blocked(ds);
+        S.ci = ok ? ds : ''; S.co = ''; showErr('bsErr1', 'That stay crosses a booked night. ' + (ok ? 'Pick a new check-out, or a new check-in.' : 'Pick new dates.'));
+      } else S.co = ds;
+    } else {
+      if (blocked(ds)) { showErr('bsErr1', 'That night is already booked. Pick another check-in.'); return; }
+      S.ci = ds; S.co = '';
+    }
+    S.view = ds.slice(0, 7); save(); paint1(); ensureQuote();
+  }
+  function shiftMonth(dir) { var ym = viewYM(), d = new Date(ym[0], ym[1] + dir, 1); S.view = iso(d.getFullYear(), d.getMonth(), 1).slice(0, 7); save(); paint1(); }
+  function autoAdvance() {
+    if (S.ci) return;
+    var c = new Date(), ym = viewYM();
+    if (ym[0] === c.getFullYear() && ym[1] === c.getMonth() && avail().loaded && bookableLeft(ym[0], ym[1]) < 7) { var n = new Date(c.getFullYear(), c.getMonth() + 1, 1); S.view = iso(n.getFullYear(), n.getMonth(), 1).slice(0, 7); }
+  }
+  function share() {
+    if (!(S.ci && S.co)) { showErr('bsErr1', 'Pick your dates first, then share them.'); return; }
+    var url = location.origin + location.pathname + '?checkin=' + S.ci + '&checkout=' + S.co, text = 'Cascade Hideaway, ' + rangeLabel();
+    if (navigator.share) { navigator.share({ title: 'Cascade Hideaway', text: text, url: url }).catch(function () {}); return; }
+    copyText(url).then(function () { showErr('bsErr1', ''); setText('bsQuoteNote', 'Link copied. Paste it to share these dates.'); });
+  }
+  function copyText(s) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(s).catch(function () {});
+    var ta = document.createElement('textarea'); ta.value = s; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) { /* no clipboard */ } document.body.removeChild(ta); return Promise.resolve();
+  }
+
+  /* step 2 */
+  var VAL = {
+    name: function (v) { return v.trim().length >= 2 ? '' : 'Please enter your full name.'; },
+    phone: function (v) { v = v.trim(); return !v ? 'Please enter your mobile number.' : /^\d{6,}$/.test(v.replace(/[\s\-()]/g, '')) ? '' : 'Enter a valid mobile number, for example 917 123 4567.'; },
+    email: function (v) { v = v.trim(); return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? '' : 'Enter a valid email address, or leave it empty.'; }
+  };
+  var FIELD = { name: ['bsName', 'bsNameE'], phone: ['bsPhone', 'bsPhoneE'], email: ['bsEmail', 'bsEmailE'] };
+  function validate(k) {
+    var el = $(FIELD[k][0]), msg = VAL[k](el.value);
+    showErr(FIELD[k][1], msg); el.setAttribute('aria-invalid', msg ? 'true' : 'false'); return !msg;
+  }
+  function ccLabel() { var c = CCS.filter(function (x) { return x[0] === S.cc; })[0] || CCS[0]; $('bsCc').setAttribute('aria-label', 'Country code, ' + c[1] + ' ' + c[0]); }
+  function paint2() {
+    var mn = money();
+    setText('bsSum2', S.ci && S.co ? rangeLabel() + ' · ' + S.guests + (S.guests === 1 ? ' guest' : ' guests') : '');
+    setText('bsSumTotal2', mn ? peso(mn.total) : '');
+    ['bsName', 'bsPhone', 'bsEmail'].forEach(function (id, i) { var v = [S.name, S.phone, S.email][i]; if ($(id).value !== v) $(id).value = v; });
+    $('bsCc').value = S.cc; ccLabel(); ensureQuote();
+  }
+  function splitIntl(v) {
+    v = v.trim(); if (v.charAt(0) !== '+') return null;
+    var best = null; CCS.forEach(function (c) { if (v.indexOf(c[0]) === 0 && (!best || c[0].length > best[0].length)) best = c; });
+    return best ? { cc: best[0], rest: v.slice(best[0].length).trim() } : null;
+  }
+  function onField(k, v) {
+    if (k === 'phone') { var sp = splitIntl(v); if (sp) { S.cc = sp.cc; $('bsCc').value = sp.cc; ccLabel(); v = sp.rest; $('bsPhone').value = v; } S.phone = v; }
+    else S[k] = v; save();
+  }
+  function submit2() {
+    showErr('bsErr2', '');
+    var ok = ['name', 'phone', 'email'].map(validate).every(Boolean);
+    if (!ok) { var bad = ['name', 'phone', 'email'].filter(function (k) { return $(FIELD[k][0]).getAttribute('aria-invalid') === 'true'; })[0]; $(FIELD[bad][0]).focus(); return; }
+    var mn = money();
+    if (!mn) { showErr('bsErr2', 'Confirming your price… please tap again in a moment.'); ensureQuote(); return; }
+    startHold(mn);
+  }
+  function holdKey() { return S.ci + '|' + S.co; }
+  function holdLive() { return S.hold && S.hold._key === holdKey() && !(S.hold.hold_expires_at && new Date(S.hold.hold_expires_at) <= new Date()); }
+  function startHold(mn) {
+    lastAction = function () { startHold(money() || mn); };
+    if (mn.last) { S.hold = null; go(3); return; }                     /* within five days: no hold, the payment reserves */
+    if (holdLive()) { go(3); return; }                                 /* same dates: reuse, whatever the name or amount */
+    setBusy('bsNext2', true, 'Holding your dates…');
+    var p = buildPayload(mn); p.hold = true;
+    track('reservation_submit', {});
+    postBooking(p).then(function (data) {
+      data._key = holdKey(); S.hold = data; setBusy('bsNext2', false); go(3);
+    }).catch(function (e) {
+      setBusy('bsNext2', false);
+      if (e.network) { showError(); return; }
+      if (/dates_unavailable/.test(e.message)) { S.ci = S.co = ''; S.hold = null; S.step = 1; save(); show(1); showErr('bsErr1', 'Those dates are no longer available. Please pick new dates.'); return; }
+      showErr('bsErr2', 'We could not hold your dates just now. Please try again or email ' + EMAIL + '.');
+    });
+  }
+  function setBusy(id, on, label) {
+    var b = $(id); busy = on; b.disabled = on;
+    if (on) { b.dataset.l = b.textContent; b.textContent = label; } else if (b.dataset.l) { b.textContent = b.dataset.l; }
+  }
+
+  /* step 3 */
+  function acct() {
+    var g = $('gcashNumber'), b = $('bankAcctNumber');
+    return { gcash: g ? g.textContent.trim() : '', bank: b ? b.textContent.trim() : '' };
+  }
+  function paint3() {
+    var mn = money(), a = acct(), gc = S.method === 'gcash';
+    ensureQuote();
+    setText('bsFee', mn ? peso(mn.dep) : '…');
+    setText('bsPayLbl', mn ? (mn.last ? 'Pay now (full amount)' : 'Pay now (' + mn.pct + '%)') : 'Pay now');
+    setText('bsPayTotal', mn ? 'Total ' + peso(mn.total) : ''); setText('bsPayLater', mn && mn.later > 0 ? 'Later ' + peso(mn.later) : '');
+    setText('bsHoldLine', !mn ? '' : mn.last ? 'Check-in is close, so we reserve on receipt. Send the full amount to book ' + rangeLabel() + '.'
+      : 'Send half to hold ' + fmtMd(S.ci) + ' to ' + (S.ci.slice(0, 7) === S.co.slice(0, 7) ? +S.co.slice(8) : fmtMd(S.co)) + '. The rest is due a day before you arrive.');
+    $('bsG').setAttribute('aria-pressed', String(gc)); $('bsB').setAttribute('aria-pressed', String(!gc));
+    var qr = $('bsQr'); qr.src = gc ? 'assets/images/qr-gcash.png' : 'assets/images/qr-unionbank.png'; qr.alt = gc ? 'GCash QR code for ' + PAY_NAME : 'UnionBank InstaPay QR code';
+    setText('bsAcctT', gc ? 'Scan with GCash' : 'UnionBank InstaPay or bank transfer');
+    setText('bsAcctB', (gc ? 'Or send to ' + a.gcash : 'Account no. ' + a.bank) + ' · ' + PAY_NAME + '. Use your name as the reference.');
+    setText('bsCopyNum', gc ? 'Copy number' : 'Copy account no.'); setText('bsCopyAmt', 'Copy amount');
+    if ($('bsRef').value !== S.ref) $('bsRef').value = S.ref;
+    setText('bsFileLbl', file ? 'Change' : 'Upload'); setText('bsFileName', file ? 'Attached: ' + file.name : '');
+    clearInterval(holdTimer);
+    var held = $('bsHeld'); held.hidden = !(S.hold && S.hold.hold !== false && S.hold.hold_expires_at);
+    if (!held.hidden) { tick(); holdTimer = setInterval(tick, 1000); }
+  }
+  function tick() {
+    var ms = new Date(S.hold.hold_expires_at) - new Date(), held = $('bsHeld');
+    if (ms <= 0) { held.textContent = 'Hold ended'; clearInterval(holdTimer); S.hold = null; save(); showErr('bsErr3', 'Your hold ended. Go back and hold your dates again.'); return; }
+    var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+    held.textContent = h > 0 ? 'Held ' + h + 'h ' + pad(m) + 'm' : 'Held ' + pad(m) + ':' + pad(s % 60);
+  }
+  function pay3() {
+    showErr('bsErr3', '');
+    var mn = money(); if (!mn) { showErr('bsErr3', 'Confirming your price… please tap again in a moment.'); ensureQuote(); return; }
+    if (!(S.ref.trim().length >= 4) && !file) { showErr('bsErr3', 'Add the reference number from your receipt, or upload a screenshot.'); $('bsRef').focus(); return; }
+    lastAction = pay3; setBusy('bsNext3', true, 'Sending…');
+    var sendRef = S.ref.trim() ? 'Payment ref: ' + S.ref.trim() : undefined;
+    var req = holdLive() ? Promise.resolve(S.hold) : postBooking(buildPayload(mn, sendRef));
+    req.then(function (data) {
+      if (!file) return { data: data, upload: 'none' };
+      if (!data.receipt_upload_token) return { data: data, upload: 'unavailable' };
+      return uploadReceipt(file, data.receipt_upload_token).then(function () { return { data: data, upload: 'ok' }; });
+    }).then(function (r) {
+      setBusy('bsNext3', false); track('reservation_success');
+      S.done = { ref: r.data.ref || '', status_url: r.data.status_url || '', upload: r.upload, mn: mn }; S.hold = r.data._key ? r.data : S.hold; go(4);
+    }).catch(function (e) {
+      setBusy('bsNext3', false);
+      if (e.network) { showError(); return; }
+      if (/dates_unavailable/.test(e.message)) { S.ci = S.co = ''; S.hold = null; S.step = 1; save(); show(1); showErr('bsErr1', 'Those dates are no longer available. Please pick new dates.'); return; }
+      showErr('bsErr3', file && e.message.indexOf('upload') === 0 ? 'Your request was received, but the screenshot did not upload. Tap again to retry, or send it on Messenger.' : 'Something went wrong. Please try again or email ' + EMAIL + '.');
+    });
+  }
+
+  /* done + submit error */
+  function summary() {
+    var mn = money() || (S.done && S.done.mn), ref = (S.done && S.done.ref) || (S.hold && S.hold.ref) || '';
+    return 'Hi Cascade, I would like to book ' + (S.ci && S.co ? rangeLabel() : 'a stay') + ' for ' + S.guests + (S.guests === 1 ? ' guest' : ' guests') + '. Name: ' + S.name +
+      '. Mobile: ' + (S.phone ? phoneFull() : '') + (mn ? '. Total ' + peso(mn.total) + ', due now ' + peso(mn.dep) : '') + (ref ? '. Booking ref ' + ref : '') + (S.ref.trim() ? '. Payment ref ' + S.ref.trim() : '') + '.';
+  }
+  function msgrHref() { return MESSENGER + '?text=' + encodeURIComponent(summary()); }
+  function paintDone() {
+    var d = S.done || {}, mn = d.mn || money() || { total: 0, dep: 0 }, first = (S.name.trim().split(/\s+/)[0]) || 'there';
+    setText('bsH4', 'Request sent, ' + first + '.');
+    setText('bsDoneRange', S.ci && S.co ? rangeLabel() : ''); setText('bsDoneTotal', mn.total ? peso(mn.total) : '');
+    setText('bsDoneRef', 'Payment reported' + (d.ref ? ' · ref ' + d.ref : '')); setText('bsDoneFee', mn.dep ? peso(mn.dep) : '');
+    setText('bsDoneNote', d.upload === 'unavailable' ? 'Your screenshot did not upload. Please send it on Messenger.' : d.upload === 'none' ? 'Send your reference number on Messenger so we can match it quickly.' : '');
+    $('bsMsgr').href = msgrHref();
+  }
+  function showError() { show('E'); }
+  function paintErrState() {
+    var mn = money();
+    setText('bsEDates', S.ci && S.co ? rangeLabel() + ' · ' + S.guests + (S.guests === 1 ? ' guest' : ' guests') : ''); setText('bsETotal', mn ? peso(mn.total) : '');
+    setText('bsEWho', S.name + (S.phone ? ' · ' + phoneFull() : '')); $('bsEMsgr').href = msgrHref();
+  }
+  function ics() {
+    var a = S.ci.replace(/-/g, ''), b = S.co.replace(/-/g, ''), now = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+    var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Cascade Hideaway//Stay//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VTIMEZONE', 'TZID:Asia/Manila', 'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:+0800', 'TZOFFSETTO:+0800', 'TZNAME:PST', 'END:STANDARD', 'END:VTIMEZONE',
+      'BEGIN:VEVENT', 'UID:' + a + '-' + b + '@cascadehideaway', 'DTSTAMP:' + now, 'DTSTART;TZID=Asia/Manila:' + a + 'T140000', 'DTEND;TZID=Asia/Manila:' + b + 'T120000',
+      'SUMMARY:Stay at Cascade Hideaway', 'LOCATION:Bria Homes\\, General Santos City', 'DESCRIPTION:Check-in 2:00 PM. Check-out 12:00 noon. ' + (S.done && S.done.ref ? 'Booking ref ' + S.done.ref + '. ' : '') + 'Questions: ' + EMAIL, 'END:VEVENT', 'END:VCALENDAR'];
+    var url = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/calendar' })), link = document.createElement('a');
+    link.href = url; link.download = 'cascade-hideaway-stay.ics'; document.body.appendChild(link); link.click(); document.body.removeChild(link); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  /* ---------- open / close ---------- */
+  function open(o) {
+    o = o || {};
+    opener = o.opener || document.activeElement;
+    if (S.done && !o.restore) S = fresh();
+    if (o.ci && o.co && (o.ci !== S.ci || o.co !== S.co)) { S.ci = o.ci; S.co = o.co; S.step = 1; S.view = o.ci.slice(0, 7); }
+    if (o.guests) S.guests = Math.min(MAX_GUESTS, Math.max(MIN_GUESTS, o.guests));
+    if (!dlg.open) { dlg.showModal(); document.body.classList.add('bs-open'); }
+    S.open = true; autoAdvance(); save(); ensureQuote(); show(S.step);
+    track('booking_sheet_opened', { step: S.step });
+  }
+  function close() { if (dlg.open) dlg.close(); }
+  dlg.addEventListener('close', function () {
+    document.body.classList.remove('bs-open'); clearInterval(holdTimer);
+    S.open = false; if (S.step === 4) { S = fresh(); file = null; } save();
+    if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+  });
+  dlg.addEventListener('click', function (e) { if (e.target === dlg) close(); });
+
+  /* ---------- wiring ---------- */
+  $('bsGrid').addEventListener('click', function (e) { var b = e.target.closest('.bs-day'); if (b && !b.disabled) pick(b.getAttribute('data-d')); });
+  $('bsPrev').addEventListener('click', function () { shiftMonth(-1); });
+  $('bsNext').addEventListener('click', function () { shiftMonth(1); });
+  $('bsFewer').addEventListener('click', function () { S.guests = Math.max(MIN_GUESTS, S.guests - 1); save(); paint1(); });
+  $('bsMore').addEventListener('click', function () { S.guests = Math.min(MAX_GUESTS, S.guests + 1); save(); paint1(); });
+  $('bsShare').addEventListener('click', share);
+  $('bsNext1').addEventListener('click', function () {
+    showErr('bsErr1', '');
+    if (!(S.ci && S.co)) { showErr('bsErr1', 'Choose your check-in and check-out dates.'); return; }
+    if (!money()) { qFail = ''; ensureQuote(); paint1(); return; }
+    go(2);
+  });
+  $('bsClose').addEventListener('click', close);
+  $('bsBack').addEventListener('click', function () { if (!$('bsSE').hidden) { show(S.step); return; } go(S.step - 1); });
+  CCS.forEach(function (c) { var o = document.createElement('option'); o.value = c[0]; o.textContent = c[2] + ' ' + c[0]; $('bsCc').appendChild(o); });
+  $('bsCc').addEventListener('change', function () { S.cc = this.value; save(); ccLabel(); });
+  [['name', 'bsName'], ['phone', 'bsPhone'], ['email', 'bsEmail']].forEach(function (p) {
+    var el = $(p[1]);
+    el.addEventListener('input', function () { onField(p[0], el.value); if (el.getAttribute('aria-invalid') === 'true') validate(p[0]); });
+    el.addEventListener('blur', function () { validate(p[0]); });
+  });
+  $('bsForm').addEventListener('submit', function (e) { e.preventDefault(); if (!busy) submit2(); });
+  $('bsG').addEventListener('click', function () { S.method = 'gcash'; save(); paint3(); });
+  $('bsB').addEventListener('click', function () { S.method = 'bank'; save(); paint3(); });
+  $('bsRef').addEventListener('input', function () { S.ref = this.value; save(); showErr('bsErr3', ''); });
+  $('bsFile').addEventListener('change', function () {
+    var f = this.files && this.files[0]; if (!f) return;
+    if (f.size > MAX_FILE) { showErr('bsErr3', 'That file is too large (max 5 MB). Please compress the screenshot and try again.'); this.value = ''; return; }
+    file = f; showErr('bsErr3', ''); paint3();
+  });
+  function copyBtn(id, getter) {
+    var b = $(id); b.addEventListener('click', function () {
+      copyText(getter()).then(function () { var l = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = l === 'Copied' ? b.textContent : l; paint3(); }, 1800); });
+    });
+  }
+  copyBtn('bsCopyNum', function () { var a = acct(); return (S.method === 'gcash' ? a.gcash : a.bank).replace(/\s/g, ''); });
+  copyBtn('bsCopyAmt', function () { var mn = money(); return mn ? String(mn.dep) : ''; });
+  $('bsNext3').addEventListener('click', function () { if (!busy) pay3(); });
+  $('bsRetry').addEventListener('click', function () { show(S.step); if (lastAction) lastAction(); });
+  $('bsIcs').addEventListener('click', ics);
+  $('bsMsgr').addEventListener('click', function () { copyText(summary()); setText('bsDoneNote', 'Details copied. Paste them into Messenger if the message is empty.'); });
+  $('bsEMsgr').addEventListener('click', function () { copyText(summary()); });
+  $('bsDone').addEventListener('click', close);
+  document.addEventListener('cascade:availability', function () {
+    autoAdvance();
+    if (S.ci && S.co && avail().loaded && !clean(S.ci, S.co)) { S.co = ''; showErr('bsErr1', 'Some of those nights are booked. Please pick new dates.'); save(); }
+    if (dlg.open) paint();
+  });
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-gs-book]');
+    if (!t || t.closest('dialog')) return;
+    e.preventDefault(); open({ opener: t });
+  });
+  window.CascadeSheet = { open: open, close: close };
+
+  /* ---------- boot: shared-dates link, then restore a mid-flow sheet ---------- */
+  var qs = new URLSearchParams(location.search), qi = qs.get('checkin'), qo = qs.get('checkout'), re = /^\d{4}-\d{2}-\d{2}$/;
+  if (qi && qo && re.test(qi) && re.test(qo) && qi < qo && qi >= todayISO()) { S.ci = qi; S.co = qo; S.step = 1; S.done = null; S.hold = null; S.view = qi.slice(0, 7); save(); }
+  function boot() {
+    if (qi && qo && S.ci === qi) open({ restore: true });
+    else if (S.open && (S.step >= 2 || S.done)) open({ restore: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+}());
 </script>
 <script src="assets/js/airbnb-proof.js" defer></script>
 </body>
